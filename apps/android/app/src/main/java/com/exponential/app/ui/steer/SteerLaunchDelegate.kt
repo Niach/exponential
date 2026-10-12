@@ -20,6 +20,7 @@ import com.exponential.app.ui.agent.IssueOption
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -224,7 +225,7 @@ class SteerLaunchDelegate @Inject constructor(
             )
             return false
         }
-        scope.launch { awaitStartedRun(StartedRunKey.Action(action.name), device) }
+        watch = scope.launch { awaitStartedRun(StartedRunKey.Action(action.name), device) }
         return true
     }
 
@@ -258,8 +259,22 @@ class SteerLaunchDelegate @Inject constructor(
             )
             return false
         }
-        scope.launch { awaitStartedRun(key, device) }
+        watch = scope.launch { awaitStartedRun(key, device) }
         return true
+    }
+
+    /** The post-send watch in flight, so a host's own deadline can stop it. */
+    private var watch: Job? = null
+
+    /**
+     * EXP-1271: the composer gave up on the start (`starting.timeoutMs`): stop
+     * waiting for its row and go Idle, so a late refusal never raises a second
+     * error after the timeout toast.
+     */
+    fun cancelWatch() {
+        watch?.cancel()
+        watch = null
+        if (_runState.value is ActionRunState.Sent) _runState.value = ActionRunState.Idle
     }
 
     /** Drop a stale Failed caption once the composer has shown it. */

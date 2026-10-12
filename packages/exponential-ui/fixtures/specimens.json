@@ -3850,9 +3850,10 @@
                 "id": "c0-toast",
                 "component": "Toast",
                 "props": {
-                  "title": "Saved",
-                  "description": "Your changes are live.",
-                  "type": "success",
+                  "title": "Couldn't save the board",
+                  "description": "The server did not answer.",
+                  "type": "error",
+                  "actionLabel": "Retry",
                   "open": true
                 }
               }
@@ -5083,7 +5084,7 @@
                 "id": "specimen-spinner-case-1-label",
                 "component": "Text",
                 "props": {
-                  "text": "size · sm",
+                  "text": "size · xs",
                   "variant": "caption"
                 }
               },
@@ -5091,7 +5092,7 @@
                 "id": "c1-spinner",
                 "component": "Spinner",
                 "props": {
-                  "size": "sm"
+                  "size": "xs"
                 }
               }
             ]
@@ -5109,12 +5110,38 @@
                 "id": "specimen-spinner-case-2-label",
                 "component": "Text",
                 "props": {
-                  "text": "size · lg",
+                  "text": "size · sm",
                   "variant": "caption"
                 }
               },
               {
                 "id": "c2-spinner",
+                "component": "Spinner",
+                "props": {
+                  "size": "sm"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-spinner-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "start"
+            },
+            "children": [
+              {
+                "id": "specimen-spinner-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · lg",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-spinner",
                 "component": "Spinner",
                 "props": {
                   "size": "lg"
@@ -7588,6 +7615,64 @@
                   ],
                   "value": "sprint",
                   "disabled": true
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-search-list",
+      "component": "SearchList",
+      "title": "SearchList",
+      "node": {
+        "id": "specimen-search-list",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-search-list-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-search-list-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-search-list",
+                "component": "SearchList",
+                "props": {
+                  "placeholder": "Search issues",
+                  "items": [
+                    {
+                      "label": "Ship the search list",
+                      "value": "exp-12",
+                      "identifier": "EXP-12",
+                      "icon": "status-in-progress"
+                    },
+                    {
+                      "label": "Close tabs on hover",
+                      "value": "exp-15",
+                      "identifier": "EXP-15",
+                      "icon": "status-done"
+                    }
+                  ]
                 }
               }
             ]

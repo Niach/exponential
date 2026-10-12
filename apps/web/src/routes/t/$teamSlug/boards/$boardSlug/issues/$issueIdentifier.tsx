@@ -14,6 +14,7 @@ import {
   parseSessionResultGroups,
   PrGithubButton,
   sessionResultsForPr,
+  SkeletonRows,
   useIsMobile,
   type GuideChangesTarget,
 } from "@exp/ui"
@@ -80,7 +81,7 @@ import {
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { runFaceMark } from "@/lib/coding-session-display"
 
-type IssueSearch = { from?: string } & GuideSearch
+type IssueSearch = { from?: string; comment?: string } & GuideSearch
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -103,9 +104,15 @@ export const Route = createFileRoute(
   // `&section=N|lead|other|all&file=` opens a section's changes as a page
   // under it. The legacy `?view=results` lands on the Guide, `?view=diff` on
   // its complete diff (`parseGuideSearch`).
+  // EXP-1241: `?comment=<id>` scrolls the timeline to that comment and briefly
+  // highlights it (`IssueTimeline`) — a run's comment card links here.
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
+    comment:
+      typeof search.comment === `string` && search.comment
+        ? search.comment
+        : undefined,
     ...parseGuideSearch(search),
   }),
   component: IssueDetailPage,
@@ -385,13 +392,13 @@ function IssueDetailPage() {
         />
       )
     }
-    return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+    return <IssueDetailPlaceholder />
   }
 
   if (!issue) {
     // Absent-because-still-syncing, not absent-because-gone (REV2-32).
     if (!issueReady) {
-      return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+      return <IssueDetailPlaceholder />
     }
     return (
       <div className="flex flex-col items-start gap-3 p-6 text-sm">
@@ -662,5 +669,14 @@ function MobileIssuePage({
       origin={origin}
       mobileWork={{ tabs, swipe, merge: mergeCircle }}
     />
+  )
+}
+
+/** D8 first load: the detail page's placeholder (3 list rows in its padding). */
+function IssueDetailPlaceholder() {
+  return (
+    <div className="p-6">
+      <SkeletonRows />
+    </div>
   )
 }

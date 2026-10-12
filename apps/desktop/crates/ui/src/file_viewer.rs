@@ -57,7 +57,8 @@ enum Phase {
     Ready { source: SharedString },
     TooLarge(u64),
     Binary(u64),
-    Error(SharedString),
+    /// The read failed (a toast said so, FEED-79).
+    Error,
 }
 
 /// The read-only trunk file viewer center screen. One instance per window,
@@ -153,7 +154,11 @@ impl FileViewerView {
                     Loaded::Text(source) => Phase::Ready { source },
                     Loaded::TooLarge(bytes) => Phase::TooLarge(bytes),
                     Loaded::Binary(bytes) => Phase::Binary(bytes),
-                    Loaded::Error(message) => Phase::Error(message.into()),
+                    // FEED-79: the failed read is the error toast.
+                    Loaded::Error(message) => {
+                        crate::action_error::failed_action("open", "the file", Some(message.to_string()), cx);
+                        Phase::Error
+                    }
                 };
                 cx.notify();
             });
@@ -267,11 +272,17 @@ impl Render for FileViewerView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let body: AnyElement = match &self.phase {
             Phase::Idle => self.render_notice("Open a file from the Files panel.", cx),
-            Phase::Loading => self.render_notice("Loading…", cx),
-            Phase::Error(message) => {
-                let message = message.clone();
-                self.render_notice(&format!("Couldn’t open file: {message}"), cx)
-            }
+            // EXP-1259 D8: the file's lines as placeholders.
+            Phase::Loading => div()
+                .p_4()
+                .child(crate::feedback::skeleton_rows(
+                    "file-viewer-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    28.,
+                    cx,
+                ))
+                .into_any_element(),
+            Phase::Error => self.render_notice("Open a file from the Files panel.", cx),
             Phase::TooLarge(bytes) => {
                 self.render_unviewable(
                     "File is too large to preview",

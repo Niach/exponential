@@ -19,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -41,6 +40,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassSubmitButton
 import androidx.compose.foundation.clickable
@@ -92,6 +93,10 @@ fun OnboardingScreen(
     val teamJoinError by viewModel.teamJoinError.collectAsStateWithLifecycle()
     val joined by viewModel.joined.collectAsStateWithLifecycle()
     val userEmail by viewModel.userEmail.collectAsStateWithLifecycle()
+    // FEED-79: a failed team resolve (Retry resolves again), create or join.
+    FailedActionToast(error, "load", "your team", onShown = {}, retry = viewModel::prepare)
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     var step by remember { mutableIntStateOf(0) }
     // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
@@ -318,29 +323,14 @@ private fun TeamStep(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         when {
+            // FEED-79: the failure itself is the screen's toast; the step
+            // keeps only its way forward.
             !needsChoice && prepareError != null -> {
-                Text(
-                    prepareError,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(12.dp))
                 TextButton(onClick = onRetry) { Text(OnboardingCopy.RETRY) }
             }
+            // EXP-1275: still resolving = skeleton rows, never a spinner.
             preparing || !needsChoice -> {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    CircularProgressIndicator()
-                    Text(
-                        "Checking your teams…",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                }
+                SkeletonRows(modifier = Modifier.padding(vertical = 16.dp), dot = false)
             }
             else -> {
                 // P3: web's choice page — the mark, "Welcome to Exponential",
@@ -393,28 +383,12 @@ private fun CreateBoardStep(
 
         when {
             preparing || accountId == null || teamId == null -> {
+                // FEED-79: the failure is the screen's toast; EXP-1275:
+                // still resolving = skeleton rows.
                 if (error != null) {
-                    Text(
-                        error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
-                    Spacer(Modifier.height(12.dp))
                     TextButton(onClick = onRetry) { Text(OnboardingCopy.RETRY) }
                 } else {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator()
-                        Text(
-                            "Setting up your team…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    }
+                    SkeletonRows(modifier = Modifier.padding(vertical = 16.dp), dot = false)
                 }
             }
             else -> {

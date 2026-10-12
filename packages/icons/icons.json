@@ -376,7 +376,9 @@
     "ui-print": "printer",
     "ui-star-half": "star-half",
     "ui-star-off": "star-off",
-    "ui-hide": "eye-off"
+    "ui-hide": "eye-off",
+    "ui-docs": "book-open",
+    "tool-script": "braces"
   },
   "imported": {
     "os-apple": {

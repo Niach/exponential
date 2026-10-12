@@ -68,15 +68,25 @@ pub fn glass_section_band(
     glass_section_band_loading(leading, label, false, trailing, cx)
 }
 
-/// EXP-1274 — the reload spinner a band shows while its list refetches: the
-/// chrome's `icons.refresh` glyph at 12px in `muted_foreground`, spinning.
-pub fn band_loading_glyph(cx: &App) -> AnyElement {
+/// EXP-1275 — THE spinner (`feedback-states.json` kind 1, INLINE): the
+/// chrome's `icons.refresh` glyph at `size` px in `color`, spinning. Every
+/// wait the IDE draws as a spinner is this glyph.
+pub fn spinner(size: f32, color: gpui::Hsla, cx: &App) -> AnyElement {
     let icon = Icon::empty().path(Chrome::global(cx).icons.refresh.clone());
     Spinner::new()
         .icon(icon)
-        .with_size(px(12.))
-        .color(cx.theme().muted_foreground)
+        .with_size(px(size))
+        .color(color)
         .into_any_element()
+}
+
+/// The inline spinner's edge (`feedback-states.json` `inline.spinner`).
+pub const INLINE_SPINNER_PX: f32 = 10.;
+
+/// EXP-1274 — the reload spinner a band shows while its list refetches: the
+/// INLINE spinner ([`spinner`] at [`INLINE_SPINNER_PX`], muted).
+pub fn band_loading_glyph(cx: &App) -> AnyElement {
+    spinner(INLINE_SPINNER_PX, cx.theme().muted_foreground, cx)
 }
 
 /// EXP-1274 — [`glass_section_band`] with the reload spinner: while

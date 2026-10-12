@@ -109,8 +109,11 @@ impl AccountPane {
                 }
                 this.timezone = match result {
                     Ok(timezone) => Timezone::Ready(timezone),
+                    // FEED-79: the picker reads "Unavailable"; the failure
+                    // is the toast.
                     Err(err) => {
                         log::warn!("[ui] users.timezone failed: {err}");
+                        crate::action_error::failed_action_err("load", "your timezone", &err, cx);
                         Timezone::Error
                     }
                 };

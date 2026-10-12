@@ -2,6 +2,9 @@ package com.exponential.app.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.isOfflineError
+import com.exponential.app.data.api.OFFLINE_MESSAGE
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.api.GithubPickerRepo
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.data.api.IntegrationsApi
@@ -29,12 +32,6 @@ import kotlinx.coroutines.launch
 // ([AuthRepository.linkResult]), the exponential://github-connected deep link
 // the guided page / the App's setup page fires (via the DeepLinkBus), and the
 // sheet's on-resume refresh as the fallback for a manually closed tab.
-/** FEED-42: a failed add, rendered inline in the still-open picker. */
-data class GithubAddError(
-    val message: String,
-    /** The FORBIDDEN arm: [GithubCopy.ADD_FORBIDDEN] + "Reconnect GitHub". */
-    val forbidden: Boolean = false,
-)
 
 @HiltViewModel
 class GithubRepoPickerViewModel @Inject constructor(
@@ -50,20 +47,23 @@ class GithubRepoPickerViewModel @Inject constructor(
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    // FEED-79: a failed load (once per failing streak: every resume
+    // re-lists), connect hop, add or offline lookup = ONE error toast.
+    private val _failure = MutableStateFlow<FailedAction?>(null)
+    val failure: StateFlow<FailedAction?> = _failure.asStateFlow()
+    private var loadFailing = false
 
-    // A failed connect hop's message — separate from `error`, which belongs
-    // to the repos query.
-    private val _connectError = MutableStateFlow<String?>(null)
-    val connectError: StateFlow<String?> = _connectError.asStateFlow()
+    fun clearFailure() {
+        _failure.value = null
+    }
 
     // A connect hop being minted (the ticket round-trip before the tab opens).
     private val _connecting = MutableStateFlow(false)
     val connecting: StateFlow<Boolean> = _connecting.asStateFlow()
 
     // FEED-30: the footer's "Add by name" escape hatch — its own busy flag and
-    // inline error (the server's message verbatim: it names the real reason).
+    // the field's own line (the server's message verbatim: it names the real
+    // reason; invalid input, FEED-79).
     private val _lookupBusy = MutableStateFlow(false)
     val lookupBusy: StateFlow<Boolean> = _lookupBusy.asStateFlow()
 
@@ -75,8 +75,10 @@ class GithubRepoPickerViewModel @Inject constructor(
     private val _adding = MutableStateFlow(false)
     val adding: StateFlow<Boolean> = _adding.asStateFlow()
 
-    private val _addError = MutableStateFlow<GithubAddError?>(null)
-    val addError: StateFlow<GithubAddError?> = _addError.asStateFlow()
+    // The FORBIDDEN arm of a failed add: [GithubCopy.ADD_FORBIDDEN] + its one
+    // fix, "Reconnect GitHub" (a missing prerequisite, not an error line).
+    private val _addForbidden = MutableStateFlow(false)
+    val addForbidden: StateFlow<Boolean> = _addForbidden.asStateFlow()
 
     private var lastAccountId: String? = null
     private var lastTeamId: String? = null
@@ -93,10 +95,9 @@ class GithubRepoPickerViewModel @Inject constructor(
         viewModelScope.launch {
             deepLinkBus.githubConnected.drop(1).collect { event ->
                 if (event.error != null) {
-                    _connectError.value = GithubCopy.LINK_FAILED
+                    _failure.value = FailedAction("connect", "GitHub", GithubCopy.LINK_FAILED)
                     return@collect
                 }
-                _connectError.value = null
                 reloadAfterHop()
             }
         }
@@ -106,9 +107,8 @@ class GithubRepoPickerViewModel @Inject constructor(
             auth.linkResult.drop(1).collect { result ->
                 if (result.providerId != GithubConnectStarter.PROVIDER) return@collect
                 if (result.error != null) {
-                    _connectError.value = result.error
+                    _failure.value = FailedAction("connect", "GitHub", result.error)
                 } else {
-                    _connectError.value = null
                     reloadAfterHop()
                 }
             }
@@ -121,11 +121,6 @@ class GithubRepoPickerViewModel @Inject constructor(
         if (account != null && team != null) load(account, team, refresh = true)
     }
 
-    // A fresh connect attempt clears the previous failure.
-    fun clearConnectError() {
-        _connectError.value = null
-    }
-
     // Typing clears a previous lookup failure (web parity).
     fun clearLookupError() {
         _lookupError.value = null
@@ -133,9 +128,9 @@ class GithubRepoPickerViewModel @Inject constructor(
 
     // A freshly opened sheet starts clean — the VM outlives one presentation.
     fun resetTransient() {
-        _addError.value = null
+        _addForbidden.value = false
         _lookupError.value = null
-        _connectError.value = null
+        _failure.value = null
     }
 
     /**
@@ -146,20 +141,21 @@ class GithubRepoPickerViewModel @Inject constructor(
     fun connectGithub(open: (String) -> Unit) {
         val account = lastAccountId ?: return
         if (_connecting.value) return
-        _connectError.value = null
         _connecting.value = true
         viewModelScope.launch {
             try {
                 val hop = connectStarter.start(account, _result.value?.connectUrl)
                 if (hop == null) {
-                    _connectError.value = GithubCopy.LINK_FAILED
+                    _failure.value = FailedAction("connect", "GitHub", GithubCopy.LINK_FAILED) { connectGithub(open) }
                 } else {
                     open(hop.url)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _connectError.value = trpcErrorMessage(e, GithubCopy.LINK_FAILED)
+                _failure.value = FailedAction("connect", "GitHub", trpcErrorMessage(e, GithubCopy.LINK_FAILED)) {
+                    connectGithub(open)
+                }
             } finally {
                 _connecting.value = false
             }
@@ -168,14 +164,15 @@ class GithubRepoPickerViewModel @Inject constructor(
 
     /**
      * FEED-42: add [repo] through the host's [onAdd] (which throws on failure),
-     * then [onAdded] (the sheet dismisses). A failure stays inline: the plan cap,
-     * the FORBIDDEN arm, or the server message verbatim.
+     * then [onAdded] (the sheet dismisses). A failure is a toast with the
+     * server message verbatim (Retry adds again); the FORBIDDEN arm is the
+     * picker's Reconnect GitHub notice instead.
      */
     fun add(repo: GithubPickerRepo, onAdd: suspend (GithubPickerRepo) -> Unit, onAdded: () -> Unit) {
         if (_adding.value) return
         viewModelScope.launch {
             _adding.value = true
-            _addError.value = null
+            _addForbidden.value = false
             try {
                 onAdd(repo)
                 _adding.value = false
@@ -184,12 +181,13 @@ class GithubRepoPickerViewModel @Inject constructor(
                 _adding.value = false
                 throw e
             } catch (e: Exception) {
-                val message = trpcErrorMessage(e, "Couldn’t add the repository")
                 val trpc = e as? TrpcException
-                _addError.value = when {
-                    GithubCopy.isGrantForbidden(trpc?.code, trpc?.status?.value, trpc?.message) ->
-                        GithubAddError(GithubCopy.ADD_FORBIDDEN, forbidden = true)
-                    else -> GithubAddError(message)
+                if (GithubCopy.isGrantForbidden(trpc?.code, trpc?.status?.value, trpc?.message)) {
+                    _addForbidden.value = true
+                } else {
+                    _failure.value = FailedAction("add", repo.fullName, trpcErrorMessage(e, "")) {
+                        add(repo, onAdd, onAdded)
+                    }
                 }
                 _adding.value = false
             }
@@ -216,7 +214,15 @@ class GithubRepoPickerViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _lookupError.value = trpcErrorMessage(e, "Couldn’t look up the repository")
+                // The server's reason is about the typed name: the field's
+                // own line. Offline is a failed action, a toast.
+                if (isOfflineError(e)) {
+                    _failure.value = FailedAction("look up", "the repository", OFFLINE_MESSAGE) {
+                        lookup(fullName, onFound)
+                    }
+                } else {
+                    _lookupError.value = trpcErrorMessage(e, "Couldn’t look up the repository")
+                }
                 _lookupBusy.value = false
             }
         }
@@ -232,12 +238,17 @@ class GithubRepoPickerViewModel @Inject constructor(
             _loading.value = true
             try {
                 _result.value = integrationsApi.githubRepos(accountId, teamId, refresh)
-                _error.value = null
+                loadFailing = false
                 _loading.value = false
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _error.value = trpcErrorMessage(e, "Couldn’t load your GitHub repositories")
+                if (!loadFailing) {
+                    loadFailing = true
+                    _failure.value = FailedAction("load", "your GitHub repositories", trpcErrorMessage(e, "")) {
+                        load(accountId, teamId, refresh = true)
+                    }
+                }
                 _loading.value = false
             }
         }

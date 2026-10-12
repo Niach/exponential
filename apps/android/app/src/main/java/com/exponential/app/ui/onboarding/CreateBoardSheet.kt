@@ -1,28 +1,23 @@
 package com.exponential.app.ui.onboarding
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.EmptyStateCopy
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SheetPrimaryAction
-import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.GlassTokens
 
 // The onboarding create-board form presented as a bottom sheet for the app's
 // empty states (no boards yet). Resolves the target team itself — callers
@@ -41,6 +36,7 @@ fun CreateBoardSheet(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(teamId) { viewModel.ensureTeam(teamId) }
+    FailedActionToast(state.setupFailure, onShown = viewModel::clearSetupFailure)
 
     val form = rememberCreateBoardFormState()
     val ws = resolvedTeamId
@@ -84,41 +80,14 @@ fun CreateBoardSheet(
         ) {
             if (ws == null || acct == null) {
                 // The team resolve can fail (offline, server error, no team
-                // yet — EXP-188) — without this branch the sheet would spin
-                // "Setting up your team…" forever (EXP-46); surface the
-                // error with a retry instead.
-                val setupError = state.error
-                if (setupError != null) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            setupError,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                        OutlinedButton(
-                            onClick = { viewModel.ensureTeam(teamId) },
-                            shape = GlassTokens.ButtonShape,
-                        ) {
-                            Text("Retry")
-                        }
-                    }
+                // yet — EXP-188) — without this branch the sheet would wait
+                // forever (EXP-46): FEED-79, the empty state plus a toast
+                // whose Retry resolves again. Still resolving = skeleton rows
+                // (EXP-1275).
+                if (state.setupFailed) {
+                    EmptyState(EmptyStateCopy.noTeam)
                 } else {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        Text(
-                            "Setting up your team…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    }
+                    SkeletonRows(modifier = Modifier.padding(vertical = 16.dp), dot = false)
                 }
             } else {
                 CreateBoardForm(

@@ -285,10 +285,16 @@ impl LabelsPane {
             let _ = this.update(cx, |this, cx| {
                 if let Err(err) = &result {
                     log::warn!("[ui] labels.update(name) failed: {err}");
-                    this.row_error = Some((
-                        label_id.clone(),
-                        super::form_error(err, "Failed to rename label."),
-                    ));
+                    // FEED-79: a name already taken is INVALID INPUT (under
+                    // the row); anything else is the error toast.
+                    if crate::action_error::is_name_conflict(err) {
+                        this.row_error = Some((
+                            label_id.clone(),
+                            super::form_error(err, "Failed to rename label."),
+                        ));
+                    } else {
+                        crate::action_error::failed_action_err("rename", "the label", err, cx);
+                    }
                     cx.notify();
                 }
             });
@@ -327,11 +333,15 @@ impl LabelsPane {
                 this.submitting = false;
                 if let Err(err) = &result {
                     log::warn!("[ui] labels.create failed: {err}");
-                    // Server reject (e.g. the duplicate-name CONFLICT racing
-                    // a not-yet-synced label) — show its clean message inline,
-                    // and the web's fallback sentence for everything else.
-                    this.create_error =
-                        Some(super::form_error(err, "Failed to create label."));
+                    // The duplicate-name CONFLICT racing a not-yet-synced
+                    // label is INVALID INPUT (inline); everything else is the
+                    // error toast (FEED-79). A create can duplicate: no Retry.
+                    if crate::action_error::is_name_conflict(err) {
+                        this.create_error =
+                            Some(super::form_error(err, "Failed to create label."));
+                    } else {
+                        crate::action_error::failed_action_err("create", "the label", err, cx);
+                    }
                 } else {
                     this.creating = false;
                     this.reset_form();
@@ -477,13 +487,7 @@ impl LabelsPane {
             .filter(|(id, _)| id == &label.id)
             .map(|(_, message)| message.clone());
         v_flex().gap_1().child(row).when_some(error, |col, message| {
-            col.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .px_1()
-                    .child(SharedString::from(message)),
-            )
+            col.child(crate::action_error::field_error(message, cx).px_1())
         })
     }
 }
@@ -551,12 +555,7 @@ impl Render for LabelsPane {
                     .p_3()
                     .child(glass_input(&self.new_name, window, cx).web_input_sm())
                     .when_some(form_error, |col, message| {
-                        col.child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().danger)
-                                .child(SharedString::from(message)),
-                        )
+                        col.child(crate::action_error::field_error(message, cx))
                     })
                     .child(
                         v_flex()

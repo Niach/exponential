@@ -30,6 +30,7 @@ export function BoardIdentityRow({
   color,
   onColorChange,
   disabled,
+  invalid,
 }: {
   name: string
   onNameChange: (value: string) => void
@@ -40,6 +41,8 @@ export function BoardIdentityRow({
   color: string
   onColorChange: (color: string) => void
   disabled?: boolean
+  /** FEED-79: the name was refused (taken); the FieldError sits below. */
+  invalid?: boolean
 }) {
   // Two board forms can share a document (the create dialog opens from the
   // settings nav while a board's settings page is mounted), so the control
@@ -63,6 +66,7 @@ export function BoardIdentityRow({
       <Input
         id={`${uid}-name`}
         aria-label="Name"
+        aria-invalid={invalid || undefined}
         value={name}
         onChange={(e) => onNameChange(e.target.value)}
         onBlur={onNameBlur}
@@ -87,14 +91,18 @@ export function BoardIdentityRow({
 export function BoardPrefixField({
   value,
   onChange,
+  invalid,
 }: {
   value: string
   onChange: (value: string) => void
+  /** FEED-79: the prefix was refused (taken or invalid). */
+  invalid?: boolean
 }) {
   return (
     <GlassInputRow
       id="board-prefix"
       label="Prefix"
+      aria-invalid={invalid || undefined}
       value={value}
       // Alphanumeric only — the server floor rejects symbol prefixes
       // (EXP-46).

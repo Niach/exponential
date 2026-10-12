@@ -175,7 +175,7 @@ function ShellLevel({
             `flex min-w-0 flex-col gap-6`,
             isOpen && `hidden`,
             page &&
-              `animate-in duration-fast ease-standard slide-in-from-right-4 fade-in motion-reduce:animate-none`
+              `motion-enter slide-in-from-right-4`
           )}
           onKeyDown={
             onBack

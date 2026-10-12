@@ -1,65 +1,53 @@
 package com.exponential.app.ui.gettingstarted
 
+import com.exponential.app.domain.contractFixtureJson
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// The copy is asserted BYTE-FOR-BYTE against web's canonical table by
-// `apps/web/src/components/getting-started/getting-started-copy.test.ts`, which
-// reads GettingStartedCopy.kt as text. That test can only find a value if it is
-// a plain double-quoted literal, so this suite locks the shape those
-// assertions depend on rather than re-typing the strings a second time.
+// EXP-1270 (EXP-1259 D6): the block's copy, geometry and test ids are the
+// fixture's (`getting-started.json`) — this used to compare against the web
+// copy table; the fixture is the one source now.
 class GettingStartedCopyTest {
+    private val fixture: JsonObject =
+        Json.parseToJsonElement(contractFixtureJson("getting-started.json")).jsonObject
 
-    private val keys = GettingStartedEntryKey.entries
+    private fun JsonObject.string(key: String): String = getValue(key).jsonPrimitive.content
+    private fun JsonObject.int(key: String): Int = getValue(key).jsonPrimitive.int
 
     @Test
-    fun everyEntryHasCopy() {
-        assertEquals(7, keys.size)
-        for (key in keys) {
-            assertTrue(key.name, GettingStartedCopy.title(key).isNotBlank())
-            assertTrue(key.name, GettingStartedCopy.description(key).isNotBlank())
-            assertTrue(key.name, GettingStartedCopy.action(key).isNotBlank())
-        }
+    fun `the header copy is the fixture's`() {
+        assertEquals(fixture.string("title"), GettingStartedCopy.TITLE)
+        assertEquals(fixture.string("progress"), GettingStartedCopy.PROGRESS)
+        assertEquals(fixture.int("meter"), GettingStartedCopy.METER)
+        val docs = fixture.getValue("docs").jsonObject
+        assertEquals(docs.string("label"), GettingStartedCopy.DOCS_LABEL)
+        assertEquals(docs.string("icon"), GettingStartedCopy.DOCS_ICON)
+        assertEquals(docs.string("url"), GettingStartedCopy.DOCS_URL)
+        assertEquals("4 of 8", GettingStartedCopy.progress(4, 8))
     }
 
     @Test
-    fun copyStaysQuotableInASingleLineLiteral() {
-        // A `"`, a backslash or a newline would have to be escaped in the
-        // Kotlin source, and the drift test's `includes("<value>")` would then
-        // never match it.
-        for (key in keys) {
-            for (value in listOf(
-                GettingStartedCopy.title(key),
-                GettingStartedCopy.description(key),
-                GettingStartedCopy.action(key),
-            )) {
-                assertFalse(value, value.contains('"'))
-                assertFalse(value, value.contains('\\'))
-                assertFalse(value, value.contains('\n'))
-                assertEquals(value, value.trim(), value)
-            }
-        }
+    fun `the card geometry is the fixture's`() {
+        val card = fixture.getValue("card").jsonObject
+        assertEquals(card.int("width"), GettingStartedCopy.CARD_WIDTH)
+        assertEquals(card.int("height"), GettingStartedCopy.CARD_HEIGHT)
+        assertEquals(card.int("padding"), GettingStartedCopy.CARD_PADDING)
+        assertEquals(card.int("icon"), GettingStartedCopy.CARD_ICON)
+        assertEquals(card.int("gap"), GettingStartedCopy.CARD_GAP)
     }
 
     @Test
-    fun lockedEntriesNameTheirFeederStep() {
-        assertTrue(
-            GettingStartedCopy
-                .lockedHint(GettingStartedEntryKey.Coding, GettingStartedEntryKey.Desktop)
-                .contains("Connect a machine first"),
-        )
-        assertTrue(
-            GettingStartedCopy
-                .lockedHint(GettingStartedEntryKey.Coding, GettingStartedEntryKey.Github)
-                .contains("Connect a GitHub repo first"),
-        )
-        // The fallback names the blocking step by its own title.
-        assertTrue(
-            GettingStartedCopy
-                .lockedHint(GettingStartedEntryKey.Server, GettingStartedEntryKey.Board)
-                .contains(GettingStartedCopy.BOARD_TITLE),
-        )
+    fun `the test ids are the fixture's`() {
+        val ids = fixture.getValue("testIds").jsonObject
+        assertEquals(ids.string("block"), GettingStartedCopy.BLOCK_TEST_ID)
+        assertEquals(ids.string("card"), GettingStartedCopy.CARD_TEST_ID)
+        assertEquals(ids.string("docs"), GettingStartedCopy.DOCS_TEST_ID)
+        assertEquals(ids.string("entry"), GettingStartedCopy.ENTRY_TEST_ID)
+        assertEquals("getting-started-card-board", GettingStartedCopy.cardTestId(GettingStartedStepKey.Board))
     }
 }

@@ -275,7 +275,11 @@ pub(crate) fn open_media_in_player(
             Err(error) => {
                 log::warn!("[ui] media open failed for {attachment_id}: {error}");
                 let _ = handle.update(cx, |_, window, cx| {
-                    crate::toast::error(format!("Could not open {label}: {error}"), window, cx);
+                    crate::toast::show(
+                        crate::action_error::failed_toast("open", &label, Some(error.to_string())),
+                        window,
+                        cx,
+                    );
                 });
             }
         }

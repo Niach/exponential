@@ -64,6 +64,10 @@ final class InboxViewModel {
     }
 
     var entries: [Entry] = []
+    /// EXP-1275 (D8): the notifications shape's "up-to-date seen" flag — an
+    /// empty inbox before it is the skeleton placeholder, never the empty
+    /// state.
+    private(set) var notificationsSynced = false
     var totalUnread = 0
     /// Web parity: an issue-less row shows its team name only when the user
     /// is in more than one team.
@@ -97,6 +101,17 @@ final class InboxViewModel {
 
         // The notifications shape is already scoped to the signed-in user.
         let notifObs = ValueObservation.tracking { db in try NotificationEntity.fetchAll(db) }
+        let syncedObservation = ValueObservation.tracking { db in
+            try ElectricOffset.fetchOne(db, key: "notifications")?.isLive ?? false
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await live in syncedObservation.values(in: pool) {
+                    guard let self else { return }
+                    self.notificationsSynced = live
+                }
+            } catch {}
+        })
         observationTasks.append(Task { [weak self] in
             do {
                 for try await notifications in notifObs.values(in: pool) {

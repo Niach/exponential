@@ -506,17 +506,10 @@ struct AgentsView: View {
         EmptyState(.devices)
     }
 
+    /// EXP-1275 (D8): the first load is a skeleton row in the device row's
+    /// geometry, not "Checking for devices…".
     private var deviceLoadingRow: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small).tint(.white)
-            Text("Checking for devices…")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .flatRow()
+        SkeletonRows(rows: 1, rowHeight: 56, dividers: false)
     }
 
     private func relativeDate(_ s: String) -> String {

@@ -6,7 +6,7 @@ import {
   promptActions,
   removeMemberPrompt,
 } from "@/lib/prompts"
-import { LoaderCircle, Ellipsis, Trash2 } from "lucide-react"
+import { Ellipsis, Trash2 } from "lucide-react"
 import {
   conceptIcon,
   Pill,
@@ -26,11 +26,11 @@ import {
   Prompt,
   Separator,
   UserAvatar,
-  toast,
 } from "@exp/ui"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import type { User, TeamMember } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamById, useTeamInvites } from "@/hooks/use-team-data"
 import { displayUserName } from "@/lib/user-display"
@@ -440,7 +440,7 @@ function InviteControls({ teamId }: { teamId: string }) {
         { teamId },
         // The plan-limit (PRECONDITION_FAILED) case opens the upgrade dialog;
         // the global mutation-error toast would be redundant noise on top of it.
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
 
       setInviteUrl(`${window.location.origin}/invite/${token}`)
@@ -448,7 +448,7 @@ function InviteControls({ teamId }: { teamId: string }) {
       if (isPlanLimitError(err)) {
         setUpgradeOpen(true)
       } else {
-        toast.error(`Couldn't create the invite`)
+        failedAction(`create`, `the invite link`, err)
       }
     } finally {
       setGenerating(false)
@@ -471,9 +471,8 @@ function InviteControls({ teamId }: { teamId: string }) {
       <Button
         variant="outline"
         onClick={handleGenerate}
-        disabled={generating}
+        pending={generating}
       >
-        {generating && <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />}
         <UiLinkIcon className="mr-2 h-4 w-4" />
         Generate invite link
       </Button>

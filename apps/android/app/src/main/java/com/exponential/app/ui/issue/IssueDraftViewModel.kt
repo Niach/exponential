@@ -37,6 +37,7 @@ import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isFileAttachment
 import com.exponential.app.domain.sanitizeFilename
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.markdownEmbedUrls
@@ -158,8 +159,9 @@ class IssueDraftViewModel @Inject constructor(
     private val pendingImages = mutableMapOf<String, Uri>()
     private val pendingMedia = mutableMapOf<String, PreparedMedia>()
 
-    private val _message = MutableStateFlow<String?>(null)
-    val message: StateFlow<String?> = _message
+    // FEED-79: the page's failed action, raised once as an error toast.
+    private val _message = MutableStateFlow<FailedAction?>(null)
+    val message: StateFlow<FailedAction?> = _message
     fun consumeMessage() {
         _message.value = null
     }
@@ -531,7 +533,7 @@ class IssueDraftViewModel @Inject constructor(
             .onSuccess { created -> runCatching { holder.database(forAccountId = accountId).labelDao().upsert(created) } }
             .onFailure { error ->
                 if (error is CancellationException) throw error
-                _message.value = trpcErrorMessage(error, "Failed to create label")
+                _message.value = FailedAction("create", "the label", trpcErrorMessage(error, ""))
             }
             .getOrNull()
     }
@@ -696,7 +698,7 @@ class IssueDraftViewModel @Inject constructor(
         if (!ok) {
             left = false
             leaving = false
-            _message.value = "Couldn't save the draft"
+            _message.value = FailedAction("save", "the draft")
         }
         return ok
     }
@@ -735,7 +737,7 @@ class IssueDraftViewModel @Inject constructor(
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     // EXP-1231: consumed elsewhere — the page leaves, no error.
-                    if (!isConsumedConflict(error)) _message.value = trpcErrorMessage(error, "Couldn't save the draft")
+                    if (!isConsumedConflict(error)) _message.value = FailedAction("save", "the draft", trpcErrorMessage(error, ""))
                 }
                 .isSuccess
         }
@@ -888,7 +890,7 @@ class IssueDraftViewModel @Inject constructor(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {
-            _message.value = trpcErrorMessage(error, "Couldn't open ${file.filename}")
+            _message.value = FailedAction("open", file.filename, trpcErrorMessage(error, ""))
             null
         } finally {
             _busyIds.update { it - file.id }
@@ -999,7 +1001,7 @@ class IssueDraftViewModel @Inject constructor(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {
-            _message.value = trpcErrorMessage(error, "Failed to create issue")
+            _message.value = FailedAction("create", "the issue", trpcErrorMessage(error, ""))
             null
         }
     }
@@ -1090,8 +1092,11 @@ class IssueDraftViewModel @Inject constructor(
     // A file the user attached never disappears without a word.
     private fun reportFailed(failed: List<String>) {
         if (failed.isEmpty()) return
-        _message.value = "Couldn't attach ${failed.joinToString(", ")}. " +
-            "Add ${if (failed.size == 1) "it" else "them"} from the issue."
+        _message.value = FailedAction(
+            "attach",
+            failed.joinToString(", "),
+            "Add ${if (failed.size == 1) "it" else "them"} from the issue.",
+        )
     }
 
     private fun displayName(uri: Uri): String? = runCatching {

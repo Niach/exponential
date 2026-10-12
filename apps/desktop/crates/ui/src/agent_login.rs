@@ -228,7 +228,7 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
                         answer_unstarted(remote.as_ref(), true, text, cx);
                     }
                     Err(message) => {
-                        notify(Toast::error(message.clone()), cx);
+                        notify(crate::action_error::failed_toast("import", "the login", Some(message.clone())), cx);
                         answer_unstarted(remote.as_ref(), false, message, cx);
                     }
                 }
@@ -257,7 +257,10 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
             if let Err(message) = fetched {
                 log::warn!("[agent-login] codex fetch failed: {message}");
                 let _ = cx.update(|cx| {
-                    notify(Toast::error(message.clone()), cx);
+                    notify(
+                        crate::action_error::failed_toast("sign in", agent.label(), Some(message.clone())),
+                        cx,
+                    );
                     answer_unstarted(remote.as_ref(), false, message, cx);
                 });
                 return;
@@ -274,7 +277,10 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
             Err(message) => {
                 log::warn!("[agent-login] {agent:?} staging refused: {message}");
                 let _ = cx.update(|cx| {
-                    notify(Toast::error(message.clone()), cx);
+                    notify(
+                        crate::action_error::failed_toast("sign in", agent.label(), Some(message.clone())),
+                        cx,
+                    );
                     answer_unstarted(remote.as_ref(), false, message, cx);
                 });
                 return;
@@ -361,7 +367,10 @@ impl LoginRun {
                         commit_toast(&commit, format!("{} sign-in finished — rechecking.", agent.label())),
                         cx,
                     ),
-                    Err(message) => notify(Toast::error(message), cx),
+                    Err(message) => notify(
+                        crate::action_error::failed_toast("sign in", agent.label(), Some(message)),
+                        cx,
+                    ),
                 }
                 // The re-probe carries the beat with it: the collector's input
                 // IS the doctor report, so `refresh_agent_usage` nudges the
@@ -411,8 +420,10 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
     let run = Arc::new(run);
     let Some(handle) = crate::coding_flow::any_terminal_dock(cx) else {
         notify(
-            Toast::error(
-                "Open the main window to sign in to an agent.",
+            crate::action_error::failed_toast(
+                "sign in",
+                agent.label(),
+                Some("Open the main window to sign in to an agent.".into()),
             ),
             cx,
         );
@@ -467,13 +478,7 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
             watch_login(manager, tab, run, cx);
         }
         _ => {
-            notify(
-                Toast::error(format!(
-                    "Could not start the {} sign-in.",
-                    agent.label()
-                )),
-                cx,
-            );
+            notify(crate::action_error::failed_toast("sign in", agent.label(), None), cx);
             run.abandon("The machine could not start the sign-in.", cx);
         }
     }
@@ -962,7 +967,7 @@ impl LoginDialogView {
         self.baseline = login_stamps(&device_logins(&self.device_id, self.agent, cx));
         cx.notify();
         if queries::trpc_client(cx).is_none() {
-            self.state = LoginDialogState::Failed("Not signed in.".into());
+            self.fail("Not signed in.".into(), cx);
             return;
         }
         let device_id = self.device_id.clone();
@@ -1053,8 +1058,7 @@ impl LoginDialogView {
             cx.background_executor().timer(SIGN_IN_TIMEOUT).await;
             let _ = this.update(cx, |this, cx| {
                 if this.attempt == attempt && this.state.waiting() {
-                    this.state = LoginDialogState::Failed(SIGN_IN_TIMED_OUT.into());
-                    cx.notify();
+                    this.fail(SIGN_IN_TIMED_OUT.into(), cx);
                 }
             });
         })
@@ -1068,9 +1072,29 @@ impl LoginDialogView {
         if self.attempt != attempt {
             return false;
         }
-        self.state = state;
+        match state {
+            LoginDialogState::Failed(message) => self.fail(message, cx),
+            state => self.state = state,
+        }
         cx.notify();
         true
+    }
+
+    /// FEED-79: a failed sign-in is the error toast (Retry re-queues the
+    /// SAME login); the dialog keeps only its Try again control.
+    fn fail(&mut self, message: SharedString, cx: &mut gpui::Context<Self>) {
+        self.state = LoginDialogState::Failed(message.clone());
+        let dialog = cx.entity().downgrade();
+        crate::action_error::failed_action_with_retry(
+            "sign in",
+            self.agent.label(),
+            Some(message.to_string()),
+            move |window, cx| {
+                let _ = dialog.update(cx, |this, cx| this.request(window, cx));
+            },
+            cx,
+        );
+        cx.notify();
     }
 
     /// EXP-1000: the machine handed back its link — build the SHARED outcome
@@ -1114,8 +1138,7 @@ impl LoginDialogView {
         self.state = LoginDialogState::SigningIn;
         cx.notify();
         if queries::trpc_client(cx).is_none() {
-            self.state = LoginDialogState::Failed("Not signed in.".into());
-            cx.notify();
+            self.fail("Not signed in.".into(), cx);
             return;
         }
         let device_id = self.device_id.clone();
@@ -1189,7 +1212,7 @@ impl LoginDialogView {
             cx.background_executor().timer(SIGN_IN_TIMEOUT).await;
             let _ = this.update(cx, |this, cx| {
                 if this.attempt == attempt && this.state == LoginDialogState::SigningIn {
-                    this.state = LoginDialogState::Failed(SIGN_IN_TIMED_OUT.into());
+                    this.fail(SIGN_IN_TIMED_OUT.into(), cx);
                     // EXP-1000: the generation moves on, so the
                     // `get_command` poll above stops ticking (the devices
                     // observer's landing does the same).
@@ -1256,7 +1279,6 @@ impl Render for LoginDialogView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
-        let danger = theme.danger;
         let foreground = theme.foreground;
         let line = match &self.state {
             // EXP-940: the wait SPINS. A line that never moves reads the same
@@ -1309,11 +1331,11 @@ impl Render for LoginDialogView {
                 .child(SIGNED_IN)
                 .into_any_element(),
             // EXP-940: a failure ENDS in a control, never in a sentence the
-            // reader can only close the window on.
-            LoginDialogState::Failed(message) => v_flex()
+            // reader can only close the window on; the sentence itself was the
+            // toast (FEED-79).
+            LoginDialogState::Failed(_) => v_flex()
                 .w_full()
                 .gap_2()
-                .child(div().text_sm().text_color(danger).child(message.clone()))
                 .child(
                     h_flex().child(
                         Button::new("agent-login-retry")

@@ -109,6 +109,18 @@ class ThemeHandle(val theme: Theme) {
     /** A control size token (dp), else `fallback`. */
     fun control(name: String, fallback: Float): Float = theme.control(name)?.toFloat() ?: fallback
 
+    /**
+     * EXP-1259: a `scale` token (`press` = a pressed button, `popoverFrom` =
+     * what an overlay scales from while it fades in), unitless.
+     */
+    fun scale(name: String): Float? = tokens["scale"]?.get(name)?.number?.toFloat()
+
+    /** A `motion` token (ms). */
+    fun motion(name: String): Float? = tokens["motion"]?.get(name)?.number?.toFloat()
+
+    /** The resolved theme's token groups, parsed once. */
+    private val tokens: JsonValue by lazy { JsonValue.parse(theme.resolvedJson())["tokens"] ?: JsonValue.Null }
+
     /** A font family NAME by kind (`sans`, `mono`). */
     fun fontFamily(kind: String): String? = theme.fontFamily(kind)
 

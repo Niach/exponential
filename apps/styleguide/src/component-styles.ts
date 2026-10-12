@@ -663,6 +663,19 @@ export const componentStyles = `
 .cmp-motion .box.ease-standard { transition-timing-function: var(--ease); }
 .cmp-motion .box.ease-decelerate { transition-timing-function: var(--ease-decelerate); }
 .cmp-motion .box.ease-accelerate { transition-timing-function: var(--ease-accelerate); }
+/* EXP-1243: the rules, one row each (label, the recipe, a live specimen). */
+.cmp-motion-rules { display: grid; gap: 6px; margin-top: 12px; }
+.cmp-motion-rule { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted-fg); }
+.cmp-motion-rule .label { color: var(--fg); }
+.cmp-motion-rule .value { flex: 1; }
+.cmp-motion-stage { width: 72px; flex: none; height: 28px; display: flex; align-items: center; justify-content: center; }
+.cmp-motion-pop { width: 56px; height: 22px; border-radius: var(--r-sm); background: var(--popover); border: 1px solid var(--stroke); opacity: 0; scale: var(--scale-popover-from); transform-origin: top left; transition: opacity var(--dur) var(--ease-accelerate), scale var(--dur) var(--ease-accelerate); }
+.cmp-motion-rule:hover .cmp-motion-pop { opacity: 1; scale: 1; transition-duration: var(--dur-standard); transition-timing-function: var(--ease-decelerate); }
+.cmp-motion-pop-centre { transform-origin: center; }
+.cmp-motion-pop-fade { scale: 1; }
+.cmp-motion-press { height: 22px; padding: 0 10px; border-radius: var(--r-sm); background: var(--primary); color: var(--primary-fg); display: flex; align-items: center; cursor: pointer; transition: scale var(--dur) var(--ease); }
+.cmp-motion-press:active { scale: var(--scale-press); }
+@media (prefers-reduced-motion: reduce) { .cmp-motion-pop { scale: 1; } .cmp-motion-press:active { scale: none; } }
 
 /* ------------------------------------------------------------------ type */
 /* The type scale as SPECIMENS, set in the page's own font: Inter is not loaded

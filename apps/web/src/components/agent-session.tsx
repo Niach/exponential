@@ -40,7 +40,6 @@ import {
   FAB_CHROME_CLASS,
   FabButton,
   JumpToBottomButton,
-  TaskListProgress,
   GlassCard,
   useIsMobile,
   Button,
@@ -84,6 +83,11 @@ import {
   AttachmentThumb,
   DisclosureHeader,
   EmptyState,
+  WorkCard,
+  ScriptCard,
+  STARTING_COPY,
+  SkeletonRows,
+  type WorkCardLaneTarget,
 } from "@exp/ui"
 import { Empty } from "@/components/empty"
 import {
@@ -186,6 +190,13 @@ import {
   transcriptGapToken,
   visibleSubagentTabs,
   workflowSubagentIds,
+  workflowWorkCard,
+  workflowFoldedPhases,
+  workflowLaneAgent,
+  taskListWorkCard,
+  subagentWorkCard,
+  isScriptCall,
+  scriptCardInput,
   type AnswerState,
   type AnswerStates,
   type ContextSegment,
@@ -196,7 +207,6 @@ import {
   type SessionUsageState,
   type BackgroundStripLine,
   type TaskListEntry,
-  type TaskListSummary,
   taskListSummary,
   type SubagentSummary,
   type TranscriptGapToken,
@@ -211,7 +221,12 @@ import {
   MobileMergeCircle,
 } from "@/components/session-merge-button"
 import { useCanResumeOn } from "@/hooks/use-resume-run"
-import { DuplicateWarningRow, WorkflowCard } from "@/components/workflow-tool-card"
+import {
+  COMMENT_CALL_TOOL,
+  CommentCallRow,
+  RunCardsContext,
+} from "@/components/agent-comment-card"
+import { scriptCard } from "@exp/domain-contract/script-card"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
   mergeAgentCommands,
@@ -259,7 +274,6 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
-const UiChecklistIcon = conceptIcon(`ui-checklist`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
 const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
@@ -307,6 +321,27 @@ const TRANSCRIPT_BODY_TEXT = `text-[length:var(--transcript-body-size)] leading-
 /** Tool scale — tool rows, group captions, permission and subagent rows, the
  *  compaction hairline and the "Working…" indicator. */
 const TRANSCRIPT_TOOL_TEXT = `text-[length:var(--transcript-tool-size)] leading-[var(--transcript-tool-line-height)]`
+
+/** EXP-1256 (EXP-1259 D15): the edge fades over the thread and the Guide are
+ *  MASKS on the scroller's own content, never a painted layer: the rows
+ *  dissolve into the card's own ground, inside the card's own box (no tint,
+ *  no blur over its hairline). The top one only once the body scrolled
+ *  (nothing sits above the first row at rest); the bottom one is
+ *  `DETAIL_FADE_BOTTOM_CLASS`'s, restated here when both apply. */
+function edgeFadeStyle({
+  top,
+  bottom,
+}: {
+  top: boolean
+  bottom: boolean
+}): React.CSSProperties | undefined {
+  if (!top) return undefined
+  const tail = bottom
+    ? `black calc(100% - 48px), rgb(0 0 0 / 0.6) calc(100% - 24px), transparent`
+    : `black`
+  const mask = `linear-gradient(to bottom, transparent, black 24px, ${tail})`
+  return { maskImage: mask, WebkitMaskImage: mask }
+}
 
 const TRANSCRIPT_GAP_CLASS = {
   gapTurn: `pt-[var(--transcript-gap-turn)]`,
@@ -553,10 +588,14 @@ export function AgentSessionView({
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
 
+  /** EXP-1256: the body scrolled off its top — the top edge fade shows. */
+  const [feedScrolled, setFeedScrolled] = useState(false)
+  const [guideScrolled, setGuideScrolled] = useState(false)
   const handleFeedScroll = () => {
     const el = scrollRef.current
     if (!el) return
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 32)
+    setFeedScrolled(el.scrollTop > 0)
   }
 
   const jumpToBottom = () => {
@@ -986,8 +1025,28 @@ export function AgentSessionView({
     now: runRowNow,
   })
   const runToolLine = live ? lastToolLine(feed) : null
+  /** EXP-1271 (EXP-1259 D8): before the run's first turn the owner's status
+   *  row is the mark over "Starting on <device>" — nothing streamed, nothing
+   *  published, no turn begun. */
+  const startingRun =
+    session.userId === currentUserId &&
+    sessionOpen &&
+    !paused &&
+    feed.length === 0 &&
+    threadEmpty &&
+    turnState !== `started` &&
+    phase.kind !== `history_pending` &&
+    phase.kind !== `closed`
+  const startingCaption = STARTING_COPY.label.replace(
+    `{device}`,
+    device.label || session.deviceLabel || `Desktop`
+  )
   const ownerName =
     teamUsers.find((user) => user.id === session.userId)?.name ?? null
+  const runCards = useMemo(
+    () => ({ agent: session.agent ?? null, owner: ownerName, users: teamUsers }),
+    [session.agent, ownerName, teamUsers]
+  )
   const lastTurn = turns.turns.length - 1
   const renderTurnRow = (turn: SessionTurn, index: number): ReactNode => {
     const caption = turnRowCaption({
@@ -1431,7 +1490,12 @@ export function AgentSessionView({
       ) {
         return null
       }
-      return wrap(<SubagentGroupRow items={row.items} />)
+      return wrap(
+        <SubagentCardRow
+          items={row.items}
+          onOpen={() => setAgentTab(row.subagentId)}
+        />
+      )
     }
     if (row.kind === `ask`) {
       return wrap(
@@ -1460,10 +1524,10 @@ export function AgentSessionView({
           : undefined
         if (workflow) {
           return wrap(
-            <WorkflowCard
+            <WorkflowCardRow
               workflow={workflow}
               duplicates={workflowDuplicates.get(workflow.id)}
-              className={TRANSCRIPT_TOOL_TEXT}
+              onOpenAgent={setAgentTab}
             />
           )
         }
@@ -1532,7 +1596,12 @@ export function AgentSessionView({
         ) {
           return null
         }
-        return wrap(<SubagentGroupRow items={[item]} />)
+        return wrap(
+          <SubagentCardRow
+            items={[item]}
+            onOpen={() => setAgentTab(item.subagentId)}
+          />
+        )
       case `question`:
         return wrap(
           <QuestionCard
@@ -1552,6 +1621,7 @@ export function AgentSessionView({
   return (
     <OpenResultsContext.Provider value={openResults}>
     <SessionResultsRawContext.Provider value={session.results}>
+    <RunCardsContext.Provider value={runCards}>
     <div className="flex h-full min-h-0 flex-col" {...(isMobile ? swipe : {})}>
       {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
           byte-identical to the issue, review and session-issue
@@ -1601,6 +1671,10 @@ export function AgentSessionView({
            way out. No identity block, no phase caption: the title says what
            the run is, the transcript's footer says what it is doing. */
         <WorkHeader
+          /* EXP-1256: nothing scrolls UNDER this bar (the body starts below
+             it), so it paints no edge layer: the body's own masked fade is
+             the edge, in the card's ground. */
+          edge={false}
           /* EXP-1162: a run face has no title row of its own, so the bar is
              always collapsed — the issue's identifier over its title, or
              the run's own subject. */
@@ -1663,6 +1737,10 @@ export function AgentSessionView({
           )}
           /* EXP-1152: the phone pager's body — it follows the finger. */
           data-face-body={isMobile ? `` : undefined}
+          onScroll={(event) =>
+            setGuideScrolled(event.currentTarget.scrollTop > 0)
+          }
+          style={edgeFadeStyle({ top: guideScrolled, bottom: false })}
         >
           <div className={cn(WORK_COLUMN_CLASS)}>
             {sectionPage ? (
@@ -1740,8 +1818,9 @@ export function AgentSessionView({
               className={TRANSCRIPT_COLUMN}
               agent={session.agent}
               markState={runRowMarkState}
-              caption={runRow.text}
-              tone={runRow.tone}
+              starting={startingRun}
+              caption={startingRun ? startingCaption : runRow.text}
+              tone={startingRun ? `muted` : runRow.tone}
               toolLine={runToolLine}
               showWork={showWork}
               toggleLabel={showWorkLabel(showWork)}
@@ -1770,6 +1849,7 @@ export function AgentSessionView({
                 // feed itself leaves the sideways pan to the pager.
                 isMobile && FACE_BODY_TOUCH_CLASS
               )}
+              style={edgeFadeStyle({ top: feedScrolled, bottom: !isMobile })}
             >
               {feedPlaceholder && paused ? (
                 <CenteredState>
@@ -1779,12 +1859,20 @@ export function AgentSessionView({
                     description={pausedBody}
                   />
                 </CenteredState>
+              ) : feedPlaceholder && startingRun ? (
+                /* EXP-1271: the status row above says "Starting on …". */
+                null
               ) : feedPlaceholder &&
                 (phase.kind === `connecting` ||
                   phase.kind === `starting` ||
                   phase.kind === `history_pending`) ? (
-                <CenteredState>
-                  <UiLoadingIcon className="size-4 animate-spin text-muted-foreground" />
+                /* EXP-1259 D8.3: the transcript's first load = placeholder
+                   rows in its own column, the phase as a muted caption. */
+                <div
+                  className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                  data-testid="transcript-placeholder"
+                >
+                  <SkeletonRows rowHeight={36} className="-mx-3" />
                   <span className="text-xs text-muted-foreground">
                     {/* EXP-773: a finished run's transcript is a file on the
                         device — the relay is asking it to republish. */}
@@ -1794,7 +1882,7 @@ export function AgentSessionView({
                         ? `The agent is starting. Waiting for the live stream…`
                         : `Connecting…`}
                   </span>
-                </CenteredState>
+                </div>
               ) : feedPlaceholder && live && !latestDiff ? (
                 <CenteredState>
                   <EmptyState
@@ -1893,10 +1981,10 @@ export function AgentSessionView({
                         `tool`
                       )}
                     >
-                      <WorkflowCard
+                      <WorkflowCardRow
                         workflow={workflow}
                         duplicates={workflowDuplicates.get(workflow.id)}
-                        className={TRANSCRIPT_TOOL_TEXT}
+                        onOpenAgent={setAgentTab}
                       />
                     </div>
                   ))}
@@ -2113,6 +2201,7 @@ export function AgentSessionView({
 
       {killDialog}
     </div>
+    </RunCardsContext.Provider>
     </SessionResultsRawContext.Provider>
     </OpenResultsContext.Provider>
   )
@@ -2352,80 +2441,21 @@ function BackgroundStrip({
             </span>
           </div>
         ))}
-        {/* EXP-1191: the task list closes the strip, right on the composer. */}
-        {summary !== null && (
-          <TaskListBlock entries={taskList} summary={summary} />
-        )}
+        {/* EXP-1191: the task list closes the strip, right on the composer.
+            EXP-1240: as the Work card. */}
+        {summary !== null && <TaskListCard entries={taskList} />}
       </div>
     </div>
   )
 }
 
-/** EXP-927 (wire doc §2c): the agent's OWN task list. Collapsed (the default)
- *  it is ONE line — the current entry and `done/total`; the whole line toggles
- *  the full list, at most eight lines tall. View state, never persisted. */
-function TaskListBlock({
-  entries,
-  summary,
-}: {
-  entries: TaskListEntry[]
-  summary: TaskListSummary
-}) {
-  const [open, setOpen] = useState(false)
+/** EXP-927 (wire doc §2c): the agent's OWN task list, as THE Work card
+ *  (EXP-1240): `Tasks · 3 / 7`, a segment per task, the task in progress. */
+function TaskListCard({ entries }: { entries: TaskListEntry[] }) {
+  const card = useMemo(() => taskListWorkCard(entries), [entries])
   return (
-    <div className="flex min-w-0 flex-col gap-0.5" data-testid="session-task-list">
-      <DisclosureHeader
-        open={open}
-        onToggle={() => setOpen((value) => !value)}
-        chevron="trailing"
-        className={cn(`gap-1.5`, TRANSCRIPT_TOOL_TEXT)}
-      >
-        <UiChecklistIcon className="size-3 shrink-0" />
-        <span className="min-w-0 flex-1 truncate" title={summary.current}>
-          {summary.current}
-        </span>
-        {/* EXP-1191: its own mark, so the line never reads as a queued
-            message or the composer. */}
-        <TaskListProgress statuses={entries.map((entry) => entry.status)} />
-        <span className="shrink-0 tabular-nums">
-          {summary.completed}/{summary.total}
-        </span>
-      </DisclosureHeader>
-      {open && (
-        <div className="flex max-h-44 flex-col gap-0.5 overflow-y-auto overscroll-contain">
-          {entries.map((entry, index) => (
-            <div
-              // The list is positional: the agent rewrites it whole.
-              key={index}
-              className={cn(
-                `flex min-w-0 items-center gap-1.5`,
-                TRANSCRIPT_TOOL_TEXT,
-                entry.status === `in_progress`
-                  ? `text-foreground`
-                  : `text-muted-foreground`,
-                entry.status === `completed` && `opacity-60`
-              )}
-            >
-              {entry.status === `completed` ? (
-                <UiSelectedIcon className="size-3 shrink-0" />
-              ) : entry.status === `in_progress` ? (
-                <UiLoadingIcon className="size-3 shrink-0 motion-safe:animate-spin" />
-              ) : (
-                <UiUnselectedIcon className="size-3 shrink-0" />
-              )}
-              <span
-                className={cn(
-                  `min-w-0 truncate`,
-                  entry.status === `completed` && `line-through`
-                )}
-                title={entry.content}
-              >
-                {entry.content}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
+    <div data-testid="session-task-list">
+      <WorkCard card={card} className={TRANSCRIPT_TOOL_TEXT} />
     </div>
   )
 }
@@ -3783,98 +3813,88 @@ function PermissionRow({
   )
 }
 
-/** A subagent's work (protocol v2): its lifecycle events plus every tool call
- *  it made, collapsed into one expandable row like a tool run. Expandable only
- *  when there ARE tool calls — the detail is always visible collapsed, so a
- *  chevron on an empty group would expand to nothing (EXP-350).
- *  EXP-748: the CAPTION counts what the publisher reported (`toolCount`), the
- *  chevron keys on the rows actually here — a replayed run can honestly say
- *  "12 tool calls" and expand to the handful that survived the buffer. */
-function SubagentGroupRow({ items }: { items: FeedItem[] }) {
-  const [expanded, setExpanded] = useState(false)
-  const tools = items.filter(
-    (i): i is Extract<FeedItem, { kind: `tool` }> => i.kind === `tool`
+/** EXP-856 §4: a second copy of a live agent. Amber, verbatim off the wire —
+ *  the sentence is the engine's (`duplicate_agent_detail`), never rebuilt per
+ *  client — and never hidden behind a fold. */
+function DuplicateWarningRow({ detail }: { detail: string }) {
+  return (
+    <div
+      className="flex min-w-0 items-start gap-2 text-amber-400"
+      data-testid="subagent-duplicate-warning"
+    >
+      <UiWarningIcon className="mt-0.5 size-3 shrink-0" />
+      <span className="min-w-0">{detail}</span>
+    </div>
   )
-  const summary = summarizeSubagentRow(items)
-  const { done, detail, toolCount } = summary
-  // EXP-847: the same contract caption a collapsed tool group carries
-  // ("Ran 4 commands · edited 2 files"), not a bare "N tool calls". When the
-  // publisher counted more calls than survived the replay buffer, the extras
-  // count as `other` — the caption then reads "Used 12 tools", never a lie
-  // about what they were.
-  const caption = useMemo(
-    () =>
-      toolGroupCaption(
-        tools.length >= toolCount
-          ? tools
-          : [
-              ...tools,
-              ...Array.from({ length: toolCount - tools.length }, () => ({})),
-            ]
-      ),
-    [tools, toolCount]
+}
+
+/** EXP-856 §4: the duplicate warnings under a card's own rows. */
+function DuplicateWarnings({ details }: { details: readonly string[] }) {
+  if (details.length === 0) return null
+  return (
+    <div className="space-y-1 border-t border-glass-stroke px-3 py-2">
+      {details.map((detail) => (
+        <DuplicateWarningRow key={detail} detail={detail} />
+      ))}
+    </div>
   )
-  const expandable = tools.length > 0
-  // EXP-856 §4: a second copy of this agent started while the first was still
-  // running. Amber, verbatim off the wire, and OUTSIDE the fold — a collapsed
-  // group must not hide the one row that says two agents are editing the same
-  // files.
-  const duplicate = summary.duplicateDetail
-  const header = (
-    <>
-      <CodingSubagentIcon className="size-3 shrink-0 text-muted-foreground/60" />
-      {/* EXP-847: the spawning call's description names the subagent; the
-          agent type stays a secondary caption beside it. */}
-      <span className="shrink-0 font-medium">{subagentLabel(summary)}</span>
-      {summary.title && (
-        <span className="shrink-0 text-[0.6875rem]">{summary.agentType}</span>
-      )}
-      {!done && <UiLoadingIcon className="size-3 shrink-0 animate-spin" />}
-      <span className="shrink-0 text-[0.6875rem]">
-        {done ? `done` : `running`}
-        {toolCount > 0 && ` · ${caption}`}
-      </span>
-      {detail && (
-        <span className="truncate text-[0.6875rem]" title={detail}>
-          {detail}
-        </span>
-      )}
-    </>
+}
+
+/** EXP-850 §3 / EXP-1240: a claude `Workflow` call as THE Work card — the
+ *  phases as a segment bar, the finished ones folded into one row, the
+ *  running phase's lanes one line each. A lane opens that agent's own tab
+ *  (EXP-1225: a workflow agent is a conversation tab like any subagent). */
+function WorkflowCardRow({
+  workflow,
+  duplicates = [],
+  onOpenAgent,
+}: {
+  workflow: WorkflowState
+  /** §4: the duplicate warnings that named THIS workflow. */
+  duplicates?: readonly string[]
+  onOpenAgent: (subagentId: string) => void
+}) {
+  const card = useMemo(() => workflowWorkCard(workflow), [workflow])
+  const folded = useMemo(
+    () => workflowFoldedPhases(workflow, card),
+    [workflow, card]
   )
-  if (!expandable) {
-    return (
-      <div className={cn(`min-w-0`, TRANSCRIPT_TOOL_TEXT)}>
-        <div className="flex min-w-0 items-center gap-2 pl-0.5 text-muted-foreground">
-          {header}
-        </div>
-        {duplicate && (
-          <div className="pl-0.5 pt-0.5">
-            <DuplicateWarningRow detail={duplicate} />
-          </div>
-        )}
-      </div>
-    )
+  const openLane = (target: WorkCardLaneTarget) => {
+    const agentId = workflowLaneAgent(workflow, target)?.agentId
+    if (agentId) onOpenAgent(agentId)
   }
   return (
-    <div className={cn(`min-w-0`, TRANSCRIPT_TOOL_TEXT)}>
-      <DisclosureHeader
-        open={expanded}
-        onToggle={() => setExpanded((v) => !v)}
-        className="pl-0.5"
-      >
-        {header}
-      </DisclosureHeader>
-      {duplicate && (
-        <div className="pl-0.5 pt-0.5">
-          <DuplicateWarningRow detail={duplicate} />
-        </div>
-      )}
-      {expanded && (
-        <div className="ml-5">
-          <LaneRows items={tools} />
-        </div>
-      )}
-    </div>
+    <WorkCard
+      card={card}
+      foldedPhases={folded.length > 0 ? folded : undefined}
+      onOpenLane={openLane}
+      className={TRANSCRIPT_TOOL_TEXT}
+    >
+      <DuplicateWarnings details={duplicates} />
+    </WorkCard>
+  )
+}
+
+/** A subagent's work (protocol v2) as THE Work card (EXP-1240): its name, the
+ *  calls it made, done or running. The card opens the subagent's own tab,
+ *  where its rows live. EXP-748: the count is what the publisher reported
+ *  (`toolCount`), not the rows that survived the replay buffer. */
+function SubagentCardRow({
+  items,
+  onOpen,
+}: {
+  items: FeedItem[]
+  onOpen: () => void
+}) {
+  const summary = useMemo(() => summarizeSubagentRow(items), [items])
+  const card = useMemo(() => subagentWorkCard(summary), [summary])
+  // EXP-856 §4: a second copy of this agent started while the first was still
+  // running. Amber, verbatim off the wire, and never folded away.
+  const duplicate = summary.duplicateDetail
+  return (
+    <WorkCard card={card} onOpenSubagent={onOpen} className={TRANSCRIPT_TOOL_TEXT}>
+      <DuplicateWarnings details={duplicate ? [duplicate] : []} />
+    </WorkCard>
   )
 }
 
@@ -4007,7 +4027,19 @@ function ToolRow({
   // EXP-846: one of OUR MCP tools reads as a sentence with our mark on it —
   // "Created issue · <title>" plus the preview its answer carried — instead of
   // the raw `mcp__exponential__exponential_issues_create`.
+  // EXP-1279: a code-mode call is its Script card — the calls it made,
+  // grouped by tool.
+  if (isScriptCall(item)) return <ScriptCallRow item={item} flush={flush} />
   const exp = expToolDisplay(item.name)
+  // EXP-1241: a SETTLED comment call is the comment itself, in the comment
+  // look; running or failed it keeps its ordinary row (the desktop's rule).
+  if (
+    exp?.name === COMMENT_CALL_TOOL &&
+    item.settled === true &&
+    item.failed !== true
+  ) {
+    return <CommentCallRow item={item} />
+  }
   if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />
   const headline = (
     <>
@@ -4062,6 +4094,25 @@ function ToolRow({
       {open && item.output !== undefined && (
         <ToolOutput output={item.output} />
       )}
+    </div>
+  )
+}
+
+/** EXP-1279: a code-mode `exec` call as its Script card ("Ran a script · 59
+ *  calls · 3.0 s", the calls grouped by tool, the script behind "Script").
+ *  The model is the contract's (`scriptCard`); an older codemode that logs
+ *  nothing is the bare "Ran a script". */
+function ScriptCallRow({ item, flush }: { item: ToolItem; flush: boolean }) {
+  const card = useMemo(() => scriptCard(scriptCardInput(item)), [item])
+  return (
+    <div className={cn(`min-w-0`, !flush && `py-0.5`)}>
+      <ScriptCard
+        card={card}
+        running={item.settled !== true}
+        failed={item.failed === true}
+        source={item.script?.source}
+        className={TRANSCRIPT_TOOL_TEXT}
+      />
     </div>
   )
 }

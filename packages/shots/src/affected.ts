@@ -816,8 +816,9 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   { dir: `actions`, views: /^(agents|actions-mobile|action-|trigger-)/ },
   // The coding family: the Agent composer, the agents surface, the machine
   // dialogs and the steering screen all live in one folder on both platforms
-  // and share their view models.
-  { dir: `session`, views: /^(steering|chat|agents|machine-settings|add-server)/ },
+  // and share their view models. EXP-1259: the Agent home and the run
+  // thread's cards (Work, Script, Comment) draw from the same folder.
+  { dir: `session`, views: /^(steering|chat|agents|machine-settings|add-server|agent-home|work-card|script-card|comment-call-card)/ },
   { dir: `steer`, views: /^(steering|chat)/ },
 ]
 

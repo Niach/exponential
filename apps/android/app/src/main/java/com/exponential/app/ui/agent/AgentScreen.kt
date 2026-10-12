@@ -59,7 +59,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
-import com.exponential.app.domain.ChatSuggestions
+import com.exponential.app.domain.AgentHome
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuRowId
@@ -105,13 +106,26 @@ import com.exponential.app.ui.markdown.autocompleteCandidateCount
 import com.exponential.app.ui.markdown.autocompleteTriggersAt
 import com.exponential.app.ui.markdown.mentionCandidatesFor
 import com.exponential.app.ui.markdown.pickAutocompleteAt
-import com.exponential.app.ui.markdown.rememberIssueRefCandidates
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
 import com.exponential.app.ui.session.AgentsViewModel
 import com.exponential.app.ui.steer.ActionRunState
-import com.exponential.app.ui.steer.SteerRunCaptionRow
+import com.exponential.app.domain.ToastAction
+import com.exponential.app.ui.components.ExponentialMark
+import com.exponential.app.ui.components.CodingSessionRow
+import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SessionRowSize
+import com.exponential.app.ui.gettingstarted.GettingStartedSection
+import com.exponential.app.ui.markdown.IssueRefTarget
+import com.exponential.app.ui.markdown.IssueTypeaheadSheetHost
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import java.time.LocalDateTime
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -177,6 +191,14 @@ fun AgentScreen(
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
     val computerUse by viewModel.computerUse.collectAsStateWithLifecycle()
+    // EXP-1253: the home around the card — the greeting's name, Recent, and
+    // whether Getting started still follows it (no board yet).
+    val userName by viewModel.userName.collectAsStateWithLifecycle()
+    val homeRecent by viewModel.homeRecent.collectAsStateWithLifecycle()
+    val teamHasBoard by viewModel.teamHasBoard.collectAsStateWithLifecycle()
+    // EXP-1271: the start in flight, until its row lands or it times out.
+    val starting by viewModel.starting.collectAsStateWithLifecycle()
+    val startTimedOut by viewModel.startTimedOut.collectAsStateWithLifecycle()
 
     // ── Lookup data ─────────────────────────────────────────────────────────
     val actionsState by dataViewModel.actionsState.collectAsStateWithLifecycle()
@@ -200,6 +222,10 @@ fun AgentScreen(
             onOpenSteer(it)
         }
     }
+    // EXP-1253: computed ONCE per mount (it never flips while you type); the
+    // name fills in when the user row syncs.
+    val greetingClock = remember { AgentHome.localWallClock(LocalDateTime.now()) }
+    val greeting = remember(userName) { AgentHome.homeGreeting(greetingClock, userName) }
 
     // ── Subject resolution ──────────────────────────────────────────────────
     val actionSubject = subject as? ComposerSubject.Action
@@ -272,7 +298,7 @@ fun AgentScreen(
             // The creator derives everything from the request text.
             (actionSubject?.id != DomainContract.builtinCreateActionId || hasText)
     }
-    val busy = sending || runState is ActionRunState.Sending
+    val busy = sending || starting != null || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
         AgentComposerPrompt.withinLimit(
             draft,
@@ -329,9 +355,6 @@ fun AgentScreen(
     // splices against this very value.
     var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
     var composerArmed by remember { mutableStateOf(false) }
-    // EXP-820: ONE draw per mount (web `useState(() => pickChatSuggestions())`)
-    // — chips that reshuffled on every recomposition would be unreadable.
-    val suggestions = remember { ChatSuggestions.pick(ComposerMenu.SUGGESTION_COUNT) }
     LaunchedEffect(draft) {
         if (composerField.text != draft) {
             val start = composerField.selection.start.coerceIn(0, draft.length)
@@ -353,9 +376,10 @@ fun AgentScreen(
         refsEnabled = issueRefCandidates.isNotEmpty(),
     )
     val mentionCandidates = mentionCandidatesFor(mentionMembers, triggers.mentionQuery)
-    // EXP-892: ranked by the shared engine, with the server's full-text hits
-    // (comment bodies included) spliced in behind them once typing settles.
-    val refCandidates = rememberIssueRefCandidates(issueRefHandler, triggers.issueRefQuery)
+    // SLOP-28 (EXP-1259 D4): `#` opens THE search list in a bottom sheet
+    // ([IssueTypeaheadSheetHost] below), so the rows under the card only ever
+    // carry members and emoji.
+    val refCandidates = emptyList<IssueRefTarget>()
     val emojiMatch = triggers.emoji
     val emojiData = rememberEmojiData(enabled = emojiMatch != null)
     val emojiPrefs = rememberEmojiPrefs()
@@ -404,6 +428,47 @@ fun AgentScreen(
     }
     // Back dismisses the menu, and only the menu.
     BackHandler(enabled = menuOpen) { composerArmed = false }
+    // The `#` sheet takes the token over and hands focus back to the field.
+    val composerFocus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    IssueTypeaheadSheetHost(
+        handler = issueRefHandler.takeIf { issueRefCandidates.isNotEmpty() },
+        field = composerField,
+        armed = composerArmed && triggers.issueRef != null,
+        onDisarm = { composerArmed = false },
+        onCommit = { next -> commitToken(next) },
+        onRefocus = {
+            runCatching { composerFocus.requestFocus() }
+            keyboard?.show()
+        },
+    )
+
+    // ── Feedback (FEED-79, EXP-1271): a refused start and a start that never
+    // landed are toasts; Retry re-submits the kept draft ────────────────────
+    val toaster = LocalToaster.current
+    val retryStart by rememberUpdatedState { viewModel.submit(selectedAction, resumeCandidate != null) }
+    LaunchedEffect(runState) {
+        val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
+        toaster.error(
+            FeedbackStates.errorTitle("start", "the run"),
+            failed.message,
+            ToastAction(FeedbackStates.RETRY) { retryStart() },
+        )
+        viewModel.clearRunFailure()
+    }
+    LaunchedEffect(startTimedOut) {
+        val label = startTimedOut ?: return@LaunchedEffect
+        toaster.error(
+            FeedbackStates.STARTING_TIMEOUT_TITLE,
+            FeedbackStates.startingTimeoutDescription(label),
+            ToastAction(FeedbackStates.RETRY) { retryStart() },
+        )
+        viewModel.consumeStartTimedOut()
+    }
+    // A start whose attachment upload failed: landed uploads are kept, so
+    // Retry uploads the rest and starts (web parity).
+    val uploadFailure by viewModel.uploadFailure.collectAsStateWithLifecycle()
+    FailedActionToast(uploadFailure, "upload", "the attachment", onShown = viewModel::clearUploadFailure, retry = { retryStart() })
 
     // ── Attachments (EXP-511, wave D): the system document picker, ANY type
     // (images included), feeds the pending list ─────────────────────────────
@@ -425,8 +490,6 @@ fun AgentScreen(
     }
 
     // ── Sheets + dialogs ────────────────────────────────────────────────────
-    var issuePickerOpen by remember { mutableStateOf(false) }
-    var actionPickerOpen by remember { mutableStateOf(false) }
     // EXP-1249: the "+" menu and the pickers its submenu rows open (a picker
     // sheet IS the pushed page: two stacked sheets are a dead end here).
     var plusMenuOpen by remember { mutableStateOf(false) }
@@ -518,6 +581,22 @@ fun AgentScreen(
                     // (web `LaunchHeadline` returns null, ×4): the field's
                     // placeholder already says "Ask the agent…", and the same
                     // sentence twice is not a heading.
+                    // EXP-1253: with nothing picked the HOME headline leads
+                    // (the disc mark + the time-of-day greeting); a picked
+                    // subject's own headline leads instead.
+                    if (promptSubject == AgentComposerPrompt.Subject.None) {
+                        item(key = "__home_headline__") {
+                            HomeHeadline(
+                                greeting = greeting,
+                                modifier = Modifier.padding(
+                                    top = 8.dp,
+                                    // The column's 6dp gap makes up the rest of
+                                    // `headlineToCard`.
+                                    bottom = (AgentHome.HEADLINE_TO_CARD - 6).dp,
+                                ),
+                            )
+                        }
+                    }
                     if (promptSubject != AgentComposerPrompt.Subject.None) {
                         item(key = "__composer_headline__") {
                             if (fixConflictsPicked != null) {
@@ -559,7 +638,7 @@ fun AgentScreen(
                             },
                             // EXP-892: while the `#`/`@`/`:` menu is up it
                             // owns ↑/↓/Enter/Tab/Escape — and only then.
-                            fieldModifier = Modifier.onPreviewKeyEvent { event ->
+                            fieldModifier = Modifier.focusRequester(composerFocus).onPreviewKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) {
                                     return@onPreviewKeyEvent false
                                 }
@@ -591,7 +670,7 @@ fun AgentScreen(
                             // the message, a picked action shows its own
                             // composer hint (EXP-825), anything else what is
                             // optional next to it.
-                            placeholder = composerPlaceholder(subject, selectedAction),
+                            placeholder = composerPlaceholder(subject, selectedAction, home = true),
                             // EXP-1038: the CHIP is in the headline above; the
                             // card takes the action only for its pick rows.
                             actionChip = selectedAction,
@@ -605,7 +684,8 @@ fun AgentScreen(
                             conflictRefused = conflictRefused,
                             pendingImages = images,
                             imageError = imageError,
-                            sending = sending,
+                            sending = sending || starting != null,
+                            starting = starting,
                             onOpenMenu = { plusMenuOpen = true },
                             onRemoveImage = viewModel::removeImage,
                             submitLabel = submitLabel,
@@ -650,24 +730,6 @@ fun AgentScreen(
                             onResumeChange = viewModel::setResume,
                         )
                     }
-                    // EXP-1249: a few suggestions BELOW the options line as
-                    // quiet text rows, over an EMPTY new chat only — drawn
-                    // once per mount from the pool shared x4. Tapping one puts
-                    // it in the field and, for a `#` suggestion, leaves the
-                    // caret behind the `#` so the issue picker opens at once.
-                    if (subject == null && draft.isEmpty()) {
-                        item(key = "__suggestions__") {
-                            ChatSuggestionRows(
-                                suggestions = suggestions,
-                                onPick = { suggestion ->
-                                    val caret = ChatSuggestions.caretOffset(suggestion)
-                                    composerField = TextFieldValue(suggestion, TextRange(caret))
-                                    viewModel.setDraft(suggestion)
-                                    composerArmed = suggestion.contains('#')
-                                },
-                            )
-                        }
-                    }
                     item(key = "__captions__") {
                         Column(modifier = Modifier.padding(horizontal = 4.dp)) {
                             // EXP-836: the machine a play button named is not
@@ -707,9 +769,38 @@ fun AgentScreen(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                                 )
                             }
-                            // "Sending…" / "Start sent to … Waiting for the
-                            // desktop…" / a refused send (EXP-536).
-                            SteerRunCaptionRow(runState)
+                            // EXP-1271: the start in flight is the CARD's
+                            // starting row; a refused or lost start a toast.
+                        }
+                    }
+                    // EXP-1253: RECENT — my last three top-level runs in
+                    // this team, small session rows; no band when empty.
+                    if (homeRecent.isNotEmpty()) {
+                        item(key = "__home_recent__") {
+                            HomeRecent(
+                                rows = homeRecent,
+                                onOpen = { row ->
+                                    if (steerEnabled == true) {
+                                        onOpenSteer(row.session.id)
+                                    } else {
+                                        row.session.issueId?.let(onOpenIssue)
+                                    }
+                                },
+                                modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
+                            )
+                        }
+                    }
+                    // EXP-1270: a board-less team's Getting started block
+                    // follows Recent.
+                    if (teamHasBoard == false) {
+                        item(key = "__home_getting_started__") {
+                            GettingStartedSection(
+                                onOpenAgent = {
+                                    runCatching { composerFocus.requestFocus() }
+                                    keyboard?.show()
+                                },
+                                modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
+                            )
                         }
                     }
                 }
@@ -735,23 +826,6 @@ fun AgentScreen(
             onDismiss = { recentOpen = false },
         )
     }
-    if (issuePickerOpen) {
-        AgentIssuePickerSheet(
-            issues = pool,
-            checkedIds = issueSubject?.ids?.toSet().orEmpty(),
-            onToggle = viewModel::toggleIssue,
-            onDismiss = { issuePickerOpen = false },
-        )
-    }
-    if (actionPickerOpen) {
-        AgentActionPickerSheet(
-            actions = actionsState.actions,
-            error = actionsState.error,
-            selectedId = actionSubject?.id,
-            onPick = viewModel::pickAction,
-            onDismiss = { actionPickerOpen = false },
-        )
-    }
     if (plusMenuOpen) {
         val claude = launch.agent == DEFAULT_AGENT
         ComposerPlusMenuSheet(
@@ -775,8 +849,9 @@ fun AgentScreen(
             onRow = { row ->
                 plusMenuOpen = false
                 when (row) {
-                    ComposerMenuRowId.ImplementIssue -> issuePickerOpen = true
-                    ComposerMenuRowId.RunAction -> actionPickerOpen = true
+                    // SLOP-28: these two push their search-list page inside
+                    // the menu ([ComposerPlusMenuSheet]) and never land here.
+                    ComposerMenuRowId.ImplementIssue, ComposerMenuRowId.RunAction -> Unit
                     ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.Subagents -> subagentPickerOpen = true
@@ -787,6 +862,25 @@ fun AgentScreen(
             onUltracodeChange = viewModel::setUltracode,
             onComputerUseChange = viewModel::setComputerUse,
             onDismiss = { plusMenuOpen = false },
+            issuePage = { close ->
+                AgentIssuePickerPage(
+                    issues = pool,
+                    checkedIds = issueSubject?.ids?.toSet().orEmpty(),
+                    onToggle = viewModel::toggleIssue,
+                    onDone = close,
+                )
+            },
+            actionPage = { close ->
+                AgentActionPickerPage(
+                    actions = actionsState.actions,
+                    error = actionsState.error,
+                    selectedId = actionSubject?.id,
+                    onPick = { id ->
+                        viewModel.pickAction(id)
+                        close()
+                    },
+                )
+            },
         )
     }
     if (effortPickerOpen) {
@@ -838,37 +932,64 @@ fun AgentScreen(
 }
 
 /**
- * EXP-1249: the suggestions under the options line as QUIET rows (web
- * `ChatSuggestionRows`): muted 13sp text behind a faint `action-default`
- * glyph, no pill, no border. The row IS the prompt, so a long one wraps.
+ * EXP-1253 (composer-home.json `geometry`, phones): the disc mark at
+ * `markPhone` + ONE line of Inter semibold at `headlinePhone`, centred, never
+ * a subtitle.
  */
 @Composable
-private fun ChatSuggestionRows(suggestions: List<String>, onPick: (String) -> Unit) {
-    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp)
-            .testTag("chat-suggestions"),
+private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth().testTag(AgentHome.HOME_TEST_ID),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(AgentHome.GAP.dp, Alignment.CenterHorizontally),
     ) {
-        suggestions.forEach { suggestion ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onPick(suggestion) }
-                    .padding(horizontal = 6.dp, vertical = 7.dp)
-                    .testTag(ComposerMenu.SUGGESTION_TEST_ID),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Icon(
-                    ExpIcons.actionDefault,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Quaternary),
+        ExponentialMark(
+            size = AgentHome.MARK_PHONE.dp,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.testTag(AgentHome.MARK_TEST_ID),
+        )
+        Text(
+            greeting,
+            fontSize = AgentHome.HEADLINE_PHONE.sp,
+            lineHeight = (AgentHome.HEADLINE_PHONE + 6).sp,
+            fontWeight = FontWeight(AgentHome.HEADLINE_WEIGHT),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).testTag(AgentHome.GREETING_TEST_ID),
+        )
+    }
+}
+
+/**
+ * EXP-1253 RECENT: a muted uppercase band label over my last three
+ * top-level runs in this team, each the SMALL session row that opens it.
+ */
+@Composable
+private fun HomeRecent(
+    rows: List<com.exponential.app.ui.session.PastRunRow>,
+    onOpen: (com.exponential.app.ui.session.PastRunRow) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth().testTag(AgentHome.RECENT_TEST_ID)) {
+        Text(
+            AgentHome.RECENT_LABEL.uppercase(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.6.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
+        )
+        rows.forEach { row ->
+            Box(Modifier.testTag(AgentHome.RECENT_ROW_TEST_ID)) {
+                CodingSessionRow(
+                    session = row.session,
+                    issue = row.issue,
+                    device = row.device,
+                    size = SessionRowSize.Small,
+                    batchIssues = row.batchIssues,
+                    onClick = { onOpen(row) },
                 )
-                Text(suggestion, fontSize = 13.sp, color = muted)
             }
         }
     }

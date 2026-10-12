@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 /// EXP-846 — Exponential's OWN brand mark: a filled disc with three swept
@@ -49,35 +50,19 @@ struct ExpLogoMark: View {
         .accessibilityHidden(true)
     }
 
-    /// The three swept curves, verbatim from `logo.svg` (they start and end
-    /// outside the grid — the disc is what clips them).
-    private static let stripes: [Path] = [
-        curve(
-            from: CGPoint(x: -5.87, y: 62.01),
-            control1: CGPoint(x: 39.09, y: 65.44),
-            control2: CGPoint(x: 48.72, y: 28.71),
-            to: CGPoint(x: 49.03, y: -6.21)
-        ),
-        curve(
-            from: CGPoint(x: -5.07, y: 86.00),
-            control1: CGPoint(x: 53.78, y: 84.42),
-            control2: CGPoint(x: 71.13, y: 37.29),
-            to: CGPoint(x: 73.00, y: -5.09)
-        ),
-        curve(
-            from: CGPoint(x: -4.27, y: 109.99),
-            control1: CGPoint(x: 68.46, y: 103.40),
-            control2: CGPoint(x: 93.55, y: 45.86),
-            to: CGPoint(x: 96.98, y: -3.98)
-        ),
-    ]
-
-    private static func curve(
-        from start: CGPoint, control1: CGPoint, control2: CGPoint, to end: CGPoint
-    ) -> Path {
+    /// The three swept curves of `logo.svg` (they start and end outside the
+    /// grid; the disc is what clips them). EXP-1259 D8: the ONE copy of that
+    /// geometry is `FeedbackStates.Mark.stripes` (ExpCore), which the
+    /// feedback mark (`FeedbackMark`) sweeps; the brand mark draws it whole.
+    private static let stripes: [Path] = FeedbackStates.Mark.stripes.map { stripe in
+        let p = stripe.cubic
         var path = Path()
-        path.move(to: start)
-        path.addCurve(to: end, control1: control1, control2: control2)
+        path.move(to: CGPoint(x: p[0].x, y: p[0].y))
+        path.addCurve(
+            to: CGPoint(x: p[3].x, y: p[3].y),
+            control1: CGPoint(x: p[1].x, y: p[1].y),
+            control2: CGPoint(x: p[2].x, y: p[2].y)
+        )
         return path
     }
 }

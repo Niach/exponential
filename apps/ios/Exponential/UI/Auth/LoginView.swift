@@ -6,6 +6,8 @@ struct LoginView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @State private var viewModel: LoginViewModel?
+    // FEED-79: a failed sign-in options load is a toast (+Retry).
+    @Environment(\.toaster) private var toaster
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -65,6 +67,18 @@ struct LoginView: View {
                 viewModel?.consumePendingIntent()
             }
         }
+        // FEED-79: a failed config load toasts the server's message with a
+        // Retry that re-runs the same (safe, read-only) fetch.
+        .onChange(of: viewModel?.configError) { _, message in
+            guard let message, let vm = viewModel else { return }
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "load", thing: "sign-in options"),
+                description: message,
+                action: ToastAction(label: FeedbackStates.Errors.retry) { [weak vm] in
+                    Task { @MainActor in await vm?.loadConfig() }
+                }
+            )
+        }
     }
 
     @ViewBuilder
@@ -74,11 +88,13 @@ struct LoginView: View {
                 ProgressView()
                     .tint(.white)
                     .frame(maxWidth: .infinity, alignment: .center)
-            } else if let configError = vm.configError {
-                Text(configError)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .center)
+            } else if vm.configError != nil {
+                // FEED-79: the failure itself is the toast; the screen keeps
+                // only the way back in.
+                GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
+                    Task { await vm.loadConfig() }
+                })
+                .frame(maxWidth: .infinity, alignment: .center)
             } else {
                 VStack(spacing: 16) {
                     // OAuth providers. Sign in with Apple leads — App Store
@@ -148,10 +164,12 @@ struct LoginView: View {
                     }
                 }
 
+                // FEED-79: an auth form's error is INPUT and stays inline,
+                // 13pt rose.
                 if let error = vm.error {
                     Text(error)
-                        .font(.callout)
-                        .foregroundStyle(.red)
+                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .foregroundStyle(DesignTokens.Semantic.red)
                         .padding(.horizontal, 4)
                 }
             }

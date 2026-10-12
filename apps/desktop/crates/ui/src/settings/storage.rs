@@ -45,7 +45,7 @@ use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{error_notice, section};
+use super::{section, settings_skeleton};
 
 struct Loaded {
     list: Result<AttachmentsListForTeamOutput, String>,
@@ -135,13 +135,26 @@ impl StoragePane {
                         })
                         .ok();
                     let list = api::attachments::attachments_list_for_team(&trpc, &team_id)
-                        .map_err(|err| err.to_string());
+                        .map_err(|err| err.user_message());
                     Loaded { list, plan }
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
+                }
+                // FEED-79: a failed load = the empty state + the toast.
+                if let Err(message) = &result.list {
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "load",
+                        "the attachments",
+                        Some(message.clone()),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| this.refetch(cx));
+                        },
+                        cx,
+                    );
                 }
                 this.load = Load::Ready(result);
                 cx.notify();
@@ -204,9 +217,11 @@ impl StoragePane {
                 });
                 if let Err(error) = result {
                     log::warn!("[ui] attachments.delete({attachment_id}) failed: {error}");
-                    let note = Toast::error(format!(
-                        "Could not delete {filename}: {error}"
-                    ));
+                    let note = crate::action_error::failed_toast(
+                        "delete",
+                        &filename,
+                        crate::action_error::action_error_description(&error),
+                    );
                     let _ = handle.update(cx, |_, window, cx| {
                         crate::toast::show(note, window, cx);
                     });
@@ -276,9 +291,11 @@ impl StoragePane {
                     )),
                     Err(error) => {
                         log::warn!("[ui] attachments.sweepUnreferencedImages failed: {error}");
-                        Toast::error(format!(
-                            "Could not sweep unreferenced images: {error}"
-                        ))
+                        crate::action_error::failed_toast(
+                            "sweep",
+                            "unreferenced images",
+                            crate::action_error::action_error_description(&error),
+                        )
                     }
                 };
                 let _ = handle.update(cx, |_, window, cx| {
@@ -525,18 +542,15 @@ impl Render for StoragePane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_64())
-                        .child(crate::controls::skeleton().h_8().w_full())
-                        .child(crate::controls::skeleton().h_8().w_full()),
-                );
+                body = body.child(settings_skeleton("storage-skeleton", cx));
             }
-            Load::Ready(Loaded {
-                list: Err(message), ..
-            }) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load reads as the empty list; the failure was a toast.
+            Load::Ready(Loaded { list: Err(_), .. }) => {
+                body = body.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::UI_ATTACH),
+                    crate::empty_state_copy::ATTACHMENTS,
+                    cx,
+                ));
             }
             Load::Ready(Loaded {
                 list: Ok(list),

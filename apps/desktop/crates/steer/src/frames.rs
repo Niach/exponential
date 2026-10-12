@@ -380,6 +380,13 @@ pub enum ActivityEvent {
         /// later phase.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         preview: Option<ToolPreview>,
+        /// EXP-1279: a code-mode call's (`toolKind: script`) record of the
+        /// calls its script made — what the "Ran a script" card groups by
+        /// tool — plus the script itself. Set ONLY on the settle of a
+        /// `script` call; a call whose log the host never got (an older
+        /// code mode, a refused script) carries the source alone.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        script: Option<ScriptLog>,
     },
     /// A worktree unified diff snapshot (latest replaces prior, viewer-side).
     Diff {
@@ -1018,6 +1025,87 @@ impl ToolPreview {
     }
 }
 
+/// EXP-1279: the cap on a [`ScriptLogCall::tool`] (`<server>.<tool>`) on
+/// the wire, in UTF-16 units (the relay's zod mirrors it).
+pub const SCRIPT_TOOL_MAX: usize = 128;
+/// EXP-1279: the most calls one [`ScriptLog`] carries (`script-card.json`
+/// `logCap`; code mode stops logging there, the relay's zod mirrors it).
+pub const SCRIPT_LOG_MAX_CALLS: usize = 200;
+
+/// EXP-1279: what a code-mode script did, on the settle of its `script`
+/// tool call (`tool_update.script`). `count` = every call it made (the log
+/// stops at [`SCRIPT_LOG_MAX_CALLS`]), `elapsed_ms` its wall time, `calls`
+/// the log in the order the script made them; both numbers are absent when
+/// the host got no log. `source` = the script, redacted and cut like a
+/// command's output (`toolOutputMaxBytes`, marked).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptLog {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
+    #[serde(default)]
+    pub calls: Vec<ScriptLogCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+/// EXP-1279: one call of a [`ScriptLog`] (`script-card.json` `ScriptCall`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScriptLogCall {
+    /// `<server>.<tool>` as the script called it.
+    pub tool: String,
+    /// What the call was about (an Exponential tool's contract subject
+    /// argument, else its first string argument), ≤ 80 characters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ms: Option<u64>,
+}
+
+impl ScriptLog {
+    /// Every free-text field, mutably (the redactor walks these).
+    pub fn text_fields_mut(&mut self) -> Vec<&mut String> {
+        let mut fields: Vec<&mut String> = self.source.as_mut().into_iter().collect();
+        for call in &mut self.calls {
+            fields.push(&mut call.tool);
+            fields.extend(call.subject.as_mut());
+        }
+        fields
+    }
+
+    /// Cut to the relay's caps: at most [`SCRIPT_LOG_MAX_CALLS`] calls, a
+    /// tool name at [`SCRIPT_TOOL_MAX`] and a subject at
+    /// [`TOOL_PREVIEW_TEXT_MAX`] UTF-16 units, the source at the
+    /// contract's `toolOutputMaxBytes` (marked).
+    pub fn clamp(mut self) -> Self {
+        self.calls.truncate(SCRIPT_LOG_MAX_CALLS);
+        for call in &mut self.calls {
+            truncate_utf16_in_place(&mut call.tool, SCRIPT_TOOL_MAX);
+            if let Some(subject) = call.subject.as_mut() {
+                truncate_utf16_in_place(subject, TOOL_PREVIEW_TEXT_MAX);
+            }
+        }
+        if let Some(source) = self.source.as_mut() {
+            *source = crate::activity::truncate_marked(source, crate::TOOL_OUTPUT_MAX_BYTES);
+        }
+        self
+    }
+
+    /// What the log weighs in a feed's byte budget.
+    pub fn weight(&self) -> usize {
+        self.source.as_ref().map_or(0, String::len)
+            + self
+                .calls
+                .iter()
+                .map(|call| call.tool.len() + call.subject.as_ref().map_or(0, String::len) + 16)
+                .sum::<usize>()
+    }
+}
+
 /// The longest prefix of `text` that is at most `max` UTF-16 code units,
 /// cut on a char boundary so a surrogate pair is never split. The relay's
 /// zod string caps count JS string length (UTF-16 units), where an astral
@@ -1060,12 +1148,20 @@ pub enum ToolKind {
     /// is unsettled, and an ordinary tool row in the transcript;
     /// `tool_group_summary` counts it exactly like `other`.
     Wait,
+    /// EXP-1279: a code-mode `exec` (`mcp__codemode__exec`): ONE card for a
+    /// script and the calls it made, whose settle carries the call log
+    /// ([`ActivityEvent::ToolUpdate`] `script`).
+    Script,
+    /// Also what a kind this build does not know reads as (a NEWER
+    /// publisher's): the row survives as a plain tool row instead of the
+    /// whole event failing the parse.
+    #[serde(other)]
     Other,
 }
 
 impl ToolKind {
     /// Every kind, in contract order.
-    pub const ALL: [ToolKind; 11] = [
+    pub const ALL: [ToolKind; 12] = [
         ToolKind::Read,
         ToolKind::Edit,
         ToolKind::Delete,
@@ -1076,6 +1172,7 @@ impl ToolKind {
         ToolKind::Fetch,
         ToolKind::SwitchMode,
         ToolKind::Wait,
+        ToolKind::Script,
         ToolKind::Other,
     ];
 
@@ -1092,6 +1189,7 @@ impl ToolKind {
             ToolKind::Fetch => "fetch",
             ToolKind::SwitchMode => "switch_mode",
             ToolKind::Wait => "wait",
+            ToolKind::Script => "script",
             ToolKind::Other => "other",
         }
     }
@@ -1254,6 +1352,7 @@ impl ActivityEvent {
             output: None,
             at: None,
             preview: None,
+            script: None,
         }
     }
 
@@ -1378,6 +1477,7 @@ impl ActivityEvent {
                 diff,
                 output,
                 preview,
+                script,
                 ..
             } => {
                 let mut fields: Vec<&mut String> = diff.as_mut().into_iter().collect();
@@ -1386,6 +1486,11 @@ impl ActivityEvent {
                 fields.extend(output.as_mut());
                 if let Some(preview) = preview {
                     fields.extend(preview.text_fields_mut());
+                }
+                // EXP-1279: a script's source and its calls' arguments are
+                // the agent's own text, a secret's likeliest home here.
+                if let Some(script) = script {
+                    fields.extend(script.text_fields_mut());
                 }
                 fields
             }
@@ -2449,6 +2554,7 @@ mod tests {
         let event = ActivityEvent::ToolUpdate {
             id: "tc-1".into(),
             status: Some(ToolUpdateStatus::Completed),
+            script: None,
             diff: None,
             output: None,
             at: None,
@@ -2471,6 +2577,7 @@ mod tests {
         let with_refs = ActivityEvent::ToolUpdate {
             id: "tc-1".into(),
             status: Some(ToolUpdateStatus::Completed),
+            script: None,
             diff: None,
             output: None,
             at: None,
@@ -2512,6 +2619,7 @@ mod tests {
             ActivityEvent::ToolUpdate {
                 id: "tc-1".into(),
                 status: Some(ToolUpdateStatus::Completed),
+                script: None,
                 diff: None,
                 output: None,
                 at: None,
@@ -2543,6 +2651,94 @@ mod tests {
             clamped.title.as_deref().map(|title| title.chars().count()),
             Some(TOOL_PREVIEW_TEXT_MAX)
         );
+    }
+
+    /// EXP-1279: a `script` call's settle carries its log as
+    /// `script: {count, elapsedMs, calls: [{tool, subject?, ok, ms?}], source?}`
+    /// — the exact keys the relay's zod and every client decode.
+    #[test]
+    fn a_script_log_rides_the_settle_in_the_relay_shape_and_parses_back() {
+        let event = ActivityEvent::ToolUpdate {
+            id: "tc-9".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            output: None,
+            at: None,
+            preview: None,
+            script: Some(ScriptLog {
+                count: Some(3),
+                elapsed_ms: Some(3040),
+                calls: vec![
+                    ScriptLogCall {
+                        tool: "exponential.exponential_issues_get".into(),
+                        subject: Some("EXP-1253".into()),
+                        ok: true,
+                        ms: Some(40),
+                    },
+                    ScriptLogCall { tool: "computer.screenshot".into(), subject: None, ok: false, ms: None },
+                ],
+                source: Some("return 1".into()),
+            }),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(
+            json,
+            r#"{"kind":"tool_update","id":"tc-9","status":"completed","script":{"count":3,"elapsedMs":3040,"calls":[{"tool":"exponential.exponential_issues_get","subject":"EXP-1253","ok":true,"ms":40},{"tool":"computer.screenshot","ok":false}],"source":"return 1"}}"#
+        );
+        assert_eq!(serde_json::from_str::<ActivityEvent>(&json).unwrap(), event);
+        // A log the host never got: the source alone.
+        assert_eq!(
+            serde_json::from_str::<ActivityEvent>(r#"{"kind":"tool_update","id":"tc-9","script":{"source":"x"}}"#)
+                .unwrap(),
+            ActivityEvent::ToolUpdate {
+                id: "tc-9".into(),
+                status: None,
+                diff: None,
+                output: None,
+                at: None,
+                preview: None,
+                script: Some(ScriptLog { source: Some("x".into()), ..ScriptLog::default() }),
+            }
+        );
+        // The redactor sees the source, every tool name and every subject.
+        let mut event = event;
+        assert_eq!(
+            event.text_fields_mut().iter().map(|field| field.as_str()).collect::<Vec<_>>(),
+            ["return 1", "exponential.exponential_issues_get", "EXP-1253", "computer.screenshot"]
+        );
+        // Clamped to the relay's caps before it leaves.
+        let clamped = ScriptLog {
+            calls: vec![
+                ScriptLogCall { tool: "t".repeat(300), subject: Some("s".repeat(300)), ok: true, ms: None };
+                SCRIPT_LOG_MAX_CALLS + 5
+            ],
+            source: Some("x".repeat(crate::TOOL_OUTPUT_MAX_BYTES + 10)),
+            ..ScriptLog::default()
+        }
+        .clamp();
+        assert_eq!(clamped.calls.len(), SCRIPT_LOG_MAX_CALLS);
+        assert_eq!(clamped.calls[0].tool.len(), SCRIPT_TOOL_MAX);
+        assert_eq!(clamped.calls[0].subject.as_ref().map(String::len), Some(TOOL_PREVIEW_TEXT_MAX));
+        assert!(clamped.source.as_ref().unwrap().len() <= crate::TOOL_OUTPUT_MAX_BYTES);
+        assert!(clamped.source.as_ref().unwrap().ends_with(crate::activity::TRUNCATION_MARKER));
+    }
+
+    /// EXP-1279: `script` is a contract kind; a kind this build does not
+    /// know parses as `other` instead of dropping the whole row.
+    #[test]
+    fn the_script_tool_kind_parses_and_an_unknown_kind_reads_as_other() {
+        assert_eq!(ToolKind::parse("script"), Some(ToolKind::Script));
+        let row = serde_json::from_str::<ActivityEvent>(
+            r#"{"kind":"tool","name":"mcp__codemode__exec","id":"tc-1","toolKind":"script"}"#,
+        )
+        .unwrap();
+        assert!(matches!(row, ActivityEvent::Tool { tool_kind: Some(ToolKind::Script), .. }));
+        let future = serde_json::from_str::<ActivityEvent>(
+            r#"{"kind":"tool","name":"Teleport","id":"tc-2","toolKind":"teleport"}"#,
+        )
+        .unwrap();
+        assert!(matches!(future, ActivityEvent::Tool { tool_kind: Some(ToolKind::Other), .. }));
+        assert_eq!(ToolKind::parse("teleport"), None, "parse stays strict");
     }
 
     /// The relay caps by UTF-16 code units, so the clamp must too: an astral
@@ -2864,6 +3060,7 @@ mod tests {
         let printed = ActivityEvent::ToolUpdate {
             id: "tc-4".into(),
             status: Some(ToolUpdateStatus::Completed),
+            script: None,
             diff: None,
             output: Some("\\ 2 more lines truncated\nall tests passed\n".into()),
             at: None,

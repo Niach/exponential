@@ -1,7 +1,8 @@
-// EXP-958: the search sheet is ONE body — the shared `ComboboxList` fed by the
-// shared engine (EXP-892) — inside two shells. This pins the desktop shell:
-// ONE search field, one row per ranked result, a pick that NAVIGATES, and no
-// selection marker anywhere (nothing here is ever "the picked row").
+// EXP-958: the search sheet is ONE body — SLOP-28: THE search list
+// (`SearchList`) fed by the shared engine (EXP-892) — inside two shells. This
+// pins both: ONE search field, one row per ranked result in the search list's
+// issue row (status glyph, mono identifier, title), a pick that NAVIGATES,
+// and no selection marker anywhere (nothing here is ever "the picked row").
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
@@ -68,8 +69,19 @@ vi.mock(`@/hooks/use-team-data`, () => ({
 vi.mock(`@/hooks/use-issue-search-results`, () => ({
   useIssueSearchResults: () => ({ results: mockState.results }),
 }))
+vi.mock(`@/hooks/use-team-statuses`, () => ({
+  useTeamStatusesContext: () => ({ resolve: (row: unknown) => row }),
+}))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
-  IssueStatusIcon: () => <span data-testid="status-icon" />,
+  toStatusPickerStatus: () => ({
+    id: `s1`,
+    name: `Backlog`,
+    category: `backlog`,
+    icon: (props: Record<string, unknown>) => (
+      <svg {...props} data-testid="status-icon" />
+    ),
+    colorHex: `text-muted-foreground`,
+  }),
 }))
 
 const { IssueSearchSheet } = await import(`@/components/issue-search-sheet`)
@@ -109,9 +121,8 @@ describe(`IssueSearchSheet`, () => {
     // look drawn around cmdk's own input — not a second field beside it.
     expect(document.querySelectorAll(`[data-slot=search-field]`).length).toBe(1)
     expect(input.closest(`[data-slot=search-field]`)).toBeTruthy()
-    // The pill radius rides the root's `**:` variant, like the desktop arm's
-    // wrapper height does.
-    expect(input.closest(`[data-slot=combobox-list]`)!.className).toContain(
+    // The pill radius rides the list root's `**:` variant.
+    expect(input.closest(`[data-slot=search-list]`)!.className).toContain(
       `data-[slot=command-input]:rounded-full`
     )
     expect(screen.queryByLabelText(`Clear search`)).toBeNull()
@@ -149,9 +160,10 @@ describe(`IssueSearchSheet`, () => {
 
     expect(document.querySelectorAll(`[data-slot=command-input]`).length).toBe(1)
     expect(rows().map((row) => row.textContent)).toEqual([
-      `AlphaCore · EXP-1`,
-      `BetaCore · EXP-2`,
+      `EXP-1Alpha`,
+      `EXP-2Beta`,
     ])
+    expect(rows()[0]!.querySelector(`[data-testid=status-icon]`)).toBeTruthy()
     // Picking navigates, so no row is ever the picked one.
     expect(document.querySelector(`[data-selected-glyph]`)).toBeNull()
   })

@@ -727,7 +727,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · Guide in that fixed order (EXP-1251: Changes + Results merged into the Guide; the diff's counts moved into its body), the segmented capsule above. The Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, Actions · Suggestions, the action page's Prompt · Triggers · Runs); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on the Guide. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Guide is the review of its pull request (the Reviews detail screen is gone).`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · Guide in that fixed order (EXP-1251: Changes + Results merged into the Guide; the diff's counts moved into its body), the segmented capsule above. The Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, the action page's Prompt · Triggers · Runs); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on the Guide. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Guide is the review of its pull request (the Reviews detail screen is gone).`,
     status: {
       web: ok(
         `WorkFaceStrip`,
@@ -1255,7 +1255,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `markdown`,
     title: `Markdown blocks`,
     kind: `Surfaces`,
-    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. EXP-1191, the web card ×4: the 14px glyph LEADS the card beside the question (never on a line of its own), and the heading, the question and the options stack in the column beside it, so the options indent under the text; each option row ends in its number key as a small square chip on the RIGHT. The agent's task list is the LAST line above the composer (under the queued messages), unboxed, with its own segmented progress mark (\`TaskListProgress\`) before \`done/total\`, so it never reads as a message or the composer. Its options are full-width rows: the promoted one wears the primary fill, a pick the glass active fill, never blue; a free-text row opens the composer card inline under itself. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more. Inline code is tinted in chat feeds only — the issue and comment renderers keep the neutral chip.`,
+    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. EXP-1191, the web card ×4: the 14px glyph LEADS the card beside the question (never on a line of its own), and the heading, the question and the options stack in the column beside it, so the options indent under the text; each option row ends in its number key as a small square chip on the RIGHT. The agent's task list is the LAST block above the composer (under the queued messages): the Work card (EXP-1240, \`work-card\`), so it never reads as a message or the composer. Its options are full-width rows: the promoted one wears the primary fill, a pick the glass active fill, never blue; a free-text row opens the composer card inline under itself. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more. Inline code is tinted in chat feeds only — the issue and comment renderers keep the neutral chip.`,
     status: {
       web: ok(`QuestionCard / NarrationBubble`, `apps/web/src/components/agent-session.tsx`),
       desktop: ok(
@@ -1492,9 +1492,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-motion`,
     title: `Motion`,
     kind: `Motion`,
-    blurb: `Three durations against three easings — hover a line to run it. Fast for micro-feedback, standard for most transitions, slow for whole surfaces.`,
+    blurb: `Three durations against three easings, then the rules (EXP-1243, tokens.json \`motion\`). Hover a line to run it; press the button.`,
     status: {
-      web: ok(`--motion-*`, `packages/ui/src/styles.css`),
+      web: ok(`--motion-* + motion-popover / motion-dialog / motion-sheet / motion-press`, `packages/ui/src/styles.css`),
       desktop: ok(`theme::motion::duration / ease`, `apps/desktop/crates/theme/src/tokens.generated.rs`),
       ios: ok(`GlassTokens`, `apps/ios/ExpUI/Sources/GlassTokens.swift`),
       android: ok(`GlassTokens`, ANDROID_GLASS, `aliases of DesignTokens.generated.kt`),
@@ -1516,7 +1516,23 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           lines.push(motionLine(`${durName} ${ms} · ${easeName}`, `${durClass} ${easeClass}`))
         }
       }
-      return `<div class="cmp-motion">${lines.join(``)}</div>`
+      const { fast, standard, slow } = motion.duration
+      const { press, popoverFrom } = motion.scale
+      const rules = [
+        [`Popover, menu, tooltip`, `enter · decelerate ${standard} · scale ${popoverFrom} → 1 + fade, from the trigger`, `<span class="cmp-motion-pop"></span>`],
+        [`Popover exit`, `accelerate ${fast} · fade only`, `<span class="cmp-motion-pop cmp-motion-pop-fade"></span>`],
+        [`Dialog`, `enter · decelerate ${standard} · scale ${popoverFrom} → 1 + fade`, `<span class="cmp-motion-pop cmp-motion-pop-centre"></span>`],
+        [`Sheet`, `enter · decelerate ${slow} · slide · exit accelerate ${standard}`, ``],
+        [`Button press`, `scale ${press}`, `<span class="cmp-motion-press">Start</span>`],
+        [`Keyboard, typeahead, tabs, toggles`, `none`, ``],
+        [`Toasts`, `toast-stack.json`, ``],
+        [`Reduce motion`, `opacity only`, ``],
+      ] as const
+      const ruleRows = rules.map(
+        ([label, value, stage]) =>
+          `<div class="cmp-motion-rule"><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(value)}</span><span class="cmp-motion-stage">${stage}</span></div>`
+      )
+      return `<div class="cmp-motion">${lines.join(``)}<div class="cmp-motion-rules">${ruleRows.join(``)}</div></div>`
     },
   },
   {

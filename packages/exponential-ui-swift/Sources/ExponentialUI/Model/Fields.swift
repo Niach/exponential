@@ -43,6 +43,8 @@ enum FieldKind {
         case (_, "NumberField"?): self = .number
         case (_, "ChipInput"?): self = .chips
         case (_, "Select"?): self = .search
+        // EXP-1259: a SearchList's (or a searchable submenu's) field.
+        case ("SearchList", _): self = .search
         default: self = .input
         }
     }
@@ -121,6 +123,9 @@ extension SurfaceModel {
         case .chips:
             flushField(f, index: index, event: "submit")
             clearField(f)
+        case .search where node(index)?.component == "SearchList":
+            // EXP-1259: Enter picks the search list's highlighted row.
+            searchKey(index, "Enter")
         default:
             flushField(f, index: index, event: "submit")
         }

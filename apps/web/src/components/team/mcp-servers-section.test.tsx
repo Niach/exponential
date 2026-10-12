@@ -185,7 +185,7 @@ describe(`TeamMcpServersSection`, () => {
     fireEvent.click(screen.getByRole(`button`, { name: /Connect/ }))
     await waitFor(() =>
       expect(mockState.toastError).toHaveBeenCalledWith(
-        `Could not connect to sentry`,
+        `Couldn't connect to sentry`,
         expect.objectContaining({ description: expect.stringMatching(/http\(s\)/) })
       )
     )

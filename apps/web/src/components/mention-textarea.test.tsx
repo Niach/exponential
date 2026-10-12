@@ -8,6 +8,38 @@ import {
 
 // EXP-551 — the comment composer's textarea: `:shortcode` typeahead, the
 // send-shortcut guard, and the imperative caret insert the emoji picker uses.
+// SLOP-28 — and the `#` trigger that opens THE search list (stubbed here: its
+// own suite is @exp/ui's search-list.test.tsx), with the host's three exits.
+
+const refs = vi.hoisted(() => ({ value: null as unknown }))
+vi.mock(`@/components/issue-ref-provider`, () => ({
+  useIssueRefs: () => refs.value,
+}))
+vi.mock(`@/components/issue-ref-search`, () => ({
+  IssueRefSearch: (props: {
+    request: { start: number; query: string } | null
+    onPick: (issue: { identifier: string }) => void
+    onDismiss: () => void
+    onBackspaceEmpty: () => void
+  }) =>
+    props.request ? (
+      <div
+        data-testid="ref-search"
+        data-start={props.request.start}
+        data-query={props.request.query}
+      >
+        <button type="button" onClick={() => props.onPick({ identifier: `EXP-7` })}>
+          pick
+        </button>
+        <button type="button" onClick={props.onDismiss}>
+          dismiss
+        </button>
+        <button type="button" onClick={props.onBackspaceEmpty}>
+          backspace
+        </button>
+      </div>
+    ) : null,
+}))
 
 vi.mock(`@/lib/emoji.generated.json`, () => ({
   default: {
@@ -131,5 +163,87 @@ describe(`MentionTextarea :emoji`, () => {
     // The issue-ref menu is what that caret is for: the token detector sees
     // an open `#` (no provider here, so no rows — just no crash).
     expect(el.selectionEnd).toBe(el.selectionStart)
+  })
+})
+
+describe(`MentionTextarea #issue search`, () => {
+  const withRefs = () => {
+    refs.value = { teamId: `t`, rows: [] }
+  }
+
+  it(`opens THE search list on # with the token as its prefill; a pick writes #IDENT + space`, () => {
+    withRefs()
+    const values: string[] = []
+    render(<Harness onValue={(v) => values.push(v)} />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `see (#ab`)
+    const search = screen.getByTestId(`ref-search`)
+    expect(search.getAttribute(`data-start`)).toBe(`5`)
+    expect(search.getAttribute(`data-query`)).toBe(`ab`)
+    fireEvent.click(screen.getByText(`pick`))
+    expect(values.at(-1)).toBe(`see (#EXP-7 `)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+  })
+
+  it(`Escape keeps the text and the dismissed # stays closed while typing on`, () => {
+    withRefs()
+    const values: string[] = []
+    render(<Harness onValue={(v) => values.push(v)} />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `see #ab`)
+    fireEvent.click(screen.getByText(`dismiss`))
+    expect(values.at(-1)).toBe(`see #ab`)
+    type(el, `see #abc`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+    type(el, `see #abc #`)
+    expect(screen.getByTestId(`ref-search`).getAttribute(`data-start`)).toBe(`9`)
+  })
+
+  it(`Backspace in the empty input deletes the # token`, () => {
+    withRefs()
+    const values: string[] = []
+    render(<Harness onValue={(v) => values.push(v)} />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `see #`)
+    fireEvent.click(screen.getByText(`backspace`))
+    expect(values.at(-1)).toBe(`see `)
+  })
+
+  it(`an inserted # (the composer's # button) opens the search and leaves the focus to it`, async () => {
+    withRefs()
+    const handle = createRef<MentionTextareaHandle>()
+    render(<Harness handle={handle} initial="see " />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    act(() => el.blur())
+    el.setSelectionRange(4, 4)
+    act(() => handle.current!.insertText(`#`))
+    expect(screen.getByTestId(`ref-search`).getAttribute(`data-start`)).toBe(`4`)
+    await act(() => new Promise((resolve) => requestAnimationFrame(resolve)))
+    expect(document.activeElement).not.toBe(el)
+    expect(el.selectionStart).toBe(5)
+  })
+
+  it(`a Backspace that lands after an existing #IDENT never opens it`, () => {
+    withRefs()
+    render(<Harness initial="see #EXP-7 " />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `see #EXP-7`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+  })
+
+  it(`a # glued to a word is no trigger`, () => {
+    withRefs()
+    render(<Harness />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `C#sharp`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+  })
+
+  it(`stays inert outside a team`, () => {
+    refs.value = null
+    render(<Harness />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `see #ab`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
   })
 })

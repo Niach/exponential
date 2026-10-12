@@ -79,19 +79,19 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::rows::disclosure_header",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs",
-        "note": "EXP-963: the steer feed's tool groups, Exponential runs, subagent lanes and workflow agents fold on it"
+        "note": "EXP-963: the steer feed's tool groups and Exponential runs fold on it (EXP-1240: lanes moved into the Work card)"
       },
       "ios": {
         "status": "leftover",
-        "symbol": "ToolGroupRow / ExpToolGroupRow / SubagentGroupRow",
+        "symbol": "ToolGroupRow / ExpToolGroupRow",
         "file": "apps/ios/Exponential/UI/Session/AgentSessionView.swift",
-        "note": "three private structs repeat the 11pt chevron row, each with its own @State expanded"
+        "note": "two private structs repeat the 11pt chevron row, each with its own @State expanded"
       },
       "android": {
         "status": "leftover",
-        "symbol": "ToolGroupRow / ExpToolGroupRow / SubagentGroupRow",
+        "symbol": "ToolGroupRow / ExpToolGroupRow",
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt",
-        "note": "the same three private composables, each rebuilding the chevron row"
+        "note": "the same two private composables, each rebuilding the chevron row"
       }
     }
   },
@@ -1151,29 +1151,150 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "skeleton",
     "title": "Skeleton",
-    "blurb": "A pulsing block standing in for text that is still loading, at the SHAPE of what will arrive — a row's worth of bars, never a spinner in a list. It is a web and desktop affordance only: both natives answer a pending screen with a centred spinner, because a phone list is short enough that a skeleton flashes before it reads.",
+    "blurb": "EXP-1259 (feedback-states.json `placeholder`): skeleton ROWS in the real row geometry stand in for a list that is loading: the row's height, a dot where its glyph sits, bars where its text sits, hairlines between rows, one slow opacity pulse (0.45 to 0.9 over 1.6 s), static under reduce motion. It replaces every Loading text and the phones' centred first-load spinners. The catalog's `Skeleton rows` is the same piece.",
     "components": [
       "Skeleton"
     ],
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "Skeleton",
+        "symbol": "SkeletonRows",
         "file": "packages/ui/src/skeleton.tsx"
       },
       "desktop": {
         "status": "ok",
-        "symbol": "controls::feedback::skeleton",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs",
-        "note": "radius MD on the theme skeleton fill, breathing 100% to 50% over the web 2s pulse on the standard curve"
+        "symbol": "feedback::skeleton_rows",
+        "file": "apps/desktop/crates/ui/src/feedback.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "SkeletonRows",
+        "file": "apps/ios/ExpUI/Sources/Feedback/Spinner.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "SkeletonRows",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Feedback.kt"
+      }
+    }
+  },
+  {
+    "id": "feedback-inline",
+    "title": "Inline spinner",
+    "blurb": "EXP-1259 (feedback-states.json `inline`): a 10 px spinner and a progressive word in a band, header or caption (Saving, then Saved). The list-head spinner of a refetching band is this primitive. The catalog's `Spinner size xs`.",
+    "components": [
+      "Spinner",
+      "Section"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "Spinner",
+        "file": "packages/ui/src/feedback.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "feedback::spinner",
+        "file": "apps/desktop/crates/ui/src/feedback.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "InlineSpinner",
+        "file": "apps/ios/ExpUI/Sources/Feedback/Spinner.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "InlineSpinner",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Feedback.kt"
+      }
+    }
+  },
+  {
+    "id": "feedback-pending",
+    "title": "Pending button",
+    "blurb": "EXP-1259 (feedback-states.json `pending`): a button that started something refuses presses at once, then after 150 ms swaps its icon slot for the spinner and its label for the progressive word (Starting), never narrower than it was. The catalog's `Button loading` + `pendingLabel`.",
+    "components": [
+      "Button"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "Button pending + pendingLabel",
+        "file": "packages/ui/src/button.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "feedback::pending (the 150 ms gate)",
+        "file": "apps/desktop/crates/ui/src/feedback.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "PendingLabel",
+        "file": "apps/ios/ExpUI/Sources/Feedback/Spinner.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "PendingPill",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Feedback.kt"
+      }
+    }
+  },
+  {
+    "id": "searchable-list",
+    "title": "Search list",
+    "blurb": "EXP-1259 (search-list.json): THE search list. An input row (40 px, the search glyph, the result count once a query is typed) over the picker rows, at most eight visible, the rest scrolling under a 24 px bottom fade. The top row is highlighted, arrows move it, Enter or Tab pick it. It is the `#` typeahead, the issue pickers, the global search and the composer menu's searchable submenus. The catalog's `SearchList` and `menuItem.searchable`.",
+    "components": [
+      "SearchList",
+      "Menu"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "SearchList / SearchListPopover",
+        "file": "packages/ui/src/search-list.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "picker::search_list::SearchList",
+        "file": "apps/desktop/crates/ui/src/picker/search_list.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "SearchListView / SearchListSheet",
+        "file": "apps/ios/ExpUI/Sources/Picker/SearchList.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "SearchList",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/SearchList.kt"
+      }
+    }
+  },
+  {
+    "id": "tab-strip",
+    "title": "Tab strip",
+    "blurb": "EXP-1259 (EXP-1255): the work tabs. The close glyph shows only while its tab is hovered or keyboard-focused (the active one too); a ghost + after the last tab opens a New run tab. The catalog's `Tabs closable: hover` + `addable`.",
+    "components": [
+      "Tabs"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "WorkTabsStrip",
+        "file": "apps/web/src/components/team/work-tabs-strip.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "render_tab_strip",
+        "file": "apps/desktop/crates/ui/src/screens.rs"
       },
       "ios": {
         "status": "n/a",
-        "note": "no skeleton or shimmer anywhere: a loading screen is a centred spinner"
+        "note": "phones have no tab strip: one Work screen with pager tabs"
       },
       "android": {
         "status": "n/a",
-        "note": "same — LoadingState (Scaffolding.kt) centres a spinner instead"
+        "note": "same: one Work screen with pager tabs"
       }
     }
   },

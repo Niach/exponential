@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction } from "@/lib/action-error"
 import { BOARD_REPO_NOTE } from "@/lib/board-copy"
 import {
   BranchPicker,
+  FieldError,
   Input,
   Label,
   GlassGroup,
   Picker,
   PickerTrigger,
+  Spinner,
   conceptIcon,
   type PickerItem,
 } from "@exp/ui"
@@ -63,8 +66,9 @@ export function BoardRepoField({
 }) {
   const [repos, setRepos] = useState<RepoList | null>(null)
   // FEED-32: a failed list used to collapse to `[]` silently, which rendered
-  // the selected repo as a BLANK trigger. Keep the error and say so.
-  const [loadError, setLoadError] = useState<string | null>(null)
+  // the selected repo as a BLANK trigger. FEED-79: it says so in a toast,
+  // ONCE per failing streak (every window focus re-lists).
+  const loadFailedRef = useRef(false)
   const [pickerOpen, setPickerOpen] = useState(false)
 
   // A late response for a previous team must not overwrite the current list.
@@ -77,17 +81,22 @@ export function BoardRepoField({
       const list = await trpc.repositories.list.query({ teamId: forTeam })
       if (teamRef.current !== forTeam) return
       setRepos(list)
-      setLoadError(null)
+      loadFailedRef.current = false
     } catch (err) {
       if (teamRef.current !== forTeam) return
-      setLoadError(err instanceof Error ? err.message : String(err))
       setRepos((prev) => prev ?? [])
+      if (!loadFailedRef.current) {
+        loadFailedRef.current = true
+        failedAction(`load`, `the team's repositories`, err, {
+          retry: () => void reload(),
+        })
+      }
     }
   }, [teamId])
 
   useEffect(() => {
     setRepos(null)
-    setLoadError(null)
+    loadFailedRef.current = false
     void reload()
     // Re-detect on focus so a repo installed through the picker's popup shows
     // up when the user returns.
@@ -121,19 +130,20 @@ export function BoardRepoField({
   const hasRepos = (repos?.length ?? 0) > 0 || Boolean(inlineRepo)
 
   // The trigger's label, rendered EXPLICITLY (a value with no matching item
-  // would otherwise read as nothing). Never blank: an unknown id reads "Loading repository…" while
-  // the one-shot re-list above is in flight and "Repository unavailable" once
-  // it came back without the id.
+  // would otherwise read as nothing). Never blank: while the list (or the
+  // one-shot re-list above for an unknown id) is in flight it holds the
+  // inline spinner (EXP-1259 D8: no "Loading…" words), and "Repository
+  // unavailable" once it came back without the id.
   const labelRepo = inlineRepo ?? selectedRepo ?? null
-  const triggerLabel = labelRepo
-    ? labelRepo.fullName
-    : !repositoryId
-      ? loading
-        ? `Loading…`
-        : `No repository`
-      : loading || reloadingForId === repositoryId
-        ? `Loading repository…`
-        : `Repository unavailable`
+  const triggerLabel = labelRepo ? (
+    labelRepo.fullName
+  ) : loading || (repositoryId && reloadingForId === repositoryId) ? (
+    <Spinner label="Loading repository" />
+  ) : !repositoryId ? (
+    `No repository`
+  ) : (
+    `Repository unavailable`
+  )
 
   // The branch that means "follow the repo": `repositories.list` already
   // folds the team's pin into `defaultBranch`; a not-yet-connected repo only
@@ -178,6 +188,7 @@ export function BoardRepoField({
           width="md"
           value={value}
           disabled={disabled || loading}
+          loading={loading}
           items={repoItems}
           noneLabel="No repository"
           onNone={() => {
@@ -251,12 +262,9 @@ export function BoardRepoField({
       )}
 
       <p className="px-1 text-xs text-muted-foreground">{BOARD_REPO_NOTE}</p>
-      {loadError && (
-        <p className="px-1 text-xs text-destructive">
-          Couldn&rsquo;t load the team&rsquo;s repositories: {loadError}
-        </p>
-      )}
-      {error && <p className="px-1 text-xs text-destructive">{error}</p>}
+      {/* The host's line about this field (the settings page's refused
+          branch); a failed save itself is the host's toast. */}
+      <FieldError className="px-1">{error}</FieldError>
     </div>
   )
 }

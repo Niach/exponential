@@ -142,8 +142,8 @@ export interface NativeCapture {
  * How the desktop IDE is driven to the view.
  *
  *   - `screen`  → `EXP_DEV_SCREEN` (`navigation::parse_dev_screen`): `settings`,
- *                 `devices`, `actions`, `action:<uuid>`, `getting-started`,
- *                 `issue:<uuid>`, `issue:<uuid>?face=changes|results`
+ *                 `devices`, `actions`, `action:<uuid>`, `chat[?<seed>]`,
+ *                 `session:<uuid>`, `issue:<uuid>`, `issue:<uuid>?face=changes|results`
  *                 (EXP-1154: the issue tab on that face), `draft` (EXP-1170: a fresh
  *                 new-issue draft on the active board).
  *   - `tool`    → a sidebar tool window (`sidebar::ToolWindow`): `board`,

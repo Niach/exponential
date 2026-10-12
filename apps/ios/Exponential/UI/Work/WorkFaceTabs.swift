@@ -156,6 +156,7 @@ extension View {
     /// against (`DetailChrome.isTitleCollapsed`).
     func workHeaderBand<Header: View>(
         onBottom: ((CGFloat) -> Void)? = nil,
+        ground: Bool = false,
         @ViewBuilder header: () -> Header
     ) -> some View {
         let header = header()
@@ -164,7 +165,8 @@ extension View {
                 header
             }
             .frame(maxWidth: .infinity)
-            .headerEdgeChrome()
+            // EXP-1256: over the run thread, the page's own ground.
+            .headerEdgeChrome(ground: ground)
             .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
                 onBottom?(bottom)
             }

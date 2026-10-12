@@ -1133,6 +1133,9 @@ impl Render for Shell {
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
+        // EXP-1275: the BLOCKING wait (team/account switch, sign-out)
+        // paints over everything, the toasts included.
+        let blocking_layer = crate::feedback::Blocking::overlay(cx);
 
         // window_frame: Linux CSD shadow + rounded frame + resize zones
         // (pass-through elsewhere). The sheet/dialog/notification layers stay
@@ -1188,7 +1191,8 @@ impl Render for Shell {
                     .child(preview_host)
                     .children(sheet_layer)
                     .children(dialog_layer)
-                    .child(toast_layer),
+                    .child(toast_layer)
+                    .children(blocking_layer),
             )
             .into_any_element()
     }

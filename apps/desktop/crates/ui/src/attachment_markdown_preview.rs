@@ -25,8 +25,7 @@ use gpui::{
 use gpui_component::{
     button::Button,
     h_flex,
-    spinner::Spinner,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Icon,
 };
 
 use domain::rows::Attachment;
@@ -44,6 +43,8 @@ use crate::queries;
 /// Web copy, byte for byte.
 const TOO_LARGE_COPY: &str = "This file is too large to preview here. Download it to read it.";
 const NOT_FOUND_COPY: &str = "This file is no longer available.";
+/// The body after a failed load (web parity).
+const NO_PREVIEW_COPY: &str = "No preview. Download it to read it.";
 const LOAD_FAILED_COPY: &str = "Couldn't load this file.";
 
 /// Where the preview is in its one fetch.
@@ -175,46 +176,74 @@ impl MarkdownPreview {
         let transport: Option<Arc<dyn AttachmentTransport>> = queries::attachment_transport(cx);
         let images = cx.new(|_| ImageCache::new(transport.clone()));
         let images_sub = cx.observe(&images, |_, _, cx| cx.notify());
-        let mut phase = phase_before_fetch(target.size_bytes).unwrap_or(PreviewPhase::Loading);
-        let mut load = None;
-        if phase == PreviewPhase::Loading {
-            match transport {
-                Some(transport) => {
-                    let url = format!("/api/attachments/{}", target.attachment_id);
-                    load = Some(cx.spawn(async move |this, cx| {
-                        let result = cx
-                            .background_executor()
-                            .spawn(async move { transport.fetch(&url) })
-                            .await;
-                        let _ = this.update(cx, |this, cx| {
-                            this.phase = phase_from_fetch(result);
-                            cx.notify();
-                        });
-                    }));
-                }
-                None => phase = PreviewPhase::Error(LOAD_FAILED_COPY.to_string()),
-            }
-        }
-        Self {
+        let phase = phase_before_fetch(target.size_bytes).unwrap_or(PreviewPhase::Loading);
+        let mut this = Self {
             target,
             phase,
             images,
             scroll: ScrollHandle::new(),
             _images_sub: images_sub,
-            _load: load,
+            _load: None,
+        };
+        if this.phase == PreviewPhase::Loading {
+            this.load(transport, cx);
         }
+        this
+    }
+
+    /// Fetch the file. FEED-79: a failed load = the empty body + ONE toast,
+    /// whose Retry fetches again.
+    fn load(&mut self, transport: Option<Arc<dyn AttachmentTransport>>, cx: &mut gpui::Context<Self>) {
+        self.phase = PreviewPhase::Loading;
+        let Some(transport) = transport else {
+            self.fail(LOAD_FAILED_COPY.to_string(), cx);
+            return;
+        };
+        let url = format!("/api/attachments/{}", self.target.attachment_id);
+        self._load = Some(cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { transport.fetch(&url) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                match phase_from_fetch(result) {
+                    PreviewPhase::Error(message) => this.fail(message, cx),
+                    phase => this.phase = phase,
+                }
+                cx.notify();
+            });
+        }));
+    }
+
+    fn fail(&mut self, message: String, cx: &mut gpui::Context<Self>) {
+        self.phase = PreviewPhase::Error(message.clone());
+        let preview = cx.entity().downgrade();
+        crate::action_error::failed_action_with_retry(
+            "load",
+            "the preview",
+            Some(message),
+            move |_, cx| {
+                let _ = preview.update(cx, |this, cx| {
+                    let transport = queries::attachment_transport(cx);
+                    this.load(transport, cx);
+                    cx.notify();
+                });
+            },
+            cx,
+        );
     }
 
     fn render_body(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         match &self.phase {
-            PreviewPhase::Loading => h_flex()
-                .gap_1p5()
-                .py_6()
-                .items_center()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(Spinner::new().xsmall().icon(registry::UI_LOADING))
-                .child("Loading...")
+            // EXP-1259 D8: the file's lines as placeholders.
+            PreviewPhase::Loading => div()
+                .py_4()
+                .child(crate::feedback::skeleton_rows(
+                    "md-preview-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    28.,
+                    cx,
+                ))
                 .into_any_element(),
             PreviewPhase::TooLarge => div()
                 .py_6()
@@ -222,11 +251,12 @@ impl MarkdownPreview {
                 .text_color(cx.theme().muted_foreground)
                 .child(TOO_LARGE_COPY)
                 .into_any_element(),
-            PreviewPhase::Error(message) => div()
+            // The failure was a toast (FEED-79): the empty body.
+            PreviewPhase::Error(_) => div()
                 .py_6()
                 .text_sm()
-                .text_color(cx.theme().danger)
-                .child(SharedString::from(message.clone()))
+                .text_color(cx.theme().muted_foreground)
+                .child(NO_PREVIEW_COPY)
                 .into_any_element(),
             PreviewPhase::Ready(source) => {
                 let mut view = MarkdownView::new(

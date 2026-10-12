@@ -12,7 +12,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -32,7 +31,10 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.InvitePreview
 import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.OwnDevices
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.onboarding.OnboardingDevicesStep
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -51,7 +53,10 @@ data class InviteAcceptState(
     /** EXP-1169: accepted by a caller who owns no device, so the screen shows
      *  the devices step before leaving. */
     val showDeviceStep: Boolean = false,
+    /** The invite itself could not be read: the page's "Invalid invite" state. */
     val error: String? = null,
+    /** FEED-79: a failed accept, raised once as an error toast. */
+    val failure: FailedAction? = null,
 )
 
 @HiltViewModel
@@ -80,10 +85,14 @@ class InviteAcceptViewModel @Inject constructor(
         }
     }
 
+    fun clearFailure() {
+        _state.value = _state.value.copy(failure = null)
+    }
+
     fun accept(token: String) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            _state.value = _state.value.copy(accepting = true, error = null)
+            _state.value = _state.value.copy(accepting = true, failure = null)
             runCatching { invitesApi.accept(accountId, token) }
                 .onSuccess {
                     val showDeviceStep = ownDevices.needsJoinDeviceStep()
@@ -94,9 +103,10 @@ class InviteAcceptViewModel @Inject constructor(
                     )
                 }
                 .onFailure {
+                    // An accept is idempotent (a member answers alreadyMember): Retry.
                     _state.value = _state.value.copy(
                         accepting = false,
-                        error = trpcErrorMessage(it, "Couldn't join the team."),
+                        failure = FailedAction("accept", "the invite", trpcErrorMessage(it, "")) { accept(token) },
                     )
                 }
         }
@@ -115,6 +125,7 @@ fun InviteAcceptScreen(
     val instanceOrigin by viewModel.instanceOrigin.collectAsStateWithLifecycle()
 
     LaunchedEffect(token) { viewModel.load(token) }
+    FailedActionToast(state.failure, onShown = viewModel::clearFailure)
     // EXP-1169: a caller who owns no device sees the devices step first; its
     // Continue leaves instead.
     LaunchedEffect(state.acceptedTeamName, state.showDeviceStep) {
@@ -150,11 +161,20 @@ fun InviteAcceptScreen(
                 ) {
                     OnboardingDevicesStep(instanceOrigin = instanceOrigin, onContinue = onAccepted)
                 }
-                state.loading -> CircularProgressIndicator()
-                state.error != null -> Text(
-                    state.error!!,
-                    color = MaterialTheme.colorScheme.error,
-                )
+                // EXP-1275: skeleton rows, never a centred spinner.
+                state.loading -> SkeletonRows(dot = false)
+                // The invite could not be read (web parity): a state, not an error line.
+                state.error != null -> Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("Invalid invite", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        state.error!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 state.preview != null -> {
                     val preview = state.preview!!
                     Card(
@@ -183,7 +203,7 @@ fun InviteAcceptScreen(
                                 Text(
                                     "This invite has already been used.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }

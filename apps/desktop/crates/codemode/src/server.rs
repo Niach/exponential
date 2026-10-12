@@ -24,6 +24,14 @@ const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 const BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// A script bigger than this is a mistake, not a program.
 const SCRIPT_MAX_BYTES: usize = 256 * 1024;
+/// EXP-1279: where an exec's call log rides in its result's `_meta`
+/// (`script-card.json` `metaKey`/`metaCountKey`/`metaElapsedKey`): the
+/// `[{tool, subject, ok, ms}]` log (at most [`crate::LOG_CAP`]), every call
+/// the script made, and its wall time. Never in the text content: the model
+/// would pay tokens for it.
+pub const META_CALLS_KEY: &str = "exponential/calls";
+pub const META_COUNT_KEY: &str = "exponential/callCount";
+pub const META_ELAPSED_KEY: &str = "exponential/elapsedMs";
 /// One nested call's ceiling: past the longest legitimate upstream call
 /// (`exponential_sessions_get` waits for idle up to 600 s, plus its 10 s
 /// grace and a poll), so a hung upstream cannot pin the script forever and
@@ -250,6 +258,15 @@ fn exec(run: &Arc<Run>, arguments: &Value) -> Value {
         outcome.workers,
         if outcome.truncated { ", truncated" } else { "" }
     );
+    crate::reports::publish(
+        &run.session_id,
+        script,
+        crate::ScriptReport {
+            count: outcome.calls.count,
+            elapsed_ms: outcome.elapsed.as_millis() as u64,
+            calls: outcome.calls.log.clone(),
+        },
+    );
     outcome_result(&outcome)
 }
 
@@ -271,9 +288,20 @@ pub(crate) fn outcome_result(outcome: &ExecOutcome) -> Value {
         "elapsedMs": outcome.elapsed.as_millis() as u64,
         "truncated": outcome.truncated,
     });
+    let calls: Vec<Value> = outcome
+        .calls
+        .log
+        .iter()
+        .map(|call| json!({ "tool": call.tool, "subject": call.subject, "ok": call.ok, "ms": call.ms }))
+        .collect();
     let mut result = json!({
         "content": [{ "type": "text", "text": serde_json::to_string_pretty(&structured).unwrap_or_default() }],
         "structuredContent": structured,
+        "_meta": {
+            META_CALLS_KEY: calls,
+            META_COUNT_KEY: outcome.calls.count,
+            META_ELAPSED_KEY: outcome.elapsed.as_millis() as u64,
+        },
     });
     if !outcome.ok() {
         result["isError"] = json!(true);
@@ -494,18 +522,28 @@ mod tests {
         let hub = Hub::new();
         let token = hub.grant("s1", "EXP-1", vec![computer], vec!["playwright".into()]);
         let started = std::time::Instant::now();
-        let reply = call(
-            &hub,
-            &token,
-            "exec",
-            json!({ "script": "const [a, b, w] = await Promise.all([tools.computer.slow({}), tools.computer.slow({}), tools.computer.list_windows({})]); console.log('n', w.length); return w.map((x) => x.title);" }),
-        );
+        let script = "const [a, b, w] = await Promise.all([tools.computer.slow({}), tools.computer.slow({}), tools.computer.list_windows({})]); console.log('n', w.length); return w.map((x) => x.title);";
+        let reply = call(&hub, &token, "exec", json!({ "script": script }));
         let result = &reply["result"];
         assert!(result.get("isError").is_none(), "{reply}");
         assert_eq!(result["structuredContent"]["ok"], json!(true));
         assert_eq!(result["structuredContent"]["result"], json!(["A", "B"]));
         assert_eq!(result["structuredContent"]["console"], json!("n 2\n"));
         assert_eq!(result["structuredContent"]["calls"]["count"], json!(3));
+        // EXP-1279: the call log rides `_meta`, never the text the model reads.
+        let meta = &result["_meta"];
+        assert_eq!(meta[META_COUNT_KEY], json!(3));
+        assert!(meta[META_ELAPSED_KEY].as_u64().is_some(), "{meta}");
+        let calls = meta[META_CALLS_KEY].as_array().unwrap();
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|call| call["ok"] == json!(true) && call["ms"].is_u64()), "{calls:?}");
+        assert_eq!(calls.iter().filter(|call| call["tool"] == json!("computer.slow")).count(), 2);
+        assert_eq!(calls[0]["subject"], Value::Null);
+        assert!(!result["content"][0]["text"].as_str().unwrap().contains("exponential/"));
+        // The engine takes the same log off the side channel, once.
+        let report = crate::take_report("s1", script).expect("the exec filed its log");
+        assert_eq!((report.count, report.calls.len()), (3, 3));
+        assert_eq!(crate::take_report("s1", script), None);
         assert!(started.elapsed() < Duration::from_millis(1000), "two 300 ms calls overlapped: {:?}", started.elapsed());
         let seen = seen.lock().unwrap();
         assert!(seen.iter().filter(|line| *line != "tools/list").all(|line| line.starts_with("Bearer computer-secret ")), "{seen:?}");
@@ -544,6 +582,20 @@ mod tests {
         *run.catalog.lock().unwrap() = Some((catalog, Some(Instant::now() - Duration::from_secs(1))));
         call(&hub, &token, "describe", json!({}));
         assert_eq!(lists(), 2, "an expired partial catalog is reloaded");
+    }
+
+    /// EXP-1279: the `_meta` keys and the log cap are the contract's.
+    #[test]
+    fn the_meta_keys_and_the_log_cap_are_the_script_card_contract() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/script-card.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["metaKey"], json!(META_CALLS_KEY));
+        assert_eq!(fixture["metaCountKey"], json!(META_COUNT_KEY));
+        assert_eq!(fixture["metaElapsedKey"], json!(META_ELAPSED_KEY));
+        assert_eq!(fixture["logCap"], json!(crate::LOG_CAP));
+        assert_eq!(fixture["toolNameSuffix"], json!(format!("{SERVER_NAME}__exec")));
     }
 
     #[test]

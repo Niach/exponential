@@ -78,7 +78,7 @@
               { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
               { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
               { "part": "caption", "component": "Text", "$if": "props.caption", "props": { "text": "{props.caption}", "variant": "muted", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
-              { "part": "loading", "component": "Spinner", "$if": "props.loading", "props": { "size": "sm", "label": "$string.loading" } },
+              { "part": "loading", "component": "Spinner", "$if": "props.loading", "props": { "size": "xs", "label": "$string.loading" } },
               { "part": "count", "component": "Text", "$if": "props.count", "props": { "text": { "$text": "props.count" }, "variant": "muted" } },
               { "part": "spacer", "component": "Box", "style": { "flexGrow": 1, "minWidth": 0 } },
               "$slot:trailing"
@@ -98,7 +98,7 @@
               { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
               { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
               { "part": "caption", "component": "Text", "$if": "props.caption", "props": { "text": "{props.caption}", "variant": "muted", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
-              { "part": "loading", "component": "Spinner", "$if": "props.loading", "props": { "size": "sm", "label": "$string.loading" } },
+              { "part": "loading", "component": "Spinner", "$if": "props.loading", "props": { "size": "xs", "label": "$string.loading" } },
               { "part": "count", "component": "Text", "$if": "props.count", "props": { "text": { "$text": "props.count" }, "variant": "muted" } },
               { "part": "spacer", "component": "Box", "style": { "flexGrow": 1, "minWidth": 0 } },
               "$slot:trailing"

@@ -184,6 +184,8 @@ fun GlassSheet(
             Column(modifier = Modifier.weight(1f, fill = full)) {
                 content()
             }
+            // FEED-79: a failed action's toast draws above this sheet.
+            OverlayToastHost()
             if (primaryAction != null) {
                 GlassSubmitButton(
                     label = primaryAction.label,

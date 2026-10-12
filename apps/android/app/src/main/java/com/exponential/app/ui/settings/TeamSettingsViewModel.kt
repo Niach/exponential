@@ -17,6 +17,7 @@ import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.api.LabelsApi
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.TeamInvitesApi
@@ -36,11 +37,11 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
@@ -81,20 +82,16 @@ data class TeamSettingsState(
     // GitHub connection and the installations their token sees. Null while
     // loading or after a failed probe.
     val githubStatus: GithubStatusResult? = null,
-    // The status probe failed (and no earlier value is on screen) — the block
-    // says so with a Retry instead of rendering nothing.
-    val githubFailed: Boolean = false,
     // SLOP-26: a connect hop being minted (the ticket round-trip before the
     // Custom Tab opens) — the Connect/Reconnect pill is held meanwhile.
     val githubConnecting: Boolean = false,
     // EXP-1274: an already-loaded registry re-probing (Retry, resume, a
     // reconnect) — the section band spins its 12dp loading glyph.
     val reposRefreshing: Boolean = false,
-    // FEED-42: registry/GitHub failures (list load, remove, unlink, a failed
-    // connect hop) render INLINE above the list, never as a snackbar.
-    val repositoriesError: String? = null,
     val currentUserId: String? = null,
-    val transient: String? = null,
+    // FEED-79: the screen's failed action (a mutation, a load, a GitHub hop),
+    // raised once as an error toast.
+    val transient: FailedAction? = null,
     val instanceUrl: String? = null,
     val teamDeleted: Boolean = false,
     // Active account id — the repo picker sheet (GithubRepoPickerSheet) takes
@@ -152,7 +149,7 @@ class TeamSettingsViewModel @Inject constructor(
         if (db == null || id == null) flowOf(emptyList()) else db.boardDao().observeByTeam(id)
     }
 
-    private val _transient = MutableStateFlow<String?>(null)
+    private val _transient = MutableStateFlow<FailedAction?>(null)
     private val _teamDeleted = MutableStateFlow(false)
     private val _repos = MutableStateFlow<List<TeamRepo>>(emptyList())
     private val _reposLoaded = MutableStateFlow(false)
@@ -161,11 +158,13 @@ class TeamSettingsViewModel @Inject constructor(
     // genuinely doesn't list (archived) must not loop the fetch.
     private val resolvedRepoIds = mutableSetOf<String>()
     private val _githubStatus = MutableStateFlow<GithubStatusResult?>(null)
-    private val _githubFailed = MutableStateFlow(false)
     private val _githubConnecting = MutableStateFlow(false)
     private val _reposRefreshing = MutableStateFlow(false)
-    private val _repositoriesError = MutableStateFlow<String?>(null)
-    val transient: StateFlow<String?> = _transient.asStateFlow()
+
+    /** FEED-79: `Couldn't <verb> <thing>` + the server's message, Retry when [retry] is safe. */
+    private fun fail(verb: String, thing: String, error: Throwable?, retry: (() -> Unit)? = null) {
+        _transient.value = FailedAction(verb, thing, error?.let { trpcErrorMessage(it, "") }, retry)
+    }
 
     init {
         // Repositories aren't an Electric shape — (re)load the registry over
@@ -179,15 +178,12 @@ class TeamSettingsViewModel @Inject constructor(
                     _resolvingRepoId.value = null
                     resolvedRepoIds.clear()
                     _githubStatus.value = null
-                    _githubFailed.value = false
-                    _repositoriesError.value = null
                     if (accountId != null && teamId != null) {
-                        // Failures surface inline instead of silently
-                        // rendering "No repositories connected yet." / hiding
-                        // the whole GitHub block (EXP-365, FEED-42).
+                        // A failed load is the empty list plus the toast
+                        // (EXP-365, FEED-79), never a silent "No repositories".
                         runCatching { repositoriesApi.list(accountId, teamId) }
                             .onSuccess { _repos.value = it }
-                            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t load repositories") }
+                            .onFailure { fail("load", "the repositories", it) { refreshRepos() } }
                         _reposLoaded.value = true
                         loadGithubStatus(accountId, teamId)
                     }
@@ -198,25 +194,24 @@ class TeamSettingsViewModel @Inject constructor(
         // without leaving the screen. Event counter, not a consumed one-shot
         // (EXP-365): the repo picker may be collecting too, and both must
         // refresh. drop(1) skips the StateFlow replay. An error slug means the
-        // hop FAILED: surface it instead of refreshing.
+        // hop FAILED: toast it instead of refreshing.
         viewModelScope.launch {
             deepLinkBus.githubConnected.drop(1).collect { event ->
                 if (event.error != null) {
-                    _repositoriesError.value = GithubCopy.LINK_FAILED
+                    _transient.value = FailedAction("connect", "GitHub", GithubCopy.LINK_FAILED)
                 } else {
                     refreshGithub()
                 }
             }
         }
         // SLOP-26: the link-ticket hop's outcome (EXP-1126 link mode) — a
-        // linked GitHub re-probes; a failure renders inline.
+        // linked GitHub re-probes; a failure is a toast.
         viewModelScope.launch {
             auth.linkResult.drop(1).collect { result ->
                 if (result.providerId != GithubConnectStarter.PROVIDER) return@collect
                 if (result.error != null) {
-                    _repositoriesError.value = result.error
+                    _transient.value = FailedAction("connect", "GitHub", result.error)
                 } else {
-                    _repositoriesError.value = null
                     refreshGithub()
                 }
             }
@@ -232,18 +227,19 @@ class TeamSettingsViewModel @Inject constructor(
     fun connectGithub(open: (String) -> Unit) {
         val accountId = auth.activeAccountId.value ?: return
         if (_githubConnecting.value) return
-        _repositoriesError.value = null
         _githubConnecting.value = true
         viewModelScope.launch {
             try {
                 val hop = connectStarter.start(accountId, _githubStatus.value?.connectUrl)
                 if (hop == null) {
-                    _repositoriesError.value = GithubCopy.LINK_FAILED
+                    _transient.value = FailedAction("connect", "GitHub", GithubCopy.LINK_FAILED) { connectGithub(open) }
                 } else {
                     open(hop.url)
                 }
             } catch (e: Exception) {
-                _repositoriesError.value = trpcErrorMessage(e, GithubCopy.LINK_FAILED)
+                _transient.value = FailedAction("connect", "GitHub", trpcErrorMessage(e, GithubCopy.LINK_FAILED)) {
+                    connectGithub(open)
+                }
             } finally {
                 _githubConnecting.value = false
             }
@@ -253,8 +249,8 @@ class TeamSettingsViewModel @Inject constructor(
     // Re-fetch the registry + grant state (bypassing the server's repo cache)
     // after a GitHub reconnect lands, or on screen resume as the deep-link
     // fallback (EXP-365 — a swallowed deep link left the row stale forever).
-    // Failures keep the last good value (the failed line shows only when
-    // there is none) — also the failed state's Retry.
+    // Failures keep the last good value (the toast shows only when there is
+    // none) — also the toast's Retry.
     fun refreshGithub() {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
@@ -272,14 +268,12 @@ class TeamSettingsViewModel @Inject constructor(
 
     private suspend fun loadGithubStatus(accountId: String, teamId: String) {
         runCatching { integrationsApi.githubStatus(accountId, teamId) }
-            .onSuccess {
-                _githubStatus.value = it
-                _githubFailed.value = false
+            .onSuccess { _githubStatus.value = it }
+            .onFailure {
+                // FEED-79: no block (nothing to show) plus the toast.
+                if (_githubStatus.value == null) fail("load", "the GitHub connection", it) { refreshGithub() }
             }
-            .onFailure { if (_githubStatus.value == null) _githubFailed.value = true }
     }
-
-    fun clearRepositoriesError() { _repositoriesError.value = null }
 
     // FEED-32: a board's synced repositoryId can point at a repo this registry
     // copy has never seen — the settings sheet connects a new repo and the
@@ -296,7 +290,7 @@ class TeamSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repositoriesApi.list(accountId, teamId) }
                 .onSuccess { _repos.value = it }
-                .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't load repositories") }
+                .onFailure { fail("load", "the repositories", it) }
             if (_resolvingRepoId.value == repositoryId) _resolvingRepoId.value = null
         }
     }
@@ -306,9 +300,8 @@ class TeamSettingsViewModel @Inject constructor(
     // re-fetched either way so the block reflects the outcome.
     fun disconnectGithub() = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        _repositoriesError.value = null
         runCatching { integrationsApi.githubDisconnect(accountId) }
-            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t disconnect GitHub") }
+            .onFailure { fail("disconnect", "GitHub", it) }
         refreshGithub()
     }
 
@@ -329,8 +322,6 @@ class TeamSettingsViewModel @Inject constructor(
             auth.activeAccountId,
             _reposLoaded,
             _resolvingRepoId,
-            _githubFailed,
-            _repositoriesError,
             _githubConnecting,
             _reposRefreshing,
         )
@@ -352,15 +343,13 @@ class TeamSettingsViewModel @Inject constructor(
         val users = values[7] as List<UserEntity>
         val currentUserId = values[8] as String?
         val instance = values[9] as String?
-        val transient = values[10] as String?
+        val transient = values[10] as FailedAction?
         val deleted = values[11] as Boolean
         val accountId = values[12] as String?
         val reposLoaded = values[13] as Boolean
         val resolvingRepoId = values[14] as String?
-        val githubFailed = values[15] as Boolean
-        val repositoriesError = values[16] as String?
-        val githubConnecting = values[17] as Boolean
-        val reposRefreshing = values[18] as Boolean
+        val githubConnecting = values[15] as Boolean
+        val reposRefreshing = values[16] as Boolean
         val placeholders = placeholderStatuses(invites)
         TeamSettingsState(
             team = team,
@@ -382,10 +371,8 @@ class TeamSettingsViewModel @Inject constructor(
             reposLoaded = reposLoaded,
             resolvingRepoId = resolvingRepoId,
             githubStatus = githubStatus,
-            githubFailed = githubFailed,
             githubConnecting = githubConnecting,
             reposRefreshing = reposRefreshing,
-            repositoriesError = repositoriesError,
             currentUserId = currentUserId,
             transient = transient,
             instanceUrl = instance,
@@ -394,44 +381,44 @@ class TeamSettingsViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamSettingsState())
 
-    fun updateRole(memberId: String, role: String) = viewModelScope.launch {
+    fun updateRole(memberId: String, role: String): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { membersApi.updateRole(accountId, memberId, role) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the role") }
+            .onFailure { fail("change", "the role", it) { updateRole(memberId, role) } }
     }
 
     /** Owner-only (the rows are): kill a pending invite link. */
     fun revokeInvite(inviteId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { invitesApi.revoke(accountId, inviteId) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't revoke the invite") }
+            .onFailure { fail("revoke", "the invite", it) }
     }
 
     fun removeMember(memberId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { membersApi.remove(accountId, memberId) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't remove the member") }
+            .onFailure { fail("remove", "the member", it) }
     }
 
     fun deleteLabel(labelId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.delete(accountId, teamId, labelId) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the label") }
+            .onFailure { fail("delete", "the label", it) }
     }
 
-    fun renameLabel(labelId: String, name: String) = viewModelScope.launch {
+    fun renameLabel(labelId: String, name: String): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.update(accountId, UpdateLabelInput(teamId, labelId, name = name)) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't rename the label") }
+            .onFailure { fail("rename", "the label", it) { renameLabel(labelId, name) } }
     }
 
-    fun recolorLabel(labelId: String, color: String) = viewModelScope.launch {
+    fun recolorLabel(labelId: String, color: String): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
         runCatching { labelsApi.update(accountId, UpdateLabelInput(teamId, labelId, color = color)) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't update the label") }
+            .onFailure { fail("update", "the label", it) { recolorLabel(labelId, color) } }
     }
 
     fun createLabel(name: String, color: String) = viewModelScope.launch {
@@ -444,7 +431,7 @@ class TeamSettingsViewModel @Inject constructor(
                 // Electric re-delivers the same row, so this is only a head-start).
                 runCatching { holder.database(forAccountId = accountId).labelDao().upsert(created) }
             }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't create the label") }
+            .onFailure { fail("create", "the label", it) }
     }
 
     fun consumeTransient() { _transient.value = null }
@@ -454,24 +441,24 @@ class TeamSettingsViewModel @Inject constructor(
         val teamId = selection.selectedId.value ?: return@launch
         runCatching { teamsApi.delete(accountId, teamId) }
             .onSuccess { _teamDeleted.value = true }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the team") }
+            .onFailure { fail("delete", "the team", it) }
     }
 
     fun deleteBoard(boardId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { teamsApi.deleteBoard(accountId, boardId) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't delete the board") }
+            .onFailure { fail("delete", "the board", it) }
     }
 
     // --- Repositories registry (server-only; the list is re-fetched after
     // every mutation because there is no Electric shape to sync it back). ---
 
-    fun refreshRepos() = viewModelScope.launch {
+    fun refreshRepos(): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
         runCatching { repositoriesApi.list(accountId, teamId) }
             .onSuccess { _repos.value = it }
-            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t load repositories") }
+            .onFailure { fail("load", "the repositories", it) { refreshRepos() } }
     }
 
     // Member-level since EXP-557: register a repo picked from the caller's own
@@ -483,18 +470,16 @@ class TeamSettingsViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return
         val teamId = selection.selectedId.value ?: return
         repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate)
-        _repositoriesError.value = null
         refreshGithub()
     }
 
     // Remove a repo from the registry (sharer-or-owner, EXP-557). Blocked
-    // server-side (CONFLICT) while any board still points at it — surface that
-    // message verbatim (masterplan §6).
+    // server-side (CONFLICT) while any board still points at it — the toast
+    // carries that message verbatim (masterplan §6).
     fun removeRepo(repositoryId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        _repositoriesError.value = null
         runCatching { repositoriesApi.remove(accountId, repositoryId) }
-            .onFailure { _repositoriesError.value = trpcErrorMessage(it, "Couldn’t remove the repository") }
+            .onFailure { fail("remove", "the repository", it) }
         refreshRepos()
     }
 
@@ -502,10 +487,10 @@ class TeamSettingsViewModel @Inject constructor(
     // (boards.setRepository). `null` detaches it. EXP-712: the server RESETS
     // the board's branch pin on every retarget (it belonged to the old repo),
     // which is exactly what the sheet shows afterwards.
-    fun setBoardRepository(boardId: String, repositoryId: String?) = viewModelScope.launch {
+    fun setBoardRepository(boardId: String, repositoryId: String?): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { repositoriesApi.setRepository(accountId, boardId, repositoryId) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the repository") }
+            .onFailure { fail("change", "the board's repository", it) { setBoardRepository(boardId, repositoryId) } }
         refreshRepos()
     }
 
@@ -523,23 +508,23 @@ class TeamSettingsViewModel @Inject constructor(
         val teamId = selection.selectedId.value ?: return@launch
         val added = runCatching {
             repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate)
-        }.onFailure { _transient.value = trpcErrorMessage(it, "Couldn't add the repository") }
+        }.onFailure { fail("connect", fullName, it) }
         if (added.isFailure) return@launch
         val repos = runCatching { repositoriesApi.list(accountId, teamId) }
             .onSuccess { _repos.value = it }
             .getOrNull() ?: return@launch
         val repo = repos.firstOrNull { it.fullName == fullName } ?: return@launch
         runCatching { repositoriesApi.setRepository(accountId, boardId, repo.id) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the repository") }
+            .onFailure { fail("change", "the board's repository", it) { setBoardRepository(boardId, repo.id) } }
         refreshRepos()
     }
 
     // EXP-712: the board's OWN branch (boards.update) — `null` clears the pin
     // so the board follows its repo's default branch again. The updated row
     // arrives over Electric.
-    fun setBoardBranch(boardId: String, branch: String?) = viewModelScope.launch {
+    fun setBoardBranch(boardId: String, branch: String?): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { boardsApi.setDefaultBranch(accountId, boardId, branch) }
-            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the branch") }
+            .onFailure { fail("set", "the branch", it) { setBoardBranch(boardId, branch) } }
     }
 }

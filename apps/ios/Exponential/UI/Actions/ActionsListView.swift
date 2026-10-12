@@ -5,10 +5,11 @@ import SwiftUI
 /// The Actions surface (EXP-253): the action prompts of EVERY member team
 /// (EXP-1186: cross-team like the Inbox — one band per team, `TeamAvatar` +
 /// name, once the caller is in more than one), each with a Run affordance
-/// that opens the composer on the action's OWN team. EXP-825: Run, "New action" (EXP-431, in the web-parity
-/// "Actions" section header since EXP-574) and a suggestion's tap are all
-/// NAVIGATION into the Agent page composer, seeded with the action (or the
-/// Create action builtin plus the suggestion's text and icon). SLOP-2: a row
+/// that opens the composer on the action's OWN team. EXP-825: Run and "New
+/// action" (EXP-431, in the web-parity "Actions" section header since
+/// EXP-574) are NAVIGATION into the Agent page composer, seeded with the
+/// action (or the Create action builtin). EXP-1270: the Suggestions segment
+/// and its seed cards are gone ×4, so the surface is the list alone. SLOP-2: a row
 /// tap (and the row menu's "Edit") pushes the ACTION PAGE (`ActionDetailView`:
 /// Prompt · Triggers · Runs) — it replaced the edit sheet, and the Automations
 /// segment with it: an action carries its triggers, shown here as the glyphs
@@ -19,27 +20,6 @@ struct ActionsListView: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: ActionsViewModel?
-    /// Actions · Suggestions (the MyWorkView segment pattern — the choice
-    /// survives relaunch via AppStorage; a stored `automations` from before
-    /// SLOP-2 reads as Actions).
-    @AppStorage("actionsSegment") private var segmentRaw = Segment.actions.rawValue
-
-    private enum Segment: String, CaseIterable {
-        case actions
-        case suggestions
-
-        var label: String {
-            switch self {
-            case .actions: return "Actions"
-            case .suggestions: return "Suggestions"
-            }
-        }
-    }
-
-    private var segment: Segment {
-        Segment(rawValue: segmentRaw) ?? .actions
-    }
-
     var body: some View {
         ZStack {
             AppBackground()
@@ -87,56 +67,22 @@ struct ActionsListView: View {
 
     // MARK: - Content
 
-    /// The segmented pair — Actions (the run list) and Suggestions (seed
-    /// ideas).
     @ViewBuilder
     private func content(_ vm: ActionsViewModel) -> some View {
-        VStack(spacing: 0) {
-            GlassSegmentedControl(
-                options: Segment.allCases,
-                selection: segment,
-                label: { $0.label },
-                identifier: { "actions-segment-\($0.rawValue)" },
-                onSelect: selectSegment
-            )
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-
-            // EXP-1190: the segments are PAGES that follow the finger, like
-            // the action page's tabs.
-            FacePager(pages: Segment.allCases, selection: selection) { page in
-                switch page {
-                case .actions:
-                    VStack(spacing: 0) { actionsContent(vm) }
-                case .suggestions:
-                    suggestionsContent
-                }
-            }
-        }
-    }
-
-    /// The pager's selection: a drag onto a page writes the stored segment.
-    private var selection: Binding<Segment> {
-        Binding(get: { segment }, set: { segmentRaw = $0.rawValue })
-    }
-
-    /// A segment tap slides the pages.
-    private func selectSegment(_ next: Segment) {
-        guard next != segment else { return }
-        withAnimation { segmentRaw = next.rawValue }
+        VStack(spacing: 0) { actionsContent(vm) }
     }
 
     @ViewBuilder
     private func actionsContent(_ vm: ActionsViewModel) -> some View {
-        if vm.actions.isEmpty {
+        if vm.actions.isEmpty, vm.isLoading {
+            // EXP-1275: the first load draws skeleton rows in the list's own
+            // place, not a centred spinner.
+            SkeletonRows()
+                .padding()
             Spacer()
-            if vm.isLoading {
-                ProgressView().tint(.white)
-            } else if let error = vm.loadError {
-                errorState(error)
-            } else {
-                emptyState
-            }
+        } else if vm.actions.isEmpty {
+            Spacer()
+            emptyState
             Spacer()
         } else {
             ScrollView {
@@ -198,105 +144,8 @@ struct ActionsListView: View {
         .accessibilityLabel("New action")
     }
 
-    // MARK: - Suggestions (EXP-530)
-
-    private var suggestionsContent: some View {
-        ScrollView {
-            // Polish pin ×4: ONE "Suggestions" band over flat, gapless,
-            // hairline-divided rows — no per-row fill, no trailing chevron.
-            LazyVStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand("Suggestions")
-                ForEach(Array(ActionSuggestion.seeds.enumerated()), id: \.element.id) { index, seed in
-                    if index > 0 { GlassDivider() }
-                    suggestionCard(seed)
-                }
-            }
-            .padding()
-        }
-        .tabBarBottomInset()
-    }
-
-    /// EXP-694: the whole card IS the affordance — the "Use" pill was the only
-    /// text button sitting where every sibling list puts a glyph, and a
-    /// suggestion row has nothing else to tap.
-    private func suggestionCard(_ suggestion: ActionSuggestion) -> some View {
-        Button {
-            useSuggestion(suggestion)
-        } label: {
-            HStack(spacing: 12) {
-                AppIcon(suggestion.icon, size: AppIcon.Size.medium)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    // SLOP-2: a seed that carries a trigger wears that
-                    // trigger's glyph beside its title — what the tap will
-                    // set up besides the action.
-                    HStack(spacing: 6) {
-                        Text(suggestion.title)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        TriggerGlyphs(badges: TriggerBadges.of(suggested: suggestion.trigger))
-                    }
-                    Text(suggestion.description)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(3)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
-            .flatRow()
-            .contentShape(Rectangle())
-        }
-        // `.plain` is what every tappable glass row in the app wears (the
-        // ended-run rows, the session rows) — the tap feedback is the row's
-        // own highlight, never a blue tint.
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("suggestion-row")
-    }
-
-    /// Tapping a suggestion opens the composer on the Create action builtin
-    /// with the suggestion's description as the request and its icon picked.
-    /// A seed with a trigger appends the machine-readable block the creator
-    /// agent passes to `exponential_actions_update` (byte-identical across
-    /// the four clients — `TriggerNote.format`), bound to the caller's default
-    /// trigger-capable machine, else the first one (offline included: a
-    /// sleeping box still owns the trigger). No such machine = no block.
-    private func useSuggestion(_ suggestion: ActionSuggestion) {
-        var text = suggestion.description
-        if let trigger = suggestion.trigger, let device = triggerDevice {
-            text += TriggerNote.format(TriggerSpec(trigger: trigger, deviceId: device.deviceId))
-        }
-        openComposer(AgentComposerSeed(
-            actionId: DomainContract.builtinCreateActionId,
-            text: text,
-            icon: suggestion.icon
-        ))
-    }
-
-    /// The suggested trigger's runner (web `triggerDevices` + `defaultDeviceId`).
-    private var triggerDevice: SteerDevice? {
-        let candidates = (viewModel?.allDevices ?? []).filter(\.canRunTriggers)
-        return candidates.first(where: \.isDefaultDevice) ?? candidates.first
-    }
-
     private var emptyState: some View {
         EmptyState(.actions)
-    }
-
-    private func errorState(_ message: String) -> some View {
-        VStack(spacing: 12) {
-            AppIcon(AppIcons.uiWarning, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 40)
     }
 
     private func actionRow(_ action: ActionDto) -> some View {

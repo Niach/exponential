@@ -32,6 +32,49 @@ pub const STANDARD: Duration = Duration::from_millis(m::duration::STANDARD_MS);
 /// Large surfaces — docks, sheets, full-column swaps.
 pub const SLOW: Duration = Duration::from_millis(m::duration::SLOW_MS);
 
+/// EXP-1243: a pressed button's scale (`motion.scale.press`). gpui has NO
+/// element transform (only SVG paths rotate/scale), so the desktop cannot
+/// scale a button: a press shows the control's own active tint instead.
+pub const PRESS_SCALE: f32 = m::scale::PRESS;
+/// EXP-1243: where a popover, menu or picker scales in from
+/// (`motion.scale.popoverFrom`, never 0). Same gpui limit: the desktop's
+/// overlays enter as a fade (plus the SDK's short rise), never a scale.
+pub const POPOVER_FROM_SCALE: f32 = m::scale::POPOVER_FROM;
+
+/// EXP-1243: an overlay's ENTER — [`STANDARD`] on [`decelerate`].
+pub const ENTER: Duration = STANDARD;
+/// EXP-1243: an overlay's EXIT — faster than the enter, [`FAST`] on
+/// [`accelerate`], opacity only.
+pub const EXIT: Duration = FAST;
+
+/// EXP-1243: the motion rules, in the web styleguide's `tokens-motion`
+/// order (`apps/styleguide/src/components.tsx`): what moves, and how. The
+/// IDE styleguide lists them under its feedback-states entry.
+pub fn rules() -> Vec<(&'static str, String)> {
+    let (fast, standard, slow) = (
+        m::duration::FAST_MS,
+        m::duration::STANDARD_MS,
+        m::duration::SLOW_MS,
+    );
+    let (press, from) = (m::scale::PRESS, m::scale::POPOVER_FROM);
+    vec![
+        (
+            "Popover, menu, tooltip",
+            format!("enter · decelerate {standard} · scale {from} → 1 + fade, from the trigger"),
+        ),
+        ("Popover exit", format!("accelerate {fast} · fade only")),
+        ("Dialog", format!("enter · decelerate {standard} · scale {from} → 1 + fade")),
+        (
+            "Sheet",
+            format!("enter · decelerate {slow} · slide · exit accelerate {standard}"),
+        ),
+        ("Button press", format!("scale {press}")),
+        ("Keyboard, typeahead, tabs, toggles", "none".to_string()),
+        ("Toasts", "toast-stack.json".to_string()),
+        ("Reduce motion", "opacity only".to_string()),
+    ]
+}
+
 /// A CSS-accurate cubic-bezier easing over control points `[x1, y1, x2, y2]`
 /// (P0 = (0,0) and P3 = (1,1) implicit): Newton–Raphson solves `x(t) =
 /// progress`, then the result is evaluated through `y(t)`.
@@ -84,6 +127,21 @@ mod tests {
     fn durations_come_from_the_shared_tokens() {
         assert_eq!(STANDARD, Duration::from_millis(m::duration::STANDARD_MS));
         assert!(FAST < STANDARD && STANDARD < SLOW);
+    }
+
+    /// EXP-1243: the scales are the shared tokens, and an overlay leaves
+    /// faster than it arrives.
+    #[test]
+    fn the_scales_and_the_enter_exit_pair_are_the_rules() {
+        assert_eq!(PRESS_SCALE, 0.97);
+        assert_eq!(POPOVER_FROM_SCALE, 0.96);
+        assert!(EXIT < ENTER);
+        let rules = rules();
+        assert_eq!(rules.len(), 8);
+        assert_eq!(rules[0].1, "enter · decelerate 180 · scale 0.96 → 1 + fade, from the trigger");
+        assert_eq!(rules[1].1, "accelerate 120 · fade only");
+        assert_eq!(rules[4].1, "scale 0.97");
+        assert_eq!(rules[7], ("Reduce motion", "opacity only".to_string()));
     }
 
     #[test]

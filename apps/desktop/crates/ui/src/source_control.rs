@@ -338,9 +338,19 @@ impl SourceControlView {
                         this.status = Some(summary);
                         this.error = None;
                     }
+                    // FEED-79: a failed read = the empty view + ONE toast per
+                    // failing streak (the status refreshes on its own).
                     Err(err) => {
+                        if this.status.is_some() || this.error.is_none() {
+                            crate::action_error::failed_action(
+                                "read",
+                                "the git status",
+                                Some(err.to_string()),
+                                cx,
+                            );
+                        }
                         this.status = None;
-                        this.error = Some(format!("git status failed: {err}").into());
+                        this.error = Some(err.to_string().into());
                     }
                 }
                 this.conflict = conflict;
@@ -485,8 +495,12 @@ impl SourceControlView {
             return;
         };
         let Some(manager) = coding_flow::window_terminal_manager(window, cx) else {
-            self.error = Some("No terminal in this window.".into());
-            cx.notify();
+            crate::action_error::failed_action(
+                "open",
+                "a terminal",
+                Some("No terminal in this window.".into()),
+                cx,
+            );
             return;
         };
         let shell_override = crate::coding_flow::terminal_shell_override(cx);
@@ -494,8 +508,7 @@ impl SourceControlView {
             manager.open_shell(Some(scope.clone_dir.clone()), shell_override, cx)
         });
         if let Err(err) = result {
-            self.error = Some(format!("Could not open terminal: {err}").into());
-            cx.notify();
+            crate::action_error::failed_action("open", "a terminal", Some(err.to_string()), cx);
         }
     }
 
@@ -520,7 +533,11 @@ impl SourceControlView {
             let _ = this.update(cx, |this, cx| {
                 this.busy = None;
                 if let Err(err) = result {
-                    this.error = Some(format!("Abort failed: {err}").into());
+                    let thing = match kind {
+                        coding::scm::ConflictKind::Rebase => "the rebase",
+                        coding::scm::ConflictKind::Merge => "the merge",
+                    };
+                    crate::action_error::failed_action("abort", thing, Some(err.to_string()), cx);
                 }
                 this.refresh(cx);
             });
@@ -694,7 +711,6 @@ impl SourceControlView {
         // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
         // listener borrows below.
         let muted = cx.theme().muted_foreground;
-        let danger = cx.theme().danger;
 
         let column = gpui_component::v_flex()
             .size_full()
@@ -713,16 +729,8 @@ impl SourceControlView {
         }
         let failed = error.is_some();
         column
-            .child(match error {
-                Some(error) => div()
-                    .max_w_full()
-                    .text_color(danger)
-                    .child(SharedString::from(format!("Repository clone failed: {error}")))
-                    .into_any_element(),
-                None => div()
-                    .child("Repository not cloned yet.")
-                    .into_any_element(),
-            })
+            // The failed clone was a toast (FEED-79): the empty state.
+            .child("Repository not cloned yet.")
             .when(git_missing, |this| {
                 this.child(
                     "Git is required to clone repositories. Install it, then run \
@@ -898,7 +906,6 @@ impl Render for SourceControlView {
             }
         }
         let conflict = self.conflict.clone();
-        let error = self.error.clone();
 
         // EXP-282: no opaque fill — the screen floats on the page gradient
         // like every other center screen (the old `theme.background` paint
@@ -907,17 +914,6 @@ impl Render for SourceControlView {
             .size_full()
             .when_some(conflict, |this, conflict| {
                 this.child(self.render_conflict_banner(&conflict, cx))
-            })
-            .when_some(error, |this, error| {
-                this.child(
-                    div()
-                        .flex_shrink_0()
-                        .px_3()
-                        .py_1()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(error),
-                )
             })
             .child(self.render_body(cx))
     }
@@ -1556,11 +1552,13 @@ impl HistoryList {
             .child(gutter)
             .child(
                 crate::surface::glass_pill_button("hist-more", crate::surface::PillSize::Sm, cx)
+                    // EXP-1259 D8: the pending face — spinner + the word.
                     .label(if self.history_loading {
-                        "Loading…"
+                        crate::feedback::WORD_LOADING
                     } else {
                         "Load more"
                     })
+                    .loading(self.history_loading)
                     .disabled(self.history_loading)
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.load_more(cx);

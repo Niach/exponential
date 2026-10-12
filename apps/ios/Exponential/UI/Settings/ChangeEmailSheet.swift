@@ -116,6 +116,7 @@ struct ChangeEmailSheet: View {
                         .autocorrectionDisabled()
                         .focused($focused)
                         .onSubmit { Task { await model.sendCode(deps: deps) } }
+                        .overlay { invalidBorder }
                 } else {
                     GlassTextField("Code", text: $model.code, accessibilityIdentifier: "change-email-code-field")
                         .textContentType(.oneTimeCode)
@@ -124,12 +125,15 @@ struct ChangeEmailSheet: View {
                         .autocorrectionDisabled()
                         .focused($focused)
                         .onSubmit { Task { await confirm() } }
+                        .overlay { invalidBorder }
                 }
 
+                // FEED-79: an auth form's error is INPUT, inline under its
+                // field (13pt rose + a red field border), never a toast.
                 if let error = model.error {
                     Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red.opacity(0.8))
+                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                        .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -170,6 +174,13 @@ struct ChangeEmailSheet: View {
             }
         }
         .onAppear { focused = true }
+    }
+
+    @ViewBuilder private var invalidBorder: some View {
+        if model.error != nil {
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
+                .strokeBorder(DesignTokens.Semantic.red, lineWidth: 1)
+        }
     }
 
     private var description: String {

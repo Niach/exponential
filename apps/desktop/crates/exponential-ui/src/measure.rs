@@ -272,7 +272,14 @@ impl FixedMeasure {
                 let widest = text.lines().map(Self::chars).fold(0.0, f32::max);
                 (FIXED_CHAR_WIDTH * widest, FIXED_LINE_HEIGHT * lines)
             }
+            // EXP-1259: a loading Button never shrinks below its idle width
+            // and grows to fit `pendingLabel`.
+            "Button" if leaf.props.get("loading").and_then(Value::as_bool) == Some(true) => {
+                let chars = Self::chars(str_prop("label")).max(Self::chars(str_prop("pendingLabel")));
+                (FIXED_CHAR_WIDTH * chars + 24.0, c.height.unwrap_or(36.0))
+            }
             "Button" | "Toggle" => (FIXED_CHAR_WIDTH * Self::chars(str_prop("label")) + 24.0, c.height.unwrap_or(36.0)),
+            "SearchList" if leaf.part.is_none() => (240.0, 40.0 + FIXED_LINE_HEIGHT * leaf.props.get("items").and_then(Value::as_array).map_or(0, Vec::len).min(8) as f32),
             "Input" | "Select" | "DatePicker" => (160.0, c.height.unwrap_or(36.0)),
             "Textarea" if leaf.part.is_none() || leaf.part == Some("field") => (160.0, c.height.unwrap_or_else(|| Self::textarea_height(leaf))),
             "Textarea" | "Composer" => (160.0, c.height.unwrap_or(72.0)),

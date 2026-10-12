@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Download, LoaderCircle } from "lucide-react"
+import { Download } from "lucide-react"
 import {
   Button,
   Dialog,
@@ -9,7 +9,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  SkeletonRows,
 } from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import {
   MARKDOWN_PREVIEW_MAX_BYTES,
@@ -82,27 +84,34 @@ export function AttachmentMarkdownPreviewDialog({
   onOpenChange,
 }: AttachmentMarkdownPreviewDialogProps) {
   const [state, setState] = useState<PreviewState>({ status: `loading` })
+  // Bumped by the failure toast's Retry: the effect fetches again.
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!open || !attachment) return
     let cancelled = false
     setState({ status: `loading` })
+    // FEED-79: a failed load = the empty body + ONE toast (Retry refetches).
+    const fail = (message: string) => {
+      setState({ status: `error`, message })
+      failedAction(`load`, `the preview`, message, {
+        retry: () => setAttempt((count) => count + 1),
+      })
+    }
     loadMarkdownPreview(attachment)
       .then((next) => {
-        if (!cancelled) setState(next)
+        if (cancelled) return
+        if (next.status === `error`) fail(next.message)
+        else setState(next)
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        setState({
-          status: `error`,
-          message:
-            error instanceof Error ? error.message : `Couldn't load this file.`,
-        })
+        fail(error instanceof Error ? error.message : `Couldn't load this file.`)
       })
     return () => {
       cancelled = true
     }
-  }, [open, attachment])
+  }, [open, attachment, attempt])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -123,10 +132,7 @@ export function AttachmentMarkdownPreviewDialog({
         </DialogHeader>
         <DialogBody className="text-sm text-foreground">
           {state.status === `loading` && (
-            <p className="flex items-center gap-1.5 py-6 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3 animate-spin" />
-              Loading...
-            </p>
+            <SkeletonRows dot={false} rowHeight={28} className="-mx-3 py-4" />
           )}
           {state.status === `too-large` && (
             <p className="py-6 text-sm text-muted-foreground">
@@ -134,7 +140,9 @@ export function AttachmentMarkdownPreviewDialog({
             </p>
           )}
           {state.status === `error` && (
-            <p className="py-6 text-sm text-destructive">{state.message}</p>
+            <p className="py-6 text-sm text-muted-foreground">
+              No preview. Download it to read it.
+            </p>
           )}
           {state.status === `ready` && (
             <MarkdownEditor

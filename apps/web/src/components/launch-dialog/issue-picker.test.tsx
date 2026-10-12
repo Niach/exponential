@@ -1,10 +1,11 @@
-// EXP-1030/EXP-892: the composer's issue picker rides the SHARED issue picker
-// (`@exp/ui` `IssuePicker`, `mode="multi"`) with `shouldFilter={false}` — the
-// CALLER ranks (checked rows pinned first, then the shared engine's hits) and
-// the primitive renders that order verbatim. This pins all of it: the surface
-// it opens (`data-slot="picker"`, `data-picker-mode="multi"`), the order it
-// hands over, the primitive's own "picked" mark (`data-picked`), and that a
-// pick reports ONE issue id while the list stays open.
+// EXP-1030/EXP-892: the composer's issue picker rides THE search list
+// (SLOP-28, `@exp/ui` `SearchList`, `mode="multi"`) with `shouldFilter={false}`
+// — the CALLER ranks (checked rows pinned first, then the shared engine's
+// hits) and the list renders that order verbatim. This pins all of it: the
+// surface it opens (`data-slot="picker"`, `data-picker-mode="multi"`), the
+// order it hands over, the picked mark (`data-picked` + the trailing check,
+// composer-menu.json), and that a pick reports ONE issue id while the list
+// stays open.
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Issue } from "@/db/schema"
@@ -96,16 +97,26 @@ describe(`ComposerIssuePicker`, () => {
       `EXP-3Gamma`,
       `EXP-2Beta`,
     ])
-    // The primitive's own multi mark — the row's highlight, never a circle.
+    // The picked row wears the search list's trailing check, never a circle.
     expect(rows()[0]!.getAttribute(`data-picked`)).toBe(`true`)
+    expect(rows()[0]!.querySelector(`[data-selected-glyph=check]`)).toBeTruthy()
     expect(rows()[1]!.getAttribute(`data-picked`)).toBeNull()
     expect(rows()[0]!.getAttribute(`aria-pressed`)).toBe(`true`)
   })
 
-  it(`leads every row with its status glyph`, () => {
+  it(`draws the search list's issue row: status glyph, mono identifier, title`, () => {
     open()
     expect(rows()[0]!.querySelector(`[data-testid=status-icon]`)).toBeTruthy()
-    expect(rows()[0]!.querySelector(`[data-testid=priority-icon]`)).toBeTruthy()
+    expect(
+      rows()[0]!.querySelector(`[data-slot=picker-identifier]`)?.textContent
+    ).toBe(`EXP-3`)
+    // SLOP-28: one row shape everywhere — the composer's priority column is gone.
+    expect(rows()[0]!.querySelector(`[data-testid=priority-icon]`)).toBeNull()
+  })
+
+  it(`names its search field with the submenu test id`, () => {
+    open()
+    expect(screen.getByTestId(`agent-composer-submenu-search`)).toBeTruthy()
   })
 
   it(`reports one issue per pick and stays open`, () => {

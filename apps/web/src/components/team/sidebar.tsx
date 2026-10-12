@@ -36,6 +36,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
+  blockingLabel,
+  whileBlocking,
 } from "@exp/ui"
 import { useReviewsNav } from "@/hooks/use-nav-counts"
 import { useSession } from "@/hooks/use-session"
@@ -275,12 +277,17 @@ export function TeamSidebar({
                   {myTeams.map((ws) => (
                     <DropdownMenuItem
                       key={ws.id}
-                      onClick={() =>
-                        navigate({
-                          to: `/t/$teamSlug`,
-                          params: { teamSlug: ws.slug },
-                        })
-                      }
+                      onClick={() => {
+                        const go = () =>
+                          navigate({
+                            to: `/t/$teamSlug`,
+                            params: { teamSlug: ws.slug },
+                          })
+                        // EXP-1275: switching team blocks the window until
+                        // the other team's page is up.
+                        if (ws.slug === teamSlug) void go()
+                        else void whileBlocking(blockingLabel(`switchTeam`, ws.name), go)
+                      }}
                     >
                       <TeamAvatar name={ws.name} size={20} />
                       <span className="truncate">{ws.name}</span>
@@ -552,9 +559,9 @@ export function TeamSidebar({
                         the in-app mount is headless. Cloud-only — self-hosted
                         renders nothing here. */}
                     <FeedbackButton />
-                    {/* EXP-88: re-entry point for the Getting started cards
-                        once the board's inline block is gone. */}
-                    <GettingStartedButton />
+                    {/* EXP-88/EXP-1270: Getting started's re-entry point,
+                        the same block in a centred dialog. */}
+                    <GettingStartedButton team={team} teamSlug={teamSlug} />
                   </SidebarMenu>
                   {/* EXP-238: settings entry lives down here next to the user
                       block, like the IDE's rail gear. */}
@@ -568,9 +575,19 @@ export function TeamSidebar({
                           <UserAvatar />
                           {/* First name only (EXP-311) — the full name + email
                               live in account settings. */}
-                          <span className="truncate text-sm">
-                            {userLabel ? firstName(userLabel) : `Loading...`}
-                          </span>
+                          {userLabel ? (
+                            <span className="truncate text-sm">
+                              {firstName(userLabel)}
+                            </span>
+                          ) : (
+                            // D8: a short placeholder bar (the skeleton's
+                            // 8px muted bar) until the name lands.
+                            <span
+                              aria-hidden
+                              data-testid="sidebar-user-placeholder"
+                              className="h-2 w-14 shrink-0 rounded bg-muted"
+                            />
+                          )}
                           <NavTeamSwitcherIcon className="ml-auto h-4 w-4" />
                         </SidebarMenuButton>
                       </DropdownMenuTrigger>

@@ -4,7 +4,7 @@ Pinned before implementation (2026-09-12). Every lane implements exactly this;
 `apps/steer-relay/src/protocol.ts` (zod) and `crates/steer/src/frames.rs` are
 the schemas of record and must agree byte-for-byte with the shapes below.
 Raw CLI captures: `apps/desktop/crates/engine/tests/fixtures/claude/wire-captures/`.
-Contract vocabulary (already generated): `toolKind` += `wait`; new
+Contract vocabulary (already generated): `toolKind` += `wait` (and `script`, §1b); new
 `subagentStatus`, `workflowAgentState`, `workflowStatus`, `backgroundTaskKind`,
 `steerWorking { verbs[24], tokenTickMs: 2000, previewMax: 160 }`.
 
@@ -17,6 +17,44 @@ latest `background_tasks` (fallback: the id), for `Monitor` its `description`
 input. `toolGroupSummary` treats `wait` exactly like `other` (no fixture change).
 An unsettled `wait` row is rendered at the bottom strip (section 2) as
 `Waiting on {detail}`; in the transcript it stays an ordinary tool row.
+
+## 1b. `toolKind: "script"` and `tool_update.script` (EXP-1279)
+
+A code-mode call (`exec` on the `codemode` server: claude titles it
+`mcp__codemode__exec`, codex `mcp.codemode.exec`) is a `tool` row with
+`toolKind: "script"` (contract `toolKind` += `script`, before `other`).
+Clients key the "Ran a script" card on the kind, not the name. Its settle
+carries what the script did:
+
+```
+{ kind: "tool_update", id, status,
+  script: { count?, elapsedMs?, calls?: [ { tool, subject?, ok, ms? } ], source? },
+  at }
+```
+`count` = every call the script made, `elapsedMs` its wall time, `calls` the
+log in the order the script MADE the calls, at most `script-card.json`
+`logCap` (200; `count` keeps counting past it, and the card names the cut).
+`tool` = `<server>.<tool>` (≤ 128); `subject` = an Exponential tool's contract
+`expToolDisplay` subject argument, else the call's first string argument,
+trimmed to 80 chars (≤ `expToolPreview.textMax` on the wire); `ok` = the call
+answered; `ms` = its upstream time, absent for a call that never ran.
+`source` = the exec's `script` input, redacted and cut to `toolOutputMaxBytes`
+(a cut source ends in `[truncated]`). Without a log (an older code mode, a
+script refused before it ran, a replayed native transcript) the settle
+carries `{ source }` alone; `count`/`elapsedMs` then stay absent and the card
+reads "Ran a script" with no meta. Only a `script` row's settle carries it.
+
+The log's path: the code-mode server returns it in the CallToolResult
+`_meta` (`exponential/calls`, `exponential/callCount`,
+`exponential/elapsedMs`), never in the text the model reads. Claude's
+stream-json does not forward an MCP result's `_meta` whole, so the engine
+does not read it off the result: the server runs in the same host process and
+files each finished exec's log under the run and the exact script
+(`codemode::take_report`); the mapper takes it off when the exec settles.
+Journal + history replay keep it like any other `tool_update` field. A field
+past a cap fails the parse and the relay drops the WHOLE frame; the engine
+clamps first (`ScriptLog::clamp`). An older relay strips `script` (non-strict
+zod) but REJECTS `toolKind: "script"`, so the relay deploys first.
 
 ## 2. `background_tasks` (latest-wins slot)
 

@@ -11,17 +11,21 @@ import {
   Textarea,
   TypeaheadMenu,
   readTypeaheadViewport,
+  typeaheadPrefill,
   useTypeahead,
 } from "@exp/ui"
 import {
   EmojiCandidateRow,
-  IssueCandidateRow,
   UserCandidateRow,
 } from "@/components/autocomplete-rows"
 import {
   useIssueRefs,
   type ResolvedIssueRef,
 } from "@/components/issue-ref-provider"
+import {
+  IssueRefSearch,
+  type IssueRefSearchRequest,
+} from "@/components/issue-ref-search"
 import {
   findEmojiByShortcode,
   matchEmojiToken,
@@ -30,17 +34,14 @@ import {
   useEmojiData,
   type EmojiRecord,
 } from "@/lib/emoji"
-import { ISSUE_REF_AT_CARET } from "@/lib/issue-refs"
-import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
 import { MENTION_AT_CARET } from "@/lib/mention-refs"
+import { textareaCaretAnchor } from "@/lib/textarea-caret"
 
 // `:shortcode` (EXP-551) lives in lib/emoji.ts (`matchEmojiToken`) — shared
 // with the TipTap editor's detector.
 
-const NO_ROWS: ResolvedIssueRef[] = []
-
 type AutocompleteMenu = {
-  kind: `mention` | `issueRef` | `emoji`
+  kind: `mention` | `emoji`
   query: string
   start: number
   /** `emoji` only: the closing colon has been typed (`:tada:`). */
@@ -51,8 +52,10 @@ type AutocompleteMenu = {
  *  index, and only one kind of candidate is ever offered at a time. */
 type Candidate =
   | { kind: `mention`; user: User }
-  | { kind: `issueRef`; issue: ResolvedIssueRef }
   | { kind: `emoji`; emoji: EmojiRecord }
+
+/** The open `#` search (SLOP-28): the token spans [start, end). */
+type IssueSearchState = IssueRefSearchRequest & { end: number }
 
 interface MentionTextareaProps extends Omit<
   React.ComponentProps<typeof Textarea>,
@@ -93,9 +96,11 @@ export interface MentionTextareaHandle {
 // Selecting a member inserts the canonical `@<email>` form the server resolves
 // (lib/integrations/mentions.ts); selecting an issue inserts the `#IDENTIFIER`
 // token the clients render as a pill (lib/issue-refs.ts); selecting an emoji
-// inserts its unicode (never the shortcode). Issue suggestions come from the
-// team IssueRefProvider (absent outside a team → the # trigger is simply
-// inert).
+// inserts its unicode (never the shortcode). `@` and `:` complete in the
+// typeahead menu under the field; `#` opens THE search list at the caret
+// (SLOP-28, `IssueRefSearch`: its own focused input, a bottom sheet on a
+// phone). Issue suggestions come from the team IssueRefProvider (absent
+// outside a team → the # trigger is simply inert).
 export const MentionTextarea = forwardRef<
   MentionTextareaHandle,
   MentionTextareaProps
@@ -121,18 +126,11 @@ export const MentionTextarea = forwardRef<
           )
           .slice(0, 6)
       : []
-  // EXP-892: the shared engine — local ranking now, the server's full-text
-  // hits spliced in behind once they answer (the same list every `#` picker
-  // shows on every client).
-  const issueMenuOpen = menu?.kind === `issueRef` && issueRefs !== null
-  const { results: issueCandidates } = useIssueSearchResults({
-    teamId: issueRefs?.teamId,
-    query: issueMenuOpen ? menu.query : ``,
-    rows: issueMenuOpen ? issueRefs.rows : NO_ROWS,
-    limit: 6,
-    resolveHit: (hit) => issueRefs?.fromHit(hit) ?? null,
-    server: issueMenuOpen,
-  })
+  // SLOP-28: the open `#` search, and the `#` an Escape dismissed (typing on
+  // in that token must not reopen it; a new `#` does).
+  const [issueSearch, setIssueSearch] = useState<IssueSearchState | null>(null)
+  const dismissedHashRef = useRef<number | null>(null)
+  const returnCaretRef = useRef<number | null>(null)
   const emojiCandidates =
     menu?.kind === `emoji` && emojiData
       ? searchEmoji(emojiData, menu.query, 8)
@@ -140,11 +138,9 @@ export const MentionTextarea = forwardRef<
   const candidates: Candidate[] =
     menu?.kind === `mention`
       ? mentionCandidates.map((user) => ({ kind: `mention`, user }))
-      : menu?.kind === `issueRef`
-        ? issueCandidates.map((issue) => ({ kind: `issueRef`, issue }))
-        : menu?.kind === `emoji`
-          ? emojiCandidates.map((emoji) => ({ kind: `emoji`, emoji }))
-          : []
+      : menu?.kind === `emoji`
+        ? emojiCandidates.map((emoji) => ({ kind: `emoji`, emoji }))
+        : []
   const candidateCount = candidates.length
 
   // EXP-941: the arrows, the wrap, the plain-Enter/Tab accept, the Escape and
@@ -155,8 +151,6 @@ export const MentionTextarea = forwardRef<
     onAccept: (candidate) => {
       if (candidate.kind === `mention`) {
         insertMention(candidate.user)
-      } else if (candidate.kind === `issueRef`) {
-        insertIssueRef(candidate.issue)
       } else {
         insertEmoji(candidate.emoji, true)
       }
@@ -210,19 +204,24 @@ export const MentionTextarea = forwardRef<
     }
   }, [menu, candidateCount])
 
-  const sync = (next: string, caret: number) => {
+  // Only TYPING (an insert outside an IME composition) opens the `#` search:
+  // a Backspace that lands the caret after an existing `#EXP-12` must not
+  // pull the focus into the list.
+  const sync = (next: string, caret: number, inserted: boolean) => {
     onValueChange(next)
-    detect(next, caret)
+    detect(next, caret, inserted)
   }
 
   /** Which autocomplete (if any) the text before `caret` is in the middle
    *  of. Runs on every keystroke, and (EXP-790) after a programmatic insert,
-   *  so a chip that drops a trailing `#` opens the issue picker at once. */
-  const detect = (next: string, caret: number) => {
+   *  so a chip that drops a trailing `#` opens the issue picker at once.
+   *  True when it opened the `#` search (whose input takes the focus). */
+  const detect = (next: string, caret: number, canSearch = true): boolean => {
     const before = next.slice(0, caret)
     const mention = before.match(MENTION_AT_CARET)
-    const issueRef = issueRefs ? before.match(ISSUE_REF_AT_CARET) : null
+    const issueRef = issueRefs ? typeaheadPrefill(next, caret) : null
     const emoji = matchEmojiToken(before)
+    if (!issueRef) dismissedHashRef.current = null
     if (mention) {
       setMenu({
         kind: `mention`,
@@ -230,11 +229,16 @@ export const MentionTextarea = forwardRef<
         start: caret - mention[1].length - 1,
       })
     } else if (issueRef) {
-      setMenu({
-        kind: `issueRef`,
-        query: issueRef[1].toLowerCase(),
-        start: caret - issueRef[1].length - 1,
+      setMenu(null)
+      if (!canSearch || dismissedHashRef.current === issueRef.start) return false
+      const field = textareaRef.current
+      setIssueSearch({
+        start: issueRef.start,
+        end: caret,
+        query: issueRef.query,
+        anchor: field ? textareaCaretAnchor(field, next, issueRef.start) : null,
       })
+      return true
     } else if (emoji) {
       setMenu({
         kind: `emoji`,
@@ -245,6 +249,7 @@ export const MentionTextarea = forwardRef<
     } else {
       setMenu(null)
     }
+    return false
   }
 
   // Replaces [start, end) with `text`, restores focus and puts the caret
@@ -259,10 +264,13 @@ export const MentionTextarea = forwardRef<
     const next = `${value.slice(0, start)}${text}${value.slice(end)}`
     const nextCaret = start + Math.max(0, Math.min(caretOffset, text.length))
     onValueChange(next)
-    detect(next, nextCaret)
+    // An insert that opened the `#` search (the `#` button, a chip's
+    // trailing `#`) leaves the focus to the search's input: pulling it back
+    // would dismiss the popover as a focus-outside.
+    const searching = detect(next, nextCaret)
     requestAnimationFrame(() => {
       if (el) {
-        el.focus()
+        if (!searching) el.focus()
         el.setSelectionRange(nextCaret, nextCaret)
       }
     })
@@ -277,8 +285,41 @@ export const MentionTextarea = forwardRef<
   }
 
   const insertMention = (user: User) => insertToken(`@${user.email}`)
-  const insertIssueRef = (issue: ResolvedIssueRef) =>
-    insertToken(`#${issue.identifier}`)
+
+  // The `#` search's three ways out (SLOP-28): a pick writes `#IDENT `, an
+  // Escape leaves the token as typed, a Backspace in its empty input deletes
+  // it; each puts the caret back where the text now ends.
+  const closeIssueSearch = (caret: number) => {
+    returnCaretRef.current = caret
+    setIssueSearch(null)
+  }
+  const pickIssueRef = (issue: ResolvedIssueRef) => {
+    if (!issueSearch) return
+    const token = `#${issue.identifier} `
+    onValueChange(
+      `${value.slice(0, issueSearch.start)}${token}${value.slice(issueSearch.end)}`
+    )
+    closeIssueSearch(issueSearch.start + token.length)
+  }
+  const dismissIssueSearch = () => {
+    if (!issueSearch) return
+    dismissedHashRef.current = issueSearch.start
+    closeIssueSearch(issueSearch.end)
+  }
+  const deleteIssueHash = () => {
+    if (!issueSearch) return
+    onValueChange(`${value.slice(0, issueSearch.start)}${value.slice(issueSearch.end)}`)
+    closeIssueSearch(issueSearch.start)
+  }
+  const returnFocus = () => {
+    const el = textareaRef.current
+    const caret = returnCaretRef.current
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      if (caret !== null) el.setSelectionRange(caret, caret)
+    })
+  }
   const insertEmoji = (emoji: EmojiRecord, trailingSpace: boolean) => {
     pushRecentEmoji(emoji.u)
     insertToken(emoji.u, trailingSpace)
@@ -362,7 +403,14 @@ export const MentionTextarea = forwardRef<
         {...props}
         ref={textareaRef}
         value={value}
-        onChange={(e) => sync(e.target.value, e.target.selectionStart ?? 0)}
+        onChange={(e) =>
+          sync(
+            e.target.value,
+            e.target.selectionStart ?? 0,
+            e.target.value.length > value.length &&
+              !(e.nativeEvent as InputEvent).isComposing
+          )
+        }
         onKeyDown={handleKeyDown}
       />
       {menu && candidateCount > 0 && (
@@ -381,16 +429,6 @@ export const MentionTextarea = forwardRef<
                 onHover={() => typeahead.setActive(i)}
               />
             ))}
-          {menu.kind === `issueRef` &&
-            issueCandidates.map((issue, i) => (
-              <IssueCandidateRow
-                key={issue.id}
-                issue={issue}
-                active={i === active}
-                onSelect={() => insertIssueRef(issue)}
-                onHover={() => typeahead.setActive(i)}
-              />
-            ))}
           {menu.kind === `emoji` &&
             emojiCandidates.map((emoji, i) => (
               <EmojiCandidateRow
@@ -405,6 +443,13 @@ export const MentionTextarea = forwardRef<
             ))}
         </TypeaheadMenu>
       )}
+      <IssueRefSearch
+        request={issueSearch}
+        onPick={pickIssueRef}
+        onDismiss={dismissIssueSearch}
+        onBackspaceEmpty={deleteIssueHash}
+        onReturnFocus={returnFocus}
+      />
     </div>
   )
 })

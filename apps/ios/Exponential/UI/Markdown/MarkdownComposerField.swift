@@ -82,6 +82,8 @@ struct MarkdownComposerField: View {
                     dismissRail = MarkdownToolbar(dismissOnly: true)
                 }
             }
+            // SLOP-28: `#` opens THE search list in a bottom sheet.
+            .issueRefSearchSheet(model)
         }
     }
 }

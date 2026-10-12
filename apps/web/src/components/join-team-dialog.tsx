@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   Button,
+  FieldError,
   Input,
   Label,
 } from "@exp/ui"
@@ -73,9 +74,11 @@ export function JoinTeamDialog({
                 }}
                 placeholder={`${window.location.origin}/invite/…`}
                 autoFocus
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? `join-team-link-error` : undefined}
               />
+              <FieldError id="join-team-link-error">{error}</FieldError>
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
           </DialogBody>
           <DialogFooter>
             <DialogCancel variant="outline" onClick={() => close(false)} />

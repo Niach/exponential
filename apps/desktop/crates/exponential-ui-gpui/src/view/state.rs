@@ -224,7 +224,7 @@ impl NodeCache {
 pub fn is_text_field(n: &PlacedNode) -> bool {
     matches!(
         (n.component.as_str(), n.part.as_deref()),
-        ("Input" | "Textarea", Some("field")) | ("Composer", None) | ("NumberField", Some("input")) | ("ChipInput", Some("input")) | ("Select", Some("search"))
+        ("Input" | "Textarea", Some("field")) | ("Composer", None) | ("NumberField", Some("input")) | ("ChipInput", Some("input")) | ("Select", Some("search")) | ("SearchList", Some("search"))
     )
 }
 
@@ -362,6 +362,10 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Select", Some("trigger")) | ("TimePicker", Some("trigger")) => Role::ComboBox,
         ("DatePicker" | "DateRangePicker", Some("trigger")) => Role::DateInput,
         ("Select", Some("search")) => Role::SearchInput,
+        // EXP-1259: the search list's field drives a listbox of its rows.
+        ("SearchList", Some("search")) => Role::ComboBox,
+        ("Box", Some("list")) if owner == "SearchList" => Role::ListBox,
+        ("Box", Some("item")) if owner == "SearchList" => Role::ListBoxOption,
         ("Box", Some("list")) if matches!(owner, "Select" | "TimePicker") => Role::ListBox,
         ("Text", Some("item")) if matches!(owner, "Select" | "TimePicker") => Role::ListBoxOption,
         ("Box", Some("calendar")) => Role::Grid,

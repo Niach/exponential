@@ -275,9 +275,13 @@ describe(`SessionMergeButton`, () => {
     fireEvent.click(screen.getByRole(`button`, { name: `Merge pull request` }))
     fireEvent.click(screen.getByRole(`button`, { name: `Merge` }))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(`Couldn't merge the pull request`, {
-        description: `Squash merges are not allowed`,
-      })
+      expect(toast.error).toHaveBeenCalledWith(
+        `Couldn't merge the PR`,
+        expect.objectContaining({
+          description: `Squash merges are not allowed`,
+          action: expect.objectContaining({ label: `Retry` }),
+        })
+      )
     )
     const { result } = renderHook(() => useLaunchDialogSeed())
     expect(result.current).toBeNull()

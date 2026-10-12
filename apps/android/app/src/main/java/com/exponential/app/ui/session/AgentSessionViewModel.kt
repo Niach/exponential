@@ -792,9 +792,14 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
     }
 
-    /** A failed [killSession] call's message (EXP-268) — rendered as a banner. */
+    /** A failed [killSession] call's message (EXP-268) — FEED-79: raised as
+     *  the error toast once, then [clearKillError]ed. */
     private val _killError = MutableStateFlow<String?>(null)
     val killError: StateFlow<String?> = _killError
+
+    fun clearKillError() {
+        _killError.value = null
+    }
 
     /** Revive the connection on attach (EXP-625). A no-op when the socket is
      *  healthy (which, since EXP-621, is the common case on a return visit),

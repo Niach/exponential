@@ -16,6 +16,10 @@
     "./exp-tool-group": "./src/exp-tool-group.ts",
     "./entity-preview": "./src/entity-preview.ts",
     "./diff-tree": "./src/diff-tree.ts",
+    "./work-card": "./src/work-card.ts",
+    "./script-card": "./src/script-card.ts",
+    "./home-greeting": "./src/home-greeting.ts",
+    "./feedback-mark": "./src/feedback-mark.ts",
     "./fixtures/*": "./fixtures/*"
   }
 }

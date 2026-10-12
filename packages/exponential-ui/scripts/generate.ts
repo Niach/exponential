@@ -862,7 +862,8 @@ function promptBudget() {
   const terse = catalogPrompt({ terse: true })
   return {
     $comment: `${HEADER} The size of catalogPrompt() on record: prompt.test.ts fails when the full prompt passes budgetTokens (cut descriptions before components) or when these numbers drift from the catalog without being regenerated. tokens = chars / ${4}, an estimate.`,
-    budgetTokens: 6800,
+    // EXP-1259: SearchList joined the catalog (descriptions trimmed first).
+    budgetTokens: 6900,
     full: { components: visible.length, chars: full.length, tokens: estimateTokens(full) },
     lite: { components: lite.length, chars: liteText.length, tokens: estimateTokens(liteText) },
     terse: { components: visible.length, chars: terse.length, tokens: estimateTokens(terse) },

@@ -50,7 +50,7 @@ public enum ExpToolGroup {
     /// The contract row NAME a feed item's call resolves to (`issues_get`), or
     /// nil when the item is not one of OUR calls.
     public static func rowName(_ item: AgentFeedItem) -> String? {
-        guard case let .tool(_, name, _, _, _, _, _, _, _, _, _) = item else { return nil }
+        guard case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) = item else { return nil }
         return ExpToolDisplay.resolve(toolName: name)?.row
     }
 
@@ -60,7 +60,7 @@ public enum ExpToolGroup {
     public static func isExpToolCall(
         _ item: AgentFeedItem, workflowIds: Set<String> = []
     ) -> Bool {
-        guard case let .tool(_, name, _, _, callId, _, _, _, _, _, _) = item
+        guard case let .tool(_, name, _, _, callId, _, _, _, _, _, _, _, _) = item
         else { return false }
         if !workflowIds.isEmpty, let callId, workflowIds.contains(callId) { return false }
         return ExpToolDisplay.resolve(toolName: name) != nil
@@ -92,7 +92,7 @@ public enum ExpToolGroup {
     /// they all settled, plus ` · N failed` when members failed.
     public static func caption(_ items: [AgentFeedItem]) -> String {
         guard let first = items.first,
-              case let .tool(_, name, _, _, _, _, _, _, _, _, _) = first,
+              case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _) = first,
               let index = index(ofTool: name),
               // The plural tables are generated from the SAME contract list, so
               // they are the same length — the guard is a belt against a
@@ -102,7 +102,7 @@ public enum ExpToolGroup {
               DomainContract.expToolDoneMany.indices.contains(index)
         else { return "" }
         let running = items.contains { item in
-            guard case let .tool(_, _, _, _, _, _, settled, _, _, _, _) = item
+            guard case let .tool(_, _, _, _, _, _, settled, _, _, _, _, _, _) = item
             else { return true }
             return !settled
         }
@@ -118,7 +118,7 @@ public enum ExpToolGroup {
             caption = template
         }
         let failed = items.filter { item in
-            guard case let .tool(_, _, _, _, _, _, _, failed, _, _, _) = item else { return false }
+            guard case let .tool(_, _, _, _, _, _, _, failed, _, _, _, _, _) = item else { return false }
             return failed
         }.count
         guard failed > 0 else { return caption }

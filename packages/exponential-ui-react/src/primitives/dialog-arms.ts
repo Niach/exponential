@@ -3,7 +3,7 @@
 // surface, one 24px top radius, everywhere.
 //
 // Each arm carries its OWN mobile-only classes so nothing leaks between them,
-// and re-states the `sm:` padding/zoom the shared base leaves to the arm — so
+// and re-states the `sm:` padding the shared base leaves to the arm — so
 // from `sm` up all four are the identical centered glass panel and DESKTOP
 // PRESENTATION IS UNCHANGED by anything here.
 //
@@ -19,18 +19,21 @@
 // height read as a cut-off page. `alert` is the compact centered card the
 // `Prompt` (EXP-1215) opens in on every width, deliberately NOT a sheet. `page` is the
 // full-screen arm, only for the image lightbox.
+//
+// EXP-1243: the panel's `motion-dialog` recipe (scale from 0.96 + fade) is the
+// animation for every arm but the sheets, which slide up on `motion-sheet`.
 
 /** Shared by `sheet` and `sheet-full`. Opaque, no blur: it fills the screen
  * edge to edge below `sm`, so there is nothing to see through. */
-const MOBILE_SHEET_BASE = `max-sm:inset-x-0 max-sm:bottom-0 max-sm:w-full max-sm:rounded-t-3xl max-sm:border-t max-sm:border-glass-stroke-card max-sm:bg-glass-bottom max-sm:px-4 max-sm:pt-0 max-sm:pb-[max(1rem,env(safe-area-inset-bottom))] max-sm:data-[state=closed]:slide-out-to-bottom max-sm:data-[state=open]:slide-in-from-bottom sm:p-6 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95`
+const MOBILE_SHEET_BASE = `max-sm:inset-x-0 max-sm:bottom-0 max-sm:w-full max-sm:rounded-t-3xl max-sm:border-t max-sm:border-glass-stroke-card max-sm:bg-glass-bottom max-sm:px-4 max-sm:pt-0 max-sm:pb-[max(1rem,env(safe-area-inset-bottom))] max-sm:motion-sheet max-sm:data-[state=closed]:slide-out-to-bottom max-sm:data-[state=open]:slide-in-from-bottom sm:p-6`
 
 export const MOBILE_SHEET = `${MOBILE_SHEET_BASE} max-sm:h-auto max-sm:max-h-[90dvh]`
 
 export const MOBILE_SHEET_FULL = `${MOBILE_SHEET_BASE} max-sm:h-[94dvh]`
 
-export const MOBILE_ALERT = `max-sm:top-1/2 max-sm:left-1/2 max-sm:w-[calc(100%-3rem)] max-sm:max-w-sm max-sm:max-h-[calc(100dvh-3rem)] max-sm:-translate-x-1/2 max-sm:-translate-y-1/2 max-sm:rounded-2xl max-sm:border max-sm:border-glass-stroke-card max-sm:bg-glass-bottom max-sm:p-5 max-sm:data-[state=closed]:zoom-out-95 max-sm:data-[state=open]:zoom-in-95 sm:p-6 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95`
+export const MOBILE_ALERT = `max-sm:top-1/2 max-sm:left-1/2 max-sm:w-[calc(100%-3rem)] max-sm:max-w-sm max-sm:max-h-[calc(100dvh-3rem)] max-sm:-translate-x-1/2 max-sm:-translate-y-1/2 max-sm:rounded-2xl max-sm:border max-sm:border-glass-stroke-card max-sm:bg-glass-bottom max-sm:p-5 sm:p-6`
 
-export const MOBILE_PAGE = `max-sm:inset-0 max-sm:w-full max-sm:bg-background max-sm:p-6 max-sm:data-[state=closed]:zoom-out-95 max-sm:data-[state=open]:zoom-in-95 sm:p-6 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95`
+export const MOBILE_PAGE = `max-sm:inset-0 max-sm:w-full max-sm:bg-background max-sm:p-6 sm:p-6`
 
 export type DialogMobileArm = `sheet` | `sheet-full` | `alert` | `page`
 

@@ -1,166 +1,137 @@
-// Pure state model for the getting-started checklist (EXP-141) — no React.
-// The hook (use-getting-started-progress) gathers the signals; this derives
-// what each entry looks like. Kept pure so the order/lock/done rules are unit
-// tested without rendering.
+import spec from "@exp/domain-contract/fixtures/getting-started.json"
 
-export type EntryKey =
-  | `desktop`
-  | `github`
-  | `invite`
+// EXP-1270 (EXP-1259 D6): the pure Getting started model, replayed ×4 off
+// `packages/domain-contract/fixtures/getting-started.json` (desktop
+// getting_started.rs, iOS GettingStartedProgress.swift, Android
+// GettingStartedModel.kt) — no React. The hook
+// (`use-getting-started-progress`) gathers the signals; this derives the ONE
+// row of cards: eight steps in the fixture's order, the first open one NEXT,
+// done ones keep their check and stay clickable, no locked state (a step
+// needing a device opens the device step until there is one), owner-only
+// steps hidden from members, `phones: false` steps hidden on the phones.
+
+export type GettingStartedStepKey =
   | `board`
-  | `coding`
-  | `action`
+  | `github`
+  | `device`
+  | `run`
+  | `invite`
   | `server`
-  | `widget`
   | `mcp`
+  | `widget`
 
-export type EntryState = `done` | `available` | `locked`
+export type GettingStartedTarget =
+  | `create-board`
+  | `github`
+  | `add-device`
+  | `agent`
+  | `invite`
+  | `add-server`
+  | `mcp`
+  | `widget`
 
 export interface GettingStartedSignals {
-  /** The synced devices shape (own rows) has a desktop-kind device — the IDE
-   * registered. */
-  hasDesktopDevice: boolean
-  /** The synced devices shape (own rows) has a server-kind device — the CLI
-   * daemon registered. */
-  hasServerDevice: boolean
-  /** integrations.github.status → installed (team has a linked App install). */
-  githubInstalled: boolean
-  /** members.length > 1 or any invite row — live Electric. */
-  hasInvitedTeam: boolean
   /** Any live (non-trashed) board. */
   hasBoard: boolean
-  /** Any live board with a repository attached. */
-  hasRepoBoard: boolean
-  /** Any coding_sessions row in the team (running or ended). */
+  /** The viewer's GitHub lists an installed account, or a board has a repo. */
+  githubInstalled: boolean
+  /** The caller owns a desktop device. */
+  hasDesktopDevice: boolean
+  /** The caller owns a server (CLI daemon) device. */
+  hasServerDevice: boolean
+  /** Any coding_sessions row in the team. */
   hasCodingSession: boolean
-  /** Any synced `actions` row in the team (EXP-548) — the builtins are not rows. */
-  hasAction: boolean
-  /** widgets.list non-empty (owner-only signal — false for members). */
-  hasWidget: boolean
-  /** An MCP OAuth grant exists OR the user holds a personal API key. */
+  /** More than one member, or an invite row. */
+  hasInvitedTeam: boolean
+  /** An MCP OAuth grant or a personal API key. */
   mcpConnected: boolean
+  /** A feedback widget exists (owner-only signal). */
+  hasWidget: boolean
 }
+
+export interface GettingStartedPermissions {
+  canManageMembers: boolean
+  canManageWidgets: boolean
+}
+
+export type GettingStartedPlatform = `pointer` | `phone`
 
 export interface GettingStartedEntry {
-  key: EntryKey
-  state: EntryState
-  /** For locked entries: the step whose completion unlocks this one. */
-  lockedBy?: EntryKey
+  key: GettingStartedStepKey
+  done: boolean
+  /** What a click runs (`add-device` while a device-needing step has none). */
+  target: GettingStartedTarget
+  /** The first step not done: the highlighted card. */
+  next: boolean
 }
 
-// Derive every entry's state, in the single static display order
-// desktop → github → invite → board → coding → action → server → widget →
-// mcp. Completion always wins over locking (a signal that exists proves the
-// prereq was satisfiable). The invite entry is for members who can mint
-// invites (canManageMembers — teamInvites.create is owner/admin-only), and
-// the action and widget entries are for owners only — action writes and
-// widgets.list are owner-only surfaces; the others neither see those entries
-// nor count them in the total.
-//
-// The desktop IDE mirrors this function byte-for-byte in
-// `crates/ui/src/getting_started.rs` (`derive_entries`, EXP-548: same
-// entries, order, gating and lock chain) — change both together.
-export function deriveEntryStates(
-  signals: GettingStartedSignals,
-  {
-    canManageWidgets,
-    isOwner,
-    canManageMembers,
-  }: { canManageWidgets: boolean; isOwner: boolean; canManageMembers: boolean }
-): { entries: GettingStartedEntry[]; done: number; total: number } {
-  const entries: GettingStartedEntry[] = []
-
-  entries.push({
-    key: `desktop`,
-    state: signals.hasDesktopDevice ? `done` : `available`,
-  })
-
-  entries.push({
-    key: `github`,
-    state: signals.githubInstalled ? `done` : `available`,
-  })
-
-  if (canManageMembers) {
-    entries.push({
-      key: `invite`,
-      state: signals.hasInvitedTeam ? `done` : `available`,
-    })
-  }
-
-  entries.push({
-    key: `board`,
-    state: signals.hasBoard ? `done` : `available`,
-  })
-
-  // Coding needs a repo-backed board and a machine to run on; when locked,
-  // point at whichever feeder step is still missing, in display order
-  // (desktop first — without any machine nothing can run; then GitHub —
-  // without it the board step can't attach a repo either).
-  const hasDevice = signals.hasDesktopDevice || signals.hasServerDevice
-  if (signals.hasCodingSession) {
-    entries.push({ key: `coding`, state: `done` })
-  } else if (signals.hasRepoBoard && hasDevice) {
-    entries.push({ key: `coding`, state: `available` })
-  } else {
-    entries.push({
-      key: `coding`,
-      state: `locked`,
-      lockedBy: !hasDevice
-        ? `desktop`
-        : signals.githubInstalled
-          ? `board`
-          : `github`,
-    })
-  }
-
-  // EXP-548: actions are authored by the builtin creator run, which — like
-  // any coding session — needs a machine; the desktop step is the feeder.
-  if (isOwner) {
-    if (signals.hasAction) {
-      entries.push({ key: `action`, state: `done` })
-    } else if (hasDevice) {
-      entries.push({ key: `action`, state: `available` })
-    } else {
-      entries.push({ key: `action`, state: `locked`, lockedBy: `desktop` })
-    }
-  }
-
-  entries.push({
-    key: `server`,
-    state: signals.hasServerDevice ? `done` : `available`,
-  })
-
-  if (canManageWidgets) {
-    if (signals.hasWidget) {
-      entries.push({ key: `widget`, state: `done` })
-    } else if (signals.hasBoard) {
-      entries.push({ key: `widget`, state: `available` })
-    } else {
-      entries.push({ key: `widget`, state: `locked`, lockedBy: `board` })
-    }
-  }
-
-  entries.push({
-    key: `mcp`,
-    state: signals.mcpConnected ? `done` : `available`,
-  })
-
-  return {
-    entries,
-    done: entries.filter((entry) => entry.state === `done`).length,
-    total: entries.length,
-  }
-}
-
-// EXP-548: the checklist has no dismissal — it simply disappears (sidebar
-// entry, empty-board block, IDE rail entry alike) once every visible entry is
-// done. Loading counts as incomplete-unknown and is handled by the callers.
-export function isGettingStartedComplete({
-  done,
-  total,
-}: {
+export interface GettingStartedState {
+  entries: GettingStartedEntry[]
   done: number
   total: number
-}): boolean {
-  return total > 0 && done === total
+  /** `{done} of {total}`. */
+  progress: string
+  /** Every visible step is done: the block and the entry go away. */
+  complete: boolean
+}
+
+export interface GettingStartedStep {
+  key: GettingStartedStepKey
+  title: string
+  icon: string
+  target: GettingStartedTarget
+  needsDevice?: boolean
+  visibleWhen?: keyof GettingStartedPermissions
+  phones: boolean
+  /** Signal names OR'd together (`hasDesktopDevice || hasServerDevice`). */
+  doneWhen: string
+}
+
+export const GETTING_STARTED_STEPS = spec.steps as readonly GettingStartedStep[]
+
+/** `doneWhen` is a disjunction of signal names: the fixture's own words. */
+function isDone(step: GettingStartedStep, signals: GettingStartedSignals) {
+  return step.doneWhen
+    .split(`||`)
+    .some((name) => signals[name.trim() as keyof GettingStartedSignals] === true)
+}
+
+export function formatGettingStartedProgress(done: number, total: number) {
+  return spec.progress
+    .replace(`{done}`, String(done))
+    .replace(`{total}`, String(total))
+}
+
+export function deriveGettingStarted(
+  signals: GettingStartedSignals,
+  permissions: GettingStartedPermissions,
+  platform: GettingStartedPlatform
+): GettingStartedState {
+  const hasDevice = signals.hasDesktopDevice || signals.hasServerDevice
+  const visible = GETTING_STARTED_STEPS.filter(
+    (step) =>
+      (platform === `pointer` || step.phones) &&
+      (step.visibleWhen === undefined || permissions[step.visibleWhen])
+  )
+  let nextTaken = false
+  const entries = visible.map((step): GettingStartedEntry => {
+    const done = isDone(step, signals)
+    const next = !done && !nextTaken
+    if (next) nextTaken = true
+    return {
+      key: step.key,
+      done,
+      target: step.needsDevice && !hasDevice ? `add-device` : step.target,
+      next,
+    }
+  })
+  const done = entries.filter((entry) => entry.done).length
+  const total = entries.length
+  return {
+    entries,
+    done,
+    total,
+    progress: formatGettingStartedProgress(done, total),
+    complete: total > 0 && done === total,
+  }
 }

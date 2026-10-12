@@ -45,7 +45,9 @@ struct OnboardingView: View {
     @State private var page = OnboardingView.teamPage
     @State private var teamId: String?
     @State private var resolvingTeam = true
-    @State private var teamError: String?
+    /// FEED-79: a failed team lookup = the step's Retry plus a toast.
+    @State private var teamLoadFailed = false
+    @Environment(\.toaster) private var toaster
     /// Step 3: a link was minted, so the trailing button reads "Continue".
     @State private var invitedSomeone = false
     /// EXP-1169: the user JOINED a team and owns no machine, so step 4 is
@@ -122,12 +124,8 @@ struct OnboardingView: View {
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
                 .padding(.vertical, 32)
-            } else if let teamError {
+            } else if teamLoadFailed {
                 VStack(spacing: 12) {
-                    Text(teamError)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .multilineTextAlignment(.center)
                     GlassSubmitButton(OnboardingCopy.retry) {
                         Task { await resolveTeam() }
                     }
@@ -262,8 +260,11 @@ struct OnboardingView: View {
     private func signOut() {
         guard let accountId = deps.auth.activeAccountId else { return }
         Task {
-            await deps.syncManager.signOut(accountId: accountId)
-            deps.auth.signOutLocally(accountId: accountId)
+            // EXP-1275 (D8 BLOCKING): signing out covers the window.
+            await BlockingFeedback.shared.run(FeedbackStates.Blocking.signOut) {
+                await deps.syncManager.signOut(accountId: accountId)
+                deps.auth.signOutLocally(accountId: accountId)
+            }
         }
     }
 
@@ -290,14 +291,18 @@ struct OnboardingView: View {
             return
         }
         resolvingTeam = true
-        teamError = nil
+        teamLoadFailed = false
         do {
             if let team = try await deps.teamsApi.getDefault(accountId: accountId) {
                 teamId = team.id
                 withAnimation(motion.standard) { page = capturePage() ?? Self.boardPage }
             }
         } catch {
-            teamError = error.trpcUserMessage
+            teamLoadFailed = true
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "load", thing: "your teams"),
+                description: error.trpcUserMessage
+            )
         }
         resolvingTeam = false
     }

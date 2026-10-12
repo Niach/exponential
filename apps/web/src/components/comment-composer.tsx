@@ -38,6 +38,8 @@ import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
+import { TRPCClientError } from "@trpc/client"
+import { failedAction } from "@/lib/action-error"
 import { EmojiPickerPopover } from "@/components/emoji-picker"
 import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
 import { readTabMemory, writeTabMemory } from "@/lib/work-tab-memory"
@@ -278,9 +280,12 @@ export function CommentComposer({
       }
       setPending([])
     } catch (error) {
-      toast.error(`Couldn't post comment`, {
-        description: error instanceof Error ? error.message : undefined,
-      })
+      // FEED-79: the create mutation's refusal is already the tRPC link's
+      // toast; an upload or media step that failed first gets this one. A
+      // send could double-post, so no Retry.
+      if (!(error instanceof TRPCClientError)) {
+        failedAction(`post`, `the comment`, error)
+      }
     } finally {
       setSubmitting(false)
       setUploadStatus(null)

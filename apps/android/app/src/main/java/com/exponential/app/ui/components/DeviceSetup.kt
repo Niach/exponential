@@ -84,6 +84,7 @@ fun DeviceSetup(
     val devices by viewModel.devices.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val server by viewModel.server.collectAsStateWithLifecycle()
+    FailedActionToast(server.failure, onShown = viewModel::clearFailure)
     var settingsTarget by remember { mutableStateOf<String?>(null) }
     // The install token lives exactly as long as the block is on screen.
     DisposableEffect(viewModel) {
@@ -134,7 +135,10 @@ fun DeviceSetup(
             modifier = Modifier.fillMaxWidth(),
         )
         val rows = devices.orEmpty()
-        if (rows.isEmpty()) {
+        if (devices == null) {
+            // EXP-1275: still loading = skeleton rows in the device row's geometry.
+            SkeletonRows(rows = 2, rowHeight = 56.dp, dot = false)
+        } else if (rows.isEmpty()) {
             Text(
                 OnboardingCopy.DEVICES_NONE,
                 style = MaterialTheme.typography.bodyMedium,
@@ -332,13 +336,8 @@ private fun ServerCard(
                     modifier = Modifier.width(112.dp),
                 )
             }
-            state.error?.let { error ->
-                Text(
-                    error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
+            // The refused code: invalid input, under its field.
+            FieldError(state.error)
         }
     }
 }

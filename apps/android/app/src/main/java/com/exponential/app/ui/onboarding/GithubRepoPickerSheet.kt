@@ -53,6 +53,10 @@ import com.exponential.app.data.api.GithubPrerequisite
 import com.exponential.app.data.api.GithubReposResult
 import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.isRepoFullName
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
@@ -67,8 +71,8 @@ import com.exponential.app.ui.theme.glassRow
 // github-repo-picker.tsx, desktop add_repository_dialog.rs, iOS
 // GithubRepoPicker): lists the repos the VIEWER can push to, LIVE off GitHub,
 // and a TAP ADDS through the host's [onAdd] (which throws on failure). The
-// sheet stays open while the add runs and on failure (the error renders
-// inline), and dismisses on success. When a prerequisite is missing it names
+// sheet stays open while the add runs and on failure (an error toast,
+// FEED-79), and dismisses on success. When a prerequisite is missing it names
 // which one and offers the ONE fix — Connect GitHub (the link-ticket hop in a
 // Custom Tab, [GithubRepoPickerViewModel.connectGithub]), Reconnect GitHub
 // (the same hop) or Install the app (`installUrl` in a Custom Tab) — plus
@@ -84,13 +88,13 @@ fun GithubRepoPickerSheet(
 ) {
     val result by viewModel.result.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
-    val error by viewModel.error.collectAsStateWithLifecycle()
-    val connectError by viewModel.connectError.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    FailedActionToast(failure, onShown = viewModel::clearFailure)
     val connecting by viewModel.connecting.collectAsStateWithLifecycle()
     val lookupBusy by viewModel.lookupBusy.collectAsStateWithLifecycle()
     val lookupError by viewModel.lookupError.collectAsStateWithLifecycle()
     val adding by viewModel.adding.collectAsStateWithLifecycle()
-    val addError by viewModel.addError.collectAsStateWithLifecycle()
+    val addForbidden by viewModel.addForbidden.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val openUrl: (String) -> Unit = { url ->
         CustomTabsIntent.Builder().build().launchUrl(context, android.net.Uri.parse(url))
@@ -115,8 +119,8 @@ fun GithubRepoPickerSheet(
 
     var query by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    LaunchedEffect(addError) {
-        if (addError != null) listState.animateScrollToItem(0)
+    LaunchedEffect(addForbidden) {
+        if (addForbidden) listState.animateScrollToItem(0)
     }
     val add: (GithubPickerRepo) -> Unit = { repo ->
         viewModel.add(repo, onAdd) {
@@ -134,32 +138,36 @@ fun GithubRepoPickerSheet(
             contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // FEED-42: a failed add stays in front of the user, inline, at the
-            // top (the list scrolls back to it).
-            addError?.let { failure ->
-                item(key = "add-error") {
+            // FEED-42: a FORBIDDEN add is a missing prerequisite: its notice
+            // and its one fix, at the top (the list scrolls back to it).
+            if (addForbidden) {
+                item(key = "add-forbidden") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ErrorText(failure.message)
-                        if (failure.forbidden) {
-                            GlassPill(
-                                GithubCopy.RECONNECT_GITHUB,
-                                icon = ExpIcons.uiRefresh,
-                                size = PillSize.Sm,
-                                enabled = !connecting,
-                                onClick = { viewModel.connectGithub(openUrl) },
-                            )
-                        }
+                        GithubBox(GithubCopy.ADD_FORBIDDEN)
+                        GlassPill(
+                            GithubCopy.RECONNECT_GITHUB,
+                            icon = ExpIcons.uiRefresh,
+                            size = PillSize.Sm,
+                            enabled = !connecting,
+                            onClick = { viewModel.connectGithub(openUrl) },
+                        )
                     }
                 }
             }
             val data = result
             when {
-                loading && data == null -> item(key = "loading") { LoadingBox() }
-                data == null || !data.configured -> item(key = "not-configured") {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        GithubBox(GithubCopy.PICKER_NOT_CONFIGURED)
-                        error?.let { ErrorText(it) }
-                    }
+                // EXP-1275: the first load = skeleton rows in the repo row's geometry.
+                loading && data == null -> item(key = "loading") { SkeletonRows(rowHeight = 40.dp) }
+                // A failed first load: the empty state (the toast says why).
+                data == null -> item(key = "load-failed") {
+                    EmptyState(
+                        title = GithubCopy.NO_REPOSITORIES,
+                        icon = ExpIcons.settingsRepositories,
+                        size = at.exponential.ui.primitives.EmptyStateSize.List,
+                    )
+                }
+                !data.configured -> item(key = "not-configured") {
+                    GithubBox(GithubCopy.PICKER_NOT_CONFIGURED)
                 }
                 // A prerequisite is missing: one sentence naming it, ONE button
                 // fixing it, and the "I’ve done that" re-list.
@@ -187,12 +195,7 @@ fun GithubRepoPickerSheet(
                         text = GithubCopy.PICKER_NOT_INSTALLED,
                         fix = GithubCopy.INSTALL_APP,
                         enabled = installUrl != null,
-                        onFix = {
-                            installUrl?.let {
-                                viewModel.clearConnectError()
-                                openUrl(it)
-                            }
-                        },
+                        onFix = { installUrl?.let(openUrl) },
                         onDone = { viewModel.load(accountId, teamId, refresh = true) },
                     )
                 }
@@ -218,26 +221,14 @@ fun GithubRepoPickerSheet(
                             // The list is live off GitHub: Refresh is a forced
                             // re-list past the server's discovery cache.
                             onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
-                            onInstall = { url ->
-                                viewModel.clearConnectError()
-                                openUrl(url)
-                            },
+                            onInstall = openUrl,
                             onLookup = { viewModel.lookup(lookupName) { repo -> add(repo) } },
                         )
                     }
-                    // A refresh that failed with data on screen (EXP-365).
-                    error?.let { message -> item(key = "error") { ErrorText(message) } }
                 }
             }
-            // A FAILED connect hop's outcome.
-            connectError?.let { message -> item(key = "connect-error") { ErrorText(message) } }
         }
     }
-}
-
-@Composable
-private fun ErrorText(message: String) {
-    Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
 }
 
 /** The picker's boxed state container: solid ([dashed] = false) or dashed hairline. */
@@ -253,21 +244,6 @@ private fun Modifier.pickerBox(dashed: Boolean, color: Color): Modifier = this
             ),
         )
     }
-
-@Composable
-private fun LoadingBox() {
-    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier
-            .pickerBox(dashed = false, color = GlassTokens.StrokeRow)
-            .padding(horizontal = 12.dp, vertical = 20.dp),
-    ) {
-        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-        Text(GithubCopy.PICKER_LOADING, style = MaterialTheme.typography.bodyMedium, color = secondary)
-    }
-}
 
 /**
  * A missing prerequisite (web `repo-picker-prerequisite`): the dashed notice,
@@ -538,6 +514,7 @@ private fun PickerFooter(
                 onClick = onLookup,
             )
         }
-        lookupError?.let { ErrorText(it) }
+        // The typed name was refused: invalid input, under the field.
+        FieldError(lookupError)
     }
 }

@@ -34,6 +34,7 @@ const GROUP_LABELS: Record<string, string> = {
   ease: `Easing`,
   density: `Density scale`,
   blur: `Backdrop blur (px)`,
+  scale: `Motion scale (gpui: fade only)`,
 }
 
 const isModed = (v: unknown): v is { light: unknown; dark: unknown } => v !== null && typeof v === `object` && !Array.isArray(v) && `light` in v && `dark` in v

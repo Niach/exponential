@@ -28,7 +28,6 @@
 //! `status='duplicate'`; "Unmark duplicate" clears the link and the server
 //! restores the prior status.
 
-use crate::toast::Toast;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -424,9 +423,6 @@ struct PendingFileUpload {
     filename: String,
     /// The attachment id the server assigned — set once the POST answered.
     uploaded_id: Option<String>,
-    /// Set when the read or the upload failed; the row then shows the
-    /// message with a dismiss ✕ instead of "Uploading…".
-    error: Option<SharedString>,
 }
 
 pub struct IssueDetailView {
@@ -441,6 +437,8 @@ pub struct IssueDetailView {
     /// offset and the title sits above the viewport ("the title vanishes",
     /// EXP-67).
     body_scroll: gpui::ScrollHandle,
+    /// EXP-1261: the Guide face's page scroll (its top fade waits for it).
+    guide_scroll: gpui::ScrollHandle,
     /// EXP-1162: where the large title row's bottom edge sits in the body's
     /// CONTENT (measured as it paints, scroll-independent), `None` until the
     /// first paint — what [`domain::detail_chrome::is_title_collapsed`] reads
@@ -545,7 +543,8 @@ pub struct IssueDetailView {
 enum PrBodyState {
     Loading,
     Ready(api::issues::PrDescription),
-    Error(String),
+    /// The fetch failed (a toast said so, FEED-79).
+    Error,
 }
 
 /// EXP-894: one issue tab's switch-surviving state.
@@ -575,7 +574,13 @@ impl IssueDetailView {
         });
         let start_coding = cx.new(StartCodingControl::new);
         let header = cx.new(|cx| IssueHeader::new(start_coding.clone(), window, cx));
-        let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
+        // EXP-1241: the timeline scrolls a focused comment into this body.
+        let body_scroll = gpui::ScrollHandle::new();
+        let timeline = cx.new(|cx| {
+            let mut timeline = IssueTimeline::new(window, cx);
+            timeline.set_scroll_handle(body_scroll.clone());
+            timeline
+        });
 
         let mut subscriptions = Vec::new();
         // EXP-417: the header is no longer a view of its own — this view
@@ -631,7 +636,8 @@ impl IssueDetailView {
         Self {
             issue_id: None,
             focus_handle: cx.focus_handle(),
-            body_scroll: gpui::ScrollHandle::new(),
+            body_scroll,
+            guide_scroll: gpui::ScrollHandle::new(),
             title_bottom: Rc::new(std::cell::Cell::new(None)),
             tray_top: Rc::new(std::cell::Cell::new(None)),
             tray_h: Rc::new(std::cell::Cell::new(None)),
@@ -835,6 +841,7 @@ impl IssueDetailView {
                 stack,
                 fallback_lead,
                 unnumbered,
+                scroll: Some(self.guide_scroll.clone()),
             },
             cx,
         ))
@@ -898,9 +905,8 @@ impl IssueDetailView {
                 team_id,
                 cx,
             ),
-            Some(PrBodyState::Error(message)) => {
-                pr_body_block(None, PrBodyContent::Error(message), team_id, cx)
-            }
+            // The failure was a toast (FEED-79): the empty body.
+            Some(PrBodyState::Error) => pr_body_block(None, PrBodyContent::Ready(""), team_id, cx),
             Some(PrBodyState::Loading) | None => {
                 pr_body_block(None, PrBodyContent::Loading, team_id, cx)
             }
@@ -928,7 +934,10 @@ impl IssueDetailView {
                 if let Some((_, state)) = this.pr_body.as_mut() {
                     *state = match result {
                         Ok(description) => PrBodyState::Ready(description),
-                        Err(err) => PrBodyState::Error(err.user_message()),
+                        Err(err) => {
+                            crate::action_error::failed_action_err("load", "the pull request", &err, cx);
+                            PrBodyState::Error
+                        }
                     };
                 }
                 cx.notify();
@@ -1648,7 +1657,7 @@ impl IssueDetailView {
         // synced rows (inline images included), so a row can never spin
         // forever just because its content type classified out of the rail.
         let synced_ids = all_attachment_ids(&issue.id, cx);
-        let pending: Vec<(u64, String, Option<SharedString>)> = self
+        let pending: Vec<String> = self
             .pending_files
             .iter()
             .filter(|pending| {
@@ -1657,7 +1666,7 @@ impl IssueDetailView {
                     .as_deref()
                     .is_none_or(|id| !synced_ids.contains(id))
             })
-            .map(|pending| (pending.key, pending.filename.clone(), pending.error.clone()))
+            .map(|pending| pending.filename.clone())
             .collect();
 
         // EXP-335: with nothing to list the section renders NOTHING — the
@@ -1708,8 +1717,8 @@ impl IssueDetailView {
         for attachment in &attachments {
             section = section.child(self.render_file_row(attachment, cx));
         }
-        for (key, filename, error) in pending {
-            section = section.child(self.render_pending_file_row(key, filename, error, cx));
+        for filename in pending {
+            section = section.child(crate::issue_files::pending_file_row(filename, cx));
         }
         section.into_any_element()
     }
@@ -1900,30 +1909,6 @@ impl IssueDetailView {
         )
     }
 
-    /// A staged pick: "Uploading…" until the server answers, or the failure
-    /// message with a dismiss ✕ (`issue_files::pending_file_row`).
-    fn render_pending_file_row(
-        &self,
-        key: u64,
-        filename: String,
-        error: Option<SharedString>,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let view = cx.entity().downgrade();
-        crate::issue_files::pending_file_row(
-            key,
-            filename,
-            error,
-            move |_window, cx| {
-                let _ = view.update(cx, |this, cx| {
-                    this.pending_files.retain(|pending| pending.key != key);
-                    cx.notify();
-                });
-            },
-            cx,
-        )
-    }
-
     /// "Attach file" — the native multi-select picker (same shape as the
     /// editor's image picker); every pick becomes a pending row immediately.
     fn pick_files(&mut self, issue_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -1977,7 +1962,6 @@ impl IssueDetailView {
             key,
             filename,
             uploaded_id: None,
-            error: None,
         });
         cx.notify();
 
@@ -2086,14 +2070,10 @@ impl IssueDetailView {
         spawn_description_save(&self.unechoed_saves, &issue_id, &next, cx);
     }
 
+    /// FEED-79: a failed upload leaves the list and is the error toast.
     fn fail_pending_file(&mut self, key: u64, message: SharedString, cx: &mut gpui::Context<Self>) {
-        if let Some(pending) = self
-            .pending_files
-            .iter_mut()
-            .find(|pending| pending.key == key)
-        {
-            pending.error = Some(message);
-        }
+        self.pending_files.retain(|pending| pending.key != key);
+        crate::action_error::failed_action("upload", "the file", Some(message.to_string()), cx);
         cx.notify();
     }
 
@@ -2132,9 +2112,7 @@ impl IssueDetailView {
                     Ok(path) => cx.open_with_system(&path),
                     Err(error) => {
                         log::warn!("[ui] attachment open failed for {attachment_id}: {error}");
-                        let note = Toast::error(format!(
-                            "Could not open {label}: {error}"
-                        ));
+                        let note = crate::action_error::failed_toast("open", &label, Some(error.to_string()));
                         let _ = handle.update(cx, |_, window, cx| {
                             crate::toast::show(note, window, cx);
                         });
@@ -2192,9 +2170,11 @@ impl IssueDetailView {
                     // The row stays — the delete simply did not happen; the
                     // Electric echo is what removes a row that DID.
                     log::warn!("[ui] attachments.delete({attachment_id}) failed: {error}");
-                    let note = Toast::error(format!(
-                        "Could not delete {label}: {error}"
-                    ));
+                    let note = crate::action_error::failed_toast(
+                        "delete",
+                        &label,
+                        crate::action_error::action_error_description(&error),
+                    );
                     let _ = handle.update(cx, |_, window, cx| {
                         crate::toast::show(note, window, cx);
                     });
@@ -2516,7 +2496,8 @@ impl IssueDetailView {
             (
                 right,
                 header.chip_row(issue, actions, cx),
-                header.agent_row(issue, cx),
+                // FEED-79: a merge refusal is a toast now, not a row.
+                None,
             )
         });
         let compact = collapsed.then(|| {
@@ -2594,14 +2575,12 @@ impl Render for IssueDetailView {
             if !issues_ready {
                 // §4.1: never render "not found" off an unsynced snapshot.
                 return base
-                    .child(
-                        v_flex()
-                            .p_4()
-                            .gap_2()
-                            .child(crate::controls::skeleton().h_4().w_48())
-                            .child(crate::controls::skeleton().h_4().w_64())
-                            .child(crate::controls::skeleton().h_4().w_56()),
-                    )
+                    .child(v_flex().p_4().child(crate::feedback::skeleton_rows(
+                        "issue-detail-skeleton",
+                        crate::feedback::SKELETON_ROWS,
+                        crate::settings::SETTINGS_ROW_H,
+                        cx,
+                    )))
                     .into_any_element();
             }
             return base
@@ -2642,9 +2621,15 @@ impl Render for IssueDetailView {
         let has_title_row = guide_face.is_none();
         let (header, title_rows) = self.render_header(&issue, has_title_row, window, cx);
         if let Some(guide_face) = guide_face {
+            // EXP-1261: the top strip only once the page (or a diff page's
+            // list) left its top.
+            let scrolled = match (&self.guide_page, &self.changes) {
+                (Some(_), Some(changes)) => changes.read(cx).scrolled(cx),
+                _ => crate::work_header::scrolled(&self.guide_scroll),
+            };
             return view
                 .child(header)
-                .child(crate::work_header::work_body(guide_face, false))
+                .child(crate::work_header::work_body(guide_face, false, scrolled))
                 .into_any_element();
         }
         let body = self

@@ -22,6 +22,7 @@ import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import { useRememberedScroll } from "@/hooks/use-remembered-scroll"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
 import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
+import { TRPCClientError } from "@trpc/client"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssueDescriptionText,
@@ -74,6 +75,7 @@ import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
+import { failedAction } from "@/lib/action-error"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
 
@@ -240,7 +242,6 @@ export function IssueDetailView({
   const uploadQueueRef = useRef<Promise<void>>(Promise.resolve())
 
   const [description, setDescription] = useState(incomingDescription)
-  const [attachmentStatus, setAttachmentStatus] = useState<string | null>(null)
   const [activeUploadCount, setActiveUploadCount] = useState(0)
   // EXP-824: the narrated progress of a media upload ("Uploading clip.mp4… 42%").
   const [uploadStatusText, setUploadStatusText] = useState<string | null>(null)
@@ -294,7 +295,6 @@ export function IssueDetailView({
   // Full reset when navigating to a different issue.
   useEffect(() => {
     applyIncomingDescription(incomingDescription)
-    setAttachmentStatus(null)
   }, [issue.id])
 
   // Opening an issue clears its inbox notifications (EXP-92) — the safety net
@@ -364,15 +364,8 @@ export function IssueDetailView({
     }
     const queuedSave = saveQueueRef.current.then(saveTask, saveTask)
     saveQueueRef.current = queuedSave.catch(() => undefined)
-    try {
-      await queuedSave
-      setAttachmentStatus(null)
-    } catch (error) {
-      setAttachmentStatus(
-        error instanceof Error ? error.message : `Failed to save description`
-      )
-      throw error
-    }
+    // FEED-79: a failed save is the tRPC link's toast; the caller decides.
+    await queuedSave
   }
 
   const handleDescriptionBlur = async () => {
@@ -408,8 +401,14 @@ export function IssueDetailView({
     }
   }
 
+  // FEED-79: an upload's failure toast. A tRPC error here is the description
+  // save that follows the upload, which the mutation link already toasted.
+  const failedUpload = (thing: string, error: unknown) => {
+    if (error instanceof TRPCClientError) return
+    failedAction(`upload`, thing, error)
+  }
+
   const handleImageFiles = async (files: File[]) => {
-    setAttachmentStatus(null)
     try {
       await enqueueUploadTask(async () => {
         for (const file of files) {
@@ -422,9 +421,7 @@ export function IssueDetailView({
         }
       })
     } catch (error) {
-      setAttachmentStatus(
-        error instanceof Error ? error.message : `Failed to upload image`
-      )
+      failedUpload(`the image`, error)
     }
   }
 
@@ -433,7 +430,6 @@ export function IssueDetailView({
   // (paste/drop/the image button). A clip that is not H.264 MP4 gets a
   // non-blocking "may not play everywhere" toast.
   const handleMediaFiles = async (files: File[]) => {
-    setAttachmentStatus(null)
     try {
       await enqueueUploadTask(async () => {
         for (const file of files) {
@@ -469,9 +465,7 @@ export function IssueDetailView({
         }
       })
     } catch (error) {
-      setAttachmentStatus(
-        error instanceof Error ? error.message : `Failed to upload media`
-      )
+      failedUpload(`the file`, error)
     }
   }
 
@@ -482,7 +476,6 @@ export function IssueDetailView({
     files: File[],
     options?: { asFile?: boolean }
   ) => {
-    setAttachmentStatus(null)
     try {
       await enqueueUploadTask(async () => {
         for (const file of files) {
@@ -490,9 +483,7 @@ export function IssueDetailView({
         }
       })
     } catch (error) {
-      setAttachmentStatus(
-        error instanceof Error ? error.message : `Failed to upload file`
-      )
+      failedUpload(`the file`, error)
     }
   }
 
@@ -643,13 +634,6 @@ export function IssueDetailView({
     </div>
   )
 
-  // The attachments strip is gone (EXP-256) — the editor's rail/paste/drop and
-  // the image node menu cover add/remove; only upload errors still need a
-  // surface.
-  const attachmentError = attachmentStatus ? (
-    <p className="px-5 py-2 text-xs text-destructive">{attachmentStatus}</p>
-  ) : null
-
   // EXP-297 Files rail: non-inline-image attachments straight from the synced
   // shape, plus the "Attach file" affordance for members.
   const filesSection = (
@@ -748,7 +732,6 @@ export function IssueDetailView({
               issue page. */}
           {propsTray(false, false)}
           {editor}
-          {attachmentError}
           {filesSection}
           {relationsSection}
           {prRow}
@@ -855,7 +838,6 @@ export function IssueDetailView({
               {faceBody ?? (
                 <>
                   {editor}
-                  {attachmentError}
                   {filesSection}
                   {/* EXP-760: relations sit BELOW the description (Linear's
                       order); EXP-1097: as grouped bands. */}

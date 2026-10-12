@@ -2,7 +2,7 @@ import type { Issue } from "@/db/schema"
 import type { TeamAction } from "@/components/action-prompt-form"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
-import { ChipRemoveButton, Pill, conceptIcon, getActionIcon } from "@exp/ui"
+import { ChipRemoveButton, Pill, Spinner, conceptIcon, getActionIcon } from "@exp/ui"
 
 // EXP-825: the composer's SUBJECT, as chips in the card's leading row — one
 // per picked issue, or ONE action chip. They are how "exclusivity by swap"
@@ -85,7 +85,11 @@ export function SubjectChips({
         />
       ))}
       {pendingIssueCount > 0 && (
-        <Pill size="sm">{`${pendingIssueCount} loading…`}</Pill>
+        // Issues not synced yet: the spinner + a count, no "loading" words
+        // (EXP-1259 D8).
+        <Pill size="sm" aria-busy leading={<Spinner />}>
+          {`${pendingIssueCount} more`}
+        </Pill>
       )}
     </>
   )

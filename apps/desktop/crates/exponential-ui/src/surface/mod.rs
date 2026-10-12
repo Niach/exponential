@@ -915,6 +915,7 @@ impl Surface {
         }
         if let Some(&slot) = self.slot_of.get(id) {
             self.style_dirty.insert(slot);
+            self.lend_states(slot);
             for target in self.hover_targets(slot) {
                 let open = self.local.open.get(&target).copied().unwrap_or(false);
                 let active = self.hover_active(&target);
@@ -1518,8 +1519,77 @@ impl Surface {
         }
     }
 
+    /// EXP-1259: the node whose hover/focus a part borrows: a Tabs `close`
+    /// glyph shows while its TAB is hovered or focused.
+    fn state_lender(n: &LNode) -> Option<String> {
+        let owner = n.owner.as_deref()?;
+        match (n.owner_component.as_deref(), n.part.as_deref()) {
+            (Some("Tabs"), Some("close")) => n.id.strip_prefix(&format!("{owner}.close")).map(|i| format!("{owner}.tab{i}")),
+            _ => None,
+        }
+    }
+
+    /// A node's states changed: restyle the parts that borrow them, and a
+    /// hovered search row becomes the highlighted one (a hover selects).
+    fn lend_states(&mut self, slot: u32) {
+        let n = &self.nodes[slot as usize];
+        if let (Some(owner), Some("Tabs"), Some("tab")) = (n.owner.clone(), n.owner_component.as_deref(), n.part.as_deref()) {
+            if let Some(&close) = n.id.strip_prefix(&format!("{owner}.tab")).and_then(|i| self.slot_of.get(&format!("{owner}.close{i}"))) {
+                self.style_dirty.insert(close);
+            }
+        }
+        let n = &self.nodes[slot as usize];
+        let hovered = self.states.get(&n.id).is_some_and(|s| s.iter().any(|x| x == "hover"));
+        // EXP-1259: a pointer over a top-level Menu row opens ITS submenu
+        // (or closes another row's), like the web's; keys and presses still
+        // open one too.
+        if let (true, Some(owner), Some("Menu"), Some("item")) = (hovered, n.owner.clone(), n.owner_component.as_deref(), n.part.as_deref()) {
+            let top = n.id.strip_prefix(&format!("{owner}.item.")).filter(|rest| !rest.contains('.')).and_then(|i| i.parse::<usize>().ok());
+            if let Some(i) = top {
+                let submenu = n.props.get("kind").and_then(Value::as_str) == Some("submenu");
+                let open = self.local.submenu.get(&owner).copied();
+                let next = if submenu { Some(i) } else { None };
+                if open != next && (submenu || open.is_some()) {
+                    match next {
+                        Some(i) => self.local.submenu.insert(owner.clone(), i),
+                        None => self.local.submenu.remove(&owner),
+                    };
+                    self.needs_build = true;
+                    if !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+                        self.pending.push(OutEvent::Relayout);
+                    }
+                }
+            }
+        }
+        let n = &self.nodes[slot as usize];
+        if let (true, Some(owner), Some(position), Some("item")) = (hovered, n.owner.clone(), n.props.get("position").and_then(Value::as_u64), n.part.as_deref()) {
+            let key = match n.owner_component.as_deref() {
+                Some("SearchList") => Some(owner.clone()),
+                // `<menu>.item.<sub>.<i>` → `<menu>.search.<sub>`
+                Some("Menu") => n.id.strip_prefix(&format!("{owner}.item")).and_then(|rest| rest.rsplit_once('.')).map(|(sub, _)| format!("{owner}.search{sub}")),
+                _ => None,
+            };
+            if let Some(key) = key {
+                if self.local.active.get(&key).copied().unwrap_or(0) != position as usize {
+                    self.local.active.insert(key, position as usize);
+                    self.needs_build = true;
+                    if !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+                        self.pending.push(OutEvent::Relayout);
+                    }
+                }
+            }
+        }
+    }
+
     fn states_of(&self, n: &LNode) -> Vec<String> {
         let mut states = self.states.get(&n.id).cloned().unwrap_or_default();
+        if let Some(lender) = Self::state_lender(n) {
+            for s in self.states.get(&lender).into_iter().flatten() {
+                if matches!(s.as_str(), "hover" | "focus" | "focus-visible") && !states.contains(s) {
+                    states.push(s.clone());
+                }
+            }
+        }
         if n.props.get("disabled").and_then(Value::as_bool) == Some(true) && !states.iter().any(|s| s == "disabled") {
             states.push("disabled".into());
         }

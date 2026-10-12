@@ -9,6 +9,10 @@
 //! value reads and its own submit subscription; this view only layers the
 //! completion overlay + keyboard capture (↑/↓ select, Enter/Tab accept, Esc
 //! dismiss) on top of the rendered input.
+//!
+//! SLOP-28: a `#` token opens THE search list at the caret instead
+//! ([`crate::picker::search_list::IssueTypeahead`], its own field focused and
+//! prefilled); a pick writes `#IDENT ` back over the token.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -21,6 +25,9 @@ use gpui::{
 use gpui_component::input::{self, InputEvent, Textarea, TextareaState};
 
 use crate::controls::{typeahead_menu, typeahead_row, TypeaheadArm};
+use crate::picker::search_list::{
+    self, IssueTypeaheadEvent, OpenIssueTypeahead, TypeaheadGate, TypeaheadPrefill,
+};
 use crate::markdown::{
     byte_offset_to_position, detect_trigger, exact_emoji, CompletionItem, CompletionSource,
     CompletionTrigger, PendingToken,
@@ -91,6 +98,12 @@ pub struct MentionInput {
     /// EXP-551: a queued `:tada:` auto-commit (token + the unicode replacing
     /// it), drained on the next render.
     pending_commit: Option<(PendingToken, String)>,
+    /// SLOP-28: the open `#` typeahead, the token one is waiting to open on
+    /// (opened on the next render, which has the window), and the `#` the
+    /// reader closed.
+    typeahead: Option<OpenIssueTypeahead>,
+    pending_typeahead: Option<(String, TypeaheadPrefill)>,
+    typeahead_gate: TypeaheadGate,
     /// EXP-568: draw the textarea's own border/background? The comment
     /// composer turns it OFF — it lives inside a glass card that already owns
     /// the chrome, and a nested box-in-box read as two stacked inputs.
@@ -117,6 +130,9 @@ impl MentionInput {
             completion: None,
             completion_scroll: gpui::ScrollHandle::new(),
             pending_commit: None,
+            typeahead: None,
+            pending_typeahead: None,
+            typeahead_gate: TypeaheadGate::default(),
             appearance: true,
             _subscription: subscription,
         }
@@ -134,6 +150,8 @@ impl MentionInput {
         self.source = source;
         self.completion = None;
         self.pending_commit = None;
+        self.typeahead = None;
+        self.pending_typeahead = None;
     }
 
     /// EXP-551: insert picked text (the emoji picker's glyph) at the cursor.
@@ -141,31 +159,6 @@ impl MentionInput {
     pub fn insert_text(&mut self, text: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.input
             .update(cx, |state, cx| state.insert(text.to_string(), window, cx));
-        cx.notify();
-    }
-
-    /// EXP-827: [`Self::insert_text`] with the caret parked right AFTER the
-    /// text's first `#`, so a suggestion that names an issue opens the
-    /// `#` autocomplete wherever the token sits — "Start a session for # on my
-    /// other machine" used to insert fine and leave the caret at the END of
-    /// the sentence, where nothing is a token, while "Fix #" only worked
-    /// because its `#` happened to be last. No `#` at all: plain insert.
-    pub fn insert_suggestion(
-        &mut self,
-        text: &str,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(after_hash) = text.find('#').map(|at| at + 1) else {
-            return self.insert_text(text, window, cx);
-        };
-        self.input.update(cx, |state, cx| {
-            let before = state.cursor();
-            state.insert(text.to_string(), window, cx);
-            let value = state.value().to_string();
-            let caret = crate::markdown::byte_offset_to_position(&value, before + after_hash);
-            state.set_cursor_position(caret, window, cx);
-        });
         cx.notify();
     }
 
@@ -178,7 +171,20 @@ impl MentionInput {
             let state = input.read(cx);
             (state.value().to_string(), state.cursor())
         };
-        let Some(token) = detect_trigger(&value, cursor) else {
+        // SLOP-28: a `#` token opens THE search list (the next render opens
+        // it: that pass has the window).
+        if let Some(team_id) = source.issue_team_id() {
+            if let Some(prefill) = self.typeahead_gate.open_on(&value, cursor) {
+                self.completion = None;
+                if self.typeahead.is_none() {
+                    self.pending_typeahead = Some((team_id, prefill));
+                }
+                return;
+            }
+        }
+        let Some(token) = detect_trigger(&value, cursor)
+            .filter(|token| token.trigger != CompletionTrigger::IssueRef)
+        else {
             self.completion = None;
             return;
         };
@@ -231,6 +237,59 @@ impl MentionInput {
         replace_token(&self.input, &token, &unicode, false, window, cx);
         // EXP-600: the `:tada:` auto-commit records a recent like a pick does.
         crate::emoji::push_recent_emoji(cx, &unicode);
+    }
+
+    /// SLOP-28: open the `#` typeahead the last keystroke asked for.
+    fn drain_pending_typeahead(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some((team_id, prefill)) = self.pending_typeahead.take() else {
+            return;
+        };
+        let anchor =
+            search_list::textarea_caret_anchor(self.input.read(cx), self.bounds.get().origin, window);
+        self.typeahead = Some(OpenIssueTypeahead::open(
+            team_id,
+            prefill,
+            anchor,
+            window,
+            cx,
+            |this: &mut Self, event, token, window, cx| this.on_typeahead_event(event, token, window, cx),
+        ));
+    }
+
+    /// SLOP-28: a pick writes `#IDENT ` over the token; Escape leaves the
+    /// text as typed; Backspace in the empty field deletes the token; focus
+    /// comes back to this input on all three (a click away keeps it there).
+    fn on_typeahead_event(
+        &mut self,
+        event: &IssueTypeaheadEvent,
+        prefill: &TypeaheadPrefill,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        use gpui::Focusable as _;
+        self.typeahead = None;
+        let token = PendingToken {
+            trigger: CompletionTrigger::IssueRef,
+            start: prefill.start,
+            query: prefill.query.clone(),
+            closed: false,
+        };
+        match event {
+            IssueTypeaheadEvent::Pick(identifier) => {
+                let insert = search_list::typeahead_insert(identifier);
+                replace_token(&self.input, &token, insert.trim_end(), true, window, cx);
+            }
+            IssueTypeaheadEvent::Close { delete_token: true } => {
+                replace_token(&self.input, &token, "", false, window, cx);
+            }
+            IssueTypeaheadEvent::Close { delete_token: false } | IssueTypeaheadEvent::Dismiss => {
+                self.typeahead_gate.close(prefill.start);
+            }
+        }
+        if !matches!(event, IssueTypeaheadEvent::Dismiss) {
+            self.input.read(cx).focus_handle(cx).focus(window, cx);
+        }
+        cx.notify();
     }
 
     fn move_completion(&mut self, delta: isize, cx: &mut gpui::Context<Self>) {
@@ -371,7 +430,7 @@ impl MentionInput {
                     }),
                 )
                 // EXP-426: the shared decorated row — avatars for `@`
-                // (this composer offers no `#`).
+                // (`#` opens the search list instead, SLOP-28).
                 .child(crate::markdown::completion_row_content(&item, cx))
                 .into_any_element()
             })
@@ -399,8 +458,13 @@ use gpui::prelude::FluentBuilder as _;
 impl Render for MentionInput {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.drain_pending_commit(window, cx);
+        self.drain_pending_typeahead(window, cx);
         let bounds = self.bounds.clone();
         let completion = self.render_completion(window, cx);
+        let typeahead = self
+            .typeahead
+            .as_ref()
+            .map(|typeahead| typeahead.render(window, cx));
 
         div()
             .key_context("MentionInput")
@@ -425,6 +489,7 @@ impl Render for MentionInput {
                 .size_full(),
             )
             .when_some(completion, |el, completion| el.child(completion))
+            .children(typeahead)
     }
 }
 

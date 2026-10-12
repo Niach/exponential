@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { toast } from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { CodingSession, Device } from "@/db/schema"
 import { codingSessionCollection, deviceCollection } from "@/lib/collections"
 import {
@@ -91,10 +92,10 @@ export function useResumeRun(session: CodingSession): {
     if (!session.deviceId) return
     setResuming(true)
     try {
-      await trpc.steer.startSession.mutate({
-        resumeSessionId: session.id,
-        deviceId: session.deviceId,
-      })
+      await trpc.steer.startSession.mutate(
+        { resumeSessionId: session.id, deviceId: session.deviceId },
+        SKIP_ERROR_TOAST
+      )
       setSentAt(Date.now())
       if (deadlineRef.current) clearTimeout(deadlineRef.current)
       deadlineRef.current = setTimeout(() => {
@@ -107,7 +108,8 @@ export function useResumeRun(session: CodingSession): {
       }, STARTED_RUN_DEADLINE_MS)
     } catch (e) {
       setResuming(false)
-      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
+      // FEED-79: nothing resumed, so Retry asks the machine again.
+      failedAction(`resume`, `the run`, e, { retry: () => void resume() })
     }
   }
 

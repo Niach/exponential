@@ -26,6 +26,8 @@ final class CreateBoardDraft {
     /// a branch belongs to the repo it was picked in.
     var defaultBranch: String?
     var saving = false
+    /// FEED-79: INPUT refusals only (a name/prefix already taken, BAD_REQUEST),
+    /// inline under the name; any other failed create is a toast.
     var errorText: String?
     /// Plan-cap failures render as a softer nudge than hard errors.
     var limitText: String?
@@ -68,16 +70,18 @@ final class CreateBoardDraft {
 
     func onNameChange(_ value: String) {
         name = value
+        errorText = nil
         if !prefixEdited { prefix = CreateBoardForm.derivePrefix(value) }
     }
 
     func onPrefixChange(_ value: String) {
         prefixEdited = true
+        errorText = nil
         prefix = String(value.uppercased().prefix(4))
     }
 
-    /// Returns the new board id, or nil when the create failed (the message is
-    /// already on the draft). `saving` is left set on success — the caller
+    /// Returns the new board id, or nil when the create failed (an input
+    /// refusal is on the draft, anything else was toasted). `saving` is left set on success — the caller
     /// swaps the form out.
     func create(accountId: String, teamId: String, boardsApi: BoardsApi) async -> String? {
         guard canCreate else { return nil }
@@ -102,8 +106,13 @@ final class CreateBoardDraft {
         } catch {
             if error.isPlanLimitError {
                 limitText = error.trpcUserMessage
-            } else {
+            } else if error.trpcErrorCode == "BAD_REQUEST" {
                 errorText = error.trpcUserMessage
+            } else {
+                Toaster.shared.error(
+                    FeedbackStates.Errors.title(verb: "create", thing: "the board"),
+                    description: error.trpcUserMessage
+                )
             }
             saving = false
             return nil
@@ -174,6 +183,13 @@ struct CreateBoardForm: View {
                 .glassRow()
             }
 
+            // FEED-79: a taken name/prefix is input, right under its fields.
+            if let errorText = draft.errorText {
+                Text(errorText)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
+
             // Repository + branch (always optional) — picker rows that carry
             // their own labels, plus the one shared caption line.
             BoardRepoField(
@@ -187,16 +203,6 @@ struct CreateBoardForm: View {
                 onBranchChange: { draft.defaultBranch = $0 }
             )
 
-            if let errorText = draft.errorText {
-                Text(errorText)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.1))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
             if let limitText = draft.limitText {
                 HStack(alignment: .top, spacing: 8) {
                     AppIcon(AppIcons.navGettingStarted, size: AppIcon.Size.small)

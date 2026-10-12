@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { and, eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
 import { contract } from "@exp/domain-contract"
 import { toast } from "@exp/ui"
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import type { Board, CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
@@ -63,6 +64,7 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
+import { failedAction } from "@/lib/action-error"
 import {
   useLaunchOptions,
   type LaunchOptions,
@@ -272,11 +274,44 @@ export interface LaunchComposerModel {
   spansRepos: boolean
   spansBranches: boolean
   costHint: boolean
-  /** Uploading or the start is in flight. */
+  /** Uploading, the start is in flight, or a started run has not landed. */
   busy: boolean
   /** The device label a start was just delivered to (the run opens itself). */
   sentTo: string | null
+  /** EXP-1271 (feedback-states.json `starting`): from the Start press until
+   * the run's synced row lands (or `starting.timeoutMs` gives up on it). The
+   * card shows "Starting on <device>" with the mark; the draft stays put so
+   * a timeout leaves it ready to retry. */
+  starting: ComposerStarting | null
   submit: () => Promise<void>
+}
+
+/** What the composer's starting row says: where, and since when. */
+export interface ComposerStarting {
+  deviceLabel: string
+  /** `Date.now()` at the Start press. */
+  since: number
+}
+
+const STARTING = FEEDBACK_STATES.starting
+
+/** "Starting on buildbox" (feedback-states.json `starting.label`). */
+export function startingLabel(deviceLabel: string): string {
+  return STARTING.label.replace(`{device}`, deviceLabel)
+}
+
+/** The starting row's clock: tenths of a second, "1.4 s". */
+export function startingElapsed(ms: number): string {
+  return `${(Math.max(ms, 0) / 1000).toFixed(1)} s`
+}
+
+/** The 30 s give-up toast: title, "<device> did not answer.", Retry. */
+export function startingTimeoutToast(deviceLabel: string, retry: () => void) {
+  const copy = STARTING.timeoutToast
+  toast.error(copy.title, {
+    description: copy.description.replace(`{device}`, deviceLabel),
+    action: { label: copy.action, onClick: retry },
+  })
 }
 
 export function useLaunchComposer({
@@ -284,12 +319,15 @@ export function useLaunchComposer({
   remote,
   seed,
   onSeedConsumed,
+  onLanded,
 }: {
   teamId: string
   remote: RemoteStart
   /** The route's one-shot preselection; consumed once, then reported. */
   seed: LaunchSeed | null
   onSeedConsumed: () => void
+  /** EXP-1271: the started run's row landed (the watch opened it). */
+  onLanded?: () => void
 }): LaunchComposerModel {
   const [subject, setSubject] = useState<LaunchSubject>(null)
   const [text, setText] = useState(``)
@@ -303,6 +341,7 @@ export function useLaunchComposer({
   // the subject (a different pick is a different story).
   const [conflictSeeded, setConflictSeeded] = useState(false)
   const [sending, setSending] = useState(false)
+  const [starting, setStarting] = useState<ComposerStarting | null>(null)
   // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
   // a manual re-pick (including clearing to "None") from being re-seeded when
   // the Electric actions rows update.
@@ -821,7 +860,7 @@ export function useLaunchComposer({
       ? missingRequiredInputs(inputDefs, subject.inputs)
       : []
   const hasText = text.trim().length > 0
-  const busy = sending || remote.starting
+  const busy = sending || remote.starting || starting !== null
   const subjectBlocked =
     subject === null
       ? // A chat needs SOMETHING to say — text or an image (EXP-739: the
@@ -849,6 +888,12 @@ export function useLaunchComposer({
     if (blocked || !device) return
     setBlockedOpen(false)
     setSending(true)
+    const startedRun: ComposerStarting = {
+      deviceLabel: device.deviceLabel || device.deviceId,
+      since: Date.now(),
+    }
+    setStarting(startedRun)
+    let delivered = false
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
       // failure keeps the composer intact and a retry only uploads the rest.
@@ -866,8 +911,10 @@ export function useLaunchComposer({
           setImages(current)
         }
       } catch (error) {
-        toast.error(`Couldn't upload attachment`, {
-          description: error instanceof Error ? error.message : undefined,
+        // FEED-79: landed uploads are kept, so Retry uploads the rest and
+        // starts (the kept draft, through the same gates as a click).
+        failedAction(`upload`, `the attachment`, error, {
+          retry: () => void submitRef.current(),
         })
         return
       }
@@ -886,7 +933,8 @@ export function useLaunchComposer({
         omitMcp: subjectOwnsMcpServers(subject),
       })
       // The remote hook toasts its own failures and rethrows; a refused start
-      // keeps the draft so it can be retried.
+      // keeps the draft, and the toast's Retry re-submits it (FEED-79).
+      const retry = () => void submitRef.current()
       if (subject === null) {
         await remote.runAction(
           device,
@@ -895,14 +943,16 @@ export function useLaunchComposer({
           { id: BUILTIN_CHAT_ID, name: BUILTIN_CHAT_NAME, teamId },
           options,
           chatStartInputs(repoId),
-          prompt
+          prompt,
+          retry
         )
       } else if (subject.kind === `issues`) {
         await remote.startIssues(
           device,
           options,
           stacked ? [stacked.issueId] : subject.ids,
-          prompt || undefined
+          prompt || undefined,
+          retry
         )
       } else if (selectedAction) {
         await remote.runAction(
@@ -914,20 +964,67 @@ export function useLaunchComposer({
           },
           options,
           buildInputsPayload(inputDefs, subject.inputs),
-          prompt || undefined
+          prompt || undefined,
+          retry
         )
       }
-      for (const image of current) URL.revokeObjectURL(image.url)
-      setImages([])
-      setText(``)
-      setSubject(null)
-      setSeedPrIssueId(undefined)
+      // EXP-1271: delivered. The draft stays until the run's row lands
+      // (`clearDraft` below) or the starting deadline gives up on it.
+      delivered = true
     } catch {
       // Already toasted by the remote hook.
     } finally {
       setSending(false)
+      if (!delivered) setStarting((current) => (current === startedRun ? null : current))
     }
   }
+
+  const clearDraft = () => {
+    for (const image of imagesRef.current) URL.revokeObjectURL(image.url)
+    setImages([])
+    setText(``)
+    setSubject(null)
+    setSeedPrIssueId(undefined)
+  }
+
+  // EXP-1271: the starting state ends when the run's row lands (the remote
+  // watch's `sentTo` falls after a delivery) or, after `starting.timeoutMs`,
+  // with the error toast (Retry re-submits the kept draft).
+  const deliveredRef = useRef(false)
+  const landedRef = useRef<(() => void) | undefined>(onLanded)
+  landedRef.current = onLanded
+  useEffect(() => {
+    if (!starting) {
+      deliveredRef.current = false
+      return
+    }
+    if (remote.sentTo !== null) {
+      deliveredRef.current = true
+      return
+    }
+    if (!deliveredRef.current) return
+    deliveredRef.current = false
+    setStarting(null)
+    clearDraft()
+    landedRef.current?.()
+    // `clearDraft` only touches setters and a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [starting, remote.sentTo])
+
+  const submitRef = useRef<() => Promise<void>>(async () => {})
+  const cancelWatchRef = useRef(remote.cancelWatch)
+  cancelWatchRef.current = remote.cancelWatch
+  useEffect(() => {
+    if (!starting) return
+    const left = starting.since + STARTING.timeoutMs - Date.now()
+    const timer = setTimeout(() => {
+      deliveredRef.current = false
+      cancelWatchRef.current()
+      setStarting(null)
+      startingTimeoutToast(starting.deviceLabel, () => void submitRef.current())
+    }, Math.max(left, 0))
+    return () => clearTimeout(timer)
+  }, [starting])
 
   // EXP-980: a BLOCKED start asks first (Cancel, Start anyway or Stacked PR); a batch
   // asks about blockers outside it. An action or a chat never asks, and
@@ -941,6 +1038,7 @@ export function useLaunchComposer({
     }
     await start()
   }
+  submitRef.current = submit
 
   return {
     teamId,
@@ -993,6 +1091,7 @@ export function useLaunchComposer({
     costHint: !overCap && !spansRepos && count > BATCH_COST_HINT_THRESHOLD,
     busy,
     sentTo: remote.sentTo,
+    starting,
     submit,
   }
 }

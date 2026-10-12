@@ -7,6 +7,8 @@ import {
   teamCollection,
 } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { Empty } from "@/components/empty"
 import type { Issue } from "@/db/schema"
 import {
@@ -35,6 +37,9 @@ import {
   LABEL_COLORS,
   STATUS_COLORS,
   ColorSwatchGrid,
+  FEEDBACK_WORDS,
+  FieldError,
+  SkeletonRows,
 } from "@exp/ui"
 
 const MoreIcon = conceptIcon(`ui-more`)
@@ -136,16 +141,20 @@ function StatusRow({
     }
     setBusy(true)
     try {
-      const { txId } = await trpc.statuses.update.mutate({
-        teamId,
-        statusId: option.id,
-        name: trimmed,
-      })
+      const { txId } = await trpc.statuses.update.mutate(
+        { teamId, statusId: option.id, name: trimmed },
+        SKIP_ERROR_TOAST
+      )
       await issueStatusCollection.utils.awaitTxId(txId)
       setError(null)
     } catch (err) {
       setName(option.name)
-      setError(err instanceof Error ? err.message : `Failed to rename status.`)
+      // A name already taken is input (under the field); the rest a toast.
+      if (trpcErrorCode(err) === `CONFLICT`) {
+        setError(trpcErrorMessage(err, `A status with this name already exists.`))
+      } else {
+        failedAction(`rename`, `the status`, err)
+      }
     } finally {
       setBusy(false)
     }
@@ -155,14 +164,13 @@ function StatusRow({
     if (color === option.colorHex) return
     setBusy(true)
     try {
-      const { txId } = await trpc.statuses.update.mutate({
-        teamId,
-        statusId: option.id,
-        color,
-      })
+      const { txId } = await trpc.statuses.update.mutate(
+        { teamId, statusId: option.id, color },
+        SKIP_ERROR_TOAST
+      )
       await issueStatusCollection.utils.awaitTxId(txId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to set color.`)
+      failedAction(`update`, `the status color`, err, { retry: () => void persistColor(color) })
     } finally {
       setBusy(false)
     }
@@ -171,14 +179,13 @@ function StatusRow({
   const move = async (direction: `up` | `down`) => {
     setBusy(true)
     try {
-      const { txId } = await trpc.statuses.move.mutate({
-        teamId,
-        statusId: option.id,
-        direction,
-      })
+      const { txId } = await trpc.statuses.move.mutate(
+        { teamId, statusId: option.id, direction },
+        SKIP_ERROR_TOAST
+      )
       await issueStatusCollection.utils.awaitTxId(txId)
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to move status.`)
+      failedAction(`move`, `the status`, err)
     } finally {
       setBusy(false)
     }
@@ -233,6 +240,7 @@ function StatusRow({
               }
             }}
             disabled={busy}
+            aria-invalid={error ? true : undefined}
             className="h-7 flex-1 border-none bg-transparent px-1 shadow-none focus-visible:ring-0"
           />
         )}
@@ -303,7 +311,7 @@ function StatusRow({
           }
         />
       </div>
-      {error && <p className="mt-1 px-1 text-xs text-destructive">{error}</p>}
+      <FieldError className="mt-1 px-1">{error}</FieldError>
     </ListRow>
   )
 }
@@ -330,7 +338,6 @@ function ReassignDialog({
     candidates[0]
   const [reassignToId, setReassignToId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   // Server-authoritative referencing count — the synced count undershoots
   // whenever issues sit on trashed boards (they never sync). null = loading
   // or fetch failed; the copy then stays hedged instead of showing a number.
@@ -402,17 +409,16 @@ function ReassignDialog({
     if (!target || !selectedId) return
     setBusy(true)
     try {
-      const { txId } = await trpc.statuses.delete.mutate({
-        teamId,
-        statusId: target.option.id,
-        reassignToId: selectedId,
-      })
+      const { txId } = await trpc.statuses.delete.mutate(
+        { teamId, statusId: target.option.id, reassignToId: selectedId },
+        SKIP_ERROR_TOAST
+      )
       await issueStatusCollection.utils.awaitTxId(txId)
       onDeleted()
       onOpenChange(false)
       setReassignToId(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to delete status.`)
+      failedAction(`delete`, `the status`, err)
     } finally {
       setBusy(false)
     }
@@ -457,7 +463,6 @@ function ReassignDialog({
             </button>
           ))}
         </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
     </Prompt>
   )
@@ -482,16 +487,19 @@ function CreateStatusForm({
     if (!trimmed || busy) return
     setBusy(true)
     try {
-      const { txId } = await trpc.statuses.create.mutate({
-        teamId,
-        category,
-        name: trimmed,
-        color,
-      })
+      const { txId } = await trpc.statuses.create.mutate(
+        { teamId, category, name: trimmed, color },
+        SKIP_ERROR_TOAST
+      )
       await issueStatusCollection.utils.awaitTxId(txId)
       onDone()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to create status.`)
+      // A name already taken is input (under the field); the rest a toast.
+      if (trpcErrorCode(err) === `CONFLICT`) {
+        setError(trpcErrorMessage(err, `A status with this name already exists.`))
+      } else {
+        failedAction(`create`, `the status`, err)
+      }
     } finally {
       setBusy(false)
     }
@@ -505,6 +513,7 @@ function CreateStatusForm({
           setName(e.target.value)
           setError(null)
         }}
+        aria-invalid={error ? true : undefined}
         placeholder={`New ${CATEGORY_LABEL[category].toLowerCase()} status`}
         autoFocus
         className="h-8 text-sm"
@@ -516,7 +525,7 @@ function CreateStatusForm({
           if (e.key === `Escape`) onDone()
         }}
       />
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      <FieldError>{error}</FieldError>
       <div>
         <span className="mb-1.5 block text-xs text-muted-foreground">
           Color
@@ -531,10 +540,12 @@ function CreateStatusForm({
         <Button
           size="xs"
           variant="default"
-          disabled={!name.trim() || busy}
+          disabled={!name.trim()}
+          pending={busy}
+          pendingLabel={FEEDBACK_WORDS.pending.save}
           onClick={() => void create()}
         >
-          {busy ? `Creating...` : `Create status`}
+          Create status
         </Button>
         <Pill mode="action" disabled={busy} onClick={onDone}>
           Cancel
@@ -585,7 +596,7 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
     return (
       <div>
         <GlassSectionHeader label="Statuses" />
-        <p className="py-2 text-sm text-muted-foreground">Loading…</p>
+        <SkeletonRows />
       </div>
     )
   }

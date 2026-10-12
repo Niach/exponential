@@ -8,6 +8,7 @@ import { Ban, ChevronDown } from "lucide-react"
 import type { Team } from "@/db/schema"
 import { teamCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { IssueEstimation, IssueOption } from "@/lib/domain"
 import { useTeamStatuses } from "@/hooks/use-team-statuses"
 import type { StatusRowOption } from "@/lib/team-statuses"
@@ -30,18 +31,16 @@ import {
 // The estimate scale. Owner-only (teams.update); members see the value.
 function EstimatesCard({ team, canEdit }: { team: Team; canEdit: boolean }) {
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const estimationType = (team.estimationType ?? `none`) as IssueEstimation
   const current = ESTIMATION_TYPE_OPTIONS.find((option) => option.value === estimationType)
 
   const persist = async (next: IssueEstimation) => {
     if (next === estimationType) return
     setBusy(true)
-    setError(null)
     try {
-      await trpc.teams.update.mutate({ teamId: team.id, estimationType: next })
+      await trpc.teams.update.mutate({ teamId: team.id, estimationType: next }, SKIP_ERROR_TOAST)
     } catch (e) {
-      setError(e instanceof Error ? e.message : `Failed to save changes`)
+      failedAction(`update`, `the estimate scale`, e, { retry: () => void persist(next) })
     } finally {
       setBusy(false)
     }
@@ -90,7 +89,6 @@ function EstimatesCard({ team, canEdit }: { team: Team; canEdit: boolean }) {
           )}
         </div>
       </GlassGroup>
-      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
     </div>
   )
 }
@@ -131,7 +129,6 @@ export function PrAutomationCard({
     [teamId]
   )
   const team = teamRows?.[0]
-  const [error, setError] = useState<string | null>(null)
 
   const pickable = useMemo(
     () => options.filter((option) => option.category !== `duplicate`),
@@ -176,17 +173,15 @@ export function PrAutomationCard({
   ) => {
     if (target === current) return
     try {
-      const { txId } = await trpc.statuses.setPrAutomation.mutate({
-        teamId,
-        event,
-        target,
-      })
-      await teamCollection.utils.awaitTxId(txId)
-      setError(null)
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : `Failed to update PR automation.`
+      const { txId } = await trpc.statuses.setPrAutomation.mutate(
+        { teamId, event, target },
+        SKIP_ERROR_TOAST
       )
+      await teamCollection.utils.awaitTxId(txId)
+    } catch (err) {
+      failedAction(`update`, `PR automation`, err, {
+        retry: () => void persist(event, target, current),
+      })
     }
   }
 
@@ -197,16 +192,15 @@ export function PrAutomationCard({
   const persistEndSessions = async (enabled: boolean) => {
     setEndSessionsBusy(true)
     try {
-      const { txId } = await trpc.statuses.setEndSessionsOnMerge.mutate({
-        teamId,
-        enabled,
-      })
-      await teamCollection.utils.awaitTxId(txId)
-      setError(null)
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : `Failed to update PR automation.`
+      const { txId } = await trpc.statuses.setEndSessionsOnMerge.mutate(
+        { teamId, enabled },
+        SKIP_ERROR_TOAST
       )
+      await teamCollection.utils.awaitTxId(txId)
+    } catch (err) {
+      failedAction(`update`, `PR automation`, err, {
+        retry: () => void persistEndSessions(enabled),
+      })
     } finally {
       setEndSessionsBusy(false)
     }
@@ -296,7 +290,6 @@ export function PrAutomationCard({
           />
         </div>
       </GlassGroup>
-      {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
     </div>
   )
 }

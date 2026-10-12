@@ -50,16 +50,23 @@ final class StartedRunWatcher {
     }
 
     /// Delivered: caption up, then watch the synced rows for the desktop's.
+    ///
+    /// EXP-1271 (EXP-1259 D11): a host that draws its OWN starting state (the
+    /// Agent composer: the mark + "Starting on <device>") passes `onTimeout`
+    /// with the shorter `feedback-states.json` deadline: no caption, no inline
+    /// failure, the host raises the timeout toast.
     func begin(
         key: StartedRunKey,
         userId: String?,
         device: SteerDevice,
         db: DatabaseManager,
-        accountId: String
+        accountId: String,
+        deadline: TimeInterval = StartedRunMatch.deadline,
+        onTimeout: (@MainActor () -> Void)? = nil
     ) {
         stop()
         let label = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
-        sentCaption = "Start sent to \(label). Waiting for the desktop…"
+        sentCaption = onTimeout == nil ? "Start sent to \(label). Waiting for the desktop…" : nil
         failure = nil
         // A wall-clock deadline INDEPENDENT of DB emissions: with no
         // coding_sessions writes the observation never fires again, so an
@@ -70,10 +77,14 @@ final class StartedRunWatcher {
         // guard below so an unresolvable watch can't strand the caption
         // either.
         deadlineTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(StartedRunMatch.deadline))
+            try? await Task.sleep(for: .seconds(deadline))
             guard let self, !Task.isCancelled else { return }
             self.stop()
             self.sentCaption = nil
+            if let onTimeout {
+                onTimeout()
+                return
+            }
             self.failure = "\(label) never started this run. "
                 + "Open the Exponential desktop app there to see why."
         }

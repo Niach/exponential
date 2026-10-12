@@ -2,6 +2,7 @@ package com.exponential.app.ui.components
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.DeviceApproval
@@ -76,8 +77,11 @@ data class ServerCardState(
     val copied: Boolean = false,
     val code: String = "",
     val busy: Boolean = false,
+    /** The code was refused (expired, used, another account): under the field. */
     val error: String? = null,
     val approved: Boolean = false,
+    /** FEED-79: a mint or approve request that failed; raised once as a toast. */
+    val failure: FailedAction? = null,
 )
 
 /**
@@ -121,8 +125,12 @@ class DeviceSetupViewModel @Inject constructor(
                     devicesApi.createInstallToken(accountId)
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {
-                    // Network, 429: the plain command stays, no error shown.
+                } catch (e: Exception) {
+                    // Network, 429: the plain command stays, plus ONE toast
+                    // whose Retry mints again (FEED-79).
+                    _server.update {
+                        it.copy(failure = FailedAction("create", "the install token", trpcErrorMessage(e, "")) { activate() })
+                    }
                     return@launch
                 }
                 _server.update { it.copy(token = minted.token) }
@@ -143,6 +151,10 @@ class DeviceSetupViewModel @Inject constructor(
         _server.value = ServerCardState()
     }
 
+    fun clearFailure() {
+        _server.update { it.copy(failure = null) }
+    }
+
     fun onCopied() {
         _server.update { it.copy(copied = true) }
     }
@@ -157,11 +169,13 @@ class DeviceSetupViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return
         _server.update { it.copy(busy = true, error = null) }
         approveJob = viewModelScope.launch {
+            var failed: Exception? = null
             val outcome = try {
                 authApi.approveDeviceCode(accountId, state.code)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                failed = e
                 null
             }
             _server.update {
@@ -170,7 +184,12 @@ class DeviceSetupViewModel @Inject constructor(
                     DeviceApproval.AlreadyUsed -> it.copy(busy = false, error = DeviceSetupCopy.CODE_USED)
                     is DeviceApproval.Refused ->
                         it.copy(busy = false, error = DeviceCodeRules.errorMessage(outcome.error))
-                    null -> it.copy(busy = false, error = DeviceSetupCopy.FAILED)
+                    // Not the code: the request itself failed (FEED-79); approving
+                    // the same code again is safe.
+                    null -> it.copy(
+                        busy = false,
+                        failure = FailedAction("approve", "the code", failed?.let { e -> trpcErrorMessage(e, "") }) { approve() },
+                    )
                 }
             }
         }

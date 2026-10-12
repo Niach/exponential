@@ -239,7 +239,8 @@ struct AgentSessionView: View {
         }
         // EXP-1162: the bottom edge strip behind the band — not behind an
         // open composer card, which is opaque and rides the keyboard.
-        .floatingBarEdge(bandRetired(model) || !composerOpen(model))
+        // EXP-1256 (D15): in the thread's own ground — no tint, no blur.
+        .floatingBarEdge(bandRetired(model) || !composerOpen(model), ground: true)
     }
 
     /// The confirms: Kill, Merge, and a `/`-command's own.
@@ -288,15 +289,17 @@ struct AgentSessionView: View {
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.killError) { _, message in
                 guard let message else { return }
-                toaster.error("Couldn't stop the run.", description: message)
+                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the run"), description: message)
             }
             .onChange(of: continuation.watcher.sentCaption) { _, caption in
                 guard let caption, model?.sessionEnded != true else { return }
                 toaster.info(caption)
             }
+            // FEED-79: a failed resume is the error toast on an ended run too
+            // (it used to be a red line over the transcript).
             .onChange(of: continuation.watcher.failure) { _, failure in
-                guard let failure, model?.sessionEnded != true else { return }
-                toaster.error(failure)
+                guard let failure else { return }
+                toaster.error(FeedbackStates.Errors.title(verb: "resume", thing: "the run"), description: failure)
             }
             .photosPicker(
                 isPresented: $showPhotoPicker,
@@ -531,15 +534,10 @@ struct AgentSessionView: View {
     /// (`Ended on <device> · <elapsed>`), so nothing shows without a switch.
     @ViewBuilder
     private func endedHeader(_ model: AgentSessionModel) -> some View {
-        if model.sessionEnded,
-           continuation.watcher.failure != nil || continuation.watcher.sentCaption != nil {
+        if model.sessionEnded, continuation.watcher.failure == nil,
+           continuation.watcher.sentCaption != nil {
             VStack(alignment: .leading, spacing: 8) {
-                if let failure = continuation.watcher.failure {
-                    Text(failure)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if let caption = continuation.watcher.sentCaption {
+                if let caption = continuation.watcher.sentCaption {
                     Text(caption)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
@@ -621,10 +619,39 @@ struct AgentSessionView: View {
         )
     }
 
+    /// EXP-1271 (EXP-1259 D8): before the run's first turn the owner's status
+    /// row is the mark over "Starting on <device>" — nothing streamed,
+    /// nothing published, no turn begun (web `startingRun`).
+    private func startingRun(_ model: AgentSessionModel) -> Bool {
+        let row = model.session ?? session
+        guard row.userId == deps.auth.userId, !model.sessionEnded, !hostPaused,
+              model.feed.isEmpty, thread(model).isEmpty, model.turn.state != .started,
+              model.history != .pending
+        else { return false }
+        if case .closed = model.phase { return false }
+        if case .ended = model.phase { return false }
+        return true
+    }
+
     private func runStatusRow(_ model: AgentSessionModel) -> some View {
         let row = model.session ?? session
         let state = runRowState(model)
         let device = hostLabel
+        if startingRun(model) {
+            return RunStatusRow(
+                agent: row.agent,
+                markState: nil,
+                ended: false,
+                rowState: state,
+                caption: { _ in
+                    RunRowCaption(text: FeedbackStates.Starting.label(device: device), tone: .muted)
+                },
+                toolLine: nil,
+                showWork: showWork,
+                onToggle: { showWork.toggle() },
+                starting: true
+            )
+        }
         return RunStatusRow(
             agent: row.agent,
             markState: runningRowMarkState(
@@ -748,7 +775,7 @@ struct AgentSessionView: View {
             // connection problem the viewer can wait out.
             centeredState {
                 if model.history == .pending {
-                    ProgressView().tint(.white)
+                    InlineSpinner()
                 }
                 Text(status)
                     .font(.caption)
@@ -761,17 +788,16 @@ struct AgentSessionView: View {
             // instead of spinning on "waiting for the live stream" forever.
             hostOfflineState
                 .frame(maxHeight: .infinity)
+        } else if feedPlaceholder(model), startingRun(model) {
+            // EXP-1271: the status row above says "Starting on …".
+            Color.clear
         } else if feedPlaceholder(model),
                   model.phase == .connecting || model.phase == .starting || model.phase == .idle {
-            centeredState {
-                ProgressView().tint(.white)
-                Text(model.phase == .starting
-                    ? "The agent is starting. Waiting for the live stream…"
-                    : "Connecting…")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .multilineTextAlignment(.center)
-            }
+            // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
+            SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
+                .transcriptColumn()
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 8)
         } else if feedPlaceholder(model), model.phase == .live, model.latestDiff == nil {
             centeredState {
                 Text("Waiting for activity…")
@@ -844,9 +870,7 @@ struct AgentSessionView: View {
     ) -> some View {
         GlassPill(label, mode: .select(isSelected: selected, action: action)) {
             if running {
-                ProgressView()
-                    .controlSize(.mini)
-                    .tint(.white)
+                InlineSpinner()
             }
         }
     }
@@ -1036,7 +1060,7 @@ struct AgentSessionView: View {
                                 // hides at once and the growth observer keeps
                                 // chasing the bottom.
                                 atBottom = true
-                                withAnimation {
+                                withAnimation(motion.standard) {
                                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                                 }
                             }
@@ -1189,11 +1213,8 @@ struct AgentSessionView: View {
             // of hiding inside a generic "N other tools".
             ExpToolGroupRow(items: items, refs: markdownContext.issueRefs)
         case let .subagentRun(run):
-            SubagentGroupRow(
-                run: run,
-                liveTail: isLast && model?.phase == .live,
-                context: markdownContext
-            )
+            // EXP-1240: THE Work card; a tap opens the subagent's own tab.
+            SubagentWorkCardRow(run: run, onOpen: { openAgentTab(run.subagentId) })
         case let .ask(group):
             askCard(group)
         case let .single(item):
@@ -1203,12 +1224,14 @@ struct AgentSessionView: View {
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
-                id, name, detail, _, callId, _, settled, failed, diff, preview, output
+                id, name, detail, _, callId, _, settled, failed, diff, preview, output, script,
+                settledAt
             ):
                 toolOrWorkflowRow(
                     item: item, name: name, detail: detail, callId: callId,
                     settled: settled, failed: failed, diff: diff,
-                    preview: preview, output: output, live: id == liveToolRowId
+                    preview: preview, output: output, live: id == liveToolRowId,
+                    script: script, settledAt: settledAt
                 )
             case let .userMessage(_, text, _):
                 // EXP-724: a steered slash command is a control action, not
@@ -1259,12 +1282,28 @@ struct AgentSessionView: View {
         diff: String?,
         preview: AgentToolPreview?,
         output: String?,
-        live: Bool
+        live: Bool,
+        script: AgentScriptLog?,
+        settledAt: Int?
     ) -> some View {
         if let workflow: AgentWorkflow = model?.workflow(for: callId) {
-            AgentWorkflowCardRow(
+            // EXP-1240: THE Work card; a lane opens its agent's tab.
+            WorkflowWorkCardRow(
                 workflow: workflow,
-                runFor: workflowAgentRun
+                runFor: workflowAgentRun,
+                onOpenAgent: openAgentTab
+            )
+        } else if ScriptCards.isScriptCall(item) {
+            // EXP-1279: a code-mode call is its Script card.
+            ScriptCallRow(settled: settled, failed: failed, script: script)
+        } else if settled, !failed, isCommentCall(name) {
+            // EXP-1241: a SETTLED comment call is the comment itself; running
+            // or failed it keeps its ordinary row.
+            CommentCallRow(
+                detail: detail, preview: preview, settledAt: settledAt,
+                agent: (model?.session ?? session).agent,
+                ownerName: runOwnerName,
+                context: markdownContext
             )
         } else if let diff, !diff.isEmpty {
             // EXP-916: a call outside an edited-files card may still CARRY a
@@ -1296,6 +1335,25 @@ struct AgentSessionView: View {
     /// closure literal at the call site, for the same budget reason.
     private func workflowAgentRun(_ agentId: String?) -> AgentSubagentRun? {
         model?.subagentRun(agentId: agentId)
+    }
+
+    /// EXP-1240: a Work card's lane (or a subagent card) opens that agent's
+    /// own conversation tab — the transcript's existing nested view.
+    private func openAgentTab(_ subagentId: String) {
+        agentTab = subagentId
+    }
+
+    /// EXP-1241: an `exponential_comments_create` call.
+    private func isCommentCall(_ name: String) -> Bool {
+        ExpToolDisplay.resolve(toolName: name)?.row == CommentCallRow.tool
+    }
+
+    /// EXP-1241: whose key posted a comment call — the run's owner, named
+    /// when that is the viewer (a live run is visible to its owner only).
+    private var runOwnerName: String? {
+        let row = model?.session ?? session
+        guard row.userId == deps.auth.userId else { return nil }
+        return deps.auth.userName
     }
 
     /// A lone question card: a plan approval or a single-question ask.
@@ -1510,7 +1568,7 @@ struct AgentSessionView: View {
         case let .closed(detail, reconnecting):
             bannerRow {
                 if reconnecting {
-                    ProgressView().controlSize(.small).tint(.white)
+                    InlineSpinner()
                 }
                 Text(detail ?? (reconnecting ? "Connection lost. Reconnecting…" : "Disconnected"))
                     .font(.caption)
@@ -1518,7 +1576,7 @@ struct AgentSessionView: View {
             }
         case .starting where !model.feed.isEmpty:
             bannerRow {
-                ProgressView().controlSize(.small).tint(.white)
+                InlineSpinner()
                 Text("The agent is starting. Waiting for the live stream…")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -1955,9 +2013,11 @@ struct AgentSessionView: View {
                 .padding(.bottom, 4)
             }
 
+            // A pick refused for its size or type is INPUT: it stays inline
+            // under the composer (FEED-79), at the 13pt error size.
             if let imageError = model.steerImageError {
                 Text(imageError)
-                    .font(.caption2)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
@@ -3048,7 +3108,7 @@ private struct QuestionCard: View {
         if locked, !question.resolved, askOpen {
             HStack(spacing: 6) {
                 if pending {
-                    ProgressView().controlSize(.small).tint(.white)
+                    InlineSpinner()
                 } else {
                     // Confirmed injected — the card stays locked until the
                     // desktop retires it with `question_resolved`.
@@ -3646,7 +3706,7 @@ private struct ToolGroupRow: View {
     /// contract fixture, not a bare count.
     private var caption: String {
         ToolGroupSummary.summarize(items.compactMap { item in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _, _) = item
+            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _, _, _, _) = item
             else { return nil }
             return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
         })
@@ -3676,7 +3736,7 @@ private struct ToolGroupRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         if case let .tool(
-                            id, name, detail, _, _, _, settled, failed, _, preview, output
+                            id, name, detail, _, _, _, settled, failed, _, preview, output, _, _
                         ) = item {
                             // EXP-1206: inside the group too, the RUNNING call
                             // is its headline alone — the same rule the
@@ -3693,7 +3753,7 @@ private struct ToolGroupRow: View {
                 .padding(.leading, 20)
             } else if liveTail, let last = items.last,
                       case let .tool(
-                          _, name, detail, _, _, _, settled, failed, _, preview, output
+                          _, name, detail, _, _, _, settled, failed, _, preview, output, _, _
                       ) = last {
                 ToolRow(
                     name: name, detail: detail, failed: failed, nested: true,
@@ -3734,7 +3794,7 @@ private struct ExpToolGroupRow: View {
     private var foldedPictures: [SessionResultEntry] {
         guard !expanded else { return [] }
         return items.compactMap { item in
-            guard case let .tool(_, name, _, _, _, _, settled, failed, _, preview, _) = item,
+            guard case let .tool(_, name, _, _, _, _, settled, failed, _, preview, _, _, _) = item,
                   settled, !failed,
                   ExpToolDisplay.resolve(toolName: name)?.result == .picture
             else { return nil }
@@ -3774,7 +3834,7 @@ private struct ExpToolGroupRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
                         if case let .tool(
-                            _, name, detail, _, _, _, settled, failed, _, preview, output
+                            _, name, detail, _, _, _, settled, failed, _, preview, output, _, _
                         ) = item {
                             ToolRow(
                                 name: name, detail: detail, failed: failed,
@@ -3786,135 +3846,6 @@ private struct ExpToolGroupRow: View {
                     }
                 }
                 .padding(.leading, 20)
-            }
-        }
-    }
-}
-
-/// A subagent's run (EXP-249): its `started` marker plus every tool call the
-/// desktop tagged with it, collapsed into one expandable row so a long subagent
-/// detour never buries the main thread's activity. The header always shows the
-/// agent type, a running/done status, and the delegation detail; expansion only
-/// reveals the tool calls — so a run with none renders as a static row with no
-/// chevron (EXP-350: the chevron used to expand to nothing).
-private struct SubagentGroupRow: View {
-    let run: AgentSubagentRun
-    /// The trailing row of a live session — keep the latest call visible.
-    let liveTail: Bool
-    /// EXP-773: the group carries the subagent's own prose now, so it needs
-    /// what an `AgentMarkdownText` needs.
-    let context: AgentMarkdownContext
-
-    @State private var expanded = false
-
-    /// EXP-847: the spawn's description leads (`run.label`), the agent type
-    /// is its fallback; the type stays as the header's secondary caption so a
-    /// titled run still says WHICH agent is doing the work.
-    private var title: String { run.label }
-
-    /// EXP-847: what the subagent DID — the contract's `toolGroupSummary`
-    /// ("Ran 3 commands · edited 2 files"), the same sentence a collapsed tool
-    /// run wears and locked ×4 by the shared fixture. It replaced the bare "N
-    /// tool calls", which said how much happened and never what.
-    ///
-    /// A replay evicts a subagent's tool rows FIRST (EXP-748), so a run whose
-    /// rows are gone but whose publisher reported a count keeps the count
-    /// sentence — summarising zero visible rows as "No tool calls" would
-    /// contradict the row's own history. Empty = nothing to say yet.
-    private var summary: String {
-        let calls = run.items.compactMap { item -> ToolCallSummary? in
-            guard case let .tool(_, _, detail, _, _, kind, _, failed, _, _, _) = item
-            else { return nil }
-            return ToolCallSummary(kind: kind ?? "other", detail: detail, failed: failed)
-        }
-        guard !calls.isEmpty else {
-            let count = run.toolCount
-            guard count > 0 else { return "" }
-            return count == 1 ? "1 tool call" : "\(count) tool calls"
-        }
-        return ToolGroupSummary.summarize(calls)
-    }
-
-    /// The muted caption beside the title — the agent type, but only when it
-    /// is not already the title.
-    private var typeCaption: String? {
-        run.title == nil ? nil : run.agentType
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            if run.expandable {
-                AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            AppIcon(AppIcons.codingSubagent, size: 11)
-                .foregroundStyle(DesignTokens.Semantic.blue)
-            Text(title)
-                .transcriptToolText(.medium)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            // EXP-847: the agent type as a secondary caption — only where the
-            // title took its place in the lead.
-            if let typeCaption {
-                Text(typeCaption)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                    .lineLimit(1)
-            }
-            // EXP-847: the group's own work summary, where the bare count used
-            // to be part of the title.
-            if !summary.isEmpty {
-                Text(summary)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-            }
-            Text(run.done ? "done" : "running…")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Spacer(minLength: 0)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if run.expandable {
-                Button {
-                    expanded.toggle()
-                } label: {
-                    header.contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(expanded ? "Collapse subagent" : "Expand subagent")
-            } else {
-                header
-            }
-            if let detail = run.detail {
-                Text(detail)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(2)
-                    .padding(.leading, 20)
-            }
-            // EXP-856: a second copy of this agent is running — the wire's own
-            // sentence, kept whether the group is expanded or collapsed.
-            if let duplicate = run.duplicateDetail {
-                AgentDuplicateWarningRow(detail: duplicate)
-                    .padding(.leading, 20)
-            }
-            if expanded {
-                // EXP-773: the run's whole conversation in order — its prose
-                // and the turns addressed to it, not just its tool calls.
-                // EXP-916: its edits fold into the one edited-files card.
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(AgentFeed.laneRows(run.items)) { row in
-                        SubagentLaneRow(row: row, context: context)
-                    }
-                }
-                .padding(.leading, 20)
-            } else if liveTail, let last = AgentFeed.laneRows(run.items).last {
-                SubagentLaneRow(row: last, context: context)
-                    .padding(.leading, 20)
             }
         }
     }
@@ -3969,7 +3900,11 @@ struct SubagentItemRow: View {
     @ViewBuilder
     private var content: some View {
         switch item {
-        case let .tool(_, name, detail, _, _, _, settled, failed, _, preview, output):
+        case let .tool(_, name, _, _, _, kind, settled, failed, _, _, _, script, _)
+            where ScriptCards.isScriptCall(name: name, toolKind: kind):
+            // EXP-1279: a lane's code-mode call is its Script card too.
+            ScriptCallRow(settled: settled, failed: failed, script: script)
+        case let .tool(_, name, detail, _, _, _, settled, failed, _, preview, output, _, _):
             // A subagent's rows are a digest inside the main transcript — its
             // own tab is where its work is read — so none of them is the live
             // row here; the reader's tap still opens one.

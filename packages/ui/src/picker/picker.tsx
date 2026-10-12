@@ -110,7 +110,7 @@ interface PickerPropsBase<T extends string> extends PickerSurfaceProps {
   query?: string
   onQueryChange?: (query: string) => void
   shouldFilter?: boolean
-  /** A muted "Loading…" row instead of the rows. */
+  /** D8: skeleton rows in the rows' own geometry instead of the rows. */
   loading?: boolean
   /** A muted row instead of the rows (a retry button belongs here). */
   error?: ReactNode

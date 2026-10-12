@@ -1,18 +1,22 @@
 package at.exponential.ui.compose
 
 import android.graphics.BitmapFactory
-import at.exponential.ui.ffi.FfiImageHeader
-import at.exponential.ui.ffi.mediaImageHeader
 import android.util.LruCache
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -40,6 +44,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -52,9 +57,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
+import at.exponential.ui.catalog.CatalogConstants
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_BRIDGE
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_COLUMN
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_RADIUS
+import at.exponential.ui.ffi.FfiImageHeader
+import at.exponential.ui.ffi.mediaImageHeader
+import at.exponential.ui.host.MediaLimits
+import at.exponential.ui.host.MediaRequest
 import at.exponential.ui.json.Props
 import at.exponential.ui.json.list
 import at.exponential.ui.json.num
@@ -63,21 +73,19 @@ import at.exponential.ui.model.carouselPage
 import at.exponential.ui.paint.DateModel
 import at.exponential.ui.primitives.AvatarFallback
 import at.exponential.ui.primitives.AvatarView
-import at.exponential.ui.primitives.RingView
 import at.exponential.ui.primitives.Rgba
+import at.exponential.ui.primitives.RingView
 import at.exponential.ui.theme.ResolvedTextStyle
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.io.InputStream
-import at.exponential.ui.host.MediaLimits
-import at.exponential.ui.host.MediaRequest
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The media loader the leaves share (no image library). It loads ONLY a
@@ -552,13 +560,40 @@ internal fun AudioLeaf(cx: LeafContext) {
     }
 }
 
-/** The `Skeleton` block: the recipe background the box paints (a muted fill when the recipe has none); static. */
+/**
+ * The `Skeleton` block (and a Skeleton row's `dot` / `bar`): the recipe
+ * background the box paints (a muted fill when the recipe has none). The
+ * pulse is the node's (`skeletonPulse`, NodeView): ONE slow opacity wave.
+ */
 @Composable
 internal fun SkeletonLeaf(cx: LeafContext) {
     if (cx.style.background != null) return
     val fill = cx.themeColor("muted") ?: return
     val shape = if (cx.props["rounded"]?.bool == true) CircleShape else RoundedCornerShape(cx.style.radius.dp)
     Box(Modifier.fillMaxSize().background(fill, shape))
+}
+
+/** EXP-1259 (`catalog/layout.json`, feedback-states.json): the pending Button's delay and the placeholder's pulse. */
+internal val FeedbackTiming = CatalogConstants
+
+/**
+ * The Skeleton pulse on a Skeleton LEAF's whole box (a Skeleton with `rows`
+ * is a container whose dots and bars pulse each): `SKELETON_OPACITY_LOW` ↔
+ * `HIGH` over `SKELETON_PULSE_MS`, ease-in-out; static at
+ * `SKELETON_REDUCED_OPACITY` under reduced motion.
+ */
+@Composable
+internal fun Modifier.skeletonPulse(on: Boolean, reduced: Boolean): Modifier {
+    if (!on) return this
+    if (reduced) return this.graphicsLayer { alpha = FeedbackTiming.SKELETON_REDUCED_OPACITY }
+    val pulse = rememberInfiniteTransition(label = "skeleton")
+    val alpha by pulse.animateFloat(
+        initialValue = FeedbackTiming.SKELETON_OPACITY_LOW,
+        targetValue = FeedbackTiming.SKELETON_OPACITY_HIGH,
+        animationSpec = infiniteRepeatable(tween(FeedbackTiming.SKELETON_PULSE_MS / 2, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "skeleton-alpha",
+    )
+    return this.graphicsLayer { this.alpha = alpha }
 }
 
 /** `Ring`: the `Ring/track` circle + the `Ring/fill` arc from twelve o'clock (value / max, max 1), the label centred. */

@@ -101,9 +101,21 @@ pub(crate) fn markdown_style() -> TextViewStyle {
 const EDGE_TOP_RAMP_T: f32 = 0.15;
 const EDGE_BOTTOM_RAMP_T: f32 = 0.95;
 
-/// The cutout panel's colour as it paints at ramp fraction `t`: the window
-/// gradient under the `FILL_PANEL` wash, OPAQUE — the strip must hide the
-/// content it fades over, not tint it.
+/// EXP-1256 — the cutout panel's hairline (the shell's card face,
+/// `border_1`) and its INNER radius (`radius::LG` less that hairline). Every
+/// edge strip and the floating bar's ground stay inside the one and round to
+/// the other where they run flush to the card's edge: a strip painted over
+/// the hairline cut a gap into the card's border, and its square corners
+/// poked over the card's rounded ones.
+pub(crate) const PANEL_BORDER: f32 = 1.;
+pub(crate) const PANEL_INNER_RADIUS: f32 = t::radius::LG - PANEL_BORDER;
+
+/// The cutout panel's colour as it paints at ramp fraction `t`: the card's
+/// OWN ground, its two layers (the window gradient under the `FILL_PANEL`
+/// wash) composited OPAQUE — the strip must hide the content it fades over,
+/// not tint it. EXP-1256: measured on the reported capture, the strip and
+/// the card read the same value; what showed was the strip cutting the
+/// card's hairline, now [`PANEL_BORDER`] inset.
 fn panel_fill_at(t: f32) -> Hsla {
     crate::picker::over(
         theme::background_gradient_color_at(t),
@@ -116,11 +128,14 @@ fn panel_fill_at(t: f32) -> Hsla {
 /// it fades from the panel's colour to nothing, so content slides away under
 /// the bar instead of being cut at a hairline (SDK `controls::edge_fade_top`
 /// on the window ramp's panel colour). The caller's body wrapper must be
-/// `relative()`; the strip is paint-only.
+/// `relative()`; the strip is paint-only. EXP-1256: it hangs mid-card (under
+/// a bar), so it keeps off the card's side hairlines and stays square.
 pub(crate) fn edge_fade_top() -> Div {
     sdk::edge_fade_top(
         panel_fill_at(EDGE_TOP_RAMP_T),
         domain::detail_chrome::EDGE_TOP,
+        PANEL_BORDER,
+        0.,
     )
 }
 
@@ -133,6 +148,29 @@ pub(crate) fn scrim_ground() -> Hsla {
     panel_fill_at(EDGE_TOP_RAMP_T)
 }
 
+/// EXP-1256 — a band painted in [`scrim_ground`] (the floating bar's ground,
+/// the pinned tray's) kept inside the card: off its side hairlines, and with
+/// `flush_top` (the band starts at the card's top edge) its top corners
+/// rounded to [`PANEL_INNER_RADIUS`]. The caller positions it; the inset is a
+/// MARGIN, so it holds for an absolute band (`left_0().right_0()`) and an
+/// in-flow one alike. A strip hung inside the band is already clear of the
+/// hairlines: give it `left_0().right_0()`.
+pub(crate) fn scrim_band(flush_top: bool) -> Div {
+    let radius = if flush_top { PANEL_INNER_RADIUS } else { 0. };
+    div()
+        .mx(px(PANEL_BORDER))
+        .rounded_tl(px(radius))
+        .rounded_tr(px(radius))
+        .bg(scrim_ground())
+}
+
+/// EXP-1271 — the panel's own ground mid-page (opaque): what the mark's
+/// cut stripes paint in where it sits on the page itself (the composer's
+/// STARTING row).
+pub(crate) fn page_ground() -> Hsla {
+    panel_fill_at(0.5)
+}
+
 /// The top strip hung under that ground: it starts at the ground's own
 /// opaque colour and fades to nothing, so the band has no lower edge.
 pub(crate) fn edge_fade_top_scrim() -> Div {
@@ -142,11 +180,15 @@ pub(crate) fn edge_fade_top_scrim() -> Div {
 /// EXP-1162 — the BOTTOM edge strip (`edgeBottom`): the top strip mirrored,
 /// fading upwards from the pane's bottom edge (the issue face's end; the
 /// run's composer wears [`composer_edge_fade`]). Same contract as
-/// [`edge_fade_top`].
+/// [`edge_fade_top`]. EXP-1256: that edge IS the card's bottom edge, so the
+/// strip keeps off the hairlines AND rounds its bottom corners to the card's
+/// inner radius.
 pub(crate) fn edge_fade_bottom() -> Div {
     sdk::edge_fade_bottom(
         panel_fill_at(EDGE_BOTTOM_RAMP_T),
         domain::detail_chrome::EDGE_BOTTOM,
+        PANEL_BORDER,
+        PANEL_INNER_RADIUS,
     )
 }
 
@@ -158,9 +200,16 @@ pub(crate) const COMPOSER_EDGE_FADE_H: f32 = 48.;
 /// EXP-1191 — the run transcript's COMPOSER edge: its last lines fade softly
 /// into the panel just above the composer (SDK
 /// `controls::edge_fade_bottom_soft`, the two-layer eased ramp). Paint-only,
-/// like the top strip; the caller's box must be `relative()`.
+/// like the top strip; the caller's box must be `relative()`. EXP-1256: it
+/// ends mid-card (on the composer), so it keeps off the card's side
+/// hairlines and stays square.
 pub(crate) fn composer_edge_fade() -> Div {
-    sdk::edge_fade_bottom_soft(panel_fill_at(EDGE_BOTTOM_RAMP_T), COMPOSER_EDGE_FADE_H)
+    sdk::edge_fade_bottom_soft(
+        panel_fill_at(EDGE_BOTTOM_RAMP_T),
+        COMPOSER_EDGE_FADE_H,
+        PANEL_BORDER,
+        0.,
+    )
 }
 
 // ---------------------------------------------------------------------------

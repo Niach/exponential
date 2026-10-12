@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 import GRDB
 
@@ -48,6 +49,12 @@ final class AgentsViewModel {
 
     var rows: [Row] = []
 
+    /// EXP-1253 (EXP-1259 D1): the Agent home's RECENT band — the caller's
+    /// last `HomeGreeting.recentCount` OWN top-level runs in the ACTIVE team,
+    /// any status, newest first (`HomeGreeting.recentRuns`, web
+    /// `selectHomeRecent`). Empty = no band.
+    private(set) var homeRecentRows: [Row] = []
+
     /// EXP-746: the caller's most recent finished runs, newest first, capped
     /// at `PastRuns.cap`. Empty = the section is absent entirely.
     private(set) var pastRows: [PastRow] = []
@@ -75,11 +82,6 @@ final class AgentsViewModel {
     /// lands via sync: the machine re-probes and its `agent_accounts` report
     /// moves.
     private(set) var accountActions: Set<String> = []
-    /// The last refusal, keyed by DEVICE id (Android `commandStates`): the
-    /// caption belongs under the chips of the machine that refused, which is
-    /// where the tap was — a single page-level slot at the bottom of the page
-    /// is invisible from the machine rows at the top.
-    private(set) var accountActionErrors: [String: String] = [:]
     /// EXP-829: the command queue the refreshes ride — set by the Devices
     /// page only. Nil (the Agent page, the onboarding step) = the accounts
     /// are still derived but nothing is ever queued from there.
@@ -101,6 +103,7 @@ final class AgentsViewModel {
         didSet {
             guard oldValue != activeTeamId else { return }
             rebuildDevices()
+            rebuildHomeRecent()
         }
     }
 
@@ -130,6 +133,8 @@ final class AgentsViewModel {
     /// live query filters on status and would otherwise have to carry them
     /// through every liveness rule that only makes sense for a running run.
     private var endedTask: Task<Void, Never>?
+    /// EXP-1253: the home's Recent candidates (own, top-level, any status).
+    private var homeTask: Task<Void, Never>?
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
@@ -166,6 +171,7 @@ final class AgentsViewModel {
 
     private var sessions: [CodingSessionEntity] = []
     private var endedSessions: [CodingSessionEntity] = []
+    private var homeSessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
     // Observed so the composer's issue pool can resolve repo-backed boards
     // (EXP-156) and so the pull-request pool can scope issues to the active
@@ -214,6 +220,28 @@ final class AgentsViewModel {
         }
 
         startEndedObservation()
+
+        // EXP-1253: the home's Recent band reads the caller's own TOP-LEVEL
+        // runs whatever their status, newest activity first, queried a little
+        // wider than the band so the pure selector has rows to drop.
+        if let userId, !userId.isEmpty {
+            let homeObservation = ValueObservation.tracking { db in
+                try CodingSessionEntity
+                    .filter(Column("user_id") == userId)
+                    .filter(Column("parent_session_id") == nil)
+                    .order(sql: "updated_at DESC")
+                    .limit(40)
+                    .fetchAll(db)
+            }
+            homeTask = Task { [weak self] in
+                do {
+                    for try await sessions in homeObservation.values(in: pool) {
+                        self?.homeSessions = sessions
+                        self?.rebuildHomeRecent()
+                    }
+                } catch {}
+            }
+        }
 
         let issueObservation = ValueObservation.tracking { db in
             try IssueEntity.fetchAll(db)
@@ -368,6 +396,8 @@ final class AgentsViewModel {
         observing = false
         sessionTask?.cancel()
         sessionTask = nil
+        homeTask?.cancel()
+        homeTask = nil
         endedTask?.cancel()
         endedTask = nil
         issueTask?.cancel()
@@ -535,12 +565,6 @@ final class AgentsViewModel {
         accountActions.contains(row.key)
     }
 
-    /// The last account-command refusal for this machine, for the caption
-    /// under ITS chips.
-    func accountActionError(deviceId: String) -> String? {
-        accountActionErrors[deviceId]
-    }
-
     /// EXP-862: delete the MACHINE's copy of a login — the chip menu's
     /// destructive entry, confirmed before it gets here.
     ///
@@ -578,11 +602,15 @@ final class AgentsViewModel {
     ) {
         guard let devicesApi, row.mine, row.online else { return }
         guard !accountActions.contains(row.key) else { return }
-        accountActionErrors[row.deviceId] = nil
         accountActions.insert(row.key)
         let accountId = accountId
         let key = row.key
-        let deviceId = row.deviceId
+        // FEED-79: a refusal is the error toast (`Couldn't <verb> the login`
+        // + the machine's own words), never a red caption under the chips.
+        let title = FeedbackStates.Errors.title(
+            verb: kind == Self.removeAccountCommandKind ? "remove" : "sign out",
+            thing: "the login"
+        )
         Task { [weak self] in
             do {
                 let created = try await devicesApi.createCommand(
@@ -600,19 +628,21 @@ final class AgentsViewModel {
                 // server-side and the poll simply stops watching.
                 for _ in 0..<30 {
                     try? await Task.sleep(for: .seconds(2))
-                    guard let self, !Task.isCancelled else { return }
+                    // The page went away: stop watching.
+                    guard self != nil, !Task.isCancelled else { return }
                     guard let command = try? await devicesApi.getCommand(
                         accountId: accountId, commandId: created.id
                     ) else { continue }
                     guard !command.isPending else { continue }
                     if command.isFailed {
-                        self.accountActionErrors[deviceId] =
-                            command.result ?? "The device refused the command."
+                        Toaster.shared.error(
+                            title, description: command.result ?? "The device refused the command."
+                        )
                     }
                     break
                 }
             } catch {
-                self?.accountActionErrors[deviceId] = error.userFacingMessage
+                Toaster.shared.error(title, description: error.userFacingMessage)
             }
             self?.accountActions.remove(key)
         }
@@ -739,5 +769,26 @@ final class AgentsViewModel {
             }
         // The Recent rows join the same issues and device rows this pass read.
         rebuildPast()
+        rebuildHomeRecent()
+    }
+
+    /// EXP-1253: the home's Recent band, joined like the Running rows.
+    private func rebuildHomeRecent() {
+        let now = Date()
+        let fresh = devicesFresh(now: now)
+        let deviceRows = deviceEntities ?? []
+        let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        homeRecentRows = HomeGreeting.recentRuns(
+            homeSessions, userId: userId, teamId: activeTeamId
+        ).map { session in
+            Row(
+                session: session,
+                issue: session.issueId.flatMap { issuesById[$0] },
+                batchIssues: BatchRun.issues(session, issues: issues),
+                device: SessionDevicePresentation.resolve(
+                    session: session, devices: deviceRows, now: now, devicesFresh: fresh
+                )
+            )
+        }
     }
 }

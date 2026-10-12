@@ -13,6 +13,9 @@ import {
 } from "@/components/guide-face"
 import type { StackView } from "@/lib/pr-stack"
 
+const failedAction = vi.hoisted(() => vi.fn())
+vi.mock(`@/lib/action-error`, () => ({ failedAction }))
+
 // EXP-1251: the Guide face — the Stack card over the report, one Changes row
 // per section, Other changes, Show complete diff; the PR body stands in for a
 // missing report.
@@ -148,12 +151,13 @@ describe(`GuideBody`, () => {
     )
     expect(screen.getByText(GUIDE_NO_CHANGES)).toBeTruthy()
     rerender(<GuideBody groups={[]} files={null} filesState={{ kind: `loading` }} />)
-    expect(screen.getByText(`Loading the pull request…`)).toBeTruthy()
+    expect(screen.getByTestId(`feedback-skeleton`)).toBeTruthy()
   })
 
-  it(`offers Retry on a failed fetch`, () => {
+  it(`a failed fetch = the empty state + one toast whose Retry reloads`, () => {
+    failedAction.mockClear()
     const onRetry = vi.fn()
-    render(
+    const { rerender } = render(
       <GuideBody
         groups={[]}
         files={null}
@@ -161,7 +165,19 @@ describe(`GuideBody`, () => {
         onRetry={onRetry}
       />
     )
-    fireEvent.click(screen.getByText(`Retry`))
+    expect(screen.getByText(GUIDE_NO_CHANGES)).toBeTruthy()
+    rerender(
+      <GuideBody
+        groups={[]}
+        files={null}
+        filesState={{ kind: `error`, message: `boom` }}
+        onRetry={onRetry}
+      />
+    )
+    expect(failedAction).toHaveBeenCalledTimes(1)
+    const [verb, thing, error, options] = failedAction.mock.calls[0]
+    expect([verb, thing, error]).toEqual([`load`, `the changes`, `boom`])
+    options.retry()
     expect(onRetry).toHaveBeenCalled()
   })
 })

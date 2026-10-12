@@ -1,5 +1,8 @@
 package at.exponential.ui.compose
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -22,12 +25,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -44,8 +50,8 @@ import at.exponential.ui.json.str
 import at.exponential.ui.model.LayerInfo
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.SurfaceModel
-import at.exponential.ui.model.dateValue
 import at.exponential.ui.model.closeSubmenu
+import at.exponential.ui.model.dateValue
 import at.exponential.ui.model.dismissLayer
 import at.exponential.ui.model.isSubmenuLayer
 import at.exponential.ui.model.modalLayers
@@ -111,9 +117,33 @@ internal fun PaintedLayers(model: SurfaceModel) {
                             .hiddenFromAccessibility(),
                     )
                 }
-                LayerView(layer, Modifier.offset(layer.frame.left.dp, (layer.frame.top + shift).dp).then(unbounded))
+                LayerView(layer, Modifier.offset(layer.frame.left.dp, (layer.frame.top + shift).dp).then(unbounded).layerEnter(model, layer))
             }
         }
+    }
+}
+
+/**
+ * EXP-1259 (the EXP-1243 rules): a painted overlay enters on the theme's
+ * `motion.standard` (`decelerate`), scaling from `scale.popoverFrom`
+ * toward its trigger's side while it fades in; a toast only fades; nothing
+ * moves under reduced motion. (Closing is the core's: the layer leaves at
+ * once.)
+ */
+@Composable
+private fun Modifier.layerEnter(model: SurfaceModel, layer: LayerInfo): Modifier {
+    val progress = remember(layer.owner, layer.root) { Animatable(if (model.reducedMotion) 1f else 0f) }
+    LaunchedEffect(layer.owner, layer.root) {
+        if (!model.reducedMotion) progress.animateTo(1f, tween((model.theme?.motion("standard") ?: 180f).toInt(), easing = CubicBezierEasing(0f, 0f, 0.2f, 1f)))
+    }
+    val from = if (layer.isToast) 1f else model.theme?.scale("popoverFrom") ?: 0.96f
+    val originY = if (layer.position == "top") 1f else 0f
+    return this.graphicsLayer {
+        alpha = progress.value
+        val s = from + (1f - from) * progress.value
+        scaleX = s
+        scaleY = s
+        transformOrigin = TransformOrigin(0.5f, originY)
     }
 }
 

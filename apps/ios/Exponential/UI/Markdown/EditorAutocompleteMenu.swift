@@ -91,11 +91,11 @@ struct EditorAutocompleteMenu: View {
         ScrollViewReader { proxy in
             rows
                 // EXP-892: ↑/↓ may walk past the five visible rows, so the
-                // active one is scrolled back into view.
+                // active one is scrolled back into view. EXP-1243: list
+                // navigation is keyboard-driven and high-frequency, so it
+                // jumps, never animates.
                 .onChange(of: selection) { _, index in
-                    withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(index, anchor: .center)
-                    }
+                    proxy.scrollTo(index, anchor: .center)
                 }
         }
     }

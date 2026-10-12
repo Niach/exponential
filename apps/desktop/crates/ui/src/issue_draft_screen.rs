@@ -830,7 +830,11 @@ impl IssueDraftView {
                             editor.queue_file(filename, content_type, bytes, as_file, snapshot, cx)
                         });
                     }
-                    Err(error) => crate::toast::error(format!("{error}"), window, cx),
+                    Err(error) => crate::toast::show(
+                        crate::action_error::failed_toast("attach", "the file", Some(error.to_string())),
+                        window,
+                        cx,
+                    ),
                 });
             })
             .detach();
@@ -888,9 +892,9 @@ impl IssueDraftView {
                     Ok(path) => cx.open_with_system(&path),
                     Err(error) => {
                         log::warn!("[ui] draft file open failed for {attachment_id}: {error}");
-                        let message = format!("Could not open {label}: {error}");
+                        let note = crate::action_error::failed_toast("open", &label, Some(error.to_string()));
                         let _ = handle.update(cx, |_, window, cx| {
-                            crate::toast::error(message, window, cx);
+                            crate::toast::show(note, window, cx);
                         });
                     }
                 }
@@ -1000,7 +1004,11 @@ impl IssueDraftView {
                     None => capture.editor.update(cx, |editor, _| editor.mark_filed()),
                 },
                 Err(message) => {
-                    crate::toast::error(message, window, cx);
+                    crate::toast::show(
+                        crate::action_error::failed_toast("create", "the issue", Some(message.to_string())),
+                        window,
+                        cx,
+                    );
                     let current = view
                         .upgrade()
                         .and_then(|view| {
@@ -1548,17 +1556,7 @@ impl IssueDraftView {
             ));
         }
         for file in pending {
-            let editor = parts.editor.downgrade();
-            let key = file.key;
-            section = section.child(crate::issue_files::pending_file_row(
-                key,
-                file.filename,
-                file.error,
-                move |_window, cx| {
-                    let _ = editor.update(cx, |editor, cx| editor.dismiss_pending(key, cx));
-                },
-                cx,
-            ));
+            section = section.child(crate::issue_files::pending_file_row(file.filename, cx));
         }
         section.into_any_element()
     }
@@ -1595,13 +1593,12 @@ impl Render for IssueDraftView {
         if self.parts.is_none() {
             // The board has not synced yet (a cold start onto the page).
             return base
-                .child(
-                    v_flex()
-                        .p_4()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_48())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                )
+                .child(v_flex().p_4().child(crate::feedback::skeleton_rows(
+                    "issue-draft-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    crate::settings::SETTINGS_ROW_H,
+                    cx,
+                )))
                 .into_any_element();
         }
         // Web `autoFocus` on the title, once per open.

@@ -146,8 +146,9 @@ enum Scan {
 #[derive(Default)]
 struct ActionState {
     busy: bool,
-    /// `(is_error, text)` — the inline result of the last prune/remove.
-    message: Option<(bool, SharedString)>,
+    /// The muted result of the last prune/remove (a failure is a toast,
+    /// FEED-79).
+    message: Option<SharedString>,
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +487,7 @@ impl LocalReposPane {
             let _ = this.update(cx, |this, cx| {
                 let entry = this.action_mut(&full_name);
                 entry.busy = false;
-                entry.message = Some((false, format_prune_result(&report)));
+                entry.message = Some(format_prune_result(&report));
                 // Counts and size moved — re-scan, and re-measure THIS clone
                 // instead of carrying the pre-prune number forward.
                 this.sizes.remove(&measured);
@@ -517,10 +518,15 @@ impl LocalReposPane {
                         this.actions.remove(&full_name);
                         this.stale = true;
                     }
+                    // FEED-79: a failed remove is the error toast.
                     Err(message) => {
-                        let entry = this.action_mut(&full_name);
-                        entry.busy = false;
-                        entry.message = Some((true, message.into()));
+                        this.action_mut(&full_name).busy = false;
+                        crate::action_error::failed_action(
+                            "remove",
+                            "the local copy",
+                            Some(message.to_string()),
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -555,8 +561,17 @@ impl LocalReposPane {
                 let entry = this.action_mut(&full_name);
                 entry.busy = false;
                 entry.message = match result {
-                    Ok(()) => Some((false, "Removed 1 worktree.".into())),
-                    Err(detail) => Some((true, detail.into())),
+                    Ok(()) => Some("Removed 1 worktree.".into()),
+                    // FEED-79: a failed remove is the error toast.
+                    Err(detail) => {
+                        crate::action_error::failed_action(
+                            "remove",
+                            "the worktree",
+                            Some(detail.to_string()),
+                            cx,
+                        );
+                        None
+                    }
                 };
                 // A worktree's bytes just went away — don't carry the stale
                 // number forward across the re-scan.
@@ -802,16 +817,12 @@ impl LocalReposPane {
 
         // A prune/remove report lands under its own row, inside the ladder.
         match action.and_then(|a| a.message.clone()) {
-            Some((is_error, text)) => v_flex().w_full().child(row).child(
+            Some(text) => v_flex().w_full().child(row).child(
                 div()
                     .px_3()
                     .pb_2()
                     .text_xs()
-                    .text_color(if is_error {
-                        cx.theme().danger
-                    } else {
-                        cx.theme().muted_foreground
-                    })
+                    .text_color(cx.theme().muted_foreground)
                     .child(text),
             ),
             None => row,
@@ -1061,12 +1072,7 @@ impl Render for LocalReposPane {
             // Only before the FIRST result (or right after a root change) —
             // a re-scan keeps the rows it already has.
             Scan::Idle => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_10().w_full())
-                        .child(crate::controls::skeleton().h_10().w_full()),
-                );
+                body = body.child(super::settings_skeleton("local-repos-skeleton", cx));
             }
             Scan::Ready(repos) if repos.is_empty() => {
                 body = body.child(crate::controls::empty_state_list(

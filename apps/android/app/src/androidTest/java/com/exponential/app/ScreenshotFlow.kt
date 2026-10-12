@@ -188,6 +188,10 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         /** Every id a suite actually reached — the typo check compares it. */
         private val offeredShots = mutableSetOf<String>()
 
+        /** Whether a scoped run asked for any of [names] (unscoped = yes). */
+        fun anyRequested(vararg names: String): Boolean =
+            requestedShots?.let { requested -> names.any { it in requested } } ?: true
+
         /** Records [name] as reached and reports whether to capture it. */
         fun isShotWanted(name: String): Boolean {
             offeredShots += name

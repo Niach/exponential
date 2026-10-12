@@ -136,6 +136,7 @@ function makeRemote(overrides: Partial<RemoteStart> = {}): RemoteStart {
     sentTo: null,
     startIssues: vi.fn().mockResolvedValue(undefined),
     runAction: vi.fn().mockResolvedValue(undefined),
+    cancelWatch: vi.fn(),
     refresh: vi.fn(),
     latestVersions: null,
     ...overrides,
@@ -144,12 +145,25 @@ function makeRemote(overrides: Partial<RemoteStart> = {}): RemoteStart {
 
 function mount(seed: LaunchSeed | null = null, remote = makeRemote()) {
   const onSeedConsumed = vi.fn()
+  const onLanded = vi.fn()
   const hook = renderHook(
-    ({ seed: current }) =>
-      useLaunchComposer({ teamId: `t1`, remote, seed: current, onSeedConsumed }),
-    { initialProps: { seed } }
+    ({ seed: current, remote: currentRemote }: { seed: LaunchSeed | null; remote?: RemoteStart }) =>
+      useLaunchComposer({
+        teamId: `t1`,
+        remote: currentRemote ?? remote,
+        seed: current,
+        onSeedConsumed,
+        onLanded,
+      }),
+    { initialProps: { seed, remote } as { seed: LaunchSeed | null; remote?: RemoteStart } }
   )
-  return { ...hook, remote, onSeedConsumed }
+  // EXP-1271: the remote watch saw the delivery (`sentTo`) and then the run's
+  // row (`sentTo` falls): the run landed.
+  const land = () => {
+    hook.rerender({ seed, remote: { ...remote, sentTo: `buildbox` } })
+    hook.rerender({ seed, remote: { ...remote, sentTo: null } })
+  }
+  return { ...hook, remote, onSeedConsumed, onLanded, land }
 }
 
 beforeEach(() => {
@@ -347,7 +361,7 @@ describe(`useLaunchComposer images`, () => {
 
 describe(`useLaunchComposer submit`, () => {
   it(`starts a chat on the hidden builtin with the text as the prompt`, async () => {
-    const { result, remote } = mount()
+    const { result, remote, land, onLanded } = mount()
     act(() => result.current.setText(`  Explain #I1  `))
     await act(() => result.current.submit())
     expect(remote.runAction).toHaveBeenCalledWith(
@@ -356,14 +370,23 @@ describe(`useLaunchComposer submit`, () => {
       expect.objectContaining({ agent: `claude`, planMode: false }),
       // The only repo pre-picks itself (EXP-822) and rides as the `repo` input.
       { repo: `repo-1` },
-      `Explain #I1`
+      `Explain #I1`,
+      expect.any(Function)
     )
+    // EXP-1271: the draft stays while the run starts; it clears once the
+    // run's row lands.
+    expect(result.current.starting?.deviceLabel).toBe(`buildbox`)
+    expect(result.current.busy).toBe(true)
+    expect(result.current.text).toBe(`  Explain #I1  `)
+    land()
+    expect(result.current.starting).toBeNull()
     expect(result.current.text).toBe(``)
     expect(result.current.subject).toBeNull()
+    expect(onLanded).toHaveBeenCalledTimes(1)
   })
 
   it(`starts issues with the text as additional instructions`, async () => {
-    const { result, remote } = mount()
+    const { result, remote, land } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.toggleIssue(`i2`))
     act(() => result.current.setText(`Keep the API stable`))
@@ -372,8 +395,10 @@ describe(`useLaunchComposer submit`, () => {
       device,
       expect.objectContaining({ agent: `claude`, planMode: true }),
       [`i1`, `i2`],
-      `Keep the API stable`
+      `Keep the API stable`,
+      expect.any(Function)
     )
+    land()
     expect(result.current.subject).toBeNull()
   })
 
@@ -387,7 +412,8 @@ describe(`useLaunchComposer submit`, () => {
       { id: BUILTIN_FIX_CONFLICTS_ID, name: `Fix merge conflicts`, teamId: `t1` },
       expect.objectContaining({ agent: `claude` }),
       { pr: `i1` },
-      undefined
+      undefined,
+      expect.any(Function)
     )
   })
 
@@ -395,7 +421,7 @@ describe(`useLaunchComposer submit`, () => {
     mockState.upload
       .mockResolvedValueOnce({ id: `att-1` })
       .mockResolvedValueOnce({ id: `att-2` })
-    const { result, remote } = mount()
+    const { result, remote, land } = mount()
     act(() => result.current.setText(`see`))
     act(() => {
       result.current.addFiles(
@@ -414,8 +440,10 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       expect.anything(),
       { repo: `repo-1` },
-      `see [Image #1] [Image #2]\n\n![image](/api/attachments/att-1)\n![image](/api/attachments/att-2)`
+      `see [Image #1] [Image #2]\n\n![image](/api/attachments/att-1)\n![image](/api/attachments/att-2)`,
+      expect.any(Function)
     )
+    land()
     expect(result.current.images).toEqual([])
   })
 
@@ -445,7 +473,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       expect.anything(),
       { repo: `repo-1` },
-      `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`
+      `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`,
+      expect.any(Function)
     )
   })
 
@@ -489,8 +518,8 @@ describe(`useLaunchComposer submit`, () => {
     await act(() => result.current.submit())
     expect(remote.runAction).not.toHaveBeenCalled()
     expect(mockState.toastError).toHaveBeenCalledWith(
-      `Couldn't upload attachment`,
-      expect.anything()
+      `Couldn't upload the attachment`,
+      expect.objectContaining({ action: expect.objectContaining({ label: `Retry` }) })
     )
     expect(result.current.images[0]!.uploadedId).toBe(`att-1`)
     expect(result.current.images).toHaveLength(2)
@@ -509,6 +538,37 @@ describe(`useLaunchComposer submit`, () => {
     act(() => result.current.setText(`hi`))
     await act(() => result.current.submit())
     expect(result.current.text).toBe(`hi`)
+    expect(result.current.starting).toBeNull()
+  })
+
+  // EXP-1271: a run whose row never lands gives up after the contract's
+  // 30 s: the error toast with Retry, the watch cancelled, the draft kept.
+  it(`gives up after the starting deadline and keeps the draft for Retry`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote, rerender } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      rerender({ seed: null, remote: { ...remote, sentTo: `buildbox` } })
+      expect(result.current.starting).not.toBeNull()
+      act(() => vi.advanceTimersByTime(30_000))
+      expect(remote.cancelWatch).toHaveBeenCalled()
+      expect(result.current.starting).toBeNull()
+      expect(result.current.text).toBe(`hi`)
+      expect(mockState.toastError).toHaveBeenCalledWith(`The run did not start`, {
+        description: `buildbox did not answer.`,
+        action: { label: `Retry`, onClick: expect.any(Function) },
+      })
+      // The watch's own fall after the cancel is not a landing.
+      rerender({ seed: null, remote: { ...remote, sentTo: null } })
+      expect(result.current.text).toBe(`hi`)
+      // Retry re-submits the kept draft.
+      const retry = mockState.toastError.mock.calls.at(-1)![1].action.onClick
+      await act(async () => retry())
+      expect(remote.runAction).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -788,7 +848,8 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`],
-      undefined
+      undefined,
+      expect.any(Function)
     )
   })
 
@@ -806,7 +867,8 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`, `i3`],
-      undefined
+      undefined,
+      expect.any(Function)
     )
   })
 
@@ -869,7 +931,8 @@ describe(`useLaunchComposer blocked start`, () => {
       stackedStartPrompt(
         { base: { identifier: `I2`, branch: `exp/I2` }, run: [`I1`] },
         `keep it small`
-      )
+      ),
+      expect.any(Function)
     )
   })
 
@@ -894,7 +957,8 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i3`],
-      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``)
+      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``),
+      expect.any(Function)
     )
   })
 

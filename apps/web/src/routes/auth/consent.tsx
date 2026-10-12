@@ -1,13 +1,15 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { LoaderCircle } from "lucide-react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   AuthFormShell,
   Button,
   EMPTY_SCOPE_SELECTION,
+  FEEDBACK_WORDS,
   ScopePicker,
+  SkeletonRows,
   effectiveScopeSelection,
   hasScopeSelection,
   type ScopePickerTeam,
@@ -53,8 +55,10 @@ function ConsentPage() {
 
   const [clientName, setClientName] = useState<string | null>(null)
   const [tree, setTree] = useState<Array<ScopePickerTeam> | null>(null)
-  const [loadError, setLoadError] = useState(``)
-  const [error, setError] = useState(``)
+  // A failed load draws the picker's empty state (+ a toast with Retry);
+  // Allow stays off until the request loads.
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [pending, setPending] = useState<`allow` | `deny` | null>(null)
 
   const [selection, setSelection] = useState<ScopeSelection>(
@@ -75,36 +79,40 @@ function ConsentPage() {
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setLoadError(
-          e instanceof Error ? e.message : `Couldn't load the consent request.`
-        )
+        setLoadFailed(true)
+        failedAction(`load`, `the consent request`, e, {
+          retry: () => {
+            setLoadFailed(false)
+            setLoadAttempt((n) => n + 1)
+          },
+        })
       })
     return () => {
       cancelled = true
     }
-  }, [clientId])
+  }, [clientId, loadAttempt])
 
   const hasSelection = hasScopeSelection(selection)
 
   const respond = async (accept: boolean) => {
     if (!clientId || !consentCode) return
     setPending(accept ? `allow` : `deny`)
-    setError(``)
     try {
       // Boards inside a fully-selected team are covered by the team
       // grant — don't send them individually.
       const scope = effectiveScopeSelection(tree ?? [], selection)
-      const { redirectURI } = await trpc.mcpGrants.grantAndConsent.mutate({
-        clientId,
-        consentCode,
-        accept,
-        ...scope,
-      })
+      const { redirectURI } = await trpc.mcpGrants.grantAndConsent.mutate(
+        {
+          clientId,
+          consentCode,
+          accept,
+          ...scope,
+        },
+        SKIP_ERROR_TOAST
+      )
       window.location.href = redirectURI
     } catch (e) {
-      setError(
-        e instanceof Error ? e.message : `Something went wrong. Try again.`
-      )
+      failedAction(accept ? `allow` : `deny`, `access`, e)
       setPending(null)
     }
   }
@@ -130,16 +138,12 @@ function ConsentPage() {
       description={`Choose what ${clientName ?? `this MCP client`} can access on your behalf.`}
       footer={null}
     >
-      {loadError ? (
-        <p className="text-sm text-destructive">{loadError}</p>
-      ) : !tree ? (
-        <div className="flex justify-center py-6">
-          <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
+      {!tree && !loadFailed ? (
+        <SkeletonRows rowHeight={32} className="rounded-md border" />
       ) : (
         <div className="space-y-4">
           <ScopePicker
-            tree={tree}
+            tree={tree ?? []}
             value={selection}
             onChange={setSelection}
             idPrefix="consent"
@@ -151,25 +155,26 @@ function ConsentPage() {
             selection any time by re-authenticating.
           </p>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
-
           <div className="flex gap-2">
             <Button
               type="button"
               variant="outline"
               className="flex-1"
+              pending={pending === `deny`}
               disabled={pending !== null}
               onClick={() => respond(false)}
             >
-              {pending === `deny` ? `Denying...` : `Deny`}
+              Deny
             </Button>
             <Button
               type="button"
               className="flex-1"
-              disabled={pending !== null || !hasSelection}
+              pending={pending === `allow`}
+              pendingLabel={FEEDBACK_WORDS.pending.connect}
+              disabled={pending !== null || !hasSelection || !tree}
               onClick={() => respond(true)}
             >
-              {pending === `allow` ? `Authorizing...` : `Allow access`}
+              Allow access
             </Button>
           </div>
         </div>

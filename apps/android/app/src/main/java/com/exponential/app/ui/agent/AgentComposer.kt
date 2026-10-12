@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -31,6 +32,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.ActionDto
@@ -38,6 +40,11 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.ui.components.FeedbackMark
+import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.rememberDelayedFlag
+import kotlinx.coroutines.delay
 import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.imageNumberAt
@@ -104,6 +111,12 @@ internal fun AgentComposer(
     pendingImages: List<PendingAttachment>,
     imageError: String?,
     sending: Boolean,
+    /**
+     * EXP-1271: the start in flight — once the pending delay passes, the card
+     * leads with the starting row (the mark, "Starting on <device>", the
+     * seconds since the press) until the run's row lands.
+     */
+    starting: ComposerStarting? = null,
     /** EXP-1249: the "+" — opens the composer menu. */
     onOpenMenu: () -> Unit,
     onRemoveImage: (Int) -> Unit,
@@ -165,6 +178,8 @@ internal fun AgentComposer(
             null
         },
         strip = {
+            val startingShown = rememberDelayedFlag(starting != null)
+            if (starting != null && startingShown) StartingRow(starting)
             PendingAttachmentStrip(
                 items = pendingImages,
                 enabled = !sending,
@@ -184,14 +199,8 @@ internal fun AgentComposer(
                     onRemoveImage(index)
                 },
             )
-            if (imageError != null) {
-                Text(
-                    imageError,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-            }
+            // A refused pick (caps): invalid input, under the field (FEED-79).
+            FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
         },
         tools = {
             // EXP-1249 ×4: the "+" is the composer's ONLY tool.
@@ -361,3 +370,45 @@ internal fun AgentComposerHeadline(
         }
     }
 }
+
+/**
+ * EXP-1271: the card's starting row — the mark, "Starting on <device>", and
+ * the seconds since the press, ticking in tenths (web `StartingRow`).
+ */
+@Composable
+internal fun StartingRow(starting: ComposerStarting, modifier: Modifier = Modifier) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(starting) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(100)
+        }
+    }
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 6.dp)
+            .testTag(FeedbackStates.STARTING_TEST_ID),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FeedbackMark(size = FeedbackStates.MARK_SIZE_STATUS.dp)
+        Text(
+            FeedbackStates.startingLabel(starting.deviceLabel),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            startingElapsed(now - starting.sinceMs),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+    }
+}
+
+/** The starting row's clock: tenths of a second, "1.4 s" (web `startingElapsed`). */
+internal fun startingElapsed(ms: Long): String =
+    String.format(java.util.Locale.US, "%.1f s", ms.coerceAtLeast(0) / 1000.0)

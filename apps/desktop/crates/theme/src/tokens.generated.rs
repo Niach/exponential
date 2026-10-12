@@ -229,4 +229,9 @@ pub mod motion {
         pub const DECELERATE: [f32; 4] = [0.0, 0.0, 0.2, 1.0];
         pub const ACCELERATE: [f32; 4] = [0.3, 0.0, 1.0, 1.0];
     }
+
+    pub mod scale {
+        pub const PRESS: f32 = 0.97;
+        pub const POPOVER_FROM: f32 = 0.96;
+    }
 }

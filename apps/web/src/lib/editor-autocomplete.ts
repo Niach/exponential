@@ -1,12 +1,12 @@
 import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import type { EditorState } from "@tiptap/pm/state"
+import { typeaheadPrefill } from "@exp/ui"
 import { matchEmojiToken } from "@/lib/emoji"
-import { ISSUE_REF_AT_CARET } from "@/lib/issue-refs"
 import { MENTION_AT_CARET } from "@/lib/mention-refs"
 
 // Caret-anchored `@mention` / `#issueRef` / `:emoji` autocomplete for the
-// TipTap editor.
+// TipTap editor (`#` opens THE search list, SLOP-28, `IssueRefSearch`).
 // The extension only *detects* an in-progress token at the caret and reports
 // it — candidate lookup, menu rendering, and the final insertion live in
 // React (markdown-editor.tsx), mirroring how MentionTextarea drives the same
@@ -68,12 +68,14 @@ export function findAutocompleteAtCaret(
       to: $from.pos,
     }
   }
-  const issueRef = textBefore.match(ISSUE_REF_AT_CARET)
+  // SLOP-28: the `#` trigger + prefill rule is the search list's
+  // (`typeaheadPrefill`, search-list.json ×4): after whitespace or `(` too.
+  const issueRef = typeaheadPrefill(textBefore, textBefore.length)
   if (issueRef) {
     return {
       kind: `issueRef`,
-      query: issueRef[1],
-      from: $from.pos - issueRef[1].length - 1,
+      query: issueRef.query,
+      from: $from.pos - issueRef.query.length - 1,
       to: $from.pos,
     }
   }
@@ -140,6 +142,17 @@ export const EditorAutocompleteExtension =
               // still tracks/dismisses on caret moves.
               const docChanged = !view.state.doc.eq(prevState.doc)
               if (next && last === null && !docChanged) return
+              // SLOP-28: the `#` search takes the focus, so only TYPING
+              // opens it: never a deletion that lands after an existing
+              // `#EXP-42`, never mid IME composition.
+              if (
+                next?.kind === `issueRef` &&
+                last === null &&
+                (view.composing ||
+                  view.state.doc.content.size < prevState.doc.content.size)
+              ) {
+                return
+              }
               emit(next)
             },
             destroy: () => {

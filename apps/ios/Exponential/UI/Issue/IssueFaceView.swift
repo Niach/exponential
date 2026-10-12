@@ -97,11 +97,15 @@ struct IssueFaceView: View {
     let onOpenChanges: () -> Void
     /// EXP-1191: the screen's Merge PR circle, right of the bar's capsule.
     var mergeCircle: AnyView? = nil
+    /// EXP-1241: scroll to this comment once the timeline holds it (a run's
+    /// comment card tap); the timeline flashes it.
+    var focusCommentId: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.motion) private var motion
     @State private var activeSheet: IssueDetailSheet?
     /// A property picker opened straight from the chip box (no Properties
     /// sheet under it). Its own node, so it never collides with `activeSheet`.
@@ -155,8 +159,14 @@ struct IssueFaceView: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            content(proxy)
+        }
+    }
+
+    private func content(_ proxy: ScrollViewProxy) -> some View {
         let relations = self.relations
-        ScrollView {
+        return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 // Origin chip: issues filed through the embeddable feedback
                 // widget (source='widget') or by a coding agent over MCP
@@ -323,7 +333,13 @@ struct IssueFaceView: View {
                     singleMemberTeam: vm.singleMemberTeam,
                     reporterName: vm.widgetSubmission?.reporterName,
                     editEditor: $commentEditEditor,
-                    replyTarget: $commentReplyTarget
+                    replyTarget: $commentReplyTarget,
+                    focusCommentId: focusCommentId,
+                    onFocusShown: { id in
+                        withAnimation(motion.standard) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
                 )
             }
             .padding(20)
@@ -392,7 +408,12 @@ struct IssueFaceView: View {
         // view model's `error` is a one-shot hand-off, cleared once shown.
         .onChange(of: vm.error) { _, message in
             guard let message else { return }
-            toaster.error(message)
+            // FEED-79: `Couldn't <verb> <thing>` over the server's words.
+            if let title = vm.errorTitle {
+                toaster.error(title, description: message.isEmpty ? nil : message)
+            } else {
+                toaster.error(message)
+            }
             vm.error = nil
         }
         .sheet(item: $activeSheet, onDismiss: { promoteMoveTarget(to: .screen) }) { sheet in

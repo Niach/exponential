@@ -5,7 +5,16 @@ import type { Team } from "@/db/schema"
 
 const mockState = vi.hoisted(() => ({
   createBoard: vi.fn(),
+  toastError: vi.fn(),
 }))
+
+vi.mock(`sonner`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>()
+  return {
+    ...actual,
+    toast: Object.assign(() => {}, actual.toast, { error: mockState.toastError }),
+  }
+})
 
 vi.mock(`@/hooks/use-create-board`, () => ({
   useCreateBoard: () => ({ createBoard: mockState.createBoard }),
@@ -52,6 +61,7 @@ function renderDialog() {
 describe(`CreateBoardDialog`, () => {
   beforeEach(() => {
     mockState.createBoard.mockReset()
+    mockState.toastError.mockReset()
   })
 
   it(`renders the plain form (no quickstart templates, no public switch)`, () => {
@@ -113,5 +123,38 @@ describe(`CreateBoardDialog`, () => {
       repository: undefined,
       defaultBranch: undefined,
     })
+  })
+
+  // FEED-79: a taken name is invalid INPUT (the field's own line); any other
+  // refusal is a failed action (a toast, no Retry: a create can duplicate).
+  it(`a taken name renders under the field, not as a toast`, async () => {
+    mockState.createBoard.mockResolvedValue({
+      ok: false,
+      error: { kind: `error`, message: `A board with this name already exists` },
+    })
+    renderDialog()
+    fireEvent.change(screen.getByLabelText(`Name`), { target: { value: `Backend` } })
+    fireEvent.click(screen.getByRole(`button`, { name: `Create board` }))
+
+    const line = await screen.findByRole(`alert`)
+    expect(line.textContent).toBe(`A board with this name already exists`)
+    expect(mockState.toastError).not.toHaveBeenCalled()
+  })
+
+  it(`any other failure toasts "Couldn't create the board" without Retry`, async () => {
+    mockState.createBoard.mockResolvedValue({
+      ok: false,
+      error: { kind: `error`, message: `Server exploded` },
+    })
+    renderDialog()
+    fireEvent.change(screen.getByLabelText(`Name`), { target: { value: `Backend` } })
+    fireEvent.click(screen.getByRole(`button`, { name: `Create board` }))
+
+    await waitFor(() => expect(mockState.toastError).toHaveBeenCalledTimes(1))
+    const [title, options] = mockState.toastError.mock.calls[0]
+    expect(title).toBe(`Couldn't create the board`)
+    expect(options.description).toBe(`Server exploded`)
+    expect(options.action).toBeUndefined()
+    expect(screen.queryByRole(`alert`)).toBeNull()
   })
 })

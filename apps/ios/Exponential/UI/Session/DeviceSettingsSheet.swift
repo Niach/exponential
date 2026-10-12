@@ -372,7 +372,7 @@ struct DeviceSettingsSheet: View {
                 // Revert to the row's own glyph and say so, as the error toast
                 // a failed rename raises too (EXP-1031).
                 if iconPick == icon { iconPick = nil }
-                toaster.error(error.userFacingMessage)
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the icon"), description: error.userFacingMessage)
             }
         }
     }
@@ -426,7 +426,7 @@ struct DeviceSettingsSheet: View {
                 // debounce owns the pending flag.
                 if trimmedName == label { namePending = false }
             } catch {
-                toaster.error(error.localizedDescription)
+                toaster.error(FeedbackStates.Errors.title(verb: "rename", thing: "the device"), description: error.userFacingMessage)
             }
             savingName = false
         }
@@ -461,7 +461,7 @@ struct DeviceSettingsSheet: View {
                     accountId: accountId, deviceId: deviceId, isDefault: isDefault
                 )
             } catch {
-                toaster.error(error.localizedDescription)
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the default device"), description: error.userFacingMessage)
             }
             savingDefaultDevice = false
         }
@@ -499,7 +499,7 @@ struct DeviceSettingsSheet: View {
                     accountId: accountId, deviceId: deviceId, teamId: teamId, shared: shared
                 )
             } catch {
-                toaster.error(error.localizedDescription)
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "sharing"), description: error.userFacingMessage)
             }
             savingShare = false
         }
@@ -609,7 +609,7 @@ struct DeviceSettingsSheet: View {
             do {
                 try await api.requestAgentUpdate(accountId: account, deviceId: id, agent: agent)
             } catch {
-                toaster.error(error.userFacingMessage)
+                toaster.error(FeedbackStates.Errors.title(verb: "update", thing: "the agent"), description: error.userFacingMessage)
             }
             updatingAgents.remove(agent)
         }
@@ -718,7 +718,7 @@ struct DeviceSettingsSheet: View {
                     accountId: account, deviceId: id, launchDefaults: payload
                 )
             } catch {
-                toaster.error(error.localizedDescription)
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the launch defaults"), description: error.userFacingMessage)
                 defaultsPending = true
             }
             savingDefaults = false
@@ -818,7 +818,7 @@ struct DeviceSettingsSheet: View {
                     accountId: accountId, deviceId: deviceId
                 )
             } catch {
-                toaster.error(error.userFacingMessage)
+                toaster.error(FeedbackStates.Errors.title(verb: "update", thing: "the device"), description: error.userFacingMessage)
             }
             updateRequested = false
         }
@@ -860,7 +860,7 @@ struct DeviceSettingsSheet: View {
             do {
                 try await api.remove(accountId: account, deviceId: id)
             } catch {
-                toaster.error(error.userFacingMessage)
+                toaster.error(FeedbackStates.Errors.title(verb: "remove", thing: "the device"), description: error.userFacingMessage)
             }
         }
     }

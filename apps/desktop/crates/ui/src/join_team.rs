@@ -29,7 +29,7 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, ElementExt as _,
 };
 use sync::Store;
 
@@ -136,6 +136,8 @@ pub struct JoinTeamView {
     /// of closing a dialog.
     embedded: bool,
     accepting: bool,
+    /// INVALID INPUT under the field (FEED-79): nothing pasted yet. A failed
+    /// accept is a toast.
     error: Option<SharedString>,
     focused_once: bool,
     /// EXP-369: the scrolling form pane, so the footer can stay pinned.
@@ -271,8 +273,7 @@ impl JoinTeamView {
             return;
         };
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
+            crate::action_error::failed_action("accept", "the invite", Some("Not signed in.".into()), cx);
             return;
         };
         self.accepting = true;
@@ -345,9 +346,10 @@ impl JoinTeamView {
                 }
                 Err(err) => {
                     let _ = this.update_in(window, |this, _, cx| {
-                        // Web surfaces the server message (expired/used).
+                        // FEED-79: the error toast with the server's message
+                        // (expired/used).
                         this.accepting = false;
-                        this.error = Some(err.user_message().into());
+                        crate::action_error::failed_action_err("accept", "the invite", &err, cx);
                         cx.notify();
                     });
                 }
@@ -468,16 +470,10 @@ impl Render for JoinTeamView {
                 );
                 (CONTINUE, true)
             }
+            // The pasted link the server refused is about the INPUT: the
+            // field's own line (FEED-79).
             Preview::Failed(message) => {
-                form = form.child(
-                    h_flex()
-                        .gap_1p5()
-                        .items_center()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(Icon::new(registry::UI_WARNING).xsmall())
-                        .child(message.clone()),
-                );
+                form = form.child(crate::action_error::field_error(message.clone(), cx));
                 (CONTINUE, false)
             }
             Preview::Ready(invite) => {
@@ -495,12 +491,7 @@ impl Render for JoinTeamView {
         };
 
         if let Some(error) = &self.error {
-            form = form.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
-            );
+            form = form.child(crate::action_error::field_error(error.clone(), cx));
         }
 
         // Cancel exists only in the dialog host — the embedded wizard step has

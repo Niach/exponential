@@ -59,7 +59,7 @@ mod board_detail;
 mod repositories;
 mod sessions;
 mod storage;
-mod team_general;
+pub(crate) mod team_general;
 mod tools;
 mod widget;
 
@@ -1194,11 +1194,15 @@ pub(crate) fn danger_zone(
         )
 }
 
-/// Inline destructive error box (web `text-destructive` / bordered error):
-/// the shared inline alert (EXP-970) in its destructive variant, so every
-/// settings error and the repository dialog's banner are ONE banner.
-pub(crate) fn error_notice(message: SharedString, cx: &App) -> impl IntoElement {
-    crate::controls::alert(crate::controls::AlertVariant::Destructive, None, cx).child(message)
+/// The settings entity row's height (`flat_row` + `py_2` around a 24px
+/// pill line): a section's FIRST load draws its skeleton rows at it
+/// (EXP-1259 D8).
+pub(crate) const SETTINGS_ROW_H: f32 = 40.;
+
+/// A settings list's first-load placeholder: the skeleton rows in the
+/// entity row's geometry (a refetch keeps its rows and spins the band).
+pub(crate) fn settings_skeleton(id: impl Into<gpui::ElementId>, cx: &App) -> gpui::AnyElement {
+    crate::feedback::skeleton_rows(id, crate::feedback::SKELETON_ROWS, SETTINGS_ROW_H, cx)
 }
 
 /// `#rrggbb` → Hsla (label/board colors are stored as hex strings).

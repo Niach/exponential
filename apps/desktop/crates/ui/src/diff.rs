@@ -1130,9 +1130,13 @@ fn file_header_row(
 // The view
 // ---------------------------------------------------------------------------
 
+/// The first load's skeleton row height: a file card's header line.
+const FILE_HEADER_SKELETON_H: f32 = 36.;
+
 enum Phase {
     Loading,
-    Error(SharedString),
+    /// The load failed (a toast said so, FEED-79): the empty list.
+    Error,
     Ready,
 }
 
@@ -1162,6 +1166,9 @@ pub struct DiffView {
     text_w: f32,
     h_scroll: HScroll,
     scroll: VirtualListScrollHandle,
+    /// EXP-1261: the Changes page's file tree height and the pane's, last
+    /// paint ([`crate::diff_pane::render`] measures both).
+    tree_metrics: Rc<std::cell::Cell<(f32, f32)>>,
 }
 
 impl DiffView {
@@ -1184,6 +1191,7 @@ impl DiffView {
             text_w: 0.,
             h_scroll: HScroll::default(),
             scroll: VirtualListScrollHandle::new(),
+            tree_metrics: Rc::default(),
         }
     }
 
@@ -1200,9 +1208,12 @@ impl DiffView {
         cx.notify();
     }
 
-    /// Show a load failure (web parity: "Couldn't load changes: …").
+    /// A load failure (FEED-79, web parity): the error toast `Couldn't load
+    /// the changes` + the reason, over the empty list.
     pub fn set_error(&mut self, message: impl Into<SharedString>, cx: &mut gpui::Context<Self>) {
-        self.phase = Phase::Error(message.into());
+        let message: SharedString = message.into();
+        crate::action_error::failed_action("load", "the changes", Some(message.to_string()), cx);
+        self.phase = Phase::Error;
         self.clear_rows();
         cx.notify();
     }
@@ -1335,6 +1346,18 @@ impl DiffView {
         &self.files
     }
 
+    /// EXP-1261 — the list's vertical scroll: the Changes page's file tree
+    /// rides it ([`crate::diff_pane::render`]), and the work body's top fade
+    /// waits for it to leave the top.
+    pub(crate) fn page_scroll(&self) -> gpui::ScrollHandle {
+        (*self.scroll).clone()
+    }
+
+    /// EXP-1261: (file tree height, pane height), last paint.
+    pub(crate) fn tree_metrics(&self) -> Rc<std::cell::Cell<(f32, f32)>> {
+        self.tree_metrics.clone()
+    }
+
     /// Scroll the diff so `file_ix`'s header row is at the top.
     pub fn scroll_to_file(&mut self, file_ix: usize, cx: &mut gpui::Context<Self>) {
         if let Some(summary) = self.files.get(file_ix) {
@@ -1460,31 +1483,26 @@ impl Focusable for DiffView {
 
 impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
         let body: AnyElement = match &self.phase {
+            // EXP-1259 D8: the file rows as placeholders.
             Phase::Loading => div()
                 .px(px(LIST_PAD))
                 .py_3()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("Loading changes…")
+                .child(crate::feedback::skeleton_rows(
+                    "diff-view-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    FILE_HEADER_SKELETON_H,
+                    cx,
+                ))
                 .into_any_element(),
-            Phase::Error(message) => div()
-                .px(px(LIST_PAD))
-                .py_3()
-                .text_xs()
-                .text_color(theme.danger)
-                .child(SharedString::from(format!(
-                    "Couldn't load changes: {message}"
-                )))
-                .into_any_element(),
-            Phase::Ready if self.rows.is_empty() => crate::controls::empty_state_list(
+            // A failed load reads as the empty list (its rows are cleared).
+            Phase::Error | Phase::Ready if self.rows.is_empty() => crate::controls::empty_state_list(
                 gpui_component::Icon::new(crate::icons::registry::CODING_DIFF),
                 crate::empty_state_copy::CHANGED_FILES,
                 cx,
             )
             .into_any_element(),
-            Phase::Ready => {
+            Phase::Ready | Phase::Error => {
                 let h_scroll = self.h_scroll.clone();
                 let wheel_scroll = self.h_scroll.clone();
                 let prepaint_scroll = self.h_scroll.clone();

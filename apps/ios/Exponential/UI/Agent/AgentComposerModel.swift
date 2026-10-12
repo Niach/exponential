@@ -60,6 +60,17 @@ final class AgentComposerModel {
     private(set) var deviceId: String?
     var sending = false
     var error: String?
+    /// EXP-1271 (EXP-1259 D11, feedback-states.json `starting`): from the
+    /// Start press until the run's synced row lands (`runLanded`) or the
+    /// starting deadline gives up on it (the timeout toast, Retry). The card
+    /// shows the mark + "Starting on <device>" + the elapsed seconds; the
+    /// draft stays put meanwhile, so a timeout leaves it ready to retry.
+    private(set) var starting: Starting?
+
+    struct Starting: Equatable {
+        let deviceLabel: String
+        let since: Date
+    }
     /// EXP-897: the blocked-start prompt, up while the reader chooses between
     /// an ordinary run and cancelling. EXP-980: it asks for a BATCH too
     /// (blockers outside the picked set), and never for a resume.
@@ -358,7 +369,10 @@ final class AgentComposerModel {
     /// own composer hint (EXP-825), anything else asks for what is optional
     /// next to it.
     var placeholder: String {
-        AgentComposerPrompt.placeholder(
+        // EXP-1253: a chat on the home composer asks what to build
+        // (composer-home.json `placeholder`, web's `home` variant).
+        if subject == AgentComposerPrompt.Subject.none { return HomeGreeting.placeholder }
+        return AgentComposerPrompt.placeholder(
             for: subject, actionHint: selectedAction?.promptPlaceholder
         )
     }
@@ -673,7 +687,7 @@ final class AgentComposerModel {
     var canSubmit: Bool {
         // `blocker` stays nil while the machine pool is still resolving (no
         // "no desktop" flash) — but nothing can be sent without a machine.
-        guard blocker == nil, device != nil, !sending, !messageMissing else { return false }
+        guard blocker == nil, device != nil, !sending, starting == nil, !messageMissing else { return false }
         switch subject {
         case .none: return true
         case .issues: return !effectiveChecked.isEmpty
@@ -868,6 +882,8 @@ final class AgentComposerModel {
         error = nil
         imageError = nil
         startWatcher.sending()
+        let deviceLabel = LaunchVocabulary.deviceName(device)
+        starting = Starting(deviceLabel: deviceLabel, since: Date())
         Task {
             defer { sending = false }
             for index in pendingImages.indices where pendingImages[index].uploadedId == nil {
@@ -881,8 +897,7 @@ final class AgentComposerModel {
                     )
                     pendingImages[index].uploadedId = uploaded.id
                 } catch {
-                    imageError = error.userFacingMessage
-                    startWatcher.failed(error.userFacingMessage)
+                    uploadFailed(error.userFacingMessage)
                     return
                 }
             }
@@ -899,8 +914,7 @@ final class AgentComposerModel {
                     )
                     pendingFiles[index].stamp(uploaded)
                 } catch {
-                    imageError = error.userFacingMessage
-                    startWatcher.failed(error.userFacingMessage)
+                    uploadFailed(error.userFacingMessage)
                     return
                 }
             }
@@ -919,28 +933,86 @@ final class AgentComposerModel {
                     device: device, teamId: teamId, prompt: prompt,
                     issueIds: stacked.map { [$0.issueId] }
                 )
+                touched = true
                 startWatcher.begin(
                     key: key,
                     userId: deps.auth.userId,
                     device: device,
                     db: deps.db,
-                    accountId: accountId
+                    accountId: accountId,
+                    deadline: TimeInterval(FeedbackStates.Starting.timeoutMs) / 1000,
+                    onTimeout: { self.startTimedOut(deviceLabel: deviceLabel) }
                 )
-                draftText = ""
-                pendingImages = []
-                pendingFiles = []
-                checked = []
-                actionId = nil
-                inputValues = [:]
-                pendingPrIssueId = nil
-                conflictRefused = false
-                seededDraft = ""
-                touched = true
-                refreshBlockers()
             } catch {
-                self.error = error.userFacingMessage
-                startWatcher.failed(error.userFacingMessage)
+                // FEED-79 (EXP-1259 D10): a failed start is a toast with
+                // Retry; the draft stays.
+                starting = nil
+                let message = error.userFacingMessage
+                Toaster.shared.error(
+                    FeedbackStates.Errors.title(verb: "start", thing: "the run"),
+                    description: message,
+                    action: retryAction()
+                )
             }
+        }
+    }
+
+    /// EXP-1271: the run's synced row landed (the host pushes it): the
+    /// starting state ends and the draft clears.
+    func runLanded() {
+        starting = nil
+        clearDraft()
+    }
+
+    /// EXP-1271: the page stopped watching (it left the screen). A start
+    /// already DELIVERED clears the draft the way a landed one does (it is
+    /// running somewhere); one still uploading or sending keeps it.
+    func abandonStarting() {
+        guard starting != nil else { return }
+        starting = nil
+        if !sending { clearDraft() }
+    }
+
+    private func clearDraft() {
+        draftText = ""
+        pendingImages = []
+        pendingFiles = []
+        checked = []
+        actionId = nil
+        inputValues = [:]
+        pendingPrIssueId = nil
+        conflictRefused = false
+        seededDraft = ""
+        refreshBlockers()
+    }
+
+    /// EXP-1271: no row within `starting.timeoutMs`: the timeout toast
+    /// (`starting.timeoutToast`), Retry re-submits the kept draft.
+    private func startTimedOut(deviceLabel: String) {
+        starting = nil
+        Toaster.shared.error(
+            FeedbackStates.Starting.timeoutTitle,
+            description: FeedbackStates.Starting.timeoutDescription(device: deviceLabel),
+            action: retryAction()
+        )
+    }
+
+    /// FEED-79: a failed upload is the error toast with Retry (the uploads
+    /// are idempotent: a retry never sends a finished one twice); the draft
+    /// and the strip stay.
+    private func uploadFailed(_ message: String) {
+        startWatcher.failed(message)
+        starting = nil
+        Toaster.shared.error(
+            FeedbackStates.Errors.title(verb: "upload", thing: "the attachment"),
+            description: message,
+            action: retryAction()
+        )
+    }
+
+    private func retryAction() -> ToastAction {
+        ToastAction(label: FeedbackStates.Starting.timeoutAction) { [weak self] in
+            Task { @MainActor in self?.submit() }
         }
     }
 

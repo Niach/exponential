@@ -62,7 +62,7 @@ use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
 use crate::surface;
 use crate::controls::glass_input;
 
-use super::{error_notice, section};
+use super::section;
 
 /// EXP-694: the pane AUTOSAVES like the Device settings dialog — no Save
 /// button. A typed CLI path settles for this long before it is written; a
@@ -316,6 +316,19 @@ impl AgentsPane {
     /// `synced` and writes nothing.
     fn save(&mut self, cx: &mut gpui::Context<Self>) {
         self.save_error = self.commit(cx);
+        // FEED-79: a failed write is the error toast; Retry re-commits.
+        if let Some(error) = &self.save_error {
+            let pane = cx.entity().downgrade();
+            crate::action_error::failed_action_with_retry(
+                "save",
+                "the agent settings",
+                Some(error.to_string()),
+                move |_, cx| {
+                    let _ = pane.update(cx, |this, cx| this.save(cx));
+                },
+                cx,
+            );
+        }
         cx.notify();
     }
 
@@ -353,6 +366,9 @@ impl AgentsPane {
     fn flush_pending_path(&mut self, cx: &mut App) {
         if self.path_save.take().is_some() {
             self.save_error = self.commit(cx);
+            if let Some(error) = &self.save_error {
+                crate::action_error::failed_action("save", "the agent settings", Some(error.to_string()), cx);
+            }
         }
     }
 
@@ -465,12 +481,8 @@ impl Render for AgentsPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let agents_card = self.render_agents_section(window, cx);
 
-        // EXP-694: no Save button — every control autosaves, so the only
-        // thing left below the card is a write that failed.
-        let mut body = v_flex().w_full().gap_6().child(agents_card);
-        if let Some(error) = &self.save_error {
-            body = body.child(error_notice(error.clone(), cx));
-        }
-        div().w_full().child(body)
+        // EXP-694: no Save button — every control autosaves; a write that
+        // failed is a toast (FEED-79).
+        div().w_full().child(v_flex().w_full().gap_6().child(agents_card))
     }
 }

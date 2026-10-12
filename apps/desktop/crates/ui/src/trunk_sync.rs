@@ -967,11 +967,15 @@ impl TrunkSync {
                 self.syncing = false;
                 self.clone_progress = None;
                 self.job_failed = true;
+                // FEED-79: the failed clone is the error toast; the rail
+                // badge keeps the sticky state.
+                crate::action_error::failed_action("clone", "the repository", Some(detail.clone()), cx);
                 self.op_error = Some(detail.into());
             }
             SyncMsg::Failed(detail) => {
                 log::warn!("[ui] trunk sync: op failed: {detail}");
                 self.job_failed = true;
+                crate::action_error::failed_action("sync", "the repository", Some(detail.clone()), cx);
                 self.op_error = Some(detail.into());
             }
             SyncMsg::AutoSyncDone(Ok(_outcome)) => {

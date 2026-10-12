@@ -10,7 +10,7 @@ import {
   Button,
   Pill,
   Checkbox,
-  Skeleton,
+  SkeletonRows,
   UserAvatar,
   useIsMobile,
   conceptIcon,
@@ -117,27 +117,13 @@ const noopSetSelectedIds: React.Dispatch<React.SetStateAction<Set<string>>> =
 // the row memo on every parent render.
 const NO_LABELS: Label[] = []
 
+/** EXP-1259 D8: the first-load placeholder in the issue row's geometry
+ *  (48px phone rows, 40px from md up, the status glyph's dot leading). */
 function IssueListSkeleton() {
+  const isMobile = useIsMobile()
   return (
-    <div
-      data-testid="issue-list-skeleton"
-      className="max-md:flex max-md:flex-col max-md:gap-[3px] max-md:px-4 max-md:pt-1"
-    >
-      <div className="flex items-center gap-2 max-md:px-2 max-md:py-2 md:pl-3 md:pr-6 md:py-2 md:border-b md:border-border/50 md:bg-accent/20">
-        <Skeleton className="h-3.5 w-3.5 rounded-full" />
-        <Skeleton className="h-3.5 w-24" />
-      </div>
-      {Array.from({ length: 5 }, (_, i) => (
-        <div
-          key={i}
-          className="flex items-center gap-3 h-12 md:h-10 px-3 md:px-6 md:border-b md:border-border/30 max-md:rounded-md max-md:border max-md:border-glass-stroke max-md:bg-glass-row"
-        >
-          <Skeleton className="h-4 w-4 rounded-full" />
-          <Skeleton className="h-3 w-14" />
-          <Skeleton className="h-4 w-4 rounded-full" />
-          <Skeleton className="h-3.5 flex-1 max-w-72" />
-        </div>
-      ))}
+    <div data-testid="issue-list-skeleton" className="max-md:px-4 max-md:pt-1">
+      <SkeletonRows rowHeight={isMobile ? 48 : 40} className="md:[&>[data-part=row]]:px-6" />
     </div>
   )
 }
@@ -854,7 +840,7 @@ export function IssueList({
                 closed Content with the `hidden` ATTRIBUTE, and a `display`
                 utility would out-specify the preflight `[hidden]` rule and
                 leave collapsed groups showing their rows. */}
-            <CollapsiblePrimitive.Content className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down max-md:space-y-[3px]">
+            <CollapsiblePrimitive.Content className="overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=closed]:duration-fast data-[state=closed]:ease-accelerate data-[state=open]:animate-collapsible-down data-[state=open]:duration-standard data-[state=open]:ease-decelerate motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none max-md:space-y-[3px]">
               {renderedIssues.map((issue, index) => {
                 const rowCanMutate = canMutateIssue
                   ? canMutateIssue(issue)

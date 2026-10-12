@@ -12,7 +12,17 @@ const mockState = vi.hoisted(() => ({
   listQuery: vi.fn(),
   listBranchesQuery: vi.fn(),
   reposQuery: vi.fn(),
+  toastError: vi.fn(),
 }))
+
+// FEED-79: a failed list is a toast, not a rose sentence under the field.
+vi.mock(`sonner`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>()
+  return {
+    ...actual,
+    toast: Object.assign(() => {}, actual.toast, { error: mockState.toastError }),
+  }
+})
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
@@ -73,6 +83,7 @@ describe(`BoardRepoField (FEED-32)`, () => {
       .mockReset()
       .mockResolvedValue({ branches: [`main`] })
     mockState.reposQuery.mockReset()
+    mockState.toastError.mockReset()
   })
 
   it(`re-lists once when the value is missing from the first list and shows the name`, async () => {
@@ -103,17 +114,23 @@ describe(`BoardRepoField (FEED-32)`, () => {
     )
   })
 
-  it(`a failed list shows the error and keeps a labelled trigger`, async () => {
+  it(`a failed list toasts once and keeps a labelled trigger`, async () => {
     mockState.listQuery.mockRejectedValue(new Error(`boom`))
     renderField(`repo-1`)
 
-    await screen.findByText(/Couldn.t load the team.s repositories: boom/)
-    expect(trigger().textContent).not.toBe(``)
+    await waitFor(() => expect(mockState.toastError).toHaveBeenCalled())
+    const [title, options] = mockState.toastError.mock.calls[0]
+    expect(title).toBe(`Couldn't load the team's repositories`)
+    expect(options.description).toBe(`boom`)
+    expect(options.action?.label).toBe(`Retry`)
+    expect(screen.queryByText(/boom/)).toBeNull()
     // The one-shot re-list is still in flight for a beat ("Loading
     // repository…"); what matters is that the trigger settles on a label.
     await waitFor(() =>
       expect(trigger().textContent).toContain(`Repository unavailable`)
     )
+    // The one-shot re-list failed too: still ONE toast for the streak.
+    expect(mockState.toastError).toHaveBeenCalledTimes(1)
   })
 
   it(`reads "No repository" with nothing selected`, async () => {

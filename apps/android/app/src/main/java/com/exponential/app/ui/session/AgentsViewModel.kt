@@ -38,6 +38,7 @@ import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -156,11 +157,14 @@ class AgentsViewModel @Inject constructor(
     private val _deviceBusy = MutableStateFlow<Set<String>>(emptySet())
     val deviceBusy: StateFlow<Set<String>> = _deviceBusy
 
-    // EXP-924: the last icon write's failure, captioning the settings sheet's
-    // identity row (where the rename's own error lands); cleared by the next
-    // attempt.
-    private val _deviceIconError = MutableStateFlow<String?>(null)
-    val deviceIconError: StateFlow<String?> = _deviceIconError
+    // FEED-79: a failed device write (rename, icon, remove, update) or login
+    // command (sign out, remove) is ONE error toast. The Devices page and the
+    // settings sheet may both watch this instance, so a host claims it first.
+    private val _failure = MutableStateFlow<FailedAction?>(null)
+    val failure: StateFlow<FailedAction?> = _failure
+
+    /** True for the ONE caller that takes [failure] (it then toasts it). */
+    fun claimFailure(failure: FailedAction): Boolean = _failure.compareAndSet(failure, null)
 
     // ── EXP-829/EXP-909: the logins under each machine row ─────────────────
     // EXP-909 folded the cross-device "Accounts" section away: a login belongs
@@ -272,6 +276,7 @@ class AgentsViewModel @Inject constructor(
                 agentProfileRemoveCommand(device.deviceId, agent, profileId),
                 device.online,
             ) { state ->
+                if (state is DeviceCommandUiState.Failed) _failure.value = FailedAction("remove", "the login", state.message)
                 _accountCommandStates.value = _accountCommandStates.value + (key to state)
             }
         }
@@ -296,6 +301,7 @@ class AgentsViewModel @Inject constructor(
                 agentProfileSignOutCommand(device.deviceId, agent, profileId),
                 device.online,
             ) { state ->
+                if (state is DeviceCommandUiState.Failed) _failure.value = FailedAction("sign out", "the login", state.message)
                 _accountCommandStates.value = _accountCommandStates.value + (key to state)
             }
         }
@@ -426,18 +432,18 @@ class AgentsViewModel @Inject constructor(
     }
 
     /** Rename a machine (its registry label wins over the relay's). */
-    fun renameDevice(deviceId: String, label: String) =
-        mutateDevice(deviceId) { accountId -> devicesApi.rename(accountId, deviceId, label.trim()) }
+    fun renameDevice(deviceId: String, label: String): Unit =
+        mutateDevice(deviceId, "rename", "the device", retry = { renameDevice(deviceId, label) }) { accountId ->
+            devicesApi.rename(accountId, deviceId, label.trim())
+        }
 
     /**
      * EXP-924: the machine's display glyph, from the device icon set; null
      * resets it to the kind default. The pick is drawn OPTIMISTICALLY by the
      * caller (the write lands back through the devices shape), so a failure
-     * hands [onFailure] back the revert and captions the identity row with
-     * [deviceIconError] — the surface the rename's own failure uses.
+     * hands [onFailure] back the revert and raises the error toast (FEED-79).
      */
     fun setDeviceIcon(deviceId: String, icon: String?, onFailure: () -> Unit = {}) {
-        _deviceIconError.value = null
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _deviceBusy.value = _deviceBusy.value + deviceId
@@ -445,8 +451,7 @@ class AgentsViewModel @Inject constructor(
                 .onFailure { t ->
                     if (t is CancellationException) throw t
                     onFailure()
-                    _deviceIconError.value =
-                        trpcErrorMessage(t, "The device icon could not be changed")
+                    _failure.value = FailedAction("save", "the icon", trpcErrorMessage(t, ""))
                 }
             _deviceBusy.value = _deviceBusy.value - deviceId
         }
@@ -457,20 +462,32 @@ class AgentsViewModel @Inject constructor(
      * itself on its next heartbeat — the confirm dialog says so.
      */
     fun removeDevice(deviceId: String) =
-        mutateDevice(deviceId) { accountId -> devicesApi.remove(accountId, deviceId) }
+        mutateDevice(deviceId, "remove", "the device") { accountId -> devicesApi.remove(accountId, deviceId) }
 
     /** Ask a server daemon to self-update; it restarts when idle. */
-    fun requestDeviceUpdate(deviceId: String) =
-        mutateDevice(deviceId) { accountId -> devicesApi.requestUpdate(accountId, deviceId) }
+    fun requestDeviceUpdate(deviceId: String): Unit =
+        mutateDevice(deviceId, "update", "the device", retry = { requestDeviceUpdate(deviceId) }) { accountId ->
+            devicesApi.requestUpdate(accountId, deviceId)
+        }
 
     // Every row mutation follows the same shape: mark the row busy, run, and
     // let sync land the change (the mutations return txids the web awaits;
     // here the shape delta arrives within the long-poll).
-    private fun mutateDevice(deviceId: String, block: suspend (String) -> Unit) {
+    private fun mutateDevice(
+        deviceId: String,
+        verb: String,
+        thing: String,
+        retry: (() -> Unit)? = null,
+        block: suspend (String) -> Unit,
+    ) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _deviceBusy.value = _deviceBusy.value + deviceId
             runCatching { block(accountId) }
+                .onFailure { t ->
+                    if (t is CancellationException) throw t
+                    _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry)
+                }
             _deviceBusy.value = _deviceBusy.value - deviceId
         }
     }

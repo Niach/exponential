@@ -55,14 +55,16 @@ describe(`components`, () => {
     const round2 = [`Resizable`]
     // Round 3 (docs/round-3-contract.md): the app's list / menu / chip vocabulary.
     const round3 = [`Row`, `Section`, `Chip`, `Segmented`, `Menu`]
+    // EXP-1259 (the UI batch): the search list.
+    const batch = [`SearchList`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
-    for (const name of [...expected, ...round1, ...round2, ...round3]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch]) expect(coreCatalog.components[name], name).toBeDefined()
     for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
     for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + 1) // + the Unknown placeholder
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length - hidden.length)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {
@@ -148,7 +150,7 @@ describe(`components`, () => {
 
 describe(`tokens and icons`, () => {
   test(`the token groups the issue names, every name unique`, () => {
-    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`, `border`, `motion`, `breakpoint`, `ease`, `density`, `blur`])
+    expect(Object.keys(TOKEN_GROUPS)).toEqual([`color`, `spacing`, `radius`, `type.size`, `type.lineHeight`, `type.weight`, `type.family`, `control`, `shadow`, `opacity`, `border`, `motion`, `breakpoint`, `ease`, `density`, `blur`, `scale`])
     expect(TOKEN_GROUPS.breakpoint).toEqual([`sm`, `md`, `lg`, `xl`])
     for (const n of [6, 7, 8]) expect(TOKEN_GROUPS.color).toContain(`chart${n}`)
     for (const [group, names] of Object.entries(TOKEN_GROUPS)) {

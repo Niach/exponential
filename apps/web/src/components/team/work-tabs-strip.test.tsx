@@ -8,6 +8,8 @@ import type { Issue } from "@/db/schema"
 // takes it, a live one included — the "permanent" live tab is gone.
 
 const updateWorkTabs = vi.hoisted(() => vi.fn())
+const openNewRunPage = vi.hoisted(() => vi.fn())
+const pathname = vi.hoisted(() => ({ value: `/t/acme/inbox` }))
 const tabs = vi.hoisted(() => ({
   value: [] as unknown[],
 }))
@@ -15,7 +17,7 @@ const issues = vi.hoisted(() => ({ value: [] as unknown[] }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => vi.fn(),
-  useRouterState: () => `/t/acme/inbox`,
+  useRouterState: () => pathname.value,
 }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -29,6 +31,7 @@ vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@/hooks/use-work-tabs`, () => ({
   useWorkTabs: () => ({ tabs: tabs.value }),
   updateWorkTabs,
+  openNewRunPage,
 }))
 vi.mock(`@/lib/session-row-caption`, () => ({
   LIVE_DOT_TONE_BY_SESSION_TONE: { muted: `muted` },
@@ -69,6 +72,7 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
   beforeEach(() => {
     updateWorkTabs.mockClear()
     issues.value = [issue]
+    pathname.value = `/t/acme/inbox`
   })
 
   it(`closes the tab on a middle click, and swallows the browser's own`, () => {
@@ -107,5 +111,74 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
     expect(screen.getAllByLabelText(`Close tab`).length).toBeGreaterThan(0)
     auxClick(tab, 1)
     expect(updateWorkTabs).toHaveBeenCalledTimes(1)
+  })
+})
+
+// EXP-1255: the × shows on hover only (every tab, the active one too; a
+// keyboard focus shows it), a "+" after the last tab opens the New run tab,
+// and the New run chip is the Agent page's tab.
+describe(`WorkTabsStrip New run (EXP-1255)`, () => {
+  const issueTab = { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false }
+
+  beforeEach(() => {
+    updateWorkTabs.mockClear()
+    openNewRunPage.mockClear()
+    issues.value = [issue]
+    pathname.value = `/t/acme/inbox`
+  })
+
+  it(`hides every × until the tab is hovered or the × is focused`, () => {
+    tabs.value = [issueTab]
+    pathname.value = `/t/acme/boards/web/issues/EXP-1`
+    renderStrip()
+    const tab = screen.getByTestId(`work-tab-issue:i1`)
+    expect(tab.getAttribute(`data-active`)).toBe(`true`)
+    const close = tab.querySelector(`[aria-label="Close tab"]`)!
+    expect(close.className).toContain(`opacity-0`)
+    expect(close.className).toContain(`group-hover/tab:opacity-100`)
+    expect(close.className).toContain(`focus-visible:opacity-100`)
+  })
+
+  it(`puts the "+" after the last tab and the "+N", and it opens a New run tab`, () => {
+    tabs.value = [issueTab]
+    renderStrip()
+    const plus = screen.getByTestId(`work-tabs-new-run`)
+    expect(plus.getAttribute(`aria-label`)).toBe(`New run`)
+    const tab = screen.getByTestId(`work-tab-issue:i1`)
+    expect(tab.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(plus.nextElementSibling).toBeNull()
+    fireEvent.click(plus)
+    expect(openNewRunPage).toHaveBeenCalledWith(`t1`, `acme`, expect.anything())
+  })
+
+  it(`draws the New run chip, active on the Agent page`, () => {
+    tabs.value = [issueTab, { kind: `new`, runId: null, from: null, live: false }]
+    pathname.value = `/t/acme/agent`
+    renderStrip()
+    const chip = screen.getByTestId(`work-tab-new`)
+    expect(chip.textContent).toContain(`New run`)
+    expect(chip.getAttribute(`data-active`)).toBe(`true`)
+    expect(screen.getByTestId(`work-tab-issue:i1`).getAttribute(`data-active`)).toBeNull()
+  })
+})
+
+// EXP-1259 D8: a tab whose subject has not synced yet keeps its chip but
+// draws a short placeholder bar in the label slot, never "Loading…".
+describe(`WorkTabsStrip unloaded subject (D8)`, () => {
+  beforeEach(() => {
+    issues.value = []
+    pathname.value = `/t/acme/inbox`
+  })
+
+  it(`keeps the tab and draws the placeholder bar instead of text`, () => {
+    tabs.value = [
+      { kind: `issue`, issueId: `i9`, face: `issue`, runId: null, from: null, live: false },
+    ]
+    renderStrip()
+    const tab = screen.getByTestId(`work-tab-issue:i9`)
+    expect(
+      tab.querySelector(`[data-testid=work-tab-title-placeholder]`)
+    ).not.toBeNull()
+    expect(screen.queryByText(`Loading…`)).toBeNull()
   })
 })

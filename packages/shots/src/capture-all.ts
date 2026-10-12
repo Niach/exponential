@@ -122,6 +122,7 @@ const FLEET_VIEWS = new Set([
   `add-server`,
   `onboarding-devices`,
   `chat`,
+  `agent-home`,
   `chat-issues`,
   `chat-action`,
   `chat-from-issue`,

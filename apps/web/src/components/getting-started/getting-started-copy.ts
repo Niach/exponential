@@ -1,79 +1,34 @@
-import type { EntryKey } from "@/components/getting-started/getting-started-model"
+import spec from "@exp/domain-contract/fixtures/getting-started.json"
+import type { GettingStartedStepKey } from "@/components/getting-started/getting-started-model"
 
-// EXP-698 r5 — the getting-started checklist runs on all four clients now, so
-// its copy is ONE table per platform and `getting-started-copy.test.ts` reads
-// the native ones off disk to prove they still say the same thing:
-//
-//   desktop  crates/ui/src/getting_started.rs      (all nine entries)
-//   iOS      UI/GettingStarted/GettingStartedCopy.swift   (the seven mobile ones)
-//   Android  ui/gettingstarted/GettingStartedCopy.kt      (the seven mobile ones)
-//
-// The two web-only entries (widget, mcp) are managed from a
-// browser, so the phones never list them. Keep every string free of quotes,
-// backslashes and non-ASCII punctuation: the drift test matches them as
-// literals inside Swift/Kotlin/Rust source.
-//
-// `action` is the label of the entry's ONE call to action; the MCP entry has
-// no button at all (it renders the per-client setup tabs instead) and carries
-// an empty string.
-export const GETTING_STARTED_COPY: Record<
-  EntryKey,
-  { title: string; description: string; action: string }
-> = {
+// EXP-1270 (EXP-1259 D6): Getting started's words are the fixture's
+// (`packages/domain-contract/fixtures/getting-started.json`), the ONE source
+// all four clients port: the block's title, its `{done} of {total}`, the Docs
+// button, and ONE title per card. Nothing else: no descriptions, no
+// per-card buttons, no locked hints. `getting-started-copy.test.ts` pins this
+// table to the fixture.
+
+export const GETTING_STARTED_TITLE = spec.title
+export const GETTING_STARTED_DOCS = spec.docs
+
+/** The card titles, by step. */
+export const GETTING_STARTED_STEP_TITLES = Object.fromEntries(
+  spec.steps.map((step) => [step.key, step.title])
+) as Record<GettingStartedStepKey, string>
+
+/** The device-setup block's two cards (`device-setup.tsx`, EXP-1169: the
+ *  wizard's devices step, Add device, the readiness fix). They read their
+ *  words from here since the old checklist owned them; they are the device
+ *  block's copy now, not Getting started's. */
+export const DEVICE_CARD_COPY = {
   desktop: {
     title: `Get the desktop app`,
     description: `Runs agents on your machine and registers it as one of your devices.`,
     action: `Download the desktop app`,
-  },
-  github: {
-    title: `Connect a GitHub repo`,
-    description: `Boards attach repositories; pull requests and runs flow back into issues.`,
-    action: `Connect GitHub`,
-  },
-  invite: {
-    title: `Invite your team`,
-    description: `Teammates share boards, reviews, and the inbox.`,
-    action: `Invite in team settings`,
-  },
-  board: {
-    title: `Create a board`,
-    description: `Boards hold your issues; connect a repository to code on one.`,
-    action: `Create a board`,
-  },
-  coding: {
-    title: `Start coding with an agent`,
-    description: `Start coding on an issue hands it to your agent, which plans, implements, and opens the PR.`,
-    action: `Open Devices`,
-  },
-  action: {
-    title: `Create an action`,
-    description: `Reusable agent runs for your team, written by your agent from a description.`,
-    action: `New action`,
   },
   server: {
     title: `Set up a server`,
     description: `Run the headless daemon on an always-on machine to take remote Start coding requests.`,
     action: `Copy install command`,
   },
-  widget: {
-    title: `Set up the feedback widget`,
-    description: `Visitors report bugs with an annotated screenshot; each lands here as an issue.`,
-    action: `Set up in team settings`,
-  },
-  mcp: {
-    title: `Connect your tools via MCP`,
-    description: `Work with issues, boards, and comments from Claude, Cursor, or any MCP client.`,
-    action: ``,
-  },
-}
-
-/** The entries the phones render — the other two are managed on the web. */
-export const MOBILE_GETTING_STARTED_KEYS: readonly EntryKey[] = [
-  `desktop`,
-  `github`,
-  `invite`,
-  `board`,
-  `coding`,
-  `action`,
-  `server`,
-]
+} as const

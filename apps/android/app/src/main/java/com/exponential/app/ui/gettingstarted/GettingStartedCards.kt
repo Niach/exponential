@@ -1,185 +1,283 @@
 package com.exponential.app.ui.gettingstarted
 
+import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GlassSheetDefaults
+import com.exponential.app.ui.components.InviteLinkCard
 import com.exponential.app.ui.components.PillSize
-import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.glassCard
 
 /**
- * "What to do next", under an empty board or an empty team (EXP-698 r5) — the
- * mobile twin of web's `GettingStartedCards` and the IDE's inline cards, with
- * the same entries, order, copy and progress count.
- *
- * An empty screen is where a checklist belongs: the two places it mounts are
- * exactly the two where the app has nothing else to show, and it disappears on
- * its own once every entry is done.
+ * EXP-1270 (EXP-1259 D6): THE Getting started block ×4 — a header (title,
+ * "N of M", the meter, the Docs button) over ONE horizontal strip of square
+ * cards in the fixture's order. The next step is highlighted, done steps keep
+ * their green check and stay tappable (do it again), nothing is locked and
+ * nothing carries a description. Pure UI: [onTarget] runs a card's target
+ * ([GettingStartedSection] binds them).
  */
 @Composable
-fun GettingStartedCards(
-    state: GettingStartedState,
-    onAction: (GettingStartedEntryKey) -> Unit,
+fun GettingStartedBlock(
+    model: GettingStartedModel,
+    onTarget: (GettingStartedTarget) -> Unit,
+    onDocs: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The strip's side inset, so the first card lines up with the page gutter. */
+    contentPadding: PaddingValues = PaddingValues(0.dp),
 ) {
-    if (state.entries.isEmpty() || state.complete) return
     Column(
-        modifier = modifier.fillMaxWidth().testTag("getting-started"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier.fillMaxWidth().testTag(GettingStartedCopy.BLOCK_TEST_ID),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        SectionHeader(
-            GettingStartedCopy.SECTION_TITLE,
-            trailing = {
-                Text(
-                    "${state.done}/${state.total} done",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            },
-        )
-        state.entries.forEachIndexed { index, entry ->
-            EntryCard(
-                entry = entry,
-                stepNumber = index + 1,
-                loading = state.loading,
-                onAction = { onAction(entry.key) },
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(contentPadding),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                GettingStartedCopy.TITLE,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
             )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                model.progress,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            Spacer(Modifier.width(10.dp))
+            ProgressMeter(
+                fraction = if (model.total == 0) 0f else model.done.toFloat() / model.total,
+                modifier = Modifier.weight(1f, fill = false).width(GettingStartedCopy.METER.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            GlassPill(
+                GettingStartedCopy.DOCS_LABEL,
+                icon = ExpIcons.uiDocs,
+                size = PillSize.Sm,
+                onClick = onDocs,
+                modifier = Modifier.testTag(GettingStartedCopy.DOCS_TEST_ID),
+            )
+        }
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = contentPadding,
+            horizontalArrangement = Arrangement.spacedBy(GettingStartedCopy.CARD_GAP.dp),
+        ) {
+            items(model.entries, key = { it.key.wire }) { entry ->
+                StepCard(
+                    entry = entry,
+                    number = model.entries.indexOf(entry) + 1,
+                    onClick = { onTarget(entry.target) },
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun EntryCard(
-    entry: GettingStartedEntry,
-    stepNumber: Int,
-    /** Signals still resolving: the entry reads as NEUTRAL (web parity) — no
-     *  action offered on a state that may be about to flip to done. */
-    loading: Boolean,
-    onAction: () -> Unit,
-) {
-    val locked = entry.state == GettingStartedEntryState.Locked
+private fun ProgressMeter(fraction: Float, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .height(4.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(GlassTokens.RowFillActive),
+    ) {
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)),
+        )
+    }
+}
+
+/** One 104×112 card: the step glyph top-left, check or number top-right, the title bottom-left. */
+@Composable
+private fun StepCard(entry: GettingStartedEntry, number: Int, onClick: () -> Unit) {
+    val step = GettingStarted.step(entry.key)
+    val shape = RoundedCornerShape(DesignTokens.Radius.Lg)
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Column(
         modifier = Modifier
-            .fillMaxWidth()
-            // A locked step is still worth reading — it says what to do first
-            // — so it dims rather than disappears (web parity).
-            .alpha(if (locked) 0.6f else 1f)
-            .glassCard()
-            .padding(12.dp),
+            .size(GettingStartedCopy.CARD_WIDTH.dp, GettingStartedCopy.CARD_HEIGHT.dp)
+            .clip(shape)
+            .background(if (entry.next) GlassTokens.RowFillActive else GlassTokens.CardFill, shape)
+            .border(
+                GlassTokens.Hairline,
+                if (entry.next) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f) else GlassTokens.StrokeCard,
+                shape,
+            )
+            .clickable(onClick = onClick)
+            .padding(GettingStartedCopy.CARD_PADDING.dp)
+            .testTag(GettingStartedCopy.cardTestId(entry.key)),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            StateGlyph(state = entry.state, stepNumber = stepNumber)
-            Spacer(Modifier.width(10.dp))
+        Row(verticalAlignment = Alignment.Top) {
             Icon(
-                entryIcon(entry.key),
+                stepIcon(entry.key),
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                modifier = Modifier.size(GettingStartedCopy.CARD_ICON.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(
+                    alpha = if (entry.done) TextEmphasis.Tertiary else TextEmphasis.Secondary,
+                ),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                GettingStartedCopy.title(entry.key),
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            if (locked && entry.lockedBy != null) {
-                GettingStartedCopy.lockedHint(entry.key, entry.lockedBy)
+            Spacer(Modifier.weight(1f))
+            if (entry.done) {
+                Icon(
+                    ExpIcons.uiCheck,
+                    contentDescription = "Done",
+                    modifier = Modifier.size(14.dp),
+                    tint = DesignTokens.Semantic.Green,
+                )
             } else {
-                GettingStartedCopy.description(entry.key)
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            // Descriptions and locked hints alike are ONE SENTENCE by
-            // contract and wrap on web — cut to a single line they ended
-            // mid-word behind an ellipsis. Two lines fits every string in the
-            // copy table at this width; the overflow is a guard, not a design.
+                Text(number.toString(), fontSize = 11.sp, color = muted)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text(
+            step.title,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            lineHeight = 17.sp,
+            color = if (entry.done) muted else MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        // A locked step has nothing to tap yet, and a done one nothing left to
-        // do — the pill is for the step you can actually take.
-        if (entry.state == GettingStartedEntryState.Available && !loading) {
-            Spacer(Modifier.height(10.dp))
-            GlassPill(
-                GettingStartedCopy.action(entry.key),
-                size = PillSize.Sm,
-                onClick = onAction,
-            )
-        }
     }
 }
 
-/** Done / locked / the step's number — the checklist's own left column. */
+/** The step's concept glyph (`steps[].icon`). */
+internal fun stepIcon(key: GettingStartedStepKey): ImageVector = when (key) {
+    GettingStartedStepKey.Board -> ExpIcons.uiFolder
+    GettingStartedStepKey.Github -> ExpIcons.uiGithub
+    GettingStartedStepKey.Device -> ExpIcons.uiDevice
+    GettingStartedStepKey.Run -> ExpIcons.actionRun
+    GettingStartedStepKey.Invite -> ExpIcons.uiInvite
+    GettingStartedStepKey.Server -> ExpIcons.uiServer
+    GettingStartedStepKey.Mcp -> ExpIcons.uiMcp
+    GettingStartedStepKey.Widget -> ExpIcons.uiWidget
+}
+
+/**
+ * The block WITH its targets bound, for every host (an empty board, the
+ * Agent home with no board, the Settings entry's sheet): create-board = the
+ * create-board sheet, github = the web connect page, add-device / add-server
+ * = the ONE device-setup sheet, invite = the invite link, agent = [onOpenAgent]
+ * (the Agent page with its composer focused). Renders nothing while loading
+ * or once complete.
+ */
 @Composable
-private fun StateGlyph(state: GettingStartedEntryState, stepNumber: Int) {
-    when (state) {
-        GettingStartedEntryState.Done -> Icon(
-            ExpIcons.uiSelected,
-            contentDescription = null,
-            modifier = Modifier.size(GlyphSize),
-            tint = DesignTokens.Semantic.Green,
+fun GettingStartedSection(
+    onOpenAgent: () -> Unit,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    viewModel: GettingStartedViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val teamId by viewModel.selectedTeamId.collectAsStateWithLifecycle()
+    val origin by viewModel.instanceOrigin.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var sheet by remember { mutableStateOf<GettingStartedTarget?>(null) }
+    val model = state.model
+    if (state.visible && model != null) {
+        GettingStartedBlock(
+            model = model,
+            onTarget = { target ->
+                when (target) {
+                    GettingStartedTarget.Agent -> onOpenAgent()
+                    // Phones open the web page for the GitHub step (the
+                    // contract's phone target).
+                    GettingStartedTarget.Github -> origin?.let {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, "$it/integrations/github?return=app".toUri()))
+                    }
+                    else -> sheet = target
+                }
+            },
+            onDocs = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, GettingStartedCopy.DOCS_URL.toUri()))
+            },
+            modifier = modifier,
+            contentPadding = contentPadding,
         )
-        GettingStartedEntryState.Locked -> Icon(
-            ExpIcons.uiPrivate,
-            contentDescription = null,
-            modifier = Modifier.size(GlyphSize),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+    }
+    when (sheet) {
+        GettingStartedTarget.CreateBoard -> CreateBoardSheet(
+            teamId = teamId,
+            onCreated = { sheet = null },
+            onDismiss = { sheet = null },
         )
-        GettingStartedEntryState.Available -> Box(
-            modifier = Modifier
-                .size(GlyphSize)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                stepNumber.toString(),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
+        GettingStartedTarget.AddDevice, GettingStartedTarget.AddServer ->
+            AddDeviceSheet(onDismiss = { sheet = null })
+        GettingStartedTarget.Invite -> teamId?.let { id ->
+            GlassSheet(title = GettingStarted.step(GettingStartedStepKey.Invite).title, onDismiss = { sheet = null }) {
+                InviteLinkCard(
+                    teamId = id,
+                    modifier = Modifier.padding(horizontal = GlassSheetDefaults.HorizontalPadding),
+                )
+            }
         }
+        else -> Unit
     }
 }
 
-private val GlyphSize = 22.dp
-
-private fun entryIcon(key: GettingStartedEntryKey): ImageVector = when (key) {
-    GettingStartedEntryKey.Desktop -> ExpIcons.uiDevice
-    GettingStartedEntryKey.Github -> ExpIcons.uiGithub
-    GettingStartedEntryKey.Invite -> ExpIcons.uiInvite
-    GettingStartedEntryKey.Board -> ExpIcons.navBoards
-    GettingStartedEntryKey.Coding -> ExpIcons.navTerminal
-    GettingStartedEntryKey.Action -> ExpIcons.actionCreate
-    GettingStartedEntryKey.Server -> ExpIcons.uiServer
+/**
+ * The phones' Getting started ENTRY's sheet (the Settings row): the same
+ * block in a bottom sheet.
+ */
+@Composable
+fun GettingStartedSheet(onOpenAgent: () -> Unit, onDismiss: () -> Unit) {
+    GlassSheet(title = null, onDismiss = onDismiss, modifier = Modifier.testTag("getting-started-sheet")) {
+        GettingStartedSection(
+            onOpenAgent = {
+                onDismiss()
+                onOpenAgent()
+            },
+            contentPadding = PaddingValues(horizontal = GlassSheetDefaults.HorizontalPadding),
+        )
+        Spacer(Modifier.height(8.dp))
+    }
 }

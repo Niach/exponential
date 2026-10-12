@@ -69,6 +69,19 @@ public struct IssueRefCandidate: Identifiable, Sendable, Equatable {
     }
 }
 
+/// SLOP-28 (EXP-1259 D4): an open `#` typeahead on a phone — THE search
+/// list in a bottom sheet, its input prefilled with `query` (the token typed
+/// after the `#`). It remembers WHERE the token sits, because the editor gives
+/// up first responder to the sheet's input while it is open.
+public struct IssueRefSearchRequest: Identifiable, Equatable, Sendable {
+    public let id = UUID()
+    /// The token typed after the `#`, when the sheet opened.
+    public let query: String
+    let blockId: UUID
+    let hashOffset: Int
+    let queryLength: Int
+}
+
 /// Single source of truth for the block-based markdown editor. The editor view
 /// renders `blocks` and routes every edit through this model; markdown is
 /// *derived* (`currentMarkdown()`) only at save points, never round-tripped on
@@ -178,6 +191,22 @@ public final class IssueEditorModel {
     /// recent). nil disables the #-autocomplete.
     public var issueRefSearch: ((String) -> [IssueRefCandidate])?
 
+    /// SLOP-28 (EXP-1259 D4): the `#` typeahead opens THE search list as a
+    /// bottom sheet (`issueRefSearchRequest`) instead of the inline candidate
+    /// bar. The app's editors turn it on; the inline bar is what a host
+    /// without a sheet (and the editor tests) keep.
+    public var issueRefOpensSheet = false
+
+    /// The open `#` sheet, nil = none. Set by a TYPED `#` token (never by a
+    /// caret move), cleared by `completeIssueRefSearch` /
+    /// `dismissIssueRefSearch`.
+    public private(set) var issueRefSearchRequest: IssueRefSearchRequest?
+
+    /// SLOP-28: the sheet's server half — the merged local + full-text list
+    /// for a query at the default limit (`IssueRefAugmentor`). nil = local
+    /// only (`issueRefSearch`).
+    public var issueRefRemoteSearch: ((String) async -> [IssueRefCandidate])?
+
     /// EXP-892 — fired whenever the open `#` menu's query CHANGES (including
     /// the empty "recent work" query), so a host that can go async debounces a
     /// server `issues.search` on it and hands the merged list back through
@@ -272,13 +301,19 @@ public final class IssueEditorModel {
     /// If `text` (the focused block's content up to the caret) ends in a #issue-ref
     /// token, return the query (text after `#`) and the `#` character offset.
     public static func issueRefMatch(beforeCaret text: String) -> (query: String, hashOffset: Int)? {
-        let ns = text as NSString
-        guard let m = issueRefAtCaretRegex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else {
-            return nil
-        }
-        let q = m.range(at: 1)
-        return (ns.substring(with: q), q.location - 1)
+        // SLOP-28: the shared trigger (`SearchList.typeaheadPrefill`: `#` at the
+        // start, after whitespace or `(`), held to an identifier-ish token in
+        // the editor, so punctuation typed after a finished `#EXP-42` never
+        // reopens the list.
+        guard let prefill = SearchList.typeaheadPrefill(text: text, caret: (text as NSString).length),
+              prefill.query.unicodeScalars.allSatisfy({ issueRefTokenScalars.contains($0) })
+        else { return nil }
+        return (prefill.query, prefill.start)
     }
+
+    private static let issueRefTokenScalars = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
+    )
 
     /// If `text` (the focused block's content up to the caret) ends in a
     /// `:shortcode` token, return the query (text after the `:`), the opening
@@ -892,6 +927,19 @@ public final class IssueEditorModel {
             clearIssueRef()
             return
         }
+        if issueRefOpensSheet {
+            // SLOP-28: no inline bar — a TYPED token opens the sheet once.
+            clearIssueRef()
+            if armed, issueRefSearchRequest == nil {
+                issueRefSearchRequest = IssueRefSearchRequest(
+                    query: match.query,
+                    blockId: blockId,
+                    hashOffset: match.hashOffset,
+                    queryLength: (match.query as NSString).length
+                )
+            }
+            return
+        }
         activeIssueRef = (blockId, match.hashOffset, match.query.count)
         issueRefCandidates = issueRefSearch(match.query)
         // EXP-892: only a CHANGED query re-arms the host's debounced server
@@ -1038,6 +1086,39 @@ public final class IssueEditorModel {
         bumpRevision(id)
         desiredSelection = (id, active.atOffset + (token as NSString).length)
         clearMention()
+        notifyEdit()
+    }
+
+    /// SLOP-28: the sheet's pick — replace the `#token` it opened on with
+    /// `#IDENT ` (the same plain interchange text `applyIssueRef` writes) and
+    /// hand the caret back right after it.
+    public func completeIssueRefSearch(_ candidate: IssueRefCandidate) {
+        guard let request = issueRefSearchRequest else { return }
+        issueRefSearchRequest = nil
+        activeIssueRef = (request.blockId, request.hashOffset, request.queryLength)
+        applyIssueRef(candidate)
+        setFocused(request.blockId)
+    }
+
+    /// SLOP-28: the sheet closed without a pick. The editor keeps its text as
+    /// typed and its caret; `deletingHash` (Backspace in the sheet's EMPTY
+    /// input) also deletes the `#` it opened on.
+    public func dismissIssueRefSearch(deletingHash: Bool = false) {
+        guard let request = issueRefSearchRequest else { return }
+        issueRefSearchRequest = nil
+        defer { setFocused(request.blockId) }
+        guard deletingHash,
+              let location = locate(request.blockId),
+              let content = content(at: location),
+              request.hashOffset < content.length,
+              (content.string as NSString).substring(with: NSRange(location: request.hashOffset, length: 1)) == "#"
+        else { return }
+        let mutable = NSMutableAttributedString(attributedString: content)
+        mutable.deleteCharacters(in: NSRange(location: request.hashOffset, length: 1))
+        write(mutable, id: request.blockId, at: location)
+        bumpRevision(request.blockId)
+        desiredSelection = (request.blockId, request.hashOffset)
+        selection = (request.blockId, NSRange(location: request.hashOffset, length: 0))
         notifyEdit()
     }
 

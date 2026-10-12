@@ -1,0 +1,240 @@
+{
+  "$comment": "EXP-1279 (EXP-1259 D13): the code-mode card x4. crates/codemode records every tool call a script makes as `{tool: '<server>.<tool>', subject, ok, ms}` (subject = the call's contract `subjectKey` argument for an Exponential tool, else the first string argument, trimmed to 80 chars), capped at `logCap` entries, and returns the log in the CallToolResult `_meta` under `metaKey` with the total under `metaCountKey` and the script's wall time under `metaElapsedKey` (never in the text content: the model never pays for it). The engine maps a tool call whose name ends in `codemode__exec` to contract toolKind `script` and, when its result arrives, attaches the log to the settled tool item as `script: {count, elapsedMs, calls}` (relay wire + every client's feed). Model = pure `scriptCard(input)` (TS reference packages/domain-contract/src/script-card.ts; mirrors desktop steer::script_card, iOS ExpCore ScriptCard.swift, Android domain/ScriptCard.kt), every mirror replays `cases`. Paint: the tool card shell; header = the `{ }` glyph (concept `tool-script`), `title` (medium) and the muted `meta`, trailing a `Script` disclosure (copy.script) that reveals the script source (the exec input's `script`) in a mono block; then one row per group: the brand mark (Exponential tools) or the coding-tool glyph, the label, the muted subject + `more`, trailing `count` (muted) or `failed` (rose); `overflow` = a final muted row. Groups keep first-call order. While running: the title alone with the run's spinner.",
+  "logCap": 200,
+  "metaKey": "exponential/calls",
+  "metaCountKey": "exponential/callCount",
+  "metaElapsedKey": "exponential/elapsedMs",
+  "toolNameSuffix": "codemode__exec",
+  "copy": {
+    "running": "Running a script",
+    "done": "Ran a script",
+    "script": "Script",
+    "call": "call",
+    "calls": "calls",
+    "failed": "failed",
+    "moreCall": "more call",
+    "moreCalls": "more calls"
+  },
+  "testIds": {
+    "card": "script-card",
+    "group": "script-card-group",
+    "source": "script-card-source"
+  },
+  "cases": [
+    {
+      "name": "a running script is the title alone",
+      "input": {
+        "running": true,
+        "count": 0,
+        "calls": []
+      },
+      "expected": {
+        "title": "Running a script",
+        "meta": null,
+        "groups": [],
+        "overflow": null
+      }
+    },
+    {
+      "name": "calls group by tool in first-call order with subjects, counts and failures",
+      "input": {
+        "running": false,
+        "count": 8,
+        "elapsedMs": 3040,
+        "calls": [
+          {
+            "tool": "exponential.exponential_issues_get",
+            "subject": "EXP-1253",
+            "ok": true,
+            "ms": 40
+          },
+          {
+            "tool": "exponential.exponential_issues_get",
+            "subject": "EXP-1254",
+            "ok": true,
+            "ms": 41
+          },
+          {
+            "tool": "exponential.exponential_issues_update",
+            "subject": "EXT-1",
+            "ok": true,
+            "ms": 60
+          },
+          {
+            "tool": "exponential.exponential_issues_get",
+            "subject": "EXP-1255",
+            "ok": true,
+            "ms": 39
+          },
+          {
+            "tool": "exponential.exponential_issue_relations_add",
+            "subject": "EXT-15",
+            "ok": true,
+            "ms": 70
+          },
+          {
+            "tool": "exponential.exponential_issue_relations_add",
+            "subject": "MKT-1",
+            "ok": false,
+            "ms": 12
+          },
+          {
+            "tool": "computer.screenshot",
+            "subject": null,
+            "ok": true,
+            "ms": 300
+          },
+          {
+            "tool": "exponential.exponential_comments_create",
+            "subject": "MKT-6",
+            "ok": true,
+            "ms": 90
+          }
+        ]
+      },
+      "expected": {
+        "title": "Ran a script",
+        "meta": "8 calls · 3.0 s",
+        "groups": [
+          {
+            "tool": "exponential.exponential_issues_get",
+            "exponential": true,
+            "label": "Read issue",
+            "subject": "EXP-1253",
+            "more": "+2",
+            "count": "×3",
+            "failed": null
+          },
+          {
+            "tool": "exponential.exponential_issues_update",
+            "exponential": true,
+            "label": "Updated issue",
+            "subject": "EXT-1",
+            "more": null,
+            "count": null,
+            "failed": null
+          },
+          {
+            "tool": "exponential.exponential_issue_relations_add",
+            "exponential": true,
+            "label": "Linked issues",
+            "subject": "EXT-15",
+            "more": "+1",
+            "count": null,
+            "failed": "1 failed"
+          },
+          {
+            "tool": "computer.screenshot",
+            "exponential": false,
+            "label": "computer.screenshot",
+            "subject": null,
+            "more": null,
+            "count": null,
+            "failed": null
+          },
+          {
+            "tool": "exponential.exponential_comments_create",
+            "exponential": true,
+            "label": "Commented on issue",
+            "subject": "MKT-6",
+            "more": null,
+            "count": null,
+            "failed": null
+          }
+        ],
+        "overflow": null
+      }
+    },
+    {
+      "name": "one call, no subject, no duration",
+      "input": {
+        "running": false,
+        "count": 1,
+        "calls": [
+          {
+            "tool": "linear.list_issues",
+            "ok": true
+          }
+        ]
+      },
+      "expected": {
+        "title": "Ran a script",
+        "meta": "1 call",
+        "groups": [
+          {
+            "tool": "linear.list_issues",
+            "exponential": false,
+            "label": "linear.list_issues",
+            "subject": null,
+            "more": null,
+            "count": null,
+            "failed": null
+          }
+        ],
+        "overflow": null
+      }
+    },
+    {
+      "name": "a capped log names the calls it cut",
+      "input": {
+        "running": false,
+        "count": 203,
+        "elapsedMs": 75000,
+        "calls": [
+          {
+            "tool": "exponential.exponential_issues_get",
+            "subject": "EXP-1",
+            "ok": true
+          },
+          {
+            "tool": "exponential.exponential_issues_get",
+            "subject": "",
+            "ok": true
+          }
+        ]
+      },
+      "expected": {
+        "title": "Ran a script",
+        "meta": "203 calls · 1m",
+        "groups": [
+          {
+            "tool": "exponential.exponential_issues_get",
+            "exponential": true,
+            "label": "Read issue",
+            "subject": "EXP-1",
+            "more": "+1",
+            "count": "×2",
+            "failed": null
+          }
+        ],
+        "overflow": "201 more calls"
+      }
+    },
+    {
+      "name": "a script with no calls",
+      "input": {
+        "running": false,
+        "calls": [],
+        "elapsedMs": 120
+      },
+      "expected": {
+        "title": "Ran a script",
+        "meta": "0.1 s",
+        "groups": [],
+        "overflow": null
+      }
+    },
+    {
+      "name": "an older codemode without a log",
+      "input": {
+        "running": false
+      },
+      "expected": {
+        "title": "Ran a script",
+        "meta": null,
+        "groups": [],
+        "overflow": null
+      }
+    }
+  ]
+}

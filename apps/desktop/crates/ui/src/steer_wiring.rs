@@ -534,7 +534,7 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
                 None => crate::action_run::resume_run_reporting(
                     session_id,
                     None,
-                    true,
+                    crate::coding_flow::RunLanding::Background,
                     origin,
                     None,
                     None,
@@ -729,7 +729,7 @@ fn remote_action_start(
             origin: relay_origin(cx, &start),
             inputs,
             target: None,
-            activate_app: true,
+            landing: crate::coding_flow::RunLanding::Background,
             reservation: Some(reservation),
             // A relay start is a PERSON's start — the trigger host is the
             // only caller that fires these (EXP-530).
@@ -924,6 +924,7 @@ fn remote_issue_start(
                 if let Err(message) = coding_flow::spawn_into_window(
                     prepared,
                     coding_flow::SessionSubject::Issue(issue_id),
+                    coding_flow::RunLanding::Background,
                     window,
                     cx,
                 ) {
@@ -1124,6 +1125,7 @@ fn remote_batch_start(
                 if let Err(message) = coding_flow::spawn_into_window(
                     prepared,
                     coding_flow::SessionSubject::Batch(batch_id),
+                    coding_flow::RunLanding::Background,
                     window,
                     cx,
                 ) {

@@ -8,7 +8,6 @@ import {
   conceptIcon,
   menuProps,
   BoardGlyph,
-  toast,
 } from "@exp/ui"
 import type { MenuSessionProps } from "@exp/ui"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
@@ -16,6 +15,7 @@ import { compactRelativeTime } from "@/lib/relative-time"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { issueDraftCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { Empty } from "@/components/empty"
 import { openDraftNavigation } from "@/lib/issue-draft-page"
 
@@ -49,13 +49,17 @@ export function DraftsList({
     if (deletingId) return
     setDeletingId(draftId)
     try {
-      const { txId } = await trpc.issueDrafts.delete.mutate({ id: draftId })
+      const { txId } = await trpc.issueDrafts.delete.mutate(
+        { id: draftId },
+        SKIP_ERROR_TOAST
+      )
       // Settle on the synced row, not the tRPC answer: the list is rendered
       // straight off the collection, so clearing early would flash the row
       // back in until Electric caught up.
       await issueDraftCollection.utils.awaitTxId(txId)
-    } catch {
-      toast.error(`Could not discard the draft`)
+    } catch (error) {
+      // A delete: no Retry.
+      failedAction(`discard`, `the draft`, error)
     } finally {
       setDeletingId(null)
     }

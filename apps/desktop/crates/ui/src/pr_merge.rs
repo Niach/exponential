@@ -526,6 +526,7 @@ pub fn two_click(
         cx.spawn(async move |this, cx| {
             let call_op = Arc::new(op);
             let bg_op = call_op.clone();
+            let retry_op = call_op.clone();
             let result = cx
                 .background_executor()
                 .spawn(async move { bg_op.run(&trpc) })
@@ -562,15 +563,38 @@ pub fn two_click(
             });
             // The hook runs OUTSIDE the state's update: it may open a window
             // (the fix-conflicts composer) or read this state itself.
-            if let (Ok(Some(failure)), Some(on_failure)) = (failed, on_failure) {
+            if let Ok(Some(failure)) = failed {
                 let _ = cx.update(|cx| {
-                    if on_failure(&failure, cx) {
+                    if on_failure.is_some_and(|on_failure| on_failure(&failure, cx)) {
                         MergeState::global(cx).update(cx, |this, cx| {
                             if this.error.as_ref().is_some_and(|f| f.row_key == failure.row_key) {
                                 this.error = None;
                                 cx.notify();
                             }
                         });
+                        return;
+                    }
+                    // FEED-79: a refusal nothing recovered is the error
+                    // toast. A merge/close re-runs safely (a settled PR just
+                    // refuses), but a real conflict never clears by retrying,
+                    // so it offers no Retry.
+                    let verb = match failure.op {
+                        FailedOp::Merge => "merge",
+                        FailedOp::Close => "close",
+                    };
+                    let description = Some(failure.message.to_string());
+                    if failure.conflict {
+                        crate::action_error::failed_action(verb, "the PR", description, cx);
+                    } else {
+                        crate::action_error::failed_action_with_retry(
+                            verb,
+                            "the PR",
+                            description,
+                            move |_, cx| {
+                                fire_confirmed((*retry_op).clone(), cx);
+                            },
+                            cx,
+                        );
                     }
                 });
             }

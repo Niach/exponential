@@ -5,7 +5,8 @@ import type { Issue } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { mergeFailure } from "@/lib/merge-failure"
 import { trpc } from "@/lib/trpc-client"
-import { Prompt, toast } from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { Prompt } from "@exp/ui"
 
 // EXP-1154: CLOSE PR (without merging) moved off the deleted Reviews detail
 // page into the issue's actions menu (`…`, md+ and phone): a destructive item
@@ -60,9 +61,12 @@ export function useClosePr(
     setOpen(false)
     setClosing(true)
     trpc.issues.closePr
-      .mutate({ issueId: issue.id }, { context: { skipErrorToast: true } })
+      .mutate({ issueId: issue.id }, SKIP_ERROR_TOAST)
       .catch((error: unknown) => {
-        toast.error(
+        // A destructive answer: the toast offers no Retry.
+        failedAction(
+          `close`,
+          `the PR`,
           mergeFailure(error, `The pull request could not be closed`).message
         )
         setClosing(false)

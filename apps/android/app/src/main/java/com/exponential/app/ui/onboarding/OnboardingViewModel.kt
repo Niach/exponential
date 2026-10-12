@@ -2,6 +2,10 @@ package com.exponential.app.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.OFFLINE_MESSAGE
+import com.exponential.app.data.api.isOfflineError
+import com.exponential.app.data.api.isPlanLimitError
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.OnboardingApi
@@ -80,6 +84,15 @@ class OnboardingViewModel @Inject constructor(
     private val _teamJoinError = MutableStateFlow<String?>(null)
     val teamJoinError: StateFlow<String?> = _teamJoinError.asStateFlow()
 
+    // FEED-79: the cap and a refused invite link stay under their fields
+    // (above); any other failed create / join is ONE error toast.
+    private val _failure = MutableStateFlow<FailedAction?>(null)
+    val failure: StateFlow<FailedAction?> = _failure.asStateFlow()
+
+    fun clearFailure() {
+        _failure.value = null
+    }
+
     // EXP-1169: a join by a caller who owns no device lands on the devices
     // step instead of exiting; its Continue then runs finish().
     private val _joined = MutableStateFlow(false)
@@ -123,7 +136,7 @@ class OnboardingViewModel @Inject constructor(
                 team?.id
             }.onSuccess { teamId ->
                 if (teamId != null) _teamId.value = teamId else _needsTeamChoice.value = true
-            }.onFailure { _error.value = trpcErrorMessage(it, "Failed to prepare team") }
+            }.onFailure { _error.value = trpcErrorMessage(it, "") }
             _preparing.value = false
         }
     }
@@ -144,7 +157,14 @@ class OnboardingViewModel @Inject constructor(
                 selection.select(team.id)
                 team.id
             }.onSuccess { _teamId.value = it }
-                .onFailure { _teamCreateError.value = trpcErrorMessage(it, "Couldn't create the team") }
+                .onFailure {
+                    val message = trpcErrorMessage(it, "")
+                    if (isPlanLimitError(it)) {
+                        _teamCreateError.value = message
+                    } else {
+                        _failure.value = FailedAction("create", "the team", message)
+                    }
+                }
             _teamSubmitting.value = false
         }
     }
@@ -182,7 +202,13 @@ class OnboardingViewModel @Inject constructor(
                     auth.markOnboardingCompleted(java.time.Instant.now().toString())
                     _done.value = true
                 }
-            }.onFailure { _teamJoinError.value = trpcErrorMessage(it, "Couldn't join the team") }
+            }.onFailure {
+                if (isOfflineError(it)) {
+                    _failure.value = FailedAction("join", "the team", OFFLINE_MESSAGE) { joinTeam(input) }
+                } else {
+                    _teamJoinError.value = trpcErrorMessage(it, "Couldn't join the team")
+                }
+            }
             _teamSubmitting.value = false
         }
     }

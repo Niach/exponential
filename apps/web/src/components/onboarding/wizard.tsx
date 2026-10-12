@@ -15,6 +15,7 @@ import {
   conceptIcon,
   BrandHeading,
   Button,
+  FieldError,
   Pill,
   Input,
   Label,
@@ -23,6 +24,7 @@ import {
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useCreateBoard } from "@/hooks/use-create-board"
 import {
   BoardIdentityRow,
@@ -215,7 +217,6 @@ function CreateTeamStep({
 }) {
   const [name, setName] = useState(``)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   // Plan-cap failures (free-tier owned-team cap) render as a softer nudge.
   const [limitError, setLimitError] = useState<string | null>(null)
 
@@ -223,23 +224,20 @@ function CreateTeamStep({
     e.preventDefault()
     if (!name.trim()) return
     setSaving(true)
-    setError(null)
     setLimitError(null)
     try {
       const { team } = await trpc.teams.create.mutate(
         { name: name.trim() },
-        // The plan-limit case renders inline — the global mutation-error
-        // toast would be redundant noise on top of it.
-        { context: { skipErrorToast: true } }
+        // The plan-limit case renders inline, anything else is this site's
+        // own toast: the global mutation-error toast would double it.
+        SKIP_ERROR_TOAST
       )
       onCreated({ id: team.id, slug: team.slug })
     } catch (err) {
       if (isPlanLimitError(err)) {
         setLimitError(err instanceof Error ? err.message : `Plan limit reached`)
       } else {
-        setError(
-          err instanceof Error ? err.message : `Failed to create team`
-        )
+        failedAction(`create`, `the team`, err)
       }
       setSaving(false)
     }
@@ -263,11 +261,6 @@ function CreateTeamStep({
             />
           </div>
 
-          {error && (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          )}
           {limitError && (
             <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
               <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
@@ -280,8 +273,8 @@ function CreateTeamStep({
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
             </Button>
-            <Button type="submit" disabled={!name.trim() || saving}>
-              {saving ? `Creating…` : `Create team`}
+            <Button type="submit" pending={saving} disabled={!name.trim()}>
+              Create team
             </Button>
           </div>
         </form>
@@ -329,14 +322,11 @@ function JoinStep({ onBack }: { onBack: () => void }) {
               }}
               placeholder="Paste an invite link"
               autoFocus
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? `onb-invite-link-error` : undefined}
             />
+            <FieldError id="onb-invite-link-error">{error}</FieldError>
           </div>
-
-          {error && (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          )}
 
           <div className="flex items-center justify-between">
             <Button type="button" variant="ghost" onClick={onBack}>
@@ -372,8 +362,7 @@ function BoardStep({
   const [showRepo, setShowRepo] = useState(false)
   const [repo, setRepo] = useState<PickerRepo | null>(null)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Plan-cap failures render as a softer nudge than hard errors.
+  // Plan-cap failures render as a softer nudge; anything else is a toast.
   const [limitError, setLimitError] = useState<string | null>(null)
   const connectShortcut = useGithubConnectShortcut(teamId)
 
@@ -382,12 +371,11 @@ function BoardStep({
     setPrefix(derivePrefix(value))
   }
 
-  const canCreate = !!name.trim() && !!prefix.trim() && !saving
+  const canCreate = !!name.trim() && !!prefix.trim()
 
   const handleCreate = async () => {
     if (!name.trim() || !prefix.trim()) return
     setSaving(true)
-    setError(null)
     setLimitError(null)
     const result = await createBoard({
       teamId,
@@ -411,7 +399,7 @@ function BoardStep({
     if (result.error.kind === `planLimit`) {
       setLimitError(result.error.message)
     } else {
-      setError(result.error.message)
+      failedAction(`create`, `the board`, result.error.message)
     }
     setSaving(false)
   }
@@ -473,11 +461,6 @@ function BoardStep({
           )}
         </div>
 
-        {error && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        )}
         {limitError && (
           <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
             <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
@@ -486,8 +469,12 @@ function BoardStep({
         )}
 
         <div className="flex justify-end">
-          <Button onClick={() => void handleCreate()} disabled={!canCreate}>
-            {saving ? `Creating…` : ONBOARDING_COPY.board.create}
+          <Button
+            onClick={() => void handleCreate()}
+            pending={saving}
+            disabled={!canCreate}
+          >
+            {ONBOARDING_COPY.board.create}
           </Button>
         </div>
       </div>

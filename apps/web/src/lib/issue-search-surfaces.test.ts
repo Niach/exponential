@@ -23,6 +23,9 @@ const read = (path: string) => readFileSync(join(REPO, path), `utf8`)
 
 const WEB_SHEET = `apps/web/src/components/issue-search-sheet.tsx`
 const DESKTOP_PALETTE = `apps/desktop/crates/ui/src/search_sheet.rs`
+// EXP-1259 D4: the palette's rows come from THE search list (also the `#`
+// typeahead and the "+" submenus), which owns the engine calls.
+const DESKTOP_SEARCH_LIST = `apps/desktop/crates/ui/src/picker/search_list.rs`
 const IOS_SEARCH = `apps/ios/Exponential/UI/Search/SearchView.swift`
 const ANDROID_SEARCH = `apps/android/app/src/main/java/com/exponential/app/ui/search/SearchScreen.kt`
 
@@ -65,9 +68,13 @@ describe(`the four search surfaces ask for the same number of rows`, () => {
   it(`nobody hard-codes a result limit of its own`, () => {
     // Web + desktop take the shared constant by name.
     expect(read(WEB_SHEET)).toContain(`limit: ISSUE_SEARCH_DEFAULT_LIMIT`)
-    expect(read(DESKTOP_PALETTE)).toContain(
-      `const MAX_RESULTS: usize = domain::issue_search::DEFAULT_LIMIT;`
+    // The IDE's search list ranks locally and asks the server with it.
+    const searchList = read(DESKTOP_SEARCH_LIST)
+    expect(searchList).toContain(
+      `domain::issue_search::rank(&rows, query, domain::issue_search::DEFAULT_LIMIT`
     )
+    expect(searchList).toContain(`domain::issue_search::DEFAULT_LIMIT as u32`)
+    expect(searchList).not.toMatch(/MAX_RESULTS|const [A-Z_]*LIMIT: usize = \d/)
     // The natives take their own engine's copy of it.
     expect(read(IOS_SEARCH.replace(`SearchView`, `SearchViewModel`))).toContain(
       `resultLimit = IssueSearch.defaultLimit`
@@ -116,10 +123,10 @@ describe(`the IDE's search palette searches issues and nothing else`, () => {
   const source = read(DESKTOP_PALETTE)
 
   it(`holds issue hits alone`, () => {
-    expect(source).toContain(`issue_hits: Vec<SearchHit>`)
-    // One section, one kind of row: a file/symbol pass would need its own.
-    expect(source).toContain(`fn sections_count(&self, _cx: &App) -> usize {`)
-    expect(source).not.toMatch(/file_hits|path_hits|symbol_hits/)
+    // One list, one kind of row: a file/symbol pass would need its own.
+    expect(source).toContain(`hits: Vec<IssueHit>,`)
+    expect(source).toContain(`search_list::local_issue_hits(`)
+    expect(source).not.toMatch(/file_hits|path_hits|symbol_hits|Vec<SearchHit>/)
   })
 
   it(`never walks the working tree or shells out to git`, () => {

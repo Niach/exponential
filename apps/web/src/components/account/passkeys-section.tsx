@@ -4,8 +4,10 @@ import { trpc } from "@/lib/trpc-client"
 import { Empty } from "@/components/empty"
 import { promptActions, removePasskeyPrompt } from "@/lib/prompts"
 import { authErrorMessage } from "@/lib/auth/error-messages"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   Button,
+  SkeletonRows,
   Pill,
   GlassSectionHeader,
   ListRow,
@@ -73,28 +75,29 @@ export function PasskeysSection({
   onChanged?: () => void
 }) {
   const [rows, setRows] = useState<PasskeyRow[] | null>(null)
-  const [loadError, setLoadError] = useState(``)
   const [addOpen, setAddOpen] = useState(false)
   const [name, setName] = useState(``)
   const [adding, setAdding] = useState(false)
-  const [addError, setAddError] = useState(``)
   const [removeTarget, setRemoveTarget] = useState<PasskeyRow | null>(null)
   const [removing, setRemoving] = useState(false)
-  const [removeError, setRemoveError] = useState(``)
 
+  // A failed load draws the empty state (+ a toast with Retry).
   const refresh = async () => {
+    const retry = () => void refresh()
     try {
       const { data, error } = await authClient.passkey.listUserPasskeys()
       if (error) {
-        setLoadError(authErrorMessage(error, `Couldn't load your passkeys.`))
-        setRows([])
+        setRows((prev) => prev ?? [])
+        failedAction(`load`, `your passkeys`, error, {
+          description: authErrorMessage(error, ``) || undefined,
+          retry,
+        })
         return
       }
-      setLoadError(``)
       setRows((data ?? []) as PasskeyRow[])
-    } catch {
-      setLoadError(`Couldn't load your passkeys.`)
-      setRows([])
+    } catch (err) {
+      setRows((prev) => prev ?? [])
+      failedAction(`load`, `your passkeys`, err, { retry })
     }
   }
 
@@ -105,36 +108,34 @@ export function PasskeysSection({
 
   const openAdd = () => {
     setName(suggestedPasskeyName())
-    setAddError(``)
     setAddOpen(true)
   }
 
   const closeAdd = () => {
     setAddOpen(false)
-    setAddError(``)
   }
 
   const handleAdd = async () => {
     if (adding) return
     setAdding(true)
-    setAddError(``)
     try {
       const { error } = await authClient.passkey.addPasskey({
         name: name.trim() || suggestedPasskeyName(),
       })
       if (error) {
-        setAddError(
-          (error as { code?: string }).code === NOT_FRESH_CODE
-            ? `Sign in again to add a passkey (your current session is older than a day).`
-            : authErrorMessage(error, `Couldn't add the passkey.`)
-        )
+        failedAction(`add`, `the passkey`, error, {
+          description:
+            (error as { code?: string }).code === NOT_FRESH_CODE
+              ? `Sign in again to add a passkey (your current session is older than a day).`
+              : authErrorMessage(error, ``) || undefined,
+        })
         return
       }
       closeAdd()
       await refresh()
       onChanged?.()
-    } catch {
-      setAddError(`Couldn't add the passkey.`)
+    } catch (err) {
+      failedAction(`add`, `the passkey`, err)
     } finally {
       setAdding(false)
     }
@@ -146,16 +147,13 @@ export function PasskeysSection({
   const handleRemove = async () => {
     if (!removeTarget || removing) return
     setRemoving(true)
-    setRemoveError(``)
     try {
-      await trpc.users.deletePasskey.mutate({ id: removeTarget.id })
+      await trpc.users.deletePasskey.mutate({ id: removeTarget.id }, SKIP_ERROR_TOAST)
       setRows((prev) => (prev ?? []).filter((row) => row.id !== removeTarget.id))
       setRemoveTarget(null)
       onChanged?.()
     } catch (err) {
-      setRemoveError(
-        err instanceof Error ? err.message : `Couldn't remove the passkey.`
-      )
+      failedAction(`remove`, `the passkey`, err)
     } finally {
       setRemoving(false)
     }
@@ -182,9 +180,7 @@ export function PasskeysSection({
           instance to serve it over https.
         </p>
       ) : rows === null ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : loadError ? (
-        <p className="text-sm text-destructive">{loadError}</p>
+        <SkeletonRows rowHeight={60} dot={false} />
       ) : rows.length === 0 ? (
         <Empty id="passkeys" />
       ) : (
@@ -248,12 +244,15 @@ export function PasskeysSection({
                 if (e.key === `Enter`) void handleAdd()
               }}
             />
-            {addError && <p className="text-sm text-destructive">{addError}</p>}
           </DialogBody>
           <DialogFooter>
             <DialogCancel variant="outline" onClick={closeAdd} />
-            <Button onClick={() => void handleAdd()} disabled={adding}>
-              {adding ? `Waiting for your device…` : `Add passkey`}
+            <Button
+              onClick={() => void handleAdd()}
+              pending={adding}
+              pendingLabel="Waiting for your device"
+            >
+              Add passkey
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -262,10 +261,7 @@ export function PasskeysSection({
       <Prompt
         open={removeTarget !== null}
         onOpenChange={(open) => {
-          if (!open) {
-            setRemoveTarget(null)
-            setRemoveError(``)
-          }
+          if (!open) setRemoveTarget(null)
         }}
         busy={removing}
         title={removeCopy.title}
@@ -273,11 +269,7 @@ export function PasskeysSection({
         actions={promptActions(removeCopy, {
           remove: { busy: removing, onSelect: () => handleRemove() },
         })}
-      >
-        {removeError ? (
-          <p className="text-sm text-destructive">{removeError}</p>
-        ) : null}
-      </Prompt>
+      />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
-import { Check, Copy, LoaderCircle } from "lucide-react"
+import { Check, Copy } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { Empty } from "@/components/empty"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import {
@@ -9,6 +10,7 @@ import {
   GlassSectionHeader,
   ListEmpty,
   ListRow,
+  SkeletonRows,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -84,12 +86,13 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState(``)
   const [tree, setTree] = useState<ScopePickerTeam[] | null>(null)
-  const [treeError, setTreeError] = useState(``)
+  // A failed load draws the picker's empty state (+ a toast with Retry).
+  const [treeFailed, setTreeFailed] = useState(false)
+  const [treeAttempt, setTreeAttempt] = useState(0)
   const [selection, setSelection] = useState<ScopeSelection>(
     EMPTY_SCOPE_SELECTION
   )
   const [minting, setMinting] = useState(false)
-  const [mintError, setMintError] = useState(``)
   const [mintedKey, setMintedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRow | null>(null)
@@ -109,21 +112,23 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setTreeError(
-          e instanceof Error && e.message
-            ? e.message
-            : `Couldn't load your teams.`
-        )
+        setTreeFailed(true)
+        failedAction(`load`, `your teams`, e, {
+          retry: () => {
+            setTreeFailed(false)
+            setTreeAttempt((n) => n + 1)
+          },
+        })
       })
     return () => {
       cancelled = true
     }
-  }, [createOpen, tree])
+  }, [createOpen, tree, treeAttempt])
 
   const closeCreate = () => {
     setCreateOpen(false)
     setName(``)
-    setMintError(``)
+    setTreeFailed(false)
     setMintedKey(null)
     setCopied(false)
     setSelection(EMPTY_SCOPE_SELECTION)
@@ -134,16 +139,18 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   const handleMint = async () => {
     if (minting || !canMint) return
     setMinting(true)
-    setMintError(``)
     try {
       // "Everything" sends no scope: the key stays an ordinary full key.
       const scope = selection.allTeams
         ? undefined
         : effectiveScopeSelection(tree ?? [], selection)
-      const created = await trpc.users.mintPersonalApiKey.mutate({
-        ...(name.trim() ? { name: name.trim() } : {}),
-        ...(scope ? { scope } : {}),
-      })
+      const created = await trpc.users.mintPersonalApiKey.mutate(
+        {
+          ...(name.trim() ? { name: name.trim() } : {}),
+          ...(scope ? { scope } : {}),
+        },
+        SKIP_ERROR_TOAST
+      )
       // The mutation returns the display metadata too, so the list updates
       // without a follow-up query.
       setKeys((prev) => [
@@ -160,11 +167,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
       ])
       setMintedKey(created.key)
     } catch (err) {
-      setMintError(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't create the key`
-      )
+      failedAction(`create`, `the key`, err)
     } finally {
       setMinting(false)
     }
@@ -186,11 +189,19 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
     if (!revokeTarget || revoking) return
     setRevoking(true)
     try {
-      await trpc.users.revokePersonalApiKey.mutate({ id: revokeTarget.id })
+      await trpc.users.revokePersonalApiKey.mutate(
+        { id: revokeTarget.id },
+        SKIP_ERROR_TOAST
+      )
       setKeys((prev) => prev.filter((row) => row.id !== revokeTarget.id))
       setRevokeTarget(null)
     } catch (err) {
-      console.error(`[api-keys] revoke failed:`, err)
+      const session = isDeviceKey(revokeTarget)
+      failedAction(
+        session ? `disconnect` : `revoke`,
+        session ? `the device` : `the key`,
+        err
+      )
     } finally {
       setRevoking(false)
     }
@@ -318,12 +329,8 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                 </div>
                 <div className="space-y-2">
                   <Label>Access</Label>
-                  {treeError ? (
-                    <p className="text-sm text-destructive">{treeError}</p>
-                  ) : !tree && !selection.allTeams ? (
-                    <div className="flex justify-center py-4">
-                      <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
+                  {!tree && !treeFailed && !selection.allTeams ? (
+                    <SkeletonRows rowHeight={32} className="rounded-md border" />
                   ) : (
                     <ScopePicker
                       tree={tree ?? []}
@@ -339,17 +346,15 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
                     </p>
                   )}
                 </div>
-                {mintError && (
-                  <p className="text-sm text-destructive">{mintError}</p>
-                )}
               </DialogBody>
               <DialogFooter>
                 <DialogCancel variant="outline" onClick={closeCreate} />
                 <Button
                   onClick={() => void handleMint()}
-                  disabled={minting || !canMint}
+                  pending={minting}
+                  disabled={!canMint}
                 >
-                  {minting ? `Creating…` : `Create key`}
+                  Create key
                 </Button>
               </DialogFooter>
             </>

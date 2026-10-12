@@ -329,8 +329,10 @@ fn open_issue_fn() -> HostFunction {
             Some((issue_id, board_id)) => crate::navigation::on_active_window(cx, move |window, cx| {
                 crate::navigation::open_issue_scoped(window, cx, issue_id, board_id, None)
             }),
-            None => crate::toast::show_in_active_window(
-                Toast::error(format!("{identifier} is not synced here")),
+            None => crate::action_error::failed_action(
+                "open",
+                &identifier,
+                Some("It is not synced here.".into()),
                 cx,
             ),
         }

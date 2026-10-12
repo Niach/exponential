@@ -48,7 +48,6 @@ export * from "./entity-preview-card"
 export * from "./exponential-logo"
 export * from "./fab-chrome"
 export * from "./jump-to-bottom-button"
-export * from "./task-list-progress"
 export * from "./file-diff-card"
 export * from "./file-diff-list"
 export * from "./file-diff-tree"
@@ -137,3 +136,18 @@ export * from "./user-message-bubble"
 export * from "./wave-graph"
 export * from "./work-face-strip"
 export * from "./work-header"
+// EXP-1275: THE feedback states (Spinner, InlineStatus, useDelayedFlag,
+// FeedbackMark, BlockingOverlay + blockWindow); pending Button and
+// SkeletonRows live in ./button and ./skeleton.
+export * from "./feedback"
+// SLOP-28 (EXP-1259 D4): THE search list (`#` typeahead, the composer
+// submenus, the issue pickers, the global search) + its caret popover.
+export * from "./search-list"
+// EXP-1259 D12-D14: the run transcript's cards — THE Work card (workflow,
+// task list, subagent), the code-mode Script card and the comment call card.
+export * from "./work-card"
+export * from "./script-card"
+export * from "./comment-call-card"
+// EXP-1270 (EXP-1259 D6): THE Getting started block's face (header + one
+// strip of square cards); the app derives the entries and runs the targets.
+export * from "./getting-started-strip"

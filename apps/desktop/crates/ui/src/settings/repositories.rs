@@ -55,7 +55,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::repo_resolver::links_snapshot;
 
-use super::{error_notice, open_url, section};
+use super::{open_url, section, settings_skeleton};
 use crate::icons::registry;
 
 // ---------------------------------------------------------------------------
@@ -164,7 +164,9 @@ enum Load {
 #[derive(Clone)]
 enum BranchLoad {
     Loading,
-    Failed(String),
+    /// The fetch failed (a toast said so); the picker reads empty and the
+    /// next open fetches again.
+    Failed,
     Ready(Vec<String>),
 }
 
@@ -192,12 +194,9 @@ pub struct RepositoriesPane {
     /// popover recipe of `crate::pickers`). ONE shared state — only one
     /// popover is ever open, and every open resets it.
     branch_query: Entity<InputState>,
-    /// Failure copy from the `exponential://github-connected?error=…` deep
-    /// link (EXP-368) — the browser connect hand-off ended in an error.
-    connect_error: Option<SharedString>,
-    /// FEED-42: a refused unlink (the server CONFLICTs while a connected repo
-    /// still rides the account) — rendered inline above the list.
-    section_error: Option<SharedString>,
+    /// FEED-79: a failed list load toasts ONCE per failing streak (every
+    /// window activation re-lists, so a down server must not toast on each).
+    load_failed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -241,7 +240,6 @@ impl RepositoriesPane {
                 };
                 match outcome {
                     crate::github_connect::GithubConnectOutcome::Connected => {
-                        this.connect_error = None;
                         if matches!(this.load, Load::Ready(_)) {
                             this.refetch_stale(cx);
                         } else {
@@ -252,9 +250,7 @@ impl RepositoriesPane {
                         }
                     }
                     crate::github_connect::GithubConnectOutcome::Failed(code) => {
-                        this.connect_error =
-                            Some(crate::github_connect::connect_error_message(&code).into());
-                        cx.notify();
+                        this.connect_failed(crate::github_connect::connect_error_message(&code).into(), cx);
                     }
                 }
             }),
@@ -264,7 +260,6 @@ impl RepositoriesPane {
             cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
                 match crate::github_connect::github_link_outcome(cx) {
                     Some(Ok(())) => {
-                        this.connect_error = None;
                         if matches!(this.load, Load::Ready(_)) {
                             this.refetch_stale(cx);
                         } else {
@@ -272,10 +267,7 @@ impl RepositoriesPane {
                             cx.notify();
                         }
                     }
-                    Some(Err(message)) => {
-                        this.connect_error = Some(message);
-                        cx.notify();
-                    }
+                    Some(Err(message)) => this.connect_failed(message.to_string(), cx),
                     None => {}
                 }
             }),
@@ -290,8 +282,7 @@ impl RepositoriesPane {
             busy: false,
             branches: HashMap::new(),
             branch_query,
-            connect_error: None,
-            section_error: None,
+            load_failed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -350,13 +341,6 @@ impl RepositoriesPane {
         if show_loading {
             self.load = Load::Loading;
             self.branches.clear();
-            // A full (re)load is a fresh context (pane opened, team switch) —
-            // retire any connect-failure notice. The non-loading
-            // refetch_stale path deliberately keeps it: the window-activation
-            // refetch races the error deep link and must not wipe the copy
-            // before the user reads it.
-            self.connect_error = None;
-            self.section_error = None;
         }
         self.loaded_team = Some(team_id.to_string());
         self.loaded_links = Some(links_snapshot(team_id, cx));
@@ -373,13 +357,32 @@ impl RepositoriesPane {
                     // scoped to the team's claimed installations.
                     let status = fetch_github_status(&trpc, &team_id).ok();
                     let repos = fetch_repositories(&trpc, &team_id)
-                        .map_err(|err| err.to_string());
+                        .map_err(|err| err.user_message());
                     Loaded { status, repos }
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
+                }
+                // FEED-79: a failed list = the empty state + ONE toast per
+                // failing streak.
+                match &result.repos {
+                    Err(message) if !this.load_failed => {
+                        this.load_failed = true;
+                        let pane = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "load",
+                            "the repositories",
+                            Some(message.clone()),
+                            move |_, cx| {
+                                let _ = pane.update(cx, |this, cx| this.refresh(cx));
+                            },
+                            cx,
+                        );
+                    }
+                    Err(_) => {}
+                    Ok(_) => this.load_failed = false,
                 }
                 this.load = Load::Ready(result);
                 cx.notify();
@@ -405,7 +408,11 @@ impl RepositoriesPane {
     /// cached/in flight (EXP-462). Called when the dropdown opens — the pane
     /// never fans out a GitHub read per row up front.
     fn ensure_branches(&mut self, repository_id: &str, cx: &mut gpui::Context<Self>) {
-        if self.branches.contains_key(repository_id) {
+        // A failed list fetches again on the next open (FEED-79).
+        if matches!(
+            self.branches.get(repository_id),
+            Some(BranchLoad::Loading | BranchLoad::Ready(_))
+        ) {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -425,7 +432,18 @@ impl RepositoriesPane {
                     Ok(out) => BranchLoad::Ready(out.branches),
                     Err(err) => {
                         log::warn!("[ui] repositories.listBranches({repository_id}) failed: {err}");
-                        BranchLoad::Failed(err.to_string())
+                        let pane = cx.entity().downgrade();
+                        let retry_id = repository_id.clone();
+                        crate::action_error::failed_action_with_retry(
+                            "load",
+                            "the branches",
+                            crate::action_error::action_error_description(&err),
+                            move |_, cx| {
+                                let _ = pane.update(cx, |this, cx| this.ensure_branches(&retry_id, cx));
+                            },
+                            cx,
+                        );
+                        BranchLoad::Failed
                     }
                 };
                 this.branches.insert(repository_id, load);
@@ -472,14 +490,15 @@ impl RepositoriesPane {
             });
             if let Err(error) = result {
                 log::warn!("[ui] repositories.setDefaultBranch({repository_id}) failed: {error}");
-                let message = match &error {
-                    // BAD_REQUEST/BAD_GATEWAY messages name the branch/repo —
-                    // user-presentable verbatim.
-                    api::ApiError::Http { message, .. } => SharedString::from(message.clone()),
-                    other => SharedString::from(format!("Could not set the default branch: {other}")),
-                };
+                // BAD_REQUEST/BAD_GATEWAY messages name the branch/repo —
+                // user-presentable verbatim.
+                let note = crate::action_error::failed_toast(
+                    "set",
+                    "the default branch",
+                    crate::action_error::action_error_description(&error),
+                );
                 let _ = handle.update(cx, |_, window, cx| {
-                    crate::toast::error(message, window, cx);
+                    crate::toast::show(note, window, cx);
                 });
             }
         })
@@ -532,14 +551,13 @@ impl RepositoriesPane {
                 });
                 if let Err(error) = result {
                     log::warn!("[ui] repositories.remove({repository_id}) failed: {error}");
-                    let message = match &error {
-                        api::ApiError::Http { message, .. } => SharedString::from(message.clone()),
-                        other => SharedString::from(format!(
-                            "Could not remove {full_name}: {other}"
-                        )),
-                    };
+                    let note = crate::action_error::failed_toast(
+                        "remove",
+                        &full_name,
+                        crate::action_error::action_error_description(&error),
+                    );
                     let _ = handle.update(cx, |_, window, cx| {
-                        crate::toast::error(message, window, cx);
+                        crate::toast::show(note, window, cx);
                     });
                 }
             })
@@ -583,20 +601,15 @@ impl RepositoriesPane {
                 let _ = view.update(cx, |this, cx| {
                     this.busy = false;
                     match &result {
-                        Ok(()) => {
-                            this.section_error = None;
-                            this.refresh(cx);
-                        }
-                        Err(error) => {
-                            this.section_error = Some(match error {
-                                api::ApiError::Http { message, .. } => {
-                                    SharedString::from(message.clone())
-                                }
-                                other => SharedString::from(format!(
-                                    "Could not disconnect GitHub: {other}"
-                                )),
-                            });
-                        }
+                        Ok(()) => this.refresh(cx),
+                        // FEED-79: the server's refusal (a connected repo
+                        // still rides the account) is the toast's sentence.
+                        Err(error) => crate::action_error::failed_action_err(
+                            "disconnect",
+                            "GitHub",
+                            error,
+                            cx,
+                        ),
                     }
                     cx.notify();
                 });
@@ -610,9 +623,24 @@ impl RepositoriesPane {
     /// Connect / Reconnect GitHub: the in-app link hop. The outcome lands as a
     /// [`crate::oauth::SignInLinkOutcome`] the constructor observes.
     fn connect_github(&mut self, cx: &mut gpui::Context<Self>) {
-        self.connect_error = None;
         cx.notify();
         crate::github_connect::connect_github(cx);
+    }
+
+    /// FEED-79 / EXP-368: the connect hand-back ended in an error — the
+    /// error toast; Retry runs the hop again.
+    fn connect_failed(&mut self, message: String, cx: &mut gpui::Context<Self>) {
+        let pane = cx.entity().downgrade();
+        crate::action_error::failed_action_with_retry(
+            "connect",
+            "GitHub",
+            Some(message),
+            move |_, cx| {
+                let _ = pane.update(cx, |this, cx| this.connect_github(cx));
+            },
+            cx,
+        );
+        cx.notify();
     }
 }
 
@@ -656,33 +684,19 @@ impl Render for RepositoriesPane {
                 // FEED-42: the connect status renders NOTHING while loading
                 // (never a false "not connected"); only the list keeps its
                 // placeholder rows.
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_8().w_full())
-                        .child(crate::controls::skeleton().h_8().w_full()),
-                );
+                body = body.child(settings_skeleton("repositories-skeleton", cx));
             }
             Load::Ready(loaded) => {
                 // GitHub connect state: live server truth, BEFORE the list.
                 body = body.child(self.github_status_line(loaded.status.as_ref(), cx));
 
-                // FEED-42: section errors (a refused unlink) inline above the
-                // list, never a toast.
-                if let Some(message) = self.section_error.clone() {
-                    body = body.child(error_notice(message, cx));
-                }
-
-                // EXP-368: the browser connect hand-off deep-linked back
-                // with an error.
-                if let Some(message) = self.connect_error.clone() {
-                    body = body.child(error_notice(message, cx));
-                }
-
                 match &loaded.repos {
-                    Err(message) => {
-                        body = body.child(error_notice(
-                            SharedString::from(message.clone()),
+                    // A failed list reads as the empty one; the failure was
+                    // a toast (FEED-79). Errors never render inline here.
+                    Err(_) => {
+                        body = body.child(crate::controls::empty_state_list(
+                            gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES),
+                            copy::NO_REPOSITORIES,
                             cx,
                         ));
                     }
@@ -1258,40 +1272,19 @@ impl RepositoriesPane {
                             .bg(cx.theme().border.opacity(0.5)),
                     );
                 match load {
+                    // First load: the picker's rows as placeholders (D8).
                     None | Some(BranchLoad::Loading) => {
-                        column = column.child(
-                            h_flex()
-                                .gap_2()
-                                .px_2()
-                                .py_1()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("Loading branches\u{2026}"),
-                        );
+                        column = column.child(crate::feedback::skeleton_rows(
+                            ("repo-branch-skeleton", index),
+                            crate::feedback::SKELETON_ROWS,
+                            crate::controls::MENU_ROW_H,
+                            cx,
+                        ));
                     }
-                    Some(BranchLoad::Failed(message)) => {
-                        column = column.child(
-                            div()
-                                .px_2()
-                                .py_1()
-                                .text_sm()
-                                .text_color(cx.theme().danger)
-                                .child(SharedString::from(format!(
-                                    "Couldn't load branches: {message}"
-                                ))),
-                        );
-                        let pane = pane.clone();
-                        let repo_id = repo_id.clone();
-                        column = column.child(
-                            crate::pickers::picker_row(("repo-branch-retry", index), cx)
-                                .child("Retry")
-                                .on_click(move |_, _, cx| {
-                                    pane.update(cx, |this, cx| {
-                                        this.branches.remove(&repo_id);
-                                        this.ensure_branches(&repo_id, cx);
-                                    });
-                                }),
-                        );
+                    // The failure was a toast (FEED-79): the empty list.
+                    Some(BranchLoad::Failed) => {
+                        column = column
+                            .child(crate::pickers::empty_picker_row("No branches found.", cx));
                     }
                     Some(BranchLoad::Ready(branches)) => {
                         // The effective branch always renders even when GitHub

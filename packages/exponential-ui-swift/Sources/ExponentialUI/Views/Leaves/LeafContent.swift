@@ -247,13 +247,31 @@ struct MarkdownLeaf: View {
 
 /// Button / Toggle content: spinner or icon, then the label, centred (a
 /// CodeBlock `copy` part's `copied` resets through the model's timer).
+///
+/// EXP-1259 (feedback-states.json `pending`): a `loading` Button refuses
+/// presses at once (the core) but LOOKS idle for `pendingDelayMs`; then the
+/// icon slot is the spinner and the label `pendingLabel`, in the box the
+/// measurer sized for the wider face.
 struct ButtonLeaf: View {
     let cx: LeafContext
+    @State private var pendingShown = false
 
     var body: some View {
-        let label = cx.props.str("label")
-        let icon = cx.props.str("icon")
         let loading = cx.props.flag("loading")
+        face(pending: loading && pendingShown)
+            .task(id: loading) {
+                pendingShown = false
+                guard loading else { return }
+                try? await Task.sleep(for: .milliseconds(Int(FeedbackTiming.pendingDelayMs)))
+                if !Task.isCancelled { pendingShown = true }
+            }
+    }
+
+    @ViewBuilder
+    private func face(pending loading: Bool) -> some View {
+        let pendingLabel = cx.props.str("pendingLabel")
+        let label = loading && !pendingLabel.isEmpty ? pendingLabel : cx.props.str("label")
+        let icon = cx.props.str("icon")
         let iconOnly = cx.props.str("size") == "icon"
         let iconSize = cx.part(cx.node.component, "icon").width ?? cx.control("iconSm", 16)
         HStack(spacing: cx.style.gap) {

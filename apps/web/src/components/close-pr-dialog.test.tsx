@@ -21,10 +21,10 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return { ...actual, useLiveQuery: () => ({ data: mocks.linked }) }
 })
-vi.mock(`@exp/ui`, async (importOriginal) => {
-  const actual = (await importOriginal()) as Record<string, unknown>
-  return { ...actual, toast: { error: mocks.toastError, success: vi.fn() } }
-})
+vi.mock(`@/lib/action-error`, () => ({
+  SKIP_ERROR_TOAST: { context: { skipErrorToast: true } },
+  failedAction: mocks.toastError,
+}))
 
 import { closePrBody, useClosePr } from "@/components/close-pr-dialog"
 
@@ -113,6 +113,8 @@ describe(`useClosePr`, () => {
     render(<Harness />)
     await openDialog()
     fireEvent.click(screen.getByText(closePrCopy.confirm))
-    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(`close`, `the PR`, expect.any(String))
+    )
   })
 })

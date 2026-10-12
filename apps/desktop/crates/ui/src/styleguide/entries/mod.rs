@@ -18,6 +18,8 @@ pub(crate) mod picker_label;
 pub(crate) mod picker_mcp;
 pub(crate) mod picker_repository;
 pub(crate) mod scope_picker;
+pub(crate) mod search_list;
+pub(crate) mod menu_submenu;
 pub(crate) mod toast;
 pub(crate) mod jump_to_bottom;
 pub(crate) mod composer_dialog;
@@ -37,9 +39,16 @@ pub(crate) mod mcp_app_views;
 pub(crate) mod run_status_row;
 pub(crate) mod session_thread;
 pub(crate) mod composer_options;
+pub(crate) mod work_card;
+pub(crate) mod script_card;
+pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
 pub(crate) mod your_agent_settings;
 pub(crate) mod voice_call_overlay;
+pub(crate) mod feedback_states;
+pub(crate) mod agent_home;
+pub(crate) mod work_tabs_strip;
+pub(crate) mod getting_started;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. EXP-1268/1269 landed three design drafts on the web page
@@ -79,8 +88,11 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_mcp::ID, owner: picker_mcp::OWNER, render: picker_mcp::render },
     Entry { id: picker_repository::ID, owner: picker_repository::OWNER, render: picker_repository::render },
     Entry { id: scope_picker::ID, owner: scope_picker::OWNER, render: scope_picker::render },
+    Entry { id: search_list::ID, owner: search_list::OWNER, render: search_list::render },
+    Entry { id: menu_submenu::ID, owner: menu_submenu::OWNER, render: menu_submenu::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
+    Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: composer_fix_conflicts::ID, owner: composer_fix_conflicts::OWNER, render: composer_fix_conflicts::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
@@ -98,7 +110,13 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
     Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
     Entry { id: composer_options::ID, owner: composer_options::OWNER, render: composer_options::render },
+    Entry { id: work_card::ID, owner: work_card::OWNER, render: work_card::render },
+    Entry { id: script_card::ID, owner: script_card::OWNER, render: script_card::render },
+    Entry { id: comment_card::ID, owner: comment_card::OWNER, render: comment_card::render },
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
     Entry { id: your_agent_settings::ID, owner: your_agent_settings::OWNER, render: your_agent_settings::render },
     Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },
+    Entry { id: agent_home::ID, owner: agent_home::OWNER, render: agent_home::render },
+    Entry { id: work_tabs_strip::ID, owner: work_tabs_strip::OWNER, render: work_tabs_strip::render },
+    Entry { id: getting_started::ID, owner: getting_started::OWNER, render: getting_started::render },
 ];

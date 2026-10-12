@@ -11,7 +11,7 @@
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, size, App, AppContext as _, IntoElement, ParentElement, Render, ScrollHandle,
+    px, size, App, AppContext as _, IntoElement, ParentElement, Render, ScrollHandle,
     SharedString, Styled, Window,
 };
 use gpui_component::{
@@ -95,6 +95,8 @@ struct TriggerDialogView {
     existing: Option<ActionTrigger>,
     editor: TriggerEditorState,
     submitting: bool,
+    /// The form's own validation message (INVALID INPUT, FEED-79); a failed
+    /// save is a toast.
     error: Option<SharedString>,
     scroll: ScrollHandle,
     /// The window-height cap (85% of the opener's viewport).
@@ -184,8 +186,6 @@ impl TriggerDialogView {
             }
         };
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
             return;
         };
         // The array a save replaces is the action's CURRENT one, read at
@@ -227,9 +227,20 @@ impl TriggerDialogView {
                     trigger_editor::note_triggers_written(&action);
                     native_dialog::close_dialog_window(window, cx)
                 }
+                // FEED-79: a failed save is the error toast; Retry saves the
+                // same form again.
                 Err(err) => {
                     view.submitting = false;
-                    view.error = Some(err.user_message().into());
+                    let dialog = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "save",
+                        "the trigger",
+                        crate::action_error::action_error_description(&err),
+                        move |window, cx| {
+                            let _ = dialog.update(cx, |view, cx| view.submit(window, cx));
+                        },
+                        cx,
+                    );
                     cx.notify();
                 }
             });
@@ -268,7 +279,6 @@ impl Render for TriggerDialogView {
         self.fit_window(window, cx);
         let view_id = cx.entity_id();
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
-        let danger = cx.theme().danger;
         let form = self
             .editor
             .render("trigger-dialog", |this: &mut Self| &mut this.editor, window, cx);
@@ -334,8 +344,9 @@ impl Render for TriggerDialogView {
                     }
                 }),
             )
+            // The form's own validation (INVALID INPUT) stays inline.
             .when_some(self.error.clone(), |this, error| {
-                this.child(div().text_sm().text_color(danger).child(error))
+                this.child(crate::action_error::field_error(error, cx))
             })
             .child(footer.pt_3().border_t_1().border_color(cx.theme().border))
     }

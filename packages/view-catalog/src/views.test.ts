@@ -78,7 +78,6 @@ const PINNED_RECIPES = [
   `openMachineSettings`,
   `expandFirstDevice`,
   `openAddServer`,
-  `openSuggestionsTab`,
   `openWidgetEditor`,
   `expandFirstDiffFile`,
   `openTriggerEditor`,

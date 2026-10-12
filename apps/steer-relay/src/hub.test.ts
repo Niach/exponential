@@ -11,6 +11,7 @@ import {
   CLOSE_PUBLISHER_IDLE,
   CLOSE_SESSION_ENDED,
   CLOSE_SLOW_CONSUMER,
+  SCRIPT_LOG_MAX_CALLS,
   TOOL_DIFF_MAX_WIRE_BYTES,
   TOOL_OUTPUT_MAX_WIRE_BYTES,
   TOOL_PREVIEW_TEXT_MAX,
@@ -2288,6 +2289,54 @@ describe(`activity event kinds`, () => {
       id: `tc-1`,
       preview: {},
     } as never)
+  })
+
+  // EXP-1279: a code-mode call's settle carries its script log; the nested
+  // object must be declared or the re-serialized fan-out would strip it.
+  test(`tool_update carries a script log and bounds it`, () => {
+    const hub = new Hub()
+    const pub = connectPublisher(hub)
+    const member = connectMember(hub)
+    activity(hub, pub, { kind: `tool`, name: `mcp__codemode__exec`, id: `tc-s`, toolKind: `script` })
+    expect(room(hub).activityLog.length).toBe(1)
+    const settled = {
+      kind: `tool_update`,
+      id: `tc-s`,
+      status: `completed`,
+      script: {
+        count: 3,
+        elapsedMs: 3040,
+        calls: [
+          { tool: `exponential.exponential_issues_get`, subject: `EXP-1253`, ok: true, ms: 40 },
+          { tool: `computer.screenshot`, ok: false },
+        ],
+        source: `return 1`,
+      },
+    }
+    activity(hub, pub, settled)
+    expect(member.events().at(-1)).toEqual(settled as never)
+    // The source alone (a host with no log) is legal.
+    activity(hub, pub, { kind: `tool_update`, id: `tc-s`, script: { source: `x` } })
+    expect(room(hub).activityLog.length).toBe(3)
+    // Past a cap drops the WHOLE frame; the engine clamps first.
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-s`,
+      script: {
+        calls: Array.from({ length: SCRIPT_LOG_MAX_CALLS + 1 }, () => ({ tool: `t.x`, ok: true })),
+      },
+    })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-s`,
+      script: { calls: [{ tool: `t.x`, subject: `s`.repeat(TOOL_PREVIEW_TEXT_MAX + 1), ok: true }] },
+    })
+    activity(hub, pub, {
+      kind: `tool_update`,
+      id: `tc-s`,
+      script: { source: `x`.repeat(TOOL_OUTPUT_MAX_WIRE_BYTES + 1) },
+    })
+    expect(room(hub).activityLog.length).toBe(3)
   })
 
   test(`the latest config_state and usage are exempt from the log budget`, () => {

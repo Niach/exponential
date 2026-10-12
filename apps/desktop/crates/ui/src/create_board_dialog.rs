@@ -77,7 +77,7 @@ enum RepoLoad {
     /// The connected-repo list (possibly empty → fall through to the inline
     /// GitHub picker).
     Ready(Vec<RepoOption>),
-    Failed(SharedString),
+    Failed,
 }
 
 /// Server fetch state for the inline GitHub-App repo picker
@@ -85,7 +85,7 @@ enum RepoLoad {
 enum GithubLoad {
     Loading,
     Ready(GithubReposResult),
-    Failed(SharedString),
+    Failed,
 }
 
 /// The chosen backing repository — either an already-connected registry repo
@@ -202,14 +202,12 @@ pub struct CreateBoardDialogView {
     /// Monotonic guard so a slow refetch can't clobber a newer Refresh.
     fetch_generation: u64,
     submitting: bool,
-    error: Option<SharedString>,
-    /// Failure copy from the `exponential://github-connected?error=…` deep
-    /// link (EXP-368) — the browser connect hand-off ended in an error.
-    connect_error: Option<SharedString>,
-    /// The last submit failed with the grant-model FORBIDDEN (stale/missing
-    /// GitHub grant for the picked repo) — pair the error with a "Reconnect
-    /// GitHub" hand-off.
-    grant_reconnect: bool,
+    /// EXP-1259 D8: Create board's pending face.
+    pending: crate::feedback::Pending,
+    /// FEED-79: a refused create that is about a FIELD (a taken name or
+    /// prefix, an invalid prefix) — INVALID INPUT, under the group; every
+    /// other failure is a toast.
+    field_error: Option<SharedString>,
     /// EXP-367: hosted inside the onboarding wizard instead of a native
     /// dialog window — success EMITS [`BoardCreated`] instead of closing a
     /// dialog, and the plan-limit hand-off renders inline.
@@ -286,9 +284,7 @@ impl CreateBoardDialogView {
                     }
                     crate::github_connect::GithubConnectOutcome::Failed(code) => {
                         // Nothing changed server-side — no refetch.
-                        this.connect_error =
-                            Some(crate::github_connect::connect_error_message(&code).into());
-                        cx.notify();
+                        this.connect_failed(crate::github_connect::connect_error_message(&code).into(), cx);
                     }
                 }
             }),
@@ -299,10 +295,7 @@ impl CreateBoardDialogView {
             cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
                 match crate::github_connect::github_link_outcome(cx) {
                     Some(Ok(())) => this.spawn_fetches(true, cx),
-                    Some(Err(message)) => {
-                        this.connect_error = Some(message);
-                        cx.notify();
-                    }
+                    Some(Err(message)) => this.connect_failed(message.to_string(), cx),
                     None => {}
                 }
             }),
@@ -322,9 +315,8 @@ impl CreateBoardDialogView {
             github: GithubLoad::Loading,
             fetch_generation: 0,
             submitting: false,
-            error: None,
-            connect_error: None,
-            grant_reconnect: false,
+            pending: crate::feedback::Pending::default(),
+            field_error: None,
             embedded,
             focused_once: false,
             body_scroll: ScrollHandle::new(),
@@ -348,18 +340,15 @@ impl CreateBoardDialogView {
         let generation = self.fetch_generation;
         self.repos = RepoLoad::Loading;
         self.github = GithubLoad::Loading;
-        // A fresh fetch (manual refresh or a successful reconnect) retires
-        // any earlier connect-failure notice.
-        self.connect_error = None;
         let team_id = self.team_id.clone();
         cx.spawn(async move |this, cx| {
             let (registry, github) = cx
                 .background_executor()
                 .spawn(async move {
                     let registry = fetch_repositories(&trpc, &team_id)
-                        .map_err(|err| err.to_string());
+                        .map_err(|err| err.user_message());
                     let github = fetch_github_repos(&trpc, &team_id, refresh)
-                        .map_err(|err| err.to_string());
+                        .map_err(|err| err.user_message());
                     (registry, github)
                 })
                 .await;
@@ -367,13 +356,27 @@ impl CreateBoardDialogView {
                 if this.fetch_generation != generation {
                     return; // superseded by a newer fetch
                 }
+                // FEED-79: a failed list = the empty picker + ONE toast.
+                let failure = registry.as_ref().err().or(github.as_ref().err()).cloned();
+                if let Some(message) = failure {
+                    let dialog = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "load",
+                        "the repositories",
+                        Some(message),
+                        move |_, cx| {
+                            let _ = dialog.update(cx, |this, cx| this.spawn_fetches(true, cx));
+                        },
+                        cx,
+                    );
+                }
                 this.repos = match registry {
                     Ok(repos) => RepoLoad::Ready(repos),
-                    Err(message) => RepoLoad::Failed(message.into()),
+                    Err(_) => RepoLoad::Failed,
                 };
                 this.github = match github {
                     Ok(result) => GithubLoad::Ready(result),
-                    Err(message) => GithubLoad::Failed(message.into()),
+                    Err(_) => GithubLoad::Failed,
                 };
                 cx.notify();
             });
@@ -388,14 +391,13 @@ impl CreateBoardDialogView {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
+            crate::action_error::failed_action("create", "the board", Some("Not signed in.".into()), cx);
             return;
         };
 
-        self.error = None;
-        self.grant_reconnect = false;
+        self.field_error = None;
         self.submitting = true;
+        self.pending.start(cx);
         cx.notify();
 
         // A repository is optional on every board — send whatever was
@@ -504,23 +506,33 @@ impl CreateBoardDialogView {
                     let _ = this.update_in(window, |this, window, cx| {
                         // Grant-model FORBIDDEN checked first: its copy pairs
                         // with the reconnect hand-off, never the generic box.
+                        this.submitting = false;
+                        this.pending.finish();
                         if is_grant_forbidden(&err) {
-                            this.error = Some(gh_copy::ADD_FORBIDDEN.into());
-                            this.grant_reconnect = true;
-                            this.submitting = false;
+                            // FEED-79: the toast's one action is the
+                            // Reconnect GitHub hop.
+                            let dialog = cx.entity().downgrade();
+                            let toast = crate::action_error::failed_toast(
+                                "create",
+                                "the board",
+                                Some(gh_copy::ADD_FORBIDDEN.into()),
+                            )
+                            .action(gh_copy::RECONNECT_GITHUB, move |_, cx| {
+                                let _ = dialog.update(cx, |this, cx| this.connect_github(cx));
+                            });
+                            crate::toast::show(toast, window, cx);
                             cx.notify();
                             return;
                         }
                         if is_plan_limit(&err) {
                             if this.embedded {
                                 // Wizard host: no dialog to close — the same
-                                // §4.9 neutral hand-off renders inline.
-                                this.error = Some(
-                                    "Board limit reached. Upgrade on the web to create \
-                                     more."
-                                        .into(),
+                                // §4.9 neutral hand-off, in this window.
+                                crate::toast::warning(
+                                    "Board limit reached. Upgrade on the web to create more.",
+                                    window,
+                                    cx,
                                 );
-                                this.submitting = false;
                                 cx.notify();
                                 return;
                             }
@@ -536,8 +548,19 @@ impl CreateBoardDialogView {
                             });
                             return;
                         }
-                        this.error = Some(err.user_message().into());
-                        this.submitting = false;
+                        // A taken name/prefix or an invalid prefix stays
+                        // under the fields; anything else is the toast (a
+                        // create can duplicate, so no Retry).
+                        let message = err.user_message();
+                        match board_create_field_error(&message) {
+                            Some(line) => this.field_error = Some(line.into()),
+                            None => crate::action_error::failed_action(
+                                "create",
+                                "the board",
+                                crate::action_error::description_of(&message),
+                                cx,
+                            ),
+                        }
                         cx.notify();
                     });
                 }
@@ -835,7 +858,7 @@ impl CreateBoardDialogView {
             let _ = this.update(cx, |this, cx| {
                 let load = match result {
                     Ok(out) => crate::board_form::BranchLoad::Ready(out.branches),
-                    Err(err) => crate::board_form::BranchLoad::Failed(err.to_string().into()),
+                    Err(err) => crate::board_form::branches_failed(&err, cx),
                 };
                 this.branches = Some((repository_id, load));
                 cx.notify();
@@ -951,13 +974,6 @@ impl CreateBoardDialogView {
             }
         }
 
-        // EXP-368: the browser hand-off deep-linked back with an error —
-        // same dashed-danger notice shape as the suspension one below.
-        // Cleared by any refetch (deep-link success or manual refresh).
-        if let Some(message) = self.connect_error.clone() {
-            column = column.child(notice_row(cx.theme().danger, message, cx));
-        }
-
         // A suspended installation lists no repos and mints no tokens, and a
         // reconnect CANNOT fix it — only unsuspending on GitHub can (REV2-29).
         if let Some(result) = github_result.filter(|_| ready) {
@@ -994,18 +1010,15 @@ impl CreateBoardDialogView {
             }
         }
 
-        // A genuine fetch failure still has to say so — it is the difference
-        // between "nothing to connect" and "we couldn't ask".
-        let failure: Option<SharedString> = match (&self.repos, &self.github) {
-            (RepoLoad::Failed(message), _) => Some(message.clone()),
-            (_, GithubLoad::Failed(message)) => Some(message.clone()),
-            (_, GithubLoad::Ready(result)) if !result.configured => {
-                Some(gh_copy::PICKER_NOT_CONFIGURED.into())
-            }
-            _ => None,
-        };
-        if let Some(message) = failure {
-            column = column.child(notice_row(cx.theme().muted_foreground, message, cx));
+        // A genuine fetch failure was a toast (FEED-79); an unconfigured
+        // instance still says so here — the difference between "nothing to
+        // connect" and "nothing can connect".
+        if matches!(&self.github, GithubLoad::Ready(result) if !result.configured) {
+            column = column.child(notice_row(
+                cx.theme().muted_foreground,
+                gh_copy::PICKER_NOT_CONFIGURED.into(),
+                cx,
+            ));
         }
 
         // Always offer the re-detect ("I've done that" while a prerequisite
@@ -1046,11 +1059,40 @@ impl CreateBoardDialogView {
     /// Connect / Reconnect GitHub: the in-app link hop; the outcome lands as a
     /// [`crate::oauth::SignInLinkOutcome`] the constructor observes.
     fn connect_github(&mut self, cx: &mut gpui::Context<Self>) {
-        self.connect_error = None;
-        self.grant_reconnect = false;
         cx.notify();
         crate::github_connect::connect_github(cx);
     }
+
+    /// FEED-79 / EXP-368: the connect hand-back ended in an error — the
+    /// error toast; Retry runs the hop again.
+    fn connect_failed(&mut self, message: String, cx: &mut gpui::Context<Self>) {
+        let dialog = cx.entity().downgrade();
+        crate::action_error::failed_action_with_retry(
+            "connect",
+            "GitHub",
+            Some(message),
+            move |_, cx| {
+                let _ = dialog.update(cx, |this, cx| this.connect_github(cx));
+            },
+            cx,
+        );
+        cx.notify();
+    }
+}
+
+/// The prefix rule the server enforces (`boards.create`'s zod regex); its
+/// validation error arrives as a JSON issue list, so the field says it in
+/// these words (web `PREFIX_RULE`).
+const PREFIX_RULE: &str = "Prefix must be 1-4 letters or digits, starting with a letter";
+
+/// FEED-79 (web `boardCreateFieldError`): the line a refused create shows
+/// under the fields — a taken name or prefix, an invalid prefix — else
+/// `None` (a failed action, a toast).
+fn board_create_field_error(message: &str) -> Option<String> {
+    if message.contains("this name") || message.contains("this prefix") {
+        return Some(message.to_string());
+    }
+    message.contains(PREFIX_RULE).then(|| PREFIX_RULE.to_string())
 }
 
 /// The dashed inline notice shape the connect flow uses for every hand-off.
@@ -1094,43 +1136,21 @@ impl Render for CreateBoardDialogView {
             ]))
             .child(self.repository_field(cx));
 
-        if let Some(error) = &self.error {
-            let mut error_block = v_flex().gap_2().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
-            );
-            // FORBIDDEN with the server's "reconnect GitHub" hint: pair the
-            // message with the Reconnect GitHub hop.
-            if self.grant_reconnect {
-                error_block = error_block.child(
-                    h_flex().child(
-                        Button::new("board-grant-reconnect-gh")
-                            .outline()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(registry::UI_GITHUB)
-                            .label(gh_copy::RECONNECT_GITHUB)
-                            .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx))),
-                    ),
-                );
-            }
-            form = form.child(error_block);
+        if let Some(message) = self.field_error.clone() {
+            form = form.child(crate::action_error::field_error(message, cx).px_1());
         }
 
         let footer = h_flex().flex_shrink_0().justify_end().child(
-            Button::new("create-board-submit")
-                .primary().cursor_pointer()
-                .web_sm()
-                .label(if self.submitting {
-                    "Creating..."
-                } else {
-                    "Create board"
-                })
-                .disabled(disabled)
-                .loading(self.submitting)
-                .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+            self.pending.apply(
+                Button::new("create-board-submit")
+                    .primary().cursor_pointer()
+                    .web_sm()
+                    .label("Create board")
+                    .disabled(disabled && !self.submitting)
+                    .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                "Create board",
+                cx,
+            ),
         );
 
         // Embedded (onboarding wizard): the host column owns the scrolling and
@@ -1229,6 +1249,25 @@ pub(crate) fn is_grant_forbidden(err: &api::ApiError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// FEED-79 (web `boardCreateFieldError`): a taken name or prefix and an
+    /// invalid prefix stay under the fields; anything else is a toast.
+    #[test]
+    fn a_refused_create_names_its_field_or_toasts() {
+        assert_eq!(
+            board_create_field_error("A board with this name already exists").as_deref(),
+            Some("A board with this name already exists")
+        );
+        assert_eq!(
+            board_create_field_error("A board with this prefix already exists").as_deref(),
+            Some("A board with this prefix already exists")
+        );
+        assert_eq!(
+            board_create_field_error(&format!("[{{\"message\":\"{PREFIX_RULE}\"}}]")).as_deref(),
+            Some(PREFIX_RULE)
+        );
+        assert_eq!(board_create_field_error("Internal server error"), None);
+    }
 
     #[test]
     fn grant_forbidden_detected_and_plan_limit_needs_prefix() {

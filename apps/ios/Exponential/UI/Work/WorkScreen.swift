@@ -128,8 +128,12 @@ struct WorkScreen: View {
     @State private var titleEdges = TitleCollapseTracker()
     /// `initialFace` opens an issue subject on that face (a deep link's
     /// Guide); unavailable faces fall back as usual.
-    init(subject: WorkSubject, initialFace: WorkFaceKind = .issue) {
+    /// EXP-1241: the comment the Issue face opens scrolled to (and flashes).
+    private let focusCommentId: String?
+
+    init(subject: WorkSubject, initialFace: WorkFaceKind = .issue, focusCommentId: String? = nil) {
         self.subject = subject
+        self.focusCommentId = focusCommentId
         changesRequested = initialFace == .guide
         switch subject {
         case .issue:
@@ -533,7 +537,7 @@ struct WorkScreen: View {
                 .workHeaderBand(onBottom: { bottom in
                     titleEdges.headerBottom = bottom
                     titleEdgesChanged()
-                }) { faceTabs }
+                }, ground: face == .run) { faceTabs }
                 .onPreferenceChange(IssueTitleRowBottomKey.self) { bottom in
                     titleEdges.titleBottom = bottom
                     titleEdgesChanged()
@@ -641,7 +645,11 @@ struct WorkScreen: View {
             if let shownSession {
                 sessionView(shownSession)
             } else {
-                ProgressView().tint(.white)
+                // EXP-1275 (D8): a first load is skeleton rows.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         case .guide:
             guideFace
@@ -657,12 +665,17 @@ struct WorkScreen: View {
                 barTrailing: issueBarTrailing,
                 onStartCoding: startCodingTapped,
                 onOpenChanges: { selectFace(.guide) },
-                mergeCircle: mergeCircle(on: .issue)
+                mergeCircle: mergeCircle(on: .issue),
+                focusCommentId: focusCommentId
             )
         } else if let vm = issueVM, vm.loadTimedOut {
             unavailableState(vm: vm)
         } else {
-            ProgressView().tint(.white)
+            // EXP-1275 (D8): a first load is skeleton rows.
+            SkeletonRows()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -1517,7 +1530,10 @@ struct WorkScreen: View {
             do {
                 try await deps.issuesApi.closePr(accountId: accountId, issueId: issueId)
             } catch {
-                toaster.error(MergeFailure(error: error).message)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "close", thing: "the pull request"),
+                    description: MergeFailure(error: error).message
+                )
             }
             closingPr = false
         }

@@ -1603,7 +1603,9 @@
       "children": "many",
       "slots": [],
       "events": [
-        "change"
+        "change",
+        "close",
+        "new"
       ],
       "basic": [
         "Tabs"
@@ -1633,6 +1635,24 @@
           "responsive": false,
           "default": false,
           "description": "Stretches the headers across the width."
+        },
+        {
+          "name": "closable",
+          "type": "none | hover | always",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "none",
+          "description": "Close glyphs firing `close`; `hover` = on hover."
+        },
+        {
+          "name": "addable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A + button firing `new`."
         }
       ],
       "accessibility": {
@@ -1642,7 +1662,8 @@
           "Roving tab stop on the tabs",
           "ArrowLeft/ArrowRight: previous/next tab, activating it (wraps)",
           "Home/End: first/last tab",
-          "Tab: into the active panel"
+          "Tab: into the active panel",
+          "Each close glyph (labelled `closeTab`, revealed by keyboard focus too) is a button after its tab; the + button (labelled `newTab`) follows the last tab"
         ]
       },
       "example": {
@@ -2444,6 +2465,7 @@
           "Home/End: first/last item",
           "Enter, Space: run the item (a checkbox item toggles and stays open)",
           "ArrowRight on a submenu: open it; ArrowLeft or Escape inside: close it",
+          "A searchable submenu opens with its filter input focused: typing filters, ArrowDown/ArrowUp move the active row, Enter picks it, ArrowLeft with the caret at the start or Escape closes it",
           "Escape: close and return focus to the trigger",
           "Typing a letter: the next item starting with it"
         ]
@@ -2555,9 +2577,10 @@
       "example": {
         "id": "example",
         "component": "Toast",
-        "title": "Saved",
-        "description": "Your changes are live.",
-        "type": "success"
+        "title": "Couldn't save the board",
+        "description": "The server did not answer.",
+        "type": "error",
+        "actionLabel": "Retry"
       },
       "macro": null
     },
@@ -3059,12 +3082,12 @@
       "props": [
         {
           "name": "size",
-          "type": "sm | default | lg",
+          "type": "xs | sm | default | lg",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": "default",
-          "description": "Diameter class."
+          "description": "Diameter class; `xs` = inline in a header."
         },
         {
           "name": "label",
@@ -3093,7 +3116,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-skeleton",
-      "description": "A shimmering placeholder block while content loads.",
+      "description": "A pulsing placeholder: a block, or `rows` rows.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -3123,6 +3146,31 @@
           "responsive": false,
           "default": false,
           "description": "A circle instead of a bar."
+        },
+        {
+          "name": "rows",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Rows instead of a block."
+        },
+        {
+          "name": "rowHeight",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A row's height in px."
+        },
+        {
+          "name": "dot",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": true,
+          "description": "A dot per row."
         }
       ],
       "accessibility": {
@@ -3570,7 +3618,15 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Shows a spinner and refuses presses."
+          "description": "Pending: refuses presses, then shows a spinner."
+        },
+        {
+          "name": "pendingLabel",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Label while loading."
         },
         {
           "name": "submit",
@@ -3584,7 +3640,7 @@
       ],
       "accessibility": {
         "role": "button",
-        "notes": "button",
+        "notes": "button (aria-busy while loading)",
         "keys": [
           "Enter, Space: press",
           "A `submit` button submits the enclosing Form"
@@ -4687,6 +4743,113 @@
           }
         ],
         "value": "sprint"
+      },
+      "macro": null
+    },
+    {
+      "name": "SearchList",
+      "kind": "native",
+      "group": "input",
+      "lite": true,
+      "specimenId": "exponential-ui-search-list",
+      "description": "A search field over rows: typing filters, arrows move, Enter picks.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "search",
+        "select"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "items",
+          "type": "[searchItem]",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The rows; refill on `search`."
+        },
+        {
+          "name": "query",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The input text."
+        },
+        {
+          "name": "placeholder",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.search",
+          "description": "The placeholder."
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The picked value (a check)."
+        },
+        {
+          "name": "emptyText",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "$string.noResults",
+          "description": "Shown on no match."
+        },
+        {
+          "name": "maxRows",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 8,
+          "description": "Rows before it scrolls."
+        },
+        {
+          "name": "showCount",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": true,
+          "description": "A count while typing."
+        }
+      ],
+      "accessibility": {
+        "role": "combobox",
+        "notes": "combobox (the input) controlling a listbox of options; the highlighted row = aria-activedescendant, the count a polite status",
+        "keys": [
+          "Focus stays in the input",
+          "ArrowDown/ArrowUp: move the highlighted row (no wrap, no animation)",
+          "Enter or Tab: pick the highlighted row (fires `select`)",
+          "Typing: filters; the top row is highlighted again"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "SearchList",
+        "placeholder": "Search issues",
+        "items": [
+          {
+            "label": "Ship the search list",
+            "value": "exp-12",
+            "identifier": "EXP-12",
+            "icon": "status-in-progress"
+          },
+          {
+            "label": "Close tabs on hover",
+            "value": "exp-15",
+            "identifier": "EXP-15",
+            "icon": "status-done"
+          }
+        ]
       },
       "macro": null
     },

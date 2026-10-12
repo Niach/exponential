@@ -1,10 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import {
-  actionCollection,
-  codingSessionCollection,
-  deviceCollection,
-} from "@/lib/collections"
+import { codingSessionCollection, deviceCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -17,8 +13,7 @@ import {
   type TeamPermissions,
 } from "@/hooks/use-team-permissions"
 import {
-  deriveEntryStates,
-  isGettingStartedComplete,
+  deriveGettingStarted,
   type GettingStartedEntry,
   type GettingStartedSignals,
 } from "@/components/getting-started/getting-started-model"
@@ -32,17 +27,18 @@ export interface GettingStartedProgress {
   entries: GettingStartedEntry[]
   done: number
   total: number
+  /** `{done} of {total}` (getting-started.json). */
+  progress: string
   /**
-   * EXP-548: every visible entry is done (never true while loading). The
-   * sidebar entry and the empty-board block hide on this — there is no
-   * dismissal any more.
+   * EXP-548: every visible step is done (never true while loading). The
+   * sidebar entry and the block hide on this — there is no dismissal.
    */
   complete: boolean
 }
 
 // One instance per team layout (`GettingStartedProgressProvider` in
-// `t/$teamSlug/route.tsx`): the sidebar entry, its sheet and the empty-board
-// block all read the same answer, so the one-shots fire once per team, not
+// `t/$teamSlug/route.tsx`): the sidebar entry's dialog, the empty-board
+// block and the Agent home's block all read the same answer, so the one-shots fire once per team, not
 // once per consumer.
 const GettingStartedProgressContext =
   createContext<GettingStartedProgress | null>(null)
@@ -60,8 +56,9 @@ export function useGettingStartedProgressContext(): GettingStartedProgress {
   return value
 }
 
-// Signal gathering for the getting-started checklist (EXP-141). Live signals
-// come from Electric (boards, coding sessions, actions); the rest are one-shot
+// Signal gathering for Getting started (EXP-141, EXP-1270: the eight steps of
+// getting-started.json). Live signals come from Electric (boards, coding
+// sessions, devices); the rest are one-shot
 // tRPC queries fired on mount (httpBatchLink — imperative .query(), the
 // repositories-section convention). Deliberately NEVER calls
 // repositories.list here: that procedure heals default branches against
@@ -99,19 +96,6 @@ export function useGettingStartedProgress(
         ? query
             .from({ sessions: codingSessionCollection })
             .where(({ sessions }) => eq(sessions.teamId, teamId))
-        : undefined,
-    [teamId]
-  )
-
-  // EXP-548: any synced action row in the team (the two builtins are
-  // constructed client-side, never rows — so this is exactly "an action was
-  // authored").
-  const { data: actionRows, isReady: actionsReady } = useLiveQuery(
-    (query) =>
-      teamId
-        ? query
-            .from({ actions: actionCollection })
-            .where(({ actions }) => eq(actions.teamId, teamId))
         : undefined,
     [teamId]
   )
@@ -217,22 +201,20 @@ export function useGettingStartedProgress(
 
   const signals: GettingStartedSignals = useMemo(
     () => ({
-      hasDesktopDevice: deviceKinds?.desktop === true,
-      hasServerDevice: deviceKinds?.server === true,
+      hasBoard: liveBoards.length > 0,
       // A repo-backed board proves a teammate connected GitHub for the team:
-      // the entry is done for everyone, not only for whoever linked it.
+      // the step is done for everyone, not only for whoever linked it.
       githubInstalled:
         githubInstalled === true ||
         liveBoards.some((board) => board.repositoryId != null),
-      hasInvitedTeam: members.length > 1 || invites.length > 0,
-      hasBoard: liveBoards.length > 0,
-      hasRepoBoard: liveBoards.some(
-        (board) => board.repositoryId != null
-      ),
+      // `Add a device` is done by any desktop OR server device
+      // (getting-started.json `doneWhen`).
+      hasDesktopDevice: deviceKinds?.desktop === true,
+      hasServerDevice: deviceKinds?.server === true,
       hasCodingSession: (sessionRows ?? []).length > 0,
-      hasAction: (actionRows ?? []).length > 0,
-      hasWidget: hasWidget === true,
+      hasInvitedTeam: members.length > 1 || invites.length > 0,
       mcpConnected: mcpConnected === true,
+      hasWidget: hasWidget === true,
     }),
     [
       deviceKinds,
@@ -241,7 +223,6 @@ export function useGettingStartedProgress(
       invites,
       liveBoards,
       sessionRows,
-      actionRows,
       hasWidget,
       mcpConnected,
     ]
@@ -252,34 +233,31 @@ export function useGettingStartedProgress(
   const loading =
     !resolved ||
     !sessionsReady ||
-    !actionsReady ||
     githubInstalled === null ||
     deviceKinds === null ||
     (canManageWidgets && hasWidget === null) ||
     mcpConnected === null
 
-  const { entries, done, total } = useMemo(
+  // The web is a pointer client on every viewport: a phone-width browser
+  // lists the same eight steps (only the native phones drop mcp + widget).
+  const state = useMemo(
     () =>
-      deriveEntryStates(signals, {
-        canManageWidgets: permissions.canManageWidgets,
-        isOwner: permissions.isOwner,
-        canManageMembers: permissions.canManageMembers,
-      }),
-    [
-      signals,
-      permissions.canManageWidgets,
-      permissions.isOwner,
-      permissions.canManageMembers,
-    ]
+      deriveGettingStarted(
+        signals,
+        {
+          canManageMembers: permissions.canManageMembers,
+          canManageWidgets: permissions.canManageWidgets,
+        },
+        `pointer`
+      ),
+    [signals, permissions.canManageMembers, permissions.canManageWidgets]
   )
 
   return {
     loading,
     signals,
     permissions,
-    entries,
-    done,
-    total,
-    complete: !loading && isGettingStartedComplete({ done, total }),
+    ...state,
+    complete: !loading && state.complete,
   }
 }

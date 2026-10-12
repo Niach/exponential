@@ -209,11 +209,12 @@ struct IssueListView: View {
                 // EXP-1115: nothing to show until the issues shape has
                 // snapshotted at least once — a full resync (or a fresh
                 // install) would otherwise flash "No issues yet" plus the
-                // getting-started checklist for as long as the snapshot
-                // takes. A bare spinner, like Android's `LoadingState`.
-                ProgressView()
-                    .tint(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // getting-started block for as long as the snapshot takes.
+                // EXP-1275: skeleton rows in the list's own place.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else if groups.isEmpty {
                 // An empty board says so instead of
                 // rendering a blank list — and, since EXP-698 r5, carries the

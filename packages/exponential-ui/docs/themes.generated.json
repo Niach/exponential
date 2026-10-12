@@ -1904,6 +1904,26 @@
           "playful": 24
         }
       }
+    ],
+    "scale": [
+      {
+        "name": "press",
+        "ref": "$scale.press",
+        "values": {
+          "neutral": 1,
+          "exponential": 0.97,
+          "playful": 0.94
+        }
+      },
+      {
+        "name": "popoverFrom",
+        "ref": "$scale.popoverFrom",
+        "values": {
+          "neutral": 0.95,
+          "exponential": 0.96,
+          "playful": 0.9
+        }
+      }
     ]
   },
   "states": [
@@ -2252,10 +2272,14 @@
         "list",
         "tab",
         "indicator",
-        "content"
+        "content",
+        "close",
+        "new"
       ],
       "props": [
-        "fill"
+        "fill",
+        "closable",
+        "addable"
       ]
     },
     {
@@ -2425,7 +2449,13 @@
         "label",
         "shortcut",
         "check",
-        "submenuIndicator"
+        "submenuIndicator",
+        "head",
+        "search",
+        "count",
+        "list",
+        "empty",
+        "fade"
       ],
       "props": [
         "openOn"
@@ -2561,10 +2591,14 @@
       "name": "Skeleton",
       "kind": "native",
       "parts": [
-        "root"
+        "root",
+        "row",
+        "dot",
+        "bar"
       ],
       "props": [
-        "rounded"
+        "rounded",
+        "dot"
       ]
     },
     {
@@ -2809,6 +2843,25 @@
         "searchable",
         "disabled"
       ]
+    },
+    {
+      "name": "SearchList",
+      "kind": "native",
+      "parts": [
+        "root",
+        "head",
+        "search",
+        "count",
+        "list",
+        "item",
+        "icon",
+        "identifier",
+        "label",
+        "check",
+        "empty",
+        "fade"
+      ],
+      "props": []
     },
     {
       "name": "ChipInput",

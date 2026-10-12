@@ -72,6 +72,14 @@ impl Surface {
             .map(|l| l.id.clone())
             .collect();
         self.subtree_pending.extend(lists);
+        // EXP-1259: a search list's bottom fade shows only while rows sit
+        // below its window.
+        if self.slot_of.get(id).is_some_and(|&s| self.nodes[s as usize].part.as_deref() == Some("list") && matches!(self.nodes[s as usize].owner_component.as_deref(), Some("SearchList" | "Menu"))) {
+            self.needs_build = true;
+            if !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
+                self.pending.push(OutEvent::Relayout);
+            }
+        }
         if (self.local.sticky_any || self.lists.iter().any(|l| l.sticky)) && !self.pending.iter().any(|e| matches!(e, OutEvent::Relayout)) {
             // Sticky offsets follow the scroll.
             self.pending.push(OutEvent::Relayout);
@@ -392,6 +400,41 @@ impl Surface {
                 out.extend(self.set_open(&owner_id, open));
             }
             ("Select", Some("item"), "press") => out.extend(self.select_option(&n, &owner_id)),
+            // EXP-1259: the Tabs close glyph and the + button.
+            ("Tabs", Some("close"), "press") => {
+                let value = n.props.get("value").cloned().unwrap_or(Value::Null);
+                out.extend(self.fire(&owner_id, "close", Some(json!({"value": value}))));
+            }
+            ("Tabs", Some("new"), "press") => out.extend(self.fire(&owner_id, "new", None)),
+            // EXP-1259: the SearchList field and rows.
+            ("SearchList", Some("search"), "change") => {
+                let query = payload.as_ref().and_then(|p| p.get("value")).map(js).unwrap_or_default();
+                out.extend(self.search_query(&owner_id, &owner_id, &format!("{owner_id}.list"), query.clone()));
+                out.extend(self.write_through(&owner_id, "query", Value::String(query.clone())));
+                out.extend(self.fire(&owner_id, "search", Some(json!({"query": query}))));
+            }
+            ("SearchList", Some("search"), "key") => {
+                let key = payload.as_ref().and_then(|p| p.get("key")).map(js).unwrap_or_default();
+                out.extend(self.search_key(&owner_id, &owner_id, &format!("{owner_id}.list"), &key));
+            }
+            ("SearchList", Some("item"), "press") => out.extend(self.search_pick(&n, &owner_id)),
+            ("Menu", Some("search"), "change") => {
+                let query = payload.as_ref().and_then(|p| p.get("value")).map(js).unwrap_or_default();
+                let list = format!("{owner_id}.list{}", n.id.get(owner_id.len() + ".search".len()..).unwrap_or_default());
+                out.extend(self.search_query(&n.id, &owner_id, &list, query));
+            }
+            ("Menu", Some("search"), "key") => {
+                let key = payload.as_ref().and_then(|p| p.get("key")).map(js).unwrap_or_default();
+                if key == "ArrowLeft" {
+                    // Back to the parent menu (the field's caret sits at its start).
+                    self.local.submenu.remove(&owner_id);
+                    self.needs_build = true;
+                    out.push(OutEvent::Relayout);
+                } else {
+                    let list = format!("{owner_id}.list{}", n.id.get(owner_id.len() + ".search".len()..).unwrap_or_default());
+                    out.extend(self.search_key(&n.id, &owner_id, &list, &key));
+                }
+            }
             ("Select", Some("search"), "change") => {
                 let query = payload.as_ref().and_then(|p| p.get("value")).map(js).unwrap_or_default();
                 self.local.query.insert(owner_id.clone(), query.clone());
@@ -653,6 +696,80 @@ impl Surface {
             out.extend(self.fire(owner_id, "select", Some(json!({"value": value}))));
             out.extend(self.set_open(owner_id, false));
         }
+        out
+    }
+
+    /// EXP-1259: a search field's text changed: the filter reruns, the
+    /// highlight goes back to the top row, the list to its start. `key` =
+    /// the SearchList's id or a searchable submenu's `search` part id.
+    fn search_query(&mut self, key: &str, owner_id: &str, list_id: &str, query: String) -> Vec<OutEvent> {
+        let _ = owner_id;
+        self.local.query.insert(key.to_string(), query);
+        self.local.active.remove(key);
+        self.local.scroll.remove(list_id);
+        self.needs_build = true;
+        vec![OutEvent::Relayout]
+    }
+
+    /// The live rows of a search list (`item` parts under `list_id`), in
+    /// order: (slot, position).
+    fn search_rows(&self, list_id: &str) -> Vec<u32> {
+        let Some(&list) = self.slot_of.get(list_id) else { return vec![] };
+        self.nodes[list as usize].children.iter().copied().filter(|&c| self.live.get(c as usize).copied().unwrap_or(false) && self.nodes[c as usize].part.as_deref() == Some("item")).collect()
+    }
+
+    /// A key in a search field: ArrowDown / ArrowUp move the highlighted
+    /// row (no wrap) and scroll it into the list's window; Enter / Tab
+    /// pick it.
+    fn search_key(&mut self, key: &str, owner_id: &str, list_id: &str, pressed: &str) -> Vec<OutEvent> {
+        let rows = self.search_rows(list_id);
+        if rows.is_empty() {
+            return vec![];
+        }
+        let active = self.local.active.get(key).copied().unwrap_or(0).min(rows.len() - 1);
+        match pressed {
+            "ArrowDown" | "ArrowUp" => {
+                let next = if pressed == "ArrowDown" { (active + 1).min(rows.len() - 1) } else { active.saturating_sub(1) };
+                if next == active {
+                    return vec![];
+                }
+                self.local.active.insert(key.to_string(), next);
+                // Keep the row inside the window (the frames of the last pass).
+                let slot = rows[next];
+                if let (Some(&list), Some(row)) = (self.slot_of.get(list_id), self.last_frames.get(slot as usize).copied()) {
+                    if let Some(view) = self.last_frames.get(list as usize).copied() {
+                        let offset = self.scroll_offset(list_id).1;
+                        let reveal = crate::layout_tree::search::reveal_offset(next, row.h, view.h, offset);
+                        if (reveal - offset).abs() > 0.5 {
+                            self.local.scroll.insert(list_id.to_string(), (0.0, reveal));
+                        }
+                    }
+                }
+                self.needs_build = true;
+                vec![OutEvent::Relayout]
+            }
+            "Enter" | "Tab" => {
+                let n = self.nodes[rows[active] as usize].clone();
+                if n.props.get("disabled").and_then(Value::as_bool) == Some(true) {
+                    return vec![];
+                }
+                if self.nodes[rows[active] as usize].owner_component.as_deref() == Some("Menu") {
+                    self.menu_select(&n, owner_id)
+                } else {
+                    self.search_pick(&n, owner_id)
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    /// A SearchList row picked: `value` written (bound, else held locally),
+    /// `select` fired.
+    fn search_pick(&mut self, n: &LNode, owner_id: &str) -> Vec<OutEvent> {
+        let value = n.props.get("value").cloned().unwrap_or(Value::Null);
+        let mut out = self.write_field(owner_id, "value", value.clone());
+        out.extend(self.fire(owner_id, "select", Some(json!({"value": value}))));
+        out.push(OutEvent::Relayout);
         out
     }
 

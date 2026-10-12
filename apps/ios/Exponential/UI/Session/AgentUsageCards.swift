@@ -461,11 +461,13 @@ struct ContextWindowBlock: View {
     var cost: String? = nil
 
     @State private var open = false
+    @Environment(\.motion) private var motion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                withAnimation(.easeInOut(duration: 0.18)) { open.toggle() }
+                // EXP-1243: the shared expand/collapse token, not a literal.
+                withAnimation(motion.standard) { open.toggle() }
             } label: {
                 HStack(spacing: 8) {
                     Text(ContextLayoutPresentation.title.uppercased())

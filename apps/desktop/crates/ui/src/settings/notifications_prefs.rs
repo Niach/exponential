@@ -50,7 +50,7 @@ use domain::contract::{
 use crate::coding_flow::CodingHub;
 use crate::queries;
 
-use super::{error_notice, section, spawn_trpc};
+use super::{section, settings_skeleton, spawn_trpc};
 
 /// The "Email sending is not configured" alert (web
 /// `email-notifications-card.tsx`): the sentence wraps word by word so the
@@ -143,7 +143,8 @@ enum Load {
     Idle,
     Loading,
     Ready(EmailPrefs),
-    Error(String),
+    /// The load failed: the controls stay inert; the failure was a toast.
+    Error,
 }
 
 pub struct NotificationsPrefsPane {
@@ -205,7 +206,23 @@ impl NotificationsPrefsPane {
                 }
                 this.load = match result {
                     Ok(prefs) => Load::Ready(prefs),
-                    Err(err) => Load::Error(err.to_string()),
+                    Err(err) => {
+                        // FEED-79: the empty controls + the toast.
+                        let pane = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "load",
+                            "your notification preferences",
+                            crate::action_error::action_error_description(&err),
+                            move |_, cx| {
+                                let _ = pane.update(cx, |this, cx| {
+                                    this.load = Load::Idle;
+                                    cx.notify();
+                                });
+                            },
+                            cx,
+                        );
+                        Load::Error
+                    }
                 };
                 cx.notify();
             });
@@ -364,33 +381,12 @@ impl Render for NotificationsPrefsPane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(glass_group_rows(rows)).child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                );
-            }
-            Load::Error(message) => {
                 body = body
                     .child(glass_group_rows(rows))
-                    .child(error_notice(
-                        SharedString::from(format!(
-                            "Couldn't load notification preferences: {message}"
-                        )),
-                        cx,
-                    ))
-                    .child(
-                        h_flex().child(
-                            crate::surface::glass_pill_button("prefs-retry", crate::surface::PillSize::Sm, cx)
-                                .label("Retry")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.load = Load::Idle;
-                                    cx.notify();
-                                })),
-                        ),
-                    );
+                    .child(settings_skeleton("notification-prefs-skeleton", cx));
+            }
+            Load::Error => {
+                body = body.child(glass_group_rows(rows));
             }
             Load::Ready(prefs) => {
                 // EXP-369: the per-type switches gate PUSH too, so the master

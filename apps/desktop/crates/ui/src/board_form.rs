@@ -372,7 +372,18 @@ pub(crate) fn board_repo_note(cx: &App) -> impl IntoElement {
 pub(crate) enum BranchLoad {
     Loading,
     Ready(Vec<String>),
-    Failed(SharedString),
+    /// The fetch failed — a toast said so ([`branches_failed`]).
+    Failed,
+}
+
+/// The Branch menu's empty list.
+const NO_BRANCHES: &str = "No branches found.";
+
+/// FEED-79: a failed branch fetch is the error toast; the menu reads empty
+/// until the form fetches again.
+pub(crate) fn branches_failed(err: &api::ApiError, cx: &mut gpui::App) -> BranchLoad {
+    crate::action_error::failed_action_err("load", "the branches", err, cx);
+    BranchLoad::Failed
 }
 
 /// The board form's **Branch** dropdown (EXP-712): the branch this board's
@@ -449,13 +460,13 @@ fn branch_dropdown<V: gpui::Render>(
                 branches(host, cx)
             };
             match load {
+                // First load: the rows as placeholders (EXP-1259 D8).
                 None | Some(BranchLoad::Loading) => {
-                    return menu.label("Loading branches\u{2026}");
+                    return crate::feedback::menu_skeleton(menu, "board-branch-skeleton");
                 }
-                Some(BranchLoad::Failed(message)) => {
-                    return menu.label(SharedString::from(format!(
-                        "Couldn't load branches: {message}"
-                    )));
+                // The failure was a toast (FEED-79): the empty list.
+                Some(BranchLoad::Failed) => {
+                    return menu.label(NO_BRANCHES);
                 }
                 Some(BranchLoad::Ready(branches)) => {
                     // The shown branch always renders, even when GitHub no

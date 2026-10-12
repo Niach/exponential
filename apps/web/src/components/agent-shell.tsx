@@ -1,4 +1,4 @@
-import { GlassSectionHeader } from "@exp/ui"
+import { GlassSectionHeader, SkeletonRows } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { SessionTree } from "@/components/session-tree"
 import { useAgentsData } from "@/hooks/use-agents-data"
@@ -88,9 +88,8 @@ export function SessionsList({
         <>
           <GlassSectionHeader label="Running" />
           {isLoading ? (
-            <div className="px-3 py-2 text-xs text-muted-foreground">
-              Loading…
-            </div>
+            // D8 first load: the big SessionRow geometry (52px, mark dot).
+            <SkeletonRows rowHeight={52} />
           ) : (
             <SessionTree
               rows={running}

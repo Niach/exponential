@@ -2,7 +2,8 @@ import * as React from "react"
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { useState } from "react"
 import { authClient, fetchSessionOnce } from "@/lib/auth/client"
-import { Button, Input, Label, AuthFormShell } from "@exp/ui"
+import { Button, FEEDBACK_WORDS, FieldError, Input, Label, AuthFormShell } from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 import { pageTitle } from "@/lib/page-title"
 import { deviceErrorMessage, normalizeUserCode } from "@/lib/auth/device-code"
 
@@ -56,6 +57,9 @@ export function DeviceVerificationView({
   const [step, setStep] = useState<Step>(`enter`)
   const [code, setCode] = useState(() => normalizeUserCode(initialCode ?? ``))
   const [busy, setBusy] = useState(false)
+  const [deciding, setDeciding] = useState<`approve` | `deny` | null>(null)
+  // The typed code was refused: inline under the field. A failed
+  // approve/deny (no field left) is a toast.
   const [error, setError] = useState(``)
 
   const claim = async (e?: React.FormEvent) => {
@@ -84,13 +88,16 @@ export function DeviceVerificationView({
   const decide = async (approve: boolean) => {
     if (busy) return
     setBusy(true)
-    setError(``)
+    setDeciding(approve ? `approve` : `deny`)
     const result = approve
       ? await authClient.device.approve({ userCode: code })
       : await authClient.device.deny({ userCode: code })
     setBusy(false)
+    setDeciding(null)
     if (result.error) {
-      setError(deviceErrorMessage(result.error))
+      failedAction(approve ? `approve` : `deny`, `the device`, undefined, {
+        description: deviceErrorMessage(result.error),
+      })
       return
     }
     setStep(approve ? `approved` : `denied`)
@@ -130,11 +137,11 @@ export function DeviceVerificationView({
           will get the same access as you have here. Only approve if the code
           matches what your terminal shows.
         </p>
-        {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button
             variant="outline"
             className="flex-1"
+            pending={deciding === `deny`}
             disabled={busy}
             onClick={() => void decide(false)}
           >
@@ -142,6 +149,8 @@ export function DeviceVerificationView({
           </Button>
           <Button
             className="flex-1"
+            pending={deciding === `approve`}
+            pendingLabel={FEEDBACK_WORDS.pending.connect}
             disabled={busy}
             onClick={() => void decide(true)}
           >
@@ -159,17 +168,21 @@ export function DeviceVerificationView({
         <Input
           id="device-user-code"
           value={code}
-          onChange={(e) => setCode(normalizeUserCode(e.target.value))}
+          onChange={(e) => {
+            setCode(normalizeUserCode(e.target.value))
+            if (error) setError(``)
+          }}
           placeholder="XXXX-XXXX"
           maxLength={9}
           autoFocus
           autoComplete="off"
           spellCheck={false}
           className="text-center font-mono text-lg tracking-widest"
+          aria-invalid={error ? true : undefined}
         />
+        <FieldError>{error}</FieldError>
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button type="submit" className="w-full" disabled={busy || !code}>
+      <Button type="submit" className="w-full" pending={busy} disabled={!code}>
         Continue
       </Button>
     </form>

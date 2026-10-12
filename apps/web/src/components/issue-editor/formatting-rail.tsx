@@ -457,11 +457,11 @@ export function FormattingRail({
   return (
     <div
       // Keyed on the mode: the swap is a content REPLACEMENT, so React
-      // remounts the row and tw-animate-css re-runs the enter animation.
+      // remounts the row and its `motion-enter-pop` enter re-runs.
       key={mode}
       className={cn(
         `flex w-full items-center gap-px`,
-        `animate-in fade-in zoom-in-95 duration-fast ease-standard motion-reduce:animate-none`
+        `motion-enter-pop`
       )}
     >
       {mode === `main` && mainContent}

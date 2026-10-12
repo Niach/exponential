@@ -20,6 +20,7 @@ import com.exponential.app.domain.guideSectionPage
 import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.issue.toDiffFile
 import dev.chrisbanes.haze.rememberHazeState
 import com.exponential.app.domain.Prompts
@@ -72,7 +73,7 @@ fun RunChangesScreen(
         )
     }
 
-    // A refused merge toasts ONCE (the WorkScreen rule).
+    // A refused merge toasts ONCE (the WorkScreen rule; FEED-79).
     val toaster = LocalToaster.current
     var toastedError by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(actionError) {
@@ -81,7 +82,7 @@ fun RunChangesScreen(
             toastedError = null
         } else if (error != toastedError) {
             toastedError = error
-            toaster.error(error)
+            toaster.failedAction("merge", "the PR", error)
         }
     }
 
@@ -112,6 +113,7 @@ fun RunChangesScreen(
                     load = load,
                     merge = merge,
                     onBack = { sectionName = null },
+                    onRetry = viewModel::refresh,
                 )
             } else {
                 GuideFace(

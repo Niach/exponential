@@ -46,6 +46,8 @@ interface Tokens {
   motion: {
     duration: Record<string, number>
     ease: Record<string, number[]>
+    // EXP-1243: unitless scale factors (press, popover enter-from).
+    scale: Record<string, number>
   }
   // SLOP-18: the shared spacing scale (flat px integers).
   spacing: Record<string, number>
@@ -320,6 +322,9 @@ function emitKotlin(): string {
         `            val ${pascalCase(k)}: Easing = CubicBezierEasing(${bezier(v, kotlinFloat)})`
     )
     .join(`\n`)
+  const motionScale = motionEntries(tokens.motion.scale)
+    .map(([k, v]) => `            const val ${pascalCase(k)}: Float = ${kotlinFloat(v)}`)
+    .join(`\n`)
 
   return `${HEADER_KOTLIN}
 package com.exponential.app.ui.theme
@@ -432,6 +437,10 @@ ${motionDuration}
         object Ease {
 ${motionEase}
         }
+
+        object Scale {
+${motionScale}
+        }
     }
 }
 `
@@ -512,6 +521,9 @@ function emitSwift(): string {
       const [x1, y1, x2, y2] = v.map(swiftDouble)
       return `            public static let ${k} = BezierCurve(x1: ${x1}, y1: ${y1}, x2: ${x2}, y2: ${y2})`
     })
+    .join(`\n`)
+  const motionScale = motionEntries(tokens.motion.scale)
+    .map(([k, v]) => `            public static let ${k}: CGFloat = ${swiftDouble(v)}`)
     .join(`\n`)
 
   return `${HEADER_SWIFT}
@@ -618,6 +630,10 @@ ${motionDuration}
         public enum Ease {
 ${motionEase}
         }
+
+        public enum Scale {
+${motionScale}
+        }
     }
 }
 `
@@ -697,6 +713,9 @@ function emitRust(): string {
       ([k, v]) =>
         `        pub const ${screamingSnake(k)}: [f32; 4] = [${bezier(v, rustFloat)}];`
     )
+    .join(`\n`)
+  const motionScale = motionEntries(tokens.motion.scale)
+    .map(([k, v]) => `        pub const ${screamingSnake(k)}: f32 = ${rustFloat(v)};`)
     .join(`\n`)
 
   return `${HEADER_RUST}use crate::Srgb8;
@@ -807,6 +826,10 @@ ${motionDuration}
 
     pub mod ease {
 ${motionEase}
+    }
+
+    pub mod scale {
+${motionScale}
     }
 }
 `

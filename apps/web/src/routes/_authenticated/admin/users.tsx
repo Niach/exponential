@@ -4,9 +4,8 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { ArrowDown, ArrowUp, Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
-  Alert,
-  AlertDescription,
   Pill,
   Button,
   Input,
@@ -139,7 +138,6 @@ function AdminUsers() {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
   const [search, setSearch] = useState(``)
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<AdminUser | null>(null)
   const sortSearch = Route.useSearch()
@@ -168,16 +166,17 @@ function AdminUsers() {
     })
 
   const handleToggleAdmin = async (user: AdminUser, next: boolean) => {
-    setError(null)
     setBusy(user.id)
     try {
-      await trpc.admin.setUserAdmin.mutate({
-        userId: user.id,
-        isAdmin: next,
-      })
+      await trpc.admin.setUserAdmin.mutate(
+        { userId: user.id, isAdmin: next },
+        SKIP_ERROR_TOAST
+      )
       await router.invalidate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`update`, `admin access`, err, {
+        retry: () => void handleToggleAdmin(user, next),
+      })
     } finally {
       setBusy(null)
     }
@@ -185,14 +184,16 @@ function AdminUsers() {
 
   const handleDelete = async () => {
     if (!confirmDelete) return
-    setError(null)
     setBusy(confirmDelete.id)
     try {
-      await trpc.admin.deleteUser.mutate({ userId: confirmDelete.id })
+      await trpc.admin.deleteUser.mutate(
+        { userId: confirmDelete.id },
+        SKIP_ERROR_TOAST
+      )
       setConfirmDelete(null)
       await router.invalidate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`delete`, `the user`, err)
     } finally {
       setBusy(null)
     }
@@ -216,12 +217,6 @@ function AdminUsers() {
         onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="rounded-md border">
         {/* Desktop column header */}

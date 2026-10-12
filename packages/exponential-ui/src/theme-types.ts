@@ -60,6 +60,8 @@ export interface ThemeTokens {
   density: Record<string, number>
   /** Round 2: backdrop blur radii in px (`backdropBlur: $blur.md`). */
   blur: Record<string, number>
+  /** EXP-1259: the motion scale multipliers painters read (`press`, `popoverFrom`). */
+  scale: Record<string, number>
 }
 
 /** How a host registers a family the theme names: the files are the host's

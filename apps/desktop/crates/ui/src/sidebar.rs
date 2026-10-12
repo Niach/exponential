@@ -73,7 +73,7 @@ use crate::issue_list::{
 };
 use crate::navigation::{
     active_board_id, active_team_id, nav_for_window, navigate, resolved_screen,
-    GettingStartedTab, Navigation, Screen, SecondSidebar, TabOrigin,
+    Navigation, Screen, SecondSidebar, TabOrigin,
 };
 use crate::issue_header::parse_hex_color;
 use crate::queries;
@@ -1108,7 +1108,19 @@ impl RailView {
                 size: crate::run_rows::RunRowSize::Small,
                 guides,
                 agent: Some(run.agent),
-                mark: crate::run_rows::RunStatusMark::Live(run.state),
+                // EXP-1271: a background start spins (the working mark)
+                // until its first turn.
+                mark: crate::run_rows::RunStatusMark::Live(
+                    if crate::coding_flow::run_starting(
+                        &run.session_id,
+                        run.state == Some(crate::queries::CodingSessionDisplay::Working),
+                        _cx,
+                    ) {
+                        Some(crate::queries::CodingSessionDisplay::Working)
+                    } else {
+                        run.state
+                    },
+                ),
                 identifier: run.identifier.clone(),
                 title: run.title.clone(),
                 caption: None,
@@ -1394,36 +1406,18 @@ impl RailView {
             .or_else(|| crate::navigation::pending_chat_action_id(&self.nav, cx))
     }
 
-    /// The Getting-started entry (EXP-470): the desktop mirror of the web
-    /// sidebar's re-entry point — navigates to the tab-less
-    /// [`Screen::GettingStarted`] page, the [`Self::rail_screen_entry`] shape.
-    /// EXP-548: it sits at the BOTTOM of the rail, under the What's-new card
-    /// and above the account row (the web sidebar-footer position), and is
-    /// rendered only while the checklist is incomplete — no dismissal.
-    /// EXP-723: MUTED, like the web footer's — it is a re-entry point, not a
-    /// destination competing with the boards above it.
+    /// The Getting-started entry (EXP-470): sits at the BOTTOM of the rail,
+    /// under the What's-new card and above the account row, MUTED (EXP-723),
+    /// and rendered only while the block is incomplete. EXP-1270: it opens
+    /// the block in a centred dialog ([`crate::getting_started::open_dialog`]).
     fn rail_getting_started_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        // EXP-686: the page's tab rides the screen, so ANY tab highlights.
-        let active = matches!(
-            resolved_screen(&self.nav, cx),
-            Some(Screen::GettingStarted { .. })
-        );
         let icon = Icon::from(icons::registry::NAV_GETTING_STARTED);
-        rail_row(
-            "rail-getting-started",
-            icon,
-            "Getting started",
-            active,
-            None,
-            cx,
-        )
-        .text_color(cx.theme().muted_foreground)
-        .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-            navigate(window, cx, Screen::GettingStarted {
-                tab: GettingStartedTab::FirstSteps,
-            });
-        }))
-        .into_any_element()
+        rail_row("getting-started-entry", icon, "Getting started", false, None, cx)
+            .text_color(cx.theme().muted_foreground)
+            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
+                crate::getting_started::open_dialog(window, cx);
+            }))
+            .into_any_element()
     }
 
     /// The account button — the rail's bottom-left element, with the settings
@@ -2674,13 +2668,17 @@ impl ListPanel {
             .child(label)
     }
 
-    fn list_skeleton(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// EXP-1259 D8: a side list's first load = skeleton rows in the
+    /// compact row geometry.
+    fn list_skeleton(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         v_flex()
-            .p_3()
-            .gap_2()
-            .child(crate::controls::skeleton().h_3p5().w_40())
-            .child(crate::controls::skeleton().h_3p5().w_48())
-            .child(crate::controls::skeleton().h_3p5().w_32())
+            .py_1()
+            .child(crate::feedback::skeleton_rows(
+                "side-list-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                exponential_ui_gpui::controls::FLAT_ROW_COMPACT_H,
+                cx,
+            ))
             .into_any_element()
     }
 
