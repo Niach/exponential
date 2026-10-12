@@ -641,16 +641,25 @@ impl SessionBar {
         options: coding::LaunchOptions,
         repo: Option<(String, String)>,
         prompt: Option<String>,
+        on_settled: Option<crate::action_run::ActionSettledHook>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // EXP-1271: the composer's starting state ends on every outcome.
+        let refuse = |on_settled: Option<crate::action_run::ActionSettledHook>, cx: &mut App| {
+            if let Some(hook) = on_settled {
+                hook(cx, false);
+            }
+        };
         if crate::coding_flow::build_action_deps(cx).is_none() {
             log::warn!("session bar: chat launch ignored — not signed in");
+            refuse(on_settled, cx);
             return;
         }
         let nav = navigation::nav_for_window(window, cx);
         let Some(team_id) = navigation::active_team_id(&nav, cx) else {
             log::warn!("session bar: chat launch ignored — no active team");
+            refuse(on_settled, cx);
             return;
         };
         let action = api::actions::builtin_chat_action(&team_id);
@@ -678,7 +687,7 @@ impl SessionBar {
                 reservation: None,
                 trigger: None,
                 trigger_id: None,
-                on_settled: None,
+                on_settled,
                 prompt,
                 report: crate::steer_wiring::StartReport::none(),
             },

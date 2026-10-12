@@ -124,6 +124,8 @@ pub(crate) enum Target {
 }
 
 impl Target {
+    /// The fixture's target name (the model test compares whole objects).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Target::CreateBoard => "create-board",
@@ -141,6 +143,8 @@ impl Target {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Platform {
     Pointer,
+    /// The phones' strip (the fixture's phone cases; the IDE is a pointer).
+    #[cfg_attr(not(test), allow(dead_code))]
     Phone,
 }
 
@@ -162,6 +166,7 @@ pub(crate) struct Step {
     pub visible_when: Option<Permission>,
     pub phones: bool,
     /// The fixture's `doneWhen`, verbatim; [`step_done`] evaluates it.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub done_when: &'static str,
 }
 

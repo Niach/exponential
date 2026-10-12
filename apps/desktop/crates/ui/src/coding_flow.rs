@@ -1522,6 +1522,19 @@ pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut
         .insert(window.window_handle().window_id(), new_run_id);
 }
 
+/// The start New run tab `new_run_id` handed off never landed (it failed or
+/// timed out): the tab keeps its slot, so a later open elsewhere in the
+/// window never replaces it.
+pub(crate) fn take_back_new_run_tab(window: &Window, new_run_id: &str, cx: &mut App) {
+    let window_id = window.window_handle().window_id();
+    let Some(handoffs) = cx.try_global::<NewRunHandoffs>() else {
+        return;
+    };
+    if handoffs.0.get(&window_id).map(String::as_str) == Some(new_run_id) {
+        cx.global_mut::<NewRunHandoffs>().0.remove(&window_id);
+    }
+}
+
 /// Open a run that landed in `window`: in place of the New run tab that
 /// started it ([`hand_off_new_run_tab`]), else as an ordinary open.
 pub(crate) fn open_landed_session(session_id: &str, window: &mut Window, cx: &mut App) {
@@ -1629,13 +1642,21 @@ impl gpui::Global for StartingRuns {}
 const STARTING_SPINNER_CAP: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// Whether `session_id` is a background start still waiting for its first
-/// turn. `busy` = the run's agent is (or was) working: the start is over.
-pub(crate) fn run_starting(session_id: &str, busy: bool, cx: &App) -> bool {
-    !busy
-        && cx
-            .try_global::<StartingRuns>()
-            .and_then(|runs| runs.0.get(session_id))
-            .is_some_and(|since| since.elapsed() < STARTING_SPINNER_CAP)
+/// turn. `busy` = the run's agent is working: the start is over, and so is
+/// its entry (a run that later idles never spins again), like one past
+/// [`STARTING_SPINNER_CAP`].
+pub(crate) fn run_starting(session_id: &str, busy: bool, cx: &mut App) -> bool {
+    let Some(since) = cx
+        .try_global::<StartingRuns>()
+        .and_then(|runs| runs.0.get(session_id).copied())
+    else {
+        return false;
+    };
+    if busy || since.elapsed() >= STARTING_SPINNER_CAP {
+        cx.global_mut::<StartingRuns>().0.remove(session_id);
+        return false;
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------

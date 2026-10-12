@@ -486,6 +486,7 @@ mod tests {
                 diff: diff.map(str::to_string),
                 output: None,
                 preview: None,
+                script: None,
             },
         )
     }

@@ -924,6 +924,7 @@ fn remote_issue_start(
                 if let Err(message) = coding_flow::spawn_into_window(
                     prepared,
                     coding_flow::SessionSubject::Issue(issue_id),
+                    coding_flow::RunLanding::Background,
                     window,
                     cx,
                 ) {
@@ -1124,6 +1125,7 @@ fn remote_batch_start(
                 if let Err(message) = coding_flow::spawn_into_window(
                     prepared,
                     coding_flow::SessionSubject::Batch(batch_id),
+                    coding_flow::RunLanding::Background,
                     window,
                     cx,
                 ) {

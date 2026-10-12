@@ -21,6 +21,11 @@
 //! gpui has no reduce-motion signal (see `theme::motion`), so the animated
 //! kinds always animate; [`mark_static`] is the reduce-motion face the
 //! styleguide shows beside them.
+//!
+//! The constants below are the fixture's WHOLE vocabulary (locked by the
+//! tests); the IDE's feedback sweep (FEED-79 wave) consumes the words this
+//! lane's surfaces do not use yet.
+#![cfg_attr(not(test), allow(dead_code))]
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -32,8 +37,7 @@ use gpui::{
     IntoElement, ParentElement as _, Pixels, SharedString, Styled, Window,
 };
 use gpui_component::button::Button;
-use gpui_component::spinner::Spinner;
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, ElementExt as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, ElementExt as _, Icon};
 
 use exponential_ui_gpui::chrome::Chrome;
 
@@ -172,15 +176,11 @@ pub(crate) fn remote_start_title(name: &str) -> String {
 // 1. Inline
 // ---------------------------------------------------------------------------
 
-/// THE spinner glyph: the chrome's refresh glyph, spinning, in `color`. The
-/// EXP-1274 band spinner (`controls::band_loading_glyph`) paints the same.
+/// THE spinner glyph: the SDK's one spinner (`controls::spinner`, the
+/// chrome's refresh glyph spinning) in `color`. The EXP-1274 band spinner
+/// (`controls::band_loading_glyph`) IS the inline one below.
 pub(crate) fn spinner_colored(size: f32, color: Hsla, cx: &App) -> AnyElement {
-    let icon = Icon::empty().path(Chrome::global(cx).icons.refresh.clone());
-    Spinner::new()
-        .icon(icon)
-        .with_size(px(size))
-        .color(color)
-        .into_any_element()
+    exponential_ui_gpui::controls::spinner(size, color, cx)
 }
 
 /// [`spinner_colored`] in the muted foreground.
@@ -230,6 +230,14 @@ impl Pending {
             let _ = this.update(cx, |_, cx| cx.notify());
         })
         .detach();
+    }
+
+    /// A pending face in flight since `since` (the styleguide's specimen).
+    pub(crate) fn shown_since(since: Instant) -> Self {
+        Self {
+            since: Some(since),
+            idle_w: Rc::default(),
+        }
     }
 
     pub(crate) fn finish(&mut self) {
@@ -631,6 +639,7 @@ mod tests {
     fn numbers_and_copy_are_the_fixture() {
         let f = fixture();
         assert_eq!(num(&f["inline"]["spinner"]) as f32, INLINE_SPINNER_PX);
+        assert_eq!(INLINE_SPINNER_PX, exponential_ui_gpui::controls::INLINE_SPINNER_PX);
         assert_eq!(num(&f["inline"]["gap"]) as f32, INLINE_GAP_PX);
         assert_eq!(s(&f["inline"]["words"]["saving"]), WORD_SAVING);
         assert_eq!(s(&f["inline"]["words"]["saved"]), WORD_SAVED);

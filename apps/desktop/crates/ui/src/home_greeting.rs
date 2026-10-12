@@ -12,6 +12,14 @@ pub(crate) const HOME_PLACEHOLDER: &str = "What do you want to build?";
 pub(crate) const RECENT_LABEL: &str = "Recent";
 pub(crate) const RECENT_COUNT: usize = 3;
 
+/// The fixture's `testIds`: the IDE has no DOM, so they name the home's
+/// element ids (a capture or a test finds the same pieces as on the web).
+pub(crate) const TEST_ID_HOME: &str = "agent-home";
+pub(crate) const TEST_ID_GREETING: &str = "agent-home-greeting";
+pub(crate) const TEST_ID_MARK: &str = "agent-home-mark";
+pub(crate) const TEST_ID_RECENT: &str = "agent-home-recent";
+pub(crate) const TEST_ID_RECENT_ROW: &str = "agent-home-recent-row";
+
 /// The headline row's geometry (px): the disc mark, the gap to the
 /// greeting, the greeting's size + weight, then the gaps to the card and
 /// from the options line to Recent.
@@ -74,17 +82,42 @@ const BUCKETS: [Bucket; 4] = [
     },
 ];
 
-fn bucket_for(hour: u32) -> &'static Bucket {
+fn bucket_index(hour: u32) -> usize {
     BUCKETS
         .iter()
-        .find(|bucket| {
+        .position(|bucket| {
             if bucket.from <= bucket.to {
                 hour >= bucket.from && hour <= bucket.to
             } else {
                 hour >= bucket.from || hour <= bucket.to
             }
         })
-        .unwrap_or(&BUCKETS[0])
+        .unwrap_or(0)
+}
+
+/// Whole days from 1970-01-01 to the greeting day of `date` + `hour` (the
+/// local wall clock less [`DAY_STARTS_AT_HOUR`]).
+fn day_index(date: NaiveDate, hour: u32) -> i64 {
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("the epoch is a date");
+    let days = date.signed_duration_since(epoch).num_days();
+    (days * 24 + i64::from(hour) - DAY_STARTS_AT_HOUR).div_euclid(24)
+}
+
+/// What a greeting depends on besides the name: its greeting day and its
+/// bucket. A mounted home re-reads its greeting only once this moved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GreetingKey {
+    day: i64,
+    bucket: usize,
+}
+
+/// The [`GreetingKey`] of this device's local time now.
+pub(crate) fn greeting_key_now() -> GreetingKey {
+    let now = chrono::Local::now();
+    GreetingKey {
+        day: day_index(now.date_naive(), now.hour()),
+        bucket: bucket_index(now.hour()),
+    }
 }
 
 /// The first whitespace-separated token of a user row's name, or "".
@@ -94,13 +127,9 @@ pub(crate) fn greeting_first_name(name: Option<&str>) -> &str {
 
 /// The greeting for a local wall-clock date + hour and a user row's name.
 pub(crate) fn home_greeting(date: NaiveDate, hour: u32, name: Option<&str>) -> String {
-    let bucket = bucket_for(hour);
-    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("the epoch is a date");
-    let days = date.signed_duration_since(epoch).num_days();
-    let shifted = days * 24 + i64::from(hour) - DAY_STARTS_AT_HOUR;
-    let day_index = shifted.div_euclid(24);
+    let bucket = &BUCKETS[bucket_index(hour)];
     let count = bucket.variants.len() as i64;
-    let variant = bucket.variants[day_index.rem_euclid(count) as usize];
+    let variant = bucket.variants[day_index(date, hour).rem_euclid(count) as usize];
     let first = greeting_first_name(name);
     if first.is_empty() {
         variant.replace(", {name}", "")
@@ -218,6 +247,12 @@ mod tests {
         assert_eq!(px("headlineWeight"), HEADLINE_WEIGHT);
         assert_eq!(px("headlineToCard"), HEADLINE_TO_CARD_PX);
         assert_eq!(px("optionsToRecent"), OPTIONS_TO_RECENT_PX);
+        let ids = &fixture["testIds"];
+        assert_eq!(ids["home"].as_str().unwrap(), TEST_ID_HOME);
+        assert_eq!(ids["greeting"].as_str().unwrap(), TEST_ID_GREETING);
+        assert_eq!(ids["mark"].as_str().unwrap(), TEST_ID_MARK);
+        assert_eq!(ids["recent"].as_str().unwrap(), TEST_ID_RECENT);
+        assert_eq!(ids["recentRow"].as_str().unwrap(), TEST_ID_RECENT_ROW);
     }
 
     fn run(id: &str, user: &str, team: &str, parent: Option<&str>, updated: &str) -> domain::rows::CodingSession {

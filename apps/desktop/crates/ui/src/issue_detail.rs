@@ -441,6 +441,8 @@ pub struct IssueDetailView {
     /// offset and the title sits above the viewport ("the title vanishes",
     /// EXP-67).
     body_scroll: gpui::ScrollHandle,
+    /// EXP-1261: the Guide face's page scroll (its top fade waits for it).
+    guide_scroll: gpui::ScrollHandle,
     /// EXP-1162: where the large title row's bottom edge sits in the body's
     /// CONTENT (measured as it paints, scroll-independent), `None` until the
     /// first paint — what [`domain::detail_chrome::is_title_collapsed`] reads
@@ -638,6 +640,7 @@ impl IssueDetailView {
             issue_id: None,
             focus_handle: cx.focus_handle(),
             body_scroll,
+            guide_scroll: gpui::ScrollHandle::new(),
             title_bottom: Rc::new(std::cell::Cell::new(None)),
             tray_top: Rc::new(std::cell::Cell::new(None)),
             tray_h: Rc::new(std::cell::Cell::new(None)),
@@ -841,6 +844,7 @@ impl IssueDetailView {
                 stack,
                 fallback_lead,
                 unnumbered,
+                scroll: Some(self.guide_scroll.clone()),
             },
             cx,
         ))
@@ -2648,9 +2652,15 @@ impl Render for IssueDetailView {
         let has_title_row = guide_face.is_none();
         let (header, title_rows) = self.render_header(&issue, has_title_row, window, cx);
         if let Some(guide_face) = guide_face {
+            // EXP-1261: the top strip only once the page (or a diff page's
+            // list) left its top.
+            let scrolled = match (&self.guide_page, &self.changes) {
+                (Some(_), Some(changes)) => changes.read(cx).scrolled(cx),
+                _ => crate::work_header::scrolled(&self.guide_scroll),
+            };
             return view
                 .child(header)
-                .child(crate::work_header::work_body(guide_face, false))
+                .child(crate::work_header::work_body(guide_face, false, scrolled))
                 .into_any_element();
         }
         let body = self

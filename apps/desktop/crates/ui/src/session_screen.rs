@@ -949,6 +949,7 @@ impl Render for SessionScreenView {
             .child(crate::work_header::work_body(
                 div().flex_1().min_h_0().child(self.inner.clone()).into_any_element(),
                 false,
+                self.inner.read(cx).body_scrolled(),
             ))
     }
 }

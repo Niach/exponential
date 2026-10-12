@@ -1076,13 +1076,6 @@ pub(crate) fn server_install_origin(cx: &gpui::App) -> String {
         .unwrap_or_else(|| "https://app.exponential.at".to_string())
 }
 
-/// The token-less headless-daemon install one-liner (web
-/// `buildServerInstallSnippet` without a token): the Getting-started server
-/// card copies it. The device-setup server card builds its own, token and all.
-pub(crate) fn server_install_snippet(cx: &gpui::App) -> String {
-    crate::device_setup::install_command(&server_install_origin(cx), None)
-}
-
 /// The "Add device" dialog (EXP-697, one spec with the web twin): the
 /// device-setup block's desktop card first (it is what actually runs coding
 /// sessions), then its server card (EXP-1169, [`crate::device_setup`]): the

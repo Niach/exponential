@@ -85,7 +85,7 @@ fn approx_tokens(bytes: usize) -> String {
 
 /// EXP-1275: the byte cap's INLINE line under the field (feedback-states
 /// `errors` case "a prompt over its byte cap stays under its field").
-fn prompt_too_long(used: usize) -> String {
+pub(crate) fn prompt_too_long(used: usize) -> String {
     format!(
         "Too long: {used} of {} bytes",
         domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES

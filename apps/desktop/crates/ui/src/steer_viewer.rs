@@ -2880,6 +2880,16 @@ impl SteerSessionView {
 
     /// EXP-879: the run's SUB-FACE on show — its transcript, its changes or
     /// its published results.
+    /// EXP-1261: whether the Run face's list left its top (the work body's
+    /// top fade waits for it); the Guide face keeps the strip.
+    pub(crate) fn body_scrolled(&self) -> bool {
+        match self.run_face {
+            RunFace::Run if self.show_work_cached => crate::work_header::list_scrolled(&self.list),
+            RunFace::Run => crate::work_header::list_scrolled(&self.thread_list),
+            RunFace::Guide => true,
+        }
+    }
+
     pub(crate) fn run_face(&self) -> RunFace {
         self.run_face
     }
@@ -3163,6 +3173,7 @@ impl SteerSessionView {
                 stack,
                 fallback_lead: None,
                 unnumbered: false,
+                scroll: None,
             },
             cx,
         ))

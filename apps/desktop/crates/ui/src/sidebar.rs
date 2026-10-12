@@ -1108,7 +1108,19 @@ impl RailView {
                 size: crate::run_rows::RunRowSize::Small,
                 guides,
                 agent: Some(run.agent),
-                mark: crate::run_rows::RunStatusMark::Live(run.state),
+                // EXP-1271: a background start spins (the working mark)
+                // until its first turn.
+                mark: crate::run_rows::RunStatusMark::Live(
+                    if crate::coding_flow::run_starting(
+                        &run.session_id,
+                        run.state == Some(crate::queries::CodingSessionDisplay::Working),
+                        _cx,
+                    ) {
+                        Some(crate::queries::CodingSessionDisplay::Working)
+                    } else {
+                        run.state
+                    },
+                ),
                 identifier: run.identifier.clone(),
                 title: run.title.clone(),
                 caption: None,

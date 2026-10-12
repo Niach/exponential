@@ -633,6 +633,31 @@ fn opens_no_tab(
 /// out of the packer's budget so the last chip never slides under it.
 const NEW_TAB_BUTTON_PX: f32 = 24.;
 
+/// EXP-1255 — the strip's "+": a ghost icon button after the last chip (and
+/// after "+N"), tooltip "New run". The caller wires the click.
+pub(crate) fn new_run_button(id: impl Into<gpui::ElementId>) -> Button {
+    Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .web_icon_xs()
+        .icon(registry::UI_ADD)
+        .tooltip(crate::navigation::NEW_RUN_TITLE)
+}
+
+/// EXP-1255 — a chip's ×, shown on HOVER only, on every chip including the
+/// active one (Cmd+W and the middle-click still close). `invisible` keeps
+/// its slot, so the measured width never jumps. `close` is the bare button
+/// with its click wired; the chip must be in the [`TAB_GROUP`] group.
+pub(crate) fn hover_close(close: Button) -> gpui::Div {
+    div()
+        .invisible()
+        .group_hover(TAB_GROUP, |style| style.visible())
+        .child(close.ghost().web_icon_xs().icon(registry::UI_CLOSE))
+}
+
+/// The hover group every strip chip joins ([`hover_close`]).
+pub(crate) const TAB_HOVER_GROUP: &str = TAB_GROUP;
+
 /// EXP-1250 — swap the strip to another team's tabs, never dropping any: the
 /// leaving team's non-terminal tabs are PARKED under its id, the arriving
 /// team's parked tabs come back in their order, and terminals (EXP-769: a PTY
@@ -2515,11 +2540,6 @@ impl ScreensPanel {
             .count()
     }
 
-    /// EXP-870: a tab leaving the strip — its run view goes with it. The run
-    /// itself is never touched: closing a tab is not stopping a run.
-    ///
-    /// EXP-877: no dismissal is recorded, because a LIVE tab cannot get here
-    /// — [`Self::close_tab`] refuses one and the bulk closes skip them.
     /// EXP-1255: New run tab `id`'s composer, built on first show.
     fn new_run_view(
         &mut self,
@@ -2536,6 +2556,11 @@ impl ScreensPanel {
             .clone()
     }
 
+    /// EXP-870: a tab leaving the strip — its run view goes with it. The run
+    /// itself is never touched: closing a tab is not stopping a run.
+    ///
+    /// EXP-877: no dismissal is recorded, because a LIVE tab cannot get here
+    /// — [`Self::close_tab`] refuses one and the bulk closes skip them.
     fn forget_tab(&mut self, tab: &TabEntry, cx: &mut gpui::Context<Self>) {
         // EXP-1255: a New run tab's composer (and its draft) goes with it.
         if let Screen::NewRun { id } = &tab.screen {
@@ -2705,16 +2730,10 @@ impl ScreensPanel {
             .collect();
         // EXP-1255: the "+" after the last chip (and after "+N") opens a New
         // run tab; it is there with no tab at all too.
-        let new_tab = Button::new("center-tab-new")
-            .ghost()
-            .cursor_pointer()
-            .web_icon_xs()
-            .icon(registry::UI_ADD)
-            .tooltip(crate::navigation::NEW_RUN_TITLE)
-            .on_click(|_: &ClickEvent, window, cx| {
-                cx.stop_propagation();
-                open_new_run_tab(window, cx);
-            });
+        let new_tab = new_run_button("center-tab-new").on_click(|_: &ClickEvent, window, cx| {
+            cx.stop_propagation();
+            open_new_run_tab(window, cx);
+        });
         if top.is_empty() {
             return h_flex().items_center().child(new_tab).into_any_element();
         }
@@ -2869,23 +2888,14 @@ impl ScreensPanel {
                         // chip including the active one (Cmd+W and the
                         // middle-click still close); `invisible` keeps its
                         // slot, so the measured width never jumps.
-                        .child(
-                            div()
-                                .invisible()
-                                .group_hover(TAB_GROUP, |style| style.visible())
-                                .child(
-                                    Button::new(("close-center-tab", ix))
-                                        .ghost()
-                                        .web_icon_xs()
-                                        .icon(registry::UI_CLOSE)
-                                        .on_click(cx.listener(
-                                            move |this, _: &ClickEvent, window, cx| {
-                                                cx.stop_propagation();
-                                                this.close_tab(ix, window, cx);
-                                            },
-                                        )),
-                                ),
-                        ),
+                        .child(hover_close(
+                            Button::new(("close-center-tab", ix)).on_click(cx.listener(
+                                move |this, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.close_tab(ix, window, cx);
+                                },
+                            )),
+                        )),
             )
             .into_any_element()
     }

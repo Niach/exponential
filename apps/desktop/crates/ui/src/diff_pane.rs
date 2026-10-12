@@ -42,7 +42,7 @@ use gpui::{
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{h_flex, input::InputState, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, input::InputState, v_flex, ActiveTheme as _, ElementExt as _, Icon, Sizable as _};
 
 use coding::scm::DiffFile;
 use domain::diff::{additions_label, deletions_label, summary_label, DiffStatus, Totals};
@@ -316,13 +316,11 @@ pub(crate) fn file_tree<V: Render>(
         &mut out,
         cx,
     );
+    // EXP-1261: no scroll area of its own — the tree rides the page's
+    // scroll ([`render`]).
     let rows = v_flex()
-        .id("diff-file-tree-rows")
         .w_full()
         .min_w_0()
-        .flex_1()
-        .min_h_0()
-        .overflow_y_scroll()
         .px_1()
         .pb_1()
         .gap_0p5()
@@ -483,7 +481,7 @@ pub(crate) fn render<V: Render>(
     };
     let shows_tree = fits_tree(available);
     let tree = shows_tree.then(|| {
-        file_tree(
+        let card = file_tree(
             &files,
             selected,
             filter.as_ref(),
@@ -492,7 +490,8 @@ pub(crate) fn render<V: Render>(
             on_toggle_dir,
             window,
             cx,
-        )
+        );
+        tree_on_the_page(card, &diff, cx)
     });
     let column = v_flex()
         .w_full()
@@ -546,6 +545,66 @@ pub(crate) fn render<V: Render>(
                 .child(column),
         )
         .into_any_element()
+}
+
+/// EXP-1261 — the file tree as part of the ONE page: not a scroll area of
+/// its own, it rides the diff list's scroll ([`tree_lift`]) and a wheel over
+/// it scrolls that list, so the page scrolls as one wherever the pointer is.
+fn tree_on_the_page<V: Render>(
+    card: AnyElement,
+    diff: &Entity<crate::diff::DiffView>,
+    cx: &mut Context<V>,
+) -> AnyElement {
+    let (page, metrics) = {
+        let view = diff.read(cx);
+        (view.page_scroll(), view.tree_metrics())
+    };
+    let (tree_h, pane_h) = metrics.get();
+    let lift = tree_lift(f32::from(page.offset().y), tree_h, pane_h);
+    let diff_id = diff.entity_id();
+    let tree_slot = metrics.clone();
+    let pane_slot = metrics;
+    div()
+        .id("diff-file-tree-page")
+        .flex_shrink_0()
+        .h_full()
+        .overflow_hidden()
+        .on_prepaint(move |bounds, _, _| {
+            let (tree_h, _) = pane_slot.get();
+            pane_slot.set((tree_h, f32::from(bounds.size.height)));
+        })
+        .on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
+            let delta = event.delta.pixel_delta(window.line_height());
+            let max = page.max_offset().y;
+            let mut offset = page.offset();
+            let next = (offset.y + delta.y).clamp(-max, px(0.));
+            if next != offset.y {
+                offset.y = next;
+                page.set_offset(offset);
+                cx.notify(diff_id);
+            }
+            cx.stop_propagation();
+        })
+        .child(
+            div()
+                .flex_shrink_0()
+                .mt(px(lift))
+                .on_prepaint(move |bounds, _, _| {
+                    let (_, pane_h) = tree_slot.get();
+                    tree_slot.set((f32::from(bounds.size.height), pane_h));
+                })
+                .child(card),
+        )
+        .into_any_element()
+}
+
+/// EXP-1261 — how far the tree is lifted (≤ 0) at the diff's scroll offset
+/// `scroll_y` (≤ 0): it scrolls WITH the page until its own end is in view,
+/// then stays put; a tree that fits the pane never moves (the web's sticky
+/// tree).
+fn tree_lift(scroll_y: f32, tree_h: f32, pane_h: f32) -> f32 {
+    let overflow = (tree_h - pane_h).max(0.);
+    scroll_y.min(0.).max(-overflow)
 }
 
 /// Whether a pane `pane_width` wide holds the tree AND a diff column of at
@@ -603,6 +662,17 @@ mod tests {
         assert_eq!(hits[0].kind, DiffTreeKind::File);
         assert_eq!(hits[0].index, Some(1), "a file node names its input row");
         assert!(diff_file_tree(&files, "nothing here").is_empty());
+    }
+
+    /// EXP-1261: the tree scrolls with the page until its end shows, never
+    /// past it, and a tree that fits never moves.
+    #[test]
+    fn the_tree_rides_the_page_scroll() {
+        assert_eq!(tree_lift(0., 900., 600.), 0.);
+        assert_eq!(tree_lift(-120., 900., 600.), -120.);
+        assert_eq!(tree_lift(-1000., 900., 600.), -300.);
+        assert_eq!(tree_lift(-500., 400., 600.), 0.);
+        assert_eq!(tree_lift(10., 900., 600.), 0.);
     }
 
     /// EXP-916/EXP-1192: the tree needs its own column PLUS a sane diff

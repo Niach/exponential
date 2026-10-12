@@ -1830,6 +1830,37 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
     }
 }
 
+/// EXP-1275 — [`switch_team`] from the team picker. The switch itself is
+/// local and instant; only a team whose rows have not synced here yet (the
+/// teams + boards shapes still catching up) has something to wait for, and
+/// that wait is the BLOCKING kind (`crate::feedback::Blocking`): the window
+/// backdrop, the mark and "Switching to <team>", until the team's row lands
+/// (or the gate gives up), then the switch.
+pub fn switch_team_blocking(window: &Window, cx: &mut App, team_id: String) {
+    let teams = Store::global(cx).collections().teams.clone();
+    let synced = shapes_ready(cx) && teams.read(cx).get(&team_id).is_some();
+    if synced {
+        switch_team(window, cx, team_id);
+        return;
+    }
+    let name = teams
+        .read(cx)
+        .get(&team_id)
+        .map(|team| team.name.clone())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "your team".to_string());
+    crate::feedback::Blocking::begin(crate::feedback::blocking_switch_team(&name), cx);
+    window
+        .spawn(cx, async move |cx| {
+            crate::queries::await_row_visible(&teams, &team_id, cx).await;
+            let _ = cx.update(|window, cx| {
+                crate::feedback::Blocking::end(cx);
+                switch_team(window, cx, team_id);
+            });
+        })
+        .detach();
+}
+
 // -----------------------------------------------------------------------
 // Last-team/-board persistence (`settings.json`, merge-preserving
 // like the `deviceId` key — other subsystems' keys survive)
@@ -2125,7 +2156,7 @@ pub fn init(cx: &mut App) {
     cx.on_action(|action: &SwitchTeam, cx| {
         let team_id = action.team_id.clone();
         on_active_window(cx, move |window, cx| {
-            switch_team(window, cx, team_id);
+            switch_team_blocking(window, cx, team_id);
         });
     });
     // EXP-723: the rail's account menu is What's new / About / Sign out. Both

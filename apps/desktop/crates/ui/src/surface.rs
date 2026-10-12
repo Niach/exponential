@@ -164,6 +164,13 @@ pub(crate) fn scrim_band(flush_top: bool) -> Div {
         .bg(scrim_ground())
 }
 
+/// EXP-1271 — the panel's own ground mid-page (opaque): what the mark's
+/// cut stripes paint in where it sits on the page itself (the composer's
+/// STARTING row).
+pub(crate) fn page_ground() -> Hsla {
+    panel_fill_at(0.5)
+}
+
 /// The top strip hung under that ground: it starts at the ground's own
 /// opaque colour and fades to nothing, so the band has no lower edge.
 pub(crate) fn edge_fade_top_scrim() -> Div {

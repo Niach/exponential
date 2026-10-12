@@ -274,6 +274,13 @@ impl Focusable for PrDiffView {
     }
 }
 
+impl PrDiffView {
+    /// EXP-1261: whether the diff left its top (the work body's top fade).
+    pub(crate) fn scrolled(&self, cx: &App) -> bool {
+        crate::work_header::scrolled(&self.diff.read(cx).page_scroll())
+    }
+}
+
 impl Render for PrDiffView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // The merge/close refusal captions under the work header's pill; the

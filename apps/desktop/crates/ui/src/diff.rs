@@ -1162,6 +1162,9 @@ pub struct DiffView {
     text_w: f32,
     h_scroll: HScroll,
     scroll: VirtualListScrollHandle,
+    /// EXP-1261: the Changes page's file tree height and the pane's, last
+    /// paint ([`crate::diff_pane::render`] measures both).
+    tree_metrics: Rc<std::cell::Cell<(f32, f32)>>,
 }
 
 impl DiffView {
@@ -1184,6 +1187,7 @@ impl DiffView {
             text_w: 0.,
             h_scroll: HScroll::default(),
             scroll: VirtualListScrollHandle::new(),
+            tree_metrics: Rc::default(),
         }
     }
 
@@ -1333,6 +1337,18 @@ impl DiffView {
     /// Per-file summaries in render order (drives an external file list).
     pub fn files(&self) -> &[FileSummary] {
         &self.files
+    }
+
+    /// EXP-1261 — the list's vertical scroll: the Changes page's file tree
+    /// rides it ([`crate::diff_pane::render`]), and the work body's top fade
+    /// waits for it to leave the top.
+    pub(crate) fn page_scroll(&self) -> gpui::ScrollHandle {
+        (*self.scroll).clone()
+    }
+
+    /// EXP-1261: (file tree height, pane height), last paint.
+    pub(crate) fn tree_metrics(&self) -> Rc<std::cell::Cell<(f32, f32)>> {
+        self.tree_metrics.clone()
     }
 
     /// Scroll the diff so `file_ix`'s header row is at the top.

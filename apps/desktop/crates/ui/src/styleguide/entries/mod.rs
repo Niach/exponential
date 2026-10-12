@@ -43,7 +43,9 @@ pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
 pub(crate) mod your_agent_settings;
 pub(crate) mod voice_call_overlay;
-/// EXP-1270: registered in `ENTRIES` once `sections.json` lists `getting-started`.
+pub(crate) mod feedback_states;
+pub(crate) mod agent_home;
+pub(crate) mod work_tabs_strip;
 pub(crate) mod getting_started;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
@@ -86,6 +88,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: scope_picker::ID, owner: scope_picker::OWNER, render: scope_picker::render },
     Entry { id: toast::ID, owner: toast::OWNER, render: toast::render },
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
+    Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
     Entry { id: composer_fix_conflicts::ID, owner: composer_fix_conflicts::OWNER, render: composer_fix_conflicts::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
@@ -109,4 +112,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
     Entry { id: your_agent_settings::ID, owner: your_agent_settings::OWNER, render: your_agent_settings::render },
     Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },
+    Entry { id: agent_home::ID, owner: agent_home::OWNER, render: agent_home::render },
+    Entry { id: work_tabs_strip::ID, owner: work_tabs_strip::OWNER, render: work_tabs_strip::render },
+    Entry { id: getting_started::ID, owner: getting_started::OWNER, render: getting_started::render },
 ];

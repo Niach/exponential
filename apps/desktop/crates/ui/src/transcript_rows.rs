@@ -665,6 +665,7 @@ mod tests {
                 diff: None,
                 output: None,
                 preview: None,
+                script: None,
             },
             seq: None,
         }

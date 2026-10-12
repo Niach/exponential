@@ -59,7 +59,7 @@ mod board_detail;
 mod repositories;
 mod sessions;
 mod storage;
-mod team_general;
+pub(crate) mod team_general;
 mod tools;
 mod widget;
 
