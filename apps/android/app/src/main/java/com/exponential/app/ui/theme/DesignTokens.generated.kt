@@ -220,5 +220,10 @@ object DesignTokens {
             val Decelerate: Easing = CubicBezierEasing(0.0f, 0.0f, 0.2f, 1.0f)
             val Accelerate: Easing = CubicBezierEasing(0.3f, 0.0f, 1.0f, 1.0f)
         }
+
+        object Scale {
+            const val Press: Float = 0.97f
+            const val PopoverFrom: Float = 0.96f
+        }
     }
 }

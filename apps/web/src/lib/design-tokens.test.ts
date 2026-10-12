@@ -21,7 +21,11 @@ const tokens = JSON.parse(
   avatar: Record<string, string>
   glass: Record<string, string>
   diff: Record<string, string>
-  motion: { duration: Record<string, number>; ease: Record<string, number[]> }
+  motion: {
+    duration: Record<string, number>
+    ease: Record<string, number[]>
+    scale: Record<string, number>
+  }
   transcript: Record<string, number | string>
   menu: { pointer: Record<string, number>; touch: Record<string, number> }
   spacing: Record<string, number>
@@ -254,6 +258,14 @@ describe(`design-tokens parity with web styles.css`, () => {
         rootVars[cssVar],
         `tokens.motion.ease.${key} should equal --${cssVar} in styles.css`
       ).toBe(`cubic-bezier(${curve.join(`, `)})`)
+    }
+    for (const [key, factor] of Object.entries(tokens.motion.scale)) {
+      if (key.startsWith(`$`)) continue
+      const cssVar = `motion-scale-${kebab(key)}`
+      expect(
+        rootVars[cssVar],
+        `tokens.motion.scale.${key} should equal --${cssVar} in styles.css`
+      ).toBe(`${factor}`)
     }
   })
 

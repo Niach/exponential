@@ -214,6 +214,9 @@ html {
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  /* EXP-1243: press + popover enter-from scales (tokens.json motion.scale). */
+  --motion-scale-press: 0.97;
+  --motion-scale-popover-from: 0.96;
   /* EXP-787 transcript measure + rhythm. THEME-INVARIANT like the motion
      tokens, so :root only. Values mirror packages/design-tokens/tokens.json
      `transcript`; design-tokens.test.ts guards the parity, and the gap ladder
