@@ -64,6 +64,7 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -486,19 +487,57 @@ class AgentComposerViewModel @Inject constructor(
     val startTimedOut: StateFlow<String?> = _startTimedOut
     private var startingDeadline: Job? = null
 
-    fun consumeStartTimedOut() {
+    /**
+     * Review #3 (feedback-states.json `starting`): the uuid of the current
+     * Start press, carried by `steer.startSession`; Retry REUSES it (the
+     * device starts an id once), a new press mints a fresh one.
+     */
+    private var startId: String? = null
+
+    /** A start timed out but is still watched: its late row lands normally. */
+    private var awaitingLate = false
+
+    /** The timeout toast on screen, dismissed when the late row lands. */
+    private var timeoutToastId: String? = null
+    private val _dismissToast = MutableStateFlow<String?>(null)
+    val dismissToast: StateFlow<String?> = _dismissToast
+
+    fun consumeStartTimedOut(toastId: String? = null) {
         _startTimedOut.value = null
+        timeoutToastId = toastId
+    }
+
+    fun consumeDismissToast() {
+        _dismissToast.value = null
     }
 
     /** Drop the delegate's refused-send state once the page has toasted it. */
     fun clearRunFailure() = steerLaunch.clearFailure()
 
-    /** The start's row landed (the page opens it): the kept draft goes now. */
+    /**
+     * The start's row landed (the page opens it): the kept draft goes now.
+     * Review #3: a row landing AFTER the timeout lands the same way and takes
+     * the timeout toast down.
+     */
     private fun landStarted() {
-        if (_starting.value == null) return
+        if (_starting.value == null && !awaitingLate) return
         startingDeadline?.cancel()
         _starting.value = null
+        awaitingLate = false
+        startId = null
+        _startTimedOut.value = null
+        timeoutToastId?.let { _dismissToast.value = it }
+        timeoutToastId = null
         clearSentDraft()
+    }
+
+    init {
+        // Review #4: the pending start ends HERE, the moment the delegate
+        // hands over the row, not when the screen consumes it: a landing
+        // while the Agent screen is off-screen is never a false timeout.
+        viewModelScope.launch {
+            steerLaunch.startedSessionId.collect { id -> if (id != null) landStarted() }
+        }
     }
 
     private fun clearSentDraft() {
@@ -993,9 +1032,12 @@ class AgentComposerViewModel @Inject constructor(
      * [action] is the resolved row for an action subject (null while its
      * synced row is missing — the gate already blocks that); [resumeOffered]
      * whether the single issue's worktree exists on the picked machine.
+     * A Start press mints a fresh `startId`; [retrying] = the error toast's
+     * Retry, which re-sends under the SAME id.
      */
-    fun submit(action: ActionDto?, resumeOffered: Boolean) {
+    fun submit(action: ActionDto?, resumeOffered: Boolean, retrying: Boolean = false) {
         if (_sending.value) return
+        if (!retrying || startId == null) startId = UUID.randomUUID().toString()
         // EXP-980: a blocked start asks first — start anyway, or cancel. A
         // RESUME re-enters a run that already has its branch, so there is
         // nothing to ask (desktop parity).
@@ -1099,8 +1141,13 @@ class AgentComposerViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return
         val subject = _subject.value
         val label = target.deviceLabel.ifBlank { target.deviceId }
+        val sendStartId = this.startId
         viewModelScope.launch {
             _sending.value = true
+            // A new send supersedes a timed-out one still being watched.
+            awaitingLate = false
+            timeoutToastId?.let { _dismissToast.value = it }
+            timeoutToastId = null
             _starting.value = ComposerStarting(label, System.currentTimeMillis())
             var accepted = false
             try {
@@ -1153,6 +1200,7 @@ class AgentComposerViewModel @Inject constructor(
                                 mapOf("repo" to _chatRepoId.value),
                             ),
                             prompt,
+                            sendStartId,
                         )
                     }
                     is ComposerSubject.Issues ->
@@ -1161,6 +1209,7 @@ class AgentComposerViewModel @Inject constructor(
                             stacked?.let { listOf(it.issueId) } ?: subject.ids,
                             options,
                             prompt,
+                            sendStartId,
                         )
                     is ComposerSubject.Action -> {
                         val row = action ?: return@launch
@@ -1170,20 +1219,23 @@ class AgentComposerViewModel @Inject constructor(
                             options,
                             ActionInputValues.wireValues(row.inputs.orEmpty(), subject.inputs),
                             prompt,
+                            sendStartId,
                         )
                     }
                 }
                 if (accepted) {
                     // EXP-1271: the draft stays until the row lands (a
-                    // timeout keeps it to retry); `starting.timeoutMs` after
-                    // the PRESS the start gives up on it.
-                    val since = _starting.value?.sinceMs ?: System.currentTimeMillis()
+                    // timeout keeps it to retry). Review #3: the deadline
+                    // counts from HERE, the request SENT (uploads done); on
+                    // timeout the composer goes idle and toasts, but nothing
+                    // is aborted: the watch goes on and a late row lands.
                     startingDeadline?.cancel()
                     startingDeadline = viewModelScope.launch {
-                        delay((since + FeedbackStates.STARTING_TIMEOUT_MS - System.currentTimeMillis()).coerceAtLeast(0))
+                        delay(FeedbackStates.STARTING_TIMEOUT_MS)
                         if (_starting.value != null) {
-                            steerLaunch.cancelWatch()
+                            steerLaunch.quietWatch()
                             _starting.value = null
+                            awaitingLate = true
                             _startTimedOut.value = label
                         }
                     }

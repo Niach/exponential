@@ -446,7 +446,10 @@ fun AgentScreen(
     // ── Feedback (FEED-79, EXP-1271): a refused start and a start that never
     // landed are toasts; Retry re-submits the kept draft ────────────────────
     val toaster = LocalToaster.current
-    val retryStart by rememberUpdatedState { viewModel.submit(selectedAction, resumeCandidate != null) }
+    // Retry re-sends under the SAME startId (the device starts an id once).
+    val retryStart by rememberUpdatedState {
+        viewModel.submit(selectedAction, resumeCandidate != null, retrying = true)
+    }
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
         toaster.error(
@@ -458,12 +461,19 @@ fun AgentScreen(
     }
     LaunchedEffect(startTimedOut) {
         val label = startTimedOut ?: return@LaunchedEffect
-        toaster.error(
+        val toastId = toaster.error(
             FeedbackStates.STARTING_TIMEOUT_TITLE,
             FeedbackStates.startingTimeoutDescription(label),
             ToastAction(FeedbackStates.RETRY) { retryStart() },
         )
-        viewModel.consumeStartTimedOut()
+        viewModel.consumeStartTimedOut(toastId)
+    }
+    // Review #3: the timed-out start's row landed late: its toast goes.
+    val dismissToast by viewModel.dismissToast.collectAsStateWithLifecycle()
+    LaunchedEffect(dismissToast) {
+        val id = dismissToast ?: return@LaunchedEffect
+        toaster.dismiss(id)
+        viewModel.consumeDismissToast()
     }
     // A start whose attachment upload failed: landed uploads are kept, so
     // Retry uploads the rest and starts (web parity).

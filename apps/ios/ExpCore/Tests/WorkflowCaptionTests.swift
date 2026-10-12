@@ -4,7 +4,8 @@ import XCTest
 
 // EXP-850 §7: the workflow caption, locked ×4 (TS
 // `workflow-caption.test.ts`, desktop `steer::workflow_caption`, Android
-// `WorkflowCaptionTest`) against the ONE contract fixture — same cases, read
+// `WorkflowCaptionTest`) against the ONE contract fixture, `work-card.json`
+// `caption.cases` (D12 moved them there) — same cases, read
 // through `#filePath` because the unit-test bundle carries no repo resources
 // (the ToolGroupSummaryTests playbook).
 final class WorkflowCaptionTests: XCTestCase {
@@ -26,9 +27,11 @@ final class WorkflowCaptionTests: XCTestCase {
             .deletingLastPathComponent()          // apps/ios/
             .deletingLastPathComponent()          // apps/
             .deletingLastPathComponent()          // the repo root
-            .appendingPathComponent("packages/domain-contract/fixtures/workflow-caption.json")
+            .appendingPathComponent("packages/domain-contract/fixtures/work-card.json")
         let data = try Data(contentsOf: url)
-        let raw = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        let root = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let caption = try XCTUnwrap(root["caption"] as? [String: Any])
+        let raw = try XCTUnwrap(caption["cases"] as? [[String: Any]])
         return try raw.map { object in
             let workflow = try XCTUnwrap(object["workflow"] as? [String: Any])
             let phases = (workflow["phases"] as? [[String: Any]] ?? []).map { phase in

@@ -557,6 +557,10 @@ internal data class StartSessionInput(
     // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
     @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
     @SerialName("computerUse") val computerUse: Boolean? = null,
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when null.
+    @SerialName("startId") val startId: String? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -579,6 +583,10 @@ internal data class StartBatchSessionInput(
     // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
     @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
     @SerialName("computerUse") val computerUse: Boolean? = null,
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when null.
+    @SerialName("startId") val startId: String? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -608,6 +616,10 @@ internal data class StartActionSessionInput(
     // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
     @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
     @SerialName("computerUse") val computerUse: Boolean? = null,
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when null.
+    @SerialName("startId") val startId: String? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -677,6 +689,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = null,
+        startId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -695,6 +708,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 mcpServerIds = options.mcpServerIds,
                 computerUse = options.computerUse,
                 prompt = prompt,
+                startId = startId,
             ),
             inputSerializer = StartSessionInput.serializer(),
         )
@@ -711,6 +725,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = null,
+        startId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -728,6 +743,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 mcpServerIds = options.mcpServerIds,
                 computerUse = options.computerUse,
                 prompt = prompt,
+                startId = startId,
             ),
             inputSerializer = StartBatchSessionInput.serializer(),
         )
@@ -784,6 +800,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         teamId: String? = null,
         inputs: Map<String, String>? = null,
         prompt: String? = null,
+        startId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -803,6 +820,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 mcpServerIds = options.mcpServerIds,
                 computerUse = options.computerUse,
                 prompt = prompt,
+                startId = startId,
             ),
             inputSerializer = StartActionSessionInput.serializer(),
         )

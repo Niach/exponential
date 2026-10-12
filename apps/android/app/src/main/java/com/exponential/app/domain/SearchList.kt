@@ -28,10 +28,11 @@ object SearchList {
     /**
      * The `#` token ending at [caret], or null when there is none: the `#`
      * must open the text or follow whitespace or `(` (so `C#sharp` is not a
-     * trigger), and nothing between it and the caret may be whitespace (a
-     * finished `#sid bar` is not live any more). The query is everything
-     * typed after the `#`, which is what the sheet's input opens prefilled
-     * with.
+     * trigger), and only token characters (`[A-Za-z0-9-]`) may sit between
+     * it and the caret (whitespace or punctuation ends it). A `#` at the
+     * START of a line waits for a token character (`#E` opens with `E`), so
+     * `# Title` and `## H` stay headings. The query is everything typed after
+     * the `#`, which is what the sheet's input opens prefilled with.
      */
     fun typeaheadPrefill(text: String, caret: Int): TypeaheadPrefill? {
         val end = caret.coerceIn(0, text.length)
@@ -40,25 +41,28 @@ object SearchList {
             val c = text[i]
             if (c == '#') {
                 val before = text.getOrNull(i - 1)
-                if (before != null && !before.isWhitespace() && before != '(') return null
+                val lineStart = before == null || before == '\n' || before == '\r'
+                if (!lineStart && !before!!.isWhitespace() && before != '(') return null
+                if (lineStart && i + 1 == end) return null
                 return TypeaheadPrefill(start = i, query = text.substring(i + 1, end))
             }
-            if (c.isWhitespace()) return null
+            if (!isTokenChar(c)) return null
             i--
         }
         return null
     }
 
+    private fun isTokenChar(c: Char): Boolean =
+        c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '-'
+
     /**
-     * A pick: the `#token` that starts at [start] (the `#` plus every
-     * non-whitespace character after it, as the editor holds it NOW) becomes
-     * `#IDENT `, and the caret lands after the space. Null when [start] no
-     * longer holds a `#` (the text changed under the sheet).
+     * A pick: exactly `[start, start + 1 + queryLength)` (the `#` and the
+     * token as recorded when the sheet opened, never text after the caret)
+     * becomes `#IDENT `, and the caret lands after the space. Null when
+     * [start] no longer holds a `#` (the text changed under the sheet).
      */
-    fun spliceTypeaheadPick(text: String, start: Int, identifier: String): Pair<String, Int>? {
-        if (start !in text.indices || text[start] != '#') return null
-        var end = start + 1
-        while (end < text.length && !text[end].isWhitespace()) end++
+    fun spliceTypeaheadPick(text: String, start: Int, queryLength: Int, identifier: String): Pair<String, Int>? {
+        val end = recordedEnd(text, start, queryLength) ?: return null
         // A space the text already has is reused rather than doubled.
         val after = text.substring(end).removePrefix(" ")
         val inserted = "#$identifier "
@@ -67,12 +71,16 @@ object SearchList {
 
     /**
      * Backspace in the sheet's EMPTY input closes the list and deletes the
-     * `#` (with whatever token followed it in the editor).
+     * `#` and the query typed so far (`1 + queryLength` from the recorded
+     * start).
      */
-    fun deleteTypeaheadToken(text: String, start: Int): Pair<String, Int>? {
-        if (start !in text.indices || text[start] != '#') return null
-        var end = start + 1
-        while (end < text.length && !text[end].isWhitespace()) end++
+    fun deleteTypeaheadToken(text: String, start: Int, queryLength: Int): Pair<String, Int>? {
+        val end = recordedEnd(text, start, queryLength) ?: return null
         return Pair(text.substring(0, start) + text.substring(end), start)
+    }
+
+    private fun recordedEnd(text: String, start: Int, queryLength: Int): Int? {
+        if (start !in text.indices || text[start] != '#') return null
+        return (start + 1 + queryLength.coerceAtLeast(0)).coerceAtMost(text.length)
     }
 }

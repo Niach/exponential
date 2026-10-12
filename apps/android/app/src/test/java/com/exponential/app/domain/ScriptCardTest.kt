@@ -103,10 +103,12 @@ class ScriptCardTest {
     }
 
     @Test
-    fun `durations under a minute round like toFixed`() {
-        assertEquals("3.0 s", ScriptCards.duration(3040))
-        assertEquals("0.1 s", ScriptCards.duration(120))
-        assertEquals("0.1 s", ScriptCards.duration(150))
-        assertEquals("1m", ScriptCards.duration(75_000))
+    fun `durations replay the fixture in integer tenths half up`() {
+        val durations = fixture.list("durations")
+        assertTrue(durations.isNotEmpty())
+        for (case in durations) {
+            val ms = case.getValue("ms").jsonPrimitive.long
+            assertEquals("$ms ms", case.str("expected"), ScriptCards.duration(ms))
+        }
     }
 }

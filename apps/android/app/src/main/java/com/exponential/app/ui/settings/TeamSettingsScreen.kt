@@ -445,6 +445,8 @@ private fun RepositoriesSection(
         val context = LocalContext.current
         GithubStatusBlock(
             status = state.githubStatus,
+            failed = state.githubStatusFailed,
+            onRetry = viewModel::refreshGithub,
             connecting = state.githubConnecting,
             onConnect = {
                 viewModel.connectGithub { url ->
@@ -1190,6 +1192,8 @@ private const val DEFAULT_BRANCH_FALLBACK = "main"
 @Composable
 private fun GithubStatusBlock(
     status: GithubStatusResult?,
+    failed: Boolean,
+    onRetry: () -> Unit,
     connecting: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
@@ -1200,8 +1204,27 @@ private fun GithubStatusBlock(
     val open: (String) -> Unit = { url ->
         CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
     }
-    // Loading or a failed probe (FEED-79: the toast with Retry) = nothing.
-    if (status == null) return
+    // A failed probe with nothing loaded (FEED-79: quiet, no toast) = the
+    // failed line with Retry, iOS parity; loading = nothing.
+    if (status == null) {
+        if (!failed) return
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassRow()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            StatusLine(
+                ExpIcons.uiGithub,
+                GithubCopy.STATUS_FAILED,
+                secondary,
+                trailing = {
+                    GlassPill(GithubCopy.RETRY, icon = ExpIcons.uiRefresh, size = PillSize.Sm, onClick = onRetry)
+                },
+            )
+        }
+        return
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier

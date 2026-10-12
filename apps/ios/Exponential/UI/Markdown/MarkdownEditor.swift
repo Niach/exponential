@@ -142,6 +142,7 @@ struct MarkdownEditor: View {
         } else {
             toolbar.onFilePick = nil
         }
+        toolbar.onIssueRef = { model.armExplicitIssueRef() }
         toolbar.onEmoji = {
             // Captured while the text view is still first responder.
             emojiRefocusTarget = model.insertionTargetBlockId

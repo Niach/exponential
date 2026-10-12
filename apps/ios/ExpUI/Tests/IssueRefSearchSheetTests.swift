@@ -62,6 +62,33 @@ final class IssueRefSearchSheetTests: XCTestCase {
         XCTAssertEqual(model.currentMarkdown(), "Explain")
     }
 
+    func testBackspaceInTheEmptyInputDeletesTheHashAndTheTokenTyped() {
+        let (model, id, content) = model(markdown: "Explain #sid")
+        model.updateSelection(blockId: id, range: NSRange(location: 12, length: 0))
+        model.updateText(id: id, content: content)
+        XCTAssertEqual(model.issueRefSearchRequest?.query, "sid")
+        model.dismissIssueRefSearch(deletingHash: true)
+        XCTAssertEqual(model.currentMarkdown(), "Explain")
+    }
+
+    /// Review #5 (search-list.json): a typed `#` at the start of a line waits
+    /// for a token character, so `# Title` stays a heading; `#E` opens.
+    func testALineStartHashWaitsForATokenCharacter() {
+        let (model, id, _) = model(markdown: "")
+        model.updateSelection(blockId: id, range: NSRange(location: 0, length: 0))
+        model.updateText(id: id, content: NSAttributedString(string: "#"))
+        model.updateSelection(blockId: id, range: NSRange(location: 1, length: 0))
+        XCTAssertNil(model.issueRefSearchRequest)
+        model.updateText(id: id, content: NSAttributedString(string: "# "))
+        model.updateSelection(blockId: id, range: NSRange(location: 2, length: 0))
+        XCTAssertNil(model.issueRefSearchRequest)
+
+        let (other, otherId, _) = self.model(markdown: "")
+        other.updateSelection(blockId: otherId, range: NSRange(location: 2, length: 0))
+        other.updateText(id: otherId, content: NSAttributedString(string: "#E"))
+        XCTAssertEqual(other.issueRefSearchRequest?.query, "E")
+    }
+
     func testASwipeDownKeepsTheTextAsTyped() {
         let (model, id, content) = model(markdown: "see (#side")
         model.updateSelection(blockId: id, range: NSRange(location: 10, length: 0))

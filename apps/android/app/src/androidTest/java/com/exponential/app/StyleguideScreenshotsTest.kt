@@ -333,6 +333,11 @@ class StyleguideScreenshotsTest {
         // accessibility id.
         composeRule.onAllNodes(hasText(SHOWCASE_ISSUE_TITLE)).onFirst().performClick()
         flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
+        // The face strip as the store lane's 2_issue-detail shows it: the
+        // live run's Run tab, then the Guide tab its diff brings (EXP-875;
+        // the screen dials the diff from the Issue face too).
+        flow.waitFor(hasTestTag("work-face-run"), SYNC_TIMEOUT)
+        flow.waitForOptional(hasTestTag("work-face-guide"), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("comment-thread-header"), SYNC_TIMEOUT)
         flow.waitFor(hasText(SHOWCASE_COMMENT_FRAGMENT, substring = true), SYNC_TIMEOUT)
         composeRule.onNode(hasTestTag("comment-thread-header")).performScrollTo()

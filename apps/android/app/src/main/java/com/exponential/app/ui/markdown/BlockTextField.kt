@@ -101,6 +101,9 @@ fun BlockTextField(
     // the caret into an existing `#EXP-238` popped the menu and nothing could
     // dismiss it (EXP-322).
     var armed by remember(row.id) { mutableStateOf(false) }
+    // Where a toolbar `#` tap just put its `#`: an explicit request opens the
+    // issue search even at a line start (review #5; typed, it waits).
+    var explicitHashAt by remember(row.id) { mutableStateOf<Int?>(null) }
 
     // Re-seed from the model only on structural/external change (revision bump).
     LaunchedEffect(revision) {
@@ -110,7 +113,11 @@ fun BlockTextField(
         }
         // A toolbar `@`/`#` tap arrives here as a plain revision bump,
         // indistinguishable from any other reseed — hence the explicit signal.
-        if (model.consumeAutocompleteArm(row.id)) armed = true
+        if (model.consumeAutocompleteArm(row.id)) {
+            armed = true
+            val caret = value.selection.start
+            explicitHashAt = (caret - 1).takeIf { value.text.getOrNull(it) == '#' }
+        }
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -235,9 +242,13 @@ fun BlockTextField(
         handler = issueRefs,
         field = value,
         armed = autocompleteEligible && triggers.issueRef != null,
-        onDisarm = { armed = false },
+        onDisarm = {
+            armed = false
+            explicitHashAt = null
+        },
         onCommit = { next -> commitToken(next) },
         onRefocus = { refocusTick++ },
+        explicitHashAt = explicitHashAt,
     )
     val menuOpen = autocompleteEligible &&
         (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty() || emojiCandidates.isNotEmpty())
