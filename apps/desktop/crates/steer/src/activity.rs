@@ -45,6 +45,15 @@ pub const NARRATION_MAX: usize = 16 * 1024;
 pub const TOOL_NAME_MAX: usize = 128;
 pub const TOOL_DETAIL_MAX: usize = 1024;
 pub const DIFF_MAX: usize = 512 * 1024;
+
+/// How much of a `git diff` the ticker READS before it stops git: one byte
+/// past [`DIFF_MAX`], so [`truncate`] still sees "over" without the whole
+/// patch ever being in memory. Each live run polls its diff every 3 s and
+/// redacts it (eight regex passes, each a full copy) before truncating; an
+/// unbounded read of a changing multi-hundred-MB diff (vendored deps in a
+/// scratch repo, generated assets) pegged a core per run and churned
+/// gigabytes.
+pub const DIFF_READ_MAX: usize = DIFF_MAX + 1;
 /// Question text used to share the narration budget, but an ExitPlanMode plan
 /// rides here and real plans clear 16KiB (EXP-691) — the relay's
 /// `question.text` cap is raised in lockstep (`protocol.ts`). Anything larger
@@ -350,7 +359,7 @@ pub fn synthetic_question_id(
 pub fn worktree_diff(worktree: &Path, base_ref: Option<&str>) -> Option<String> {
     if let Some(base) = base_ref.map(str::trim).filter(|base| !base.is_empty()) {
         if let Some(merge_base) = git_merge_base(worktree, base) {
-            return git_out(worktree, &["diff", &merge_base]);
+            return git_out_bounded(worktree, &["diff", &merge_base], DIFF_READ_MAX);
         }
     }
     let mut out = git_diff(worktree, false)?;
@@ -374,10 +383,61 @@ fn git_merge_base(worktree: &Path, base: &str) -> Option<String> {
 
 fn git_diff(worktree: &Path, cached: bool) -> Option<String> {
     if cached {
-        git_out(worktree, &["diff", "--cached"])
+        git_out_bounded(worktree, &["diff", "--cached"], DIFF_READ_MAX)
     } else {
-        git_out(worktree, &["diff"])
+        git_out_bounded(worktree, &["diff"], DIFF_READ_MAX)
     }
+}
+
+/// [`git_out`] that stops reading at `max_bytes` and kills git there: the
+/// head of an oversize patch is all a frame can carry anyway. The cut is
+/// reported as success (the caller truncates); a failure before the cap is
+/// `None` like [`git_out`].
+fn git_out_bounded(worktree: &Path, args: &[&str], max_bytes: usize) -> Option<String> {
+    use std::io::Read as _;
+    use std::process::Stdio;
+    let mut cmd = terminal::process::background_command("git");
+    cmd.arg("-C")
+        .arg(worktree)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    let mut cut = false;
+    loop {
+        match stdout.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                let room = max_bytes.saturating_sub(buf.len());
+                if n >= room {
+                    buf.extend_from_slice(&chunk[..room]);
+                    cut = true;
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    drop(stdout);
+    if cut {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Some(String::from_utf8_lossy(&buf).into_owned());
+    }
+    let status = child.wait().ok()?;
+    status
+        .success()
+        .then(|| String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// Stdout of one git command; `None` on a spawn failure or non-zero exit.
@@ -1468,6 +1528,28 @@ mod tests {
         // An unknown base is a fallback, never an error.
         assert!(worktree_diff(&repo.0, Some("origin/nope")).unwrap_or_default().is_empty());
         assert!(worktree_diff(&repo.0, Some("   ")).unwrap_or_default().is_empty());
+    }
+
+    /// The diff ticker never holds more than [`DIFF_READ_MAX`] bytes of a
+    /// patch: an agent that commits megabytes of generated text must not
+    /// cost a full read + eight redaction copies every 3 s.
+    #[test]
+    fn worktree_diff_reads_at_most_the_frame_budget() {
+        let repo = DiffRepo::new("diff-bounded");
+        let line = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n";
+        let big = line.repeat(DIFF_MAX / line.len() * 3);
+        repo.write("big.txt", &big);
+        repo.git(&["add", "-A"]);
+        let staged = worktree_diff(&repo.0, None).expect("git answers");
+        assert!(staged.len() <= DIFF_READ_MAX, "read {} bytes", staged.len());
+        assert!(staged.starts_with("diff --git"));
+        repo.commit("big");
+        let committed = worktree_diff(&repo.0, Some("main")).expect("git answers");
+        assert!(committed.len() <= DIFF_READ_MAX, "read {} bytes", committed.len());
+        assert_eq!(truncate(&committed, DIFF_MAX).len(), DIFF_MAX);
+        // A small diff is still read whole, byte for byte.
+        repo.write("base.txt", "a\nlanded\n");
+        assert!(worktree_diff(&repo.0, None).unwrap_or_default().contains("landed"));
     }
 
     /// EXP-746: `next_diff` is the same rule with the send taken out, so the

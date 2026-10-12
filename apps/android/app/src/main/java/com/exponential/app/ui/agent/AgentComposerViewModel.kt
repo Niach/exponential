@@ -1057,9 +1057,11 @@ class AgentComposerViewModel @Inject constructor(
                 pick = _computerUsePick.value,
                 canToggle = device.value?.canToggleComputerUse == true,
             ),
-            // EXP-1284: a start from a thread page joins that thread (never
-            // with a resume — the server refuses the pair).
-            threadId = seed.threadId?.takeIf { !resume },
+            // EXP-1284: a start from a thread page joins that thread. `resume`
+            // here is the worktree flag (EXP-481), which the server accepts
+            // beside a thread like web, iOS and desktop send it; only a
+            // resumeSessionId refuses the pair, and that path never seeds one.
+            threadId = seed.threadId,
         )
     }
 
