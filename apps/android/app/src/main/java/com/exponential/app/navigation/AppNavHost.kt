@@ -71,6 +71,7 @@ import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.ToastHost
+import com.exponential.app.ui.components.BlockingOverlayHost
 import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.instance.InstanceScreen
@@ -314,6 +315,9 @@ fun AppNavHost() {
         // Drawn last, so it overlays every screen's header (sonner
         // top-center does the same); only the cards take touches.
         ToastHost(toaster, Modifier.align(Alignment.TopCenter))
+        // EXP-1275 (D8.5): the window's ONE blocking overlay — switching
+        // team or account, signing out — over everything, toasts included.
+        BlockingOverlayHost()
         }
     }
 }

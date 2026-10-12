@@ -92,14 +92,13 @@ fun SectionHeader(
     }
 }
 
-/** The band's 12dp loading glyph (EXP-1274, web `GlassSectionHeader loading`). */
+/**
+ * The band's loading glyph (EXP-1274, web `GlassSectionHeader loading`):
+ * EXP-1275's INLINE spinner, the one primitive every band and caption shares.
+ */
 @Composable
 private fun SectionBandSpinner() {
-    CircularProgressIndicator(
-        modifier = Modifier.size(12.dp).testTag("section-band-loading"),
-        strokeWidth = 1.5.dp,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-    )
+    InlineSpinner(modifier = Modifier.testTag("section-band-loading"))
 }
 
 /**

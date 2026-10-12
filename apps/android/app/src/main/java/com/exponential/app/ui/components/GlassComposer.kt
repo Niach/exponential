@@ -139,8 +139,15 @@ fun ComposerSubmitButton(
     // (byte-identical with the iOS identifier).
     modifier: Modifier = Modifier,
 ) {
-    IconButton(onClick = onClick, enabled = enabled && !sending, modifier = modifier) {
-        if (sending) {
+    // EXP-1275 PENDING: disabled at once, but the icon slot turns into the
+    // spinner only after the pending delay, so a fast send never flashes.
+    val pendingShown = rememberDelayedFlag(sending)
+    IconButton(
+        onClick = onClick,
+        enabled = enabled && !sending,
+        modifier = modifier,
+    ) {
+        if (pendingShown) {
             CircularProgressIndicator(
                 modifier = Modifier.size(GlassComposerDefaults.SpinnerSize),
                 strokeWidth = 2.dp,

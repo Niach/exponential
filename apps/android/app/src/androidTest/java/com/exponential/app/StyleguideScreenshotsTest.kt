@@ -20,7 +20,14 @@ import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.domain.SearchList
+import androidx.activity.compose.setContent
+import com.exponential.app.ui.gettingstarted.GettingStartedCopy
+import com.exponential.app.ui.styleguide.FeedbackStatesScreen
+import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
+import com.exponential.app.ui.theme.ExponentialTheme
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
 import org.junit.After
@@ -52,11 +59,19 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
  *   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_action-triggers ·
- *   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
+ *   sg_trigger-editor · sg_action-runs · sg_reviews ·
  *   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
- *   sg_onboarding-devices
+ *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
+ *   sg_getting-started · sg_feedback-states
+ *
+ * EXP-1259 added the last four (iOS parity): the Agent HOME the app lands on
+ * (the greeting, the composer, Recent), the `#` typeahead's search-list
+ * sheet, Getting started's block (the Settings entry's sheet) and the
+ * Feedback states screen ([com.exponential.app.ui.styleguide.FeedbackStatesScreen],
+ * set as the activity's content at the very end of the walk). EXP-1270
+ * retired sg_action-suggestions with the seeds.
  *
  * EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot IS
  * the cloud chooser a first-run user meets, so it took over the `sg_sign-in`
@@ -222,6 +237,19 @@ class StyleguideScreenshotsTest {
             flow.awaitLoginScreen()
             flow.submitLogin()
         }
+
+        // --- sg_agent-home: the Agent page the app lands on (EXP-1253) — the
+        // disc mark + the greeting over the composer, Recent under it once the
+        // demo user's runs have synced.
+        flow.waitFor(hasTestTag(AgentHome.GREETING_TEST_ID), FIRST_SYNC_TIMEOUT)
+        if (!flow.waitForOptional(hasTestTag(AgentHome.RECENT_TEST_ID), SYNC_TIMEOUT)) {
+            android.util.Log.w(
+                "EXP-1253",
+                "sg_agent-home: no Recent band — reseed with `bun run seed:screenshots`",
+            )
+        }
+        flow.settle()
+        flow.screenshot("sg_agent-home")
 
         // The app lands on the Agent tab; the board shots start on Issues.
         flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
@@ -426,8 +454,9 @@ class StyleguideScreenshotsTest {
         }
 
         // EXP-1249: the "+" is the composer's ONE tool — its sheet of the
-        // composer-menu.json rows is sg_composer-menu (iOS parity); Implement
-        // issue › opens the issue picker.
+        // composer-menu.json rows is sg_composer-menu (iOS parity). SLOP-28:
+        // Implement issue › PUSHES its search-list page inside the same sheet,
+        // whose `Implement N issues` button closes the menu.
         composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
         flow.waitFor(hasTestTag("agent-composer-menu"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-menu-implement-issue"), NAV_TIMEOUT)
@@ -476,6 +505,23 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasContentDescription("Fix conflicts"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat-action")
+
+        // --- sg_search-list: the `#` typeahead's sheet (SLOP-28). Typing `#`
+        // in the composer opens THE search list as a bottom sheet, its input
+        // focused and prefilled with the token after the `#`.
+        composeRule.onNode(hasTestTag("agent-composer-field")).performTextInput("Explain #")
+        flow.waitFor(hasTestTag("issue-ref-search-sheet"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag(SearchList.INPUT_TEST_ID)).performTextInput("cold")
+        flow.waitFor(
+            hasText(SHOWCASE_ISSUE_TITLE, substring = true) and hasAnyAncestor(hasTestTag("issue-ref-search-sheet")),
+            SYNC_TIMEOUT,
+        )
+        flow.settle()
+        flow.screenshot("sg_search-list")
+        Espresso.pressBack()
+        flow.waitForGone(hasTestTag("issue-ref-search-sheet"), NAV_TIMEOUT)
+        Espresso.closeSoftKeyboard()
+        flow.settle()
         // A tab now (Back would leave the app): the Devices tab returns.
         composeRule.onNode(hasTestTag("tab-devices")).performClick()
         flow.waitForGone(hasTestTag("agent-page"), NAV_TIMEOUT)
@@ -497,12 +543,10 @@ class StyleguideScreenshotsTest {
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- The Actions surface: five shots off its bottom-bar tab (EXP-1187:
-        // the More menu is gone on phones). The segment is rememberSaveable,
-        // so re-select the Actions one explicitly by tag rather than trusting
-        // where a previous visit left it.
+        // --- The Actions surface: four shots off its bottom-bar tab (EXP-1187:
+        // the More menu is gone on phones). EXP-1270: the Suggestions segment
+        // is gone, the surface is the list.
         composeRule.onNode(hasTestTag("tab-actions")).performClick()
-        composeRule.onNode(hasTestTag("actions-segment-actions")).performClick()
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
 
         // --- Create action: "New action" rides the "Actions · count" section
@@ -570,14 +614,6 @@ class StyleguideScreenshotsTest {
         Espresso.pressBack()
         flow.waitForGone(hasTestTag("action-tabs"), NAV_TIMEOUT)
         flow.settle(longer = true)
-
-        // --- Suggestions: shipped constants (ACTION_SUGGESTIONS), not seeded
-        // rows — this one can be gated hard on a card.
-        composeRule.onAllNodes(hasText("Suggestions")).onFirst().performClick()
-        flow.waitFor(hasTestTag("suggestion-row"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_action-suggestions")
-        flow.settle()
 
         // --- Reviews: the cross-board open-PR queue; the seed leaves four open
         // PRs, of which APP-15 is the stable anchor.
@@ -662,6 +698,19 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(TEAM_NAME), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_settings-root")
+
+        // --- sg_getting-started: the block behind Settings' entry (EXP-1270).
+        // The row shows while the demo team has open steps (the seed never
+        // sets up a server), and opens the block in a bottom sheet.
+        flow.waitFor(hasTestTag(GettingStartedCopy.ENTRY_TEST_ID), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag(GettingStartedCopy.ENTRY_TEST_ID)).performClick()
+        flow.waitFor(hasTestTag("getting-started-sheet"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("getting-started-card-board"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_getting-started")
+        Espresso.pressBack()
+        flow.waitForGone(hasTestTag("getting-started-sheet"), NAV_TIMEOUT)
+        flow.settle(longer = true)
 
         // --- Team settings: one tap deeper (the Teams section), then back out
         // for the account screen.
@@ -791,6 +840,19 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("onboarding-devices-step"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding-devices")
+
+        // --- sg_feedback-states: the six feedback kinds (EXP-1275). A
+        // capture-only screen, every kind drawn by its real primitive and the
+        // error toast raised on appear — set as the activity's content last,
+        // so nothing after it needs the app.
+        composeRule.runOnUiThread {
+            composeRule.activity.setContent {
+                ExponentialTheme { FeedbackStatesScreen() }
+            }
+        }
+        flow.waitFor(hasTestTag(FeedbackStatesScreenTestId), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_feedback-states")
 
         finished = true
     }

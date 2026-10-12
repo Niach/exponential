@@ -1,5 +1,7 @@
 package com.exponential.app
 
+import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.ui.components.Blocking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.OpenPullsStore
@@ -412,12 +414,15 @@ class AppViewModel @Inject constructor(
 
     fun signOut() {
         viewModelScope.launch {
-            val active = activeAccount()
-            auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
-            revokeSession(active)
-            syncManager.signOut()
-            steerConnectionStore.closeAll()
-            auth.clearToken()
+            // EXP-1275 (D8.5): signing out runs behind the blocking overlay.
+            Blocking.whileBlocking(FeedbackStates.BLOCKING_SIGN_OUT) {
+                val active = activeAccount()
+                auth.activeAccountId.value?.let { pushTokenManager.unregisterToken(it) }
+                revokeSession(active)
+                syncManager.signOut()
+                steerConnectionStore.closeAll()
+                auth.clearToken()
+            }
         }
     }
 

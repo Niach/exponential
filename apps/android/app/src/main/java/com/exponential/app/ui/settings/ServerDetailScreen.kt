@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.ui.components.Blocking
 import com.exponential.app.ui.components.PickerRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -158,7 +160,8 @@ class ServerDetailViewModel @Inject constructor(
     }
 
     fun signOut(accountId: String) {
-        teardownScope.launch {
+        // EXP-1275 (D8.5): signing out runs behind the blocking overlay.
+        teardownScope.launch { Blocking.whileBlocking(FeedbackStates.BLOCKING_SIGN_OUT) {
             // Capture URL + token BEFORE removeAccount drops the row.
             val account = auth.accounts.value.firstOrNull { it.id == accountId }
             val instanceUrl = account?.instanceUrl
@@ -175,7 +178,7 @@ class ServerDetailViewModel @Inject constructor(
             // without re-typing it — `setInstanceUrl` re-adds the entry with
             // a fresh `token == null` row.
             if (instanceUrl != null) auth.setInstanceUrl(instanceUrl)
-        }
+        } }
     }
 
     // ---- EXP-1126: sign-in methods ------------------------------------------

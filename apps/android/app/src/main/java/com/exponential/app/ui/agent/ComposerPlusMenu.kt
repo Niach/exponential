@@ -14,7 +14,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -41,9 +46,11 @@ import com.exponential.app.ui.theme.TextEmphasis
  * EXP-1249: the composer's ONE "+" menu on a phone (web `composer-plus-menu.tsx`
  * as its sheet arm): the rows of [ComposerMenu.composerMenuLayout] in a
  * bottom sheet — Implement issue ›, Run action ›, Add file or image | Effort ›,
- * Subagents ›, Ultracode | MCP servers ›, Computer use. A submenu row CLOSES
- * this sheet and opens its picker sheet (two stacked sheets are a dead end on
- * Android: the picker IS the pushed page); a toggle flips in place.
+ * Subagents ›, Ultracode | MCP servers ›, Computer use. SLOP-28 (EXP-1259 D5):
+ * Implement issue and Run action PUSH a page inside this sheet ([issuePage],
+ * [actionPage]: THE search list, back returns to the rows); the other submenu
+ * rows close it and open their picker sheet (two stacked sheets are a dead
+ * end on Android); a toggle flips in place.
  */
 @Composable
 internal fun ComposerPlusMenuSheet(
@@ -62,12 +69,33 @@ internal fun ComposerPlusMenuSheet(
     onUltracodeChange: (Boolean) -> Unit,
     onComputerUseChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
+    /** The Implement issue › page (the search list); its arg closes the menu. */
+    issuePage: @Composable (close: () -> Unit) -> Unit,
+    /** The Run action › page (the search list); its arg closes the menu. */
+    actionPage: @Composable (close: () -> Unit) -> Unit,
 ) {
+    var page by remember { mutableStateOf<ComposerMenuRowId?>(null) }
     GlassSheet(
         title = null,
         onDismiss = onDismiss,
         modifier = Modifier.testTag(ComposerMenu.MENU_TEST_ID),
     ) {
+        val pushed = page
+        if (pushed != null) {
+            // The pushed page's own back: to the menu's rows, not out of it.
+            BackHandler { page = null }
+            val entry = layout.filterIsInstance<ComposerMenuEntry.Row>().firstOrNull { it.id == pushed }
+            GlassSheetRow(
+                label = entry?.label.orEmpty(),
+                onClick = { page = null },
+                leading = { RowGlyph(ExpIcons.uiBack) },
+            )
+            when (pushed) {
+                ComposerMenuRowId.ImplementIssue -> issuePage(onDismiss)
+                else -> actionPage(onDismiss)
+            }
+            return@GlassSheet
+        }
         Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
             layout.forEach { entry ->
                 when (entry) {
@@ -121,7 +149,13 @@ internal fun ComposerPlusMenuSheet(
                                     GlassSheetRow(
                                         label = label,
                                         enabled = enabled,
-                                        onClick = { onRow(entry.id) },
+                                        onClick = {
+                                            when (entry.id) {
+                                                ComposerMenuRowId.ImplementIssue,
+                                                ComposerMenuRowId.RunAction -> page = entry.id
+                                                else -> onRow(entry.id)
+                                            }
+                                        },
                                         leading = { RowGlyph(composerMenuGlyph(entry.id)) },
                                         trailing = if (entry.kind == ComposerMenuRowKind.Submenu) {
                                             { SubmenuTrailing(value) }

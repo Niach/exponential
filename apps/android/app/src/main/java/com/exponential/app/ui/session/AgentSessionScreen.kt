@@ -306,7 +306,8 @@ import com.exponential.app.ui.markdown.autocompleteCandidateCount
 import com.exponential.app.ui.markdown.autocompleteTriggersAt
 import com.exponential.app.ui.markdown.mentionCandidatesFor
 import com.exponential.app.ui.markdown.pickAutocompleteAt
-import com.exponential.app.ui.markdown.rememberIssueRefCandidates
+import com.exponential.app.ui.markdown.IssueTypeaheadSheetHost
+import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
@@ -711,7 +712,9 @@ private fun RunFaceContent(
     val composerMentions = mentionCandidatesFor(mentionMembers, composerTriggers.mentionQuery)
     // EXP-892: ranked by the shared engine, with the server's full-text hits
     // (comment bodies included) spliced in behind them once typing settles.
-    val composerRefs = rememberIssueRefCandidates(issueRefHandler, composerTriggers.issueRefQuery)
+    // SLOP-28 (EXP-1259 D4): `#` opens THE search list in a bottom sheet
+    // (the IssueTypeaheadSheetHost below), never issue rows in this menu.
+    val composerRefs = emptyList<IssueRefTarget>()
     val composerEmojiMatch = composerTriggers.emoji
     val composerEmojiData = rememberEmojiData(enabled = composerEmojiMatch != null)
     val composerEmojiPrefs = rememberEmojiPrefs()
@@ -738,6 +741,13 @@ private fun RunFaceContent(
         viewModel.setDraft(next.text)
         composerArmed = false
     }
+    IssueTypeaheadSheetHost(
+        handler = issueRefHandler.takeIf { issueRefCandidates.isNotEmpty() },
+        field = composerField,
+        armed = composerArmed && composerTriggers.issueRef != null,
+        onDisarm = { composerArmed = false },
+        onCommit = { next -> commitComposerToken(next) },
+    )
     // `:tada:` — the closing colon plus an EXACT shortcode commits immediately
     // (no trailing space), so a user who habitually types the closed form never
     // leaves literal shortcode text in a steered message. Web/iOS/desktop

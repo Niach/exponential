@@ -77,6 +77,14 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.domain.AgentHome
+import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.batchRunIssues
+import com.exponential.app.domain.resolveSessionDevice
+import com.exponential.app.ui.session.PastRunRow
 
 // EXP-825: the ONE launcher's state — the Agent page composer. It replaced the
 // three-tab Start-coding sheet (Issues | Actions | Chat, EXP-257/EXP-615) and
@@ -103,12 +111,20 @@ import kotlinx.coroutines.launch
  * for what is optional next to it. [selectedAction] is the PICKED action's
  * row (null while it has not synced); issue chips never read a hint.
  */
-internal fun composerPlaceholder(subject: ComposerSubject?, selectedAction: ActionDto?): String {
-    if (subject == null) return DomainContract.composerUiChatPlaceholder
+internal fun composerPlaceholder(
+    subject: ComposerSubject?,
+    selectedAction: ActionDto?,
+    /** EXP-1253: the Agent HOME asks composer-home.json's question instead. */
+    home: Boolean = false,
+): String {
+    if (subject == null) return if (home) AgentHome.PLACEHOLDER else DomainContract.composerUiChatPlaceholder
     val hint = selectedAction?.promptPlaceholder?.trim().orEmpty()
     if (subject is ComposerSubject.Action && hint.isNotEmpty()) return hint
     return DomainContract.composerUiInstructionsPlaceholder
 }
+
+/** EXP-1271: what the composer's starting row says — where, and since when. */
+data class ComposerStarting(val deviceLabel: String, val sinceMs: Long)
 
 /** The Fix merge conflicts builtin's one input key (`builtinFixConflictsAction`). */
 internal const val FIX_CONFLICTS_PR_KEY = "pr"
@@ -202,7 +218,10 @@ class AgentComposerViewModel @Inject constructor(
     val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
     val startCandidates: StateFlow<List<IssueOption>> get() = steerLaunch.startCandidates
 
-    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
+    fun consumeStartedSession() {
+        steerLaunch.consumeStartedSession()
+        landStarted()
+    }
 
     /** EXP-773: Resume an ended run from the Recent list — the same rails. */
     fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
@@ -308,6 +327,46 @@ class AgentComposerViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    // ── Home (EXP-1253, composer-home.json) ─────────────────────────────────
+    /** The caller's user-row name: the greeting's `{name}` (null = none synced). */
+    val userName: StateFlow<String?> = combine(dbFlow, auth.userId) { db, userId -> db to userId }
+        .flatMapLatest { (db, userId) ->
+            if (db == null || userId == null) flowOf(null) else db.userDao().observeById(userId).map { it?.name }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * RECENT: the caller's last [AgentHome.RECENT_COUNT] OWN top-level runs in
+     * THIS team, any status, newest first — the rows the home draws as small
+     * session rows. Empty = no band at all.
+     */
+    val homeRecent: StateFlow<List<PastRunRow>> = combine(
+        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
+        allIssues,
+        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        auth.userId,
+        teamId,
+    ) { sessions, issues, devices, userId, team ->
+        val now = System.currentTimeMillis()
+        val issuesById = issues.associateBy { it.id }
+        AgentHome.recentRuns(sessions, team, userId).map { session ->
+            PastRunRow(
+                session = session,
+                issue = session.issueId?.let(issuesById::get),
+                batchIssues = batchRunIssues(session, issues),
+                device = resolveSessionDevice(session, devices, now),
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Whether THIS team has a live board; null until the boards have synced.
+     * The home shows Getting started after Recent until it does.
+     */
+    val teamHasBoard: StateFlow<Boolean?> = combine(dbFlow, allBoards, teamId) { db, boards, team ->
+        if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /**
      * SLOP-3: the issues with a LIVE coding session (own or a batch's
      * covered set), what marks a stacked line member as already running.
@@ -401,6 +460,49 @@ class AgentComposerViewModel @Inject constructor(
     private val _sending = MutableStateFlow(false)
     /** The upload + send phase is in flight. */
     val sending: StateFlow<Boolean> = _sending
+
+    /**
+     * EXP-1271 (feedback-states.json `starting`): from the Start press until
+     * the run's synced row lands. The card shows "Starting on <device>" with
+     * the mark; the draft stays put so a timeout leaves it ready to retry.
+     */
+    private val _starting = MutableStateFlow<ComposerStarting?>(null)
+    val starting: StateFlow<ComposerStarting?> = _starting
+
+    /**
+     * The device a start gave up on after `starting.timeoutMs` — the page
+     * raises the timeout toast (Retry re-submits) and consumes it.
+     */
+    private val _startTimedOut = MutableStateFlow<String?>(null)
+    val startTimedOut: StateFlow<String?> = _startTimedOut
+    private var startingDeadline: Job? = null
+
+    fun consumeStartTimedOut() {
+        _startTimedOut.value = null
+    }
+
+    /** Drop the delegate's refused-send state once the page has toasted it. */
+    fun clearRunFailure() = steerLaunch.clearFailure()
+
+    /** The start's row landed (the page opens it): the kept draft goes now. */
+    private fun landStarted() {
+        if (_starting.value == null) return
+        startingDeadline?.cancel()
+        _starting.value = null
+        clearSentDraft()
+    }
+
+    private fun clearSentDraft() {
+        _images.value = emptyList()
+        _draft.value = ""
+        _subject.value = null
+        _pendingPrIssueId.value = null
+        // The subject is gone, so its repo-seed latch goes too: re-picking
+        // the SAME action must pre-fill `repo` again (a required repo
+        // otherwise leaves submit disabled).
+        seededRepoActionId = null
+        reseedPlanMode()
+    }
 
     // ── Launch options (EXP-437 seeding) ────────────────────────────────────
     private val _launch = MutableStateFlow(LaunchDraft())
@@ -987,8 +1089,11 @@ class AgentComposerViewModel @Inject constructor(
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
         val subject = _subject.value
+        val label = target.deviceLabel.ifBlank { target.deviceId }
         viewModelScope.launch {
             _sending.value = true
+            _starting.value = ComposerStarting(label, System.currentTimeMillis())
+            var accepted = false
             try {
                 try {
                     var current = _images.value
@@ -1024,7 +1129,7 @@ class AgentComposerViewModel @Inject constructor(
                 val resume = stacked == null && resumeOffered && _resume.value &&
                     (subject as? ComposerSubject.Issues)?.ids?.size == 1
                 val options = buildOptions(resume)
-                val accepted = when (subject) {
+                accepted = when (subject) {
                     null -> {
                         // The hidden builtin has no DB row: constructed here,
                         // its one optional input riding only when picked
@@ -1060,18 +1165,23 @@ class AgentComposerViewModel @Inject constructor(
                     }
                 }
                 if (accepted) {
-                    _images.value = emptyList()
-                    _draft.value = ""
-                    _subject.value = null
-                    _pendingPrIssueId.value = null
-                    // The subject is gone, so its repo-seed latch goes too:
-                    // re-picking the SAME action must pre-fill `repo` again
-                    // (a required repo otherwise leaves submit disabled).
-                    seededRepoActionId = null
-                    reseedPlanMode()
+                    // EXP-1271: the draft stays until the row lands (a
+                    // timeout keeps it to retry); `starting.timeoutMs` after
+                    // the PRESS the start gives up on it.
+                    val since = _starting.value?.sinceMs ?: System.currentTimeMillis()
+                    startingDeadline?.cancel()
+                    startingDeadline = viewModelScope.launch {
+                        delay((since + FeedbackStates.STARTING_TIMEOUT_MS - System.currentTimeMillis()).coerceAtLeast(0))
+                        if (_starting.value != null) {
+                            steerLaunch.cancelWatch()
+                            _starting.value = null
+                            _startTimedOut.value = label
+                        }
+                    }
                 }
             } finally {
                 _sending.value = false
+                if (!accepted) _starting.value = null
             }
         }
     }
