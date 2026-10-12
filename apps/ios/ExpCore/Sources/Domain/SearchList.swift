@@ -40,8 +40,10 @@ public enum SearchList {
 
     /// The `#` token at `caret` (a UTF-16 offset into `text`), or nil when
     /// none is open: the `#` must start the text or follow whitespace or `(`,
-    /// and nothing between it and the caret may be whitespace (or another
-    /// `#`). The token is what prefills the search input.
+    /// and only token characters (`[A-Za-z0-9-]`) may sit between it and the
+    /// caret (punctuation ends it). A `#` at the START of a line waits for a
+    /// token character (`#E` opens with `E`), so `# Title` and `## H` stay
+    /// headings. The token is what prefills the search input.
     public static func typeaheadPrefill(text: String, caret: Int) -> Prefill? {
         let units = Array(text.utf16)
         let end = max(0, min(caret, units.count))
@@ -49,16 +51,30 @@ public enum SearchList {
         while index >= 0 {
             let unit = units[index]
             if unit == UInt16(UInt8(ascii: "#")) { break }
-            if isWhitespace(unit) { return nil }
+            if !isTokenUnit(unit) { return nil }
             index -= 1
         }
         guard index >= 0 else { return nil }
-        if index > 0 {
+        let lineStart = index == 0 || isNewline(units[index - 1])
+        if index > 0, !lineStart {
             let before = units[index - 1]
             guard isWhitespace(before) || before == UInt16(UInt8(ascii: "(")) else { return nil }
         }
+        if lineStart, index + 1 == end { return nil }
         let query = String(decoding: units[(index + 1)..<end], as: UTF16.self)
         return Prefill(start: index, query: query)
+    }
+
+    /// `[A-Za-z0-9-]`: an identifier-ish token, nothing else.
+    private static func isTokenUnit(_ unit: UInt16) -> Bool {
+        switch unit {
+        case 0x30...0x39, 0x41...0x5A, 0x61...0x7A, 0x2D: return true
+        default: return false
+        }
+    }
+
+    private static func isNewline(_ unit: UInt16) -> Bool {
+        unit == 0x0A || unit == 0x0D || unit == 0x2028 || unit == 0x2029
     }
 
     private static func isWhitespace(_ unit: UInt16) -> Bool {

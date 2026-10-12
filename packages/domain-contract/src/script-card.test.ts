@@ -11,6 +11,12 @@ describe(`scriptCard`, () => {
     expect(scriptDuration(75_000)).toBe(`1m`)
   })
 
+  for (const entry of fixture.durations) {
+    test(`${entry.ms} ms reads ${entry.expected}`, () => {
+      expect(scriptDuration(entry.ms)).toBe(entry.expected)
+    })
+  }
+
   for (const entry of fixture.cases) {
     test(entry.name, () => {
       expect(scriptCard(entry.input as ScriptCardInput)).toEqual(entry.expected as never)

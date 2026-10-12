@@ -567,6 +567,10 @@ internal data class StartSessionInput(
     @SerialName("computerUse") val computerUse: Boolean? = null,
     // EXP-1284: the thread this start joins (omitted when null).
     @SerialName("threadId") val threadId: String? = null,
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when null.
+    @SerialName("startId") val startId: String? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -591,6 +595,10 @@ internal data class StartBatchSessionInput(
     @SerialName("computerUse") val computerUse: Boolean? = null,
     // EXP-1284: the thread this start joins (omitted when null).
     @SerialName("threadId") val threadId: String? = null,
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when null.
+    @SerialName("startId") val startId: String? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -622,6 +630,10 @@ internal data class StartActionSessionInput(
     @SerialName("computerUse") val computerUse: Boolean? = null,
     // EXP-1284: the thread this start joins (omitted when null).
     @SerialName("threadId") val threadId: String? = null,
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when null.
+    @SerialName("startId") val startId: String? = null,
     @SerialName("prompt") val prompt: String? = null,
 )
 
@@ -691,6 +703,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = null,
+        startId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -710,6 +723,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 computerUse = options.computerUse,
                 threadId = options.threadId,
                 prompt = prompt,
+                startId = startId,
             ),
             inputSerializer = StartSessionInput.serializer(),
         )
@@ -726,6 +740,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = null,
+        startId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -744,6 +759,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 computerUse = options.computerUse,
                 threadId = options.threadId,
                 prompt = prompt,
+                startId = startId,
             ),
             inputSerializer = StartBatchSessionInput.serializer(),
         )
@@ -800,6 +816,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
         teamId: String? = null,
         inputs: Map<String, String>? = null,
         prompt: String? = null,
+        startId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -820,6 +837,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 computerUse = options.computerUse,
                 threadId = options.threadId,
                 prompt = prompt,
+                startId = startId,
             ),
             inputSerializer = StartActionSessionInput.serializer(),
         )

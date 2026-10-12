@@ -624,7 +624,7 @@ fn render_image_slot(
             }
             wrapper.into_any_element()
         }
-        ImageSlot::Loading => placeholder_box("Loading image…", cx),
+        ImageSlot::Loading => crate::feedback::skeleton_block("image-loading", 80., cx),
         ImageSlot::Failed(_) | ImageSlot::Unrenderable => placeholder_box(
             &if alt.is_empty() {
                 "Image unavailable".to_string()

@@ -279,9 +279,10 @@ export interface LaunchComposerModel {
   /** The device label a start was just delivered to (the run opens itself). */
   sentTo: string | null
   /** EXP-1271 (feedback-states.json `starting`): from the Start press until
-   * the run's synced row lands (or `starting.timeoutMs` gives up on it). The
-   * card shows "Starting on <device>" with the mark; the draft stays put so
-   * a timeout leaves it ready to retry. */
+   * the run's synced row lands (or `starting.timeoutMs` after the request
+   * was SENT gives up on it). The card shows "Starting on <device>" with the
+   * mark; the draft stays put so a timeout leaves it ready to retry, and a
+   * row landing after the timeout still clears it. */
   starting: ComposerStarting | null
   submit: () => Promise<void>
 }
@@ -297,7 +298,7 @@ const STARTING = FEEDBACK_STATES.starting
 
 /** "Starting on buildbox" (feedback-states.json `starting.label`). */
 export function startingLabel(deviceLabel: string): string {
-  return STARTING.label.replace(`{device}`, deviceLabel)
+  return STARTING.label.replace(`{device}`, () => deviceLabel)
 }
 
 /** The starting row's clock: tenths of a second, "1.4 s". */
@@ -305,11 +306,15 @@ export function startingElapsed(ms: number): string {
   return `${(Math.max(ms, 0) / 1000).toFixed(1)} s`
 }
 
-/** The 30 s give-up toast: title, "<device> did not answer.", Retry. */
-export function startingTimeoutToast(deviceLabel: string, retry: () => void) {
+/** The 30 s give-up toast: title, "<device> did not answer.", Retry.
+ *  Returns the toast id (a late landing dismisses it). */
+export function startingTimeoutToast(
+  deviceLabel: string,
+  retry: () => void
+): string | number {
   const copy = STARTING.timeoutToast
-  toast.error(copy.title, {
-    description: copy.description.replace(`{device}`, deviceLabel),
+  return toast.error(copy.title, {
+    description: copy.description.replace(`{device}`, () => deviceLabel),
     action: { label: copy.action, onClick: retry },
   })
 }
@@ -342,6 +347,21 @@ export function useLaunchComposer({
   const [conflictSeeded, setConflictSeeded] = useState(false)
   const [sending, setSending] = useState(false)
   const [starting, setStarting] = useState<ComposerStarting | null>(null)
+  // Review #3: `Date.now()` when the start request went out (after the
+  // uploads): the starting deadline counts from here, not from the press.
+  const [sentAt, setSentAt] = useState<number | null>(null)
+  // Every Start press mints a startId; a Retry (any toast's) reuses it, so
+  // a device that did start the first one ignores the repeat.
+  const startIdRef = useRef<string | null>(null)
+  const reuseStartIdRef = useRef(false)
+  // The delivered start whose run's landing clears the draft, and the id of
+  // the run the watch had opened before it (a landing = a newer one).
+  const awaitingLandRef = useRef<{
+    run: ComposerStarting
+    openedBefore: string | null
+  } | null>(null)
+  const currentStartRef = useRef<ComposerStarting | null>(null)
+  const timeoutToastRef = useRef<string | number | null>(null)
   // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
   // a manual re-pick (including clearing to "None") from being re-seeded when
   // the Electric actions rows update.
@@ -888,11 +908,19 @@ export function useLaunchComposer({
     if (blocked || !device) return
     setBlockedOpen(false)
     setSending(true)
+    const startId =
+      reuseStartIdRef.current && startIdRef.current
+        ? startIdRef.current
+        : crypto.randomUUID()
+    reuseStartIdRef.current = false
+    startIdRef.current = startId
     const startedRun: ComposerStarting = {
       deviceLabel: device.deviceLabel || device.deviceId,
       since: Date.now(),
     }
+    currentStartRef.current = startedRun
     setStarting(startedRun)
+    setSentAt(null)
     let delivered = false
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
@@ -934,7 +962,14 @@ export function useLaunchComposer({
       })
       // The remote hook toasts its own failures and rethrows; a refused start
       // keeps the draft, and the toast's Retry re-submits it (FEED-79).
-      const retry = () => void submitRef.current()
+      const retry = () => void submitRef.current(true)
+      // Review #3: SENT. The deadline arms now, and from here on the run
+      // landing (even after the deadline) is this start's landing.
+      setSentAt(Date.now())
+      awaitingLandRef.current = {
+        run: startedRun,
+        openedBefore: remote.openedId,
+      }
       if (subject === null) {
         await remote.runAction(
           device,
@@ -944,7 +979,8 @@ export function useLaunchComposer({
           options,
           chatStartInputs(repoId),
           prompt,
-          retry
+          retry,
+          startId
         )
       } else if (subject.kind === `issues`) {
         await remote.startIssues(
@@ -952,7 +988,8 @@ export function useLaunchComposer({
           options,
           stacked ? [stacked.issueId] : subject.ids,
           prompt || undefined,
-          retry
+          retry,
+          startId
         )
       } else if (selectedAction) {
         await remote.runAction(
@@ -965,7 +1002,8 @@ export function useLaunchComposer({
           options,
           buildInputsPayload(inputDefs, subject.inputs),
           prompt || undefined,
-          retry
+          retry,
+          startId
         )
       }
       // EXP-1271: delivered. The draft stays until the run's row lands
@@ -975,7 +1013,13 @@ export function useLaunchComposer({
       // Already toasted by the remote hook.
     } finally {
       setSending(false)
-      if (!delivered) setStarting((current) => (current === startedRun ? null : current))
+      if (!delivered && currentStartRef.current === startedRun) {
+        if (awaitingLandRef.current?.run === startedRun) {
+          awaitingLandRef.current = null
+        }
+        setStarting(null)
+        setSentAt(null)
+      }
     }
   }
 
@@ -988,49 +1032,54 @@ export function useLaunchComposer({
   }
 
   // EXP-1271: the starting state ends when the run's row lands (the remote
-  // watch's `sentTo` falls after a delivery) or, after `starting.timeoutMs`,
-  // with the error toast (Retry re-submits the kept draft).
-  const deliveredRef = useRef(false)
+  // watch opened a run since the request was sent) or, `starting.timeoutMs`
+  // after it was SENT, with the error toast (Retry re-submits the kept draft
+  // under the same startId). Review #3: the timeout aborts nothing: the
+  // watch keeps looking quietly, and a late row still clears the draft,
+  // dismisses the error toast and lands.
   const landedRef = useRef<(() => void) | undefined>(onLanded)
   landedRef.current = onLanded
   useEffect(() => {
-    if (!starting) {
-      deliveredRef.current = false
-      return
+    const awaiting = awaitingLandRef.current
+    if (!awaiting || remote.openedId === null) return
+    if (remote.openedId === awaiting.openedBefore) return
+    awaitingLandRef.current = null
+    if (timeoutToastRef.current !== null) {
+      toast.dismiss(timeoutToastRef.current)
+      timeoutToastRef.current = null
     }
-    if (remote.sentTo !== null) {
-      deliveredRef.current = true
-      return
-    }
-    if (!deliveredRef.current) return
-    deliveredRef.current = false
     setStarting(null)
+    setSentAt(null)
     clearDraft()
     landedRef.current?.()
     // `clearDraft` only touches setters and a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [starting, remote.sentTo])
+  }, [remote.openedId])
 
-  const submitRef = useRef<() => Promise<void>>(async () => {})
-  const cancelWatchRef = useRef(remote.cancelWatch)
-  cancelWatchRef.current = remote.cancelWatch
+  const submitRef = useRef<(retry?: boolean) => Promise<void>>(async () => {})
+  const quietWatchRef = useRef(remote.quietWatch)
+  quietWatchRef.current = remote.quietWatch
   useEffect(() => {
-    if (!starting) return
-    const left = starting.since + STARTING.timeoutMs - Date.now()
+    if (!starting || sentAt === null) return
+    const left = sentAt + STARTING.timeoutMs - Date.now()
     const timer = setTimeout(() => {
-      deliveredRef.current = false
-      cancelWatchRef.current()
+      quietWatchRef.current()
       setStarting(null)
-      startingTimeoutToast(starting.deviceLabel, () => void submitRef.current())
+      setSentAt(null)
+      timeoutToastRef.current = startingTimeoutToast(
+        starting.deviceLabel,
+        () => void submitRef.current(true)
+      )
     }, Math.max(left, 0))
     return () => clearTimeout(timer)
-  }, [starting])
+  }, [starting, sentAt])
 
   // EXP-980: a BLOCKED start asks first (Cancel, Start anyway or Stacked PR); a batch
   // asks about blockers outside it. An action or a chat never asks, and
   // neither does a RESUME: it re-enters a worktree whose base was decided
   // when the run first started.
-  const submit = async () => {
+  const submitWith = async (retry = false) => {
+    reuseStartIdRef.current = retry
     if (blocked || !device) return
     if (blockedStart.length > 0 && subject?.kind === `issues` && !resumeActive) {
       setBlockedOpen(true)
@@ -1038,7 +1087,8 @@ export function useLaunchComposer({
     }
     await start()
   }
-  submitRef.current = submit
+  const submit = () => submitWith(false)
+  submitRef.current = submitWith
 
   return {
     teamId,

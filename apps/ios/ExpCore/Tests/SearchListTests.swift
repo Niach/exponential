@@ -43,7 +43,8 @@ final class SearchListTests: XCTestCase {
 
     func testAClampedCaretAndAnEmptyText() {
         XCTAssertNil(SearchList.typeaheadPrefill(text: "", caret: 0))
-        XCTAssertEqual(SearchList.typeaheadPrefill(text: "#", caret: 99), SearchList.Prefill(start: 0, query: ""))
+        XCTAssertEqual(SearchList.typeaheadPrefill(text: "#a", caret: 99), SearchList.Prefill(start: 0, query: "a"))
+        XCTAssertNil(SearchList.typeaheadPrefill(text: "#", caret: 99))
         XCTAssertEqual(
             SearchList.typeaheadPrefill(text: "line\n#ab", caret: 8),
             SearchList.Prefill(start: 5, query: "ab")

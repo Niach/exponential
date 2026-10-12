@@ -1169,6 +1169,9 @@ pub struct DiffView {
     /// EXP-1261: the Changes page's file tree height and the pane's, last
     /// paint ([`crate::diff_pane::render`] measures both).
     tree_metrics: Rc<std::cell::Cell<(f32, f32)>>,
+    /// Review #21: the file tree's OWN scroll, used only while the tree
+    /// outgrows what the diff's scroll can carry it through.
+    tree_scroll: gpui::ScrollHandle,
 }
 
 impl DiffView {
@@ -1192,6 +1195,7 @@ impl DiffView {
             h_scroll: HScroll::default(),
             scroll: VirtualListScrollHandle::new(),
             tree_metrics: Rc::default(),
+            tree_scroll: gpui::ScrollHandle::new(),
         }
     }
 
@@ -1367,6 +1371,11 @@ impl DiffView {
     /// EXP-1261: (file tree height, pane height), last paint.
     pub(crate) fn tree_metrics(&self) -> Rc<std::cell::Cell<(f32, f32)>> {
         self.tree_metrics.clone()
+    }
+
+    /// Review #21: the file tree's own scroll ([`crate::diff_pane`]).
+    pub(crate) fn tree_scroll(&self) -> gpui::ScrollHandle {
+        self.tree_scroll.clone()
     }
 
     /// Scroll the diff so `file_ix`'s header row is at the top.

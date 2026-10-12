@@ -54,7 +54,7 @@ export const IMPORT_ACTION = `import`
 
 /** `Import {email}?` — the import confirm's title. */
 export function deviceReadinessImportTitle(email: string): string {
-  return DEVICE_READINESS_COPY.importTitle.replace(`{email}`, email)
+  return DEVICE_READINESS_COPY.importTitle.replace(`{email}`, () => email)
 }
 
 export interface DeviceReadinessRowModel {

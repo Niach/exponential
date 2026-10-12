@@ -44,7 +44,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { updateWorkTabs } from "@/hooks/use-work-tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import type { CodingSession, Team, User } from "@/db/schema"
-import { landNewRun } from "@/lib/work-tabs"
+import { landNewRun, markNewRunStarting } from "@/lib/work-tabs"
 import {
   seedFromSearch,
   type AgentSearch,
@@ -150,22 +150,34 @@ function AgentPage() {
   // enforces both at mint time, this only decides what renders.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
 
-  // EXP-1255: a run started here LANDS → the New run tab (when one is open)
-  // turns into that run's tab, in place. EXP-1284: every start joins a
-  // THREAD, so it lands as that thread's tab and its page opens — the run's
-  // item usually syncs with the run row; a start that names `?thread=`
-  // knows it up front.
+  // EXP-1255: a session started here LANDS → the New session tab waiting on
+  // THAT START (keyed by its start id, never by the window) turns into the
+  // session's tab, in place. EXP-1284: every start joins a THREAD, so it
+  // lands as that thread's tab and its page opens — the session's item
+  // usually syncs with its row; a start that names `?thread=` knows it up
+  // front.
   const teamIdForTabs = team?.id
   const requestedThread = search.thread ?? null
   const fromRef = useRef(search.from)
   fromRef.current = search.from
   const openSessionDirect = useOpenSession()
+  const onSent = useCallback(
+    ({ startId }: { startId: string }) => {
+      if (!teamIdForTabs) return
+      updateWorkTabs(teamIdForTabs, (state) => markNewRunStarting(state, startId))
+    },
+    [teamIdForTabs]
+  )
   const onOpened = useCallback(
-    (run: CodingSession): boolean => {
+    (run: CodingSession, start: { startId: string | null }): boolean => {
       if (!teamIdForTabs) return false
       const land = (threadId: string | null) => {
         updateWorkTabs(teamIdForTabs, (state) =>
-          landNewRun(state, { runId: run.id, issueId: run.issueId, threadId })
+          landNewRun(
+            state,
+            { runId: run.id, issueId: run.issueId, threadId },
+            start.startId
+          )
         )
         if (!threadId) {
           openSessionDirect(run)
@@ -192,6 +204,7 @@ function AgentPage() {
     currentUserId,
     teamId: team?.id,
     onOpened,
+    onSent,
     threadId: requestedThread,
   })
 
@@ -451,7 +464,7 @@ const ClearThreadIcon = conceptIcon(`ui-close`)
 /** EXP-1253: the home column under the page chrome: the headline + composer
  *  (or the relay-less line), Recent, and Getting started while the team has
  *  no board. The greeting is computed ONCE per mount. */
-function HomeColumn({
+export function HomeColumn({
   team,
   currentUserId,
   userName,

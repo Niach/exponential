@@ -185,10 +185,12 @@ public enum ScriptCards {
         return isScriptCall(name: name, toolKind: kind)
     }
 
-    /// `3.0 s` under a minute, the Work card's coarse format above.
+    /// `3.0 s` under a minute (integer tenths, half up: 1250 ms = `1.3 s`,
+    /// script-card.json `durations`), the Work card's coarse format above.
     public static func duration(ms: Int) -> String {
         guard ms < 60_000 else { return WorkCards.durationShort(ms: ms) }
-        return String(format: "%.1f s", locale: Locale(identifier: "en_US_POSIX"), Double(max(0, ms)) / 1000)
+        let tenths = (max(0, ms) + 50) / 100
+        return "\(tenths / 10).\(tenths % 10) s"
     }
 
     /// The card's input for one tool row: without a log (an older codemode)

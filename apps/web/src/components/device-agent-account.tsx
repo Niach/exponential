@@ -212,7 +212,7 @@ export function agentLoginLanding(
 /** `{email} was already added. Refreshed it.` — the warning toast a duplicate
  * landing raises (device-doctor.json `copy.alreadyAdded`, ×4). */
 export function alreadyAddedCopy(email: string): string {
-  return DEVICE_READINESS_COPY.alreadyAdded.replace(`{email}`, email)
+  return DEVICE_READINESS_COPY.alreadyAdded.replace(`{email}`, () => email)
 }
 
 /** THE account menu. The trigger is the caller's (the login rows draw a ghost

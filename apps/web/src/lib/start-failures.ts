@@ -34,25 +34,43 @@ function prune(now: number): void {
   }
 }
 
-/** Registers a fresh start id. `userId` = the device owner (the only one a
+/** Registers a start id. `userId` = the device owner (the only one a
  *  failure report is accepted from); `requesterId` = who reads the failure
- *  back (defaults to the owner; differs on a shared-device start). */
-export function mintStartId(userId: string, requesterId: string = userId): string {
+ *  back (defaults to the owner; differs on a shared-device start).
+ *  Review #3: a client-minted `startId` (one per Start press, REUSED by
+ *  Retry so the device can drop a start it already ran) is registered as is;
+ *  re-registering it for the same owner + requester refreshes its expiry and
+ *  clears an old failure, while an id already held by anyone else gets a
+ *  fresh one instead (never a takeover). Returns the id the frame carries. */
+export function mintStartId(
+  userId: string,
+  requesterId: string = userId,
+  startId?: string
+): string {
   const now = Date.now()
   prune(now)
+  let id = startId ?? crypto.randomUUID()
+  const existing = starts.get(id)
+  if (existing) {
+    if (existing.reporterId === userId && existing.requesterId === requesterId) {
+      // Re-insert so the refreshed id is the newest for the eviction order.
+      starts.delete(id)
+    } else {
+      id = crypto.randomUUID()
+    }
+  }
   while (starts.size >= MAX_STARTS) {
     const oldest = starts.keys().next().value
     if (oldest === undefined) break
     starts.delete(oldest)
   }
-  const startId = crypto.randomUUID()
-  starts.set(startId, {
+  starts.set(id, {
     reporterId: userId,
     requesterId,
     failure: null,
     expiresAt: now + START_TTL_MS,
   })
-  return startId
+  return id
 }
 
 /** Records the device's failure reason. False (never a throw) when the id is

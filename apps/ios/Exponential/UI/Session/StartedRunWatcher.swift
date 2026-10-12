@@ -54,7 +54,9 @@ final class StartedRunWatcher {
     /// EXP-1271 (EXP-1259 D11): a host that draws its OWN starting state (the
     /// Agent composer: the mark + "Starting on <device>") passes `onTimeout`
     /// with the shorter `feedback-states.json` deadline: no caption, no inline
-    /// failure, the host raises the timeout toast.
+    /// failure, the host raises the timeout toast. Review #3: nothing was
+    /// aborted, so the watch KEEPS going past that deadline and a late row
+    /// still lands (`startedSession`).
     func begin(
         key: StartedRunKey,
         userId: String?,
@@ -79,12 +81,13 @@ final class StartedRunWatcher {
         deadlineTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(deadline))
             guard let self, !Task.isCancelled else { return }
-            self.stop()
             self.sentCaption = nil
             if let onTimeout {
+                self.deadlineTask = nil
                 onTimeout()
                 return
             }
+            self.stop()
             self.failure = "\(label) never started this session. "
                 + "Open the Exponential desktop app there to see why."
         }

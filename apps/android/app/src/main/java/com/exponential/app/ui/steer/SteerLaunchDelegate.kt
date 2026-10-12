@@ -21,6 +21,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -204,9 +205,11 @@ class SteerLaunchDelegate @Inject constructor(
         options: SteerStartOptions,
         inputs: Map<String, String>,
         prompt: String? = null,
+        startId: String? = null,
     ): Boolean {
         val scope = scope ?: return false
         val accountId = auth.activeAccountId.value ?: return false
+        beginStart()
         _runState.value = ActionRunState.Sending
         try {
             steerApi.startActionSession(
@@ -217,6 +220,7 @@ class SteerLaunchDelegate @Inject constructor(
                 teamId = action.teamId.takeIf { action.isBuiltin },
                 inputs = inputs.takeIf { it.isNotEmpty() },
                 prompt = prompt,
+                startId = startId,
             )
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
@@ -241,16 +245,18 @@ class SteerLaunchDelegate @Inject constructor(
         issueIds: List<String>,
         options: SteerStartOptions,
         prompt: String? = null,
+        startId: String? = null,
     ): Boolean {
         val key = StartedRunKey.forIssues(issueIds) ?: return false
         val scope = scope ?: return false
         val accountId = auth.activeAccountId.value ?: return false
+        beginStart()
         _runState.value = ActionRunState.Sending
         try {
             if (issueIds.size >= 2) {
-                steerApi.startSession(accountId, issueIds, device.deviceId, options, prompt)
+                steerApi.startSession(accountId, issueIds, device.deviceId, options, prompt, startId)
             } else {
-                steerApi.startSession(accountId, issueIds.first(), device.deviceId, options, prompt)
+                steerApi.startSession(accountId, issueIds.first(), device.deviceId, options, prompt, startId)
             }
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
@@ -266,14 +272,27 @@ class SteerLaunchDelegate @Inject constructor(
     /** The post-send watch in flight, so a host's own deadline can stop it. */
     private var watch: Job? = null
 
+    /** Review #3: the host's own deadline passed and it toasted ([quietWatch]). */
+    private var quiet = false
+
+    /** A new start supersedes a timed-out one still being watched quietly. */
+    private fun beginStart() {
+        if (quiet) {
+            watch?.cancel()
+            watch = null
+        }
+        quiet = false
+    }
+
     /**
-     * EXP-1271: the composer gave up on the start (`starting.timeoutMs`): stop
-     * waiting for its row and go Idle, so a late refusal never raises a second
-     * error after the timeout toast.
+     * Review #3 (feedback-states.json `starting`): the composer's deadline
+     * passed and it raised its own timeout toast, but nothing was aborted:
+     * KEEP watching for the row (a late one still lands in
+     * [startedSessionId]), go Idle now, and let a miss at the watch's own
+     * deadline end quietly rather than raise a second error.
      */
-    fun cancelWatch() {
-        watch?.cancel()
-        watch = null
+    fun quietWatch() {
+        quiet = true
         if (_runState.value is ActionRunState.Sent) _runState.value = ActionRunState.Idle
     }
 
@@ -345,6 +364,9 @@ class SteerLaunchDelegate @Inject constructor(
         if (sessionId != null) {
             _runState.value = ActionRunState.Idle
             _startedSessionId.value = sessionId
+        } else if (quiet && currentCoroutineContext()[Job] === watch) {
+            // The quieted start's own watch ran out: the toast already said it.
+            _runState.value = ActionRunState.Idle
         } else {
             _runState.value = ActionRunState.Failed(
                 "$label never started this session. Open the Exponential desktop app " +

@@ -327,8 +327,11 @@ export function WorkTabsStrip({
   const visibleSet = new Set(visible)
   const hidden = chips.filter((_, index) => !visibleSet.has(index))
 
-  const close = (keys: string[]) =>
-    updateWorkTabs(teamId, (current) => closeTabs(current, keys))
+  const close = (keys: string[], options?: { spareStarting?: boolean }) =>
+    updateWorkTabs(teamId, (current) => closeTabs(current, keys, options))
+  // EXP-1284: the bulk closes spare a New session tab whose start is in
+  // flight (its landing still needs it); its own × closes it regardless.
+  const closeBulk = (keys: string[]) => close(keys, { spareStarting: true })
 
   const open = (tab: WorkTab) => {
     const href = tabHref(teamSlug, tab, (issueId) => {
@@ -436,9 +439,9 @@ export function WorkTabsStrip({
             id: `close-others`,
             label: `Close others`,
             disabled: others.length === 0,
-            onSelect: () => close(others),
+            onSelect: () => closeBulk(others),
           },
-          { kind: `item`, id: `close-all`, label: `Close all`, onSelect: () => close(allKeys) },
+          { kind: `item`, id: `close-all`, label: `Close all`, onSelect: () => closeBulk(allKeys) },
         ]}
       />
     )

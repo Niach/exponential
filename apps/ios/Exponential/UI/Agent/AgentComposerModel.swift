@@ -71,6 +71,12 @@ final class AgentComposerModel {
         let deviceLabel: String
         let since: Date
     }
+    /// Review #3 (feedback-states.json `starting`): the uuid of the current
+    /// Start press, carried by `steer.startSession`; Retry REUSES it (the
+    /// device starts an id once), a new press mints a fresh one.
+    private var startId: String?
+    /// The timeout toast still up, dismissed when the late row lands.
+    private var timeoutToastId: UUID?
     /// EXP-897: the blocked-start prompt, up while the reader chooses between
     /// an ordinary run and cancelling. EXP-980: it asks for a BATCH too
     /// (blockers outside the picked set), and never for a resume.
@@ -786,8 +792,11 @@ final class AgentComposerModel {
     /// an action run and a chat never do, and neither does a RESUME (it
     /// re-enters a run whose blockers were answered when it started, the
     /// desktop's rule since EXP-897).
-    func submit() {
+    /// A Start press (a fresh `startId`); `retrying` = the error toast's
+    /// Retry, which re-sends under the SAME id.
+    func submit(retrying: Bool = false) {
         guard canSubmit, !sending else { return }
+        if !retrying || startId == nil { startId = UUID().uuidString.lowercased() }
         if !resumeActive {
             let blockers = openBlockers
             if !blockers.isEmpty {
@@ -890,6 +899,8 @@ final class AgentComposerModel {
         startWatcher.sending()
         let deviceLabel = LaunchVocabulary.deviceName(device)
         starting = Starting(deviceLabel: deviceLabel, since: Date())
+        dismissTimeoutToast()
+        let startId = self.startId
         Task {
             defer { sending = false }
             for index in pendingImages.indices where pendingImages[index].uploadedId == nil {
@@ -937,9 +948,11 @@ final class AgentComposerModel {
             do {
                 let key = try await dispatch(
                     device: device, teamId: teamId, prompt: prompt,
-                    issueIds: stacked.map { [$0.issueId] }
+                    issueIds: stacked.map { [$0.issueId] }, startId: startId
                 )
                 touched = true
+                // The deadline arms HERE, once the start request is sent
+                // (uploads done), never at the press.
                 startWatcher.begin(
                     key: key,
                     userId: deps.auth.userId,
@@ -964,10 +977,19 @@ final class AgentComposerModel {
     }
 
     /// EXP-1271: the run's synced row landed (the host pushes it): the
-    /// starting state ends and the draft clears.
+    /// starting state ends and the draft clears. Review #3: a row landing
+    /// AFTER the timeout also clears the timeout toast.
     func runLanded() {
         starting = nil
+        startId = nil
+        dismissTimeoutToast()
         clearDraft()
+    }
+
+    private func dismissTimeoutToast() {
+        guard let id = timeoutToastId else { return }
+        timeoutToastId = nil
+        Toaster.shared.dismiss(id)
     }
 
     /// EXP-1271: the page stopped watching (it left the screen). A start
@@ -992,15 +1014,21 @@ final class AgentComposerModel {
         refreshBlockers()
     }
 
-    /// EXP-1271: no row within `starting.timeoutMs`: the timeout toast
-    /// (`starting.timeoutToast`), Retry re-submits the kept draft.
+    /// EXP-1271: no row within `starting.timeoutMs` of the send: the
+    /// timeout toast (`starting.timeoutToast`) and the composer back to idle.
+    /// Nothing is aborted: the watcher keeps watching, so a late row still
+    /// lands (`runLanded`); Retry re-sends the kept draft under the same
+    /// `startId`.
     private func startTimedOut(deviceLabel: String) {
         starting = nil
-        Toaster.shared.error(
-            FeedbackStates.Starting.timeoutTitle,
+        let toast = ToastItem(
+            kind: .error,
+            title: FeedbackStates.Starting.timeoutTitle,
             description: FeedbackStates.Starting.timeoutDescription(device: deviceLabel),
             action: retryAction()
         )
+        timeoutToastId = toast.id
+        Toaster.shared.show(toast)
     }
 
     /// FEED-79: a failed upload is the error toast with Retry (the uploads
@@ -1018,7 +1046,7 @@ final class AgentComposerModel {
 
     private func retryAction() -> ToastAction {
         ToastAction(label: FeedbackStates.Starting.timeoutAction) { [weak self] in
-            Task { @MainActor in self?.submit() }
+            Task { @MainActor in self?.submit(retrying: true) }
         }
     }
 
@@ -1026,7 +1054,8 @@ final class AgentComposerModel {
     /// recognises the desktop-inserted row (`StartedRunMatch`). `issueIds`
     /// overrides the picked issues (a stacked start starts `run[0]`).
     private func dispatch(
-        device: SteerDevice, teamId: String, prompt: String?, issueIds: [String]? = nil
+        device: SteerDevice, teamId: String, prompt: String?, issueIds: [String]? = nil,
+        startId: String? = nil
     ) async throws -> StartedRunKey {
         switch subject {
         case .none:
@@ -1045,7 +1074,8 @@ final class AgentComposerModel {
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
                 prompt: prompt,
-                threadId: threadId
+                threadId: threadId,
+                startId: startId
             )
             return .action(name: action.name)
         case .action, .fixConflicts:
@@ -1064,7 +1094,8 @@ final class AgentComposerModel {
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
                 prompt: prompt,
-                threadId: threadId
+                threadId: threadId,
+                startId: startId
             )
             return .action(name: action.name)
         case .issues:
@@ -1079,7 +1110,8 @@ final class AgentComposerModel {
                     deviceId: device.deviceId,
                     options: launch.buildOptions(),
                     prompt: prompt,
-                    threadId: threadId
+                    threadId: threadId,
+                    startId: startId
                 )
             } else {
                 // Single-issue only — a batch has no per-issue worktree to
@@ -1092,7 +1124,8 @@ final class AgentComposerModel {
                         resume: resumeActive && issueIds == nil ? true : nil
                     ),
                     prompt: prompt,
-                    threadId: threadId
+                    threadId: threadId,
+                    startId: startId
                 )
             }
             return key

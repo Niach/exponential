@@ -488,6 +488,7 @@ mod tests {
                 preview: None,
                 script: None,
                 settled_at: None,
+                started_at: None,
             },
         )
     }
@@ -514,6 +515,7 @@ mod tests {
                 tool_calls: None,
                 title: None,
                 workflow_id: workflow.map(str::to_string),
+                at: None,
             },
         )
     }

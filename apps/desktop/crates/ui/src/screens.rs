@@ -323,15 +323,9 @@ pub(crate) fn open_new_run_tab(window: &Window, cx: &mut App) {
     crate::navigation::navigate(window, cx, Screen::NewRun { id });
 }
 
-/// EXP-1284 — whether `screen` already has a tab in `window`'s strip.
-pub(crate) fn has_tab(screen: &Screen, window: &Window, cx: &App) -> bool {
-    screens_for_window(window, cx)
-        .is_some_and(|panel| panel.read(cx).tabs.iter().any(|tab| tab.holds(screen)))
-}
-
-/// EXP-1284 — "Start a session here": a fresh New run tab whose composer starts
-/// INTO `thread_id`, `text` (the thread's unsent reply) on its draft. The
-/// run it starts lands back in the thread's tab.
+/// EXP-1284 — "Start a session here": a fresh New session tab whose
+/// composer starts INTO `thread_id`, `text` (the thread's unsent reply) on
+/// its draft. The session it starts lands back in the thread's tab.
 pub(crate) fn open_new_run_tab_in_thread(
     thread_id: String,
     text: Option<String>,
@@ -769,6 +763,11 @@ fn focus_existing_tab(tab: &mut TabEntry, pending: Option<&PendingOrigin>, deriv
 
 /// EXP-1248 — the tab a Stack card pick rebinds IN PLACE: the one showing
 /// the screen being replaced. Pure.
+/// Review #2: whether `screen` is a New session tab in `starting`.
+fn is_starting_new_run(screen: &Screen, starting: &HashSet<String>) -> bool {
+    matches!(screen, Screen::NewRun { id } if starting.contains(id))
+}
+
 fn replaced_tab(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
     let Some(PendingOrigin::ReplaceTab(from)) = pending else {
         return None;
@@ -1007,6 +1006,9 @@ struct ChipContent {
     title: Option<gpui::SharedString>,
     /// EXP-769: a tinted exit-code badge — terminal chips whose child exited.
     badge: Option<(gpui::SharedString, gpui::Hsla)>,
+    /// D8: the subject has not synced yet — the title slot is the
+    /// placeholder bar ([`CHIP_PLACEHOLDER_W`]), never "Loading…".
+    placeholder: bool,
 }
 
 impl ChipContent {
@@ -1016,6 +1018,7 @@ impl ChipContent {
             identifier: None,
             title: Some(title),
             badge: None,
+            placeholder: false,
         }
     }
 }
@@ -1086,10 +1089,10 @@ fn lead_reserve_px(lead: &ChipLead) -> f32 {
     }
 }
 
-/// The strip's word for a run whose row (or whose issue) has not synced yet.
-/// A tab is chrome: it names a thing or it says it is still fetching it — it
-/// never renders a transient status string. Byte-identical with the web.
-const CHIP_LOADING: &str = "Loading…";
+/// D8: the title slot of a run chip whose row (or whose issue) has not
+/// synced yet — a short placeholder bar, never "Loading…". Byte-identical
+/// with the web chip (`w-16`).
+const CHIP_PLACEHOLDER_W: f32 = 64.;
 
 /// EXP-746/EXP-769/EXP-877: a RUN chip, the web `DockTab` piece for piece —
 /// the run's mark (EXP-1191), the issue identifier in the mono slot and
@@ -1100,7 +1103,10 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     let muted = cx.theme().muted_foreground.opacity(0.5);
     let loading = || ChipContent {
         lead: ChipLead::Dot(muted),
-        ..ChipContent::plain(CHIP_LOADING.into())
+        identifier: None,
+        title: None,
+        badge: None,
+        placeholder: true,
     };
     let Some(store) = Store::try_global(cx) else {
         return loading();
@@ -1155,6 +1161,7 @@ fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
         identifier,
         title: Some(title),
         badge: None,
+        placeholder: false,
     }
 }
 
@@ -1238,6 +1245,7 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
             identifier: None,
             title: Some(crate::navigation::NEW_RUN_TITLE.into()),
             badge: None,
+            placeholder: false,
         };
     }
     if let Screen::IssueDetail { issue_id } = screen {
@@ -1256,6 +1264,7 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
                 identifier: Some(gpui::SharedString::from(issue.identifier.clone())),
                 title,
                 badge: None,
+                placeholder: false,
             };
         }
     }
@@ -1265,9 +1274,13 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
 /// EXP-1284 — a thread tab's chip.
 fn thread_chip_content(thread_id: &str, cx: &App) -> ChipContent {
     let Some(model) = crate::threads::thread_model(thread_id, cx) else {
+        // A thread still syncing: the placeholder bar, never "Loading…".
         return ChipContent {
             lead: ChipLead::Concept(registry::ACTION_CHAT),
-            ..ChipContent::plain(CHIP_LOADING.into())
+            identifier: None,
+            title: None,
+            badge: None,
+            placeholder: true,
         };
     };
     let lead = if model.view.live {
@@ -1287,6 +1300,7 @@ fn thread_chip_content(thread_id: &str, cx: &App) -> ChipContent {
         identifier: None,
         title: Some(gpui::SharedString::from(model.view.title)),
         badge: None,
+        placeholder: false,
     }
 }
 
@@ -1901,6 +1915,25 @@ impl ScreensPanel {
                 }
                 if let Screen::Session { session_id } = &screen {
                     self.bind_run(ix, session_id, cx);
+                }
+                // Review #12: a New session tab's start that landed on an
+                // EXISTING tab (the issue's own) leaves no empty New session
+                // tab behind: the handed-off tab closes.
+                if let Some(PendingOrigin::ReplaceTab(from @ Screen::NewRun { .. })) =
+                    pending_origin.as_ref()
+                {
+                    if let Some(pos) = self
+                        .tabs
+                        .iter()
+                        .position(|tab| &tab.screen == from)
+                        .filter(|pos| *pos != ix)
+                    {
+                        let replaced = self.tabs.remove(pos);
+                        self.forget_tab(&replaced, cx);
+                        crate::navigation::purge_from_history(window, cx, |screen| {
+                            *screen == replaced.screen
+                        });
+                    }
                 }
             }
             None if opens_no_tab => {}
@@ -2572,7 +2605,10 @@ impl ScreensPanel {
             return;
         }
         let keep = self.tabs[ix].screen.clone();
-        let goes = |tab: &TabEntry| tab.swept_by_bulk_close(Some(&keep));
+        let starting = self.starting_new_runs(cx);
+        let goes = |tab: &TabEntry| {
+            tab.swept_by_bulk_close(Some(&keep)) && !is_starting_new_run(&tab.screen, &starting)
+        };
         // Same EXP-68 flush as `close_tab`: a closing issue tab may hold a
         // pending description edit.
         if self
@@ -2599,7 +2635,9 @@ impl ScreensPanel {
         if self.top_tab_count() == 0 {
             return;
         }
-        let goes = |tab: &TabEntry| tab.swept_by_bulk_close(None);
+        let starting = self.starting_new_runs(cx);
+        let goes =
+            |tab: &TabEntry| tab.swept_by_bulk_close(None) && !is_starting_new_run(&tab.screen, &starting);
         if self
             .tabs
             .iter()
@@ -2621,6 +2659,17 @@ impl ScreensPanel {
             set_screen(window, cx, None);
         }
         cx.notify();
+    }
+
+    /// Review #2: the New session tabs whose composer is starting a run —
+    /// the bulk closes spare them like [`Self::close_tab`] does (dropping the
+    /// view mid-prepare would ghost the run it already created).
+    fn starting_new_runs(&self, cx: &App) -> HashSet<String> {
+        self.new_runs
+            .iter()
+            .filter(|(_, view)| view.read(cx).starting())
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 
     /// EXP-769: how many tabs the TOP strip holds.
@@ -2781,6 +2830,9 @@ impl ScreensPanel {
             font.family = theme::terminal::FONT_FAMILY.into();
             children.push(measure_text(window, identifier, font, gpui::rems(0.75)));
         }
+        if content.placeholder {
+            children.push(CHIP_PLACEHOLDER_W);
+        }
         if let Some(title) = content.title.as_ref() {
             // `surface::rich_tab` renders the title `text_sm` — measuring it
             // at the rem over-ran every chip by ~14 % of its title and folded
@@ -2917,6 +2969,7 @@ impl ScreensPanel {
         };
         tab.identifier = content.identifier;
         tab.title = content.title;
+        tab.placeholder = content.placeholder.then_some(CHIP_PLACEHOLDER_W);
         tab.closable = true;
         crate::surface::rich_tab(tab, cx)
             .group(TAB_GROUP)
@@ -3145,6 +3198,7 @@ impl ScreensPanel {
                 };
                 tab.identifier = content.identifier;
                 tab.title = content.title;
+                tab.placeholder = content.placeholder.then_some(CHIP_PLACEHOLDER_W);
                 tab.badge = content.badge;
                 let close = self.dock_close_action(&screen, cx);
                 let close_for_middle = close.clone();
@@ -4710,6 +4764,29 @@ mod tests {
     /// else. The last terminal tab closing leaves the center empty rather than
     /// pulling an issue tab into view (EXP-870: the bottom strip is terminals;
     /// `true` below marks a terminal).
+    /// EXP-1284: a thread-composer start's landing replaces ITS New session
+    /// tab with the THREAD (`ReplaceTab(NewRun)` → `Screen::Thread`), the
+    /// thread tab then holds only itself, and a bulk close spares a New
+    /// session tab whose start is still in flight (review #2) — the thread
+    /// landing included.
+    #[test]
+    fn a_thread_landing_takes_its_new_session_tab() {
+        let new_run = Screen::NewRun { id: "thread-t1-1".into() };
+        let thread = Screen::Thread { thread_id: "t1".into() };
+        let mut tabs = vec![issue_tab("i1", None), TabEntry::new(new_run.clone(), None, None)];
+        let pending = PendingOrigin::ReplaceTab(new_run.clone());
+        let ix = replaced_tab(&tabs, Some(&pending)).expect("the handed-off tab");
+        assert_eq!(ix, 1);
+        let replaced = rebind_tab(&mut tabs[ix], thread.clone(), None);
+        assert_eq!(replaced.screen, new_run);
+        assert!(tabs[1].holds(&thread));
+        assert!(!tabs[1].holds(&Screen::Thread { thread_id: "t2".into() }));
+        assert!(!tabs[0].holds(&thread));
+        let starting: std::collections::HashSet<String> = ["thread-t1-1".to_string()].into_iter().collect();
+        assert!(super::is_starting_new_run(&new_run, &starting));
+        assert!(!super::is_starting_new_run(&thread, &starting));
+    }
+
     #[test]
     fn a_close_never_activates_the_other_strip() {
         // [issue, issue, terminal] — the terminal closes, none is left.

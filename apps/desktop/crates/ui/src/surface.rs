@@ -248,6 +248,9 @@ pub(crate) struct RichTab {
     /// The mono shortcode ahead of the title (`EXP-698`), muted.
     pub(crate) identifier: Option<SharedString>,
     pub(crate) title: Option<SharedString>,
+    /// D8: a title still loading — a placeholder bar this many px wide in
+    /// the title slot (never the text "Loading…").
+    pub(crate) placeholder: Option<f32>,
     /// A tinted exit-code badge (a terminal chip whose child exited).
     pub(crate) badge: Option<(SharedString, Hsla)>,
     /// EXP-905: whether the caller appends the trailing ghost × cluster. A
@@ -274,6 +277,7 @@ impl RichTab {
             status: RichTabStatus::None,
             identifier: None,
             title: None,
+            placeholder: None,
             badge: None,
             closable: true,
         }
@@ -360,6 +364,11 @@ pub(crate) fn rich_tab(tab: RichTab, cx: &App) -> Stateful<Div> {
             .whitespace_nowrap()
             .child(identifier)
     }))
+    .children(
+        tab.placeholder
+            .filter(|_| tab.title.is_none())
+            .map(|width| crate::feedback::placeholder_bar(width, cx)),
+    )
     .children(tab.title.map(|title| {
         div()
             .max_w(px(RICH_TAB_TITLE_MAX_W))

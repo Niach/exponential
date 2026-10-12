@@ -536,52 +536,90 @@ pub(crate) fn render<V: Render>(
 /// EXP-1261 — the file tree as part of the ONE page: not a scroll area of
 /// its own, it rides the diff list's scroll ([`tree_lift`]) and a wheel over
 /// it scrolls that list, so the page scrolls as one wherever the pointer is.
+///
+/// Review #21: a tree taller than the diff's whole scroll could carry it
+/// ([`tree_needs_own_scroll`]: a tall tree over a short diff) would leave its
+/// lower rows unreachable, so it then scrolls ON ITS OWN instead.
 fn tree_on_the_page<V: Render>(
     card: AnyElement,
     diff: &Entity<crate::diff::DiffView>,
     cx: &mut Context<V>,
 ) -> AnyElement {
-    let (page, metrics) = {
+    let (page, metrics, tree_scroll) = {
         let view = diff.read(cx);
-        (view.page_scroll(), view.tree_metrics())
+        (view.page_scroll(), view.tree_metrics(), view.tree_scroll())
     };
     let (tree_h, pane_h) = metrics.get();
-    let lift = tree_lift(f32::from(page.offset().y), tree_h, pane_h);
+    let own_scroll = tree_needs_own_scroll(tree_h, pane_h, f32::from(page.max_offset().y));
+    let lift = if own_scroll {
+        0.
+    } else {
+        tree_lift(f32::from(page.offset().y), tree_h, pane_h)
+    };
     let diff_id = diff.entity_id();
+    let host = cx.entity_id();
     let tree_slot = metrics.clone();
     let pane_slot = metrics;
-    div()
+    // A measurement that flips the mode repaints the host (the tree's own
+    // paint is where both heights are known).
+    let flip_check = move |tree_h: f32, pane_h: f32, cx: &mut gpui::App| {
+        if tree_needs_own_scroll(tree_h, pane_h, f32::from(page.max_offset().y)) != own_scroll {
+            cx.notify(host);
+        }
+    };
+    let flip_on_tree = flip_check.clone();
+    let page_for_wheel = diff.read(cx).page_scroll();
+    let container = div()
         .id("diff-file-tree-page")
         .flex_shrink_0()
         .h_full()
-        .overflow_hidden()
-        .on_prepaint(move |bounds, _, _| {
+        .on_prepaint(move |bounds, _, cx| {
             let (tree_h, _) = pane_slot.get();
-            pane_slot.set((tree_h, f32::from(bounds.size.height)));
-        })
-        .on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
-            let delta = event.delta.pixel_delta(window.line_height());
-            let max = page.max_offset().y;
-            let mut offset = page.offset();
-            let next = (offset.y + delta.y).clamp(-max, px(0.));
-            if next != offset.y {
-                offset.y = next;
-                page.set_offset(offset);
-                cx.notify(diff_id);
-            }
-            cx.stop_propagation();
-        })
+            let pane_h = f32::from(bounds.size.height);
+            pane_slot.set((tree_h, pane_h));
+            flip_check(tree_h, pane_h, cx);
+        });
+    let container = if own_scroll {
+        container.overflow_y_scroll().track_scroll(&tree_scroll)
+    } else {
+        container
+            .overflow_hidden()
+            .on_scroll_wheel(move |event: &gpui::ScrollWheelEvent, window, cx| {
+                let page = &page_for_wheel;
+                let delta = event.delta.pixel_delta(window.line_height());
+                let max = page.max_offset().y;
+                let mut offset = page.offset();
+                let next = (offset.y + delta.y).clamp(-max, px(0.));
+                if next != offset.y {
+                    offset.y = next;
+                    page.set_offset(offset);
+                    cx.notify(diff_id);
+                }
+                cx.stop_propagation();
+            })
+    };
+    container
         .child(
             div()
                 .flex_shrink_0()
                 .mt(px(lift))
-                .on_prepaint(move |bounds, _, _| {
+                .on_prepaint(move |bounds, _, cx| {
                     let (_, pane_h) = tree_slot.get();
-                    tree_slot.set((f32::from(bounds.size.height), pane_h));
+                    let tree_h = f32::from(bounds.size.height);
+                    tree_slot.set((tree_h, pane_h));
+                    flip_on_tree(tree_h, pane_h, cx);
                 })
                 .child(card),
         )
         .into_any_element()
+}
+
+/// Review #21 — whether the tree scrolls on its own: its overflow past the
+/// pane is more than the diff's whole scroll range (`page_max` ≥ 0) can lift
+/// it by. A tree that fits, or a diff long enough to carry it, keeps the ONE
+/// page scroll.
+fn tree_needs_own_scroll(tree_h: f32, pane_h: f32, page_max: f32) -> bool {
+    tree_h - pane_h > page_max.max(0.) + 0.5
 }
 
 /// EXP-1261 — how far the tree is lifted (≤ 0) at the diff's scroll offset
@@ -604,6 +642,17 @@ fn fits_tree(pane_width: f32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review #21: a tall tree over a short diff gets its own scroll; a tree
+    /// that fits, or one the diff's scroll can carry, rides the page.
+    #[test]
+    fn a_tree_the_diff_cannot_carry_scrolls_on_its_own() {
+        assert!(!tree_needs_own_scroll(400., 600., 0.));
+        assert!(!tree_needs_own_scroll(900., 600., 2_000.));
+        assert!(!tree_needs_own_scroll(900., 600., 300.));
+        assert!(tree_needs_own_scroll(900., 600., 120.));
+        assert!(tree_needs_own_scroll(900., 600., 0.));
+    }
 
     fn pane_file(path: &str, additions: u32, deletions: u32) -> PaneFile {
         PaneFile::from_parts(path, DiffStatus::Modified, additions, deletions)

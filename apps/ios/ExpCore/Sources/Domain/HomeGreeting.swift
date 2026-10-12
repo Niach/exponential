@@ -142,7 +142,9 @@ public enum HomeGreeting {
     /// RECENT: the caller's last `recentCount` OWN top-level runs (no parent
     /// run) in the active team, any status, newest first by `updatedAt`, then
     /// `createdAt`. Rows are deduped by id (a live and an ended read can
-    /// overlap while a run flips).
+    /// overlap while a run flips). Review #20 (composer-home.json): a resume
+    /// succession (`resumed_from_id`) is ONE row, its newest member, the way
+    /// every session list draws it (`SessionTree.sessionTree`).
     public static func recentRuns(
         _ sessions: [CodingSessionEntity],
         userId: String?,
@@ -157,8 +159,9 @@ public enum HomeGreeting {
                 && session.parentSessionId == nil
                 && seen.insert(session.id).inserted
         }
+        let newest = SessionTree.sessionTree(own).map(\.session)
         func stamp(_ value: String) -> Date { WireTimestamps.parse(value) ?? .distantPast }
-        return Array(own.sorted { a, b in
+        return Array(newest.sorted { a, b in
             let au = stamp(a.updatedAt), bu = stamp(b.updatedAt)
             if au != bu { return au > bu }
             return stamp(a.createdAt) > stamp(b.createdAt)

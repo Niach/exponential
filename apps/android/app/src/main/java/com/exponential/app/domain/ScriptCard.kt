@@ -1,8 +1,5 @@
 package com.exponential.app.domain
 
-import java.math.BigDecimal
-import java.math.RoundingMode
-
 // EXP-1279 (EXP-1259 D13): a code-mode call (`mcp__codemode__exec`, contract
 // toolKind `script`) renders as ONE card, "Ran a script · 59 calls · 3.0 s",
 // with the calls it made grouped by tool and the script itself behind a
@@ -94,12 +91,12 @@ object ScriptCards {
             trimmed.endsWith(ScriptCardSpec.TOOL_NAME_SUFFIX_CODEX)
     }
 
-    /** `3.0 s` under a minute (JS `toFixed(1)` on the exact double), the Work
-     *  card's coarse format above. */
+    /** `3.0 s` under a minute (integer tenths, half up: 1250 ms = `1.3 s`,
+     *  script-card.json `durations`), the Work card's coarse format above. */
     fun duration(ms: Long): String {
         if (ms >= 60_000) return WorkCards.durationShort(ms)
-        val seconds = BigDecimal(maxOf(0L, ms) / 1000.0).setScale(1, RoundingMode.HALF_UP)
-        return "${seconds.toPlainString()} s"
+        val tenths = (maxOf(0L, ms) + 50) / 100
+        return "${tenths / 10}.${tenths % 10} s"
     }
 
     private fun plural(count: Int, one: String, many: String) = "$count ${if (count == 1) one else many}"

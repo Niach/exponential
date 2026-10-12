@@ -187,7 +187,9 @@ pub enum FeedKind {
         script: Option<crate::frames::ScriptLog>,
         /// EXP-1241: the settling `tool_update`'s `at` (epoch ms), when it
         /// carried one — the comment card's time until its row syncs.
-        settled_at: Option<i64>,
+        settled_at: Option<i64>,        /// EXP-1259: the call's own `at` (epoch ms), when the publisher
+        /// stamped one — the Work card's elapsed counts from it.
+        started_at: Option<i64>,
     },
     UserMessage {
         text: String,
@@ -216,7 +218,10 @@ pub enum FeedKind {
         /// EXP-850 §4: the workflow this agent belongs to — the row nests
         /// under that card instead of the main feed, and a `duplicate` marker
         /// renders as an amber warning inside it.
-        workflow_id: Option<String>,
+        workflow_id: Option<String>,        /// EXP-1259: the marker's `at` (epoch ms), when the publisher stamped
+        /// one — the subagent Work card's elapsed runs from the `started`
+        /// marker to the settling one.
+        at: Option<i64>,
     },
     Question(QuestionCard),
     /// EXP-724: the quiet "Context compacted" divider `compaction ended`
@@ -1198,6 +1203,7 @@ impl SteerFeed {
                 id,
                 tool_kind,
                 subagent_id,
+                at,
                 ..
             } => {
                 self.push_item(FeedKind::Tool {
@@ -1213,6 +1219,7 @@ impl SteerFeed {
                     preview: None,
                     script: None,
                     settled_at: None,
+                    started_at: at,
                 });
             }
             // EXP-785/786: folded INTO the tool row with that call id — the
@@ -1378,7 +1385,7 @@ impl SteerFeed {
                 tool_calls,
                 title,
                 workflow_id,
-                ..
+                at,
             } => {
                 if id.is_empty() {
                     return;
@@ -1391,6 +1398,7 @@ impl SteerFeed {
                     tool_calls,
                     title: non_blank(title),
                     workflow_id: non_blank(workflow_id),
+                    at,
                 });
             }
             ActivityEvent::Permission { tool, detail, .. } => {
@@ -3064,6 +3072,7 @@ mod tests {
                 preview: None,
                 script: None,
                 settled_at: None,
+                started_at: None,
             }
         );
     }
@@ -4238,6 +4247,7 @@ mod tests {
                 preview: None,
                 script: None,
                 settled_at: None,
+                started_at: None,
             },
             seq: None,
         };
@@ -5404,6 +5414,7 @@ mod edit_card_fixture_tests {
                 preview: None,
                 script: None,
                 settled_at: None,
+                started_at: None,
             },
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
@@ -5544,6 +5555,7 @@ mod edit_card_fixture_tests {
                 preview: None,
                 script: None,
                 settled_at: None,
+                started_at: None,
             },
             seq: None,
         };
@@ -5644,6 +5656,7 @@ mod exp_tool_group_fixture_tests {
                 preview: None,
                 script: None,
                 settled_at: None,
+                started_at: None,
             },
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
@@ -5657,6 +5670,7 @@ mod exp_tool_group_fixture_tests {
                 title: None,
                 workflow_id: None,
                 tool_calls: None,
+                at: None,
             },
             "api_error" => FeedKind::ApiError {
                 message: raw.message.clone().unwrap_or_default(),
@@ -5788,6 +5802,7 @@ mod last_tool_line_tests {
                                 .then(|| serde_json::from_value(raw["preview"].clone()).unwrap()),
                             script: None,
                             settled_at: None,
+                            started_at: None,
                         },
                         _ => FeedKind::Narration {
                             text: text("text").unwrap_or_default(),

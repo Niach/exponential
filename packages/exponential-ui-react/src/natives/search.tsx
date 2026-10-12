@@ -80,9 +80,16 @@ export function SearchBody({ part, owner, suffix, rows, query, onQuery, placehol
   }
   useLayoutEffect(measure, [rows.length, maxRows])
   // Keep the highlighted row inside the window (instant: keys never animate).
+  // The list scrolls itself: scrollIntoView would scroll the page to a list
+  // further down on mount.
   useLayoutEffect(() => {
-    const row = listRef.current?.querySelector<HTMLElement>(`[data-active="true"]`)
-    row?.scrollIntoView?.({ block: `nearest` })
+    const list = listRef.current
+    const row = list?.querySelector<HTMLElement>(`[data-active="true"]`)
+    if (!list || !row) return
+    const l = list.getBoundingClientRect()
+    const r = row.getBoundingClientRect()
+    if (r.top < l.top) list.scrollTop -= l.top - r.top
+    else if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom
   }, [at])
   const pick = (i: number) => {
     const row = rows[i]

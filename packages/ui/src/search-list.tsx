@@ -60,10 +60,12 @@ const ROW_CLASS = { pointer: `h-8`, phone: `h-11` } as const
 export type SearchListDensity = keyof typeof ROW_HEIGHT
 
 /** What the `#` typeahead opens with: where the `#` sits and the token typed
- *  after it, or null when the caret is not in a `#` token. A `#` triggers at
- *  the start of the text or after whitespace or `(`; the token runs to the
- *  caret and keeps dashes (an identifier); whitespace ends it. Replayed
- *  against `search-list.json` `typeaheadPrefill` on every client. */
+ *  after it, or null when the caret is not in a `#` token. A `#` triggers
+ *  after whitespace or `(` at once, and at the START of a line (the text's
+ *  or after a newline) only once a token character follows, so `# Title`
+ *  and `## H` stay markdown headings. The token is `[A-Za-z0-9-]*` (keeps an
+ *  identifier's dashes); whitespace or punctuation ends it. Replayed against
+ *  `search-list.json` `typeaheadPrefill` on every client. */
 export interface TypeaheadPrefill {
   /** Offset of the `#`. */
   start: number
@@ -71,12 +73,14 @@ export interface TypeaheadPrefill {
   query: string
 }
 
-const HASH_AT_CARET = /(?:^|[\s(])#([A-Za-z0-9-]*)$/
+/** Group 1 = a line-start `#` with its (non-empty) token; group 2 = a `#`
+ *  after inline whitespace or `(`. */
+const HASH_AT_CARET = /(?:^|\n)#([A-Za-z0-9-]+)$|(?:[^\S\n]|\()#([A-Za-z0-9-]*)$/
 
 export function typeaheadPrefill(text: string, caret: number): TypeaheadPrefill | null {
   const match = HASH_AT_CARET.exec(text.slice(0, caret))
   if (match === null) return null
-  const query = match[1] ?? ``
+  const query = match[1] ?? match[2] ?? ``
   return { start: caret - query.length - 1, query }
 }
 

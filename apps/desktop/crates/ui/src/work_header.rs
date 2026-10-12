@@ -1112,6 +1112,17 @@ const COLLAPSED_TITLE_LINE: f32 = 20.;
 /// fades in over `collapseMs` while rising `collapseRise`, keyed by the id so
 /// it replays each time the title breaks again. Faces that are ALWAYS
 /// collapsed (Run, Changes, Results) pass `None` and never animate.
+/// D8 — [`collapsed_title`] while its subject has not synced: the title
+/// line's placeholder bar (never "Loading…"), the line's own height.
+pub(crate) fn collapsed_title_placeholder(id: impl Into<gpui::ElementId>, cx: &App) -> AnyElement {
+    h_flex()
+        .w_full()
+        .h(px(COLLAPSED_TITLE_LINE))
+        .items_center()
+        .child(crate::feedback::skeleton_value(id, 160., cx))
+        .into_any_element()
+}
+
 pub(crate) fn collapsed_title(
     identifier: Option<SharedString>,
     title: impl Into<SharedString>,

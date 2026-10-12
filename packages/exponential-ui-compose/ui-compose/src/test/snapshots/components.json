@@ -1367,6 +1367,23 @@
       }
     ]
   },
+  "Button\/loading=true+pendingLabel" : {
+    "height" : 32,
+    "nodes" : [
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Button",
+        "frame" : [
+          0,
+          0,
+          104,
+          32
+        ],
+        "id" : "button",
+        "radius" : 10
+      }
+    ]
+  },
   "Button\/size=default" : {
     "height" : 32,
     "nodes" : [

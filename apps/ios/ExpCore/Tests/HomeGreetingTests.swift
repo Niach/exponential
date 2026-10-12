@@ -109,13 +109,32 @@ final class HomeGreetingTests: XCTestCase {
         teamId: String = "t1",
         status: String = "running",
         parent: String? = nil,
+        resumedFrom: String? = nil,
         updatedAt: String,
         createdAt: String = "2026-10-01T00:00:00Z"
     ) -> CodingSessionEntity {
         CodingSessionEntity(
             id: id, issueId: nil, teamId: teamId, userId: userId, deviceLabel: "macbook",
-            status: status, parentSessionId: parent, startedAt: createdAt, endedAt: nil,
-            createdAt: createdAt, updatedAt: updatedAt
+            status: status, resumedFromId: resumedFrom, parentSessionId: parent,
+            startedAt: createdAt, endedAt: nil, createdAt: createdAt, updatedAt: updatedAt
+        )
+    }
+
+    /// Review #20: a session resumed twice is ONE Recent row (its newest
+    /// member), so the band still lists three distinct pieces of work.
+    func testRecentFoldsAResumeSuccessionIntoItsNewestRow() {
+        let rows = [
+            run("r1", status: "ended", updatedAt: "2026-10-05T10:00:00Z", createdAt: "2026-10-05T09:00:00Z"),
+            run("r2", status: "ended", resumedFrom: "r1", updatedAt: "2026-10-06T10:00:00Z",
+                createdAt: "2026-10-06T09:00:00Z"),
+            run("r3", resumedFrom: "r2", updatedAt: "2026-10-07T10:00:00Z", createdAt: "2026-10-07T09:00:00Z"),
+            run("a", updatedAt: "2026-10-04T10:00:00Z"),
+            run("b", updatedAt: "2026-10-03T10:00:00Z"),
+            run("c", updatedAt: "2026-10-02T10:00:00Z"),
+        ]
+        XCTAssertEqual(
+            HomeGreeting.recentRuns(rows, userId: "me", teamId: "t1").map(\.id),
+            ["r3", "a", "b"]
         )
     }
 

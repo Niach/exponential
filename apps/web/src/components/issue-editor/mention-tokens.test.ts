@@ -6,6 +6,7 @@ import { IssueRefExtension } from "@/lib/issue-ref-extension"
 import { MentionPillExtension } from "@/lib/mention-pill-extension"
 import {
   EditorAutocompleteExtension,
+  FORCE_ISSUE_REF_META,
   type EditorAutocompleteActive,
 } from "@/lib/editor-autocomplete"
 
@@ -179,5 +180,73 @@ describe(`editor autocomplete`, () => {
     typeAtEnd(code.editor, ` @ad`)
     expect(code.states.at(-1) ?? null).toBeNull()
     code.editor.destroy()
+  })
+})
+
+// Review #5 (search-list.json): typed key by key through the editor's text
+// input handlers (where the heading input rule lives), a line-start `#`
+// waits for a token character, so `# Title` becomes a heading.
+function typeKeys(editor: Editor, text: string) {
+  for (const ch of text) {
+    const { from, to } = editor.state.selection
+    const view = editor.view
+    const handled = view.someProp(`handleTextInput`, (handler) =>
+      handler(view, from, to, ch, () => view.state.tr.insertText(ch, from, to))
+    )
+    if (!handled) view.dispatch(view.state.tr.insertText(ch, from, to))
+  }
+}
+
+describe(`the line-start # (review #5)`, () => {
+  it(`a typed "# Title" becomes a heading and never opens the search`, () => {
+    const { editor, states } = makeEditor(``)
+    editor.commands.setTextSelection(1)
+    typeKeys(editor, `# Title`)
+    expect(states.some((state) => state?.kind === `issueRef`)).toBe(false)
+    expect(editor.state.doc.firstChild?.type.name).toBe(`heading`)
+    expect(getMarkdown(editor)).toBe(`# Title`)
+    editor.destroy()
+  })
+
+  it(`"## H" stays a heading too`, () => {
+    const { editor, states } = makeEditor(``)
+    editor.commands.setTextSelection(1)
+    typeKeys(editor, `## H`)
+    expect(states.some((state) => state?.kind === `issueRef`)).toBe(false)
+    expect(editor.state.doc.firstChild?.attrs.level).toBe(2)
+    editor.destroy()
+  })
+
+  it(`a line-start "#E" opens with its token`, () => {
+    const { editor, states } = makeEditor(``)
+    editor.commands.setTextSelection(1)
+    typeKeys(editor, `#`)
+    expect(states.at(-1) ?? null).toBeNull()
+    typeKeys(editor, `E`)
+    expect(states.at(-1)).toMatchObject({ kind: `issueRef`, query: `E`, from: 1, to: 3 })
+    editor.destroy()
+  })
+
+  it(`a # after a space opens at once`, () => {
+    const { editor, states } = makeEditor(`Fixes`)
+    editor.commands.setTextSelection(endOfDoc(editor))
+    typeKeys(editor, ` #`)
+    expect(states.at(-1)).toMatchObject({ kind: `issueRef`, query: `` })
+    editor.destroy()
+  })
+
+  it(`the rail's # button opens it on a bare line-start #`, () => {
+    const { editor, states } = makeEditor(``)
+    editor
+      .chain()
+      .setTextSelection(1)
+      .command(({ tr }) => {
+        tr.setMeta(FORCE_ISSUE_REF_META, true)
+        tr.insertText(`#`)
+        return true
+      })
+      .run()
+    expect(states.at(-1)).toMatchObject({ kind: `issueRef`, query: ``, from: 1, to: 2 })
+    editor.destroy()
   })
 })

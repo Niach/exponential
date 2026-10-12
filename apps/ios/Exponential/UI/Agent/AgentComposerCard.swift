@@ -44,6 +44,9 @@ struct AgentComposerCard: View {
     @State private var showMcpPicker = false
     /// The team's MCP servers (`mcpServers.list`), read once per team.
     @State private var mcpServers: [McpServerRow] = []
+    /// Review #19 (D8): the starting row shows only once the start has been
+    /// pending `FeedbackStates.Pending.delayMs`, like every client's.
+    @State private var startingShown = false
 
     var body: some View {
         GlassComposer {
@@ -161,6 +164,7 @@ struct AgentComposerCard: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-composer")
+        .pendingDelay(model.starting != nil, shown: $startingShown)
         // EXP-792: the team's MCP servers, and the pick they seed.
         .task(id: model.teamId) { await loadMcpServers() }
         // EXP-1249 (web M12 rule ×4): the per-run computer use is the
@@ -257,8 +261,8 @@ struct AgentComposerCard: View {
     @ViewBuilder
     private var leading: some View {
         // EXP-1271 (EXP-1259 D11): after Start the card LEADS with the
-        // starting row until the run's row lands.
-        if let starting = model.starting {
+        // starting row until the run's row lands (after the pending delay).
+        if let starting = model.starting, startingShown {
             ComposerStartingRow(starting: starting)
                 .padding(.horizontal, 12)
                 .padding(.top, 12)

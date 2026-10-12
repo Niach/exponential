@@ -56,16 +56,23 @@ class SearchListTest {
     }
 
     @Test
-    fun `a pick replaces the token with the identifier and a space`() {
-        assertEquals("Explain #EXP-12 " to 16, SearchList.spliceTypeaheadPick("Explain #", 8, "EXP-12"))
-        assertEquals("Explain #EXP-12 now" to 16, SearchList.spliceTypeaheadPick("Explain #sid now", 8, "EXP-12"))
-        assertEquals("(#EXP-1 " to 8, SearchList.spliceTypeaheadPick("(#ex", 1, "EXP-1"))
-        assertNull(SearchList.spliceTypeaheadPick("Explain", 3, "EXP-1"))
+    fun `a pick replaces the recorded token with the identifier and a space`() {
+        assertEquals("Explain #EXP-12 " to 16, SearchList.spliceTypeaheadPick("Explain #", 8, 0, "EXP-12"))
+        assertEquals("Explain #EXP-12 now" to 16, SearchList.spliceTypeaheadPick("Explain #sid now", 8, 3, "EXP-12"))
+        assertEquals("(#EXP-1 " to 8, SearchList.spliceTypeaheadPick("(#ex", 1, 2, "EXP-1"))
+        assertNull(SearchList.spliceTypeaheadPick("Explain", 3, 0, "EXP-1"))
     }
 
     @Test
-    fun `backspace on an empty input deletes the hash`() {
-        assertEquals("Explain " to 8, SearchList.deleteTypeaheadToken("Explain #", 8))
-        assertEquals("a  b" to 2, SearchList.deleteTypeaheadToken("a #x b", 2))
+    fun `a pick never eats the text after the caret`() {
+        // Review #6: "see docs", `#` typed before "docs" (caret 5), EXP-1 picked.
+        assertEquals("see #EXP-1 docs" to 11, SearchList.spliceTypeaheadPick("see #docs", 4, 0, "EXP-1"))
+    }
+
+    @Test
+    fun `backspace on an empty input deletes the hash and the query typed`() {
+        assertEquals("Explain " to 8, SearchList.deleteTypeaheadToken("Explain #", 8, 0))
+        assertEquals("a  b" to 2, SearchList.deleteTypeaheadToken("a #x b", 2, 1))
+        assertEquals("see docs" to 4, SearchList.deleteTypeaheadToken("see #docs", 4, 0))
     }
 }

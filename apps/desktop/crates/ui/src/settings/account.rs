@@ -162,10 +162,11 @@ impl AccountPane {
             Timezone::Ready(None) => Some("UTC".to_string()),
             _ => None,
         };
-        let value: SharedString = match (&self.timezone, &stored) {
-            (_, Some(zone)) => zone.clone().into(),
-            (Timezone::Error, _) => "Unavailable".into(),
-            _ => "Loading…".into(),
+        // D8: still loading = the value's placeholder bar, never "Loading…".
+        let value: Option<SharedString> = match (&self.timezone, &stored) {
+            (_, Some(zone)) => Some(zone.clone().into()),
+            (Timezone::Error, _) => Some("Unavailable".into()),
+            _ => None,
         };
         let trigger = Button::new("account-timezone-trigger")
             .ghost()
@@ -175,7 +176,10 @@ impl AccountPane {
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
             .disabled(stored.is_none())
-            .child(crate::surface::picker_value_label(value))
+            .child(match value {
+                Some(value) => crate::surface::picker_value_label(value).into_any_element(),
+                None => crate::feedback::skeleton_value("account-timezone-placeholder", 96., cx),
+            })
             .child(crate::surface::picker_row_chevron(cx));
         let control = match stored {
             Some(current) => {

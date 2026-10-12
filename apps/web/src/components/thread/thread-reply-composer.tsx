@@ -58,7 +58,7 @@ export function ThreadReplyComposer({
     return store.subscribe(trySend)
   }, [held, sendRunId])
 
-  const submit = async () => {
+  const submit = async (reuseStartId?: string) => {
     const message = text.trim()
     if (!message || busy) return
     if (target.kind === `start`) {
@@ -79,15 +79,19 @@ export function ThreadReplyComposer({
     }
     if (!resumeRun?.deviceId) return
     setBusy(true)
+    // The batch's idempotent start id: this press mints one, its Retry
+    // reuses it (the device ignores a start it already ran). A resume never
+    // names a thread: it stays in its predecessor's.
+    const startId = reuseStartId ?? crypto.randomUUID()
     try {
       await trpc.steer.startSession.mutate(
-        { resumeSessionId: resumeRun.id, deviceId: resumeRun.deviceId },
+        { resumeSessionId: resumeRun.id, deviceId: resumeRun.deviceId, startId },
         SKIP_ERROR_TOAST
       )
       setHeld({ text: message, fromRunId: resumeRun.id })
       setText(``)
     } catch (error) {
-      failedAction(`resume`, `the session`, error, { retry: () => void submit() })
+      failedAction(`resume`, `the session`, error, { retry: () => void submit(startId) })
     } finally {
       setBusy(false)
     }

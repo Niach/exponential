@@ -673,6 +673,7 @@ mod tests {
                 preview: None,
                 script: None,
                 settled_at: None,
+                started_at: None,
             },
             seq: None,
         }

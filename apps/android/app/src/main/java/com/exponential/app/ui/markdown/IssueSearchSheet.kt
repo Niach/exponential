@@ -106,9 +106,12 @@ fun RowScope.IssueSearchRowBody(identifier: String, title: String, status: Resol
  * The `#` typeahead for a composer that hoists its own [field] (the agent and
  * steer composers): while [armed] and a `#` token ends at the caret, the
  * issue search sheet opens prefilled with it and the host is disarmed ([onDisarm])
- * so its inline menu never offers issues. A pick replaces `#token` with
- * `#IDENT ` ([onCommit] gets the new value); [onRefocus] hands focus back to
- * the field however the sheet closes.
+ * so its inline menu never offers issues. A pick replaces the `#token`
+ * recorded at open with `#IDENT ` ([onCommit] gets the new value);
+ * [onRefocus] hands focus back to the field however the sheet closes.
+ * [explicitHashAt] = where a toolbar `#` button just inserted its `#`: that
+ * explicit request opens the sheet even at a line start, where a TYPED `#`
+ * waits for a token character (review #5, `# Title` stays a heading).
  */
 @Composable
 internal fun IssueTypeaheadSheetHost(
@@ -118,10 +121,14 @@ internal fun IssueTypeaheadSheetHost(
     onDisarm: () -> Unit,
     onCommit: (TextFieldValue) -> Unit,
     onRefocus: () -> Unit = {},
+    explicitHashAt: Int? = null,
 ) {
     var open by remember { mutableStateOf<TypeaheadPrefill?>(null) }
     val prefill = if (armed && handler != null) {
         SearchList.typeaheadPrefill(field.text, field.selection.start)
+            ?: explicitHashAt
+                ?.takeIf { field.selection.start == it + 1 && field.text.getOrNull(it) == '#' }
+                ?.let { TypeaheadPrefill(start = it, query = "") }
     } else {
         null
     }
@@ -142,8 +149,11 @@ internal fun IssueTypeaheadSheetHost(
     IssueSearchSheet(
         handler = issues,
         initialQuery = token.query,
-        onPick = { target -> close(SearchList.spliceTypeaheadPick(live.text, token.start, target.identifier)) },
+        // Review #6: exactly the `#token` recorded at open, never text after the caret.
+        onPick = { target ->
+            close(SearchList.spliceTypeaheadPick(live.text, token.start, token.query.length, target.identifier))
+        },
         onDismiss = { close(null) },
-        onBackspaceEmpty = { close(SearchList.deleteTypeaheadToken(live.text, token.start)) },
+        onBackspaceEmpty = { close(SearchList.deleteTypeaheadToken(live.text, token.start, token.query.length)) },
     )
 }

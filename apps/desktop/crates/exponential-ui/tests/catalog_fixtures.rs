@@ -96,7 +96,7 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 465);
+    assert_eq!(cases.len(), 466);
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
     let mut names = component_names(false);
@@ -125,6 +125,8 @@ fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_b
             }
         }
     }
+    // The state cases: a prop that only shows in a state (EXP-1259).
+    assert!(has("Button/loading=true+pendingLabel"));
 }
 
 #[test]

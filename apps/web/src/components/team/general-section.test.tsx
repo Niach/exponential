@@ -96,4 +96,57 @@ describe(`team prompt autosave`, () => {
     expect(title).toBe(`Couldn't save the team prompt`)
     expect(options.action.label).toBe(FEEDBACK_STATES.errors.retry)
   })
+
+  // Review #8: leaving inside the debounce window still saves the edit.
+  it(`flushes a dirty draft on unmount`, async () => {
+    const view = render(<TeamGeneralSection team={team} />)
+    await act(async () => {})
+    const field = screen.getByTestId(`team-agent-prompt`)
+    fireEvent.change(field, { target: { value: `typed then left` } })
+    view.unmount()
+    expect(mockState.update).toHaveBeenCalledTimes(1)
+    expect(mockState.update.mock.calls[0]![0]).toEqual({
+      teamId: `team-1`,
+      agentPrompt: `typed then left`,
+    })
+  })
+
+  it(`sends the draft to ITS team on a team switch`, async () => {
+    const view = render(<TeamGeneralSection team={team} />)
+    await act(async () => {})
+    fireEvent.change(screen.getByTestId(`team-agent-prompt`), {
+      target: { value: `for acme` },
+    })
+    view.rerender(<TeamGeneralSection team={{ ...team, id: `team-2` } as Team} />)
+    await act(async () => {})
+    expect(mockState.update).toHaveBeenCalledTimes(1)
+    expect(mockState.update.mock.calls[0]![0]).toEqual({
+      teamId: `team-1`,
+      agentPrompt: `for acme`,
+    })
+  })
+
+  it(`flushes nothing when clean, over the cap, or already saved`, async () => {
+    const clean = render(<TeamGeneralSection team={team} />)
+    await act(async () => {})
+    clean.unmount()
+
+    const over = render(<TeamGeneralSection team={team} />)
+    await act(async () => {})
+    fireEvent.change(screen.getByTestId(`team-agent-prompt`), {
+      target: { value: `x`.repeat(20_000) },
+    })
+    over.unmount()
+
+    const saved = render(<TeamGeneralSection team={team} />)
+    await act(async () => {})
+    const field = screen.getByTestId(`team-agent-prompt`)
+    fireEvent.change(field, { target: { value: `saved` } })
+    await act(async () => {
+      fireEvent.blur(field)
+    })
+    expect(mockState.update).toHaveBeenCalledTimes(1)
+    saved.unmount()
+    expect(mockState.update).toHaveBeenCalledTimes(1)
+  })
 })

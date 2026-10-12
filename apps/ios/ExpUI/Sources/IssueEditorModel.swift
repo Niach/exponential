@@ -202,6 +202,16 @@ public final class IssueEditorModel {
     /// `dismissIssueRefSearch`.
     public private(set) var issueRefSearchRequest: IssueRefSearchRequest?
 
+    /// The bar's `#` button just inserted a `#` (read once by the next
+    /// recompute): an explicit request opens even where a typed `#` waits.
+    @ObservationIgnored private var explicitIssueRefHash = false
+
+    /// A host's `#` button is about to insert a `#` (typing it, like the
+    /// formatting toolbar does): the next recompute treats it as explicit.
+    public func armExplicitIssueRef() {
+        explicitIssueRefHash = true
+    }
+
     /// SLOP-28: the sheet's server half — the merged local + full-text list
     /// for a query at the default limit (`IssueRefAugmentor`). nil = local
     /// only (`issueRefSearch`).
@@ -300,20 +310,25 @@ public final class IssueEditorModel {
 
     /// If `text` (the focused block's content up to the caret) ends in a #issue-ref
     /// token, return the query (text after `#`) and the `#` character offset.
-    public static func issueRefMatch(beforeCaret text: String) -> (query: String, hashOffset: Int)? {
+    /// `explicitHash` = the bar's `#` button just inserted it: a bare `#` at
+    /// a line start opens then too (typed, it waits for a token character so
+    /// `# Title` stays a heading).
+    public static func issueRefMatch(
+        beforeCaret text: String, explicitHash: Bool = false
+    ) -> (query: String, hashOffset: Int)? {
         // SLOP-28: the shared trigger (`SearchList.typeaheadPrefill`: `#` at the
-        // start, after whitespace or `(`), held to an identifier-ish token in
-        // the editor, so punctuation typed after a finished `#EXP-42` never
-        // reopens the list.
-        guard let prefill = SearchList.typeaheadPrefill(text: text, caret: (text as NSString).length),
-              prefill.query.unicodeScalars.allSatisfy({ issueRefTokenScalars.contains($0) })
-        else { return nil }
-        return (prefill.query, prefill.start)
+        // start, after whitespace or `(`, an `[A-Za-z0-9-]` token, a line-start
+        // `#` only once a token character follows).
+        let length = (text as NSString).length
+        if let prefill = SearchList.typeaheadPrefill(text: text, caret: length) {
+            return (prefill.query, prefill.start)
+        }
+        guard explicitHash, text.hasSuffix("#") else { return nil }
+        let offset = length - 1
+        let lineStart = offset == 0
+            || (text as NSString).character(at: offset - 1) == UInt16(UInt8(ascii: "\n"))
+        return lineStart ? ("", offset) : nil
     }
-
-    private static let issueRefTokenScalars = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-"
-    )
 
     /// If `text` (the focused block's content up to the caret) ends in a
     /// `:shortcode` token, return the query (text after the `:`), the opening
@@ -918,8 +933,12 @@ public final class IssueEditorModel {
     }
 
     private func recomputeIssueRef(blockId: UUID, beforeCaret before: String, armed: Bool) {
+        // Consumed by the recompute that sees the inserted `#` before the
+        // caret (UIKit may report the text and the caret in either order).
+        let explicitHash = explicitIssueRefHash && before.hasSuffix("#")
+        if explicitHash { explicitIssueRefHash = false }
         guard let issueRefSearch,
-              let match = Self.issueRefMatch(beforeCaret: before) else {
+              let match = Self.issueRefMatch(beforeCaret: before, explicitHash: explicitHash) else {
             clearIssueRef()
             return
         }
@@ -1102,7 +1121,8 @@ public final class IssueEditorModel {
 
     /// SLOP-28: the sheet closed without a pick. The editor keeps its text as
     /// typed and its caret; `deletingHash` (Backspace in the sheet's EMPTY
-    /// input) also deletes the `#` it opened on.
+    /// input) also deletes the `#` it opened on and the token typed after it
+    /// (`1 + queryLength` from the recorded offset, search-list.json).
     public func dismissIssueRefSearch(deletingHash: Bool = false) {
         guard let request = issueRefSearchRequest else { return }
         issueRefSearchRequest = nil
@@ -1113,8 +1133,9 @@ public final class IssueEditorModel {
               request.hashOffset < content.length,
               (content.string as NSString).substring(with: NSRange(location: request.hashOffset, length: 1)) == "#"
         else { return }
+        let length = min(1 + request.queryLength, content.length - request.hashOffset)
         let mutable = NSMutableAttributedString(attributedString: content)
-        mutable.deleteCharacters(in: NSRange(location: request.hashOffset, length: 1))
+        mutable.deleteCharacters(in: NSRange(location: request.hashOffset, length: length))
         write(mutable, id: request.blockId, at: location)
         bumpRevision(request.blockId)
         desiredSelection = (request.blockId, request.hashOffset)
@@ -1246,8 +1267,9 @@ public final class IssueEditorModel {
         desiredSelection = (id, caret)
         selection = (id, NSRange(location: caret, length: 0))
         // An explicit `@`/`#` affordance IS a text change, so it may open the
-        // bar (EXP-322).
+        // bar (EXP-322); the `#` button opens it even at a line start.
         armTextChange()
+        explicitIssueRefHash = text == "#"
         recomputeAutocomplete(armed: true)
         notifyEdit()
     }

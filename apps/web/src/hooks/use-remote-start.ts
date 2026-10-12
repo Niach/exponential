@@ -116,7 +116,10 @@ export interface RemoteStart {
     options: StartCodingOptions,
     issueIds: string[],
     prompt?: string,
-    retry?: () => void
+    retry?: () => void,
+    /** Review #3: the Start press's id (Retry reuses it); the device ignores
+     *  one it already started. */
+    startId?: string
   ) => Promise<void>
   /** Resolves on delivery, rejects on failure (toast already shown; its
    * Retry runs `retry`).
@@ -128,12 +131,18 @@ export interface RemoteStart {
     options: StartCodingOptions,
     inputs?: Record<string, string>,
     prompt?: string,
-    retry?: () => void
+    retry?: () => void,
+    startId?: string
   ) => Promise<void>
-  /** EXP-1271: stop watching for the last start's run (the composer's own
-   * 30 s starting deadline gave up on it): `sentTo` clears, nothing opens and
-   * the watch's own deadline toast never fires. */
-  cancelWatch: () => void
+  /** Review #3: the composer's own 30 s starting deadline gave up on the
+   * last start and toasted. Nothing is aborted: the watch keeps looking for
+   * the run (a late row still opens it) but its own deadline toast never
+   * fires. */
+  quietWatch: () => void
+  /** The id of the last run the watch opened (null until one did): the
+   * composer's landing signal, distinct from `sentTo` falling at the
+   * watch's deadline. */
+  openedId: string | null
   /** Re-fetch `latestVersions` now (device rows themselves are synced —
    * mutations stream in without any refetch). */
   refresh: () => void
@@ -162,7 +171,14 @@ export function useRemoteStart(
      *  New run tab turns into that run's tab). EXP-1284: returning `true`
      *  means the caller opened it itself (the run's THREAD page), so the
      *  hook does not navigate to the run. */
-    onOpened?: (session: CodingSession) => boolean | void
+    onOpened?: (
+      session: CodingSession,
+      start: { startId: string | null }
+    ) => boolean | void
+    /** EXP-1284: a start was DELIVERED under this start id (the client's,
+     *  else the server-minted one) — the New session tab remembers it so the
+     *  landing is matched per start. */
+    onSent?: (start: { startId: string }) => void
     /** EXP-1284: every start from this hook goes INTO this thread
      *  (`steer.startSession({threadId})` — "Start a session here"). */
     threadId?: string | null
@@ -186,11 +202,17 @@ export function useRemoteStart(
     sentAt: number
     /** What the session watch below is looking for in the synced rows. */
     key: StartedRunKey
+    /** EXP-1284: the delivered start's id, handed to `onOpened`. */
+    startId: string | null
   } | null>(null)
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const quietRef = useRef(false)
+  const [openedId, setOpenedId] = useState<string | null>(null)
   const openSession = useOpenSession()
   const onOpenedRef = useRef(options.onOpened)
   onOpenedRef.current = options.onOpened
+  const onSentRef = useRef(options.onSent)
+  onSentRef.current = options.onSent
   const threadIdRef = useRef(options.threadId ?? null)
   threadIdRef.current = options.threadId ?? null
 
@@ -266,7 +288,12 @@ export function useRemoteStart(
     if (!match) return
     // EXP-740: navigate to the run exactly once — clearing `pending` stops
     // this effect from ever matching again for this send.
-    if (onOpenedRef.current?.(match) !== true) openSession(match, openOptions)
+    // EXP-1284: `onOpened` answers true when it opened the run itself (its
+    // thread's page); otherwise the run opens as before.
+    const handled =
+      onOpenedRef.current?.(match, { startId: pending.startId }) === true
+    setOpenedId(match.id)
+    if (!handled) openSession(match, openOptions)
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
     setPending(null)
   }, [sessionRows, pending, currentUserId, openSession, openOptions])
@@ -276,11 +303,18 @@ export function useRemoteStart(
   // conflicted worktree, a failed doctor — would otherwise be indistinguishable
   // from one still starting, the caption would just vanish and no session would
   // ever open. The desktop holds the reason (it notifies there); say so.
-  const markSent = (deviceLabel: string, key: StartedRunKey) => {
+  const markSent = (
+    deviceLabel: string,
+    key: StartedRunKey,
+    startId: string | null
+  ) => {
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
-    setPending({ deviceLabel, sentAt: Date.now(), key })
+    quietRef.current = false
+    setPending({ deviceLabel, sentAt: Date.now(), key, startId })
+    if (startId) onSentRef.current?.({ startId })
     resetTimerRef.current = setTimeout(() => {
       setPending(null)
+      if (quietRef.current) return
       toast.error(`${deviceLabel} never started this session`, {
         description: `Open the Exponential desktop app there to see why.`,
       })
@@ -292,7 +326,8 @@ export function useRemoteStart(
     options: StartCodingOptions,
     issueIds: string[],
     prompt?: string,
-    retry?: () => void
+    retry?: () => void,
+    startId?: string
   ) => {
     const key = startedRunKeyForIssues(issueIds)
     if (!key) return
@@ -308,8 +343,9 @@ export function useRemoteStart(
         // A blank prompt is OMITTED — the server drops whitespace-only
         // anyway, and older relays never see the key.
         ...(prompt && prompt.trim() ? { prompt } : {}),
+        ...(startId ? { startId } : {}),
       }
-      await trpc.steer.startSession.mutate(
+      const sent = await trpc.steer.startSession.mutate(
         // 1 issue → plain single-issue session; 2+ → one batch session on a
         // single pushed branch (the server contract owns the fan-out).
         issueIds.length === 1
@@ -321,7 +357,7 @@ export function useRemoteStart(
           : { issueIds, ...base },
         SKIP_ERROR_TOAST
       )
-      markSent(device.deviceLabel, key)
+      markSent(device.deviceLabel, key, sent?.startId ?? startId ?? null)
     } catch (error) {
       startFailureToast(error, device, options.agent, retry)
       throw error
@@ -336,13 +372,14 @@ export function useRemoteStart(
     options: StartCodingOptions,
     inputs?: Record<string, string>,
     prompt?: string,
-    retry?: () => void
+    retry?: () => void,
+    startId?: string
   ) => {
     setStarting(true)
     try {
       // Action runs never resume an issue worktree (EXP-481).
       const { resume: _resume, ...rest } = options
-      await trpc.steer.startSession.mutate(
+      const sent = await trpc.steer.startSession.mutate(
         {
           actionId: action.id,
           deviceId: device.deviceId,
@@ -352,11 +389,16 @@ export function useRemoteStart(
           ...(inputs ? { inputs } : {}),
           ...(prompt && prompt.trim() ? { prompt } : {}),
           ...threadIdPayload(threadIdRef.current),
+          ...(startId ? { startId } : {}),
           ...rest,
         },
         SKIP_ERROR_TOAST
       )
-      markSent(device.deviceLabel, { kind: `action`, actionName: action.name })
+      markSent(
+        device.deviceLabel,
+        { kind: `action`, actionName: action.name },
+        sent?.startId ?? startId ?? null
+      )
     } catch (error) {
       startFailureToast(error, device, options.agent, retry)
       throw error
@@ -371,10 +413,10 @@ export function useRemoteStart(
     sentTo: pending?.deviceLabel ?? null,
     startIssues,
     runAction,
-    cancelWatch: () => {
-      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
-      setPending(null)
+    quietWatch: () => {
+      quietRef.current = true
     },
+    openedId,
     refresh: () => setRefreshTick((tick) => tick + 1),
     latestVersions,
   }

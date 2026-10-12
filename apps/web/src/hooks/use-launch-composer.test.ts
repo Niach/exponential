@@ -30,6 +30,7 @@ const mockState = vi.hoisted(() => ({
   mcpServers: null as unknown[] | null,
   upload: vi.fn(),
   toastError: vi.fn(),
+  toastDismiss: vi.fn(),
 }))
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
@@ -77,7 +78,7 @@ vi.mock(`@/lib/storage/issue-image-upload`, () => ({
 }))
 vi.mock(`sonner`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
-  toast: { error: mockState.toastError },
+  toast: { error: mockState.toastError, dismiss: mockState.toastDismiss },
 }))
 
 import { useLaunchComposer, type LaunchSeed } from "@/hooks/use-launch-composer"
@@ -136,7 +137,8 @@ function makeRemote(overrides: Partial<RemoteStart> = {}): RemoteStart {
     sentTo: null,
     startIssues: vi.fn().mockResolvedValue(undefined),
     runAction: vi.fn().mockResolvedValue(undefined),
-    cancelWatch: vi.fn(),
+    quietWatch: vi.fn(),
+    openedId: null,
     refresh: vi.fn(),
     latestVersions: null,
     ...overrides,
@@ -157,11 +159,10 @@ function mount(seed: LaunchSeed | null = null, remote = makeRemote()) {
       }),
     { initialProps: { seed, remote } as { seed: LaunchSeed | null; remote?: RemoteStart } }
   )
-  // EXP-1271: the remote watch saw the delivery (`sentTo`) and then the run's
-  // row (`sentTo` falls): the run landed.
-  const land = () => {
-    hook.rerender({ seed, remote: { ...remote, sentTo: `buildbox` } })
-    hook.rerender({ seed, remote: { ...remote, sentTo: null } })
+  // EXP-1271: the remote watch opened the started run (a newer `openedId`):
+  // the run landed.
+  const land = (openedId = `run-1`) => {
+    hook.rerender({ seed, remote: { ...remote, openedId } })
   }
   return { ...hook, remote, onSeedConsumed, onLanded, land }
 }
@@ -180,6 +181,7 @@ beforeEach(() => {
   mockState.mcpServers = null
   mockState.upload.mockReset()
   mockState.toastError.mockReset()
+  mockState.toastDismiss.mockReset()
   vi.stubGlobal(`URL`, {
     ...URL,
     createObjectURL: vi.fn((file: File) => `blob:${file.name}`),
@@ -371,7 +373,8 @@ describe(`useLaunchComposer submit`, () => {
       // The only repo pre-picks itself (EXP-822) and rides as the `repo` input.
       { repo: `repo-1` },
       `Explain #I1`,
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
     // EXP-1271: the draft stays while the run starts; it clears once the
     // run's row lands.
@@ -396,7 +399,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.objectContaining({ agent: `claude`, planMode: true }),
       [`i1`, `i2`],
       `Keep the API stable`,
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
     land()
     expect(result.current.subject).toBeNull()
@@ -413,7 +417,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.objectContaining({ agent: `claude` }),
       { pr: `i1` },
       undefined,
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -441,7 +446,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       { repo: `repo-1` },
       `see [Image #1] [Image #2]\n\n![image](/api/attachments/att-1)\n![image](/api/attachments/att-2)`,
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
     land()
     expect(result.current.images).toEqual([])
@@ -474,7 +480,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       { repo: `repo-1` },
       `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`,
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -541,34 +548,134 @@ describe(`useLaunchComposer submit`, () => {
     expect(result.current.starting).toBeNull()
   })
 
-  // EXP-1271: a run whose row never lands gives up after the contract's
-  // 30 s: the error toast with Retry, the watch cancelled, the draft kept.
-  it(`gives up after the starting deadline and keeps the draft for Retry`, async () => {
+  // EXP-1271 + review #3: the deadline counts from the SENT request (after
+  // the uploads); a timeout toasts with Retry, the composer goes idle, the
+  // watch keeps looking quietly, the draft stays.
+  it(`gives up 30 s after the request was sent and keeps the draft for Retry`, async () => {
     vi.useFakeTimers()
     try {
-      const { result, remote, rerender } = mount()
+      const { result, remote } = mount()
       act(() => result.current.setText(`hi`))
       await act(() => result.current.submit())
-      rerender({ seed: null, remote: { ...remote, sentTo: `buildbox` } })
       expect(result.current.starting).not.toBeNull()
-      act(() => vi.advanceTimersByTime(30_000))
-      expect(remote.cancelWatch).toHaveBeenCalled()
+      act(() => vi.advanceTimersByTime(29_999))
+      expect(result.current.starting).not.toBeNull()
+      act(() => vi.advanceTimersByTime(1))
+      expect(remote.quietWatch).toHaveBeenCalled()
       expect(result.current.starting).toBeNull()
+      expect(result.current.busy).toBe(false)
       expect(result.current.text).toBe(`hi`)
       expect(mockState.toastError).toHaveBeenCalledWith(`The session did not start`, {
         description: `buildbox did not answer.`,
         action: { label: `Retry`, onClick: expect.any(Function) },
       })
-      // The watch's own fall after the cancel is not a landing.
-      rerender({ seed: null, remote: { ...remote, sentTo: null } })
-      expect(result.current.text).toBe(`hi`)
-      // Retry re-submits the kept draft.
-      const retry = mockState.toastError.mock.calls.at(-1)![1].action.onClick
-      await act(async () => retry())
-      expect(remote.runAction).toHaveBeenCalledTimes(2)
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it(`never counts the uploads against the deadline`, async () => {
+    vi.useFakeTimers()
+    try {
+      let finishUpload: (value: { id: string }) => void = () => {}
+      mockState.upload.mockImplementationOnce(
+        () => new Promise((resolve) => (finishUpload = resolve))
+      )
+      const { result, remote } = mount()
+      act(() => {
+        result.current.addFiles([new File([`x`], `a.png`, { type: `image/png` })], 0)
+      })
+      let submitted: Promise<void> = Promise.resolve()
+      act(() => {
+        submitted = result.current.submit()
+      })
+      // A 40 s upload: no give-up toast while it runs.
+      act(() => vi.advanceTimersByTime(40_000))
+      expect(mockState.toastError).not.toHaveBeenCalled()
+      expect(result.current.starting).not.toBeNull()
+      await act(async () => {
+        finishUpload({ id: `att-1` })
+        await submitted
+      })
+      expect(remote.runAction).toHaveBeenCalledTimes(1)
+      act(() => vi.advanceTimersByTime(29_000))
+      expect(mockState.toastError).not.toHaveBeenCalled()
+      act(() => vi.advanceTimersByTime(1_000))
+      expect(mockState.toastError).toHaveBeenCalledWith(
+        `The session did not start`,
+        expect.anything()
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`mints a startId per Start press and Retry reuses it`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      expect(first).toMatch(/^[0-9a-f-]{36}$/)
+      act(() => vi.advanceTimersByTime(30_000))
+      const retry = mockState.toastError.mock.calls.at(-1)![1].action.onClick
+      await act(async () => retry())
+      expect(remote.runAction).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(remote.runAction).mock.calls[1]![6]).toBe(first)
+      act(() => vi.advanceTimersByTime(30_000))
+      // A fresh press is a fresh start.
+      await act(() => result.current.submit())
+      const third = vi.mocked(remote.runAction).mock.calls[2]![6]
+      expect(third).toMatch(/^[0-9a-f-]{36}$/)
+      expect(third).not.toBe(first)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`a refused start's Retry reuses the startId too`, async () => {
+    const runAction = vi.fn().mockRejectedValueOnce(new Error(`refused`))
+    runAction.mockResolvedValue(undefined)
+    const { result } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    const retry = runAction.mock.calls[0]![5] as () => void
+    await act(async () => retry())
+    expect(runAction).toHaveBeenCalledTimes(2)
+    expect(runAction.mock.calls[1]![6]).toBe(runAction.mock.calls[0]![6])
+  })
+
+  it(`a row landing after the timeout dismisses the error, clears the draft and lands`, async () => {
+    vi.useFakeTimers()
+    try {
+      mockState.toastError.mockReturnValue(`toast-7`)
+      const { result, land, onLanded } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      act(() => vi.advanceTimersByTime(30_000))
+      expect(result.current.text).toBe(`hi`)
+      land()
+      expect(mockState.toastDismiss).toHaveBeenCalledWith(`toast-7`)
+      expect(result.current.text).toBe(``)
+      expect(result.current.starting).toBeNull()
+      expect(onLanded).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`a run the watch had opened before the start is not its landing`, async () => {
+    const remote = makeRemote({ openedId: `old-run` })
+    const { result, rerender, onLanded } = mount(null, remote)
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    rerender({ seed: null, remote: { ...remote, sentTo: null } })
+    expect(result.current.text).toBe(`hi`)
+    expect(onLanded).not.toHaveBeenCalled()
+    rerender({ seed: null, remote: { ...remote, openedId: `new-run` } })
+    expect(result.current.text).toBe(``)
+    expect(onLanded).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -849,7 +956,8 @@ describe(`useLaunchComposer blocked start`, () => {
       expect.anything(),
       [`i1`],
       undefined,
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -868,7 +976,8 @@ describe(`useLaunchComposer blocked start`, () => {
       expect.anything(),
       [`i1`, `i3`],
       undefined,
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -932,7 +1041,8 @@ describe(`useLaunchComposer blocked start`, () => {
         { base: { identifier: `I2`, branch: `exp/I2` }, run: [`I1`] },
         `keep it small`
       ),
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -958,7 +1068,8 @@ describe(`useLaunchComposer blocked start`, () => {
       expect.anything(),
       [`i3`],
       stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``),
-      expect.any(Function)
+      expect.any(Function),
+      expect.any(String)
     )
   })
 

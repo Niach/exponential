@@ -67,6 +67,15 @@ final class ScriptCardTests: XCTestCase {
         }
     }
 
+    func testTheDurationsReplayTheFixtureInIntegerTenths() throws {
+        let durations = try XCTUnwrap(try fixture()["durations"] as? [[String: Any]])
+        XCTAssertFalse(durations.isEmpty)
+        for c in durations {
+            let ms = try XCTUnwrap(c["ms"] as? Int)
+            XCTAssertEqual(ScriptCards.duration(ms: ms), c["expected"] as? String, "\(ms) ms")
+        }
+    }
+
     func testTheConstantsAreTheFixtures() throws {
         let fixture = try fixture()
         XCTAssertEqual(fixture["logCap"] as? Int, ScriptCards.logCap)

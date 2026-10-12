@@ -37,6 +37,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,6 +83,9 @@ data class TeamSettingsState(
     // GitHub connection and the installations their token sees. Null while
     // loading or after a failed probe.
     val githubStatus: GithubStatusResult? = null,
+    // Review #14 (iOS `githubStatusFailed`): the probe failed with nothing
+    // loaded — the block shows the quiet failed line with Retry.
+    val githubStatusFailed: Boolean = false,
     // SLOP-26: a connect hop being minted (the ticket round-trip before the
     // Custom Tab opens) — the Connect/Reconnect pill is held meanwhile.
     val githubConnecting: Boolean = false,
@@ -158,6 +162,7 @@ class TeamSettingsViewModel @Inject constructor(
     // genuinely doesn't list (archived) must not loop the fetch.
     private val resolvedRepoIds = mutableSetOf<String>()
     private val _githubStatus = MutableStateFlow<GithubStatusResult?>(null)
+    private val _githubStatusFailed = MutableStateFlow(false)
     private val _githubConnecting = MutableStateFlow(false)
     private val _reposRefreshing = MutableStateFlow(false)
 
@@ -178,6 +183,7 @@ class TeamSettingsViewModel @Inject constructor(
                     _resolvingRepoId.value = null
                     resolvedRepoIds.clear()
                     _githubStatus.value = null
+                    _githubStatusFailed.value = false
                     if (accountId != null && teamId != null) {
                         // FEED-79: the list loads on its own (team switch,
                         // resume, after a write), so a failed load is quiet:
@@ -267,10 +273,18 @@ class TeamSettingsViewModel @Inject constructor(
     }
 
     private suspend fun loadGithubStatus(accountId: String, teamId: String) {
-        // FEED-79: re-read on open and on every resume, so a failure is quiet
-        // (no block: nothing to show), never a toast.
+        // FEED-79: re-read on open and on every resume, so a failure is quiet,
+        // never a toast: the last good value stays, and with none the block
+        // reads the failed line with Retry (iOS `githubStatusFailed`).
         runCatching { integrationsApi.githubStatus(accountId, teamId) }
-            .onSuccess { _githubStatus.value = it }
+            .onSuccess {
+                _githubStatus.value = it
+                _githubStatusFailed.value = false
+            }
+            .onFailure {
+                if (it is CancellationException) throw it
+                _githubStatusFailed.value = true
+            }
     }
 
     // FEED-32: a board's synced repositoryId can point at a repo this registry
@@ -322,6 +336,7 @@ class TeamSettingsViewModel @Inject constructor(
             _resolvingRepoId,
             _githubConnecting,
             _reposRefreshing,
+            _githubStatusFailed,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -348,6 +363,7 @@ class TeamSettingsViewModel @Inject constructor(
         val resolvingRepoId = values[14] as String?
         val githubConnecting = values[15] as Boolean
         val reposRefreshing = values[16] as Boolean
+        val githubStatusFailed = values[17] as Boolean
         val placeholders = placeholderStatuses(invites)
         TeamSettingsState(
             team = team,
@@ -369,6 +385,7 @@ class TeamSettingsViewModel @Inject constructor(
             reposLoaded = reposLoaded,
             resolvingRepoId = resolvingRepoId,
             githubStatus = githubStatus,
+            githubStatusFailed = githubStatusFailed,
             githubConnecting = githubConnecting,
             reposRefreshing = reposRefreshing,
             currentUserId = currentUserId,

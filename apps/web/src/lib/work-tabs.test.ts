@@ -19,6 +19,7 @@ import {
   previewSlotKey,
   isNewRunPath,
   landNewRun,
+  markNewRunStarting,
   NEW_RUN_TAB,
   openNewRunTab,
   type LiveRun,
@@ -671,10 +672,28 @@ describe(`the New run tab`, () => {
     expect(isNewRunPath(`/t/acme/sessions/r1`)).toBe(false)
   })
 
-  it(`turns into the landed run's tab in place`, () => {
-    const s = state([NEW_RUN_TAB, issueTab])
-    expect(keys(landNewRun(s, { runId: `r1`, issueId: null }))).toEqual([`run:r1`, `issue:i1`])
-    const issueRun = landNewRun(s, { runId: `r2`, issueId: `i2` })
+  // EXP-1284: the handoff is keyed by the START, never by the window.
+  const starting = (startId: string) => ({ ...NEW_RUN_TAB, startId })
+
+  it(`remembers the start its composer delivered (a new press replaces it)`, () => {
+    const s = state([issueTab, NEW_RUN_TAB])
+    const marked = markNewRunStarting(s, `s1`)
+    expect(marked.tabs[1]).toEqual(starting(`s1`))
+    expect(markNewRunStarting(marked, `s1`)).toBe(marked)
+    expect(markNewRunStarting(marked, `s2`).tabs[1]).toEqual(starting(`s2`))
+    expect(markNewRunStarting(state([issueTab]), `s1`)).toEqual(state([issueTab]))
+  })
+
+  it(`turns into the landed session's tab in place — only for ITS start`, () => {
+    const s = state([starting(`s1`), issueTab])
+    expect(keys(landNewRun(s, { runId: `r1`, issueId: null }, `s1`))).toEqual([`run:r1`, `issue:i1`])
+    // Another start (or none) lands nothing on this tab.
+    expect(landNewRun(s, { runId: `r1`, issueId: null }, `s9`)).toBe(s)
+    expect(landNewRun(s, { runId: `r1`, issueId: null }, null)).toBe(s)
+    expect(landNewRun(state([NEW_RUN_TAB]), { runId: `r1`, issueId: null }, `s1`).tabs).toEqual([
+      NEW_RUN_TAB,
+    ])
+    const issueRun = landNewRun(s, { runId: `r2`, issueId: `i2` }, `s1`)
     expect(issueRun.tabs[0]).toEqual({
       kind: `issue`,
       issueId: `i2`,
@@ -685,17 +704,28 @@ describe(`the New run tab`, () => {
     })
   })
 
-  it(`takes the place of a work item that already has a tab`, () => {
-    const s = state([NEW_RUN_TAB, issueTab])
-    expect(keys(landNewRun(s, { runId: `r1`, issueId: `i1` }))).toEqual([`issue:i1`])
-    expect(landNewRun(state([issueTab]), { runId: `r1`, issueId: null }).tabs).toEqual([issueTab])
+  it(`takes the place of a work item that already has a tab, leaving no New tab`, () => {
+    const s = state([starting(`s1`), issueTab])
+    expect(keys(landNewRun(s, { runId: `r1`, issueId: `i1` }, `s1`))).toEqual([`issue:i1`])
+    expect(landNewRun(state([issueTab]), { runId: `r1`, issueId: null }, `s1`).tabs).toEqual([
+      issueTab,
+    ])
   })
 
   it(`survives a reload, a live reconcile and closes like any tab`, () => {
-    const s = state([issueTab, NEW_RUN_TAB])
+    const s = state([issueTab, starting(`s1`)])
     expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
     expect(reconcileLive(s, [{ runId: `r9`, issueId: null }])).toBe(s)
     expect(keys(closeTabs(s, [`new`]))).toEqual([`issue:i1`])
+  })
+
+  it(`is spared by Close others / Close all while its start is in flight`, () => {
+    const s = state([issueTab, starting(`s1`)])
+    expect(keys(closeTabs(s, [`issue:i1`, `new`], { spareStarting: true }))).toEqual([`new`])
+    // An idle New tab goes with the rest.
+    expect(
+      keys(closeTabs(state([issueTab, NEW_RUN_TAB]), [`issue:i1`, `new`], { spareStarting: true }))
+    ).toEqual([])
   })
 })
 
@@ -758,17 +788,30 @@ describe(`the thread tab`, () => {
     expect(reconcileLive(ended, [])).toBe(ended)
   })
 
-  it(`is where the New run tab lands once the run's thread is known`, () => {
-    const s = state([NEW_RUN_TAB])
-    expect(landNewRun(s, { runId: `r1`, issueId: `i1`, threadId: `t1` }).tabs).toEqual([
+  it(`is where the New session tab lands, keyed by its start, once the thread is known`, () => {
+    const newTab = { ...NEW_RUN_TAB, startId: `s1` }
+    const s = state([newTab])
+    expect(landNewRun(s, { runId: `r1`, issueId: `i1`, threadId: `t1` }, `s1`).tabs).toEqual([
       { kind: `thread`, threadId: `t1`, runId: `r1`, from: null, live: false },
     ])
-    // A thread that already has a tab takes the New run tab's place.
+    // Another start's session never takes this tab.
+    expect(landNewRun(s, { runId: `r1`, issueId: `i1`, threadId: `t1` }, `s2`)).toBe(s)
+    // A thread that already has a tab takes the New session tab's place: no
+    // empty New session tab is left behind.
     expect(
-      keys(landNewRun(state([NEW_RUN_TAB, threadTab]), { runId: `r1`, issueId: null, threadId: `t1` }))
+      keys(
+        landNewRun(state([newTab, threadTab]), { runId: `r1`, issueId: null, threadId: `t1` }, `s1`)
+      )
     ).toEqual([`thread:t1`])
     // Unknown thread: the old rule.
-    expect(keys(landNewRun(s, { runId: `r1`, issueId: null, threadId: null }))).toEqual([`run:r1`])
+    expect(keys(landNewRun(s, { runId: `r1`, issueId: null, threadId: null }, `s1`))).toEqual([
+      `run:r1`,
+    ])
+  })
+
+  it(`keeps a starting New session tab through Close others beside a thread tab`, () => {
+    const s = state([threadTab, { ...NEW_RUN_TAB, startId: `s1` }])
+    expect(keys(closeTabs(s, [`thread:t1`, `new`], { spareStarting: true }))).toEqual([`new`])
   })
 
   it(`survives a reload and closes when its bound run merged`, () => {

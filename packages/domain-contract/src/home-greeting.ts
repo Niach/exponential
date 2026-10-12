@@ -59,5 +59,6 @@ export function homeGreeting(local: string, name: string | null | undefined): st
   const count = bucket.variants.length
   const variant = bucket.variants[((dayIndex % count) + count) % count]
   const first = greetingFirstName(name)
-  return first ? variant.replace(`{name}`, first) : variant.replace(`, {name}`, ``)
+  // A function replacement: `$&` or `$'` in a name are text, not patterns.
+  return first ? variant.replace(`{name}`, () => first) : variant.replace(`, {name}`, ``)
 }

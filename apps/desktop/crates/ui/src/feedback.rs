@@ -160,6 +160,15 @@ pub(crate) fn autosave_edited(ago: &str) -> String {
     AUTOSAVE_EDITED.replace("{ago}", ago)
 }
 
+/// `remoteStart.toastWhen` = `person` (review #9): a start lands with the
+/// remote-start toast only when a PERSON made it from another device (no
+/// `started_reason`, own or a teammate's). Trigger starts (`schedule`,
+/// `event`), agent starts (`agent`) and account-rotation resumes stay
+/// quiet: they only appear in Running.
+pub(crate) fn remote_start_toasts(started_reason: Option<&str>, rotation: bool) -> bool {
+    started_reason.is_none() && !rotation
+}
+
 /// "Danny started a session on this Mac".
 pub(crate) fn remote_start_title(name: &str) -> String {
     let this_device = if cfg!(target_os = "macos") {
@@ -309,10 +318,61 @@ fn skeleton_bar(width: f32, fill: Hsla) -> Div {
         .bg(fill)
 }
 
+/// The placeholder fill (the skeleton's muted bars).
+fn skeleton_fill(cx: &App) -> Hsla {
+    cx.theme().muted_foreground.opacity(0.18)
+}
+
+/// The PLACEHOLDER for ONE value still loading (a title, a picker's value,
+/// a field's text, a tab chip's label): a single bar `width` px wide in the
+/// skeleton geometry, never the text "Loading…". Static: the caller pulses
+/// it ([`skeleton_value`]) where it sits on a page.
+pub(crate) fn placeholder_bar(width: f32, cx: &App) -> Div {
+    skeleton_bar(width, skeleton_fill(cx))
+}
+
+/// [`placeholder_bar`], pulsing like the skeleton rows.
+pub(crate) fn skeleton_value(id: impl Into<ElementId>, width: f32, cx: &App) -> AnyElement {
+    placeholder_bar(width, cx)
+        .with_animation(id, Animation::new(SKELETON_PULSE).repeat(), |bar, delta| {
+            bar.opacity(skeleton_opacity(delta))
+        })
+        .into_any_element()
+}
+
+/// The PLACEHOLDER for a picture still loading: a `height` px block in the
+/// skeleton fill (radius `placeholder.radius`), pulsing, never "Loading
+/// image…".
+pub(crate) fn skeleton_block(id: impl Into<ElementId>, height: f32, cx: &App) -> AnyElement {
+    div()
+        .h(px(height))
+        .rounded(px(SKELETON_RADIUS))
+        .bg(skeleton_fill(cx))
+        .with_animation(id, Animation::new(SKELETON_PULSE).repeat(), |block, delta| {
+            block.opacity(skeleton_opacity(delta))
+        })
+        .into_any_element()
+}
+
+/// The PLACEHOLDER for a long text still loading (a prompt, a document):
+/// [`SKELETON_ROWS`] bars where its lines sit, the block pulsing.
+pub(crate) fn skeleton_text(id: impl Into<ElementId>, cx: &App) -> AnyElement {
+    const LINES: [f32; SKELETON_ROWS] = [280., 220., 160.];
+    let fill = skeleton_fill(cx);
+    v_flex()
+        .w_full()
+        .gap_3()
+        .children(LINES.iter().map(|width| skeleton_bar(*width, fill)))
+        .with_animation(id, Animation::new(SKELETON_PULSE).repeat(), |block, delta| {
+            block.opacity(skeleton_opacity(delta))
+        })
+        .into_any_element()
+}
+
 /// ONE skeleton row `row_h` px tall: a dot where the row's glyph sits and
 /// two bars where its text sits (`ix` varies the second bar's length).
 pub(crate) fn skeleton_row(ix: usize, row_h: f32, cx: &App) -> Div {
-    let fill = cx.theme().muted_foreground.opacity(0.18);
+    let fill = skeleton_fill(cx);
     const TAILS: [f32; 3] = [200., 150., 240.];
     h_flex()
         .w_full()
@@ -699,6 +759,11 @@ mod tests {
         assert_eq!(s(&st["timeoutToast"]["title"]), STARTING_TIMEOUT_TITLE);
         assert_eq!(s(&st["timeoutToast"]["description"]), STARTING_TIMEOUT_DESCRIPTION);
         assert_eq!(s(&st["timeoutToast"]["action"]), RETRY);
+        // Review #3: the deadline counts from the SEND, remote starts only,
+        // and every start carries its `startId`.
+        assert_eq!(s(&st["deadlineFrom"]), "sent");
+        assert_eq!(st["remoteOnly"].as_bool(), Some(true));
+        assert_eq!(s(&st["startIdKey"]), "startId");
         assert_eq!(s(&f["errors"]["retry"]), RETRY);
 
         let a = &f["autosave"];
@@ -712,6 +777,21 @@ mod tests {
         assert_eq!(num(&r["durationMs"]) as u128, REMOTE_START_DURATION.as_millis());
         assert_eq!(s(&r["title"]), REMOTE_START_TITLE);
         assert_eq!(s(&r["agentName"]), REMOTE_START_AGENT);
+        // Review #9: only a person's start toasts; every case replays.
+        assert_eq!(s(&r["toastWhen"]), "person");
+        let cases = r["cases"].as_array().expect("remoteStart.cases");
+        assert!(cases.len() >= 5);
+        for case in cases {
+            let name = s(&case["name"]);
+            assert_eq!(
+                remote_start_toasts(
+                    case["startedReason"].as_str(),
+                    case["rotation"].as_bool().expect("rotation"),
+                ),
+                case["toast"].as_bool().expect("toast"),
+                "{name}"
+            );
+        }
         assert_eq!(s(&r["thisDevice"]["macos"]), REMOTE_START_THIS_MAC);
         assert_eq!(s(&r["thisDevice"]["other"]), REMOTE_START_THIS_COMPUTER);
         assert_eq!(s(&r["description"]), "{subject}");

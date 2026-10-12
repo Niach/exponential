@@ -105,6 +105,11 @@ pub(crate) fn note_for_blocker(blocker: Option<&str>) -> Option<&str> {
     blocker.filter(|reason| *reason != TYPE_A_MESSAGE && *reason != DESCRIBE_THE_ACTION)
 }
 
+/// D8: the blocker while the team's actions have not loaded. The note
+/// renders it as the INLINE status (spinner + `Loading`), never a
+/// "Loading…" sentence.
+pub(crate) const ACTIONS_LOADING: &str = crate::feedback::WORD_LOADING;
+
 /// The chat composer's empty-draft blocker (see [`note_for_blocker`]).
 const TYPE_A_MESSAGE: &str = "Type a message.";
 

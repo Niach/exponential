@@ -99,15 +99,9 @@ struct AttachmentMarkdownPreviewSheet: View {
     private var phaseView: some View {
         switch phase {
         case .loading:
-            HStack(spacing: 6) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                Text("Loading...")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .padding(.vertical, 24)
+            // D8 PLACEHOLDER: skeleton text lines, never "Loading" copy.
+            SkeletonRows(rows: 3, rowHeight: 28, dot: false, dividers: false)
+                .padding(.vertical, 12)
         case let .ready(markdown):
             AgentMarkdownText(
                 text: markdown,

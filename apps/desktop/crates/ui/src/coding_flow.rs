@@ -1475,9 +1475,13 @@ pub fn spawn_into_window(
     // EXP-478: only now (see the PTY arm).
     drop(launch_hold);
     if should_open_session(landing) {
-        open_landed_session(&session_id, thread_id, landing == RunLanding::Composer, window, cx);
+        let handoff = match landing {
+            RunLanding::Composer(handoff) => handoff,
+            _ => None,
+        };
+        open_landed_session(&session_id, thread_id, handoff, window, cx);
     } else {
-        announce_remote_start(announce, window, cx);
+        announce_remote_start(announce, landing == RunLanding::Rotation, window, cx);
     }
     // EXP-792: a picked server the run starts without is not a silent
     // degradation: ONE toast names every skipped server (the launcher's
@@ -1492,73 +1496,96 @@ pub fn spawn_into_window(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunLanding {
     /// A person started it in THIS window's composer (page, dialog or a New
-    /// run tab). It opens, in place of the New run tab that started it.
-    Composer,
+    /// run tab). It opens, in place of the New session tab whose start
+    /// handed its slot off ([`hand_off_new_run_tab`]; review #1: keyed by
+    /// THAT start, so two starts in flight each land in their own tab).
+    Composer(Option<StartHandoff>),
     /// A person started it IN this window from the run itself: its Resume or
     /// account switch. It opens as an ordinary open.
     ThisWindow,
     /// Everything else: a relay start (my own from another device, a
     /// teammate's on a shared device, an agent's `sessions_start`), a remote
     /// resume, a trigger. It never takes the window: it shows in the rail's
-    /// Running section with the starting spinner and raises the
-    /// remote-start toast (`feedback-states.json` `remoteStart`), whose Open
-    /// opens it.
+    /// Running section with the starting spinner. Review #9: only a PERSON's
+    /// start raises the remote-start toast (`feedback-states.json`
+    /// `remoteStart.toastWhen`), whose Open opens it; a trigger's or an
+    /// agent's (`started_reason`) stays quiet.
     Background,
+    /// An account-rotation resume (EXP-1005) hosted here: [`Self::Background`]
+    /// that never toasts (review #9).
+    Rotation,
 }
 
 /// EXP-1088/EXP-1271: whether a freshly spawned run takes the window over —
 /// ONLY a start made in this window. The person may be mid-edit anywhere
 /// else, and a background run is one click away in Running (or the toast).
 pub(crate) fn should_open_session(landing: RunLanding) -> bool {
-    matches!(landing, RunLanding::Composer | RunLanding::ThisWindow)
+    matches!(landing, RunLanding::Composer(_) | RunLanding::ThisWindow)
 }
 
-/// EXP-1255 — the New run tab a start from this window is about to turn
-/// into its run's tab: the composer hosted by that tab registers it right
-/// before it starts, the landing takes it. One per window (the latest
-/// start wins).
+/// EXP-1255 / review #1 — ONE start's claim on the New session tab that
+/// started it: minted per start ([`hand_off_new_run_tab`]) and carried by
+/// that start to its own landing, so two starts in flight from two New
+/// session tabs each land in their own tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StartHandoff(u64);
+
+/// The open handoffs: per start, the window and the New session tab id.
 #[derive(Default)]
-struct NewRunHandoffs(HashMap<gpui::WindowId, String>);
+struct NewRunHandoffs {
+    next: u64,
+    tabs: HashMap<StartHandoff, (gpui::WindowId, String)>,
+}
 
 impl gpui::Global for NewRunHandoffs {}
 
-/// The composer in New run tab `new_run_id` is starting a run in `window`.
-pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut App) {
-    cx.default_global::<NewRunHandoffs>()
-        .0
-        .insert(window.window_handle().window_id(), new_run_id);
+/// The composer in New session tab `new_run_id` is starting a run in
+/// `window`: the run that start lands lands in that tab.
+pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut App) -> StartHandoff {
+    let handoffs = cx.default_global::<NewRunHandoffs>();
+    handoffs.next += 1;
+    let handoff = StartHandoff(handoffs.next);
+    handoffs
+        .tabs
+        .insert(handoff, (window.window_handle().window_id(), new_run_id));
+    handoff
 }
 
-/// The start New run tab `new_run_id` handed off never landed (it failed or
-/// timed out): the tab keeps its slot, so a later open elsewhere in the
-/// window never replaces it.
-pub(crate) fn take_back_new_run_tab(window: &Window, new_run_id: &str, cx: &mut App) {
-    let window_id = window.window_handle().window_id();
-    let Some(handoffs) = cx.try_global::<NewRunHandoffs>() else {
-        return;
-    };
-    if handoffs.0.get(&window_id).map(String::as_str) == Some(new_run_id) {
-        cx.global_mut::<NewRunHandoffs>().0.remove(&window_id);
+/// Whether `handoff` still holds its tab (not landed, not taken back).
+pub(crate) fn handoff_open(handoff: StartHandoff, cx: &App) -> bool {
+    cx.try_global::<NewRunHandoffs>()
+        .is_some_and(|handoffs| handoffs.tabs.contains_key(&handoff))
+}
+
+/// The start `handoff` belongs to never landed (it failed or was given up
+/// on): the tab keeps its slot.
+pub(crate) fn take_back_new_run_tab(handoff: StartHandoff, cx: &mut App) {
+    if let Some(handoffs) = cx.try_global::<NewRunHandoffs>() {
+        if handoffs.tabs.contains_key(&handoff) {
+            cx.global_mut::<NewRunHandoffs>().tabs.remove(&handoff);
+        }
     }
 }
 
 /// Open a run that landed in `window`: a composer's start in place of the
-/// New run tab that started it ([`hand_off_new_run_tab`]), else as an
-/// ordinary open (a Resume never takes a New run tab's pending handoff).
+/// New session tab ITS start handed off ([`hand_off_new_run_tab`]), else as
+/// an ordinary open (a Resume never takes a New session tab).
 ///
-/// EXP-1284: a run lands in its THREAD. `thread_id` is the placement the
-/// start answered (else the synced `thread_items` row): the New run tab
-/// becomes the thread's tab, and a run started or resumed FROM the thread
-/// on show (its reply, "Start a session here" in place) stays there — the
-/// thread draws the new run as its next block.
+/// EXP-1284: a session lands in its THREAD. `thread_id` is the placement the
+/// start answered (else the synced `thread_items` row, else — a resume
+/// before its own item syncs — its predecessor's): the handed-off New
+/// session tab becomes the THREAD's tab (keyed by the start's handoff, never
+/// per window; an already open thread tab goes active and the New session
+/// tab closes, `screens::sync_tabs`' review-#12 rule), and a session started
+/// or resumed FROM the thread on show (its reply) stays there — the thread
+/// draws it as its next block.
 pub(crate) fn open_landed_session(
     session_id: &str,
     thread_id: Option<String>,
-    from_composer: bool,
+    handoff: Option<StartHandoff>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    // A resume sits in its predecessor's thread before its own item syncs.
     let thread_id = thread_id
         .or_else(|| crate::threads::thread_of_session(session_id, cx))
         .or_else(|| {
@@ -1572,50 +1599,69 @@ pub(crate) fn open_landed_session(
                 .clone()?;
             crate::threads::thread_of_session(&resumed_from, cx)
         });
+    let window_id = window.window_handle().window_id();
+    let new_run = handoff
+        .filter(|handoff| handoff_open(*handoff, cx))
+        .and_then(|handoff| cx.global_mut::<NewRunHandoffs>().tabs.remove(&handoff))
+        .filter(|(owner, _)| *owner == window_id)
+        .map(|(_, id)| id);
     let nav = crate::navigation::nav_for_window(window, cx);
     let shown = crate::navigation::resolved_screen(&nav, cx);
-    let new_run = (from_composer
-        && cx
-            .try_global::<NewRunHandoffs>()
-            .is_some_and(|handoffs| handoffs.0.contains_key(&window.window_handle().window_id())))
-        .then(|| {
-            cx.global_mut::<NewRunHandoffs>()
-                .0
-                .remove(&window.window_handle().window_id())
-        })
-        .flatten();
-    if let (Some(thread_id), Some(crate::navigation::Screen::Thread { thread_id: on_show })) =
-        (&thread_id, &shown)
-    {
-        if thread_id == on_show {
-            return;
-        }
-    }
-    match (new_run, thread_id) {
-        (Some(id), Some(thread_id)) => {
-            let thread = crate::navigation::Screen::Thread { thread_id };
-            let new_run = crate::navigation::Screen::NewRun { id };
-            // The thread already has a tab here: that one goes active and
-            // the New run tab that started the run closes (one piece of work
-            // is one chip).
-            if crate::screens::has_tab(&thread, window, cx) {
-                if let Some(panel) = crate::screens::screens_for_window(window, cx) {
-                    panel.update(cx, |panel, cx| panel.close_screen_tab(&new_run, window, cx));
-                }
-                crate::navigation::navigate(window, cx, thread);
-            } else {
-                crate::navigation::navigate_replacing_tab(window, cx, thread, new_run);
-            }
-        }
-        (Some(id), None) => crate::navigation::navigate_replacing_tab(
+    match landing_plan(session_id, thread_id, new_run, shown.as_ref()) {
+        LandingPlan::Stay => {}
+        LandingPlan::ReplaceTab { target, new_run } => crate::navigation::navigate_replacing_tab(
             window,
             cx,
-            crate::navigation::Screen::Session {
+            target,
+            crate::navigation::Screen::NewRun { id: new_run },
+        ),
+        LandingPlan::Open => crate::session_screen::open_session(session_id, window, cx),
+    }
+}
+
+/// EXP-1284 — where a landed session goes ([`open_landed_session`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LandingPlan {
+    /// The window shows the session's thread: it draws the session itself.
+    Stay,
+    /// The handed-off New session tab `new_run` becomes `target`'s tab (the
+    /// thread's, else the session's own).
+    ReplaceTab {
+        target: crate::navigation::Screen,
+        new_run: String,
+    },
+    /// An ordinary open of the session.
+    Open,
+}
+
+/// [`open_landed_session`]'s rule, pure: a start that handed off its New
+/// session tab lands IN that tab — as the session's THREAD when the
+/// placement is known, else as the session; without a handoff a session of
+/// the thread on show stays in the thread, anything else opens.
+pub(crate) fn landing_plan(
+    session_id: &str,
+    thread_id: Option<String>,
+    new_run: Option<String>,
+    shown: Option<&crate::navigation::Screen>,
+) -> LandingPlan {
+    use crate::navigation::Screen;
+    match (new_run, thread_id) {
+        (Some(new_run), Some(thread_id)) => LandingPlan::ReplaceTab {
+            target: Screen::Thread { thread_id },
+            new_run,
+        },
+        (Some(new_run), None) => LandingPlan::ReplaceTab {
+            target: Screen::Session {
                 session_id: session_id.to_string(),
             },
-            crate::navigation::Screen::NewRun { id },
-        ),
-        (None, _) => crate::session_screen::open_session(session_id, window, cx),
+            new_run,
+        },
+        (None, Some(thread_id))
+            if matches!(shown, Some(Screen::Thread { thread_id: on_show }) if *on_show == thread_id) =>
+        {
+            LandingPlan::Stay
+        }
+        (None, _) => LandingPlan::Open,
     }
 }
 
@@ -1667,12 +1713,16 @@ fn remote_starter_name(started_reason: Option<&str>, started_by_id: Option<&str>
     }
 }
 
-/// The background start's 4 s info toast with Open, and its row's starting
-/// spinner in Running ([`run_starting`]).
-fn announce_remote_start(notice: RemoteStartNotice, window: &mut Window, cx: &mut App) {
+/// The background start's row's starting spinner in Running
+/// ([`run_starting`]), and — only for a person's start (review #9,
+/// [`crate::feedback::remote_start_toasts`]) — the 4 s info toast with Open.
+fn announce_remote_start(notice: RemoteStartNotice, rotation: bool, window: &mut Window, cx: &mut App) {
     cx.default_global::<StartingRuns>()
         .0
         .insert(notice.session_id.clone(), std::time::Instant::now());
+    if !crate::feedback::remote_start_toasts(notice.started_reason.as_deref(), rotation) {
+        return;
+    }
     let name = remote_starter_name(
         notice.started_reason.as_deref(),
         notice.started_by_id.as_deref(),
@@ -1788,23 +1838,6 @@ pub(crate) fn follow_remote_start(
     window: &Window,
     cx: &mut App,
 ) {
-    follow_remote_start_then(device_id, subject, None, window, cx)
-}
-
-/// EXP-1271: what a remote start's follower reports when it settles: the
-/// run's id once its row landed (and opened), `None` after
-/// [`REMOTE_OPEN_WAIT`] without one.
-pub(crate) type RemoteStartSettled = Box<dyn FnOnce(Option<String>, &mut Window, &mut App)>;
-
-/// [`follow_remote_start`] that also reports how it settled (the composer's
-/// starting state ends on it).
-pub(crate) fn follow_remote_start_then(
-    device_id: String,
-    subject: RemoteRunSubject,
-    settled: Option<RemoteStartSettled>,
-    window: &Window,
-    cx: &mut App,
-) {
     let known: HashSet<String> = session_ids(cx);
     // EXP-1075: the run lands on the team the launch was made from. The
     // predicate is TOLERANT — a row whose `team_id` has not decoded is never
@@ -1826,23 +1859,98 @@ pub(crate) fn follow_remote_start_then(
                 // else to do with the run then (its tab opens on the next
                 // visit to the Agent page).
                 let _ = handle.update(cx, |_, window, cx| {
-                    // Only the composer's own start follows with `settled`.
-                    open_landed_session(&session_id, None, settled.is_some(), window, cx);
-                    if let Some(settled) = settled {
-                        settled(Some(session_id.clone()), window, cx);
-                    }
+                    open_landed_session(&session_id, None, None, window, cx);
                 });
                 return;
             }
             if std::time::Instant::now() >= deadline {
-                if let Some(settled) = settled {
-                    let _ = handle.update(cx, |_, window, cx| settled(None, window, cx));
-                }
                 return;
             }
         }
     })
     .detach();
+}
+
+/// How long a COMPOSER's remote start keeps watching for its row after the
+/// composer's own 30 s deadline gave up on it (feedback-states.json
+/// `starting`: a late landing still lands, clears the error and the draft).
+const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// The composer starts being followed right now, by `startId` — a Retry
+/// (same startId) never spawns a second follower.
+#[derive(Default)]
+struct FollowedStarts(HashSet<String>);
+
+impl gpui::Global for FollowedStarts {}
+
+/// Review #3 — what a COMPOSER's remote start hands its follower: the start
+/// (its `startId`), the New session tab it lands in, and what to tell the
+/// composer once the row landed (`landed`, with the run's id).
+pub(crate) struct ComposerStartWatch {
+    pub(crate) start_id: String,
+    pub(crate) handoff: Option<StartHandoff>,
+    pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App)>,
+}
+
+/// [`follow_remote_start`] for the composer's own start (review #3): it
+/// follows until the row lands — past the composer's 30 s deadline, up to
+/// [`REMOTE_LATE_WAIT`] — and lands it in the start's own New session tab.
+/// `false` (nothing spawned) when `watch.start_id` is already followed:
+/// that follower lands the Retry's run too (the device ignored the repeat).
+pub(crate) fn follow_composer_start(
+    device_id: String,
+    subject: RemoteRunSubject,
+    watch: ComposerStartWatch,
+    window: &Window,
+    cx: &mut App,
+) -> bool {
+    if !cx
+        .default_global::<FollowedStarts>()
+        .0
+        .insert(watch.start_id.clone())
+    {
+        return false;
+    }
+    let known: HashSet<String> = session_ids(cx);
+    let team = crate::navigation::active_team_id(&crate::navigation::nav_for_window(window, cx), cx);
+    let handle = crate::navigation::deferred_open_window(window, cx);
+    cx.spawn(async move |cx| {
+        let deadline = std::time::Instant::now() + REMOTE_LATE_WAIT;
+        let ComposerStartWatch { start_id, handoff, landed } = watch;
+        let done = |cx: &mut App| {
+            cx.default_global::<FollowedStarts>().0.remove(&start_id);
+        };
+        loop {
+            cx.background_executor().timer(REMOTE_OPEN_TICK).await;
+            if let Some(session_id) =
+                cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
+            {
+                let _ = cx.update(|cx| done(cx));
+                let landed_in_window = handle.update(cx, |_, window, cx| {
+                    open_landed_session(&session_id, None, handoff, window, cx);
+                    landed(session_id.clone(), window, cx);
+                });
+                // The window closed while we waited: nothing to land in.
+                if landed_in_window.is_err() {
+                    if let Some(handoff) = handoff {
+                        let _ = cx.update(|cx| take_back_new_run_tab(handoff, cx));
+                    }
+                }
+                return;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = cx.update(|cx| {
+                    done(cx);
+                    if let Some(handoff) = handoff {
+                        take_back_new_run_tab(handoff, cx);
+                    }
+                });
+                return;
+            }
+        }
+    })
+    .detach();
+    true
 }
 
 /// Every synced `coding_sessions` id right now — the "already there" baseline
@@ -2672,9 +2780,44 @@ mod tests {
     /// background start (relay, remote resume, trigger) stays in Running.
     #[test]
     fn only_a_start_from_this_window_navigates() {
-        assert!(should_open_session(RunLanding::Composer));
+        assert!(should_open_session(RunLanding::Composer(None)));
         assert!(should_open_session(RunLanding::ThisWindow));
         assert!(!should_open_session(RunLanding::Background));
+        assert!(!should_open_session(RunLanding::Rotation));
+    }
+
+    /// EXP-1284: a start that handed off its New session tab lands IN that
+    /// tab — as its THREAD once the placement is known (the start's handoff
+    /// picks the tab, never the window), else as the session; without a
+    /// handoff (a resume from the thread's reply) a session of the thread on
+    /// show stays there, and anything else is an ordinary open.
+    #[test]
+    fn a_landing_session_takes_its_thread_s_tab() {
+        use crate::navigation::Screen;
+        let thread = Screen::Thread { thread_id: "t1".into() };
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), None),
+            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
+        );
+        // Even while the thread itself is on show: the handed-off tab goes
+        // (sync_tabs then keeps the thread's existing tab and closes it).
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), Some(&thread)),
+            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
+        );
+        assert_eq!(
+            landing_plan("s1", None, Some("nr-1".into()), None),
+            LandingPlan::ReplaceTab {
+                target: Screen::Session { session_id: "s1".into() },
+                new_run: "nr-1".into()
+            }
+        );
+        assert_eq!(landing_plan("s1", Some("t1".into()), None, Some(&thread)), LandingPlan::Stay);
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), None, Some(&Screen::Thread { thread_id: "t2".into() })),
+            LandingPlan::Open
+        );
+        assert_eq!(landing_plan("s1", None, None, Some(&thread)), LandingPlan::Open);
     }
 
     /// EXP-1271: the toast names the chat builtin "Chat" and anything else

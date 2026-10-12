@@ -14,8 +14,8 @@
 // counts, no JSON. A lane row opens that lane's transcript (the client's
 // existing subagent/workflow-agent view).
 //
-// The session-list caption (`workflow-caption.ts`) is a different surface
-// and keeps its own fixture.
+// The session-list caption (`workflow-caption.ts`) is a different surface;
+// its cases live under this fixture's `caption` key.
 
 import fixture from "../fixtures/work-card.json" with { type: "json" }
 

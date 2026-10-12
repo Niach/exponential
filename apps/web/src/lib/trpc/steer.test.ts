@@ -453,6 +453,59 @@ describe(`steer.startSession — routed body shape`, () => {
 // FEED-57/46/47: a fresh issue or batch start on an issue a live run holds
 // (its own, or a batch covering it) is refused here, never posted for the
 // device to drop silently.
+describe(`steer.startSession — client startId (EXP-1259 review #3)`, () => {
+  it(`carries the caller's startId on the frame and returns it`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(result).toEqual({ ok: true, startId })
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`a Retry with the same startId sends the same id again`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    queueOwnDevice()
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again.startId).toBe(startId)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`carries it on an action start too`, async () => {
+    const startId = crypto.randomUUID()
+    queueAction({ name: `Code review` })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    await caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1`, startId })
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`rejects a startId that is not a uuid`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId: `x` })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+
+  it(`mints one when the caller sends none`, async () => {
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+    })
+    expect(lastStartBody().startId).toBe(result.startId)
+    expect(result.startId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+})
+
 describe(`steer.startSession — live run on a target issue`, () => {
   const live = {
     id: `99999999-9999-4999-8999-999999999999`,
@@ -2853,6 +2906,22 @@ describe(`steer.startSession — threadId (EXP-1284)`, () => {
       teamId: BUILTIN_TEAM_ID,
       threadId: THREAD_ID,
     })
+  })
+
+  // The merged batch's idempotent start id rides beside the thread on every
+  // start frame (the client's Retry reuses it).
+  it(`carries the client's startId beside the thread`, async () => {
+    const startId = crypto.randomUUID()
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+      startId,
+    })
+    expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, threadId: THREAD_ID, startId })
+    expect(result).toEqual({ ok: true, startId })
   })
 
   it(`sends no threadId when none was asked for`, async () => {

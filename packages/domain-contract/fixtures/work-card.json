@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1240 (EXP-1259 D12): THE Work card, ONE card x4 for a claude workflow, a task list (the run's `task_list` state) and a subagent (the items carrying one `subagentId`), replacing WorkflowCard, TaskListBlock and SubagentGroupRow on web (components/agent-session), desktop (crates/ui workflow_card.rs + the task list + subagent group rows), iOS and Android. Model = pure `workCard(input)` (TS reference packages/domain-contract/src/work-card.ts; mirrors desktop steer::work_card, iOS ExpCore WorkCard.swift, Android domain/WorkCard.kt), every mirror replays `cases` and compares the WHOLE expected object. Paint: a card at radius lg with the card hairline (no shadow). HEADER row `header` px: the kind icon (concept `icons`), the name (medium, truncates), the muted kind word, then trailing the progress and the elapsed time joined by ' · ' (muted, tabular figures), a 12px spinner in front of them while `running`. SEGMENT BAR under the header (workflow phases, tasks; never a subagent): `segments` equal-width capsules `segmentHeight` px high, `segmentGap` apart, the track = the muted fill, `fill` of each painted in the foreground (failed = rose, running segments fill the same foreground). ROWS `row` px each, divided by the hairline: `folded` = a check glyph, the joined phase titles, the muted lane count, trailing duration + a chevron (opens the folded phases' lanes in place); `phase` = a state glyph (running = the 12px spinner, done = check, failed = rose x, pending = the dashed circle), the title, the muted detail, trailing duration, then for running/failed phases its `lanes`, each a `lane` px line indented `laneIndent` px: a 6px dot (done = muted, running = green with the spinner trailing instead of a duration, error = rose, queued = hollow), the label, the muted model, trailing the duration; `task` = the state glyph + the label; `status` = one muted line. No report text, no token counts, no JSON anywhere on the card. A lane row (and a subagent card) opens that lane's transcript in the client's existing nested transcript view; a task row does nothing. The session-list caption keeps workflow-caption.json (a different surface). Mirrors compare `fill` within 1e-9.",
+  "$comment": "EXP-1240 (EXP-1259 D12): THE Work card, ONE card x4 for a claude workflow, a task list (the run's `task_list` state) and a subagent (the items carrying one `subagentId`), replacing WorkflowCard, TaskListBlock and SubagentGroupRow on web (components/agent-session), desktop (crates/ui workflow_card.rs + the task list + subagent group rows), iOS and Android. Model = pure `workCard(input)` (TS reference packages/domain-contract/src/work-card.ts; mirrors desktop steer::work_card, iOS ExpCore WorkCard.swift, Android domain/WorkCard.kt), every mirror replays `cases` and compares the WHOLE expected object. Paint: a card at radius lg with the card hairline (no shadow). HEADER row `header` px: the kind icon (concept `icons`), the name (medium, truncates), the muted kind word, then trailing the progress and the elapsed time joined by ' · ' (muted, tabular figures), a 12px spinner in front of them while `running`. SEGMENT BAR under the header (workflow phases, tasks; never a subagent): `segments` equal-width capsules `segmentHeight` px high, `segmentGap` apart, the track = the muted fill, `fill` of each painted in the foreground (failed = rose, running segments fill the same foreground). ROWS `row` px each, divided by the hairline: `folded` = a check glyph, the joined phase titles, the muted lane count, trailing duration + a chevron (opens the folded phases' lanes in place); `phase` = a state glyph (running = the 12px spinner, done = check, failed = rose x, pending = the dashed circle), the title, the muted detail, trailing duration, then for running/failed phases its `lanes`, each a `lane` px line indented `laneIndent` px: a 6px dot (done = muted, running = green with the spinner trailing instead of a duration, error = rose, queued = hollow), the label, the muted model, trailing the duration; `task` = the state glyph + the label; `status` = one muted line. No report text, no token counts, no JSON anywhere on the card. A lane row (and a subagent card) opens that lane's transcript in the client's existing nested transcript view; a task row does nothing. The session-list caption is a different surface; its cases live under `caption` here (workflow-caption.json is gone). Mirrors compare `fill` within 1e-9.",
   "copy": {
     "workflow": "Workflow",
     "tasks": "Tasks",
@@ -787,5 +787,277 @@
         ]
       }
     }
-  ]
+  ],
+  "caption": {
+    "$comment": "EXP-850 §7 + EXP-1240: the session-list caption of a running or finished workflow (`coding_sessions.agent_caption`, the steer view's working caption), moved here from workflow-caption.json (D12: work-card.json replaces it); every mirror replays these cases.",
+    "cases": [
+      {
+        "name": "running with no agents yet",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "running",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Alpha"
+            }
+          ],
+          "agents": []
+        },
+        "expected": "Workflow wire-probe · starting"
+      },
+      {
+        "name": "mid-run names the running agent's phase",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "running",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Alpha"
+            },
+            {
+              "index": 2,
+              "title": "Beta"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "label": "alpha:one",
+              "phaseIndex": 1,
+              "state": "done"
+            },
+            {
+              "index": 2,
+              "label": "alpha:two",
+              "phaseIndex": 1,
+              "state": "done"
+            },
+            {
+              "index": 3,
+              "label": "beta:shell",
+              "phaseIndex": 2,
+              "state": "running"
+            }
+          ]
+        },
+        "expected": "Workflow wire-probe · 2/3 agents done · Beta"
+      },
+      {
+        "name": "mid-run with a queued tail still names the running agent's phase",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "running",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Alpha"
+            },
+            {
+              "index": 2,
+              "title": "Beta"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "phaseIndex": 1,
+              "state": "running"
+            },
+            {
+              "index": 2,
+              "phaseIndex": 2,
+              "state": "queued"
+            }
+          ]
+        },
+        "expected": "Workflow wire-probe · 0/2 agents done · Alpha"
+      },
+      {
+        "name": "mid-run without a phase title omits the segment",
+        "workflow": {
+          "name": "dup-probe",
+          "status": "running",
+          "phases": [],
+          "agents": [
+            {
+              "index": 1,
+              "state": "running"
+            }
+          ]
+        },
+        "expected": "Workflow dup-probe · 0/1 agents done"
+      },
+      {
+        "name": "an unmatched phaseIndex omits the segment",
+        "workflow": {
+          "name": "dup-probe",
+          "status": "running",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Run"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "phaseIndex": 7,
+              "state": "running"
+            }
+          ]
+        },
+        "expected": "Workflow dup-probe · 0/1 agents done"
+      },
+      {
+        "name": "all agents done while the workflow still runs",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "running",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Alpha"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "phaseIndex": 1,
+              "state": "done"
+            },
+            {
+              "index": 2,
+              "phaseIndex": 1,
+              "state": "done"
+            }
+          ]
+        },
+        "expected": "Workflow wire-probe · 2/2 agents done · Alpha"
+      },
+      {
+        "name": "an errored agent counts as done",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "running",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Alpha"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "phaseIndex": 1,
+              "state": "error"
+            },
+            {
+              "index": 2,
+              "phaseIndex": 1,
+              "state": "running"
+            }
+          ]
+        },
+        "expected": "Workflow wire-probe · 1/2 agents done · Alpha"
+      },
+      {
+        "name": "completed",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "completed",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Alpha"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "phaseIndex": 1,
+              "state": "done"
+            },
+            {
+              "index": 2,
+              "phaseIndex": 1,
+              "state": "done"
+            },
+            {
+              "index": 3,
+              "phaseIndex": 2,
+              "state": "done"
+            }
+          ]
+        },
+        "expected": "Workflow wire-probe · done · 3 agents"
+      },
+      {
+        "name": "completed with one agent",
+        "workflow": {
+          "name": "dup-probe",
+          "status": "completed",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Run"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "phaseIndex": 1,
+              "state": "done"
+            }
+          ]
+        },
+        "expected": "Workflow dup-probe · done · 1 agent"
+      },
+      {
+        "name": "failed",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "failed",
+          "phases": [
+            {
+              "index": 1,
+              "title": "Alpha"
+            }
+          ],
+          "agents": [
+            {
+              "index": 1,
+              "phaseIndex": 1,
+              "state": "error"
+            }
+          ]
+        },
+        "expected": "Workflow wire-probe · failed"
+      },
+      {
+        "name": "stopped",
+        "workflow": {
+          "name": "wire-probe",
+          "status": "stopped",
+          "phases": [],
+          "agents": [
+            {
+              "index": 1,
+              "state": "running"
+            }
+          ]
+        },
+        "expected": "Workflow wire-probe · stopped"
+      },
+      {
+        "name": "no phases and no agents while completed",
+        "workflow": {
+          "name": "empty",
+          "status": "completed"
+        },
+        "expected": "Workflow empty · done · 0 agents"
+      }
+    ]
+  }
 }

@@ -505,6 +505,7 @@ pub(crate) fn switch_to(
         coding::LaunchOrigin::Local,
         None,
         crate::steer_wiring::StartReport::none(),
+        false,
         cx,
     ) {
         crate::toast::show(
@@ -552,13 +553,16 @@ pub(crate) fn end_then_resume_on_account(
     origin: coding::LaunchOrigin,
     prompt: Option<String>,
     report: crate::steer_wiring::StartReport,
+    rotation: bool,
     cx: &mut App,
 ) -> bool {
     // EXP-1271: a person's switch from the run's own window (`target`) opens
     // the continuation there; a relay frame or a rotation hop stays in
-    // Running.
+    // Running. Review #9: a rotation hop (`rotation`) never toasts.
     let landing = if target.is_some() {
         crate::coding_flow::RunLanding::ThisWindow
+    } else if rotation {
+        crate::coding_flow::RunLanding::Rotation
     } else {
         crate::coding_flow::RunLanding::Background
     };

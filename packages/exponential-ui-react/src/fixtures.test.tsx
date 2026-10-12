@@ -49,7 +49,7 @@ function markup(container: HTMLElement): string {
   const clone = container.cloneNode(true) as HTMLElement
   for (const s of clone.querySelectorAll(`style`)) s.remove()
   // The theme scope hash and React ids would churn the snapshot.
-  return clone.innerHTML.replace(/xui-t-[a-z0-9-]+-[a-z0-9]+/g, `xui-t-THEME`).replace(/xui-s-[a-zA-Z0-9_]+/g, `xui-s-SURFACE`).replace(/\b(id|for|aria-labelledby|aria-describedby|aria-controls)="[^"]*"/g, `$1="ID"`)
+  return clone.innerHTML.replace(/xui-t-[a-z0-9-]+-[a-z0-9]+/g, `xui-t-THEME`).replace(/xui-s-[a-zA-Z0-9_]+/g, `xui-s-SURFACE`).replace(/\b(id|for|aria-labelledby|aria-describedby|aria-controls|aria-activedescendant)="[^"]*"/g, `$1="ID"`)
 }
 
 describe(`catalog fixture → every component renders`, () => {

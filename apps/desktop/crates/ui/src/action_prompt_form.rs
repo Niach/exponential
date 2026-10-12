@@ -131,12 +131,11 @@ impl ActionPromptForm {
                 cx,
             );
         });
-        // Swapped for "Prompt" the moment `actions.get` lands (web parity).
+        // "Prompt" once `actions.get` lands (web parity); until then the
+        // group shows the skeleton (D8), never a "Loading…" placeholder.
         // The prompt AUTO-GROWS: the page is the one scroller (SLOP-2), so
         // the field is as tall as its text, inside a sane band.
-        let body = cx.new(|cx| {
-            crate::controls::web_textarea(12, 40, window, cx).placeholder("Loading prompt…")
-        });
+        let body = cx.new(|cx| crate::controls::web_textarea(12, 40, window, cx));
 
         // Enter submits from the one-line fields; in the prompt it inserts a
         // newline (hence no shell-level `on_enter`).
@@ -512,6 +511,13 @@ impl Render for ActionPromptForm {
                 cx,
             )
             .into_any_element()
+        } else if self.body_loading {
+            div()
+                .w_full()
+                .px_4()
+                .py_4()
+                .child(crate::feedback::skeleton_text("action-prompt-placeholder", cx))
+                .into_any_element()
         } else {
             Textarea::new(&self.body)
                 .appearance(false)
@@ -634,14 +640,15 @@ impl ActionPromptForm {
     /// dressed as the trailing VALUE of a grouped picker row (EXP-694) — no
     /// fill, no border, the caret the group's chevron.
     fn render_repo_picker(&self, read_only: bool, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let label: SharedString = match (&self.repos, &self.repo_id) {
-            (None, _) => "Loading repositories…".into(),
-            (Some(rows), Some(repo_id)) => rows
+        // D8: still loading = the value's placeholder bar.
+        let label: Option<SharedString> = match (&self.repos, &self.repo_id) {
+            (None, _) => None,
+            (Some(rows), Some(repo_id)) => Some(rows
                 .iter()
                 .find(|row| &row.id == repo_id)
                 .map(|row| SharedString::from(row.full_name.clone()))
-                .unwrap_or_else(|| "Repository".into()),
-            (Some(_), None) => "None".into(),
+                .unwrap_or_else(|| "Repository".into())),
+            (Some(_), None) => Some("None".into()),
         };
         let trigger = Button::new("action-edit-repo")
             .ghost()
@@ -652,7 +659,10 @@ impl ActionPromptForm {
             .text_color(cx.theme().foreground.opacity(0.7))
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
-            .child(crate::surface::picker_value_label(label))
+            .child(match label {
+                Some(label) => crate::surface::picker_value_label(label).into_any_element(),
+                None => crate::feedback::skeleton_value("action-edit-repo-placeholder", 120., cx),
+            })
             .child(crate::surface::picker_row_chevron(cx))
             .disabled(self.repos.is_none() || read_only);
         let Some(rows) = self.repos.clone() else {

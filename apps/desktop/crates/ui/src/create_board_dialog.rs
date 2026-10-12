@@ -648,10 +648,11 @@ impl CreateBoardDialogView {
         };
         let has_repos = !registry.is_empty();
 
-        let label: SharedString = match (&self.repo_choice, loading) {
-            (Some(choice), _) => choice.full_name().to_string().into(),
-            (None, true) => "Loading\u{2026}".into(),
-            (None, false) => crate::board_form::NO_REPOSITORY.into(),
+        // D8: still loading = the value's placeholder bar, never "Loading…".
+        let label: Option<SharedString> = match (&self.repo_choice, loading) {
+            (Some(choice), _) => Some(choice.full_name().to_string().into()),
+            (None, true) => None,
+            (None, false) => Some(crate::board_form::NO_REPOSITORY.into()),
         };
         let selected_full = self
             .repo_choice
@@ -680,7 +681,10 @@ impl CreateBoardDialogView {
             .icon(registry::UI_GITHUB)
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
-            .child(crate::surface::picker_value_label(label))
+            .child(match label {
+                Some(label) => crate::surface::picker_value_label(label).into_any_element(),
+                None => crate::feedback::skeleton_value("create-board-repo-placeholder", 120., cx),
+            })
             .dropdown_menu(move |menu, _window, _cx| {
                 let mut menu = menu.scrollable(true).max_h(px(320.));
                 {

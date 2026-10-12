@@ -644,6 +644,7 @@ impl SessionBar {
         // EXP-1284: `LocalThread` when the composer starts into a thread.
         origin: coding::LaunchOrigin,
         on_settled: Option<crate::action_run::ActionSettledHook>,
+        handoff: Option<crate::coding_flow::StartHandoff>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -685,7 +686,7 @@ impl SessionBar {
                 origin,
                 inputs,
                 target: Some(window.window_handle()),
-                landing: crate::coding_flow::RunLanding::Composer,
+                landing: crate::coding_flow::RunLanding::Composer(handoff),
                 reservation: None,
                 trigger: None,
                 trigger_id: None,

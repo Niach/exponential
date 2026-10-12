@@ -64,6 +64,10 @@ export type WorkTab =
       runId: string | null
       from: string | null
       live: boolean
+      /** EXP-1284 (the batch's per-start handoff): the START ID of the
+       *  start this tab's composer delivered and is waiting on, else null.
+       *  The landing is keyed by it (`landNewRun`), never by the window. */
+      startId: string | null
     }
 
 /** EXP-1255: the one New run tab. */
@@ -72,6 +76,7 @@ export const NEW_RUN_TAB: Extract<WorkTab, { kind: `new` }> = {
   runId: null,
   from: null,
   live: false,
+  startId: null,
 }
 export const NEW_RUN_TAB_KEY = `new`
 
@@ -469,15 +474,43 @@ export function isNewRunPath(pathname: string): boolean {
 }
 
 /**
- * The run started from the New run tab LANDED: the tab turns into that run's
- * tab in place. EXP-1284: every start joins a THREAD, so a run whose thread
- * is known lands as that thread's tab; one whose thread item has not synced
- * keeps the old rule (an issue run = its issue's tab on the Run face, else a
- * run-only tab). A run whose work item already has a tab elsewhere takes the
- * New run tab's place, and the duplicate goes. No New run tab = nothing.
+ * EXP-1284: the New session tab's composer DELIVERED a start: the tab
+ * remembers that start's id (a Retry reuses it, a new press replaces it), so
+ * the landing that follows is matched by the start, never by the window.
  */
-export function landNewRun(state: WorkTabsState, run: LiveRun): WorkTabsState {
+export function markNewRunStarting(
+  state: WorkTabsState,
+  startId: string
+): WorkTabsState {
   const at = state.tabs.findIndex((tab) => tab.kind === `new`)
+  if (at < 0) return state
+  const tab = state.tabs[at] as Extract<WorkTab, { kind: `new` }>
+  if (tab.startId === startId) return state
+  const tabs = [...state.tabs]
+  tabs[at] = { ...tab, startId }
+  return { ...state, tabs }
+}
+
+/**
+ * The session started from the New session tab LANDED: the tab whose
+ * in-flight start is `startId` turns into that session's tab in place. A
+ * start no New session tab is waiting on (another composer, a dialog, a
+ * press the tab has since replaced) lands nothing here. EXP-1284: every
+ * start joins a THREAD, so a session whose thread is known lands as that
+ * thread's tab; one whose thread item has not synced keeps the old rule (an
+ * issue session = its issue's tab on the Run face, else a session-only
+ * tab). A work item that already has a tab elsewhere takes the New session
+ * tab's place and the duplicate goes, so no empty New session tab is left.
+ */
+export function landNewRun(
+  state: WorkTabsState,
+  run: LiveRun,
+  startId: string | null
+): WorkTabsState {
+  if (!startId) return state
+  const at = state.tabs.findIndex(
+    (tab) => tab.kind === `new` && tab.startId === startId
+  )
   if (at < 0) return state
   const threadId = run.threadId ?? null
   const existing = state.tabs.findIndex((tab) =>
@@ -493,15 +526,15 @@ export function landNewRun(state: WorkTabsState, run: LiveRun): WorkTabsState {
       : threadId
         ? { kind: `thread`, threadId, runId: run.runId, from: null, live: false }
         : run.issueId
-        ? {
-            kind: `issue`,
-            issueId: run.issueId,
-            face: `run`,
-            runId: run.runId,
-            from: null,
-            live: false,
-          }
-        : { kind: `run`, runId: run.runId, from: null, live: false }
+          ? {
+              kind: `issue`,
+              issueId: run.issueId,
+              face: `run`,
+              runId: run.runId,
+              from: null,
+              live: false,
+            }
+          : { kind: `run`, runId: run.runId, from: null, live: false }
   const tabs = state.tabs.flatMap((tab, index) =>
     index === at ? [next] : index === existing ? [] : [tab]
   )
@@ -512,10 +545,16 @@ export function landNewRun(state: WorkTabsState, run: LiveRun): WorkTabsState {
  * the live tabs themselves. Closing never ends or kills a run. */
 export function closeTabs(
   state: WorkTabsState,
-  keys: readonly string[]
+  keys: readonly string[],
+  /** EXP-1284 (the batch's rule): Close others / Close all spare a New
+   *  session tab whose start is in flight — its landing still needs it.
+   *  A tab's own × (and a middle click) closes it regardless. */
+  options: { spareStarting?: boolean } = {}
 ): WorkTabsState {
   const closing = new Set(keys)
-  const closable = (tab: WorkTab) => closing.has(tabKey(tab))
+  const closable = (tab: WorkTab) =>
+    closing.has(tabKey(tab)) &&
+    !(options.spareStarting && tab.kind === `new` && tab.startId !== null)
   if (!state.tabs.some(closable)) return state
   return { tabs: state.tabs.filter((tab) => !closable(tab)) }
 }
@@ -700,7 +739,7 @@ function parseTab(value: unknown): WorkTab | null {
         live: raw.live === true,
       }
     case `new`:
-      return NEW_RUN_TAB
+      return { ...NEW_RUN_TAB, startId: optStr(raw.startId) }
     // A `support` tab from an older build (helpdesk, gone in SLOP-4) is
     // simply dropped.
     default:
