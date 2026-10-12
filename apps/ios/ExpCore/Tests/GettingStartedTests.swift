@@ -15,6 +15,8 @@ final class GettingStartedTests: XCTestCase {
             let needsDevice: Bool?
             let visibleWhen: String?
             let phones: Bool
+            let why: String
+            let cta: String
         }
         struct Signals: Decodable {
             let hasBoard: Bool
@@ -55,18 +57,20 @@ final class GettingStartedTests: XCTestCase {
             let icon: String
             let url: String
         }
-        struct Card: Decodable {
-            let width: Double
+        struct Row: Decodable {
             let height: Double
+            let heightPhone: Double
+            let iconSize: Double
             let padding: Double
-            let icon: Double
-            let gap: Double
+            let expandedPadding: Double
         }
         let title: String
         let progress: String
         let meter: Double
         let docs: Docs
-        let card: Card
+        let nextLabel: String
+        let maxWidth: Double
+        let row: Row
         let testIds: [String: String]
         let steps: [Step]
         let cases: [Case]
@@ -136,10 +140,14 @@ final class GettingStartedTests: XCTestCase {
             XCTAssertEqual(mine.needsDevice, want.needsDevice ?? false)
             XCTAssertEqual(mine.visibleWhen?.rawValue, want.visibleWhen)
             XCTAssertEqual(mine.phones, want.phones)
+            XCTAssertEqual(mine.why, want.why)
+            XCTAssertEqual(GettingStarted.why(mine.key), want.why)
+            XCTAssertEqual(mine.cta, want.cta)
+            XCTAssertEqual(GettingStarted.cta(mine.key), want.cta)
         }
     }
 
-    func testTheHeaderCardAndTestIdsAreTheFixtures() throws {
+    func testTheHeaderRowGeometryAndTestIdsAreTheFixtures() throws {
         let f = try fixture()
         XCTAssertEqual(GettingStarted.title, f.title)
         XCTAssertEqual(
@@ -150,17 +158,22 @@ final class GettingStartedTests: XCTestCase {
         XCTAssertEqual(GettingStarted.docsLabel, f.docs.label)
         XCTAssertEqual(GettingStarted.docsIcon, f.docs.icon)
         XCTAssertEqual(GettingStarted.docsUrl.absoluteString, f.docs.url)
-        XCTAssertEqual(GettingStarted.Card.width, f.card.width)
-        XCTAssertEqual(GettingStarted.Card.height, f.card.height)
-        XCTAssertEqual(GettingStarted.Card.padding, f.card.padding)
-        XCTAssertEqual(GettingStarted.Card.icon, f.card.icon)
-        XCTAssertEqual(GettingStarted.Card.gap, f.card.gap)
+        XCTAssertEqual(GettingStarted.nextLabel, f.nextLabel)
+        XCTAssertEqual(GettingStarted.maxWidth, f.maxWidth)
+        XCTAssertEqual(GettingStarted.Row.height, f.row.height)
+        XCTAssertEqual(GettingStarted.Row.heightPhone, f.row.heightPhone)
+        XCTAssertEqual(GettingStarted.Row.iconSize, f.row.iconSize)
+        XCTAssertEqual(GettingStarted.Row.padding, f.row.padding)
+        XCTAssertEqual(GettingStarted.Row.expandedPadding, f.row.expandedPadding)
         XCTAssertEqual(GettingStarted.TestId.block, f.testIds["block"])
         XCTAssertEqual(GettingStarted.TestId.docs, f.testIds["docs"])
         XCTAssertEqual(GettingStarted.TestId.entry, f.testIds["entry"])
-        XCTAssertEqual(
-            GettingStarted.TestId.card(.run),
-            f.testIds["card"]?.replacingOccurrences(of: "{key}", with: "run")
-        )
+        XCTAssertEqual(GettingStarted.TestId.cta, f.testIds["cta"])
+        for key in GettingStarted.Key.allCases {
+            XCTAssertEqual(
+                GettingStarted.TestId.row(key),
+                f.testIds["row"]?.replacingOccurrences(of: "{key}", with: key.rawValue)
+            )
+        }
     }
 }

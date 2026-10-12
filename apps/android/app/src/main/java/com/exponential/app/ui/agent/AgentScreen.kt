@@ -113,10 +113,8 @@ import com.exponential.app.ui.session.AgentsViewModel
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.domain.ToastAction
 import com.exponential.app.ui.components.ExponentialMark
-import com.exponential.app.ui.components.CodingSessionRow
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.SessionRowSize
 import com.exponential.app.ui.gettingstarted.GettingStartedSection
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.IssueTypeaheadSheetHost
@@ -191,10 +189,9 @@ fun AgentScreen(
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
     val computerUse by viewModel.computerUse.collectAsStateWithLifecycle()
-    // EXP-1253: the home around the card — the greeting's name, Recent, and
-    // whether Getting started still follows it (no board yet).
+    // EXP-1253: the home around the card — the greeting's name and whether
+    // Getting started still follows it (no board yet).
     val userName by viewModel.userName.collectAsStateWithLifecycle()
-    val homeRecent by viewModel.homeRecent.collectAsStateWithLifecycle()
     val teamHasBoard by viewModel.teamHasBoard.collectAsStateWithLifecycle()
     // EXP-1271: the start in flight, until its row lands or it times out.
     val starting by viewModel.starting.collectAsStateWithLifecycle()
@@ -786,25 +783,9 @@ fun AgentScreen(
                             // starting row; a refused or lost start a toast.
                         }
                     }
-                    // EXP-1253: RECENT — my last three top-level runs in
-                    // this team, small session rows; no band when empty.
-                    if (homeRecent.isNotEmpty()) {
-                        item(key = "__home_recent__") {
-                            HomeRecent(
-                                rows = homeRecent,
-                                onOpen = { row ->
-                                    if (steerEnabled == true) {
-                                        onOpenSteer(row.session.id)
-                                    } else {
-                                        row.session.issueId?.let(onOpenIssue)
-                                    }
-                                },
-                                modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
-                            )
-                        }
-                    }
                     // EXP-1270: a board-less team's Getting started block
-                    // follows Recent.
+                    // follows the composer; nothing else renders beneath
+                    // the options line.
                     if (teamHasBoard == false) {
                         item(key = "__home_getting_started__") {
                             GettingStartedSection(
@@ -812,7 +793,7 @@ fun AgentScreen(
                                     runCatching { composerFocus.requestFocus() }
                                     keyboard?.show()
                                 },
-                                modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
+                                modifier = Modifier.padding(top = (AgentHome.COMPOSER_TO_GETTING_STARTED - 6).dp),
                             )
                         }
                     }
@@ -971,40 +952,6 @@ private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false).testTag(AgentHome.GREETING_TEST_ID),
         )
-    }
-}
-
-/**
- * EXP-1253 RECENT: a muted uppercase band label over my last three
- * top-level runs in this team, each the SMALL session row that opens it.
- */
-@Composable
-private fun HomeRecent(
-    rows: List<com.exponential.app.ui.session.PastRunRow>,
-    onOpen: (com.exponential.app.ui.session.PastRunRow) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.fillMaxWidth().testTag(AgentHome.RECENT_TEST_ID)) {
-        Text(
-            AgentHome.RECENT_LABEL.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 0.6.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
-        )
-        rows.forEach { row ->
-            Box(Modifier.testTag(AgentHome.RECENT_ROW_TEST_ID)) {
-                CodingSessionRow(
-                    session = row.session,
-                    issue = row.issue,
-                    device = row.device,
-                    size = SessionRowSize.Small,
-                    batchIssues = row.batchIssues,
-                    onClick = { onOpen(row) },
-                )
-            }
-        }
     }
 }
 

@@ -2,9 +2,9 @@ import Foundation
 
 /// EXP-1270 (EXP-1259 D6): Getting started's own words are the fixture's
 /// (`getting-started.json`, ported by ExpCore `GettingStarted`): the block's
-/// title, `{done} of {total}`, the Docs button and ONE title per card
-/// (`GettingStarted.title`). No
-/// descriptions, no per-card buttons, no locked hints.
+/// title, `{done} of {total}`, the Docs button, `Next`, and per row the title,
+/// the `why` sentence and the `cta` button label (`GettingStarted.title`,
+/// `.why`, `.cta`). No locked hints.
 ///
 /// What is left here is the device-setup block's two cards (`DeviceSetup`,
 /// EXP-1169: the wizard's devices step and Add device). They read their

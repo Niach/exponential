@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1270 (EXP-1259 D6): Getting started x4 = ONE block: a header row (the title `title`, the muted `{done} of {total}`, a `meter` px wide progress meter, trailing a Docs button (`docs.label`, concept `docs.icon`, opens `docs.url`)) over ONE row of square cards in `steps` order (pointer: wrapping never, the row scrolls horizontally when narrower than its cards; phones: a horizontal scroll strip of the same cards). A card is `card.width`x`card.height` at radius lg with the card hairline: the step icon top-left, top-right a green check when done or the muted step NUMBER (its 1-based position in the visible list) when not, the title bottom-left (13px medium, two lines max); the NEXT step (first not done) is highlighted (filled with the hover fill + a foreground hairline at 30%), done cards keep the check and stay clickable (do it again); no descriptions, no locked state, no per-card buttons. A click runs the step's `target` (a step with `needsDevice` and no device opens `add-device` instead); targets: create-board = the create-board dialog, github = the GitHub connect step (web /integrations/github, desktop Settings > Repositories, phones open the web page), add-device = the ONE device-setup block, agent = the Agent page with the composer focused, invite = the invite dialog, add-server = the device-setup block on its server tab, mcp = the per-client MCP setup instructions in a dialog (web + IDE; done once an MCP grant or API key exists), widget = Settings > Widget. Visibility: `visibleWhen` names a permission (owner-only surfaces); `phones: false` steps never render on iOS/Android. Where it shows: on an EMPTY board (under the empty state), on the Agent home while the team has NO board (composer-home.json), and behind the sidebar entry `Getting started` (web + IDE rail; phones: the More tab row), which opens the same block in a centred dialog (phones: a bottom sheet); the web right sheet is gone. The block (and the entry) disappears once `complete`. Removed x4 with it: the lightbulb suggestion surfaces (action-suggestion concept rows), the action suggestion seeds (action-suggestions.ts + the natives) and the composer's suggestion rows. Model = pure `deriveGettingStarted(signals, permissions, platform)` (web components/getting-started/getting-started-model.ts, desktop getting_started.rs, iOS GettingStartedProgress.swift, Android GettingStartedModel.kt), every mirror replays `cases` (compare the WHOLE expected object).",
+  "$comment": "EXP-1270 (EXP-1259 D6): Getting started x4 = ONE block: a header row (the title `title`, the muted `{done} of {total}`, a `meter` px wide progress meter, trailing a Docs button (`docs.label`, concept `docs.icon`, opens `docs.url`)) over flat hairline-divided ROWS in `steps` order, one per visible step, in the list language (Danny 2026-10-12, the #EXP-1270 redesign: a vertical path replacing the row of square cards). The band is the group band every list wears; phones show Docs as an icon button. A DONE row: the step icon and title muted, a green check trailing; still clickable (do it again). The ONE NEXT row (first not done, `next`) is EXPANDED: the hover/glass-active fill with a hairline top and bottom, the icon + the title (medium) + a small `Next` label trailing (`nextLabel`), under the title ONE sentence of the step's `why` (13px muted) and ONE primary button labelled with its `cta`; the row and the button both run the step's target. LATER rows: plain, the foreground title, a quiet chevron trailing (muted at 45%); no numbers, no locks, no descriptions. Rows are at least `row.height` px (phones `row.heightPhone`), the step icon `row.iconSize`, horizontal padding `row.padding`, the expanded row `row.expandedPadding` vertically; the block is at most `maxWidth` px wide (the dialog is `maxWidth`), full width in the phone sheet; it scrolls vertically only, never sideways. A click runs the step's `target` (a step with `needsDevice` and no device opens `add-device` instead); targets: create-board = the create-board dialog, github = the GitHub connect step (web /integrations/github, desktop Settings > Repositories, phones open the web page), add-device = the ONE device-setup block, agent = the Agent page with the composer focused, invite = the invite dialog, add-server = the device-setup block on its server tab, mcp = the per-client MCP setup instructions in a dialog (web + IDE; done once an MCP grant or API key exists), widget = Settings > Widget. Visibility: `visibleWhen` names a permission (owner-only surfaces); `phones: false` steps never render on iOS/Android. Where it shows: on an EMPTY board (under the empty state), on the Agent home while the team has NO board (composer-home.json), and behind the sidebar entry `Getting started` (web + IDE rail; phones: the More tab row), which opens the same block in a centred dialog (phones: a bottom sheet); the web right sheet is gone. The block (and the entry) disappears once `complete`. Removed x4 with it: the lightbulb suggestion surfaces (action-suggestion concept rows), the action suggestion seeds (action-suggestions.ts + the natives) and the composer's suggestion rows. Model = pure `deriveGettingStarted(signals, permissions, platform)` (web components/getting-started/getting-started-model.ts, desktop getting_started.rs, iOS GettingStartedProgress.swift, Android GettingStartedModel.kt), every mirror replays `cases` (compare the WHOLE expected object).",
   "title": "Getting started",
   "progress": "{done} of {total}",
   "meter": 160,
@@ -8,18 +8,21 @@
     "icon": "ui-docs",
     "url": "https://exponential.at/docs/getting-started/"
   },
-  "card": {
-    "width": 104,
-    "height": 112,
-    "padding": 12,
-    "icon": 16,
-    "gap": 8
+  "nextLabel": "Next",
+  "maxWidth": 560,
+  "row": {
+    "height": 44,
+    "heightPhone": 48,
+    "iconSize": 16,
+    "padding": 16,
+    "expandedPadding": 14
   },
   "testIds": {
     "block": "getting-started",
-    "card": "getting-started-card-{key}",
     "docs": "getting-started-docs",
-    "entry": "getting-started-entry"
+    "entry": "getting-started-entry",
+    "row": "getting-started-row-{key}",
+    "cta": "getting-started-cta"
   },
   "steps": [
     {
@@ -28,7 +31,9 @@
       "icon": "ui-folder",
       "target": "create-board",
       "phones": true,
-      "doneWhen": "hasBoard"
+      "doneWhen": "hasBoard",
+      "why": "A board holds the issues your agents work on.",
+      "cta": "Create a board"
     },
     {
       "key": "github",
@@ -36,7 +41,9 @@
       "icon": "ui-github",
       "target": "github",
       "phones": true,
-      "doneWhen": "githubInstalled"
+      "doneWhen": "githubInstalled",
+      "why": "Sessions branch, push and open pull requests on your repositories.",
+      "cta": "Connect GitHub"
     },
     {
       "key": "device",
@@ -44,7 +51,9 @@
       "icon": "ui-device",
       "target": "add-device",
       "phones": true,
-      "doneWhen": "hasDesktopDevice || hasServerDevice"
+      "doneWhen": "hasDesktopDevice || hasServerDevice",
+      "why": "Sessions run on your computer. The desktop app registers it.",
+      "cta": "Add a device"
     },
     {
       "key": "run",
@@ -53,7 +62,9 @@
       "target": "agent",
       "needsDevice": true,
       "phones": true,
-      "doneWhen": "hasCodingSession"
+      "doneWhen": "hasCodingSession",
+      "why": "Pick an issue or type what to build, then watch it work.",
+      "cta": "Start a session"
     },
     {
       "key": "invite",
@@ -62,7 +73,9 @@
       "target": "invite",
       "visibleWhen": "canManageMembers",
       "phones": true,
-      "doneWhen": "hasInvitedTeam"
+      "doneWhen": "hasInvitedTeam",
+      "why": "Teammates see every board, session and review.",
+      "cta": "Invite your team"
     },
     {
       "key": "server",
@@ -70,7 +83,9 @@
       "icon": "ui-server",
       "target": "add-server",
       "phones": true,
-      "doneWhen": "hasServerDevice"
+      "doneWhen": "hasServerDevice",
+      "why": "An always-on machine takes sessions while your laptop is closed.",
+      "cta": "Set up a server"
     },
     {
       "key": "mcp",
@@ -78,7 +93,9 @@
       "icon": "ui-mcp",
       "target": "mcp",
       "phones": false,
-      "doneWhen": "mcpConnected"
+      "doneWhen": "mcpConnected",
+      "why": "Claude, ChatGPT or Cursor read and file issues through MCP.",
+      "cta": "Connect your tools"
     },
     {
       "key": "widget",
@@ -87,7 +104,9 @@
       "target": "widget",
       "visibleWhen": "canManageWidgets",
       "phones": false,
-      "doneWhen": "hasWidget"
+      "doneWhen": "hasWidget",
+      "why": "A snippet on your site turns feedback into issues.",
+      "cta": "Feedback widget"
     }
   ],
   "cases": [

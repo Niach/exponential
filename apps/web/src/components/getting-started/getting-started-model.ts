@@ -5,7 +5,7 @@ import spec from "@exp/domain-contract/fixtures/getting-started.json"
 // getting_started.rs, iOS GettingStartedProgress.swift, Android
 // GettingStartedModel.kt) — no React. The hook
 // (`use-getting-started-progress`) gathers the signals; this derives the ONE
-// row of cards: eight steps in the fixture's order, the first open one NEXT,
+// list of rows: eight steps in the fixture's order, the first open one NEXT,
 // done ones keep their check and stay clickable, no locked state (a step
 // needing a device opens the device step until there is one), owner-only
 // steps hidden from members, `phones: false` steps hidden on the phones.
@@ -61,7 +61,7 @@ export interface GettingStartedEntry {
   done: boolean
   /** What a click runs (`add-device` while a device-needing step has none). */
   target: GettingStartedTarget
-  /** The first step not done: the highlighted card. */
+  /** The first step not done: the expanded row. */
   next: boolean
 }
 

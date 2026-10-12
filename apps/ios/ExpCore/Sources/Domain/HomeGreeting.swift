@@ -1,7 +1,7 @@
 import Foundation
 
 /// EXP-1253 (EXP-1259 D1): the Agent page is HOME — the disc mark and ONE
-/// greeting line ("Evening, Danny") over the composer, then Recent. A 1:1
+/// greeting line ("Evening, Danny") over the composer, nothing beneath it. A 1:1
 /// port of the TS reference `packages/domain-contract/src/home-greeting.ts`,
 /// locked by `fixtures/composer-home.json` (`cases`, replayed by
 /// `HomeGreetingTests`; desktop `ui::home_greeting`, Android
@@ -45,19 +45,15 @@ public enum HomeGreeting {
         public static let headlinePhone: Double = 24
         public static let headlineWeight = 600
         public static let headlineToCard: Double = 24
-        public static let optionsToRecent: Double = 32
+        /// The Getting started block (no board yet) sits this far below the
+        /// options line.
+        public static let composerToGettingStarted: Double = 32
     }
-
-    /// The Recent band: its label and how many runs it lists.
-    public static let recentLabel = "Recent"
-    public static let recentCount = 3
 
     public enum TestId {
         public static let home = "agent-home"
         public static let greeting = "agent-home-greeting"
         public static let mark = "agent-home-mark"
-        public static let recent = "agent-home-recent"
-        public static let recentRow = "agent-home-recent-row"
     }
 
     /// `YYYY-MM-DDTHH:mm` of `date` in `timeZone` (the device's by default).
@@ -137,36 +133,5 @@ public enum HomeGreeting {
             value = value * 10 + Int(byte - UInt8(ascii: "0"))
         }
         return value
-    }
-
-    /// RECENT: the caller's last `recentCount` OWN top-level runs (no parent
-    /// run) in the active team, any status, newest first by `updatedAt`, then
-    /// `createdAt`, then `id` ascending (composer-home.json `recentCases`). Rows are deduped by id (a live and an ended read can
-    /// overlap while a run flips). Review #20 (composer-home.json): a resume
-    /// succession (`resumed_from_id`) is ONE row, its newest member, the way
-    /// every session list draws it (`SessionTree.sessionTree`).
-    public static func recentRuns(
-        _ sessions: [CodingSessionEntity],
-        userId: String?,
-        teamId: String?,
-        count: Int = recentCount
-    ) -> [CodingSessionEntity] {
-        guard let teamId else { return [] }
-        var seen = Set<String>()
-        let own = sessions.filter { session in
-            CodingSessionOwnership.isOwn(session, userId: userId)
-                && session.teamId == teamId
-                && session.parentSessionId == nil
-                && seen.insert(session.id).inserted
-        }
-        let newest = SessionTree.sessionTree(own).map(\.session)
-        func stamp(_ value: String) -> Date { WireTimestamps.parse(value) ?? .distantPast }
-        return Array(newest.sorted { a, b in
-            let au = stamp(a.updatedAt), bu = stamp(b.updatedAt)
-            if au != bu { return au > bu }
-            let ac = stamp(a.createdAt), bc = stamp(b.createdAt)
-            if ac != bc { return ac > bc }
-            return a.id < b.id
-        }.prefix(count))
     }
 }

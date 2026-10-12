@@ -57,7 +57,7 @@
     {
       "id": "getting-started",
       "label": "Getting started",
-      "blurb": "The setup block: one row of eight square step cards with a progress meter and Docs, on an empty board, on the Agent home while the team has no board, and behind the sidebar entry as a dialog.",
+      "blurb": "The setup block: a vertical list of the eight steps under a band with a progress meter and Docs, the next step expanded, on an empty board, on the Agent home while the team has no board, and behind the sidebar entry as a dialog.",
       "order": 10
     },
     {
@@ -568,7 +568,7 @@
       "id": "board-empty",
       "group": "issues",
       "title": "Empty board",
-      "blurb": "A board with nothing on it yet: the empty state, with the Getting started block (one row of step cards) underneath on every client.",
+      "blurb": "A board with nothing on it yet: the empty state, with the Getting started block (the vertical list of steps) underneath on every client.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/boards/launch-marketing",
@@ -917,7 +917,7 @@
       "id": "chat",
       "group": "coding",
       "title": "Agent",
-      "blurb": "The Agent page, HOME on every client (EXP-1253): the disc mark and a time-of-day greeting over the composer (the ONE launcher), empty here, a free prompt bound to no issue that needs no repository, and Recent (the last three own sessions) under the options line. No suggestion rows, no watermark; what is RUNNING is a section of the sidebar.",
+      "blurb": "The Agent page, HOME on every client (EXP-1253): the disc mark and a time-of-day greeting over the composer (the ONE launcher), empty here, a free prompt bound to no issue that needs no repository; nothing renders under the options line (no Recent, no suggestion rows, no watermark); what is RUNNING is a section of the sidebar.",
       "order": 4,
       "web": {
         "route": "/t/$teamSlug/agent",
@@ -937,9 +937,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "EXP-923: my live sessions are the sidebar’s Running section, and the full history is a panel behind the ghost history button at the page’s top-left. EXP-1253: the page is home (the team index redirects here, see `agent-home`): greeting, composer, Recent.",
+        "web": "EXP-923: my live sessions are the sidebar’s Running section, and the full history is a panel behind the ghost history button at the page’s top-left. EXP-1253: the page is home (the team index redirects here, see `agent-home`): greeting and composer only.",
         "web-mobile": "EXP-923: the phone keeps the Running list under the composer; Recent left the page for the header's history button, which opens it as a bottom sheet.",
-        "desktop": "EXP-1192: the IDE LANDS here on startup, and Agent is the rail’s first entry (above Inbox). The page is the home column (EXP-1253: greeting, composer, Recent); my live sessions are the rail’s own Running section. The ghost history button at the page’s top-left slides Recent sessions in as a second sidebar INSIDE the content card and turns into a Back button while it is open. `EXP_DEV_SCREEN=chat` opens the page; add `EXP_DEV_TOOL=history` for the Recent sessions sidebar."
+        "desktop": "EXP-1192: the IDE LANDS here on startup, and Agent is the rail’s first entry (above Inbox). The page is the home column (EXP-1253: greeting and composer); my live sessions are the rail’s own Running section. The ghost history button at the page’s top-left slides Recent sessions in as a second sidebar INSIDE the content card and turns into a Back button while it is open. `EXP_DEV_SCREEN=chat` opens the page; add `EXP_DEV_TOOL=history` for the Recent sessions sidebar."
       },
       "desktop": {
         "drive": {
@@ -952,12 +952,12 @@
       "id": "agent-home",
       "group": "coding",
       "title": "Agent home",
-      "blurb": "Where every client lands (EXP-1253, composer-home.json): the disc mark and ONE greeting line in Inter semibold, “What do you want to build?” in the composer, and Recent, the last three own sessions as small SessionRows, under the options line.",
+      "blurb": "Where every client lands (EXP-1253, composer-home.json): the disc mark and ONE greeting line in Inter semibold, “What do you want to build?” in the composer, and nothing under the options line: recent sessions live behind the history button and the Agent › Recent sidebar.",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug",
         "anchor": {
-          "testId": "agent-home-recent",
+          "testId": "agent-home-greeting",
           "timeoutMs": 30000
         },
         "settleMs": 800
@@ -978,8 +978,8 @@
         }
       },
       "notes": {
-        "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for Recent, which needs the seeded sessions.",
-        "desktop": "Same drive as `chat` (`EXP_DEV_SCREEN=chat`): the IDE starts on Agent (EXP-1192) and that page IS the home column (greeting, composer, Recent), so the two desktop shots are one surface filed under both names, like issue-detail and issue-comments."
+        "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for the greeting.",
+        "desktop": "Same drive as `chat` (`EXP_DEV_SCREEN=chat`): the IDE starts on Agent (EXP-1192) and that page IS the home column (greeting and composer), so the two desktop shots are one surface filed under both names, like issue-detail and issue-comments."
       }
     },
     {
@@ -2086,7 +2086,7 @@
       "id": "getting-started",
       "group": "getting-started",
       "title": "Getting started",
-      "blurb": "ONE block ×4 (getting-started.json): the title, “4 of 8”, a meter and Docs over one row of square cards in the order Create a board · Connect GitHub · Add a device · Start a session · Invite your team · Set up a server · Connect your tools · Feedback widget; the next step highlighted, done steps checked and still clickable. Here: the sidebar entry’s dialog.",
+      "blurb": "ONE block ×4 (getting-started.json): the title, “4 of 8”, a meter and Docs over flat hairline rows in the order Create a board · Connect GitHub · Add a device · Start a session · Invite your team · Set up a server · Connect your tools · Feedback widget (#EXP-1270 redesign: a vertical path in the list language): done rows muted with a green check and still clickable, the ONE next step expanded with its why sentence and one primary button, later steps plain with a quiet chevron. Here: the sidebar entry’s dialog, 560 wide.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug",
@@ -2106,7 +2106,7 @@
       "notes": {
         "web": "Not a route: the sidebar-footer entry (EXP-88) opens the block in a centred dialog (EXP-1270; the right sheet is gone), and the entry hides once every step is done (EXP-548), so the seed must leave a step open. The same block renders inline on an EMPTY board (`board-empty`) and on the Agent home while the team has no board.",
         "web-mobile": "The phone sidebar keeps the same entry and dialog; the inline block is `board-empty`’s web-mobile capture.",
-        "ios": "Settings’ Getting started row opens the block in a bottom sheet (a horizontal strip of the same cards).",
+        "ios": "Settings’ Getting started row opens the block in a bottom sheet (the same rows, full width, Docs as an icon button).",
         "android": "See ios: the Settings row’s bottom sheet.",
         "desktop": "The rail entry opens the block in its own dialog window (`getting_started::open_dialog`); `EXP_DEV_DIALOG=getting-started` opens it on the active team. The old `getting-started` screen and its tabs are gone."
       },

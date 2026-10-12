@@ -1,10 +1,10 @@
 // Review #27: the Agent page's HOME column against composer-home.json: the
 // greeting is `homeGreeting` of the local wall clock (a fixture case
 // replayed through the page), the composer asks the fixture's placeholder,
-// and RECENT is a band of at most `recent.count` rows, no band at all
-// without sessions. Lives under a `-` prefix so the route generator ignores
-// it.
-import { render, screen, within } from "@testing-library/react"
+// nothing renders beneath the options line, and a board-less team's Getting
+// started block sits `composerToGettingStarted` px below it. Lives under a
+// `-` prefix so the route generator ignores it.
+import { render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/composer-home.json"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
@@ -12,7 +12,6 @@ import type { RemoteStart } from "@/hooks/use-remote-start"
 import type { Team } from "@/db/schema"
 
 const mocks = vi.hoisted(() => ({
-  rows: {} as Record<string, unknown[]>,
   boards: [] as unknown[],
   model: null as unknown,
 }))
@@ -23,23 +22,15 @@ vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
   redirect: vi.fn(),
   useNavigate: () => vi.fn(),
 }))
-// The synced queries by ALIAS: the Recent band reads `s` (sessions).
+// The composer's own synced queries (membership, readiness) read nothing.
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
     ...actual,
     useLiveQuery: (build: (query: unknown) => unknown) => {
-      let alias = ``
       const chain = { where: () => chain }
-      const query = {
-        from: (source: Record<string, unknown>) => {
-          alias = Object.keys(source)[0] ?? ``
-          return chain
-        },
-      }
-      const result = build(query)
-      if (result === undefined) return { data: undefined }
-      return { data: mocks.rows[alias] ?? [] }
+      const result = build({ from: () => chain })
+      return { data: result === undefined ? undefined : [] }
     },
   }
 })
@@ -61,29 +52,8 @@ vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamById: () => ({ id: `t1`, slug: `acme` }),
   useTeamUsers: () => ({ users: [] }),
 }))
-// The row's own chrome has its own tests; here a row is its session.
-vi.mock(`@/hooks/use-agents-data`, () => ({
-  useAgentsData: () => ({}),
-  useSessionListRows: (_teamId: string, sessions: { id: string }[]) =>
-    sessions.map((session) => ({ session })),
-}))
-vi.mock(`@/components/session-tree`, () => ({
-  sessionDeviceRow: () => undefined,
-  useDeviceRows: () => [],
-  sessionRowFacts: (row: { session: { id: string } }) => ({
-    agent: `claude`,
-    markState: `idle`,
-    identifier: null,
-    title: row.session.id,
-    caption: ``,
-    captionTone: undefined,
-    deviceName: null,
-    paused: false,
-  }),
-}))
-vi.mock(`@/hooks/use-open-session`, () => ({ useOpenSession: () => vi.fn() }))
 vi.mock(`@/components/getting-started/getting-started-section`, () => ({
-  GettingStartedSection: () => null,
+  GettingStartedSection: () => <div data-testid="getting-started" />,
 }))
 // The composer's MODEL has its own suite; the card renders for real.
 vi.mock(`@/hooks/use-launch-composer`, async (importOriginal) => ({
@@ -201,23 +171,10 @@ function fakeModel(): LaunchComposerModel {
 
 const team = { id: `t1`, slug: `acme`, name: `Acme` } as Team
 
-const session = (id: string, hour: number, extra: Record<string, unknown> = {}) => ({
-  id,
-  userId: `me`,
-  teamId: `t1`,
-  parentSessionId: null,
-  resumedFromId: null,
-  issueId: null,
-  createdAt: new Date(`2026-10-12T0${hour}:00:00Z`),
-  updatedAt: new Date(`2026-10-12T0${hour}:30:00Z`),
-  ...extra,
-})
-
 function renderHome() {
   return render(
     <HomeColumn
       team={team}
-      currentUserId="me"
       userName={fixture.cases[0]!.user}
       isMember
       steerEnabled
@@ -231,7 +188,6 @@ function renderHome() {
 }
 
 beforeEach(() => {
-  mocks.rows = {}
   mocks.boards = [{ id: `b1` }]
   mocks.model = fakeModel()
   // The greeting reads the LOCAL wall clock: pin it to the first case.
@@ -253,31 +209,20 @@ describe(`the Agent home column (composer-home.json)`, () => {
     expect(screen.getByPlaceholderText(fixture.placeholder)).toBeTruthy()
   })
 
-  it(`draws no Recent band without sessions`, () => {
-    renderHome()
-    expect(screen.queryByTestId(fixture.testIds.recent)).toBeNull()
+  it(`renders nothing beneath the composer's options line`, () => {
+    const { container } = renderHome()
+    const last = container.lastElementChild
+    expect(last?.contains(screen.getByPlaceholderText(fixture.placeholder))).toBe(true)
+    expect(screen.queryByTestId(`getting-started`)).toBeNull()
   })
 
-  it(`draws at most recent.count rows under the band label`, () => {
-    mocks.rows.s = [1, 2, 3, 4, 5].map((hour) => session(`run-${hour}`, hour))
-    renderHome()
-    const band = screen.getByTestId(fixture.testIds.recent)
-    expect(within(band).getByText(fixture.recent.label)).toBeTruthy()
-    const rows = within(band).getAllByTestId(fixture.testIds.recentRow)
-    expect(rows.length).toBe(fixture.recent.count)
-    expect(rows[0]!.textContent).toContain(`run-5`)
-  })
-
-  it(`folds a resume succession into one row`, () => {
-    mocks.rows.s = [
-      session(`first`, 1),
-      session(`resumed`, 2, { resumedFromId: `first` }),
-    ]
-    renderHome()
-    const rows = within(screen.getByTestId(fixture.testIds.recent)).getAllByTestId(
-      fixture.testIds.recentRow
+  it(`puts Getting started composerToGettingStarted px below a board-less team's composer`, () => {
+    mocks.boards = []
+    const { container } = renderHome()
+    const block = screen.getByTestId(`getting-started`)
+    expect(container.lastElementChild).toBe(block.parentElement)
+    expect(block.parentElement?.style.marginTop).toBe(
+      `${fixture.geometry.composerToGettingStarted}px`
     )
-    expect(rows.length).toBe(1)
-    expect(rows[0]!.textContent).toContain(`resumed`)
   })
 })

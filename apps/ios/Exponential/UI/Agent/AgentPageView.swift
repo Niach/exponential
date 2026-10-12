@@ -10,11 +10,11 @@ import SwiftUI
 /// chips); the composer card (`AgentComposerCard`: placeholder "What do you
 /// want to build?", the starting row after Start); the `@`/`:` candidate
 /// menu under it (`#` opens THE search list in a sheet, SLOP-28); the options
-/// line (`AgentOptionsRow`); then RECENT (my last three top-level runs in
-/// this team, small session rows, no band when empty), Getting started while
-/// the team has no board, and the caller's Running sessions
-/// (`AgentSessionsList`, the phones' list under the composer, web parity).
-/// The suggestion rows and the brand-mark watermark are gone ×4.
+/// line (`AgentOptionsRow`); then Getting started while the team has no
+/// board, and the caller's Running sessions (`AgentSessionsList`, the
+/// phones' list under the composer). No Recent band and no suggestion rows
+/// (Danny 2026-10-12): the toolbar's history sheet is the one place for
+/// recent sessions. The brand-mark watermark is gone ×4.
 ///
 /// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed as the stack's
 /// root — EXP-1210: a tab root like its siblings, no back — the app's
@@ -55,7 +55,7 @@ struct AgentPageView: View {
     /// flips while you type (web `useState(() => homeGreeting(...))`).
     @State private var greeting: String?
     /// EXP-1270: Getting started's signals for the active team (the block
-    /// follows Recent while the team has no board).
+    /// follows the composer while the team has no board).
     @State private var gettingStarted = GettingStartedProgress()
     @State private var keyboardVisible = false
     /// EXP-1196: the not-ready row's Sign in pill → the remote sign-in.
@@ -73,7 +73,7 @@ struct AgentPageView: View {
             AppBackground()
 
             if let sessions, let composer {
-                // EXP-862: with nothing running and nothing in Recent, the
+                // EXP-862: with nothing running, the
                 // composer column is CENTRED in the page (×4: web's
                 // `justify-center`, the IDE's `min_h_full`) — a lone prompt box
                 // pinned under the nav bar over an empty screen read as a page
@@ -81,7 +81,7 @@ struct AgentPageView: View {
                 // EXP-923: only the RUNNING rows count now — history moved
                 // into its own sheet, so an empty Running band is an empty
                 // page.
-                let centred = sessions.rows.isEmpty && sessions.homeRecentRows.isEmpty
+                let centred = sessions.rows.isEmpty
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -121,7 +121,6 @@ struct AgentPageView: View {
                             captions(composer)
                         }
 
-                        homeRecent(sessions)
                         homeGettingStarted
 
                         AgentSessionsList(
@@ -378,56 +377,20 @@ struct AgentPageView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// RECENT: my last `recentCount` top-level runs in the active team, any
-    /// status, each a SMALL session row that opens the run; no band at all
-    /// with zero runs.
-    @ViewBuilder
-    private func homeRecent(_ sessions: AgentsViewModel) -> some View {
-        let rows = sessions.homeRecentRows
-        if !rows.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(HomeGreeting.recentLabel)
-                ForEach(rows) { row in
-                    Button {
-                        sessionTarget = .init(sessionId: row.session.id)
-                    } label: {
-                        SessionListRow(
-                            session: row.session,
-                            identifier: sessionRowIdentifier(
-                                issue: row.issue, session: row.session, batchIssues: row.batchIssues
-                            ),
-                            title: sessionRowTitle(
-                                issue: row.issue, session: row.session, batchIssues: row.batchIssues
-                            ),
-                            prState: row.issue?.prState ?? row.session.prState,
-                            device: row.device,
-                            deviceIcon: SessionListRow.deviceIcon(row.session, devices: sessions.devices),
-                            size: .small
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier(HomeGreeting.TestId.recentRow)
-                }
-            }
-            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(HomeGreeting.TestId.recent)
-        }
-    }
-
-    /// EXP-1270: while the team has NO board, Getting started follows
-    /// Recent ("Start a run" focuses this page's composer).
+    /// EXP-1270: while the team has NO board, Getting started follows the
+    /// composer, `composerToGettingStarted` below the options line ("Start a
+    /// run" focuses this page's composer).
     @ViewBuilder
     private var homeGettingStarted: some View {
         if let teamId = teamState.activeTeam?.id,
            gettingStarted.entries.contains(where: { $0.key == .board && !$0.done }) {
-            GettingStartedCards(
+            GettingStartedList(
                 progress: gettingStarted,
                 accountId: accountId,
                 teamId: teamId,
                 onStartRun: { composer?.draftEditor.focusEnd() }
             )
-            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
+            .padding(.top, CGFloat(HomeGreeting.Geometry.composerToGettingStarted) - 12)
         }
     }
 

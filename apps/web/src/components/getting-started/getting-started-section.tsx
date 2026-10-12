@@ -5,13 +5,17 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  GettingStartedStrip,
+  GettingStartedList,
   toast,
+  useIsMobile,
 } from "@exp/ui"
 import { openGithubConnect, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
 import { useOpenComposer } from "@/hooks/use-open-composer"
-import { GETTING_STARTED_STEP_TITLES } from "@/components/getting-started/getting-started-copy"
+import {
+  GETTING_STARTED_MAX_WIDTH,
+  GETTING_STARTED_STEP_TITLES,
+} from "@/components/getting-started/getting-started-copy"
 import type { GettingStartedTarget } from "@/components/getting-started/getting-started-model"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { AddDeviceDialog } from "@/components/add-device-dialog"
@@ -20,11 +24,11 @@ import { McpSetupDialog } from "@/components/getting-started/mcp-setup-tabs"
 import type { Team } from "@/db/schema"
 
 // EXP-1270 (EXP-1259 D6, `getting-started.json`): Getting started = ONE
-// block ×4. Its face is `@exp/ui` `GettingStartedStrip` (the header + one
-// row of square cards, the styleguide draws the same one); this wires it to
-// the team's signals (`useGettingStartedProgressContext` → the pure
-// `deriveGettingStarted`) and runs a card's target. The model already turned
-// a device-needing step without a device into `add-device`.
+// block ×4. Its face is `@exp/ui` `GettingStartedList` (the group band over
+// one row per step, the next one expanded; the styleguide draws the same
+// one); this wires it to the team's signals (`useGettingStartedProgressContext`
+// → the pure `deriveGettingStarted`) and runs a row's target. The model
+// already turned a device-needing step without a device into `add-device`.
 //
 // Mounted on an EMPTY board (under "No issues yet"), on the Agent home while
 // the team has no board, and inside the sidebar entry's centred dialog
@@ -51,20 +55,27 @@ export function GettingStartedSection(props: GettingStartedSectionProps) {
   const { loading, complete } = useGettingStartedProgressContext()
   if (loading || complete) return null
   return (
-    <div className="mx-auto w-full max-w-4xl px-6 pb-12">
+    <div
+      className="mx-auto w-full px-4 pb-12 md:px-6"
+      // The block's `maxWidth` plus the page gutters.
+      style={{ maxWidth: GETTING_STARTED_MAX_WIDTH + 48 }}
+    >
       <GettingStartedBlock {...props} />
     </div>
   )
 }
 
-/** The header + the strip, with the dialogs its targets open. `onLeave`
- *  runs before a target that navigates away (the sidebar dialog closes). */
+/** The band + the rows, with the dialogs their targets open. `onLeave`
+ *  runs before a target that navigates away (the sidebar dialog closes);
+ *  `framed={false}` where the dialog already is the block's box. */
 export function GettingStartedBlock({
   team,
   teamSlug,
   onLeave,
-}: GettingStartedSectionProps & { onLeave?: () => void }) {
+  framed = true,
+}: GettingStartedSectionProps & { onLeave?: () => void; framed?: boolean }) {
   const { entries, done, total, progress } = useGettingStartedProgressContext()
+  const isMobile = useIsMobile()
   const navigate = useNavigate()
   const openComposer = useOpenComposer()
   const [dialog, setDialog] = useState<
@@ -77,12 +88,12 @@ export function GettingStartedBlock({
       case `add-device`:
       case `invite`:
       // The per-client setup instructions (Claude, ChatGPT, Codex, Cursor…);
-      // the card turns done once an MCP grant or API key exists.
+      // the row turns done once an MCP grant or API key exists.
       case `mcp`:
         setDialog(target)
         return
-      // The device-setup block has no tabs on the web: both cards (the
-      // desktop app and the server one-liner) are always there.
+      // The device-setup block has no tabs on the web: both of its cards
+      // (the desktop app and the server one-liner) are always there.
       case `add-server`:
         setDialog(`add-device`)
         return
@@ -113,11 +124,13 @@ export function GettingStartedBlock({
 
   return (
     <>
-      <GettingStartedStrip
+      <GettingStartedList
         entries={entries}
         done={done}
         total={total}
         progress={progress}
+        phone={isMobile}
+        framed={framed}
         onSelect={(key) => {
           const entry = entries.find((row) => row.key === key)
           if (entry) run(entry.target)

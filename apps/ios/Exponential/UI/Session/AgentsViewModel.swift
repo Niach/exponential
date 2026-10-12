@@ -49,12 +49,6 @@ final class AgentsViewModel {
 
     var rows: [Row] = []
 
-    /// EXP-1253 (EXP-1259 D1): the Agent home's RECENT band — the caller's
-    /// last `HomeGreeting.recentCount` OWN top-level runs in the ACTIVE team,
-    /// any status, newest first (`HomeGreeting.recentRuns`, web
-    /// `selectHomeRecent`). Empty = no band.
-    private(set) var homeRecentRows: [Row] = []
-
     /// EXP-746: the caller's most recent finished runs, newest first, capped
     /// at `PastRuns.cap`. Empty = the section is absent entirely.
     private(set) var pastRows: [PastRow] = []
@@ -103,7 +97,6 @@ final class AgentsViewModel {
         didSet {
             guard oldValue != activeTeamId else { return }
             rebuildDevices()
-            rebuildHomeRecent()
         }
     }
 
@@ -133,8 +126,6 @@ final class AgentsViewModel {
     /// live query filters on status and would otherwise have to carry them
     /// through every liveness rule that only makes sense for a running run.
     private var endedTask: Task<Void, Never>?
-    /// EXP-1253: the home's Recent candidates (own, top-level, any status).
-    private var homeTask: Task<Void, Never>?
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
@@ -171,7 +162,6 @@ final class AgentsViewModel {
 
     private var sessions: [CodingSessionEntity] = []
     private var endedSessions: [CodingSessionEntity] = []
-    private var homeSessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
     // Observed so the composer's issue pool can resolve repo-backed boards
     // (EXP-156) and so the pull-request pool can scope issues to the active
@@ -220,28 +210,6 @@ final class AgentsViewModel {
         }
 
         startEndedObservation()
-
-        // EXP-1253: the home's Recent band reads the caller's own TOP-LEVEL
-        // runs whatever their status, newest activity first, queried a little
-        // wider than the band so the pure selector has rows to drop.
-        if let userId, !userId.isEmpty {
-            let homeObservation = ValueObservation.tracking { db in
-                try CodingSessionEntity
-                    .filter(Column("user_id") == userId)
-                    .filter(Column("parent_session_id") == nil)
-                    .order(sql: "updated_at DESC")
-                    .limit(40)
-                    .fetchAll(db)
-            }
-            homeTask = Task { [weak self] in
-                do {
-                    for try await sessions in homeObservation.values(in: pool) {
-                        self?.homeSessions = sessions
-                        self?.rebuildHomeRecent()
-                    }
-                } catch {}
-            }
-        }
 
         let issueObservation = ValueObservation.tracking { db in
             try IssueEntity.fetchAll(db)
@@ -396,8 +364,6 @@ final class AgentsViewModel {
         observing = false
         sessionTask?.cancel()
         sessionTask = nil
-        homeTask?.cancel()
-        homeTask = nil
         endedTask?.cancel()
         endedTask = nil
         issueTask?.cancel()
@@ -769,26 +735,5 @@ final class AgentsViewModel {
             }
         // The Recent rows join the same issues and device rows this pass read.
         rebuildPast()
-        rebuildHomeRecent()
-    }
-
-    /// EXP-1253: the home's Recent band, joined like the Running rows.
-    private func rebuildHomeRecent() {
-        let now = Date()
-        let fresh = devicesFresh(now: now)
-        let deviceRows = deviceEntities ?? []
-        let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        homeRecentRows = HomeGreeting.recentRuns(
-            homeSessions, userId: userId, teamId: activeTeamId
-        ).map { session in
-            Row(
-                session: session,
-                issue: session.issueId.flatMap { issuesById[$0] },
-                batchIssues: BatchRun.issues(session, issues: issues),
-                device: SessionDevicePresentation.resolve(
-                    session: session, devices: deviceRows, now: now, devicesFresh: fresh
-                )
-            )
-        }
     }
 }

@@ -15,7 +15,6 @@ export interface HomeGreetingBucket {
 
 export const HOME_GREETING_BUCKETS: readonly HomeGreetingBucket[] = fixture.buckets
 export const HOME_PLACEHOLDER: string = fixture.placeholder
-export const HOME_RECENT = fixture.recent
 export const HOME_GEOMETRY = fixture.geometry
 export const HOME_TEST_IDS = fixture.testIds
 const DAY_STARTS_AT_HOUR: number = fixture.dayStartsAtHour

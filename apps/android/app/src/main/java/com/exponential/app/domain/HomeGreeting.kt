@@ -1,11 +1,10 @@
 package com.exponential.app.domain
 
-import com.exponential.app.data.db.CodingSessionEntity
 import java.time.LocalDate
 import java.time.LocalDateTime
 
 // EXP-1253 (EXP-1259 D1): the Agent page is HOME — "Evening, Danny" over the
-// composer, Recent under it. The pure half, hand-copied from
+// composer, nothing beneath its options line. The pure half, hand-copied from
 // `packages/domain-contract/fixtures/composer-home.json` and locked to it by
 // HomeGreetingTest (which replays its `cases`). TS reference:
 // `packages/domain-contract/src/home-greeting.ts`.
@@ -23,8 +22,6 @@ object AgentHome {
     const val HOME_TEST_ID = "agent-home"
     const val GREETING_TEST_ID = "agent-home-greeting"
     const val MARK_TEST_ID = "agent-home-mark"
-    const val RECENT_TEST_ID = "agent-home-recent"
-    const val RECENT_ROW_TEST_ID = "agent-home-recent-row"
 
     const val PLACEHOLDER = "What do you want to build?"
 
@@ -36,10 +33,9 @@ object AgentHome {
     const val HEADLINE_PHONE = 24
     const val HEADLINE_WEIGHT = 600
     const val HEADLINE_TO_CARD = 24
-    const val OPTIONS_TO_RECENT = 32
 
-    const val RECENT_LABEL = "Recent"
-    const val RECENT_COUNT = 3
+    /** A board-less team's Getting started block, below the options line. */
+    const val COMPOSER_TO_GETTING_STARTED = 32
 
     /** The greeting day starts at 05:00: one night keeps one variant. */
     const val DAY_STARTS_AT_HOUR = 5
@@ -93,34 +89,4 @@ object AgentHome {
         val first = greetingFirstName(name)
         return if (first.isNotEmpty()) variant.replace("{name}", first) else variant.replace(", {name}", "")
     }
-
-    /**
-     * RECENT: the caller's last [count] OWN top-level runs in [teamId] (no
-     * parent run), any status, newest first by `updatedAt` then `createdAt`.
-     * A resume succession is ONE run (its newest row), the way every session
-     * list draws it.
-     */
-    fun recentRuns(
-        sessions: List<CodingSessionEntity>,
-        teamId: String?,
-        userId: String?,
-        count: Int = RECENT_COUNT,
-    ): List<CodingSessionEntity> {
-        if (teamId == null || userId == null) return emptyList()
-        val own = sessions
-            .distinctBy { it.id }
-            .filter { it.userId == userId && it.teamId == teamId && it.parentSessionId == null }
-        return sessionTree(own)
-            .filterIsInstance<SessionTreeNode.Session>()
-            .map { it.session }
-            .sortedWith(
-                compareByDescending<CodingSessionEntity> { stamp(it.updatedAt) }
-                    .thenByDescending { stamp(it.createdAt) }
-                    .thenBy { it.id },
-            )
-            .take(count)
-    }
-
-    private fun stamp(value: String?): Long =
-        value?.trim()?.takeIf { it.isNotEmpty() }?.let(WireTimestamps::parseEpochMs) ?: 0L
 }

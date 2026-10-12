@@ -115,8 +115,7 @@ pub(crate) const PANEL_INNER_RADIUS: f32 = t::radius::LG - PANEL_BORDER;
 /// wash) composited OPAQUE — the strip must hide the content it fades over,
 /// not tint it. EXP-1256: measured on the reported capture, the strip and
 /// the card read the same value; what showed was the strip cutting the
-/// card's hairline, now [`PANEL_BORDER`] inset. Also the ground of a fade
-/// hung mid-card at a measured height (the Getting started row).
+/// card's hairline, now [`PANEL_BORDER`] inset.
 pub(crate) fn panel_fill_at(t: f32) -> Hsla {
     crate::picker::over(
         theme::background_gradient_color_at(t),

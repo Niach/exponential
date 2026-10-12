@@ -2,7 +2,6 @@ import composerMenu from "@exp/domain-contract/fixtures/composer-menu.json"
 import {
   HOME_GEOMETRY,
   HOME_PLACEHOLDER,
-  HOME_RECENT,
   homeGreeting,
 } from "@exp/domain-contract/home-greeting"
 import {
@@ -10,10 +9,7 @@ import {
   ComposerSubmit,
   ComposerTool,
   ExponentialLogo,
-  SessionRow,
   conceptIcon,
-  getDeviceIcon,
-  type RunMarkState,
 } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
@@ -23,18 +19,9 @@ import type { StyleguideEntry } from "./types.ts"
 // and cannot be imported here, so the specimen composes the same `@exp/ui`
 // parts the route does: the disc mark + the greeting (the pure
 // `homeGreeting`, at a pinned evening), the composer card asking
-// "What do you want to build?", a muted options line and RECENT as small
-// SessionRows. No watermark, no suggestion rows.
+// "What do you want to build?" and a muted options line. Nothing beneath it.
 
 const UiAddIcon = conceptIcon(`ui-add`)
-const LAPTOP = getDeviceIcon({ kind: `desktop` })
-const noop = (): void => {}
-
-const RECENT: readonly { state: RunMarkState; identifier: string | null; title: string; caption: string }[] = [
-  { state: `ended`, identifier: null, title: `Label and relate every open issue`, caption: `Ended · 2 h` },
-  { state: `ended`, identifier: `EXP-1278`, title: `composer account after device switch`, caption: `Done · 5 h` },
-  { state: `ended`, identifier: null, title: `iOS keyboard + model picker`, caption: `Ended · 9 h` },
-]
 
 function Headline({ phone }: { phone?: boolean }) {
   const mark = phone ? HOME_GEOMETRY.markPhone : HOME_GEOMETRY.mark
@@ -79,26 +66,6 @@ function Home({ phone }: { phone?: boolean }) {
           <span>Plan off</span>
         </div>
       </div>
-      <div className="flex flex-col" style={{ marginTop: HOME_GEOMETRY.optionsToRecent }}>
-        <h2 className="px-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          {HOME_RECENT.label}
-        </h2>
-        {RECENT.map((run) => (
-          <SessionRow
-            key={run.title}
-            size="small"
-            agent="claude"
-            markState={run.state}
-            identifier={run.identifier}
-            title={run.title}
-            caption={run.caption}
-            captionTone="muted"
-            deviceIcon={LAPTOP}
-            deviceName="macbook"
-            onClick={noop}
-          />
-        ))}
-      </div>
     </div>
   )
 }
@@ -108,13 +75,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1253`,
   title: `Agent home`,
-  blurb: `The Agent page is HOME on every client (fixture \`composer-home.json\`): the app opens on it and the New session tab hosts it. The disc mark + ONE line of Inter semibold (${HOME_GEOMETRY.headline}px, phones ${HOME_GEOMETRY.headlinePhone}px), a time-of-day greeting picked per day ("Evening, Danny", "Night owl, Danny?"), computed once per visit. Then the composer ("${HOME_PLACEHOLDER}"; a picked issue or action leads with its own headline instead) and its options line, then RECENT: my last ${HOME_RECENT.count} own sessions in this team as small session rows; no band without sessions. A team with no board shows Getting started under it. No watermark, no suggestion rows.`,
+  blurb: `Home on every client (fixture \`composer-home.json\`). The disc mark + the time-of-day greeting (${HOME_GEOMETRY.headline}px, phones ${HOME_GEOMETRY.headlinePhone}px), then the composer ("${HOME_PLACEHOLDER}") and its options line. Nothing beneath it; a team with no board gets Getting started ${HOME_GEOMETRY.composerToGettingStarted}px below.`,
   status: {
     web: {
       state: `ok`,
       symbol: `AgentPage / HomeColumn`,
       file: `apps/web/src/routes/t/$teamSlug/agent.tsx`,
-      note: `greeting = @exp/domain-contract home-greeting.ts, Recent = lib/home-recent.ts`,
+      note: `greeting = @exp/domain-contract home-greeting.ts`,
     },
     desktop: {
       state: `ok`,

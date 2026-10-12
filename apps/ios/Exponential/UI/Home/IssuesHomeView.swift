@@ -283,7 +283,7 @@ struct IssuesHomeView: View {
                     })
 
                     if let accountId = deps.auth.activeAccountId, let teamId = checklistTeamId {
-                        GettingStartedCards(
+                        GettingStartedList(
                             progress: gettingStarted,
                             accountId: accountId,
                             teamId: teamId,

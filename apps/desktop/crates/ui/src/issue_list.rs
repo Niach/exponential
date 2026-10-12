@@ -1506,12 +1506,12 @@ impl Render for IssueListView {
                 return base.child(list_skeleton(cx)).into_any_element();
             }
             // EXP-698 round 5: a genuinely empty board is where the
-            // Getting-started checklist belongs — the same cards the page
+            // Getting-started checklist belongs — the same step rows the page
             // renders, under the empty state, on every client. The column
-            // scrolls: ten cards are taller than a short panel.
+            // scrolls: the rows are taller than a short panel.
             let cards = self
                 .bulk_team_id(cx)
-                .and_then(|team_id| crate::getting_started::inline_cards(&team_id, cx));
+                .and_then(|team_id| crate::getting_started::inline_list(&team_id, cx));
             return base
                 .child(crate::scroll_pane::v_scroll_pane(
                     "issue-list-empty-scroll",

@@ -81,12 +81,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.FeedbackStates
-import com.exponential.app.domain.batchRunIssues
-import com.exponential.app.domain.resolveSessionDevice
-import com.exponential.app.ui.session.PastRunRow
 
 // EXP-825: the ONE launcher's state — the Agent page composer. It replaced the
 // three-tab Start-coding sheet (Issues | Actions | Chat, EXP-257/EXP-615) and
@@ -343,32 +339,8 @@ class AgentComposerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * RECENT: the caller's last [AgentHome.RECENT_COUNT] OWN top-level runs in
-     * THIS team, any status, newest first — the rows the home draws as small
-     * session rows. Empty = no band at all.
-     */
-    val homeRecent: StateFlow<List<PastRunRow>> = combine(
-        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
-        allIssues,
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
-        auth.userId,
-        teamId,
-    ) { sessions, issues, devices, userId, team ->
-        val now = System.currentTimeMillis()
-        val issuesById = issues.associateBy { it.id }
-        AgentHome.recentRuns(sessions, team, userId).map { session ->
-            PastRunRow(
-                session = session,
-                issue = session.issueId?.let(issuesById::get),
-                batchIssues = batchRunIssues(session, issues),
-                device = resolveSessionDevice(session, devices, now),
-            )
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
      * Whether THIS team has a live board; null until the boards have synced.
-     * The home shows Getting started after Recent until it does.
+     * The home shows Getting started under the composer until it does.
      */
     val teamHasBoard: StateFlow<Boolean?> = combine(dbFlow, allBoards, teamId) { db, boards, team ->
         if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }

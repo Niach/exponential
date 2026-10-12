@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import {
   Button,
   conceptIcon,
   ExponentialLogo,
   FeedbackStatesSpecimen,
-  getDeviceIcon,
-  SessionRow,
   SkeletonRows,
   Tooltip,
   TooltipContent,
@@ -15,7 +12,6 @@ import {
 } from "@exp/ui"
 import {
   HOME_GEOMETRY,
-  HOME_RECENT,
   HOME_TEST_IDS,
   homeGreeting,
   localWallClock,
@@ -24,16 +20,9 @@ import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
-import {
-  sessionDeviceRow,
-  sessionRowFacts,
-  useDeviceRows,
-} from "@/components/session-tree"
-import { useAgentsData, useSessionListRows } from "@/hooks/use-agents-data"
+import { useAgentsData } from "@/hooks/use-agents-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
-import { useNow } from "@/hooks/use-now"
-import { useOpenSession } from "@/hooks/use-open-session"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -45,8 +34,6 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { updateWorkTabs } from "@/hooks/use-work-tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import type { CodingSession, Team, User } from "@/db/schema"
-import { codingSessionCollection } from "@/lib/collections"
-import { selectHomeRecent } from "@/lib/home-recent"
 import { landNewRun } from "@/lib/work-tabs"
 import {
   seedFromSearch,
@@ -79,9 +66,10 @@ const flag = (value: unknown): string | undefined =>
 // lands here, and the web New run tab (EXP-1255) hosts it. Top to bottom:
 // the headline (the disc mark + the time-of-day greeting, computed once per
 // mount) while no subject is picked (a subject's own headline leads instead),
-// the composer ("What do you want to build?") and its options line, then
-// RECENT (my last three top-level runs in this team, `lib/home-recent.ts`),
-// then, while the team has no board, the Getting started block.
+// the composer ("What do you want to build?") and its options line, then,
+// while the team has no board, the Getting started block. Nothing else sits
+// under the options line: recent sessions live behind the history button
+// (the Agent › Recent panel).
 //
 // EXP-1019: a play button no longer travels here for work it can already
 // name — a seed carrying a SUBJECT opens the same composer as a dialog over
@@ -353,7 +341,6 @@ function AgentPage() {
         >
           <HomeColumn
             team={team}
-            currentUserId={currentUserId}
             userName={authSession?.user?.name ?? null}
             isMember={isMember}
             steerEnabled={steerEnabled}
@@ -389,11 +376,10 @@ function AgentPage() {
 }
 
 /** EXP-1253: the home column under the page chrome: the headline + composer
- *  (or the relay-less line), Recent, and Getting started while the team has
- *  no board. The greeting is computed ONCE per mount. */
+ *  (or the relay-less line), then Getting started while the team has no
+ *  board; nothing else. The greeting is computed ONCE per mount. */
 export function HomeColumn({
   team,
-  currentUserId,
   userName,
   isMember,
   steerEnabled,
@@ -404,7 +390,6 @@ export function HomeColumn({
   onActionChange,
 }: {
   team: Team
-  currentUserId: string
   userName: string | null
   isMember: boolean
   steerEnabled: boolean
@@ -443,11 +428,10 @@ export function HomeColumn({
           </p>
         </>
       )}
-      <HomeRecent teamId={team.id} currentUserId={currentUserId} />
       {/* EXP-1270: a board-less team's Getting started block (members only:
           meaningless before the viewer's own member row has synced). */}
       {isMember && boardsReady && boards.length === 0 && (
-        <div style={{ marginTop: HOME_GEOMETRY.optionsToRecent }}>
+        <div style={{ marginTop: HOME_GEOMETRY.composerToGettingStarted }}>
           <GettingStartedSection team={team} teamSlug={team.slug} />
         </div>
       )}
@@ -484,64 +468,6 @@ function HomeHeadline({ greeting }: { greeting: string }) {
         {greeting}
       </h1>
     </div>
-  )
-}
-
-/** RECENT: my last `recent.count` top-level runs in the active team, any
- *  status, each a small SessionRow that opens the run; no band when empty. */
-function HomeRecent({
-  teamId,
-  currentUserId,
-}: {
-  teamId: string
-  currentUserId: string
-}) {
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) => and(eq(s.teamId, teamId), eq(s.userId, currentUserId))),
-    [teamId, currentUserId]
-  )
-  const recent = useMemo(
-    () => selectHomeRecent((sessionRows ?? []) as CodingSession[], currentUserId, teamId),
-    [sessionRows, currentUserId, teamId]
-  )
-  const rows = useSessionListRows(teamId, recent)
-  const devices = useDeviceRows()
-  const now = useNow(30_000)
-  const openSession = useOpenSession()
-  if (rows.length === 0) return null
-  return (
-    <section
-      data-testid={HOME_TEST_IDS.recent}
-      className="flex flex-col"
-      style={{ marginTop: HOME_GEOMETRY.optionsToRecent }}
-    >
-      <h2 className="px-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        {HOME_RECENT.label}
-      </h2>
-      {rows.map((row) => {
-        const facts = sessionRowFacts(row, { now })
-        return (
-          <SessionRow
-            key={row.session.id}
-            size="small"
-            agent={facts.agent}
-            markState={facts.markState}
-            identifier={facts.identifier}
-            title={facts.title}
-            caption={facts.caption}
-            captionTone={facts.captionTone}
-            deviceIcon={getDeviceIcon(sessionDeviceRow(row.session, devices) ?? {})}
-            deviceName={facts.deviceName}
-            dimmed={facts.paused}
-            onClick={() => openSession(row.session, { origin: { kind: `agent` } })}
-            data-testid={HOME_TEST_IDS.recentRow}
-          />
-        )
-      })}
-    </section>
   )
 }
 
