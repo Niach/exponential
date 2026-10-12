@@ -8,8 +8,11 @@ import SwiftUI
 /// `feedback-states.json` `mark.cases`). Each visible span of a stripe's
 /// cubic is sampled at `samples` steps and cut out of the disc
 /// (`destinationOut`), so the caller's ground shows through. A 1.2 s linear
-/// loop; Reduce Motion (or `animated: false`) = the static logo, all three
-/// cuts whole.
+/// loop entered at its rest (`phase(sinceStart:)`): the first frame is the
+/// static logo, so a timeline that never advances still shows the logo, never
+/// the loop's plain-disc phase 0. Reduce Motion, `animated: false`, a paused
+/// or slowed timeline and the UI-test capture seam (`-uiTesting`, so a shot
+/// never freezes a random frame) = the static logo, all three cuts whole.
 ///
 /// Used for `starting` (the composer after Start, a run's status row before
 /// its first turn) and `blocking` (`BlockingOverlay`).
@@ -19,6 +22,12 @@ public struct FeedbackMark: View {
     var animated: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The mark's first frame: the loop is timed from here, not the clock.
+    @State private var start = Date()
+
+    /// Screenshot runs draw the static logo: an animating mark would freeze a
+    /// different frame in every capture.
+    static let capturing = ProcessInfo.processInfo.arguments.contains("-uiTesting")
 
     public init(size: CGFloat = CGFloat(FeedbackStates.Mark.inlineSize), color: Color = .white, animated: Bool = true) {
         self.size = size
@@ -28,25 +37,34 @@ public struct FeedbackMark: View {
 
     public var body: some View {
         Group {
-            if animated && !reduceMotion {
+            if animated && !reduceMotion && !Self.capturing {
                 TimelineView(.animation) { context in
-                    let phase = FeedbackStates.Mark.phase(elapsed: context.date.timeIntervalSinceReferenceDate)
-                    MarkCanvas(color: color) { FeedbackStates.Mark.stripeSpan($0, phase: phase) }
+                    MarkCanvas(color: color, spans: Self.spans(context, since: start))
                 }
             } else {
-                MarkCanvas(color: color) { _ in 0...1 }
+                MarkCanvas(color: color, spans: FeedbackStates.Mark.staticSpans)
             }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
         .accessibilityIdentifier(FeedbackStates.TestId.mark)
     }
+
+    /// The live frame's spans; a paused or slowed timeline (low power, the
+    /// Always-On display) shows the static logo instead of a stale frame.
+    static func spans(_ context: TimelineViewDefaultContext, since start: Date) -> [ClosedRange<Double>?] {
+        guard context.cadence == .live else { return FeedbackStates.Mark.staticSpans }
+        return FeedbackStates.Mark.spans(
+            phase: FeedbackStates.Mark.phase(sinceStart: context.date.timeIntervalSince(start))
+        )
+    }
 }
 
 /// The disc with the given stripe spans cut out of it.
-private struct MarkCanvas: View {
+struct MarkCanvas: View {
     let color: Color
-    let span: (Int) -> ClosedRange<Double>?
+    /// Per stripe, the visible part of its cut; nil = not drawn.
+    let spans: [ClosedRange<Double>?]
 
     private static let grid: CGFloat = 100
 
@@ -59,8 +77,8 @@ private struct MarkCanvas: View {
                 with: .color(color)
             )
             context.blendMode = .destinationOut
-            for index in FeedbackStates.Mark.stripes.indices {
-                guard let span = span(index), span.upperBound > span.lowerBound else { continue }
+            for (index, span) in spans.enumerated() {
+                guard let span, span.upperBound > span.lowerBound else { continue }
                 context.stroke(
                     Self.path(index, span: span).applying(transform),
                     with: .color(.black),

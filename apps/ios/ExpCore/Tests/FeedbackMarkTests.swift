@@ -69,6 +69,27 @@ final class FeedbackMarkTests: XCTestCase {
         }
     }
 
+    /// The loop's phase 0 is the plain disc; the mark never shows it when it
+    /// does not move: a non-animating mark is the static logo, and the loop
+    /// is entered at its rest, where every cut is whole.
+    func testTheMarkRestsOnTheStaticLogo() {
+        XCTAssertEqual(FeedbackStates.Mark.spans(phase: 0).compactMap { $0 }.filter { $0.upperBound > $0.lowerBound }, [])
+        XCTAssertEqual(FeedbackStates.Mark.staticSpans, [0...1, 0...1, 0...1])
+        XCTAssertEqual(FeedbackStates.Mark.restPhase, 0.545, accuracy: 1e-9)
+        XCTAssertEqual(FeedbackStates.Mark.spans(phase: FeedbackStates.Mark.restPhase), FeedbackStates.Mark.staticSpans)
+        XCTAssertEqual(FeedbackStates.Mark.phase(sinceStart: 0), FeedbackStates.Mark.restPhase, accuracy: 1e-9)
+        XCTAssertEqual(
+            FeedbackStates.Mark.spans(phase: FeedbackStates.Mark.phase(sinceStart: 0)),
+            FeedbackStates.Mark.staticSpans
+        )
+        // A full loop later it is back at rest; half a loop later it moves.
+        XCTAssertEqual(FeedbackStates.Mark.phase(sinceStart: 1.2), FeedbackStates.Mark.restPhase, accuracy: 1e-9)
+        XCTAssertNotEqual(
+            FeedbackStates.Mark.spans(phase: FeedbackStates.Mark.phase(sinceStart: 0.6)),
+            FeedbackStates.Mark.staticSpans
+        )
+    }
+
     func testTheStripePointWalksTheCubic() {
         let start = FeedbackStates.Mark.stripePoint(0, t: 0)
         XCTAssertEqual(start.x, -5.87, accuracy: 1e-9)

@@ -124,10 +124,37 @@ public enum FeedbackStates {
             )
         }
 
+        /// Every stripe's span at loop `phase`.
+        public static func spans(phase: Double) -> [ClosedRange<Double>?] {
+            stripes.indices.map { stripeSpan($0, phase: phase) }
+        }
+
+        /// The static logo: all three cuts whole. What the mark draws whenever
+        /// it does not animate (Reduce Motion, `animated: false`, a capture, a
+        /// paused or slowed timeline) — never the loop's phase 0, which is the
+        /// plain disc and reads as a broken mark.
+        public static let staticSpans: [ClosedRange<Double>?] = stripes.map { _ in 0...1 }
+
+        /// The middle of the window where every cut is whole (each drawn in,
+        /// none erasing yet): the loop at rest, identical to `staticSpans`.
+        public static let restPhase: Double = {
+            let drawn = stripes.map(\.draw.to).max() ?? 0
+            let erasing = stripes.map(\.erase.from).min() ?? 0
+            return (drawn + erasing) / 2
+        }()
+
         /// The loop phase at `elapsed` seconds — linear.
         public static func phase(elapsed: TimeInterval) -> Double {
             let loop = Double(loopMs) / 1000
             return (elapsed.truncatingRemainder(dividingBy: loop)) / loop
+        }
+
+        /// The phase `elapsed` seconds after the mark's FIRST frame: the loop
+        /// is entered at `restPhase`, so that frame is the static logo and the
+        /// sweep continues from it without a jump (erase, then draw in again).
+        /// A timeline that never advances past its first frame shows the logo.
+        public static func phase(sinceStart elapsed: TimeInterval) -> Double {
+            phase(elapsed: max(0, elapsed) + restPhase * Double(loopMs) / 1000)
         }
 
         static func ease(_ x: Double) -> Double {

@@ -193,4 +193,29 @@ final class IssueDraftPageTests: XCTestCase {
         // Seen, then gone with no issue made from it.
         XCTAssertEqual(IssueDraftPage.fate(seen: true, present: false, createdIssueId: nil), .gone)
     }
+
+    /// EXP-1259: type a title, clear it, leave = no row left behind. The
+    /// emptied page deletes on the way out whenever it may have written the
+    /// row (even an upsert with no answer), and the store hold never blocks
+    /// that delete; only an upsert waits for it.
+    func testTheWriteAnEmptiedPageMakes() {
+        func write(needsRow: Bool = false, leaving: Bool = true, known: Bool = true, mayHaveRow: Bool = true, held: Bool = false) -> IssueDraftPage.Write {
+            IssueDraftPage.write(
+                needsRow: needsRow, leaving: leaving, attachmentsKnown: known, mayHaveRow: mayHaveRow, held: held
+            )
+        }
+        XCTAssertEqual(write(), .delete)
+        XCTAssertEqual(write(held: true), .delete)
+        // Mid-edit an empty field is a moment between two thoughts.
+        XCTAssertEqual(write(leaving: false), .none)
+        // A file list not known yet may hold files.
+        XCTAssertEqual(write(known: false), .none)
+        // Nothing was ever written: nothing to delete.
+        XCTAssertEqual(write(mayHaveRow: false), .none)
+        // Content saves, except under the hold (it could resurrect a draft
+        // discarded elsewhere).
+        XCTAssertEqual(write(needsRow: true), .upsert)
+        XCTAssertEqual(write(needsRow: true, leaving: false, mayHaveRow: false), .upsert)
+        XCTAssertEqual(write(needsRow: true, held: true), .none)
+    }
 }
