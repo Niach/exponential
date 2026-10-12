@@ -357,7 +357,7 @@ impl Render for ImagePreview {
                     .object_fit(gpui::ObjectFit::Fill)
                     .into_any_element(),
                 ImageSlot::ReadyTall(tall) => crate::tall_image::render_tall(&tall, inner_w),
-                ImageSlot::Loading => placeholder_box("Loading image…", cx),
+                ImageSlot::Loading => crate::feedback::skeleton_block("image-loading", 80., cx),
                 ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
                     placeholder_box("Image unavailable", cx)
                 }
@@ -394,7 +394,7 @@ impl Render for ImagePreview {
                     .child(crate::tall_image::render_tall(&tall, width))
                     .into_any_element()
             }
-            ImageSlot::Loading => placeholder_box("Loading image…", cx),
+            ImageSlot::Loading => crate::feedback::skeleton_block("image-loading", 80., cx),
             ImageSlot::Failed(_) | ImageSlot::Unrenderable => {
                 placeholder_box("Image unavailable", cx)
             }

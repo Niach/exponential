@@ -212,6 +212,24 @@ describe(`device presence + remote start`, () => {
     }
   })
 
+  test(`a repeated startId is forwarded every time: the device dedupes, never the relay (EXP-1259)`, () => {
+    const hub = new Hub()
+    const desktop = new FakeSocket()
+    hub.onOpen(desktop, claims({ role: `control`, sub: `owner` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `online`, deviceId: `dev-1` }))
+    const startId = `5b0c6f1e-8a43-4d6b-9a8e-2f4f0c1d7e21`
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(
+        hub.startSession(`owner`, `dev-1`, { issueId: `issue-9` }, { startId })
+      ).toEqual({ ok: true })
+    }
+    const frames = desktop.framesOf(`start_session`)
+    expect(frames).toHaveLength(2)
+    for (const frame of frames) {
+      expect(frame).toEqual({ t: `start_session`, issueId: `issue-9`, startId })
+    }
+  })
+
   test(`startSession passes resume through to the frame (EXP-481)`, () => {
     const hub = new Hub()
     const desktop = new FakeSocket()

@@ -110,6 +110,15 @@ fn prompt_counter(bytes: usize) -> String {
 /// The team prompt when its load failed (web `general-section.tsx`).
 const PROMPT_UNAVAILABLE: &str = "Prompt unavailable";
 
+/// ONE team prompt write: the team it belongs to, the fetch generation it
+/// was typed under, and exactly the text to send.
+#[derive(Clone)]
+struct PromptSave {
+    team_id: String,
+    generation: u64,
+    text: String,
+}
+
 #[derive(Default)]
 struct PromptState {
     /// The team the loaded text belongs to; a team switch reloads.
@@ -124,9 +133,10 @@ struct PromptState {
     /// ISO stamp of the last write, for the "Edited …" caption.
     updated_at: Option<String>,
     saving: bool,
-    /// EXP-1275: a save was asked for while one was in flight; it runs
-    /// when that one settles.
-    resave: bool,
+    /// EXP-1275 (review #7): the saves asked for while one was in flight,
+    /// each with ITS team and text, sent in order when that one settles —
+    /// a team switch mid-save never drops or misroutes the left team's edit.
+    queued: Vec<PromptSave>,
     /// EXP-1275: the autosave debounce — each keystroke replaces it
     /// (dropping the previous timer cancels it).
     debounce: Option<Task<()>>,
@@ -168,7 +178,9 @@ impl GeneralPane {
     ) -> Self {
         let name_input = cx.new(|cx| InputState::new(window, cx).placeholder("Team name"));
         let delete_input = cx.new(|cx| InputState::new(window, cx));
-        let prompt_input = cx.new(|cx| web_textarea(10, 40, window, cx).placeholder("Loading…"));
+        // D8: no "Loading…" placeholder — the field is disabled under the
+        // header's inline `Loading` status until the text lands.
+        let prompt_input = cx.new(|cx| web_textarea(10, 40, window, cx));
 
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
@@ -202,6 +214,9 @@ impl GeneralPane {
                 _ => {}
             }),
         ];
+        // Review #8: leaving Settings (or closing the window) drops the pane
+        // — an edit still in its debounce is sent on the way out.
+        cx.on_release(|this, cx| this.flush_prompt_on_release(cx)).detach();
 
         let mut this = Self {
             nav,
@@ -300,11 +315,10 @@ impl GeneralPane {
         let Some(team_id) = self.snapshot.as_ref().map(|snapshot| snapshot.team_id.clone()) else {
             return;
         };
-        // EXP-1275: an edit still in its debounce belongs to the team being
-        // left: flush it before the field clears.
-        if self.prompt.debounce.take().is_some() {
-            self.save_prompt(cx);
-        }
+        // EXP-1275: an unsaved edit belongs to the team being left: queue it
+        // (with that team's id) before the field clears.
+        self.prompt.debounce = None;
+        self.save_prompt(cx);
         self.prompt.generation += 1;
         let generation = self.prompt.generation;
         self.prompt.team_id = Some(team_id.clone());
@@ -315,7 +329,7 @@ impl GeneralPane {
         self.prompt.saved_at = None;
         self.prompt_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
-            state.set_placeholder("Loading…", window, cx);
+            state.set_placeholder("", window, cx);
         });
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             self.prompt.loading = false;
@@ -394,32 +408,57 @@ impl GeneralPane {
         }));
     }
 
-    /// EXP-1025/1275: the ONE save path (debounce, blur, Retry) — the web
-    /// `handleSavePrompt` twin. Nothing is sent when the text equals the
-    /// last saved text or is over the cap (the inline line says so and the
-    /// server would refuse it anyway).
-    fn save_prompt(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(team_id) = self.prompt.team_id.clone() else {
-            return;
-        };
-        if self.prompt.saving {
-            self.prompt.resave = true;
-            return;
-        }
-        if self.prompt.loading || !self.prompt_dirty(cx) {
-            return;
+    /// The write the field holds right now, or `None` when there is nothing
+    /// to send: no team, still loading, equal to the last saved text, or
+    /// over the cap (the inline line says so and the server would refuse
+    /// it anyway).
+    fn pending_prompt_save(&self, cx: &App) -> Option<PromptSave> {
+        let team_id = self.prompt.team_id.clone()?;
+        if !self.prompt_dirty(cx) {
+            return None;
         }
         if self.prompt_bytes(cx) > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES {
+            return None;
+        }
+        Some(PromptSave {
+            team_id,
+            generation: self.prompt.generation,
+            text: self.prompt_input.read(cx).value().to_string(),
+        })
+    }
+
+    /// EXP-1025/1275: the ONE save path (debounce, blur, team switch) — the
+    /// web `handleSavePrompt` twin.
+    fn save_prompt(&mut self, cx: &mut gpui::Context<Self>) {
+        if let Some(save) = self.pending_prompt_save(cx) {
+            self.send_prompt(save, cx);
+        }
+    }
+
+    /// Send `save`, or queue it behind the write in flight. A queued write
+    /// for the same team generation is replaced (its newer text wins); one
+    /// for another team keeps its slot.
+    fn send_prompt(&mut self, save: PromptSave, cx: &mut gpui::Context<Self>) {
+        if self.prompt.saving {
+            match self
+                .prompt
+                .queued
+                .iter_mut()
+                .find(|queued| queued.generation == save.generation)
+            {
+                Some(queued) => *queued = save,
+                None => self.prompt.queued.push(save),
+            }
             return;
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             return;
         };
-        let text = self.prompt_input.read(cx).value().to_string();
-        let saved = text.trim_end().to_string();
-        let mut input = api::teams::TeamsUpdateInput::new(team_id);
-        input.agent_prompt = Some(text);
-        let generation = self.prompt.generation;
+        let saved = save.text.trim_end().to_string();
+        let generation = save.generation;
+        let retry = save.clone();
+        let mut input = api::teams::TeamsUpdateInput::new(save.team_id);
+        input.agent_prompt = Some(save.text);
 
         self.prompt.saving = true;
         self.prompt.saved_at = None;
@@ -433,8 +472,8 @@ impl GeneralPane {
             let _ = this.update(cx, |this, cx| {
                 this.prompt.saving = false;
                 // A team switch while the write was out: the reply belongs
-                // to the team that was left (its failure still toasts, with
-                // nothing to retry against).
+                // to the team that was left (its Retry resends exactly what
+                // failed, to that team).
                 let current = this.prompt.generation == generation;
                 match result {
                     Ok(_) if current => {
@@ -451,24 +490,63 @@ impl GeneralPane {
                     Ok(_) => {}
                     Err(err) => {
                         log::warn!("[ui] teams.update(agentPrompt) failed: {err}");
-                        let mut note = Toast::error("Couldn't save the team prompt")
-                            .description(err.user_message());
-                        if current {
-                            let pane = cx.entity().downgrade();
-                            note = note.action(feedback::RETRY, move |_, cx| {
-                                let _ = pane.update(cx, |this, cx| this.save_prompt(cx));
+                        let pane = cx.entity().downgrade();
+                        let note = Toast::error("Couldn't save the team prompt")
+                            .description(err.user_message())
+                            .action(feedback::RETRY, move |_, cx| {
+                                let retry = retry.clone();
+                                let _ = pane.update(cx, |this, cx| this.send_prompt(retry, cx));
                             });
-                        }
                         toast::show_in_active_window(note, cx);
                     }
                 }
-                if std::mem::take(&mut this.prompt.resave) {
-                    this.save_prompt(cx);
-                }
+                this.send_next_queued(cx);
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// The write in flight settled: send the next queued one. A queued
+    /// write for the CURRENT team that equals what is now saved is dropped.
+    fn send_next_queued(&mut self, cx: &mut gpui::Context<Self>) {
+        while !self.prompt.queued.is_empty() {
+            let next = self.prompt.queued.remove(0);
+            let stale = next.generation == self.prompt.generation
+                && next.text.trim_end() == self.prompt.saved;
+            if !stale {
+                self.send_prompt(next, cx);
+                return;
+            }
+        }
+    }
+
+    /// Review #8: the pane is going away (Settings left, window closed):
+    /// a dirty, under-cap edit is sent now, fire-and-forget (there is no
+    /// view left to show `Saved` or a failure in).
+    fn flush_prompt_on_release(&mut self, cx: &mut App) {
+        let mut saves = std::mem::take(&mut self.prompt.queued);
+        if let Some(save) = self.pending_prompt_save(cx) {
+            saves.retain(|queued| queued.generation != save.generation);
+            saves.push(save);
+        }
+        if saves.is_empty() {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            return;
+        };
+        cx.background_executor()
+            .spawn(async move {
+                for save in saves {
+                    let mut input = api::teams::TeamsUpdateInput::new(save.team_id);
+                    input.agent_prompt = Some(save.text);
+                    if let Err(err) = api::teams::teams_update(&trpc, &input) {
+                        log::warn!("[ui] teams.update(agentPrompt) on close failed: {err}");
+                    }
+                }
+            })
+            .detach();
     }
 
     /// EXP-1025: the team prompt section — header with the save caption, the
@@ -488,7 +566,11 @@ impl GeneralPane {
             .prompt
             .saved_at
             .is_some_and(|at| at.elapsed() < feedback::AUTOSAVE_SAVED_HOLD);
-        let trailing = if self.prompt.saving {
+        // D8: the load = the header's inline `Loading` status (the field
+        // stays disabled), never a "Loading…" placeholder.
+        let trailing = if self.prompt.loading {
+            Some(feedback::inline_status(feedback::WORD_LOADING, true, cx))
+        } else if self.prompt.saving {
             Some(feedback::inline_status(feedback::AUTOSAVE_SAVING, true, cx))
         } else if just_saved {
             Some(feedback::inline_status(feedback::AUTOSAVE_SAVED, false, cx))

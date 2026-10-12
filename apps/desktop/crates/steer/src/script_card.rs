@@ -84,13 +84,16 @@ pub struct ScriptCard {
     pub overflow: Option<String>,
 }
 
-/// `3.0 s` under a minute, the Work card's coarse format above.
+/// `3.0 s` under a minute (integer tenths, half up), the Work card's coarse
+/// format above.
 pub fn script_duration(ms: u64) -> String {
-    if ms < 60_000 {
-        format!("{:.1} s", ms as f64 / 1000.0)
-    } else {
-        work_duration_short(ms)
+    if ms >= 60_000 {
+        return work_duration_short(ms);
     }
+    // Integer tenths, half up: `{:.1}` rounds .x5 to even (1250 ms = "1.2 s"),
+    // the fixture pins "1.3 s" on every platform.
+    let tenths = (ms + 50) / 100;
+    format!("{}.{} s", tenths / 10, tenths % 10)
 }
 
 fn plural(count: u64, one: &str, many: &str) -> String {
@@ -176,6 +179,13 @@ mod tests {
         copy: serde_json::Value,
         tool_name_suffix: String,
         cases: Vec<Case>,
+        durations: Vec<DurationCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct DurationCase {
+        ms: u64,
+        expected: String,
     }
 
     #[derive(Deserialize)]
@@ -191,6 +201,15 @@ mod tests {
         assert!(fixture.cases.len() >= 6);
         for case in fixture.cases {
             assert_eq!(script_card(&case.input), case.expected, "{}", case.name);
+        }
+    }
+
+    #[test]
+    fn every_fixture_duration_matches() {
+        let fixture: Fixture = serde_json::from_str(FIXTURE).expect("the fixture parses");
+        assert!(fixture.durations.len() >= 6);
+        for case in fixture.durations {
+            assert_eq!(script_duration(case.ms), case.expected, "{} ms", case.ms);
         }
     }
 

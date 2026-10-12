@@ -270,7 +270,7 @@ impl BoardDetailPane {
 
     /// FEED-42: the board's linked repository is missing from the FIRST load
     /// (the link snapshot matched, so [`Self::refresh_if_links_changed`]
-    /// never fires) — re-list once, reading "Loading repository…" meanwhile,
+    /// never fires) — re-list once, the placeholder bar meanwhile,
     /// before showing "Repository unavailable".
     fn relist_if_unknown(
         &mut self,
@@ -421,7 +421,10 @@ impl BoardDetailPane {
             .icon(registry::UI_GITHUB)
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
-            .child(crate::surface::picker_value_label(label))
+            .child(match label {
+                Some(label) => crate::surface::picker_value_label(label).into_any_element(),
+                None => crate::feedback::skeleton_value("board-repo-placeholder", 120., cx),
+            })
             // A grouped picker row ends in chevron-right ×4.
             .child(crate::surface::picker_row_chevron(cx));
 
@@ -767,20 +770,22 @@ fn row_id(kind: &str, id: &str) -> ElementId {
 
 /// FEED-32 (web `board-repo-field.tsx` `triggerLabel`): the Repository
 /// select's label is NEVER blank and never claims "No repository" for a
-/// linked board. A linked repo the list doesn't know reads "Loading
-/// repository…" while the list is (re)fetching — `refresh_if_links_changed`
-/// re-lists once per unknown id — and "Repository unavailable" once the list
-/// came back (or failed) without it.
-fn repo_picker_label(repository_id: Option<&str>, repos: &RepoLoad) -> SharedString {
+/// linked board. A linked repo the list doesn't know is `None` (the value's
+/// placeholder bar, D8) while the list is (re)fetching —
+/// `refresh_if_links_changed` re-lists once per unknown id — and
+/// "Repository unavailable" once the list came back (or failed) without it.
+fn repo_picker_label(repository_id: Option<&str>, repos: &RepoLoad) -> Option<SharedString> {
     match (repository_id, repos) {
-        (None, _) => crate::board_form::NO_REPOSITORY.into(),
-        (Some(repo_id), RepoLoad::Ready(repos)) => repos
-            .iter()
-            .find(|repo| repo.id == repo_id)
-            .map(|repo| SharedString::from(repo.full_name.clone()))
-            .unwrap_or_else(|| "Repository unavailable".into()),
-        (Some(_), RepoLoad::Failed) => "Repository unavailable".into(),
-        (Some(_), RepoLoad::Idle | RepoLoad::Loading) => "Loading repository\u{2026}".into(),
+        (None, _) => Some(crate::board_form::NO_REPOSITORY.into()),
+        (Some(repo_id), RepoLoad::Ready(repos)) => Some(
+            repos
+                .iter()
+                .find(|repo| repo.id == repo_id)
+                .map(|repo| SharedString::from(repo.full_name.clone()))
+                .unwrap_or_else(|| "Repository unavailable".into()),
+        ),
+        (Some(_), RepoLoad::Failed) => Some("Repository unavailable".into()),
+        (Some(_), RepoLoad::Idle | RepoLoad::Loading) => None,
     }
 }
 
@@ -821,8 +826,8 @@ mod tests {
             RepoLoad::Failed,
         ] {
             assert_eq!(
-                repo_picker_label(None, &load).as_ref(),
-                crate::board_form::NO_REPOSITORY
+                repo_picker_label(None, &load).as_deref(),
+                Some(crate::board_form::NO_REPOSITORY)
             );
         }
     }
@@ -832,21 +837,15 @@ mod tests {
     /// (or failed) without the id.
     #[test]
     fn unknown_linked_repo_never_renders_blank() {
+        assert_eq!(repo_picker_label(Some("repo-1"), &RepoLoad::Idle), None);
+        assert_eq!(repo_picker_label(Some("repo-1"), &RepoLoad::Loading), None);
         assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Idle).as_ref(),
-            "Loading repository\u{2026}"
+            repo_picker_label(Some("repo-1"), &RepoLoad::Ready(Vec::new())).as_deref(),
+            Some("Repository unavailable")
         );
         assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Loading).as_ref(),
-            "Loading repository\u{2026}"
-        );
-        assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Ready(Vec::new())).as_ref(),
-            "Repository unavailable"
-        );
-        assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Failed).as_ref(),
-            "Repository unavailable"
+            repo_picker_label(Some("repo-1"), &RepoLoad::Failed).as_deref(),
+            Some("Repository unavailable")
         );
     }
 }

@@ -484,6 +484,8 @@ pub(crate) struct SteerSessionView {
     /// EXP-1251: the Guide's diff page on show (a section's files; `All` =
     /// the complete diff); `None` = the Guide itself.
     guide_page: Option<crate::session_results::GuidePage>,
+    /// The Guide page's scroll ([`Self::body_scrolled`] reads its offset).
+    guide_scroll: ScrollHandle,
     /// EXP-1248: the Stack card's hovered member (its ghost merge-through).
     stack_hovered: Option<String>,
     /// EXP-895: the file tree's `Filter files` field.
@@ -785,6 +787,7 @@ impl SteerSessionView {
             diff_selected: 0,
             pending_diff_path: None,
             guide_page: None,
+            guide_scroll: ScrollHandle::new(),
             stack_hovered: None,
             diff_filter,
             folded_dirs: HashSet::new(),
@@ -2880,13 +2883,17 @@ impl SteerSessionView {
 
     /// EXP-879: the run's SUB-FACE on show — its transcript, its changes or
     /// its published results.
-    /// EXP-1261: whether the Run face's list left its top (the work body's
-    /// top fade waits for it); the Guide face keeps the strip.
-    pub(crate) fn body_scrolled(&self) -> bool {
+    /// EXP-1261: whether the face's body left its top (the work body's top
+    /// fade waits for it): the Run face's list, the Guide page, or a Guide
+    /// diff page's scroll (the issue detail's rule).
+    pub(crate) fn body_scrolled(&self, cx: &App) -> bool {
         match self.run_face {
             RunFace::Run if self.show_work_cached => crate::work_header::list_scrolled(&self.list),
             RunFace::Run => crate::work_header::list_scrolled(&self.thread_list),
-            RunFace::Guide => true,
+            RunFace::Guide if self.guide_page.is_some() => {
+                crate::work_header::scrolled(&self.changes_diff.read(cx).page_scroll())
+            }
+            RunFace::Guide => crate::work_header::scrolled(&self.guide_scroll),
         }
     }
 
@@ -3172,7 +3179,7 @@ impl SteerSessionView {
                 stack,
                 fallback_lead: None,
                 unnumbered: false,
-                scroll: None,
+                scroll: Some(self.guide_scroll.clone()),
             },
             cx,
         ))
@@ -4794,7 +4801,7 @@ impl SteerSessionView {
                 .cloned();
             return match orphan {
                 Some(workflow) => {
-                    let card = self.render_workflow_card(&workflow, cx);
+                    let card = self.render_workflow_card(&workflow, None, cx);
                     self.transcript_row(ix, card)
                 }
                 None => self.transcript_row(ix, self.render_working_row(cx)),
@@ -4938,7 +4945,7 @@ impl SteerSessionView {
             // EXP-850 §3: a `Workflow` call renders as its CARD, never as a
             // tool row — the card is the row (looked up by the call's id).
             FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {
-                Some(workflow) => self.render_workflow_card(&workflow, cx),
+                Some(workflow) => self.render_workflow_card(&workflow, Some(item), cx),
                 None => self.render_tool_item(item, self.tool_row_mode(item), cx),
             },
             FeedKind::Permission { tool, detail } => {
@@ -5935,11 +5942,25 @@ impl SteerSessionView {
         // EXP-1240: the subagent is ONE Work card — its label (the title,
         // else its type), the calls it made, done or running. Its own rows
         // live in its transcript, which the card opens.
+        // EXP-1259 #11: elapsed from the `started` marker to the settling
+        // one (to now while it runs).
+        let marker_at = |wanted: SubagentStatus| {
+            items.iter().find_map(|item| match &item.kind {
+                FeedKind::Subagent { status, at, .. } if *status == wanted => *at,
+                _ => None,
+            })
+        };
+        let elapsed_ms = work_elapsed_ms(
+            marker_at(SubagentStatus::Started),
+            marker_at(SubagentStatus::Completed),
+            running,
+            now_epoch_ms(),
+        );
         let input = steer::work_card::WorkCardInput::Subagent {
             title: Some(subagent_label(summary.title.as_deref(), &summary.agent_type)),
             state: if running { "running" } else { "done" }.to_string(),
             tool_calls: Some(summary.tool_count as u64),
-            elapsed_ms: None,
+            elapsed_ms,
         };
         let card = steer::work_card::work_card(&input);
         let on_card = items
@@ -6015,9 +6036,24 @@ impl SteerSessionView {
     fn render_workflow_card(
         &self,
         workflow: &steer::WorkflowState,
+        call: Option<&FeedItem>,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let input = steer::work_card::WorkCardInput::from_workflow(workflow, None);
+        // EXP-1259 #11: elapsed from the `Workflow` call's start to its
+        // settle (to now while it runs); without the call's stamps, the sum
+        // of its phases' spans (the web's fallback).
+        let (started_at, settled_at) = match call.map(|item| &item.kind) {
+            Some(FeedKind::Tool { started_at, settled_at, .. }) => (*started_at, *settled_at),
+            _ => (None, None),
+        };
+        let elapsed_ms = work_elapsed_ms(
+            started_at,
+            settled_at,
+            workflow.status == steer::WorkflowStatus::Running,
+            now_epoch_ms(),
+        )
+        .or_else(|| workflow_span_ms(workflow));
+        let input = steer::work_card::WorkCardInput::from_workflow(workflow, elapsed_ms);
         let card = steer::work_card::work_card(&input);
         let behind = steer::work_card::work_card_lanes(&input);
         // The agent id behind every lane, row-aligned like the lanes.
@@ -8677,6 +8713,63 @@ impl Drop for SteerSessionView {
         if let Some(handle) = self.source.handle() {
             handle.shutdown();
         }
+    }
+}
+
+/// EXP-1259 #11 — a Work card's elapsed: from the call's start to its settle
+/// `end`, or to `now` while it still runs. `None` without a start stamp (an
+/// older publisher), or a finished call without its settle stamp.
+pub(crate) fn work_elapsed_ms(
+    start: Option<i64>,
+    end: Option<i64>,
+    running: bool,
+    now: i64,
+) -> Option<u64> {
+    let start = start?;
+    let end = if running { now } else { end? };
+    Some(end.saturating_sub(start).max(0) as u64)
+}
+
+/// The workflow's elapsed when its call carries no stamps: the sum of its
+/// phases' spans (each phase = its slowest settled lane; phases run in
+/// sequence). `None` before any lane settled — the web's
+/// `workflowElapsedMs`.
+fn workflow_span_ms(workflow: &steer::WorkflowState) -> Option<u64> {
+    let mut spans: Vec<(Option<u32>, u64)> = Vec::new();
+    for agent in &workflow.agents {
+        let Some(duration) = agent.duration_ms else {
+            continue;
+        };
+        match spans.iter_mut().find(|(phase, _)| *phase == agent.phase_index) {
+            Some((_, span)) => *span = (*span).max(duration),
+            None => spans.push((agent.phase_index, duration)),
+        }
+    }
+    (!spans.is_empty()).then(|| spans.iter().map(|(_, span)| span).sum())
+}
+
+fn now_epoch_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod work_elapsed_tests {
+    use super::work_elapsed_ms;
+
+    #[test]
+    fn a_work_card_counts_from_the_call_start() {
+        // Running: start to now.
+        assert_eq!(work_elapsed_ms(Some(1_000), None, true, 6_000), Some(5_000));
+        // Finished: start to the settle, never to now.
+        assert_eq!(work_elapsed_ms(Some(1_000), Some(4_000), false, 60_000), Some(3_000));
+        // No start stamp, or a finished call without its settle: nothing.
+        assert_eq!(work_elapsed_ms(None, Some(4_000), false, 60_000), None);
+        assert_eq!(work_elapsed_ms(Some(1_000), None, false, 60_000), None);
+        // A skewed clock never goes negative.
+        assert_eq!(work_elapsed_ms(Some(9_000), None, true, 6_000), Some(0));
     }
 }
 

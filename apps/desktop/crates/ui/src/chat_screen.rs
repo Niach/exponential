@@ -572,6 +572,13 @@ pub(crate) struct ChatScreenView {
     start_pending: crate::feedback::Pending,
     starting: Option<Starting>,
     starting_generation: u64,
+    /// Review #3: a REMOTE start whose 30 s deadline passed without its row:
+    /// the composer is idle again, the start is still followed (a late row
+    /// lands as if in time), and its Retry reuses the startId and the tab.
+    late: Option<LateStart>,
+    /// The startId the next start reuses (the timeout toast's Retry); `None`
+    /// = the Start press mints a fresh one.
+    retry_start: Option<String>,
     /// A parked accessor target for the pick renderers while no action is
     /// picked (a menu can outlive the chip it was opened from).
     spare_picks: ActionInputPicks,
@@ -713,6 +720,8 @@ impl ChatScreenView {
             start_pending: crate::feedback::Pending::default(),
             starting: None,
             starting_generation: 0,
+            late: None,
+            retry_start: None,
             spare_picks: ActionInputPicks::default(),
             focus_handle: cx.focus_handle(),
             page_scroll: gpui::ScrollHandle::new(),
@@ -779,14 +788,33 @@ impl ChatScreenView {
     }
 
     /// Start pressed: the send goes pending and the card shows the STARTING
-    /// row. A New run tab hands its slot to the run first, so the landing
-    /// replaces the tab. Returns the start's generation for
-    /// [`Self::end_starting`]; [`crate::feedback::STARTING_TIMEOUT`] later a
-    /// start still waiting raises the timeout toast with Retry.
+    /// row. Every press mints its `startId` (the timeout toast's Retry
+    /// reuses the late start's); a New session tab hands its slot to THIS
+    /// start (review #1), so the landing replaces the tab. Returns the
+    /// start's generation for [`Self::end_starting`]. Review #3: no deadline
+    /// here — a remote start arms it once the request is SENT
+    /// ([`Self::arm_deadline`]), a local start never has one.
     fn begin_starting(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> u64 {
-        if let Some(id) = &self.new_run_id {
-            coding_flow::hand_off_new_run_tab(window, id.clone(), cx);
+        let start_id = self
+            .retry_start
+            .take()
+            .unwrap_or_else(api::steer::new_start_id);
+        let reused = self
+            .late
+            .take_if(|late| late.start_id == start_id);
+        if let Some(late) = &reused {
+            late.dismiss_toast(cx);
         }
+        // A NEW start while a late one is still followed takes the tab over:
+        // the late run, should it land, opens as an ordinary tab.
+        if let Some(handoff) = self.late.as_mut().and_then(|late| late.handoff.take()) {
+            coding_flow::take_back_new_run_tab(handoff, cx);
+        }
+        let handoff = match (&self.new_run_id, reused.and_then(|late| late.handoff)) {
+            (Some(_), Some(handoff)) if coding_flow::handoff_open(handoff, cx) => Some(handoff),
+            (Some(id), _) => Some(coding_flow::hand_off_new_run_tab(window, id.clone(), cx)),
+            (None, _) => None,
+        };
         self.starting_generation += 1;
         let generation = self.starting_generation;
         let device = self.start_device_label();
@@ -794,50 +822,95 @@ impl ChatScreenView {
             device,
             since: std::time::Instant::now(),
             generation,
+            start_id,
+            handoff,
         });
         self.start_pending.start(cx);
-        cx.spawn_in(window, async move |this, cx| {
-            cx.background_executor()
-                .timer(crate::feedback::STARTING_TIMEOUT)
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                let device = this
-                    .starting
-                    .as_ref()
-                    .filter(|starting| starting.generation == generation)
-                    .map(|starting| starting.device.clone());
-                if let Some(device) = device {
-                    this.time_out_start(generation, &device, window, cx);
-                }
-            });
-        })
-        .detach();
         cx.notify();
         generation
     }
 
-    /// Start `generation` never landed: back to rest, and the timeout toast
-    /// (`feedback-states.json` `starting.timeoutToast`) whose Retry sends
-    /// the draft again.
-    fn time_out_start(
-        &mut self,
-        generation: u64,
-        device: &str,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.starting.as_ref().map(|starting| starting.generation) != Some(generation) {
+    /// The New session tab the start in flight lands in (its handoff).
+    fn start_handoff(&self) -> Option<coding_flow::StartHandoff> {
+        self.starting.as_ref().and_then(|starting| starting.handoff)
+    }
+
+    /// Review #3: remote start `generation` was SENT: the
+    /// [`crate::feedback::STARTING_TIMEOUT`] deadline counts from now.
+    fn arm_deadline(&mut self, generation: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor()
+                .timer(crate::feedback::STARTING_TIMEOUT)
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| this.time_out_start(generation, window, cx));
+        })
+        .detach();
+    }
+
+    /// Remote start `generation` has not landed by its deadline: back to
+    /// rest, and the timeout toast (`feedback-states.json`
+    /// `starting.timeoutToast`) whose Retry sends the draft again under the
+    /// SAME startId (the device ignores a repeat). Nothing is aborted: the
+    /// start stays followed and its tab handed off, so a late row still
+    /// lands, clears this error and the draft ([`Self::start_landed`]).
+    fn time_out_start(&mut self, generation: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(starting) = self
+            .starting
+            .as_ref()
+            .filter(|starting| starting.generation == generation)
+        else {
             return;
-        }
-        self.end_starting(generation, window, cx);
-        let (title, description) = crate::feedback::starting_timeout_copy(device);
+        };
+        let device = starting.device.clone();
+        let start_id = starting.start_id.clone();
+        let handoff = starting.handoff;
+        self.end_starting(generation, false, window, cx);
+        let (title, description) = crate::feedback::starting_timeout_copy(&device);
         let weak = cx.entity().downgrade();
+        let retry_id = start_id.clone();
         let toast = crate::toast::Toast::error(title)
             .description(description)
             .action(crate::feedback::RETRY, move |window, cx| {
-                let _ = weak.update(cx, |this, cx| this.send(window, cx));
+                let retry_id = retry_id.clone();
+                let _ = weak.update(cx, |this, cx| {
+                    this.retry_start = Some(retry_id);
+                    this.send(window, cx);
+                });
             });
-        crate::toast::show(toast, window, cx);
+        let toast = crate::toast::show_dismissible(toast, window, cx);
+        if let Some(previous) = self.late.replace(LateStart {
+            start_id,
+            handoff,
+            toast: Some(toast),
+        }) {
+            previous.dismiss_toast(cx);
+        }
+    }
+
+    /// Review #3: the row of start `start_id` landed (and opened, in that
+    /// start's own tab). In time, the start settles and the draft clears; a
+    /// LATE row (after the timeout) clears the error and, while no other
+    /// start is on its way, the draft too.
+    fn start_landed(&mut self, start_id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if let Some(late) = self.late.take_if(|late| late.start_id == start_id) {
+            late.dismiss_toast(cx);
+            if self.starting.is_none() {
+                self.after_started(window, cx);
+            }
+        }
+        let current = self
+            .starting
+            .as_ref()
+            .filter(|starting| starting.start_id == start_id)
+            .map(|starting| starting.generation);
+        if let Some(generation) = current {
+            self.end_starting(generation, true, window, cx);
+            self.after_started(window, cx);
+        }
+        if self.retry_start.as_deref() == Some(start_id) {
+            self.retry_start = None;
+        }
+        cx.notify();
     }
 
     /// FEED-79: a start that failed (refused, unreachable, nothing to run
@@ -858,15 +931,25 @@ impl ChatScreenView {
 
     /// The start `generation` settled (landed, failed or timed out): the
     /// send and the card return to rest. A later start's state survives.
-    fn end_starting(&mut self, generation: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.starting.as_ref().map(|starting| starting.generation) != Some(generation) {
+    /// `take_back`: a failed start keeps its tab, so the slot it handed off
+    /// is taken back (a landed one already used it); a TIMED-OUT remote
+    /// start keeps it for its late landing (review #3).
+    fn end_starting(
+        &mut self,
+        generation: u64,
+        take_back: bool,
+        _window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(starting) = self
+            .starting
+            .take_if(|starting| starting.generation == generation)
+        else {
             return;
-        }
-        self.starting = None;
+        };
         self.start_pending.finish();
-        // A failed start keeps its tab: the slot it handed off is taken back.
-        if let Some(id) = &self.new_run_id {
-            coding_flow::take_back_new_run_tab(window, id, cx);
+        if let (true, Some(handoff)) = (take_back, starting.handoff) {
+            coding_flow::take_back_new_run_tab(handoff, cx);
         }
         cx.notify();
     }
@@ -881,7 +964,7 @@ impl ChatScreenView {
         Box::new(move |cx: &mut App, _started: bool| {
             cx.defer(move |cx| {
                 let _ = handle.update(cx, |_, window, cx| {
-                    let _ = weak.update(cx, |this, cx| this.end_starting(generation, window, cx));
+                    let _ = weak.update(cx, |this, cx| this.end_starting(generation, true, window, cx));
                 });
             });
         })
@@ -1721,7 +1804,7 @@ impl ChatScreenView {
             Subject::None => chat_launch::text_blocker(&kind, &text, self.images.len()).map(Into::into),
             Subject::Action(subject) => {
                 if !self.actions_ready {
-                    return Some("Loading actions…".into());
+                    return Some(chat_launch::ACTIONS_LOADING.into());
                 }
                 let Some(action) = self.selected_action() else {
                     return Some("Select an action.".into());
@@ -1875,7 +1958,7 @@ impl ChatScreenView {
         }
         let generation = self.begin_starting(window, cx);
         if !self.start_now(message, generation, window, cx) {
-            self.end_starting(generation, window, cx);
+            self.end_starting(generation, true, window, cx);
         }
     }
 
@@ -1910,7 +1993,6 @@ impl ChatScreenView {
         let options = self.options(cx);
         if let Some(device) = self.remote_device() {
             let device_id = device.device_id.clone();
-            let label = device.label.clone();
             let input = match &self.subject {
                 Subject::None => chat_launch::remote_start_input(
                     &device_id,
@@ -1959,7 +2041,7 @@ impl ChatScreenView {
                     chat_launch::remote_start_input(&device_id, &options, subject.borrow(), prompt)
                 }
             };
-            self.launch_remote(input, label, generation, window, cx);
+            self.launch_remote(input, generation, window, cx);
             return true;
         }
         match &self.subject {
@@ -1979,12 +2061,13 @@ impl ChatScreenView {
                     .as_ref()
                     .map(|repo| (repo.id.clone(), repo.full_name.clone()));
                 let settled = self.settled_hook(generation, window, cx);
+                let handoff = self.start_handoff();
                 navigation::defer_in_result_window(window, cx, move |window, cx| {
                     let Some(host) = crate::session_bar::host_for_window(window, cx) else {
                         return;
                     };
                     host.update(cx, |host, cx| {
-                        host.launch_chat_run(options, repo, prompt, Some(settled), window, cx);
+                        host.launch_chat_run(options, repo, prompt, Some(settled), handoff, window, cx);
                     });
                 });
                 self.after_started(window, cx);
@@ -2007,7 +2090,7 @@ impl ChatScreenView {
                         // EXP-1037: the run's tab lands in the window the ▶
                         // was pressed in — a dialog composer closes itself.
                         target: Some(navigation::deferred_open_window(window, cx)),
-                        landing: coding_flow::RunLanding::Composer,
+                        landing: coding_flow::RunLanding::Composer(self.start_handoff()),
                         reservation: None,
                         // A person pressed Run — never a trigger firing.
                         trigger: None,
@@ -2227,22 +2310,32 @@ impl ChatScreenView {
     ///
     /// EXP-818: it then FOLLOWS the run in — a remote start lands in the
     /// session screen exactly as a local one does
-    /// ([`coding_flow::follow_remote_start_then`], which waits for the row
-    /// the other machine writes). EXP-1271: until then the card's STARTING
-    /// row names the machine; the draft clears only once the run landed.
+    /// ([`coding_flow::follow_composer_start`], which waits for the row the
+    /// other machine writes). EXP-1271: until then the card's STARTING row
+    /// names the machine; the draft clears only once the run landed.
+    /// Review #3: the request carries the start's `startId`, and the 30 s
+    /// deadline is armed once it is SENT.
     fn launch_remote(
         &mut self,
-        input: api::steer::StartSessionInput,
-        device_label: String,
+        mut input: api::steer::StartSessionInput,
         generation: u64,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.end_starting(generation, window, cx);
+            self.end_starting(generation, true, window, cx);
             self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
             return;
         };
+        let Some((start_id, handoff)) = self
+            .starting
+            .as_ref()
+            .filter(|starting| starting.generation == generation)
+            .map(|starting| (starting.start_id.clone(), starting.handoff))
+        else {
+            return;
+        };
+        input.start_id = Some(start_id.clone());
         let device_id = input.device_id.clone();
         let subject = coding_flow::RemoteRunSubject::of(&input);
         self.launching = true;
@@ -2258,24 +2351,21 @@ impl ChatScreenView {
                     Ok(()) => {
                         // EXP-1271: the STARTING row stays until the other
                         // machine's row lands (and opens, EXP-818), or the
-                        // follower gives up: the timeout toast then.
-                        // The follower settles in the window the run lands
-                        // in; a DIALOG composer settles in its own (its
-                        // `after_started` closes that window, never the
-                        // opener).
+                        // deadline (from now) passes: the timeout toast
+                        // then, while the follower keeps watching.
+                        this.arm_deadline(generation, window, cx);
+                        // The follower lands the run in the window the
+                        // start was made from; a DIALOG composer settles in
+                        // its own (its `after_started` closes that window,
+                        // never the opener).
                         let weak = cx.entity().downgrade();
                         let own = window.window_handle();
-                        let settled: coding_flow::RemoteStartSettled =
-                            Box::new(move |landed, window, cx| {
+                        let landed_id = start_id.clone();
+                        let landed: Box<dyn FnOnce(String, &mut Window, &mut App)> =
+                            Box::new(move |_session_id, window, cx| {
                                 let settle = move |window: &mut Window, cx: &mut App| {
-                                    let _ = weak.update(cx, |this, cx| match landed {
-                                        Some(_) => {
-                                            this.end_starting(generation, window, cx);
-                                            this.after_started(window, cx);
-                                        }
-                                        None => {
-                                            this.time_out_start(generation, &device_label, window, cx)
-                                        }
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.start_landed(&landed_id, window, cx)
                                     });
                                 };
                                 if window.window_handle().window_id() == own.window_id() {
@@ -2284,10 +2374,22 @@ impl ChatScreenView {
                                     let _ = own.update(cx, |_, window, cx| settle(window, cx));
                                 }
                             });
-                        coding_flow::follow_remote_start_then(device_id, subject, Some(settled), window, cx);
+                        // A Retry of a start still followed spawns no second
+                        // follower: the first one lands it.
+                        coding_flow::follow_composer_start(
+                            device_id,
+                            subject,
+                            coding_flow::ComposerStartWatch {
+                                start_id,
+                                handoff,
+                                landed,
+                            },
+                            window,
+                            cx,
+                        );
                     }
                     Err(err) => {
-                        this.end_starting(generation, window, cx);
+                        this.end_starting(generation, true, window, cx);
                         this.start_failed(err.user_message().into(), cx);
                     }
                 }
@@ -2322,14 +2424,18 @@ impl ChatScreenView {
                 // first would take back the New run tab's handoff, and the
                 // run would open beside the tab instead of in it.
                 let outcome: Result<(), SharedString> = match prepared {
-                    Ok(Prepared::Ready(prepared)) => {
-                        coding_flow::spawn_into_window(prepared, subject, coding_flow::RunLanding::Composer, window, cx)
-                            .map_err(SharedString::from)
-                    }
+                    Ok(Prepared::Ready(prepared)) => coding_flow::spawn_into_window(
+                        prepared,
+                        subject,
+                        coding_flow::RunLanding::Composer(this.start_handoff()),
+                        window,
+                        cx,
+                    )
+                    .map_err(SharedString::from),
                     Ok(Prepared::Disabled(reason)) => Err(reason.message().into()),
                     Err(err) => Err(err.to_string().into()),
                 };
-                this.end_starting(generation, window, cx);
+                this.end_starting(generation, true, window, cx);
                 match outcome {
                     Ok(()) => this.after_started(window, cx),
                     Err(message) => this.start_failed(message, cx),
@@ -3133,7 +3239,11 @@ impl ChatScreenView {
             // EXP-862: the blocker is a sentence and nothing else — the
             // "Sign in to <agent>" pill it used to carry is gone ×4; a login
             // is offered ONCE, on the account chip that owns it (Devices).
-            notes = notes.child(div().w_full().min_w_0().text_color(muted).child(reason));
+            notes = if reason.as_ref() == chat_launch::ACTIONS_LOADING {
+                notes.child(crate::feedback::inline_status(crate::feedback::WORD_LOADING, true, cx))
+            } else {
+                notes.child(div().w_full().min_w_0().text_color(muted).child(reason))
+            };
         }
         if let Some(note) = no_session_note {
             notes = notes.child(div().text_color(muted).child(note));
@@ -4312,11 +4422,31 @@ pub(crate) fn recent_band(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
 }
 
 /// EXP-1271 — a start on its way (the composer's STARTING row): the device
-/// it went to, since when, and which start it is.
+/// it went to, since when, and which start it is: its generation, its
+/// `startId` (review #3) and the New session tab it hands off (review #1).
 struct Starting {
     device: String,
     since: std::time::Instant,
     generation: u64,
+    start_id: String,
+    handoff: Option<coding_flow::StartHandoff>,
+}
+
+/// Review #3 — a remote start past its deadline, still followed: its
+/// `startId` (the Retry reuses it), its tab handoff and the timeout toast a
+/// late landing takes back.
+struct LateStart {
+    start_id: String,
+    handoff: Option<coding_flow::StartHandoff>,
+    toast: Option<crate::toast::ShownToast>,
+}
+
+impl LateStart {
+    fn dismiss_toast(&self, cx: &mut App) {
+        if let Some(toast) = &self.toast {
+            toast.dismiss(cx);
+        }
+    }
 }
 
 struct PendingBlocked {

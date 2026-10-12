@@ -90,11 +90,13 @@ impl TypeaheadPrefill {
     }
 }
 
-/// The `#` rule (search-list.json, the web `typeaheadPrefill` regex
-/// `(?:^|[\s(])#([A-Za-z0-9-]*)$`): a `#` at the start of the text, after
-/// whitespace or after `(` opens the list, and the identifier-charset token
-/// between it and the caret prefills the field. A `#` inside a word
-/// (`C#sharp`) is not a trigger, and whitespace after the `#` ends the token.
+/// The `#` rule (search-list.json, the web `typeaheadPrefill`): a `#` after
+/// whitespace or after `(` opens the list at once, and the identifier-charset
+/// token (`[A-Za-z0-9-]*`) between it and the caret prefills the field. A `#`
+/// at the START of a line (the text's start, or right after a newline) opens
+/// only once a token character follows it (`#E`), so `# Title` and `## H`
+/// stay markdown headings (review #5). A `#` inside a word (`C#sharp`) is not
+/// a trigger, and whitespace or punctuation after the `#` ends the token.
 pub(crate) fn typeahead_prefill(text: &str, caret: usize) -> Option<TypeaheadPrefill> {
     if caret > text.len() || !text.is_char_boundary(caret) {
         return None;
@@ -109,10 +111,11 @@ pub(crate) fn typeahead_prefill(text: &str, caret: usize) -> Option<TypeaheadPre
     if before.as_bytes()[hash] != b'#' {
         return None;
     }
-    let opens = before[..hash]
-        .chars()
-        .next_back()
-        .is_none_or(|c| c.is_whitespace() || c == '(');
+    let opens = match before[..hash].chars().next_back() {
+        // Line start: a heading until a token character follows.
+        None | Some('\n' | '\r') => query_len > 0,
+        Some(c) => c.is_whitespace() || c == '(',
+    };
     opens.then(|| TypeaheadPrefill {
         start: hash,
         query: before[hash + 1..].to_string(),

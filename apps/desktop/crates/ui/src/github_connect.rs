@@ -584,10 +584,8 @@ pub(crate) mod copy {
 
     // --- C. Add-repository picker --------------------------------------------
     pub const PICKER_TITLE: &str = "Add repository";
-    // The web copy set keeps it; the picker's first load draws skeleton
-    // rows (EXP-1259 D8).
-    #[allow(dead_code)]
-    pub const PICKER_LOADING: &str = "Loading your GitHub repositories\u{2026}";
+    // No loading line: the picker's first load draws skeleton rows
+    // (EXP-1259 D8).
     pub const PICKER_NOT_CONFIGURED: &str = "GitHub isn\u{2019}t configured on this server, so \
         repositories can\u{2019}t be added.";
     pub const PICKER_NOT_LINKED: &str = "Connect your GitHub account to pick a repository. \
@@ -680,7 +678,6 @@ mod tests {
             "Repositories come from these accounts. Configure one to grant more."
         );
 
-        assert_eq!(copy::PICKER_LOADING, "Loading your GitHub repositories…");
         assert_eq!(
             copy::PICKER_NOT_CONFIGURED,
             "GitHub isn’t configured on this server, so repositories can’t be added."

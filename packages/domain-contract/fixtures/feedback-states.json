@@ -322,7 +322,11 @@
       "title": "The session did not start",
       "description": "{device} did not answer.",
       "action": "Retry"
-    }
+    },
+    "deadlineFrom": "sent",
+    "remoteOnly": true,
+    "startIdKey": "startId",
+    "$comment": "Review #3/#4 (2026-10-12): the deadline counts from the moment the start request is SENT (after uploads finish), and only for a start that goes to ANOTHER device (a local start in the IDE never arms it). On timeout: the error toast `timeoutToast` with Retry; the composer returns to idle but nothing is aborted. Every Start press mints a `startId` (uuid) that rides steer.startSession + the relay start frame; Retry REUSES the same startId and the device ignores a startId it has already started (idempotent), so a late start never duplicates. When the late session row lands, the error clears, the draft is cleared and the composer lands as if it had started in time."
   },
   "autosave": {
     "debounceMs": 800,
@@ -343,7 +347,41 @@
     },
     "description": "{subject}",
     "chatSubject": "Chat",
-    "action": "Open"
+    "action": "Open",
+    "toastWhen": "person",
+    "$comment": "Review #9 (2026-10-12): ONLY a start a PERSON made from another device toasts (a relay start whose session has no started_reason, own or a teammate's). Starts by triggers and agents (started_reason schedule | event | agent) and account-rotation resumes never toast: they only appear in Running.",
+    "cases": [
+      {
+        "name": "a person's start from another device toasts",
+        "startedReason": null,
+        "rotation": false,
+        "toast": true
+      },
+      {
+        "name": "a scheduled trigger start stays quiet",
+        "startedReason": "schedule",
+        "rotation": false,
+        "toast": false
+      },
+      {
+        "name": "an event trigger start stays quiet",
+        "startedReason": "event",
+        "rotation": false,
+        "toast": false
+      },
+      {
+        "name": "an agent's start stays quiet",
+        "startedReason": "agent",
+        "rotation": false,
+        "toast": false
+      },
+      {
+        "name": "an account-rotation resume stays quiet",
+        "startedReason": null,
+        "rotation": true,
+        "toast": false
+      }
+    ]
   },
   "errors": {
     "rule": "ONLY a failure of something the PERSON just did toasts. Automatic or background work (trunk sync, polling, refresh on open or on focus, heartbeats, prefetch, live reloads) NEVER toasts: it keeps its existing quiet surface (the IDE trunk_sync badge + banner, a list's band spinner, its empty state). A FAILED ACTION (save, delete, start, connect, merge, send, invite, sign-in request that reached the server) = toast.error(title, {description: the server's message, action: Retry when re-running the same call is safe}). Title = `Couldn't <verb> <thing>` (sentence case, no period). INVALID INPUT stays INLINE under its field in the rose foreground at 13px (a red field border + the line), never a toast: auth forms, the invite email, URL fields, byte caps, required fields, names already taken. Nothing else renders an error inline: no rose sentences in settings sections, dialogs, option lines, pickers or faces; a section whose automatic LOAD failed shows its empty state (plus its Retry); only a failed Retry tap toasts.",

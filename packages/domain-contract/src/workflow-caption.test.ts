@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test"
 
-import fixture from "../fixtures/workflow-caption.json" with { type: "json" }
+import workCard from "../fixtures/work-card.json" with { type: "json" }
 import { workflowCaption, type WorkflowCaptionInput } from "./workflow-caption"
 
 interface Case {
@@ -15,7 +15,7 @@ interface Case {
 
 describe(`workflowCaption`, () => {
   test(`the fixture covers every status and both phase paths`, () => {
-    const cases = fixture as unknown as Case[]
+    const cases = workCard.caption.cases as unknown as Case[]
     expect(cases.length).toBeGreaterThanOrEqual(8)
     const statuses = new Set(cases.map((entry) => entry.workflow.status))
     expect([...statuses].sort()).toEqual([
@@ -26,7 +26,7 @@ describe(`workflowCaption`, () => {
     ])
   })
 
-  for (const entry of fixture as unknown as Case[]) {
+  for (const entry of workCard.caption.cases as unknown as Case[]) {
     test(entry.name, () => {
       expect(workflowCaption(entry.workflow)).toBe(entry.expected)
     })

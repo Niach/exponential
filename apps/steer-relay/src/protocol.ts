@@ -853,9 +853,13 @@ export interface StartSessionOptions {
    * steer-image-message shape. Pass-through (the web server validated it);
    * never on a resume. */
   prompt?: string
-  /** FEED-63: the web server's id for THIS start request, on every subject
-   * incl. a resume. Verbatim pass-through: the device reports a failed start
-   * back to the web server under it. Absent from older web builds. */
+  /** FEED-63: the id of THIS start request, on every subject incl. a
+   * resume. Verbatim pass-through: the device reports a failed start back to
+   * the web server under it. EXP-1259: minted by the CLIENT per Start press
+   * (the server mints one only when the client sent none) and REUSED by its
+   * Retry; the device ignores a startId it already started, so the relay
+   * forwards repeats untouched (STEER-WIRE-EXP-850.md §14). Absent from
+   * older web builds. */
   startId?: string
 }
 

@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1279 (EXP-1259 D13): the code-mode card x4. crates/codemode records every tool call a script makes as `{tool: '<server>.<tool>', subject, ok, ms}` (subject = the call's contract `subjectKey` argument for an Exponential tool, else the first string argument, trimmed to 80 chars), capped at `logCap` entries, and returns the log in the CallToolResult `_meta` under `metaKey` with the total under `metaCountKey` and the script's wall time under `metaElapsedKey` (never in the text content: the model never pays for it). The engine maps a tool call whose name ends in `codemode__exec` to contract toolKind `script` and, when its result arrives, attaches the log to the settled tool item as `script: {count, elapsedMs, calls}` (relay wire + every client's feed). Model = pure `scriptCard(input)` (TS reference packages/domain-contract/src/script-card.ts; mirrors desktop steer::script_card, iOS ExpCore ScriptCard.swift, Android domain/ScriptCard.kt), every mirror replays `cases`. Paint: the tool card shell; header = the `{ }` glyph (concept `tool-script`), `title` (medium) and the muted `meta`, trailing a `Script` disclosure (copy.script) that reveals the script source (the exec input's `script`) in a mono block; then one row per group: the brand mark (Exponential tools) or the coding-tool glyph, the label, the muted subject + `more`, trailing `count` (muted) or `failed` (rose); `overflow` = a final muted row. Groups keep first-call order. While running: the title alone with the run's spinner.",
+  "$comment": "EXP-1279 (EXP-1259 D13): the code-mode card x4. crates/codemode records every tool call a script makes as `{tool: '<server>.<tool>', subject, ok, ms}` (subject = the call's contract `subjectKey` argument for an Exponential tool, else the first string argument, trimmed to 80 chars), capped at `logCap` entries, and returns the log in the CallToolResult `_meta` under `metaKey` with the total under `metaCountKey` and the script's wall time under `metaElapsedKey` (never in the text content: the model never pays for it). The engine maps a tool call whose name ends in `codemode__exec` to contract toolKind `script` and, when its result arrives, attaches the log to the settled tool item as `script: {count, elapsedMs, calls}` (relay wire + every client's feed). Model = pure `scriptCard(input)` (TS reference packages/domain-contract/src/script-card.ts; mirrors desktop steer::script_card, iOS ExpCore ScriptCard.swift, Android domain/ScriptCard.kt), every mirror replays `cases`. Paint: the tool card shell; header = the `{ }` glyph (concept `tool-script`), `title` (medium) and the muted `meta`, trailing a `Script` disclosure (copy.script) that reveals the script source (the exec input's `script`) in a mono block; then one row per group: the brand mark (Exponential tools) or the coding-tool glyph, the label, the muted subject + `more`, trailing `count` (muted) or `failed` (rose); `overflow` = a final muted row. Groups keep first-call order. While running: the title alone with the run's spinner. Review #15: under a minute the duration is tenths = round-half-up(ms / 100) as an INTEGER, printed `{tenths / 10}.{tenths % 10} s` (1250 ms = `1.3 s`, 1249 ms = `1.2 s`), never a float formatter.",
   "logCap": 200,
   "metaKey": "exponential/calls",
   "metaCountKey": "exponential/callCount",
@@ -235,6 +235,32 @@
         "groups": [],
         "overflow": null
       }
+    }
+  ],
+  "durations": [
+    {
+      "ms": 1250,
+      "expected": "1.3 s"
+    },
+    {
+      "ms": 1249,
+      "expected": "1.2 s"
+    },
+    {
+      "ms": 3040,
+      "expected": "3.0 s"
+    },
+    {
+      "ms": 59950,
+      "expected": "60.0 s"
+    },
+    {
+      "ms": 120,
+      "expected": "0.1 s"
+    },
+    {
+      "ms": 75000,
+      "expected": "1m"
     }
   ]
 }

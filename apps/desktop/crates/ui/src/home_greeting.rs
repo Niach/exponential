@@ -157,17 +157,24 @@ fn stamp_ms(stamp: Option<&str>) -> i64 {
 
 /// RECENT: the caller's last [`RECENT_COUNT`] OWN top-level runs (no parent
 /// run) in `team_id`, any status, newest first by `updated_at` then
-/// `created_at`.
+/// `created_at`. A resume succession (`resumed_from_id`) is ONE row, its
+/// newest member, the way every session list draws it (review #20,
+/// `domain::session_tree`).
 pub(crate) fn home_recent_runs<'a>(
     rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
     me: &str,
     team_id: &str,
 ) -> Vec<&'a domain::rows::CodingSession> {
-    let mut out: Vec<&domain::rows::CodingSession> = rows
+    let own: Vec<&domain::rows::CodingSession> = rows
         .filter(|row| row.user_id.as_deref() == Some(me))
         .filter(|row| row.team_id.as_deref() == Some(team_id))
         .filter(|row| row.parent_session_id.is_none())
         .collect();
+    let mut out: Vec<&domain::rows::CodingSession> =
+        domain::session_tree::session_tree(own, |row| domain::session_tree::coding_session_facts(row))
+            .into_iter()
+            .map(|node| *node.session())
+            .collect();
     out.sort_by(|a, b| {
         stamp_ms(b.updated_at.as_deref())
             .cmp(&stamp_ms(a.updated_at.as_deref()))
@@ -313,6 +320,27 @@ mod tests {
             .map(|row| row.id.as_str())
             .collect();
         assert_eq!(ids, ["a-newest", "m-middle", "z-oldest"]);
+    }
+
+    /// Review #20: a resume succession is ONE row, its newest member.
+    #[test]
+    fn recent_folds_a_resume_succession_into_its_newest_row() {
+        let resumed = |id: &str, from: &str, updated: &str, created: &str| {
+            let mut row = stamped(id, updated, created);
+            row.resumed_from_id = Some(from.to_string());
+            row
+        };
+        let rows = vec![
+            stamped("first", "2026-10-12T08:00:00Z", "2026-10-12T08:00:00Z"),
+            resumed("second", "first", "2026-10-12T09:00:00Z", "2026-10-12T09:00:00Z"),
+            resumed("third", "second", "2026-10-12T10:00:00Z", "2026-10-12T10:00:00Z"),
+            stamped("other", "2026-10-12T07:00:00Z", "2026-10-12T07:00:00Z"),
+        ];
+        let ids: Vec<&str> = home_recent_runs(rows.iter(), "me", "t")
+            .into_iter()
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(ids, ["third", "other"]);
     }
 
     /// A tie on `updated_at` falls back to `created_at`, newest first.

@@ -103,9 +103,9 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "slug",
             "icon_url",
             "pr_opened_status_id",
-            "pr_opened_trigger",
+            "pr_opened_automation",
             "pr_merged_status_id",
-            "pr_merged_trigger",
+            "pr_merged_automation",
             // EXP-711: the merge-ends-sessions toggle.
             "end_sessions_on_merge",
             // EXP-1105: yolo mode (hides Reviews/Files/Source Control).
@@ -1011,9 +1011,9 @@ mod tests {
         // dropping any silently shows every team as builtin-default.
         let spec = shape_by_name("teams").unwrap();
         assert!(spec.columns.contains(&"pr_opened_status_id"));
-        assert!(spec.columns.contains(&"pr_opened_trigger"));
+        assert!(spec.columns.contains(&"pr_opened_automation"));
         assert!(spec.columns.contains(&"pr_merged_status_id"));
-        assert!(spec.columns.contains(&"pr_merged_trigger"));
+        assert!(spec.columns.contains(&"pr_merged_automation"));
         // EXP-711: the same card's merge-ends-sessions switch, and the
         // batch self-close predicate in coding_flow.
         assert!(spec.columns.contains(&"end_sessions_on_merge"));

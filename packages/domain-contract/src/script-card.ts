@@ -56,9 +56,14 @@ export interface ScriptCard {
   overflow: string | null
 }
 
-/** `3.0 s` under a minute, the Work card's coarse format above. */
+/** `3.0 s` under a minute (integer tenths, half up), the Work card's coarse
+ *  format above. */
 export function scriptDuration(ms: number): string {
-  return ms < 60_000 ? `${(Math.max(0, ms) / 1000).toFixed(1)} s` : workDurationShort(ms)
+  if (ms >= 60_000) return workDurationShort(ms)
+  // Integer tenths, half up: every mirror prints the same digits (no float
+  // formatter rounds .x5 the same way on all four platforms).
+  const tenths = Math.floor(Math.max(0, ms) / 100 + 0.5)
+  return `${Math.floor(tenths / 10)}.${tenths % 10} s`
 }
 
 function plural(count: number, one: string, many: string): string {
