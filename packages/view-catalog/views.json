@@ -702,12 +702,12 @@
       "blurb": "THE search list (SLOP-28, search-list.json): typing `#` in any editor opens it with a focused input prefilled with the token, no result cap, the list scrolls with a bottom fade; ↑↓ Enter inserts `#IDENT`. A popover at the caret on a pointer, a bottom sheet on phones; the + menu’s submenus and global search draw the same rows.",
       "order": 11,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug",
+        "route": "/t/$teamSlug/agent",
         "anchor": {
-          "text": "Reduce cold start below 800 ms",
+          "testId": "search-list",
           "timeoutMs": 20000
         },
-        "recipe": "openSearch",
+        "recipe": "typeIssueRef",
         "settleMs": 600
       },
       "webMobile": "inherit",
@@ -731,8 +731,8 @@
         }
       },
       "notes": {
-        "web": "Photographs the list behind Cmd+K (IssuePickerHost on the shared SearchList, the `search` view's recipe and query): the same input row and one-line rows the `#` popover draws. No web recipe types `#` into an editor yet, so the caret popover itself is the styleguide entry `search-list`.",
-        "web-mobile": "Inherits web: on phones Cmd+K's list is the bottom sheet with the input focused, the face the `#` sheet takes too.",
+        "web": "The `#` typeahead itself: `typeIssueRef` types `Explain #` into the Agent composer and then `APP` (the seeded board's key), which lands in the list's own focused input, so the shot is the popover at the caret with every seeded issue, uncapped, under its bottom fade.",
+        "web-mobile": "Inherits web: on phones the same `#` opens the list as a bottom sheet with its input focused.",
         "desktop": "The ⌘K dialog IS the search list (`search_sheet.rs` on `picker::search_list`); the query `APP` matches every seeded identifier, so the shot shows the uncapped list scrolling under its bottom fade, which `search` (one hit) does not. No `EXP_DEV_*` value opens the `#` popover in an editor."
       }
     },
@@ -4405,6 +4405,15 @@
       "title": "Composer + menu",
       "blurb": "The composer’s ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue › and Run action › (SLOP-28: submenus on THE search list), Add file or image, Effort ›, Subagents ›, Ultracode, MCP servers ›, Computer use; a dropdown at desktop widths and a bottom sheet on phones, submenus pushed as pages.",
       "order": 12,
+      "web": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "agent-composer-menu",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerMenuImplement",
+        "settleMs": 600
+      },
       "ios": {
         "shot": "sg_composer-menu",
         "lane": "styleguide"
@@ -4414,8 +4423,8 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "No app capture: no web recipe opens the composer's \"+\" menu (the `chat` view photographs the closed composer). The styleguide `composer-dialog` and `menu-submenu` entries show the open menu and a submenu on the real components.",
-        "web-mobile": "See web: on phones the same entries open as a bottom sheet.",
+        "web": "`openComposerMenuImplement` opens the Agent composer's \"+\" dropdown and hovers Implement issue, so its submenu (THE search list, SLOP-28) is open beside the menu.",
+        "web-mobile": "No app capture: on phones the menu is a bottom sheet and Implement issue pushes a page, which no hover reaches; the open sheet is the natives' `sg_composer-menu`.",
         "desktop": "No app capture: no `EXP_DEV_*` value opens the \"+\" menu (`EXP_DEV_SCREEN=chat` is the closed composer). The desktop styleguide `menu_submenu` entry draws the real \"+\" menu and a submenu."
       }
     },
@@ -4590,6 +4599,16 @@
       "title": "Work card",
       "blurb": "ONE card ×4 for a workflow, a task list and a subagent (EXP-1240, work-card.json): kind icon, name, kind word, progress and elapsed over a segment bar; finished phases fold to one row, the running phase lists its lanes one line each.",
       "order": 13,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "testId": "work-card",
+          "timeoutMs": 30000
+        },
+        "recipe": "showWorkCards",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_work-card",
         "lane": "styleguide"
@@ -4598,20 +4617,10 @@
         "shot": "sg_work-card",
         "lane": "styleguide"
       },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "session:$steeredSession"
-        },
-        "anchorDelayMs": 2500,
-        "env": {
-          "EXP_DEV_SHOW_WORK": "1"
-        }
-      },
       "notes": {
-        "web": "No app capture yet: the cards live in the transcript (Show work), and the `steering` route opens on the thread; no web recipe flips the per-user Show work pref (localStorage `exp.showWork:<userId>`). The styleguide entry `work-card` draws it on the real component.",
-        "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the showcase session's transcript, whose relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts) carries two subagents and a task list, each a Work card. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
+        "web": "The `steering` session with Show work on: `showWorkCards` sets the per-user pref (localStorage `exp.showWork:<userId>`), reloads and centres the last subagent's Work card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts: two subagents and a task list, whose card sits in the strip under the transcript). Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same cards at full width.",
+        "desktop": "No app capture: the drive (`session:$steeredSession` + `EXP_DEV_SHOW_WORK=1`) photographs \"Live steering is unavailable on this instance\" over an empty feed, the same state the committed `steering/desktop` shot shows since 2026-10-10: `SteerViewer::new` calls `spawn_viewer` once, and with the session tab opened at boot (dev screen, or a restored layout) the active account is not set yet, so `queries::trpc_client` is None and the viewer never dials. The desktop styleguide entry `work_card.rs` draws the card."
       }
     },
     {
@@ -4620,6 +4629,16 @@
       "title": "Script card",
       "blurb": "A code-mode call (EXP-1279, script-card.json): “Ran a script · N calls · T” with the nested calls grouped by tool, failures in rose, the script itself behind a Script disclosure.",
       "order": 14,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "testId": "script-card",
+          "timeoutMs": 30000
+        },
+        "recipe": "showScriptCard",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_script-card",
         "lane": "styleguide"
@@ -4629,9 +4648,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "No app capture: the showcase session's demo feed (apps/web/scripts/screenshot-desktop.ts) carries no code-mode `exec` call, so no session shows the card. The styleguide entry `script-card` (apps/styleguide/src/entries/script-card.tsx) draws it on the real component.",
-        "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "No app capture, for the same reason as web: no seeded session has a code-mode call. The desktop styleguide entry `script_card.rs`."
+        "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a code-mode `exec` call (`mcp__codemode__exec`, toolKind `script`, its settle carrying a 13-call log with one failure and the script source); `showScriptCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
+        "desktop": "No app capture: the drive (`session:$steeredSession` + `EXP_DEV_SHOW_WORK=1`) photographs \"Live steering is unavailable on this instance\" over an empty feed, the same state the committed `steering/desktop` shot shows since 2026-10-10: `SteerViewer::new` calls `spawn_viewer` once, and with the session tab opened at boot (dev screen, or a restored layout) the active account is not set yet, so `queries::trpc_client` is None and the viewer never dials. The desktop styleguide entry `script_card.rs` draws the card."
       }
     },
     {
@@ -4640,6 +4659,16 @@
       "title": "Comment card",
       "blurb": "An `exponential_comments_create` call drawn as the real comment (EXP-1241): the author row with the agent mark and “via MCP”, the markdown clamped to three lines with Show more; a click opens the issue scrolled to that comment.",
       "order": 15,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "testId": "comment-call-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "showCommentCard",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_comment-call-card",
         "lane": "styleguide"
@@ -4649,9 +4678,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "No app capture: the showcase session's demo feed (apps/web/scripts/screenshot-desktop.ts) carries no `exponential_comments_create` call, so no session shows the card. The styleguide entry `comment-call-card` (apps/styleguide/src/entries/comment-call-card.tsx) draws it on the real component.",
-        "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "No app capture, for the same reason as web: no seeded session has a comment call. The desktop styleguide entry `comment_card.rs`."
+        "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a `exponential_comments_create` call whose settle names the seeded `mcp` comment (DEMO_AGENT_COMMENT_ID), so the card is the real synced row; `showCommentCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
+        "desktop": "No app capture: the drive (`session:$steeredSession` + `EXP_DEV_SHOW_WORK=1`) photographs \"Live steering is unavailable on this instance\" over an empty feed, the same state the committed `steering/desktop` shot shows since 2026-10-10: `SteerViewer::new` calls `spawn_viewer` once, and with the session tab opened at boot (dev screen, or a restored layout) the active account is not set yet, so `queries::trpc_client` is None and the viewer never dials. The desktop styleguide entry `comment_card.rs` draws the card."
       }
     },
     {

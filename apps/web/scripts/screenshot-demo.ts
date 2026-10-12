@@ -313,6 +313,19 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
 export const DEMO_STEERED_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
 
 /**
+ * The comment the steered session's scripted `exponential_comments_create`
+ * call posted (EXP-1259, the `comment-call-card` view): the seed stamps this id
+ * on an `mcp`-sourced comment by the demo user, and the stand-in desktop's
+ * settle names it in its preview, so the card renders the REAL synced row.
+ * It sits on the image-cache issue, never the showcase APP-5, whose thread is
+ * photographed by `issue-detail` / `issue-comments` on every platform.
+ */
+export const DEMO_AGENT_COMMENT_ID = `3e8a1c7d-2b4f-4d96-8a15-9c0e7f2b6d43`
+
+/** How long before the seed's clock the agent's comment was posted. */
+export const DEMO_AGENT_COMMENT_MINUTES_AGO = 20
+
+/**
  * The action the `action-*` views are photographed on ("Nightly test triage")
  * and the triggers the seed hangs on the actions. Pinned for the same reason
  * as the session above: the action page is a route (`actions/$actionId`), and

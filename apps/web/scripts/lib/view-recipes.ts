@@ -29,6 +29,7 @@ import {
   DEMO_FEED_QUESTION,
   DEMO_NAME,
   DEMO_PASSWORD,
+  DEMO_USER_ID,
   TEAM_SLUG,
 } from "../screenshot-demo"
 
@@ -43,6 +44,14 @@ const BOARD_SLUG = `mobile-app`
  */
 const SEARCH_QUERY = `cold start`
 const SEARCH_RESULT_TITLE = `Reduce cold start below 800 ms`
+
+/**
+ * What `typeIssueRef` types into the Agent composer: a prompt, then `#` and a
+ * token. `APP` is the seeded board's key, so every issue matches and the list
+ * shows its uncapped, scrolling face (the desktop `search-list` query too).
+ */
+const ISSUE_REF_PROMPT = `Explain #`
+const ISSUE_REF_TOKEN = `APP`
 
 /** Everything a recipe is allowed to know about the instance it is driving. */
 export interface RecipeCtx {
@@ -400,6 +409,122 @@ async function recipeExpandFirstDiffFile(page: Page): Promise<void> {
     .waitFor({ timeout: 30_000 })
 }
 
+// ------------------------------------------------------------------ agent
+
+/** The Agent composer's field, focused (the page autofocuses it on a pointer,
+ *  a click covers the phone). */
+async function focusComposer(page: Page): Promise<Locator> {
+  const field = page.getByTestId(`agent-composer-field`)
+  await field.first().waitFor({ timeout: 30_000 })
+  await field.first().click()
+  return field.first()
+}
+
+/**
+ * SLOP-28: THE search list as the `#` typeahead (search-list.json). Types a
+ * prompt, then `#`: the list opens at the caret (a bottom sheet on phones)
+ * with ITS input focused, so the token typed next lands in that input, as a
+ * person typing straight through would. Ends once the input holds the token
+ * and the rows are back.
+ */
+async function recipeTypeIssueRef(page: Page): Promise<void> {
+  await focusComposer(page)
+  await page.keyboard.type(ISSUE_REF_PROMPT, { delay: 40 })
+  const input = page.getByTestId(`search-list-input`).filter({ visible: true })
+  await input.first().waitFor({ timeout: 15_000 })
+  await page.keyboard.type(ISSUE_REF_TOKEN, { delay: 60 })
+  await page
+    .getByTestId(`search-list-row`)
+    .filter({ visible: true })
+    .nth(1)
+    .waitFor({ timeout: 15_000 })
+  const typed = await input.first().inputValue()
+  if (typed !== ISSUE_REF_TOKEN) {
+    throw new Error(
+      `the # search input holds "${typed}", not "${ISSUE_REF_TOKEN}": the ` +
+        `token went somewhere else (did the list take focus?)`
+    )
+  }
+}
+
+/**
+ * EXP-1249: the composer's ONE "+" menu with Implement issue › open beside it
+ * (composer-menu.json test ids). The submenu opens on hover from md up, so the
+ * recipe hovers the row and waits for the search list's rows inside it.
+ */
+async function recipeOpenComposerMenuImplement(page: Page): Promise<void> {
+  const plus = page.getByTestId(`agent-composer-plus-button`)
+  await plus.first().waitFor({ timeout: 30_000 })
+  await plus.first().click()
+  const row = page.getByTestId(`agent-composer-menu-implement-issue`)
+  await row.first().waitFor({ timeout: 15_000 })
+  await row.first().hover()
+  await page
+    .getByTestId(`search-list-row`)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 15_000 })
+}
+
+/**
+ * EXP-1175: put the steered session's Run face on its transcript (Show work),
+ * the per-user localStorage pref (`exp.showWork:<userId>`, show-work-pref.ts)
+ * set and the page reloaded so it opens that way. The key is removed again
+ * once the transcript is up: the module keeps the value for this page's life,
+ * and the next view (`steering`) must open on the THREAD.
+ */
+async function showWork(page: Page): Promise<void> {
+  const key = `exp.showWork:${DEMO_USER_ID}`
+  await page.evaluate((storageKey) => localStorage.setItem(storageKey, `true`), key)
+  await page.reload()
+  await page
+    .getByRole(`button`, { name: `Hide work`, exact: true })
+    .first()
+    .waitFor({ timeout: 30_000 })
+  await page.evaluate((storageKey) => localStorage.removeItem(storageKey), key)
+}
+
+/**
+ * Bring one transcript card to the middle of the frame. The transcript is
+ * bottom-anchored, so a card above the fold needs the scroll; centring it
+ * keeps the rows around it (what the card sits in) in the shot.
+ */
+async function centreCard(page: Page, testId: string): Promise<void> {
+  const card = page.getByTestId(testId).filter({ visible: true }).first()
+  await card.waitFor({ timeout: 30_000 })
+  await card.evaluate((node) => node.scrollIntoView({ block: `center` }))
+  await page.waitForTimeout(400)
+}
+
+/** The transcript with its Work cards (EXP-1240, work-card.json): the last
+ *  subagent's card centred in the transcript, the task list's card pinned in
+ *  the strip under it. (The strip's card is the LAST `work-card` in the DOM
+ *  and always on screen, so the scroll target is the subagent one.) */
+async function recipeShowWorkCards(page: Page): Promise<void> {
+  await showWork(page)
+  const subagents = page
+    .getByTestId(`work-card`)
+    .filter({ visible: true })
+    .filter({ hasText: `Subagent` })
+  await subagents.first().waitFor({ timeout: 30_000 })
+  await subagents
+    .last()
+    .evaluate((node) => node.scrollIntoView({ block: `center` }))
+  await page.waitForTimeout(400)
+}
+
+/** The transcript at the code-mode call's Script card (EXP-1279). */
+async function recipeShowScriptCard(page: Page): Promise<void> {
+  await showWork(page)
+  await centreCard(page, `script-card`)
+}
+
+/** The transcript at the agent's comment, drawn as the comment (EXP-1241). */
+async function recipeShowCommentCard(page: Page): Promise<void> {
+  await showWork(page)
+  await centreCard(page, `comment-call-row`)
+}
+
 // --------------------------------------------------------------- machines
 
 /**
@@ -571,4 +696,9 @@ export const RECIPES: Record<string, Recipe> = {
   openTriggerEditor: recipeOpenTriggerEditor,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
+  typeIssueRef: recipeTypeIssueRef,
+  openComposerMenuImplement: recipeOpenComposerMenuImplement,
+  showWorkCards: recipeShowWorkCards,
+  showScriptCard: recipeShowScriptCard,
+  showCommentCard: recipeShowCommentCard,
 }

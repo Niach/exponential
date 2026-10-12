@@ -34,10 +34,13 @@
  * Runs until Ctrl-C. Keep it running for the whole fastlane capture.
  */
 import { and, eq } from "drizzle-orm"
+import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import {
   codingSessions,
+  comments,
   devices,
+  issues,
   users,
 } from "@/db/schema"
 import {
@@ -50,6 +53,7 @@ import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
 import { reclockDemoRows } from "./lib/demo-reclock"
 import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
+  DEMO_AGENT_COMMENT_ID,
   DEMO_DEVICE_ID,
   DEMO_DEVICE_LABEL,
   DEMO_DEVICE_VERSION,
@@ -269,6 +273,50 @@ diff --git a/app/src/main/java/com/exponential/app/data/sync/BoardSnapshotCache.
     kind: `narration`,
     text: `One caller assumed the first emission was the full list and skipped its empty state. Guarded it so the board never flashes "No issues" between the cached paint and the live snapshot.`,
   },
+  // EXP-1279: a code-mode `exec` call, the `script-card` view. The settle
+  // carries the call log the code-mode server recorded (wire doc §1b in
+  // apps/steer-relay/STEER-WIRE-EXP-850.md), so the card groups it by tool.
+  {
+    kind: `tool`,
+    name: `mcp__codemode__exec`,
+    toolKind: `script`,
+    script: {
+      count: 13,
+      elapsedMs: 2_140,
+      calls: [
+        ...[`APP-5`, `APP-9`, `APP-10`, `APP-14`, `APP-16`, `APP-17`].map((subject, index) => ({
+          tool: `exponential.exponential_issues_get`,
+          subject,
+          ok: true,
+          ms: 180 + index * 20,
+        })),
+        ...[`APP-5`, `APP-9`, `APP-10`, `APP-14`, `APP-16`, `APP-17`].map((subject, index) => ({
+          tool: `exponential.exponential_comments_list`,
+          subject,
+          ok: true,
+          ms: 140 + index * 15,
+        })),
+        { tool: `exponential.exponential_issues_pr_files`, subject: `APP-9`, ok: false, ms: 95 },
+      ],
+      source: `const ids = ["APP-5", "APP-9", "APP-10", "APP-14", "APP-16", "APP-17"]
+const issues = await Promise.all(
+  ids.map((id) => tools.exponential.exponential_issues_get({ id }))
+)
+const threads = await Promise.all(
+  ids.map((issueId) => tools.exponential.exponential_comments_list({ issueId }))
+)
+const files = await tools.exponential.exponential_issues_pr_files({ issueId: "APP-9" })
+return issues.map((issue, i) => \`\${issue.identifier} \${threads[i].length} comments\`)`,
+    },
+  },
+  // EXP-1241: the agent's comment on the image-cache issue, the
+  // `comment-call-card` view. `preview` is filled in at startup from the
+  // seeded row (DEMO_AGENT_COMMENT_ID), so the card renders the real comment.
+  {
+    kind: `tool`,
+    name: `mcp__exponential__exponential_comments_create`,
+    agentComment: true,
+  },
   {
     kind: `tool`,
     name: `Bash`,
@@ -354,15 +402,33 @@ const TOOL_KIND_BY_NAME: Record<string, string> = {
   Write: `edit`,
 }
 
-function publishFeed(send: (frame: Record<string, unknown>) => void) {
+/** The settle of the scripted comment call: the seeded comment and its issue
+ *  (`resolveAgentComment`), as the engine's preview mapper would name them. */
+interface AgentComment {
+  detail: string
+  preview: Record<string, unknown>
+}
+
+function publishFeed(
+  send: (frame: Record<string, unknown>) => void,
+  agentComment: AgentComment | null
+) {
   let seq = 0
   let toolIndex = 0
   // EXP-877: a pending question hides the composer (EXP-820), so a capture of
   // the composer FOOTER (model picker, Plan mode, context ring) opts out of
   // the closing ask. Capture-only; the catalog's `steering` keeps the ask.
   const skipQuestion = process.env.SCREENSHOT_FEED_NO_QUESTION === `1`
-  for (const raw of FEED) {
-    if (skipQuestion && raw.kind === `question`) continue
+  for (const entry of FEED) {
+    if (skipQuestion && entry.kind === `question`) continue
+    // Without the seeded comment (an older seed) the call is left out rather
+    // than published as a card naming a comment nobody can open.
+    if (entry.agentComment === true && !agentComment) continue
+    const { agentComment: _marker, ...rest } = entry
+    const raw: Record<string, unknown> =
+      entry.agentComment === true && agentComment
+        ? { ...rest, detail: agentComment.detail, preview: agentComment.preview }
+        : rest
     if (raw.kind !== `tool`) {
       send({ t: `activity`, event: raw, seq: seq++ })
       continue
@@ -373,12 +439,24 @@ function publishFeed(send: (frame: Record<string, unknown>) => void) {
         ? raw.toolKind
         : (TOOL_KIND_BY_NAME[String(raw.name)] ?? `other`)
     // EXP-916: an edit's patch is a `tool_update` field, never on the `tool`
-    // row itself — the same wire shape the engine's mapper produces.
-    const { diff, ...call } = raw as typeof raw & { diff?: string }
+    // row itself — the same wire shape the engine's mapper produces. So are
+    // an Exponential call's `preview` (EXP-846) and a script's log (EXP-1279).
+    const { diff, preview, script, ...call } = raw as typeof raw & {
+      diff?: string
+      preview?: unknown
+      script?: unknown
+    }
     send({ t: `activity`, event: { ...call, id, toolKind }, seq: seq++ })
     send({
       t: `activity`,
-      event: { kind: `tool_update`, id, status: `completed`, ...(diff ? { diff } : {}) },
+      event: {
+        kind: `tool_update`,
+        id,
+        status: `completed`,
+        ...(diff ? { diff } : {}),
+        ...(preview ? { preview } : {}),
+        ...(script ? { script } : {}),
+      },
       seq: seq++,
     })
   }
@@ -423,6 +501,40 @@ async function resolveTarget() {
     )
   }
   return { userId: demo.id, sessionId: session.id, teamId: session.teamId }
+}
+
+/**
+ * The seeded comment the scripted `exponential_comments_create` call names
+ * (EXP-1259 `comment-call-card`): its id, its body as the ref's title (cut to
+ * the preview cap like the engine does) and its issue, by identifier.
+ */
+/** The engine clamps every preview string to this (contract `expToolPreview`). */
+const TOOL_PREVIEW_TEXT_MAX = contract.expToolPreview.textMax
+
+async function resolveAgentComment(): Promise<AgentComment | null> {
+  const [row] = await db
+    .select({ id: comments.id, body: comments.body, issueId: issues.id, identifier: issues.identifier })
+    .from(comments)
+    .innerJoin(issues, eq(issues.id, comments.issueId))
+    .where(eq(comments.id, DEMO_AGENT_COMMENT_ID))
+    .limit(1)
+  if (!row) {
+    console.warn(
+      `[feed] no seeded agent comment (${DEMO_AGENT_COMMENT_ID}) — the comment call is left out; re-run seed:screenshots`
+    )
+    return null
+  }
+  const identifier = row.identifier ?? row.issueId
+  const title = row.body.slice(0, TOOL_PREVIEW_TEXT_MAX)
+  return {
+    detail: identifier,
+    preview: {
+      refs: [
+        { kind: `comment`, id: row.id, title },
+        { kind: `issue`, id: row.issueId, identifier },
+      ],
+    },
+  }
 }
 
 /**
@@ -487,6 +599,7 @@ async function main() {
   )
   const config = required(getSteerRelayConfig())
   const { userId, sessionId, teamId } = await resolveTarget()
+  const agentComment = await resolveAgentComment()
 
   const stopControl = hold({
     name: `control`,
@@ -521,7 +634,7 @@ async function main() {
       // EXP-783: `seq` is required on every activity frame since the round-11
       // cleanup made it non-optional; a frame without it is dropped by the hub
       // (`seq: invalid_type`) and the steering feed never appears.
-      publishFeed(send)
+      publishFeed(send, agentComment)
     },
   })
 

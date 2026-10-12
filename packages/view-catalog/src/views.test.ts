@@ -82,6 +82,11 @@ const PINNED_RECIPES = [
   `expandFirstDiffFile`,
   `openTriggerEditor`,
   `openGettingStarted`,
+  `typeIssueRef`,
+  `openComposerMenuImplement`,
+  `showWorkCards`,
+  `showScriptCard`,
+  `showCommentCard`,
 ]
 
 // ---------------------------------------------------------------- 1. shape

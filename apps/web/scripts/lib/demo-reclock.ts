@@ -22,7 +22,7 @@
  * the dev compose role is a superuser). A role that may not set it still gets
  * everything but the drafts.
  */
-import { and, eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
   codingSessions,
@@ -34,6 +34,7 @@ import {
   widgetSubmissions,
 } from "@/db/schema"
 import {
+  DEMO_AGENT_COMMENT_ID,
   DEMO_EMAIL,
   DEMO_SESSION_IDS,
   DEMO_WIDGET_ISSUE_ID,
@@ -106,7 +107,13 @@ export async function reclockDemoRows(now: number = Date.now()): Promise<number>
           createdAt: sql`${comments.createdAt} + ${shift}`,
           updatedAt: sql`${comments.updatedAt} + ${shift}`,
         })
-        .where(eq(comments.issueId, DEMO_WIDGET_ISSUE_ID))
+        // EXP-1259: plus the steered session's comment (`comment-call-card`).
+        .where(
+          or(
+            eq(comments.issueId, DEMO_WIDGET_ISSUE_ID),
+            eq(comments.id, DEMO_AGENT_COMMENT_ID)
+          )
+        )
       await tx
         .update(widgetSubmissions)
         .set({

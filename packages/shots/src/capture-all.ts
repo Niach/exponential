@@ -103,8 +103,11 @@ const STEER_DEPENDENT_VIEWS = new Set([
   `chat-issues`,
   `chat-action`,
   `steering`,
-  // The steered session's transcript (EXP_DEV_SHOW_WORK) — `steering`'s feed.
+  // The steered session's transcript (Show work on) — `steering`'s feed and
+  // the cards it carries (EXP-1259).
   `work-card`,
+  `script-card`,
+  `comment-call-card`,
   `issue-detail`,
   `board`,
   `machine-settings`,

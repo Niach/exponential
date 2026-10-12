@@ -326,7 +326,9 @@
     "deadlineFrom": "sent",
     "remoteOnly": true,
     "startIdKey": "startId",
-    "$comment": "Review #3/#4 (2026-10-12): the deadline counts from the moment the start request is SENT (after uploads finish), and only for a start that goes to ANOTHER device (a local start in the IDE never arms it). On timeout: the error toast `timeoutToast` with Retry; the composer returns to idle but nothing is aborted. Every Start press mints a `startId` (uuid) that rides steer.startSession + the relay start frame; Retry REUSES the same startId and the device ignores a startId it has already started (idempotent), so a late start never duplicates. When the late session row lands, the error clears, the draft is cleared and the composer lands as if it had started in time."
+    "$comment": "Final review (2026-10-12): ONE startId per DRAFT START, bound to the target device + the draft fingerprint (text, subject issue/action ids, attachments): minted on the first Start of that draft and reused by every Retry (timeout toast, failure toast, relay_timeout) AND every later Start press of the SAME draft on the SAME device, until a session lands or the draft or device changes (then a fresh id). The 30 s deadline counts from the moment the start request is SENT (after uploads), only for a start to another device; timeout = the error toast with Retry, composer idle, nothing aborted, the watch keeps running (also while the page is off-screen) for `watchMs`. A LATE landing clears the error; if the draft is unchanged since its send it clears the draft and lands as if in time, if the person changed it after the timeout the field stays exactly as they left it and nothing navigates (the session appears in Running). The server dedupes a start by (deviceId, startId) within `dedupeMs` (devices below this build ignore the id), devices dedupe it too.",
+    "watchMs": 1800000,
+    "dedupeMs": 1800000
   },
   "autosave": {
     "debounceMs": 800,
