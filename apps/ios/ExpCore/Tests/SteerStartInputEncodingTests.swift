@@ -131,6 +131,20 @@ final class SteerStartInputEncodingTests: XCTestCase {
         XCTAssertEqual(object.count, 3)
     }
 
+    // EXP-1259 start surfaces: a Resume press carries its `startId` (its
+    // Retry re-sends the same one); absent, nothing rides.
+    func testResumeCarriesTheStartIdOnlyWhenSet() throws {
+        let object = try json(ResumeSessionInput(
+            resumeSessionId: "sess-1", deviceId: "d-1", account: nil, startId: "start-1"
+        ))
+        XCTAssertEqual(object["startId"] as? String, "start-1")
+        XCTAssertEqual(object.count, 3)
+        let plain = try json(ResumeSessionInput(
+            resumeSessionId: "sess-1", deviceId: "d-1", account: nil
+        ))
+        XCTAssertNil(plain.index(forKey: "startId"))
+    }
+
     // MARK: - Subagent model (EXP-981)
 
     // Claude-only, and "default" is the ABSENT field: the server validates the

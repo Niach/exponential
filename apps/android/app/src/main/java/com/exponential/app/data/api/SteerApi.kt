@@ -630,7 +630,7 @@ internal data class StartActionSessionInput(
 // still live, one owned by someone else, and a device that is offline or
 // lacks the `resume-run` cap.
 @Serializable
-private data class ResumeSessionInput(
+internal data class ResumeSessionInput(
     @SerialName("resumeSessionId") val resumeSessionId: String,
     @SerialName("deviceId") val deviceId: String,
     /**
@@ -639,6 +639,9 @@ private data class ResumeSessionInput(
      * recorded account (the plain Resume).
      */
     @SerialName("account") val account: String? = null,
+    // EXP-1259 start surfaces: the Resume press's uuid (`StartIntent`), reused
+    // by its Retry; the device starts an id once. Omitted when null.
+    @SerialName("startId") val startId: String? = null,
 )
 
 @Singleton
@@ -761,12 +764,15 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
      * machine re-enters the recorded run under that login (claude only), in the
      * same worktree, and links the new row by `resumed_from_id` so it presents
      * as a continuation.
+     *
+     * EXP-1259: [startId] = the press's `StartIntent`, re-sent by its Retry.
      */
     suspend fun resumeSession(
         accountId: String,
         sessionId: String,
         deviceId: String,
         account: String? = null,
+        startId: String? = null,
     ) {
         trpc.mutationUnit(
             accountId,
@@ -775,6 +781,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 resumeSessionId = sessionId,
                 deviceId = deviceId,
                 account = account,
+                startId = startId,
             ),
             inputSerializer = ResumeSessionInput.serializer(),
         )

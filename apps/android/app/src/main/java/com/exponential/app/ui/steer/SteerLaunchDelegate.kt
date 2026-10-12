@@ -14,6 +14,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.StartIntent
 import com.exponential.app.domain.StartedRunKey
 import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.ui.agent.IssueOption
@@ -349,18 +350,50 @@ class SteerLaunchDelegate @Inject constructor(
      * under that login and inserts the continuation row, which lands in
      * [startedSessionId] exactly like a resume's does, so the screen follows
      * the new run. Null = the plain Resume, on the run's own account.
+     *
+     * EXP-1259 start surfaces: the press mints a `startId` ([StartIntent]);
+     * [retryResume] re-sends the same one, so the device resumes it once.
      */
-    fun resumeRun(target: RunResumeTarget, account: String? = null) {
+    fun resumeRun(target: RunResumeTarget, account: String? = null) =
+        sendResume(target, account, retry = false)
+
+    /** EXP-1259: the failure toast's Retry — the last Resume press again,
+     *  under its `startId`. */
+    fun retryResume() {
+        val (target, account) = lastResume ?: return
+        sendResume(target, account, retry = true)
+    }
+
+    /** The Resume press in flight; its Retry re-sends the same id. */
+    private var resumeIntent: StartIntent? = null
+
+    /** When [resumeIntent] was FIRST sent: a Retry's row is the original one
+     *  (the device dedupes the re-send), so the watch cuts off there. */
+    private var resumeSentAtMs: Long? = null
+
+    /** What [retryResume] re-sends. */
+    private var lastResume: Pair<RunResumeTarget, String?>? = null
+
+    /** The resume's send + watch; a re-send replaces it. */
+    private var resumeWatch: Job? = null
+
+    private fun sendResume(target: RunResumeTarget, account: String?, retry: Boolean) {
         val scope = scope ?: return
-        scope.launch {
+        val intentTarget = StartIntent.resumeTarget(target.sessionId, target.deviceId, account)
+        val intent = if (retry) {
+            StartIntent.retry(resumeIntent, intentTarget)
+        } else {
+            StartIntent.press(intentTarget)
+        }
+        if (intent != resumeIntent) resumeSentAtMs = null
+        resumeIntent = intent
+        lastResume = target to account
+        resumeWatch?.cancel()
+        resumeWatch = scope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _runState.value = ActionRunState.Sending
             try {
-                steerApi.resumeSession(accountId, target.sessionId, target.deviceId, account)
-                awaitStartedRun(
-                    StartedRunKey.Resumed(target.sessionId),
-                    target.deviceLabel,
-                )
+                steerApi.resumeSession(accountId, target.sessionId, target.deviceId, account, intent.startId)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _runState.value = ActionRunState.Failed(
@@ -373,6 +406,19 @@ class SteerLaunchDelegate @Inject constructor(
                         },
                     ),
                 )
+                return@launch
+            }
+            val sentAt = resumeSentAtMs ?: System.currentTimeMillis().also { resumeSentAtMs = it }
+            val landed = awaitStartedRun(
+                StartedRunKey.Resumed(target.sessionId),
+                target.deviceLabel,
+                sentAtMs = sentAt,
+                quietWindowMs = StartedRunMatch.WATCH_MS,
+            )
+            if (landed && resumeIntent == intent) {
+                resumeIntent = null
+                resumeSentAtMs = null
+                lastResume = null
             }
         }
     }
@@ -385,6 +431,13 @@ class SteerLaunchDelegate @Inject constructor(
      * doctor failure — would be indistinguishable from one still starting,
      * the caption would just vanish and nothing would ever appear (EXP-357).
      * The desktop holds the reason (it notifies there); say so.
+     *
+     * EXP-1259 start surfaces: a start that carries a `startId` outside the
+     * composer (a Resume) passes [quietWindowMs]: the caption's deadline stays
+     * (the fallback for daemons that ignore the id) and fails loud, but
+     * nothing was aborted, so the watch goes on quietly until the window
+     * (counted from [sentAtMs]) closes and a late row still lands. Returns
+     * whether a row landed.
      */
     private suspend fun awaitStartedRun(
         key: StartedRunKey,
@@ -392,9 +445,11 @@ class SteerLaunchDelegate @Inject constructor(
         startId: String? = null,
         sentAtMs: Long? = null,
         watchMs: Long = StartedRunMatch.DEADLINE_MS,
-    ) {
+        quietWindowMs: Long? = null,
+    ): Boolean {
         _runState.value = ActionRunState.Sent(label)
         val userId = auth.userId.value
+        val sentAt = sentAtMs ?: System.currentTimeMillis()
         val sessionId = if (userId == null) {
             null
         } else {
@@ -402,7 +457,7 @@ class SteerLaunchDelegate @Inject constructor(
                 liveSessionRows,
                 key,
                 userId,
-                sentAtMs ?: System.currentTimeMillis(),
+                sentAt,
                 watchMs,
             )
         }
@@ -423,7 +478,18 @@ class SteerLaunchDelegate @Inject constructor(
                 "$label never started this session. Open the Exponential desktop app " +
                     "there to see why.",
             )
+            if (quietWindowMs != null && userId != null) {
+                val left = sentAt + quietWindowMs - System.currentTimeMillis()
+                val late = StartedRunMatch.await(liveSessionRows, key, userId, sentAt, left.coerceAtLeast(0))
+                if (late != null) {
+                    _runState.value = ActionRunState.Idle
+                    landedStartId = null
+                    _startedSessionId.value = late
+                    return true
+                }
+            }
         }
+        return sessionId != null
     }
 }
 

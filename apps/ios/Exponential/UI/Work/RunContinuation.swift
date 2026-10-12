@@ -32,19 +32,51 @@ final class RunContinuation {
 
     private var deadlineTask: Task<Void, Never>?
 
+    /// EXP-1259 start surfaces: the press this continuation sends. A press
+    /// mints its `startId`, the failure toast's Retry re-sends the same one
+    /// (`StartIntent`), so the server and the device start it once.
+    private(set) var intent: StartIntent?
+    /// When `intent` was FIRST sent: a Retry's row is the original one (the
+    /// device dedupes the re-send), so the watch cuts off there.
+    private var intentSentAt: Date?
+    /// What the failure toast's Retry re-runs: the sender's own call, as a
+    /// retry of `intent`.
+    private var retryHandler: (@MainActor () -> Void)?
+    /// The failure toast still up, dismissed when a late row lands.
+    var failureToastId: UUID?
+
     /// The screen must not leave: a continuation is on its way.
     var isPending: Bool { hold.isPending }
 
     /// An account switch specifically — the usage sheet's spinner.
     var isSwitching: Bool { hold.isPending && kind == .accountSwitch }
 
-    /// The command is on the wire.
-    func sending(_ kind: Kind) {
+    /// The command is on the wire. A press (`retry` false) mints a fresh
+    /// `startId`, a Retry of the same target reuses it; returns the id the
+    /// send carries. `onRetry` = the call the failure toast's Retry re-runs.
+    func sending(
+        _ kind: Kind,
+        target: String,
+        retry: Bool = false,
+        onRetry: @escaping @MainActor () -> Void
+    ) -> String {
+        let resolved = retry
+            ? StartIntent.retry(pending: intent, target: target)
+            : StartIntent.press(target: target)
+        if resolved != intent { intentSentAt = nil }
+        intent = resolved
+        retryHandler = onRetry
         self.kind = kind
         hold.sending()
         watcher.sending()
         deadlineTask?.cancel()
         deadlineTask = nil
+        return resolved.startId
+    }
+
+    /// The failure toast's Retry: the same call under the same `startId`.
+    func retry() {
+        retryHandler?()
     }
 
     /// Delivered — watch for the successor, and stop holding if it never
@@ -57,7 +89,16 @@ final class RunContinuation {
         accountId: String
     ) {
         hold.sent()
-        watcher.begin(key: key, userId: userId, device: device, db: db, accountId: accountId)
+        if intentSentAt == nil { intentSentAt = Date() }
+        watcher.begin(
+            key: key,
+            userId: userId,
+            device: device,
+            db: db,
+            accountId: accountId,
+            cutoff: intentSentAt,
+            startId: intent?.startId
+        )
         deadlineTask?.cancel()
         deadlineTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(ContinuationHold.deadline))
@@ -77,6 +118,9 @@ final class RunContinuation {
     /// The successor synced in — the screen swaps it in place.
     func landed(_ sessionId: String) {
         hold.landed(sessionId)
+        intent = nil
+        intentSentAt = nil
+        retryHandler = nil
         deadlineTask?.cancel()
         deadlineTask = nil
     }

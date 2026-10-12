@@ -472,11 +472,24 @@ private fun RunFaceContent(
     }
     val launchRunState by viewModel.runState.collectAsStateWithLifecycle()
     // FEED-79 (EXP-1259 D10): a failed Resume start is the error toast (the
-    // caption row draws nothing for it).
+    // caption row draws nothing for it). Its Retry re-sends the press under
+    // the same `startId`; a late row landing (Idle) takes the toast down.
     val failedStartToaster = LocalToaster.current
+    var failedStartToastId by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(launchRunState) {
-        val failed = launchRunState as? ActionRunState.Failed ?: return@LaunchedEffect
-        failedStartToaster.error(FeedbackStates.errorTitle("resume", "the session"), failed.message)
+        val failed = launchRunState as? ActionRunState.Failed
+        if (failed == null) {
+            if (launchRunState is ActionRunState.Idle) {
+                failedStartToastId?.let { failedStartToaster.dismiss(it) }
+                failedStartToastId = null
+            }
+            return@LaunchedEffect
+        }
+        failedStartToastId = failedStartToaster.error(
+            FeedbackStates.errorTitle("resume", "the session"),
+            failed.message,
+            ToastAction(FeedbackStates.RETRY) { viewModel.retryResume() },
+        )
     }
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     // EXP-760: the run's team issues, newest-first — resolves the identifiers

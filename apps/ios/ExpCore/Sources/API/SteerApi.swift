@@ -944,6 +944,9 @@ struct ResumeSessionInput: Encodable {
     let resumeSessionId: String
     let deviceId: String
     let account: String?
+    // EXP-1259 start surfaces: the Resume press's uuid (`StartIntent`),
+    // reused by its Retry; the device starts an id once. Omitted when nil.
+    var startId: String? = nil
 }
 
 private struct StartSessionResult: Decodable {
@@ -1125,11 +1128,13 @@ public final class SteerApi: Sendable {
     /// `agentAccounts[agent].profiles` ids). That is how a "switch account"
     /// works from a phone: resume the run on the same machine under another
     /// login, and follow the new row. Nil = keep the recorded login.
+    /// EXP-1259: `startId` = the press's `StartIntent`, re-sent by its Retry.
     public func resumeSession(
         accountId: String,
         sessionId: String,
         deviceId: String,
-        account: String? = nil
+        account: String? = nil,
+        startId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -1138,7 +1143,8 @@ public final class SteerApi: Sendable {
                 input: ResumeSessionInput(
                     resumeSessionId: sessionId,
                     deviceId: deviceId,
-                    account: account
+                    account: account,
+                    startId: startId
                 )
             )
         } catch let TrpcError.httpError(status, body) {

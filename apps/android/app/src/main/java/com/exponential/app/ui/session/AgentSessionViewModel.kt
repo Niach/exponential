@@ -903,6 +903,10 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  [startedSessionId] and the screen opens it. */
     fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
 
+    /** EXP-1259: the failed Resume / switch toast's Retry — the same press
+     *  again under its `startId`, so the machine resumes it once. */
+    fun retryResume() = steerLaunch.retryResume()
+
     /**
      * EXP-849 phase 3: continue THIS run under another login — a resume that
      * names an account. The machine re-enters the recorded run in the same

@@ -62,6 +62,13 @@ final class StartedRunWatcher {
     /// Retry, so the row that lands is the original one), and `onLanded`
     /// hands the row to the host's model directly, so a landing while the
     /// page is off-screen is still seen.
+    ///
+    /// EXP-1259 start surfaces: a captioned start that carries a `startId`
+    /// (a Resume, an account switch: `StartIntent`) keeps the caption's
+    /// deadline (the fallback for daemons that ignore the id) and fails loud
+    /// there, but nothing was aborted: the watch goes on quietly for the
+    /// same window as the composer's, so a late row still lands and the
+    /// failure's Retry (same id) is deduped.
     func begin(
         key: StartedRunKey,
         userId: String?,
@@ -70,6 +77,7 @@ final class StartedRunWatcher {
         accountId: String,
         deadline: TimeInterval = StartedRunMatch.deadline,
         cutoff sentAt: Date? = nil,
+        startId: String? = nil,
         onTimeout: (@MainActor () -> Void)? = nil,
         onLanded: (@MainActor (String) -> Void)? = nil
     ) {
@@ -90,7 +98,11 @@ final class StartedRunWatcher {
             guard let self, !Task.isCancelled else { return }
             self.sentCaption = nil
             guard let onTimeout else {
-                self.stop()
+                if startId != nil {
+                    self.quietWatchEnds(after: StartedRunMatch.watchWindow - deadline)
+                } else {
+                    self.stop()
+                }
                 self.failure = "\(label) never started this session. "
                     + "Open the Exponential desktop app there to see why."
                 return
@@ -115,6 +127,7 @@ final class StartedRunWatcher {
                     ) else { continue }
                     self.stop()
                     self.sentCaption = nil
+                    self.failure = nil
                     if let onLanded {
                         onLanded(match.id)
                     } else {
