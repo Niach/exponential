@@ -98,15 +98,13 @@ fun OnboardingScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
-    var step by remember { mutableIntStateOf(0) }
+    // Keyed on the account: signing in as someone else restarts the wizard.
+    var step by remember(accountId) { mutableIntStateOf(0) }
     // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
     // reduce-motion flag is read here and captured.
     val reduceMotion = LocalReduceMotion.current
 
-    LaunchedEffect(Unit) {
-        viewModel.reconcile()
-        viewModel.prepare()
-    }
+    LaunchedEffect(accountId) { viewModel.start(accountId) }
     // Reconcile self-heal: an account that already onboarded elsewhere skips the
     // wizard entirely (a completed create advances to the done step instead).
     LaunchedEffect(done) { if (done) onDone() }

@@ -47,7 +47,12 @@ describe(`mcp credential crypto`, () => {
     process.env.BETTER_AUTH_SECRET = `test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaa`
     const sealed = encryptSecret(`value`, AAD)
     const [v, iv, ct] = sealed.split(`.`)
-    const flipped = `${ct!.slice(0, -2)}${ct!.endsWith(`A`) ? `B` : `A`}${ct!.slice(-1)}`
+    // Flip one bit of a real byte (decode → flip → re-encode): a character
+    // swap can leave the bytes unchanged.
+    const bytes = Buffer.from(ct!, `base64url`)
+    bytes[bytes.length >> 1]! ^= 1
+    const flipped = bytes.toString(`base64url`)
+    expect(flipped).not.toBe(ct)
     expect(decryptSecret(`${v}.${iv}.${flipped}`, AAD)).toBeNull()
     expect(decryptSecret(`v2.${iv}.${ct}`, AAD)).toBeNull()
     expect(decryptSecret(`garbage`, AAD)).toBeNull()
