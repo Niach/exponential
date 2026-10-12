@@ -138,13 +138,20 @@ import {
 } from "@/lib/session-result-writes"
 import { loadGuideDiff } from "@/lib/session-guide-diff"
 import { publishSessionResultPicture } from "@/lib/session-result-publish"
-import { guideOfRun, lockRunGuide, writeRunGuide } from "@/lib/thread-guide"
+import {
+  guideOfRun,
+  loadGuideOwner,
+  lockRunGuide,
+  ownedGuideEntries,
+  ownsGuideEntry,
+  writeRunGuide,
+  type GuideOwner,
+} from "@/lib/thread-guide"
 import {
   getThread,
   getThreadOfSession,
   linkIssueToThread,
   linkRunToThread,
-  listThreadIssueIds,
   listThreadIssueRows,
   listThreadRunRows,
   ThreadRuleError,
@@ -1807,17 +1814,20 @@ export function registerExponentialTools(
     async ({ description, threadId, ...rest }) => {
       try {
         // EXP-1284: the thread is checked BEFORE the issue exists, so a bad
-        // id never leaves an issue filed nowhere the agent meant.
+        // id never leaves an issue filed nowhere the agent meant. Filing
+        // into a thread is a thread WRITE: the same grant threads_link
+        // needs (the caller's own thread, else a whole-team grant).
         let thread: ThreadRef | null = null
         if (threadId) {
-          const [row, board] = await Promise.all([
-            getThread(db, threadId),
+          const [target, board] = await Promise.all([
+            resolveThreadTarget(threadId),
             getBoardTeamId(rest.boardId),
           ])
-          if (!row || row.teamId !== board.teamId) {
+          if (target.thread.teamId !== board.teamId) {
             throw new Error(`Thread not found in this board's team`)
           }
-          thread = { id: row.id, teamId: row.teamId }
+          assertThreadWritable(target)
+          thread = target.thread
         }
         if (!access.full) {
           const board = await getBoardTeamId(rest.boardId)
@@ -2782,7 +2792,9 @@ export function registerExponentialTools(
   // (every visible one, link order): one → `issueId`, several → `issueIds`
   // (one combined PR). The head is the run's own pushed branch unless given,
   // which also covers a chat run that filed the issue itself (its branch is
-  // `exp/chat-<id8>`, never the issue's). No run, no thread or no issues: the
+  // `exp/chat-<id8>`, never the issue's). Review T1: an issue whose PR is
+  // already merged or closed is done work, never re-linked to a new PR (its
+  // prUrl, status and events stay). No run, no thread or no open issue: the
   // args go through untouched and prOpen answers its "exactly one of" error.
   const threadPrSubject = async (
     args: z.infer<typeof prOpenInput>
@@ -2792,7 +2804,9 @@ export function registerExponentialTools(
     if (!callerSession) return args
     const thread = await getThreadOfSession(db, callerSession.id)
     if (!thread) return args
-    const ids = await listThreadIssueIds(db, thread.id)
+    const ids = (await listThreadIssueRows(db, thread.id))
+      .filter((issue) => issue.prState !== `merged` && issue.prState !== `closed`)
+      .map((issue) => issue.id)
     if (ids.length === 0) return args
     const head = args.head ?? callerSession.branch ?? undefined
     return ids.length === 1
@@ -2828,7 +2842,7 @@ export function registerExponentialTools(
         if (subjects !== 1) {
           throw new Error(
             subjects === 0
-              ? `Provide exactly one of issueId, issueIds or repositoryId (none given, and no run thread with issues to default to)`
+              ? `Provide exactly one of issueId, issueIds or repositoryId (none given, and your session's thread has no open issue to default to)`
               : `Provide exactly one of issueId, issueIds or repositoryId`
           )
         }
@@ -3330,7 +3344,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR via the GitHub App (never 'gh'), linked to the issue(s). Body = your Guide ('body' only without one). Pass ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED) or 'repositoryId' + 'head' (issue-less); none = your thread's issues. 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the nearest open PR below 'head' or the default branch; basing on an open PR joins its GitHub stack. Linked issues take the team's PR-open status (default 'in_review'). UUIDs or identifiers (MET-12).`,
+      description: `Open a GitHub PR via the GitHub App (never 'gh'), linked to the issue(s). Body = your Guide ('body' only without one). Pass ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED) or 'repositoryId' + 'head' (issue-less); none = your thread's unmerged issues. 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the nearest open PR below 'head' or the default branch; basing on an open PR joins its GitHub stack. Linked issues take the team's PR-open status (default 'in_review'). UUIDs or identifiers (MET-12).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prOpenInput,
     },
@@ -4167,6 +4181,7 @@ export function registerExponentialTools(
               results: codingSessions.results,
               // EXP-1284: the Guide is the run's thread's.
               threadResults: threads.results,
+              threadId: threadItems.threadId,
               prUrl: codingSessions.prUrl,
               branch: codingSessions.branch,
               boardId: codingSessions.boardId,
@@ -4189,14 +4204,16 @@ export function registerExponentialTools(
             // above only settled ownership, and an upload racing this remove
             // would otherwise have one of them overwrite the other's array.
             // EXP-1284: plus the thread's lock (`lockRunGuide`): the Guide
-            // is the thread's, so this may retract another run's picture.
+            // is the thread's, and only this session's own entries go
+            // (another session's topic of the same name stays).
             const outcome = await db.transaction(async (tx) => {
               const locked = await lockRunGuide(tx, sessionId)
               if (!locked) throw new Error(`Session not found`)
               const removeText = text !== undefined && !label
               const { results, removedAttachmentIds } = removeSessionResults(
                 locked.results,
-                { topic, label: label ?? null, text: removeText }
+                { topic, label: label ?? null, text: removeText },
+                (entry) => ownsGuideEntry(locked.owner, entry)
               )
               const textGone =
                 (locked.results ?? []).length - results.length >
@@ -4204,6 +4221,7 @@ export function registerExponentialTools(
               if (removedAttachmentIds.length === 0 && !textGone) {
                 return {
                   results: locked.results,
+                  owner: locked.owner,
                   removedAttachmentIds,
                   textGone,
                   gone: [] as Array<{ storageKey: string | null }>,
@@ -4216,6 +4234,7 @@ export function registerExponentialTools(
               if (removedAttachmentIds.length === 0) {
                 return {
                   results,
+                  owner: locked.owner,
                   removedAttachmentIds,
                   textGone,
                   gone: [] as Array<{ storageKey: string | null }>,
@@ -4227,12 +4246,14 @@ export function registerExponentialTools(
                 .returning({ storageKey: sessionAttachments.storageKey })
               return {
                 results,
+                owner: locked.owner,
                 removedAttachmentIds,
                 textGone,
                 gone: gone ?? [],
               }
             })
             const { results, removedAttachmentIds, textGone, gone } = outcome
+            const mine = ownedGuideEntries(outcome.owner, results)
             // EXP-1154: a removed text changes the report, so the PR body
             // (decided under the row lock, not off the unlocked pre-read).
             if (textGone) await syncRunPrBody(sessionId, { removal: true })
@@ -4242,7 +4263,7 @@ export function registerExponentialTools(
                   (guideOfRun(row) ?? []).length - (results ?? []).length > 0 ? 1 : 0,
                 topic,
                 label: label ?? null,
-                results: resultsSummary(results),
+                results: resultsSummary(mine),
               })
             }
             // Only once the swap is durable: the removed pictures' bytes go.
@@ -4261,7 +4282,7 @@ export function registerExponentialTools(
               removed: removedAttachmentIds.length,
               topic,
               label: label ?? null,
-              results: resultsSummary(results),
+              results: resultsSummary(mine),
             })
           }
 
@@ -4284,7 +4305,15 @@ export function registerExponentialTools(
           }
           // EXP-933: the report text lands right here, under the same row
           // lock the upload route and remove take (jsonb read-modify-write).
-          let current = guideOfRun(row)
+          // EXP-1284: `current` = THIS session's entries of the thread's
+          // Guide (what its answers summarize and its caps count).
+          let owner: GuideOwner = await loadGuideOwner(
+            db,
+            sessionId,
+            row.threadId ?? null,
+            row.prUrl ?? null
+          )
+          let current = ownedGuideEntries(owner, guideOfRun(row))
           let prSync: `synced` | `skipped` | `failed` = `skipped`
           let missingFromDiff: string[] | null = null
           if (text !== undefined) {
@@ -4299,12 +4328,18 @@ export function registerExponentialTools(
             const written = await db.transaction(async (tx) => {
               const locked = await lockRunGuide(tx, sessionId)
               if (!locked) throw new Error(`Session not found`)
+              owner = locked.owner
               const next = upsertSessionResultText(
                 locked.results,
                 topic,
                 trimmed,
                 files,
-                { at: Date.now(), prUrl: canonicalPrUrl }
+                {
+                  at: Date.now(),
+                  prUrl: canonicalPrUrl,
+                  sessionId,
+                  owns: (entry) => ownsGuideEntry(locked.owner, entry),
+                }
               )
               if (!next) return null
               await writeRunGuide(tx, locked, next)
@@ -4317,13 +4352,13 @@ export function registerExponentialTools(
                 )
               )
             }
-            current = written
+            current = ownedGuideEntries(owner, written)
             // EXP-1154: the report IS the PR body; an open PR follows it.
             prSync = await syncRunPrBody(sessionId)
             // EXP-1251: listed files the branch/PR diff does not have.
             const listed = files ? cleanSessionResultFiles(files) : []
             if (listed.length > 0) {
-              const entry = written.find((r) => isTextEntry(r) && r.topic === topic)
+              const entry = current.find((r) => isTextEntry(r) && r.topic === topic)
               const diff = await loadGuideDiff(
                 { prUrl: row.prUrl, branch: row.branch, boardId: row.boardId },
                 entry?.prUrl ?? null
@@ -4439,6 +4474,8 @@ export function registerExponentialTools(
               status: codingSessions.status,
               results: codingSessions.results,
               threadResults: threads.results,
+              threadId: threadItems.threadId,
+              prUrl: codingSessions.prUrl,
             })
             .from(codingSessions)
             .leftJoin(threadItems, eq(threadItems.sessionId, codingSessions.id))
@@ -4454,7 +4491,11 @@ export function registerExponentialTools(
           }
           const topic = topicInput ?? SESSION_SHOW_DEFAULT_TOPIC
           const caption = text?.trim() || null
-          const published = guideOfRun(row) ?? []
+          // EXP-1284: what THIS session published (its caps are its own).
+          const published = ownedGuideEntries(
+            await loadGuideOwner(db, sessionId, row.threadId ?? null, row.prUrl ?? null),
+            guideOfRun(row)
+          )
           const replaces =
             label !== undefined &&
             published.some((result) => result?.topic === topic && result?.label === label)
@@ -5129,22 +5170,21 @@ export function registerExponentialTools(
     async (input) => {
       try {
         const startedAfter = new Date()
-        // EXP-1284: a run started INTO a thread. Forwarded to
+        // EXP-1284: a session started INTO a thread. Forwarded to
         // steer.startSession (the device echoes it into codingSessions.start);
         // checked here first so a bad id refuses before any device is asked.
+        // Starting into a thread writes to it: the same grant threads_link
+        // needs (the caller's own thread, else a whole-team grant).
         let requestedThread: ThreadRef | null = null
         if (input.threadId) {
           if (input.resumeSessionId) {
             throw new Error(
-              `threadId cannot ride a resume: a resumed run stays in its run's thread.`
+              `threadId cannot ride a resume: a resumed session stays in its predecessor's thread.`
             )
           }
-          const row = await getThread(db, input.threadId)
-          if (!row || !isTeamVisible(access, row.teamId)) {
-            throw new Error(`Thread not found`)
-          }
-          await resolveTeamAccess(user.id, row.teamId)
-          requestedThread = { id: row.id, teamId: row.teamId }
+          const target = await resolveThreadTarget(input.threadId)
+          assertThreadWritable(target)
+          requestedThread = target.thread
         }
         let issueId: string | undefined
         let issueIds: string[] | undefined
@@ -5328,15 +5368,17 @@ export function registerExponentialTools(
       ? await getThreadOfSession(db, callerRun.id)
       : null
     let thread: ThreadRef | null = callerThread
-    if (threadId) {
-      const row = await getThread(db, threadId)
+    if (threadId || thread) {
+      // A hidden thread (every item on a trashed or archived board) reads as
+      // not found, the caller's own included (review T3).
+      const row = await getThread(db, threadId ?? thread!.id)
       thread = row ? { id: row.id, teamId: row.teamId } : null
       if (!thread) throw new Error(`Thread not found`)
-    } else if (!thread) {
+    } else {
       throw new Error(
         callerRun
-          ? `Your run sits in no thread: pass threadId.`
-          : `Pass threadId: only a run started by the Exponential launcher (X-Exp-Session-Id) has a thread of its own.`
+          ? `Your session sits in no thread: pass threadId.`
+          : `Pass threadId: only a session started by the Exponential launcher (X-Exp-Session-Id) has a thread of its own.`
       )
     }
     // Not visible reads as not-found, like a session outside the grant.
@@ -5415,7 +5457,7 @@ export function registerExponentialTools(
       throw new Error(`Session not found`)
     }
     if (run.userId !== user.id && run.hostUserId !== user.id) {
-      throw new Error(`Only the run's owner can move it between threads.`)
+      throw new Error(`Only the session's owner can move it between threads.`)
     }
     return { id: run.id, teamId: run.teamId }
   }

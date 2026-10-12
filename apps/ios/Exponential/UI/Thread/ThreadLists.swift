@@ -40,14 +40,19 @@ struct ThreadListRow: View {
     }
 }
 
-/// EXP-1284: the Agent page's thread bands (draft 3): `Running` = the
-/// threads holding a live run of mine (every member team, one band per team
-/// once the caller is in several, like the run list it replaces), `Recent` =
-/// the active team's other threads, newest activity first, capped at
-/// `HomeGreeting.recentCount` (no band when empty). A row opens the thread.
+/// EXP-1284: the Agent page's thread bands (draft 3; review T4/T6) — every
+/// member team, banded per team once the caller is in several:
+/// `Running` = the threads holding a live session of mine plus (T4) my live
+/// sessions no thread item names yet, as plain session rows (opening the
+/// session's thread once it lands); `Recent` = my other threads (a session
+/// of mine or created by me, never a Running one), newest activity first,
+/// capped at `HomeGreeting.recentCount` (no band when empty). A thread row
+/// opens the thread.
 struct AgentThreadLists: View {
     let model: ThreadListModel
     let onOpen: (String) -> Void
+    /// An orphan session row (T4): its own thread lookup, Work fallback.
+    let onOpenSession: (String) -> Void
 
     @Environment(TeamState.self) private var teamState
 
@@ -58,18 +63,19 @@ struct AgentThreadLists: View {
         }
     }
 
+    private var multiTeam: Bool { TeamGroups.isMultiTeam(teamState.teams) }
+
     @ViewBuilder
     private var running: some View {
-        let groups = TeamGroups.isMultiTeam(teamState.teams)
-            ? TeamGroups.group(model.running, teams: teamState.teams) { $0.teamId }
-            : []
+        let rows = ThreadRunningRow.rows(model)
+        let groups = multiTeam ? TeamGroups.group(rows, teams: teamState.teams) { $0.teamId } : []
         if groups.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 GlassSectionBand("Running")
-                if model.running.isEmpty {
+                if rows.isEmpty {
                     EmptyState(.runningAgents)
                 } else {
-                    ForEach(model.running) { entry in row(entry) }
+                    ForEach(rows) { row in runningRow(row) }
                 }
             }
             .accessibilityElement(children: .contain)
@@ -82,7 +88,7 @@ struct AgentThreadLists: View {
                     } trailing: {
                         EmptyView()
                     }
-                    ForEach(group.items) { entry in row(entry) }
+                    ForEach(group.items) { row in runningRow(row) }
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("agent-threads-team-\(group.team.id)")
@@ -96,21 +102,150 @@ struct AgentThreadLists: View {
         if !rows.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 GlassSectionBand(HomeGreeting.recentLabel)
-                ForEach(rows) { entry in row(entry) }
+                ThreadTeamBandedRows(entries: rows, multiTeam: multiTeam, teams: teamState.teams) { entry in
+                    ThreadEntryButton(entry: entry, onOpen: onOpen)
+                }
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(HomeGreeting.TestId.recent)
         }
     }
 
-    private func row(_ entry: ThreadListModel.Entry) -> some View {
+    @ViewBuilder
+    private func runningRow(_ row: ThreadRunningRow) -> some View {
+        switch row {
+        case let .thread(entry):
+            ThreadEntryButton(entry: entry, onOpen: onOpen)
+        case let .orphan(orphan):
+            Button {
+                onOpenSession(orphan.session.id)
+            } label: {
+                SessionListRow(
+                    session: orphan.session,
+                    identifier: sessionRowIdentifier(
+                        issue: orphan.issue, session: orphan.session, batchIssues: orphan.batchIssues
+                    ),
+                    title: sessionRowTitle(
+                        issue: orphan.issue, session: orphan.session, batchIssues: orphan.batchIssues
+                    ),
+                    prState: orphan.issue?.prState ?? orphan.session.prState,
+                    device: orphan.device,
+                    deviceIcon: orphan.deviceIcon
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("agent-session-row")
+        }
+    }
+}
+
+/// T4: one Running row — a thread, or a live session of mine no thread
+/// item names yet. Orphans first (they are the starts still landing), then
+/// the threads, newest activity first.
+enum ThreadRunningRow: Identifiable {
+    case thread(ThreadListModel.Entry)
+    case orphan(ThreadListModel.Orphan)
+
+    var id: String {
+        switch self {
+        case let .thread(entry): "thread:\(entry.id)"
+        case let .orphan(orphan): "session:\(orphan.id)"
+        }
+    }
+
+    var teamId: String {
+        switch self {
+        case let .thread(entry): entry.teamId
+        case let .orphan(orphan): orphan.teamId
+        }
+    }
+
+    @MainActor
+    static func rows(_ model: ThreadListModel) -> [ThreadRunningRow] {
+        model.orphans.map { .orphan($0) } + model.running.map { .thread($0) }
+    }
+}
+
+/// One thread row as a button opening the thread.
+struct ThreadEntryButton: View {
+    let entry: ThreadListModel.Entry
+    let onOpen: (String) -> Void
+
+    var body: some View {
         Button {
             onOpen(entry.threadId)
         } label: {
-            ThreadListRow(view: entry.view, liveAgent: entry.rows.liveAgent)
+            ThreadListRow(view: entry.view, liveAgent: entry.liveAgent)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("agent-thread-row")
+    }
+}
+
+/// T6: thread rows of EVERY team, one small team header (avatar + name)
+/// before each team's rows once the caller is in several; in one team the
+/// rows are flat. Order within a team is the given (activity) order.
+struct ThreadTeamBandedRows<Row: View>: View {
+    let entries: [ThreadListModel.Entry]
+    let multiTeam: Bool
+    let teams: [TeamEntity]
+    @ViewBuilder let row: (ThreadListModel.Entry) -> Row
+
+    var body: some View {
+        if multiTeam {
+            let groups = TeamGroups.group(entries, teams: teams) { $0.teamId }
+            ForEach(groups) { group in
+                HStack(spacing: 6) {
+                    TeamAvatar(team: group.team, size: 14)
+                    Text(group.team.name)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("thread-team-header-\(group.team.id)")
+                ForEach(group.items) { entry in row(entry) }
+            }
+        } else {
+            ForEach(entries) { entry in row(entry) }
+        }
+    }
+}
+
+/// T-N1: the Agent page's history sheet lists THREADS (Android's
+/// `RecentThreadsSheet`): every Recent thread of mine across teams, banded
+/// per team; a row closes the sheet and opens the thread.
+struct RecentThreadsSheet: View {
+    let model: ThreadListModel
+    let onOpen: (String) -> Void
+
+    @Environment(TeamState.self) private var teamState
+
+    var body: some View {
+        GlassSheetChrome(title: HomeGreeting.recentLabel) {
+            VStack(alignment: .leading, spacing: 0) {
+                if model.recent.isEmpty {
+                    EmptyState(.recentRuns)
+                        .padding(.vertical, 24)
+                } else {
+                    ThreadTeamBandedRows(
+                        entries: model.recent,
+                        multiTeam: TeamGroups.isMultiTeam(teamState.teams),
+                        teams: teamState.teams
+                    ) { entry in
+                        ThreadEntryButton(entry: entry, onOpen: onOpen)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("recent-threads-sheet")
     }
 }
 

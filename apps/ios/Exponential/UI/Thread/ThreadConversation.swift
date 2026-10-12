@@ -11,8 +11,8 @@ import SwiftUI
 /// hand it the rows; every tap goes back out through a closure.
 ///
 /// A run block's body is the EXISTING run content for that run: the run's
-/// slice of the Guide (`sessionThread` over `ThreadViews.runResults`, the
-/// Summary as the reply) closed by the Run face's status row
+/// own Guide entries (`sessionThread` over `ThreadViews.sessionGuideEntries`,
+/// the Summary as the reply) closed by the Run face's status row
 /// (`RunStatusRow`, `WorkFaces.runRowCaption`); the agent's link rows sit
 /// right under the header (draft 3). A LIVE run's content stays owner-only
 /// (EXP-312): a teammate sees the status row alone. An ended run folds to ONE
@@ -192,12 +192,16 @@ struct ThreadConversationView: View {
         }
     }
 
-    /// The thread's Guide (else the run's own row), windowed to this run.
+    /// The entries THIS session wrote (`sessionGuideEntries`, fixture
+    /// `guideSlices` ×4: stamped with its `sessionId`; unstamped legacy
+    /// entries belong to the thread's first session) out of the thread's
+    /// Guide (else the newest session's row, `threadGuide`).
     private func runResults(_ session: CodingSessionEntity) -> String? {
-        let source = ThreadViews.guideResults(threadResults: rows.thread.results, runResults: session.results)
-        let index = rows.sessions.firstIndex { $0.id == session.id }
-        let next = index.flatMap { rows.sessions.indices.contains($0 + 1) ? rows.sessions[$0 + 1].startedAt : nil }
-        return ThreadViews.runResults(source, startedAt: session.startedAt, nextStartedAt: next)
+        ThreadViews.sessionGuideEntries(
+            ThreadViews.threadGuide(threadResults: rows.thread.results, sessions: rows.sessions),
+            sessionId: session.id,
+            firstSessionId: rows.sessions.first?.id
+        )
     }
 
     private func markdownContext(_ session: CodingSessionEntity) -> AgentMarkdownContext {

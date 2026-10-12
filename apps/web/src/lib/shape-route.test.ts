@@ -827,8 +827,9 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
   })
 
   // EXP-1284: thread shells are team-scoped with NO board/trash predicate (a
-  // thread spans boards; its items carry the mirrors).
-  it(`threads pins its columns and scopes members by team only`, async () => {
+  // thread spans boards; its items carry the mirrors) but the STATIC hidden
+  // filter (review T3): `has_visible_items` is filtered on, never streamed.
+  it(`threads pins its columns and scopes members by team + visibility`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
@@ -843,8 +844,9 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `id,team_id,title,created_by,results,created_at,updated_at`
     )
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `"team_id" IN ('w-1','w-2')`
+      `("team_id" IN ('w-1','w-2')) AND ("has_visible_items" = true)`
     )
+    expect(originUrl.searchParams.get(`columns`)).not.toContain(`has_visible_items`)
 
     const anonUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue(null)

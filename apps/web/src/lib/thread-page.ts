@@ -7,11 +7,14 @@
 
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { runIsStaleEnd } from "@/lib/past-runs"
-import type {
-  ThreadChild,
-  ThreadView,
-  ThreadViewItem,
-  ThreadViewRun,
+import {
+  partitionThreadList,
+  threadPrTarget,
+  type ThreadChild,
+  type ThreadPrCandidate,
+  type ThreadView,
+  type ThreadViewItem,
+  type ThreadViewRun,
 } from "@/lib/thread-view"
 
 /** A timestamp as the model reads it (Electric hands strings, the zod
@@ -186,22 +189,25 @@ export function isFreshThreadChild(
 
 // ── The thread's PR ──────────────────────────────────────────────────────────
 
-/** The PR the thread's Guide merges: the PR of its NEWEST run with one,
- *  else the one URL its issues share (a batch PR links them all), else the
- *  first issue's own. */
+/** Review T8: the candidates `threadPrTarget` (lib/thread-view.ts, fixture-
+ *  locked ×4) picks from — the PR on each of the thread's sessions and
+ *  issues, with its state and the row's activity time. */
+export function threadPrCandidates(
+  sessions: readonly { prUrl?: string | null; prState?: string | null; updatedAt: Date | string }[],
+  issues: readonly { prUrl?: string | null; prState?: string | null; updatedAt: Date | string }[]
+): ThreadPrCandidate[] {
+  return [...sessions, ...issues].flatMap((row) =>
+    row.prUrl ? [{ url: row.prUrl, state: row.prState ?? null, at: iso(row.updatedAt) }] : []
+  )
+}
+
+/** The PR the thread's Guide and Merge capsule target: the newest OPEN PR,
+ *  else the newest MERGED one (`threadPrTarget`). */
 export function threadPrUrl(
-  runs: readonly { prUrl?: string | null; startedAt: Date | string }[],
-  issues: readonly { prUrl?: string | null }[]
+  sessions: Parameters<typeof threadPrCandidates>[0],
+  issues: Parameters<typeof threadPrCandidates>[1]
 ): string | null {
-  const newest = [...runs]
-    .filter((run) => run.prUrl)
-    .sort((a, b) => Date.parse(iso(b.startedAt)) - Date.parse(iso(a.startedAt)))[0]
-  if (newest?.prUrl) return newest.prUrl
-  const urls = issues.map((issue) => issue.prUrl).filter(Boolean) as string[]
-  if (urls.length === 0) return null
-  const counts = new Map<string, number>()
-  for (const url of urls) counts.set(url, (counts.get(url) ?? 0) + 1)
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]![0]
+  return threadPrTarget(threadPrCandidates(sessions, issues))
 }
 
 /** EXP-1284 (rule 8): the Guide a reader shows for a run — its THREAD's
@@ -211,4 +217,88 @@ export function threadGuideResults(
   thread: { results?: unknown } | null | undefined
 ): unknown {
   return thread?.results ?? run.results ?? null
+}
+
+// ── The lists ────────────────────────────────────────────────────────────────
+
+/** What the list helpers read off a resolved thread (`ThreadBundle`). */
+export interface ThreadListBundle {
+  thread: { id: string; teamId: string; updatedAt: Date | string }
+  runs: readonly { id: string }[]
+  issues: readonly unknown[]
+  mineLive: boolean
+  mine: boolean
+}
+
+/** Review T6: Running vs Recent over the resolved threads, scoped to the
+ *  ACTIVE team (`scopeTeam`; null = every team, the phone's banded lists).
+ *  A thread whose every child is gone has nothing to show. */
+export function splitThreadList<B extends ThreadListBundle>(
+  bundles: readonly B[],
+  scopeTeam: string | null
+): { running: B[]; recent: B[] } {
+  const entries = bundles
+    .filter((bundle) => bundle.runs.length > 0 || bundle.issues.length > 0)
+    .map((bundle) => ({
+      threadId: bundle.thread.id,
+      teamId: bundle.thread.teamId,
+      updatedAt: iso(bundle.thread.updatedAt),
+      mineLive: bundle.mineLive,
+      mine: bundle.mine,
+      bundle,
+    }))
+  const { running, recent } = partitionThreadList(entries, { teamId: scopeTeam })
+  return {
+    running: running.map((entry) => entry.bundle),
+    recent: recent.map((entry) => entry.bundle),
+  }
+}
+
+/** Review T4: my live sessions that no listed thread holds (placement
+ *  failed, or the items shape lags) — they still list, as session rows. */
+export function orphanLiveSessions<S extends { id: string }>(
+  bundles: readonly ThreadListBundle[],
+  live: readonly S[]
+): S[] {
+  const listed = new Set(bundles.flatMap((bundle) => bundle.runs.map((run) => run.id)))
+  return live.filter((run) => !listed.has(run.id))
+}
+
+/** Review T16: a cached thread view is reused while every input is the very
+ *  same value (rows by identity, derived strings by value). */
+export function sameThreadInputs(previous: readonly unknown[] | undefined, next: readonly unknown[]): boolean {
+  return (
+    previous !== undefined &&
+    previous.length === next.length &&
+    previous.every((value, index) => Object.is(value, next[index]))
+  )
+}
+
+// ── Missing vs still syncing (review T14) ────────────────────────────────────
+
+/** What the server said when asked once (`threads.get`). */
+export type ThreadFetchState = `idle` | `pending` | `found` | `missing`
+
+/** How long a thread the server confirmed may take to reach the shape
+ *  before the page concludes it is gone after all. */
+export const THREAD_SYNC_GRACE_MS = 15_000
+
+/** The thread page's state when the synced row is not (yet) there: keep the
+ *  skeleton while the sync has not settled, while a `thread_items` row
+ *  names the id (the shell is a separate shape), or while the ONE
+ *  `threads.get` is out or answered "found"; only a server "missing" (or a
+ *  found thread that never synced within the grace) is "Thread not found". */
+export function threadPageState(input: {
+  hasBundle: boolean
+  syncSettled: boolean
+  itemNamesIt: boolean
+  fetch: ThreadFetchState
+  graceOver: boolean
+}): `ready` | `skeleton` | `missing` {
+  if (input.hasBundle) return `ready`
+  if (!input.syncSettled) return `skeleton`
+  if (input.fetch === `missing`) return `missing`
+  if (input.fetch === `found`) return input.graceOver ? `missing` : `skeleton`
+  if (input.itemNamesIt && !input.graceOver) return `skeleton`
+  return input.fetch === `idle` || input.fetch === `pending` ? `skeleton` : `missing`
 }

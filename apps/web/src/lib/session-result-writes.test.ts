@@ -11,6 +11,7 @@ import {
   removeSessionResults,
   reportFileCount,
   resultsSummary,
+  splitSessionGuideEntries,
   upsertSessionResult,
   upsertSessionResultText,
 } from "./session-result-writes"
@@ -352,5 +353,78 @@ describe(`guide writes`, () => {
     expect(out.results.map((row) => row.prUrl ?? null)).toEqual([`p2`, `p1`, null])
     expect(stampUntaggedResults(out.results, `p3`).changed).toBe(false)
     expect(stampUntaggedResults(null, `p3`)).toEqual({ results: [], changed: false })
+  })
+})
+
+// EXP-1284 (review T1/T2): a thread's ONE Guide holds every session's
+// entries; a writer touches only the ones it owns (`owns`), and a moving
+// session takes its own along.
+describe(`the thread Guide's per-session ownership`, () => {
+  const entry = (topic: string, text: string, sessionId?: string): CodingSessionResult => ({
+    topic,
+    label: null,
+    attachmentId: null,
+    width: null,
+    height: null,
+    text,
+    ...(sessionId ? { sessionId } : {}),
+  })
+  const mine = (row: CodingSessionResult) => row.sessionId === `s2`
+
+  it(`a text write files beside another session's topic, stamped, and replaces only its own`, () => {
+    const first = upsertSessionResultText([entry(`Summary`, `s1's`, `s1`)], `Summary`, `s2's`, undefined, {
+      sessionId: `s2`,
+      owns: mine,
+    })!
+    expect(first.map((row) => [row.sessionId, row.text])).toEqual([
+      [`s1`, `s1's`],
+      [`s2`, `s2's`],
+    ])
+    const again = upsertSessionResultText(first, `Summary`, `s2's, revised`, undefined, {
+      sessionId: `s2`,
+      owns: mine,
+    })!
+    expect(again.map((row) => row.text)).toEqual([`s1's`, `s2's, revised`])
+  })
+
+  it(`the caps count the writer's own entries only`, () => {
+    const big = `x`.repeat(SESSION_RESULTS_REPORT_TOTAL_MAX - 10)
+    const theirs = [entry(`A`, big, `s1`)]
+    expect(
+      upsertSessionResultText(theirs, `B`, `y`.repeat(100), undefined, { sessionId: `s2`, owns: mine })
+    ).not.toBeNull()
+    // Without ownership the whole list counts (a session's own row).
+    expect(upsertSessionResultText(theirs, `B`, `y`.repeat(100))).toBeNull()
+  })
+
+  it(`a picture displaces only the writer's own; removal and tagging spare the others`, () => {
+    const theirs = { ...entry(`Shots`, ``, `s1`), text: undefined, label: `web`, attachmentId: `a1` }
+    const up = upsertSessionResult(
+      [theirs as CodingSessionResult],
+      { topic: `Shots`, label: `web`, attachmentId: `a2`, width: 1, height: 1, sessionId: `s2` },
+      mine
+    )
+    expect(up.displacedAttachmentId).toBeNull()
+    expect(up.results).toHaveLength(2)
+
+    const removed = removeSessionResults(up.results, { topic: `Shots` }, mine)
+    expect(removed.removedAttachmentIds).toEqual([`a2`])
+    expect(removed.results).toEqual([theirs])
+
+    const tagged = stampUntaggedResults([entry(`S`, `1`, `s1`), entry(`S`, `2`, `s2`)], `p`, mine)
+    expect(tagged.results.map((row) => row.prUrl ?? null)).toEqual([null, `p`])
+  })
+
+  it(`a moving session takes its entries, and the legacy ones as the source's first session`, () => {
+    const guide = [entry(`Summary`, `legacy`), entry(`A`, `s1`, `s1`), entry(`B`, `s2`, `s2`)]
+    expect(splitSessionGuideEntries(guide, `s1`, true)).toEqual({
+      moved: [entry(`Summary`, `legacy`, `s1`), entry(`A`, `s1`, `s1`)],
+      kept: [entry(`B`, `s2`, `s2`)],
+    })
+    expect(splitSessionGuideEntries(guide, `s2`, false)).toEqual({
+      moved: [entry(`B`, `s2`, `s2`)],
+      kept: [entry(`Summary`, `legacy`), entry(`A`, `s1`, `s1`)],
+    })
+    expect(splitSessionGuideEntries(null, `s1`, true)).toEqual({ moved: [], kept: [] })
   })
 })

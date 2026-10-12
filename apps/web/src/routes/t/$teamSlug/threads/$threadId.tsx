@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   createFileRoute,
   Link,
@@ -38,13 +39,16 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { updateWorkTabs } from "@/hooks/use-work-tabs"
 import type { Team, User } from "@/db/schema"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { threadsCollection } from "@/lib/collections"
+import { threadItemsCollection, threadsCollection } from "@/lib/collections"
 import { emptyStateCopy } from "@/lib/empty-states"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import {
   isFreshThreadChild,
   iso,
+  THREAD_SYNC_GRACE_MS,
+  threadPageState,
+  type ThreadFetchState,
   parseThreadChild,
   selectedThreadChild,
   threadChildSearch,
@@ -127,7 +131,54 @@ function ThreadPage() {
     )
   }, [navigate, teamSlug, origin])
 
-  if (!team || !currentUserId || (!bundle && !isReady)) {
+  // Review T14: never a flash of "Thread not found" right after a start —
+  // the shell (`threads`) and its items are separate shapes, so while an
+  // item names this id, or the one `threads.get` is out / said "found", the
+  // skeleton stays (`threadPageState`).
+  const { data: namingItems } = useLiveQuery(
+    (query) =>
+      bundle
+        ? undefined
+        : query
+            .from({ it: threadItemsCollection })
+            .where(({ it }) => eq(it.threadId, threadId)),
+    [threadId, Boolean(bundle)]
+  )
+  const itemNamesIt = ((namingItems ?? []) as unknown[]).length > 0
+  const [fetchState, setFetchState] = useState<{ id: string; state: ThreadFetchState }>({
+    id: threadId,
+    state: `idle`,
+  })
+  const fetchFor = fetchState.id === threadId ? fetchState.state : `idle`
+  const settled = Boolean(team && currentUserId && isReady)
+  useEffect(() => {
+    if (bundle || !settled || fetchFor !== `idle`) return
+    let live = true
+    setFetchState({ id: threadId, state: `pending` })
+    trpc.threads.get
+      .query({ id: threadId })
+      .then(() => live && setFetchState({ id: threadId, state: `found` }))
+      .catch(() => live && setFetchState({ id: threadId, state: `missing` }))
+    return () => {
+      live = false
+    }
+  }, [bundle, settled, fetchFor, threadId])
+  const [graceOverFor, setGraceOverFor] = useState<string | null>(null)
+  const waiting = !bundle && (fetchFor === `found` || itemNamesIt)
+  useEffect(() => {
+    if (!waiting) return
+    const timer = setTimeout(() => setGraceOverFor(threadId), THREAD_SYNC_GRACE_MS)
+    return () => clearTimeout(timer)
+  }, [waiting, threadId])
+  const pageState = threadPageState({
+    hasBundle: Boolean(bundle),
+    syncSettled: settled,
+    itemNamesIt,
+    fetch: fetchFor,
+    graceOver: graceOverFor === threadId,
+  })
+
+  if (!team || !currentUserId || pageState === `skeleton`) {
     return (
       <div className="p-6">
         <SkeletonRows />

@@ -622,6 +622,10 @@ pub(crate) struct SteerSessionView {
     /// `results` while that has entries, else the run's own
     /// ([`crate::threads::guide_results_of_session`], the web `guideOfRun`).
     guide_results: Option<serde_json::Value>,
+    /// EXP-1284: an embedded block's results — the Guide entries THIS
+    /// session wrote (`domain::thread_view::session_guide_entries`), set by
+    /// the thread page; `None` = the row's own.
+    embedded_results: Option<serde_json::Value>,
     /// EXP-776: the frame's issue-chip resolver (EXP-760), built ONCE per
     /// frame over `chip_cache` instead of per prose body. `None` for a run
     /// with no resolvable team.
@@ -859,6 +863,7 @@ impl SteerSessionView {
             embedded: false,
             embedded_show_work: false,
             guide_results: None,
+            embedded_results: None,
             chips: None,
             chip_cache: Default::default(),
             focus_handle: cx.focus_handle(),
@@ -1477,10 +1482,12 @@ impl SteerSessionView {
         let events = domain::session_results::with_run_start(events, run_started);
         self.thread_first_end_known =
             domain::session_results::first_turn_end_known(&events, run_started);
-        self.thread = domain::session_results::session_turns(
-            self.row.as_ref().and_then(|row| row.results.as_ref()),
-            &events,
-        );
+        // EXP-1284: a thread's session block shows only ITS Guide entries.
+        let results = match (&self.embedded_results, self.embedded) {
+            (Some(results), true) => Some(results),
+            _ => self.row.as_ref().and_then(|row| row.results.as_ref()),
+        };
+        self.thread = domain::session_results::session_turns(results, &events);
         let items = self.feed.items();
         self.thread_cards = if self.answerable_run() {
             self.rows
@@ -1580,6 +1587,15 @@ impl SteerSessionView {
         self.embedded = true;
         self.embedded_show_work = show_work;
         cx.notify();
+    }
+
+    /// EXP-1284 — the Guide entries this embedded block shows (the
+    /// session's own slice of the thread's Guide).
+    pub(crate) fn set_embedded_results(&mut self, results: serde_json::Value, cx: &mut gpui::Context<Self>) {
+        if self.embedded_results.as_ref() != Some(&results) {
+            self.embedded_results = Some(results);
+            cx.notify();
+        }
     }
 
     /// EXP-1284 — the thread's reply composer sends to this run: the SAME
@@ -4481,6 +4497,7 @@ impl SteerSessionView {
                 tone: caption.1,
                 tool_line,
                 show_work,
+                toggle: true,
                 on_toggle: Some(Box::new(move |_, window, cx| {
                     // EXP-1284: an embedded block's switch is its own.
                     if embedded {

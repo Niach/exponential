@@ -2382,6 +2382,8 @@ impl ChatScreenView {
             return;
         };
         input.start_id = Some(start_id.clone());
+        // EXP-1284: the thread the start joins — its landing opens there.
+        let thread_id = input.thread_id.clone();
         let device_id = input.device_id.clone();
         let subject = coding_flow::RemoteRunSubject::of(&input);
         self.launching = true;
@@ -2428,6 +2430,7 @@ impl ChatScreenView {
                             coding_flow::ComposerStartWatch {
                                 start_id,
                                 handoff,
+                                thread_id: thread_id.clone(),
                                 landed,
                             },
                             window,
@@ -3452,17 +3455,16 @@ impl ChatScreenView {
 
     /// EXP-1253 — RECENT: the muted band label over the last three own
     /// top-level pieces of work of the active team. EXP-1284: THREADS, not
-    /// bare runs — the live ones first (`partition_thread_list`), each the
+    /// bare sessions — Recent's half of `partition_thread_list` (Running is
+    /// the rail's), each the
     /// thread's title over its `listCaption`; a row opens the thread. `None`
     /// (no band at all) with nothing to list.
     fn render_recent(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let team_id = self.team_id.as_deref()?;
-        let (running, recent) = crate::threads::team_thread_lists(team_id, cx);
-        let rows: Vec<crate::threads::ThreadListRow> = running
-            .into_iter()
-            .chain(recent)
-            .take(home_greeting::RECENT_COUNT)
-            .collect();
+        // Review T6: Recent excludes Running (those are the rail's), ×4.
+        let (_, recent) = crate::threads::team_thread_lists(team_id, cx);
+        let rows: Vec<crate::threads::ThreadListRow> =
+            recent.into_iter().take(home_greeting::RECENT_COUNT).collect();
         if rows.is_empty() {
             return None;
         }

@@ -1,6 +1,7 @@
 import ExpCore
 import Foundation
 import GRDB
+import Observation
 
 /// EXP-1284: the tab the Thread screen shows — its CHILD STRIP is the pager
 /// on phones (`Conversation` · one tab per issue · `Guide`; the "+" is a
@@ -76,38 +77,86 @@ struct ThreadRows: Equatable, Sendable {
         )
     }
 
-    /// The shared model's runs (`ThreadView.swift`).
-    var viewRuns: [ThreadViewRun] {
+    /// T9/T-N5: the status the model reads = the HEARTBEAT rule the session
+    /// lists use (`CodingSessionLiveness.isLive`): a live row keeps its
+    /// status (a sweep end that the host heartbeats back reads `running`), a
+    /// dead heartbeat reads `ended` — so nothing calls a crashed host's
+    /// session live, and the reply box resumes it instead of sending into it.
+    static func liveStatus(_ session: CodingSessionEntity, now: Date) -> String {
+        guard CodingSessionLiveness.isLive(session, now: now) else {
+            return DomainContract.codingSessionStatusEnded
+        }
+        return session.status == DomainContract.codingSessionStatusEnded
+            ? DomainContract.codingSessionStatusRunning
+            : session.status
+    }
+
+    /// The shared model's runs (`ThreadView.swift`), status through the
+    /// heartbeat rule.
+    func runsForView(now: Date = Date()) -> [ThreadViewRun] {
         sessions.map { session in
-            ThreadViewRun(session, name: name(of: session), deviceLabel: device(for: session).label)
+            let live = Self.liveStatus(session, now: now) != DomainContract.codingSessionStatusEnded
+            return ThreadViewRun(
+                id: session.id,
+                name: name(of: session),
+                userId: session.userId,
+                deviceLabel: device(for: session, now: now).label,
+                status: Self.liveStatus(session, now: now),
+                needsInput: live && session.needsInput,
+                agentBusy: live && session.agentBusy,
+                issueId: session.issueId,
+                parentSessionId: session.parentSessionId,
+                resumedFromId: session.resumedFromId,
+                startedAt: session.startedAt,
+                endedAt: session.endedAt
+            )
         }
     }
 
+    var viewRuns: [ThreadViewRun] { runsForView() }
+
     /// THE thread view (fixture-locked ×4).
-    var view: ThreadViewModel {
+    func buildView(now: Date) -> ThreadViewModel {
         ThreadViews.build(
             thread: ThreadViewThread(thread),
             items: items.map { ThreadViewItem($0) },
             issues: issues.map { ThreadViewIssue($0) },
-            runs: viewRuns
+            runs: runsForView(now: now)
         )
     }
 
-    /// The viewer owns a LIVE run in it (heartbeat-live, like the Agent
+    var view: ThreadViewModel { buildView(now: Date()) }
+
+    /// The viewer owns a LIVE session in it (heartbeat-live, like the Agent
     /// tab's dot) — `partitionThreadList`'s Running.
     func mineLive(userId: String?, now: Date = Date()) -> Bool {
         guard let userId else { return false }
         return sessions.contains { $0.userId == userId && CodingSessionLiveness.isLive($0, now: now) }
     }
 
-    /// The agent of the newest live run (the list row's working mark).
-    var liveAgent: String? {
-        sessions.last { $0.status != DomainContract.codingSessionStatusEnded }?.agent
+    /// T6: the viewer has a session in it or created it — Recent lists only
+    /// these (`partitionThreadList`).
+    func mine(userId: String?) -> Bool {
+        guard let userId else { return false }
+        return thread.createdBy == userId || sessions.contains { $0.userId == userId }
     }
 
-    /// What the thread's Guide child merges (`ThreadViews.mergeTarget`).
-    var mergeTarget: MergeTarget? {
-        ThreadViews.mergeTarget(runs: sessions, issues: linkedIssues)
+    /// The agent of the newest live session (the list row's working mark).
+    func newestLiveAgent(now: Date = Date()) -> String? {
+        sessions.last { CodingSessionLiveness.isLive($0, now: now) }?.agent
+    }
+
+    var liveAgent: String? { newestLiveAgent() }
+
+    /// T8/T-N6: the PR the thread's Guide targets (`threadPrTarget` ×4: the
+    /// newest OPEN PR on its sessions and issues, else the newest merged).
+    var prTarget: ThreadViews.PrTarget? {
+        ThreadViews.prTarget(sessions: sessions, issues: linkedIssues)
+    }
+
+    /// T-N8: the thread's Guide, else its newest session's row.
+    var guide: String? {
+        ThreadViews.threadGuide(threadResults: thread.results, sessions: sessions)
     }
 
     // MARK: - Reads
@@ -186,5 +235,28 @@ struct ThreadRows: Equatable, Sendable {
                 devices: devices
             )
         }
+    }
+}
+
+/// EXP-1284 (review T11/T-N7/T-N9): asks the thread page already on the
+/// stack to show one child — the navigator pops back to it instead of
+/// pushing a second page of the same thread, then lands it here: a start →
+/// its Conversation, a "New issue in this thread" → the new issue's tab.
+/// A reference box like `PushRouteAction` (ONE instance in the navigator's
+/// state); `nonce` makes a repeated request for the same page a new one.
+@Observable
+final class ThreadLanding: @unchecked Sendable {
+    struct Request: Equatable {
+        let threadId: String
+        let page: ThreadPage
+        let nonce: UUID
+    }
+
+    private(set) var request: Request?
+
+    init() {}
+
+    func land(threadId: String, page: ThreadPage) {
+        request = Request(threadId: threadId, page: page, nonce: UUID())
     }
 }

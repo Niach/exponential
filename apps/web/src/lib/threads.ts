@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
-import type { ThreadItemSource } from "@exp/db-schema/domain"
+import type { CodingSessionResult, ThreadItemSource } from "@exp/db-schema/domain"
 import {
   boards,
   codingSessions,
@@ -9,6 +9,7 @@ import {
   type Thread,
 } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
+import { splitSessionGuideEntries } from "@/lib/session-result-writes"
 
 // EXP-1284 — the ONE place threads and their children are written. A thread
 // is the unit of work: n issues + m runs (`thread_items`), team-scoped. Every
@@ -18,6 +19,12 @@ import { boardVisible } from "@/lib/board-visibility"
 // callers (resolveTeamAccess / the MCP grant): these helpers only enforce
 // the data rules — same team, a run sits in ONE thread, an issue at most once
 // per thread.
+//
+// Visibility (review T3): a thread whose items are all on trashed/archived
+// boards is HIDDEN (server-only `has_visible_items`, kept by the
+// `refresh_thread_visibility` trigger, which also deletes a thread whose last
+// item went and whose Guide is empty). `getThread` answers null for a hidden
+// thread, so every reader and writer treats it as not found.
 
 type Tx = Parameters<
   // eslint-disable-next-line quotes -- esbuild rejects template literals inside typeof import()
@@ -39,11 +46,27 @@ export interface ThreadLinkActor {
   source: ThreadItemSource
 }
 
-export async function getThread(db: Db, threadId: string): Promise<Thread | null> {
+/** A thread as every reader sees it: the server-only visibility flag never
+ *  leaves the server (the shape filters on it, never streams it). */
+export type ThreadRow = Omit<Thread, `hasVisibleItems`>
+
+const threadRowColumns = {
+  id: threads.id,
+  teamId: threads.teamId,
+  title: threads.title,
+  createdBy: threads.createdBy,
+  results: threads.results,
+  createdAt: threads.createdAt,
+  updatedAt: threads.updatedAt,
+}
+
+/** The thread, or null when it does not exist or is HIDDEN (no visible item
+ *  left: its board(s) trashed or archived). */
+export async function getThread(db: Db, threadId: string): Promise<ThreadRow | null> {
   const [row] = await db
-    .select()
+    .select(threadRowColumns)
     .from(threads)
-    .where(eq(threads.id, threadId))
+    .where(and(eq(threads.id, threadId), eq(threads.hasVisibleItems, true)))
     .limit(1)
   return row ?? null
 }
@@ -98,20 +121,40 @@ export async function listThreadSessionIds(
   return rows.map((row) => row.sessionId!)
 }
 
-/** The issue's "open" thread: the most recently active one holding it. An
- * issue start joins it, so the issue keeps ONE ongoing conversation. */
+/** The issue's OPEN thread, the one an issue start joins: its most recently
+ * active visible thread, while that thread is still ongoing — a live
+ * session in it, or no merged PR yet (none of its sessions' PRs merged, nor
+ * the issue's own). Once its work merged and nothing runs, a new start opens
+ * a fresh thread instead (review T1), so a later session never writes into
+ * a finished PR's Guide nor re-links its issues. Null = open a new one. */
 export async function findIssueThread(
   db: Db,
   issueId: string
 ): Promise<ThreadRef | null> {
   const [row] = await db
-    .select({ id: threads.id, teamId: threads.teamId })
+    .select({
+      id: threads.id,
+      teamId: threads.teamId,
+      live: sql<boolean>`EXISTS (
+        SELECT 1 FROM ${threadItems} ti JOIN ${codingSessions} cs ON cs.id = ti.session_id
+        WHERE ti.thread_id = ${threads.id} AND cs.status <> 'ended'
+      )`,
+      merged: sql<boolean>`(
+        EXISTS (
+          SELECT 1 FROM ${threadItems} ti JOIN ${codingSessions} cs ON cs.id = ti.session_id
+          WHERE ti.thread_id = ${threads.id} AND cs.pr_state = 'merged'
+        )
+        OR EXISTS (SELECT 1 FROM ${issues} i WHERE i.id = ${issueId} AND i.pr_state = 'merged')
+      )`,
+    })
     .from(threadItems)
     .innerJoin(threads, eq(threads.id, threadItems.threadId))
-    .where(eq(threadItems.issueId, issueId))
+    .where(and(eq(threadItems.issueId, issueId), eq(threads.hasVisibleItems, true)))
     .orderBy(desc(threads.updatedAt), desc(threads.createdAt))
     .limit(1)
-  return row ?? null
+  if (!row) return null
+  if (!row.live && row.merged) return null
+  return { id: row.id, teamId: row.teamId }
 }
 
 export async function openThread(
@@ -198,8 +241,12 @@ export async function unlinkIssueFromThread(
 }
 
 /** Puts a run into a thread. A run sits in exactly ONE thread, so a run
- * already elsewhere MOVES (its old thread is deleted when that leaves it
- * empty). The run must belong to the thread's team. */
+ * already elsewhere MOVES, taking ITS Guide entries along (review T2,
+ * `moveSessionGuide`); the old thread is deleted when that leaves it with no
+ * item and an empty Guide (the `refresh_thread_visibility` trigger, plus
+ * `deleteThreadIfEmpty` here). The run must belong to the thread's team.
+ * Locks: the run's row, then both threads in id order — the Guide writers'
+ * order (lib/thread-guide.ts), so a move never deadlocks against them. */
 export async function linkRunToThread(
   db: Db,
   thread: ThreadRef,
@@ -207,8 +254,13 @@ export async function linkRunToThread(
   actor: ThreadLinkActor
 ): Promise<{ added: boolean; movedFrom: string | null }> {
   if (run.teamId !== thread.teamId) {
-    throw new ThreadRuleError(`That run belongs to another team`)
+    throw new ThreadRuleError(`That session belongs to another team`)
   }
+  await db
+    .select({ id: codingSessions.id })
+    .from(codingSessions)
+    .where(eq(codingSessions.id, run.id))
+    .for(`update`)
   const [existing] = await db
     .select({ id: threadItems.id, threadId: threadItems.threadId })
     .from(threadItems)
@@ -217,6 +269,7 @@ export async function linkRunToThread(
   if (existing?.threadId === thread.id) return { added: false, movedFrom: null }
   const sortOrder = await nextSortOrder(db, thread.id)
   if (existing) {
+    await moveSessionGuide(db, run.id, existing.threadId, thread.id)
     await db
       .update(threadItems)
       .set({
@@ -271,18 +324,76 @@ export async function unlinkRunFromThread(
   return { removed: true, newThreadId: fresh.id }
 }
 
-/** A thread left with no children at all is noise in every list: delete it.
- * One holding only issues stays (the issue page shows it, a run can start
- * into it). */
+/** Review T2: a session moving from `fromId` to `toId` takes its own Guide
+ * entries (`splitSessionGuideEntries`: the ones it wrote, plus the unstamped
+ * legacy ones when it is the source's first session) out of the source's
+ * `results` and appends them to the target's; its own row's compat mirror
+ * follows the target. Locks both threads in id order. */
+async function moveSessionGuide(
+  db: Db,
+  sessionId: string,
+  fromId: string,
+  toId: string
+): Promise<void> {
+  const rows = await db
+    .select({ id: threads.id, results: threads.results })
+    .from(threads)
+    .where(inArray(threads.id, [fromId, toId]))
+    .orderBy(asc(threads.id))
+    .for(`update`)
+  const from = rows.find((row) => row.id === fromId)
+  const to = rows.find((row) => row.id === toId)
+  if (!from || !to) return
+  const firstOfSource = (await listThreadSessionIds(db, fromId))[0] ?? null
+  const { moved, kept } = splitSessionGuideEntries(
+    (from.results ?? null) as CodingSessionResult[] | null,
+    sessionId,
+    firstOfSource === sessionId
+  )
+  if (!moved.length) return
+  const target = [...((to.results ?? []) as CodingSessionResult[]), ...moved]
+  const now = new Date()
+  await db.update(threads).set({ results: kept, updatedAt: now }).where(eq(threads.id, fromId))
+  await db.update(threads).set({ results: target, updatedAt: now }).where(eq(threads.id, toId))
+  await db
+    .update(codingSessions)
+    .set({ results: target, updatedAt: now })
+    .where(eq(codingSessions.id, sessionId))
+}
+
+/** A thread left with no children and an empty Guide is noise in every
+ * list: delete it (the `refresh_thread_visibility` trigger does the same on
+ * every item delete/move; this is the app-side twin). One holding only
+ * issues stays (the issue page shows it, a session can start into it); one
+ * whose Guide still holds entries stays too, hidden (never delete a Guide). */
 export async function deleteThreadIfEmpty(db: Db, threadId: string): Promise<void> {
   await db
     .delete(threads)
     .where(
       and(
         eq(threads.id, threadId),
-        sql`NOT EXISTS (SELECT 1 FROM ${threadItems} WHERE ${threadItems.threadId} = ${threadId})`
+        sql`NOT EXISTS (SELECT 1 FROM ${threadItems} WHERE ${threadItems.threadId} = ${threadId})`,
+        sql`(${threads.results} IS NULL OR jsonb_typeof(${threads.results}) <> 'array' OR jsonb_array_length(${threads.results}) = 0)`
       )
     )
+}
+
+/** Review T4: the fallback placement when `joinThreadForStart` failed: the
+ * session gets a fresh thread of its own (with the start's issues where the
+ * rules allow), so a live session is never threadless and never vanishes
+ * from the thread lists. The caller logs the original failure. */
+export async function placeSessionAlone(
+  db: Db,
+  session: { id: string; teamId: string; userId: string },
+  issueIds: string[]
+): Promise<ThreadRef> {
+  const placed = await getThreadOfSession(db, session.id)
+  if (placed) return placed
+  const actor: ThreadLinkActor = { userId: session.userId, source: `user` }
+  const fresh = await openThread(db, { teamId: session.teamId, createdBy: session.userId })
+  await linkRunToThread(db, fresh, { id: session.id, teamId: session.teamId }, actor)
+  await linkIssuesQuietly(db, fresh, issueIds, actor)
+  return fresh
 }
 
 export class ThreadRuleError extends Error {}

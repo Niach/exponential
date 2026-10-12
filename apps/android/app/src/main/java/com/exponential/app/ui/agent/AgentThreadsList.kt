@@ -14,7 +14,10 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.ThreadPage
 import com.exponential.app.domain.codingSessionDisplayState
+import com.exponential.app.ui.components.CodingSessionRow
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.SessionRowSize
+import com.exponential.app.ui.session.PastRunRow
 import com.exponential.app.ui.components.runningRowMarkState
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
@@ -52,20 +55,39 @@ fun ThreadPage.Bundle.listRow(): ThreadListRowModel = ThreadListRowModel(
     },
 )
 
+/** One Running row: a thread, or (T4) an orphan live session of mine that
+ *  no thread item names yet. */
+private sealed interface RunningRow {
+    val teamId: String
+
+    data class Thread(val bundle: ThreadPage.Bundle) : RunningRow {
+        override val teamId: String get() = bundle.thread.teamId
+    }
+
+    data class Orphan(val row: PastRunRow) : RunningRow {
+        override val teamId: String get() = row.session.teamId
+    }
+}
+
 /**
- * The Agent page's Running band: my threads with a live run of mine (EXP-312:
- * a live run is the owner's), one band per team once there are several.
+ * The Agent page's Running band: my threads with a live session of mine
+ * (EXP-312: a live session is the owner's), then (T4) my live sessions no
+ * thread names yet as plain session rows — every team, one band per team
+ * once there are several (T6).
  */
 internal fun LazyListScope.agentThreadsList(
     running: List<ThreadPage.Bundle>,
     onOpenThread: (String) -> Unit,
     teams: List<TeamEntity> = emptyList(),
+    orphans: List<PastRunRow> = emptyList(),
+    onOpenSession: (String) -> Unit = {},
 ) {
-    val bands = teamBands(running, teams) { it.thread.teamId }
-    if (running.isEmpty() || bands.all { it.team == null }) {
+    val rows = running.map { RunningRow.Thread(it) } + orphans.map { RunningRow.Orphan(it) }
+    val bands = teamBands(rows, teams) { it.teamId }
+    if (rows.isEmpty() || bands.all { it.team == null }) {
         item(key = "__running_header__") { SectionHeader(ThreadCopy.RUNNING) }
     }
-    if (running.isEmpty()) {
+    if (rows.isEmpty()) {
         item(key = "__no_running__") { EmptyState(EmptyStateCopy.runningAgents) }
         return
     }
@@ -75,26 +97,39 @@ internal fun LazyListScope.agentThreadsList(
         }
         item(key = "__running_threads_${band.team?.id.orEmpty()}__") {
             Column(modifier = Modifier.fillMaxWidth().testTag("agent-thread-rows")) {
-                band.items.forEach { bundle ->
-                    val row = bundle.listRow()
-                    ThreadListRow(
-                        title = row.title,
-                        caption = row.caption,
-                        live = row.live,
-                        busy = row.busy,
-                        needsInput = row.needsInput,
-                        agent = row.agent,
-                        markState = row.markState,
-                        onClick = { onOpenThread(row.threadId) },
-                    )
+                band.items.forEach { entry ->
+                    when (entry) {
+                        is RunningRow.Thread -> {
+                            val row = entry.bundle.listRow()
+                            ThreadListRow(
+                                title = row.title,
+                                caption = row.caption,
+                                live = row.live,
+                                busy = row.busy,
+                                needsInput = row.needsInput,
+                                agent = row.agent,
+                                markState = row.markState,
+                                onClick = { onOpenThread(row.threadId) },
+                            )
+                        }
+                        is RunningRow.Orphan -> CodingSessionRow(
+                            session = entry.row.session,
+                            issue = entry.row.issue,
+                            device = entry.row.device,
+                            size = SessionRowSize.Big,
+                            batchIssues = entry.row.batchIssues,
+                            onClick = { onOpenSession(entry.row.session.id) },
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-/** The Agent page's Recent (the history button's sheet): every other
- *  thread, newest activity first, banded per team. */
+/** The Agent page's Recent (the history button's sheet): my other threads
+ *  (a session of mine or created by me), newest activity first, every team
+ *  banded per team (T6). */
 @Composable
 fun RecentThreadsSheet(
     recent: List<ThreadPage.Bundle>,

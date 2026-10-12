@@ -1,5 +1,6 @@
 import { ThreadListSection, useOpenThread } from "@/components/thread/thread-list"
 import { useThreadList, type ThreadBundle } from "@/hooks/use-threads"
+import { OrphanSessionRows } from "@/components/thread/orphan-session-rows"
 import { cn } from "@/lib/utils"
 import type { DetailOrigin } from "@/lib/detail-origin"
 import type { Team } from "@/db/schema"
@@ -46,9 +47,9 @@ export function SessionsList({
   showWhenEmpty?: boolean
 }) {
   const scopeIds = teams && teams.length > 0 ? teams.map((t) => t.id) : teamId
-  const { running, isReady } = useThreadList(scopeIds, currentUserId)
+  const { running, orphans, isReady } = useThreadList(scopeIds, currentUserId)
   const openThread = useOpenThread()
-  if (!showWhenEmpty && running.length === 0) return null
+  if (!showWhenEmpty && running.length === 0 && orphans.length === 0) return null
   const slugOf = (id: string) => teams?.find((team) => team.id === id)?.slug
   const open = (bundle: ThreadBundle) => {
     const teamSlug = slugOf(bundle.thread.teamId)
@@ -71,21 +72,28 @@ export function SessionsList({
       {groups.length > 0 ? (
         // EXP-1186: one band per team, in team order — the team mark
         // leading, its running threads first.
-        groups.map((group) => (
-          <div key={group.team.id} className="mb-4 last:mb-0">
-            <TeamBandHeader team={group.team} />
-            <ThreadListSection threads={group.rows} onOpen={open} />
-          </div>
-        ))
+        <>
+          {groups.map((group) => (
+            <div key={group.team.id} className="mb-4 last:mb-0">
+              <TeamBandHeader team={group.team} />
+              <ThreadListSection threads={group.rows} onOpen={open} />
+            </div>
+          ))}
+          <OrphanSessionRows teamId={teamId} sessions={orphans} origin={origin} />
+        </>
       ) : (
-        <ThreadListSection
-          label="Running"
-          threads={running}
-          onOpen={open}
-          loading={!isReady}
-          empty="running-agents"
-          testId="agent-running-threads"
-        />
+        <>
+          <ThreadListSection
+            label="Running"
+            threads={running}
+            onOpen={open}
+            loading={!isReady}
+            empty={orphans.length === 0 ? `running-agents` : undefined}
+            testId="agent-running-threads"
+          />
+          {/* Review T4: my live sessions no thread holds yet. */}
+          <OrphanSessionRows teamId={teamId} sessions={orphans} origin={origin} />
+        </>
       )}
     </div>
   )

@@ -61,6 +61,9 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.domain.ToastAction
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LocalDetailHaze
@@ -201,7 +204,11 @@ fun ThreadScreen(
                     Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
                         // EXP-1284: the ×4 `thread-not-found` page state, once
                         // the store answered without the thread.
-                        if (missing) {
+                        if (!missing) {
+                            // T14/T-N9: the skeleton while the store, a synced
+                            // item or the one `threads.get` may still bring it.
+                            SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).testTag("thread-skeleton"))
+                        } else {
                             EmptyState(
                                 EmptyStateCopy.threadNotFound,
                                 modifier = Modifier.testTag("thread-not-found"),
@@ -426,6 +433,8 @@ private fun ThreadConversationPage(
     // A reply waiting for its run: a resume in flight, or a connection that
     // is not up yet. Sent once the target run can take it.
     var pending by rememberSaveable { mutableStateOf<String?>(null) }
+    // Whether the held reply waits on a RESUME (else a connection).
+    var pendingResume by rememberSaveable { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         ThreadConversation(
@@ -462,6 +471,8 @@ private fun ThreadConversationPage(
                 runsById[block.runId]?.let { run ->
                     ThreadRunBody(
                         run = run,
+                        // T-N3: the block shows only what THIS session wrote.
+                        guide = ThreadPage.sessionGuide(run, bundle.thread, bundle.view.runIds.firstOrNull()),
                         state = block.state,
                         own = run.userId == viewerId,
                         expanded = expanded,
@@ -493,7 +504,7 @@ private fun ThreadConversationPage(
             LaunchedEffect(runVm, replyTarget is ThreadPage.ReplyTarget.Send) {
                 if (replyTarget is ThreadPage.ReplyTarget.Send) runVm?.ensureConnected()
             }
-            // The held reply goes out the moment a live run of mine can take it.
+            // The held reply goes out the moment a live session of mine can take it.
             LaunchedEffect(pending, connected, replyTarget) {
                 val text = pending ?: return@LaunchedEffect
                 if (replyTarget is ThreadPage.ReplyTarget.Send && connected && runVm?.sendCommand(text) == true) {
@@ -501,36 +512,67 @@ private fun ThreadConversationPage(
                 }
             }
             val toaster = LocalToaster.current
+            // T9/T-N4: the reply's ONE path. A live session of mine takes it;
+            // my latest (heartbeat-dead) session is resumed when its machine
+            // can; otherwise the thread gets a NEW session — a reply never
+            // dead-ends.
+            lateinit var sendReply: (String) -> Unit
+            sendReply = { text ->
+                when (val target = replyTarget) {
+                    is ThreadPage.ReplyTarget.Send -> {
+                        reply = ""
+                        if (runVm?.sendCommand(text) != true) {
+                            pending = text
+                            pendingResume = false
+                            runVm?.ensureConnected()
+                        }
+                    }
+                    is ThreadPage.ReplyTarget.Resume -> {
+                        val resume = resumeTarget
+                        reply = ""
+                        if (resume == null) {
+                            // Its machine is gone or unknown: say so, and start
+                            // a new session in this thread with the text.
+                            toaster.info(THREAD_SESSION_ENDED)
+                            onStart(text)
+                        } else {
+                            pending = text
+                            pendingResume = true
+                            runVm?.resumeRun(resume)
+                        }
+                    }
+                    ThreadPage.ReplyTarget.Start -> {
+                        reply = ""
+                        onStart(text)
+                    }
+                    null -> Unit
+                }
+            }
+            // T-N4: a held reply times out like the composer's start: the
+            // text comes back and `Couldn't resume the session` offers Retry.
+            LaunchedEffect(pending) {
+                val text = pending ?: return@LaunchedEffect
+                kotlinx.coroutines.delay(FeedbackStates.STARTING_TIMEOUT_MS)
+                if (pending == text) {
+                    pending = null
+                    if (reply.isBlank()) reply = text
+                    toaster.error(
+                        if (pendingResume) {
+                            FeedbackStates.errorTitle("resume", "the session")
+                        } else {
+                            FeedbackStates.errorTitle("send", "the message")
+                        },
+                        action = ToastAction(FeedbackStates.RETRY) { sendReply(reply.ifBlank { text }.trim()) },
+                    )
+                }
+            }
             ThreadReplyBar(
                 value = reply,
                 onValueChange = { reply = it },
                 sending = pending != null,
                 onSend = {
                     val text = reply.trim()
-                    if (text.isEmpty()) return@ThreadReplyBar
-                    when (replyTarget) {
-                        is ThreadPage.ReplyTarget.Send -> {
-                            if (runVm?.sendCommand(text) == true) reply = "" else {
-                                pending = text
-                                reply = ""
-                                runVm?.ensureConnected()
-                            }
-                        }
-                        is ThreadPage.ReplyTarget.Resume -> {
-                            val target = resumeTarget
-                            if (target == null) {
-                                toaster.failedAction("resume", "the session", "Its machine is offline.")
-                            } else {
-                                pending = text
-                                reply = ""
-                                runVm?.resumeRun(target)
-                            }
-                        }
-                        ThreadPage.ReplyTarget.Start -> {
-                            reply = ""
-                            onStart(text)
-                        }
-                    }
+                    if (text.isNotEmpty()) sendReply(text)
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -564,6 +606,8 @@ private fun OwnRunLead(run: CodingSessionEntity) {
 @Composable
 private fun ThreadRunBody(
     run: CodingSessionEntity,
+    /** This session's own slice of the thread Guide (`sessionGuideEntries`). */
+    guide: String?,
     state: ThreadView.RunState,
     own: Boolean,
     expanded: Boolean,
@@ -571,7 +615,7 @@ private fun ThreadRunBody(
     nowMs: Long,
 ) {
     val live = state != ThreadView.RunState.Ended
-    val thread = remember(run.results) { sessionThread(run.results) }
+    val thread = remember(guide) { sessionThread(guide) }
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (own || !live || expanded) {
             thread.items.forEach { item ->
@@ -739,3 +783,6 @@ private fun ThreadGuidePage(bundle: ThreadPage.Bundle, padding: PaddingValues) {
         )
     }
 }
+
+/** T9: the reply's note when the session it would resume cannot come back. */
+internal const val THREAD_SESSION_ENDED = "That session ended. Your reply starts a new session in this thread."

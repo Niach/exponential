@@ -15,8 +15,10 @@
 //!   product says SESSION; state, device, `resumed`, `started by Session K`), the issues its agent linked as
 //!   rows under it (`Linked` / `Filed and linked`), and the runs one parent
 //!   started as ONE parallel card once there are two or more of them;
-//! * its LIST placement ([`partition_thread_list`]): Running (a live run of
-//!   mine) vs Recent.
+//! * its LIST placement ([`partition_thread_list`]): Running (a live session
+//!   of mine) vs Recent (my other threads), scoped to a team or not;
+//! * its Guide's PR ([`thread_pr_target`]: newest open, else newest merged)
+//!   and the Guide entries ONE session block shows ([`session_guide_entries`]).
 //!
 //! Pure: callers pass what they synced; an item whose issue or run did not
 //! resolve is dropped (trashed board, purged run). The view types serialize
@@ -517,23 +519,89 @@ pub fn build_thread_view(
 /// One thread as a list sees it ([`partition_thread_list`]).
 pub trait ThreadListEntry {
     fn thread_id(&self) -> &str;
+    fn team_id(&self) -> &str;
     fn updated_at(&self) -> &str;
-    /// The viewer owns a live run in it.
+    /// The viewer owns a live session in it.
     fn mine_live(&self) -> bool;
+    /// The viewer has a session in it or created it (Recent lists only these).
+    fn mine(&self) -> bool;
 }
 
-/// Running (a live run of mine, newest activity first) vs Recent (every
-/// other thread, newest activity first).
-pub fn partition_thread_list<T: ThreadListEntry + Clone>(entries: &[T]) -> (Vec<T>, Vec<T>) {
-    let mut by_activity: Vec<&T> = entries.iter().collect();
+/// Running (a live session of mine) vs Recent (my other threads: a session of
+/// mine or created by me), newest activity first. Scope: `team_id` = the
+/// ACTIVE team (web, desktop); `None` = every team (phones, which band the
+/// rows per team).
+pub fn partition_thread_list<T: ThreadListEntry + Clone>(
+    entries: &[T],
+    team_id: Option<&str>,
+) -> (Vec<T>, Vec<T>) {
+    let mut by_activity: Vec<&T> = entries
+        .iter()
+        .filter(|entry| team_id.is_none_or(|team| entry.team_id() == team))
+        .collect();
     by_activity.sort_by(|a, b| {
         time(b.updated_at())
             .cmp(&time(a.updated_at()))
             .then_with(|| a.thread_id().cmp(b.thread_id()))
     });
     let running = by_activity.iter().filter(|e| e.mine_live()).map(|e| (*e).clone()).collect();
-    let recent = by_activity.iter().filter(|e| !e.mine_live()).map(|e| (*e).clone()).collect();
+    let recent = by_activity
+        .iter()
+        .filter(|e| !e.mine_live() && e.mine())
+        .map(|e| (*e).clone())
+        .collect();
     (running, recent)
+}
+
+/// One PR a thread's Guide could target: on one of its sessions or issues.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ThreadPrCandidate {
+    pub url: String,
+    /// `open` | `merged` | `closed` (any other value counts as closed).
+    #[serde(default)]
+    pub state: Option<String>,
+    /// When the PR was stamped (its session's or issue's activity time).
+    pub at: String,
+}
+
+/// The PR a thread's Guide and Merge capsule target: the newest OPEN PR, else
+/// the newest MERGED one, else none.
+pub fn thread_pr_target(candidates: &[ThreadPrCandidate]) -> Option<String> {
+    let newest = |state: &str| {
+        candidates
+            .iter()
+            .filter(|candidate| candidate.state.as_deref() == Some(state) && !candidate.url.is_empty())
+            .max_by(|a, b| time(&a.at).cmp(&time(&b.at)).then_with(|| b.url.cmp(&a.url)))
+            .map(|candidate| candidate.url.clone())
+    };
+    newest("open").or_else(|| newest("merged"))
+}
+
+/// The Guide entries a session block shows: the ones that session wrote
+/// (`sessionId`); entries filed before the stamp belong to the thread's FIRST
+/// session. The thread's Guide face shows every entry.
+pub fn session_guide_entries(
+    results: Option<&serde_json::Value>,
+    session_id: &str,
+    first_session_id: Option<&str>,
+) -> Vec<serde_json::Value> {
+    let Some(serde_json::Value::Array(entries)) = results else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter(|entry| {
+            match entry
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+            {
+                Some(id) => id == session_id,
+                None => Some(session_id) == first_session_id,
+            }
+        })
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -565,19 +633,27 @@ mod tests {
     #[serde(rename_all = "camelCase")]
     struct Entry {
         thread_id: String,
+        team_id: String,
         updated_at: String,
         mine_live: bool,
+        mine: bool,
     }
 
     impl ThreadListEntry for Entry {
         fn thread_id(&self) -> &str {
             &self.thread_id
         }
+        fn team_id(&self) -> &str {
+            &self.team_id
+        }
         fn updated_at(&self) -> &str {
             &self.updated_at
         }
         fn mine_live(&self) -> bool {
             self.mine_live
+        }
+        fn mine(&self) -> bool {
+            self.mine
         }
     }
 
@@ -588,20 +664,75 @@ mod tests {
     }
 
     #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Scope {
+        team_id: Option<String>,
+    }
+
+    #[derive(Deserialize)]
     struct PartitionCase {
         name: String,
         input: Vec<Entry>,
+        scope: Scope,
         expected: PartitionExpected,
     }
 
     #[derive(Deserialize)]
+    struct PrTargetCase {
+        name: String,
+        input: Vec<ThreadPrCandidate>,
+        expected: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct GuideSliceInput {
+        results: Option<Value>,
+        session_id: String,
+        first_session_id: Option<String>,
+    }
+
+    #[derive(Deserialize)]
+    struct GuideSliceCase {
+        name: String,
+        input: GuideSliceInput,
+        expected: Vec<Value>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
     struct Fixture {
         views: Vec<ViewCase>,
         partitions: Vec<PartitionCase>,
+        pr_targets: Vec<PrTargetCase>,
+        guide_slices: Vec<GuideSliceCase>,
     }
 
     fn fixture() -> Fixture {
         serde_json::from_str(FIXTURE).expect("thread-view.json decodes")
+    }
+
+    #[test]
+    fn thread_pr_target_matches_every_fixture_case() {
+        let fixture = fixture();
+        assert!(!fixture.pr_targets.is_empty());
+        for case in fixture.pr_targets {
+            assert_eq!(thread_pr_target(&case.input), case.expected, "fixture case: {}", case.name);
+        }
+    }
+
+    #[test]
+    fn session_guide_entries_match_every_fixture_case() {
+        let fixture = fixture();
+        assert!(!fixture.guide_slices.is_empty());
+        for case in fixture.guide_slices {
+            let actual = session_guide_entries(
+                case.input.results.as_ref(),
+                &case.input.session_id,
+                case.input.first_session_id.as_deref(),
+            );
+            assert_eq!(actual, case.expected, "fixture case: {}", case.name);
+        }
     }
 
     #[test]
@@ -625,7 +756,7 @@ mod tests {
         let fixture = fixture();
         assert!(!fixture.partitions.is_empty());
         for case in fixture.partitions {
-            let (running, recent) = partition_thread_list(&case.input);
+            let (running, recent) = partition_thread_list(&case.input, case.scope.team_id.as_deref());
             assert_eq!(running, case.expected.running, "fixture case: {}", case.name);
             assert_eq!(recent, case.expected.recent, "fixture case: {}", case.name);
         }

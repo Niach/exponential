@@ -16,7 +16,13 @@ import {
 } from "@/lib/notification-email-policy"
 import { PR_BODY_RESULTS_LINK_LABEL, prBodyFromResults } from "@/lib/pr-body-from-results"
 import { stampUntaggedResults } from "@/lib/session-result-writes"
-import { guideOfRun, lockRunGuide, writeRunGuide } from "@/lib/thread-guide"
+import {
+  guideOfRun,
+  loadGuideOwner,
+  lockRunGuide,
+  ownsGuideEntry,
+  writeRunGuide,
+} from "@/lib/thread-guide"
 import { getThreadOfSession } from "@/lib/threads"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 
@@ -27,7 +33,10 @@ import { patchPullDescription } from "@/lib/trpc/pr-update"
 // untagged ones; `stampRunResultsPrUrl` tags the untagged ones when the run
 // opens a NEW PR, so a later stacked PR never claims them.
 // EXP-1284: the Guide is the run's THREAD's (`threads.results`, else the
-// run's own results); the PR is still the one stamped on the run's row.
+// run's own results); the PR is still the one stamped on the run's row, and
+// its body takes THAT session's entries (its resume chain's, the ones tagged
+// with its PR, the unstamped legacy ones): another session's sections in the
+// same thread belong to that session's PR.
 // One module so the MCP tests mock all of it at once; the pure projection is
 // `pr-body-from-results.ts`.
 
@@ -38,6 +47,8 @@ export interface RunReport {
   prState: string | null
   /** The issue's Guide (a run without an issue: the run's page). */
   resultsUrl: string | null
+  /** The session and its resume chain: whose entries the body takes. */
+  sessionIds: string[]
 }
 
 export async function loadRunReport(sessionId: string): Promise<RunReport | null> {
@@ -52,6 +63,7 @@ export async function loadRunReport(sessionId: string): Promise<RunReport | null
       issueIdentifier: issues.identifier,
       boardSlug: boards.slug,
       teamSlug: teams.slug,
+      threadId: threadItems.threadId,
     })
     .from(codingSessions)
     .leftJoin(issues, eq(issues.id, codingSessions.issueId))
@@ -73,12 +85,14 @@ export async function loadRunReport(sessionId: string): Promise<RunReport | null
     // Batch, action and chat runs: the run's own page.
     resultsUrl = `${appBaseUrl()}${buildSessionDeepLinkPath(row.teamSlug, row.id)}?view=guide`
   }
+  const owner = await loadGuideOwner(db, row.id, row.threadId ?? null, row.prUrl ?? null)
   return {
     results: guideOfRun(row),
     prUrl: row.prUrl ?? null,
     prNumber: row.prNumber ?? null,
     prState: row.prState ?? null,
     resultsUrl,
+    sessionIds: owner.chainIds,
   }
 }
 
@@ -93,7 +107,11 @@ export async function runPrBody(
   try {
     const report = await loadRunReport(sessionId)
     const derived = report
-      ? prBodyFromResults(report.results, { resultsUrl: report.resultsUrl, prUrl: null })
+      ? prBodyFromResults(report.results, {
+          resultsUrl: report.resultsUrl,
+          prUrl: null,
+          sessionIds: report.sessionIds,
+        })
       : null
     if (derived) return { body: derived, fromResults: true }
   } catch (err) {
@@ -211,6 +229,7 @@ async function syncRunPrBodyNow(
     let body = prBodyFromResults(report.results, {
       resultsUrl: report.resultsUrl,
       prUrl: report.prUrl,
+      sessionIds: report.sessionIds,
     })
     if (!body && opts.removal && report.resultsUrl) {
       body = `[${PR_BODY_RESULTS_LINK_LABEL}](${report.resultsUrl})`
@@ -256,7 +275,11 @@ export async function stampRunResultsPrUrl(
     return await db.transaction(async (tx) => {
       const locked = await lockRunGuide(tx, sessionId)
       if (!locked) return false
-      const stamped = stampUntaggedResults(locked.results, target)
+      // Only this session's untagged topics (review T1): another session's
+      // in the same thread are its own PR's.
+      const stamped = stampUntaggedResults(locked.results, target, (row) =>
+        ownsGuideEntry(locked.owner, row)
+      )
       if (!stamped.changed) return false
       await writeRunGuide(tx, locked, stamped.results)
       return true

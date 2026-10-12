@@ -284,12 +284,30 @@ pub(crate) fn embedded_run_view(
 
 /// EXP-1284 — the thread's GUIDE child: the run's Guide face (which reads
 /// THE thread Guide, `threads::guide_results_of_session`), headerless.
+///
+/// Review T5 (EXP-312): a TEAMMATE's session never dials the relay (no steer
+/// ticket): its view runs on an empty read-only journal — the Guide reads
+/// the synced results and the PR's files, never the feed.
 pub(crate) fn guide_run_view(
     session_id: &str,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<SteerSessionView> {
-    let (_, source) = resolve_source(session_id, cx);
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let owner = me.is_some()
+        && sync::Store::try_global(cx).is_some_and(|store| {
+            store
+                .collections()
+                .coding_sessions
+                .read(cx)
+                .get(session_id)
+                .is_some_and(|row| row.user_id == me)
+        });
+    let source = if owner {
+        resolve_source(session_id, cx).1
+    } else {
+        FeedSource::journal(Vec::new())
+    };
     let session_id = session_id.to_string();
     cx.new(|cx| {
         let mut view = SteerSessionView::with_source(session_id, source, window, cx);

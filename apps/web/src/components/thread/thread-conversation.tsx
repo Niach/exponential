@@ -144,6 +144,8 @@ export function ThreadConversation({
             prState={issue?.prState ?? run.prState}
             // A folded block's Show work opens on the transcript, in place.
             initialShowWork={block.folded}
+            threadResults={bundle.thread.results}
+            firstSessionId={bundle.view.runIds[0] ?? null}
             className="pl-[1.375rem]"
           />
         ) : (

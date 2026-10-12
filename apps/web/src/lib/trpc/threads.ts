@@ -39,7 +39,8 @@ const targetInput = z
     message: `Exactly one of issueId/sessionId is required`,
   })
 
-/** The thread row, or NOT_FOUND. Authorization is the caller's next step. */
+/** The thread row, or NOT_FOUND (a hidden thread too: every item on a
+ * trashed or archived board). Authorization is the caller's next step. */
 async function loadThread(db: Context[`db`], id: string): Promise<ThreadRef> {
   const thread = await getThread(db, id)
   if (!thread) {
@@ -66,12 +67,12 @@ async function loadOwnRun(
     .where(eq(codingSessions.id, sessionId))
     .limit(1)
   if (!run) {
-    throw new TRPCError({ code: `NOT_FOUND`, message: `Run not found` })
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
   }
   if (run.userId !== userId && run.hostUserId !== userId) {
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: `Only the run's owner can move it between threads`,
+      message: `Only the session's owner can move it between threads`,
     })
   }
   return { id: run.id, teamId: run.teamId }
@@ -91,9 +92,10 @@ function normalizeTitle(title: string | null | undefined): string | null {
 }
 
 export const threadsRouter = router({
-  // The thread and its VISIBLE items (an issue on a trashed or archived board
+  // The thread and its VISIBLE items (an item on a trashed or archived board
   // drops out exactly as it does from the `thread-items` shape), minus the
-  // server-only board mirrors.
+  // server-only board mirrors. A thread with no visible item left is
+  // NOT_FOUND, exactly as it is absent from the `threads` shape.
   get: authedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -153,14 +155,16 @@ export const threadsRouter = router({
       await resolveTeamAccess(ctx.session.user.id, ref.teamId, `mutate_resources`)
       return await ctx.db.transaction(async (tx) => {
         const txid = await generateTxId(tx)
-        const [thread] = await tx
+        const [row] = await tx
           .update(threads)
           .set({ title: normalizeTitle(input.title), updatedAt: new Date() })
           .where(eq(threads.id, ref.id))
           .returning()
-        if (!thread) {
+        if (!row) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Thread not found` })
         }
+        // The visibility flag is server-only, like in the shape.
+        const { hasVisibleItems: _hidden, ...thread } = row
         return { thread, txid }
       })
     }),

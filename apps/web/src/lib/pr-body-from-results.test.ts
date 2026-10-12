@@ -12,6 +12,7 @@ describe(`prBodyFromResults`, () => {
     resultsUrl: string | null
     max?: number
     prUrl?: string | null
+    sessionIds?: string[]
     expected: string | null
   }>) {
     it(c.name, () => {
@@ -19,6 +20,7 @@ describe(`prBodyFromResults`, () => {
         resultsUrl: c.resultsUrl,
         ...(c.max ? { max: c.max } : {}),
         ...(`prUrl` in c ? { prUrl: c.prUrl } : {}),
+        ...(c.sessionIds ? { sessionIds: c.sessionIds } : {}),
       })
       expect(body).toBe(c.expected)
       if (body && c.max) expect(body.length).toBeLessThanOrEqual(c.max)

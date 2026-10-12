@@ -259,6 +259,15 @@ describe(`sidebarOccupant`, () => {
     }
   })
 
+  // EXP-1284 (review T12): Recent lists threads; the thread it opens keeps it.
+  it(`keeps Recent beside a thread opened from it`, () => {
+    expect(sidebarOccupant(`/t/acme/threads/th1`, `agent:recent`)).toEqual({
+      kind: `list`,
+      origin: { kind: `agent`, tab: `recent` },
+    })
+    expect(sidebarOccupant(`/t/acme/threads/th1`, null)).toEqual({ kind: `main` })
+  })
+
   it(`keeps Recent beside a run opened from it`, () => {
     expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent:recent`)).toEqual({
       kind: `list`,

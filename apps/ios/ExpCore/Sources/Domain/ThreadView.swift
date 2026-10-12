@@ -335,9 +335,28 @@ public struct ThreadViewModel: Equatable, Sendable {
 /// One thread in a list (`partitionThreadList`).
 public protocol ThreadListEntry {
     var threadId: String { get }
+    var teamId: String { get }
     var updatedAt: String { get }
-    /// The viewer owns a live run in it.
+    /// The viewer owns a live session in it (heartbeat-live).
     var mineLive: Bool { get }
+    /// The viewer has a session in it or created it (Recent lists only these).
+    var mine: Bool { get }
+}
+
+/// One PR a thread's Guide could target (`threadPrTarget`): the PRs on the
+/// thread's sessions and issues.
+public struct ThreadPrCandidate: Equatable, Sendable {
+    public let url: String
+    /// `open` | `merged` | `closed` (any other value counts as closed).
+    public let state: String?
+    /// When the PR was stamped (its session's or issue's activity time).
+    public let at: String
+
+    public init(url: String, state: String?, at: String) {
+        self.url = url
+        self.state = state
+        self.at = at
+    }
 }
 
 public enum ThreadViews {
@@ -605,18 +624,65 @@ public enum ThreadViews {
 
     // MARK: - partitionThreadList
 
-    /// Running (a live run of mine, newest activity first) vs Recent (every
-    /// other thread, newest activity first).
-    public static func partition<T: ThreadListEntry>(_ entries: [T]) -> (running: [T], recent: [T]) {
-        let byActivity = entries.sorted { a, b in
-            let ta = time(a.updatedAt), tb = time(b.updatedAt)
-            if ta != tb { return ta > tb }
-            return a.threadId < b.threadId
-        }
+    /// Running (a live session of mine) vs Recent (my other threads: a
+    /// session of mine or created by me), newest activity first. `teamId` =
+    /// the ACTIVE team (web, desktop); nil = every team (phones, which band
+    /// the rows per team).
+    public static func partition<T: ThreadListEntry>(
+        _ entries: [T], teamId: String?
+    ) -> (running: [T], recent: [T]) {
+        let byActivity = entries
+            .filter { teamId == nil || $0.teamId == teamId }
+            .sorted { a, b in
+                let ta = time(a.updatedAt), tb = time(b.updatedAt)
+                if ta != tb { return ta > tb }
+                return a.threadId < b.threadId
+            }
         return (
             running: byActivity.filter(\.mineLive),
-            recent: byActivity.filter { !$0.mineLive }
+            recent: byActivity.filter { !$0.mineLive && $0.mine }
         )
+    }
+
+    // MARK: - threadPrTarget
+
+    /// The PR a thread's Guide and Merge capsule target: the newest OPEN PR,
+    /// else the newest MERGED one, else none.
+    public static func prTarget(_ candidates: [ThreadPrCandidate]) -> String? {
+        func newest(_ state: String) -> String? {
+            candidates
+                .filter { $0.state == state && !$0.url.isEmpty }
+                .sorted { a, b in
+                    let ta = time(a.at), tb = time(b.at)
+                    if ta != tb { return ta > tb }
+                    return a.url < b.url
+                }
+                .first?.url
+        }
+        return newest(DomainContract.prStateOpen) ?? newest(DomainContract.prStateMerged)
+    }
+
+    // MARK: - sessionGuideEntries
+
+    /// The Guide entries a session block shows: the ones that session wrote
+    /// (`sessionId`); entries filed before the stamp belong to the thread's
+    /// FIRST session. The thread's Guide face shows every entry. Raw jsonb
+    /// text in (`thread.results`) and out; nil when `raw` is nil or does not
+    /// parse as an array (= no entries).
+    public static func sessionGuideEntries(
+        _ raw: String?, sessionId: String, firstSessionId: String?
+    ) -> String? {
+        guard let raw, let data = raw.data(using: .utf8),
+              let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any]
+        else { return nil }
+        let kept = array.filter { entry in
+            let stamped = ((entry as? [String: Any])?["sessionId"] as? String) ?? ""
+            return stamped.isEmpty ? sessionId == firstSessionId : stamped == sessionId
+        }
+        guard let out = try? JSONSerialization.data(withJSONObject: kept),
+              let text = String(data: out, encoding: .utf8)
+        else { return nil }
+        return text
     }
 }
 
@@ -628,6 +694,13 @@ public extension ThreadViews {
     /// `guideOfRun` (`threadResults ?? results`).
     static func guideResults(threadResults: String?, runResults: String?) -> String? {
         threadResults ?? runResults
+    }
+
+    /// The THREAD page's Guide (T-N8): the thread's own, else its NEWEST
+    /// session's row (a session just moved into a fresh thread has written
+    /// none there yet). `sessions` in start order.
+    static func threadGuide(threadResults: String?, sessions: [CodingSessionEntity]) -> String? {
+        threadResults ?? sessions.last { $0.results != nil }?.results
     }
 
     /// What the thread's reply box does (brief §2): send into the latest LIVE
@@ -653,61 +726,52 @@ public extension ThreadViews {
         return .start
     }
 
-    /// The thread's PR, merged from its Guide (brief §3): the PR of its
-    /// NEWEST run with one (`MergeTargetResolution.resolve`: an issue run's
-    /// issue, a batch's carrier, an issue-less run's own), else the first
-    /// thread issue (link order) whose PR is open. nil = nothing to merge.
-    /// `runs` in start order; `issues` in link order.
-    static func mergeTarget(
-        runs: [CodingSessionEntity],
-        issues: [IssueEntity]
-    ) -> MergeTarget? {
-        let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for run in runs.reversed() {
-            if let target = MergeTargetResolution.resolve(
-                session: run,
-                issue: run.issueId.flatMap { issuesById[$0] },
-                batchIssues: issues
-            ) {
-                return target
-            }
+    /// The thread's PR (`threadPrTarget` over the PRs on its sessions and
+    /// issues, `at` = their `updated_at`) resolved to what the Guide reads:
+    /// its diff source (the issue carrying it, else the session) and, only
+    /// while it is OPEN, the Merge capsule's target.
+    struct PrTarget: Equatable, Sendable {
+        public let url: String
+        public let open: Bool
+        /// The diff / merge subject: an issue with that PR, else a session.
+        public let subject: MergeTarget
+
+        public init(url: String, open: Bool, subject: MergeTarget) {
+            self.url = url
+            self.open = open
+            self.subject = subject
         }
-        if let open = issues.first(where: {
-            $0.prState == DomainContract.prStateOpen && !($0.prUrl ?? "").isEmpty
-        }) {
-            return .issue(issueId: open.id)
-        }
-        return nil
+
+        /// The Merge capsule's target — an open PR only.
+        public var mergeTarget: MergeTarget? { open ? subject : nil }
     }
 
-    /// The slice of a thread's Guide one run published, for its block in the
-    /// conversation: the run writes the THREAD's Guide (and mirrors the whole
-    /// array onto its own row), so a run's own `results` repeat every other
-    /// run's entries. An entry stamped (`at`, epoch ms, EXP-1251) at or after
-    /// the run's start and before the NEXT run's start (nil = open-ended)
-    /// belongs to it; an unstamped (older) entry stays with every run. Raw
-    /// jsonb text in and out; nil when nothing remains or it does not parse.
-    static func runResults(_ raw: String?, startedAt: String, nextStartedAt: String?) -> String? {
-        guard let raw, let data = raw.data(using: .utf8),
-              let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any]
-        else { return nil }
-        let start = time(startedAt)
-        let end = nextStartedAt.map { time($0) }
-        let kept = array.filter { entry in
-            guard let record = entry as? [String: Any],
-                  let number = record["at"] as? NSNumber,
-                  CFGetTypeID(number) != CFBooleanGetTypeID()
-            else { return true }
-            let at = number.doubleValue
-            if at < start { return false }
-            if let end, at >= end { return false }
-            return true
+    /// `sessions` = the thread's sessions; `issues` = its linked issues (the
+    /// rows carrying their PRs; a batch's covered ones too).
+    static func prTarget(
+        sessions: [CodingSessionEntity],
+        issues: [IssueEntity]
+    ) -> PrTarget? {
+        var candidates: [ThreadPrCandidate] = []
+        for issue in issues {
+            if let url = issue.prUrl, !url.isEmpty {
+                candidates.append(ThreadPrCandidate(url: url, state: issue.prState, at: issue.updatedAt))
+            }
         }
-        guard !kept.isEmpty,
-              let out = try? JSONSerialization.data(withJSONObject: kept),
-              let text = String(data: out, encoding: .utf8)
-        else { return nil }
-        return text
+        for session in sessions {
+            if let url = session.prUrl, !url.isEmpty {
+                candidates.append(ThreadPrCandidate(url: url, state: session.prState, at: session.updatedAt))
+            }
+        }
+        guard let url = prTarget(candidates) else { return nil }
+        let open = candidates.contains { $0.url == url && $0.state == DomainContract.prStateOpen }
+        if let issue = issues.first(where: { $0.prUrl == url }) {
+            return PrTarget(url: url, open: open, subject: .issue(issueId: issue.id))
+        }
+        if let session = sessions.last(where: { $0.prUrl == url }) {
+            return PrTarget(url: url, open: open, subject: .session(sessionId: session.id))
+        }
+        return nil
     }
 
     /// Whether a strip child was linked moments ago, so it fades in with a

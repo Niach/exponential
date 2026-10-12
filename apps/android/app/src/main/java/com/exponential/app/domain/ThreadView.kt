@@ -160,9 +160,12 @@ object ThreadView {
 
     data class ListEntry<T>(
         val threadId: String,
+        val teamId: String,
         val updatedAt: String,
-        /** The viewer owns a live run in it. */
+        /** The viewer owns a live session in it. */
         val mineLive: Boolean,
+        /** The viewer has a session in it or created it (Recent lists only these). */
+        val mine: Boolean,
         val value: T,
     )
 
@@ -347,15 +350,61 @@ object ThreadView {
         )
     }
 
-    /** Running (a live run of mine, newest activity first) vs Recent (every
-     *  other thread, newest activity first). */
-    fun <T> partition(entries: List<ListEntry<T>>): Partition<ListEntry<T>> {
-        val byActivity = entries.sortedWith(
-            compareByDescending<ListEntry<T>> { time(it.updatedAt) }.thenBy { it.threadId },
-        )
+    /** Running (a live session of mine) vs Recent (my other threads: a
+     *  session of mine or created by me), newest activity first. Scope:
+     *  [teamId] = the ACTIVE team (web, desktop); null = every team (phones,
+     *  which band the rows per team). */
+    fun <T> partition(entries: List<ListEntry<T>>, teamId: String? = null): Partition<ListEntry<T>> {
+        val byActivity = entries
+            .filter { teamId == null || it.teamId == teamId }
+            .sortedWith(compareByDescending<ListEntry<T>> { time(it.updatedAt) }.thenBy { it.threadId })
         return Partition(
             running = byActivity.filter { it.mineLive },
-            recent = byActivity.filter { !it.mineLive },
+            recent = byActivity.filter { !it.mineLive && it.mine },
         )
+    }
+
+    /** One PR a thread could target: on one of its sessions or issues. */
+    data class PrCandidate(
+        val url: String,
+        /** `open` | `merged` | `closed` (any other value counts as closed). */
+        val state: String?,
+        /** When the PR was stamped (its session's or issue's activity time). */
+        val at: String,
+    )
+
+    /** The PR a thread's Guide and Merge capsule target: the newest OPEN PR,
+     *  else the newest MERGED one, else none (web `threadPrTarget`). */
+    fun prTarget(candidates: List<PrCandidate>): String? {
+        fun newest(state: String) = candidates
+            .filter { it.state == state && it.url.isNotEmpty() }
+            .sortedWith(compareByDescending<PrCandidate> { time(it.at) }.thenBy { it.url })
+            .firstOrNull()?.url
+        return newest(DomainContract.prStateOpen) ?: newest(DomainContract.prStateMerged)
+    }
+
+    /** The Guide entries a session block shows: the ones that session wrote
+     *  (`sessionId`); entries filed before the stamp belong to the thread's
+     *  FIRST session. The thread's Guide face shows every entry (web
+     *  `sessionGuideEntries`). */
+    fun sessionGuideEntries(
+        results: List<kotlinx.serialization.json.JsonObject>,
+        sessionId: String,
+        firstSessionId: String?,
+    ): List<kotlinx.serialization.json.JsonObject> = results.filter { entry ->
+        val writer = (entry["sessionId"] as? kotlinx.serialization.json.JsonPrimitive)
+            ?.takeIf { it.isString }?.content?.ifEmpty { null }
+        if (writer != null) writer == sessionId else sessionId == firstSessionId
+    }
+
+    /** [sessionGuideEntries] over the raw `results` jsonb text, back as the
+     *  same text shape (null when there is nothing to show). */
+    fun sessionGuideEntries(results: String?, sessionId: String, firstSessionId: String?): String? {
+        val array = runCatching {
+            kotlinx.serialization.json.Json.parseToJsonElement(results ?: return null)
+                as? kotlinx.serialization.json.JsonArray
+        }.getOrNull() ?: return null
+        val kept = sessionGuideEntries(array.mapNotNull { it as? kotlinx.serialization.json.JsonObject }, sessionId, firstSessionId)
+        return if (kept.isEmpty()) null else kotlinx.serialization.json.JsonArray(kept).toString()
     }
 }

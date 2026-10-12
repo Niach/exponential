@@ -399,7 +399,6 @@ import {
   getThreadOfSession,
   linkIssueToThread,
   linkRunToThread,
-  listThreadIssueIds,
   listThreadIssueRows,
   listThreadRunRows,
   unlinkRunFromThread,
@@ -3276,6 +3275,8 @@ describe(`exponential_sessions_guide`, () => {
         select: () => txSelect,
         update: h.db.update,
         delete: h.db.delete,
+        // EXP-1284: the Guide owner read (resume chain + first session).
+        execute: h.db.execute,
       })
     })
   })
@@ -6946,7 +6947,6 @@ describe(`threads (EXP-1284)`, () => {
     vi.mocked(getThreadOfSession).mockReset().mockResolvedValue(null)
     vi.mocked(listThreadIssueRows).mockReset().mockResolvedValue([])
     vi.mocked(listThreadRunRows).mockReset().mockResolvedValue([])
-    vi.mocked(listThreadIssueIds).mockReset().mockResolvedValue([])
     vi.mocked(linkIssueToThread).mockReset().mockResolvedValue({ added: true })
     vi.mocked(linkRunToThread)
       .mockReset()
@@ -7085,7 +7085,7 @@ describe(`threads (EXP-1284)`, () => {
     dbRows.current = [ownRun({ id: RUN, userId: `user-2`, hostUserId: `user-3` })]
     const result = await tool(`exponential_threads_link`)({ threadId: TH, sessionId: RUN })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`Only the run's owner`)
+    expect(result.content[0].text).toContain(`Only the session's owner`)
     expect(linkRunToThread).not.toHaveBeenCalled()
   })
 
@@ -7213,15 +7213,26 @@ describe(`threads (EXP-1284)`, () => {
     })
     dbRows.current = [ownRun()]
     vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
-    vi.mocked(listThreadIssueIds).mockResolvedValue([I1, I2])
+    // Review T1: an issue whose PR merged (or closed) is done work, never
+    // re-linked to the new PR.
+    const I3 = `bbbbbbbb-0000-4000-8000-000000000003`
+    const I4 = `bbbbbbbb-0000-4000-8000-000000000004`
+    vi.mocked(listThreadIssueRows).mockResolvedValue([
+      { id: I1, prState: null },
+      { id: I3, prState: `merged` },
+      { id: I2, prState: `open` },
+      { id: I4, prState: `closed` },
+    ] as never)
 
     const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
       title: `Checkout redesign`,
     })
     expect(parseOk(result)).toMatchObject({ number: 300 })
-    expect(listThreadIssueIds).toHaveBeenCalledWith(db, TH)
+    expect(listThreadIssueRows).toHaveBeenCalledWith(db, TH)
     expect(caller.repositories.forIssue).toHaveBeenCalledWith({ issueId: I1 })
     expect(caller.repositories.forIssue).toHaveBeenCalledWith({ issueId: I2 })
+    expect(caller.repositories.forIssue).not.toHaveBeenCalledWith({ issueId: I3 })
+    expect(caller.repositories.forIssue).not.toHaveBeenCalledWith({ issueId: I4 })
     // The head is the run's own pushed branch (a chat run's, not an issue's).
     expect(JSON.stringify(vi.mocked(createPullRequest).mock.calls[0])).toContain(
       `exp/chat-1a2b3c4d`
@@ -7300,6 +7311,8 @@ describe(`threads (EXP-1284)`, () => {
       sessionResults: true,
     }
     vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    // Another session's entry (stamped): never this session's to replace,
+    // and never in its answer (review T1).
     const otherRunsTopic = {
       topic: `Summary`,
       label: null,
@@ -7307,6 +7320,7 @@ describe(`threads (EXP-1284)`, () => {
       width: null,
       height: null,
       text: `Filed by the first run`,
+      sessionId: RUN,
     }
     // Locked reads in order: the run row, then the thread row.
     const lockedReads: unknown[][] = [[{ results: null }], [{ results: [otherRunsTopic] }]]
@@ -7324,6 +7338,7 @@ describe(`threads (EXP-1284)`, () => {
           return q
         },
         update: h.db.update,
+        execute: h.db.execute,
       }
       return fn(tx)
     })
@@ -7339,21 +7354,75 @@ describe(`threads (EXP-1284)`, () => {
     ]
     const payload = parseOk(
       await collectTools(USER, SESSION, GUIDE_GATES).get(`exponential_sessions_guide`)!({
-        topic: `Web`,
+        topic: `Summary`,
         text: `The form`,
       })
     ) as { results: unknown }
     expect(fors).toEqual([`update`, `update`])
-    expect(payload.results).toEqual([
-      { topic: `Summary`, text: 22 },
-      { topic: `Web`, text: 8 },
-    ])
+    // Its own Summary files BESIDE the other session's, stamped with it.
+    expect(payload.results).toEqual([{ topic: `Summary`, text: 8 }])
     expect(db.update.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
       threadsTable,
       codingSessionsTable,
     ])
     const [threadWrite, mirror] = updateSet.mock.calls.map((call) => call[0])
     expect(threadWrite.results).toEqual(mirror.results)
-    expect(mirror.results).toHaveLength(2)
+    expect(mirror.results).toEqual([
+      otherRunsTopic,
+      expect.objectContaining({ topic: `Summary`, text: `The form`, sessionId: SESSION }),
+    ])
+  })
+
+  // Review T16: starting into / filing into a thread WRITES to it, so both
+  // take the grant threads_link takes.
+  it(`sessions_start{threadId} and issues_create{threadId} into ANOTHER thread need a whole-team grant`, async () => {
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([PROJ]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    membership.getBoardTeamId.mockResolvedValue({ id: PROJ, teamId: `ws-1` } as never)
+    const tools = collectTools(USER, null, ALL_MCP_TOOL_GATES, confined)
+    const started = await tools.get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      issueId: UUID,
+      threadId: TH,
+    })
+    expect(started.isError).toBe(true)
+    expect(started.content[0].text).toContain(`not granted access`)
+    expect(caller.steer.startSession).not.toHaveBeenCalled()
+    const created = await tools.get(`exponential_issues_create`)!({
+      boardId: PROJ,
+      title: `Split the form`,
+      threadId: TH,
+    })
+    expect(created.isError).toBe(true)
+    expect(created.content[0].text).toContain(`not granted access`)
+    expect(caller.issues.create).not.toHaveBeenCalled()
+  })
+
+  it(`sessions_start{threadId} into the caller's OWN thread needs no more than that`, async () => {
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([`proj-1`]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    membership.getIssueTeamContext.mockResolvedValue({
+      boardId: `proj-1`,
+      teamId: `ws-1`,
+    } as never)
+    dbRows.current = [ownRun({ id: SESSION })]
+    await collectTools(USER, SESSION, ALL_MCP_TOOL_GATES, confined).get(
+      `exponential_sessions_start`
+    )!({ deviceId: `mac-1`, issueId: UUID, threadId: TH })
+    expect(caller.steer.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: TH })
+    )
   })
 })

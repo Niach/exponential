@@ -1177,6 +1177,13 @@
       "when": 1791797504167,
       "tag": "0167_issue_drafts_thread",
       "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1791807129557,
+      "tag": "0168_threads_visibility",
+      "breakpoints": true
     }
   ]
 }

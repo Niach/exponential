@@ -35,7 +35,12 @@ struct ThreadScreen: View {
     @Environment(\.motion) private var motion
     @Environment(\.toaster) private var toaster
     @Environment(TeamState.self) private var teamState
+    @Environment(\.threadLanding) private var threadLanding
     @State private var page: ThreadPage
+    /// T11/T-N7: a requested child that has not synced into the strip yet
+    /// (a just-filed issue): the page shows the Conversation and switches the
+    /// moment the child arrives; a tab tap drops the request.
+    @State private var pendingPage: ThreadPage?
     @State private var model: ThreadScreenModel?
     /// One Issue face model per linked issue, created as the issues arrive.
     @State private var issueVMs: [String: IssueDetailViewModel] = [:]
@@ -63,7 +68,13 @@ struct ThreadScreen: View {
     init(threadId: String, initialPage: ThreadPage = .conversation) {
         self.threadId = threadId
         self.initialPage = initialPage
-        _page = State(initialValue: initialPage)
+        // An issue child may not be in the strip yet: hold it (`pendingPage`).
+        if case .issue = initialPage {
+            _page = State(initialValue: .conversation)
+            _pendingPage = State(initialValue: initialPage)
+        } else {
+            _page = State(initialValue: initialPage)
+        }
     }
 
     private var rows: ThreadRows? { model?.rows }
@@ -142,10 +153,22 @@ struct ThreadScreen: View {
             let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
             steerEnabled = config.enabled
         }
-        // A page that vanished (an unlinked issue) lands on the Conversation.
+        // A held child that arrived is shown; a page that vanished (an
+        // unlinked issue) lands on the Conversation.
         .onChange(of: pages) { _, pages in
-            if !pages.contains(page) { page = .conversation }
+            if let pending = pendingPage, pages.contains(pending) {
+                pendingPage = nil
+                selectPage(pending)
+            } else if !pages.contains(page) {
+                page = .conversation
+            }
             syncIssueModels()
+        }
+        // T11/T-N9: the navigator popped back to THIS page for a start or a
+        // filed issue: land on the child it names.
+        .onChange(of: threadLanding.request) { _, request in
+            guard let request, request.threadId == threadId else { return }
+            land(on: request.page)
         }
         .onChange(of: replyTarget) { _, _ in claimReplyRun() }
         .onChange(of: wantsPrChanges, initial: true) { _, _ in syncPrChangesModel() }
@@ -162,7 +185,10 @@ struct ThreadScreen: View {
                 selection: page,
                 issue: { rows.issue(id: $0) },
                 isFresh: { issueId in rows.item(issueId: issueId).map { model?.isFresh($0) ?? false } ?? false },
-                onSelect: selectPage,
+                onSelect: { next in
+                    pendingPage = nil
+                    selectPage(next)
+                },
                 onIssueMenu: { issueId, frame in openMenu(issueId: issueId, anchor: frame) },
                 onAdd: canEdit ? { (frame: CGRect) in openMenu(issueId: nil, anchor: frame) } : nil
             )
@@ -224,6 +250,8 @@ struct ThreadScreen: View {
                 onStartCoding: {},
                 onOpenChanges: { selectPage(.guide) }
             )
+            // T-N9: its `Threads` row leaves THIS thread out.
+            .environment(\.currentThreadId, threadId)
         } else {
             SkeletonRows()
                 .padding(.horizontal, 16)
@@ -234,7 +262,10 @@ struct ThreadScreen: View {
 
     // MARK: - Guide (the THREAD's Guide)
 
-    private var mergeTarget: MergeTarget? { rows?.mergeTarget }
+    /// T8/T-N6: the thread's PR (`threadPrTarget` ×4: newest open, else
+    /// newest merged); the capsule only while it is open.
+    private var prTarget: ThreadViews.PrTarget? { rows?.prTarget }
+    private var mergeTarget: MergeTarget? { prTarget?.mergeTarget }
 
     private static func mergeKey(_ target: MergeTarget) -> String {
         switch target {
@@ -243,14 +274,16 @@ struct ThreadScreen: View {
         }
     }
 
-    /// The PR files the Guide counts: the thread PR's issue (or run).
+    /// The PR files the Guide counts: the thread PR's issue (or session),
+    /// open or merged.
     private var wantsPrChanges: String? {
-        mergeTarget.map(Self.mergeKey)
+        prTarget.map { Self.mergeKey($0.subject) }
     }
 
     private func guidePage(rows: ThreadRows) -> some View {
         GuideFace(
-            groups: parseSessionResultGroups(rows.thread.results),
+            // T-N8: the thread's Guide, else its newest session's row.
+            groups: parseSessionResultGroups(rows.guide),
             files: prChangesModel?.loadedFiles,
             diffStatus: prDiffStatus,
             teamId: rows.thread.teamId,
@@ -299,7 +332,7 @@ struct ThreadScreen: View {
     private func syncPrChangesModel() {
         prChangesModel?.stopObserving()
         prChangesModel = nil
-        guard let target = mergeTarget else { return }
+        guard let target = prTarget?.subject else { return }
         let source: ChangesViewModel.Source = switch target {
         case let .issue(id): .issue(id)
         case let .session(id): .session(id)
@@ -347,7 +380,9 @@ struct ThreadScreen: View {
             }
             guard let device = RunResume.target(for: session, devices: devices, currentUserId: deps.auth.userId)
             else {
-                // Nothing can take the run back: start a fresh one here.
+                // T9: nothing can take it back — say it ended and start a
+                // new session in this thread.
+                toaster.info(Self.endedTitle, description: Self.endedDescription)
                 openComposer(issueId: nil, text: text)
                 reply = ""
                 return
@@ -359,9 +394,12 @@ struct ThreadScreen: View {
                         accountId: accountId, sessionId: runId, deviceId: device.deviceId
                     )
                     // The resume stays in the thread; the text follows it
-                    // once its socket is up (`claimReplyRun`).
+                    // once its socket is up (`claimReplyRun`). T10/T-N4: no
+                    // successor within the start timeout = the text comes
+                    // back with a Retry.
                     pendingReply = text
                     reply = ""
+                    holdReply(text)
                 } catch {
                     toaster.error(
                         FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
@@ -373,6 +411,27 @@ struct ThreadScreen: View {
         case .start:
             openComposer(issueId: nil, text: text)
             reply = ""
+        }
+    }
+
+    /// T9: a reply to my ended session nothing can resume.
+    static let endedTitle = "That session ended"
+    static let endedDescription = "Your reply starts a new session in this thread."
+
+    /// T10/T-N4: a resumed reply still waiting after the start timeout gives
+    /// its text back and offers a Retry.
+    private func holdReply(_ text: String) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(FeedbackStates.Starting.timeoutMs))
+            guard pendingReply == text else { return }
+            pendingReply = nil
+            if reply.isEmpty { reply = text }
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
+                action: ToastAction(label: FeedbackStates.Errors.retry) {
+                    Task { @MainActor in sendReply() }
+                }
+            )
         }
     }
 
@@ -558,6 +617,19 @@ struct ThreadScreen: View {
 
     // MARK: - Pages
 
+    /// T11/T-N7: show `target` now, or hold it until it reaches the strip.
+    private func land(on target: ThreadPage) {
+        menuTarget = nil
+        guideSection = nil
+        if pages.contains(target) {
+            pendingPage = nil
+            selectPage(target)
+        } else {
+            pendingPage = target
+            selectPage(.conversation)
+        }
+    }
+
     private func selectPage(_ next: ThreadPage) {
         withAnimation(motion.standard) { switchPage(next) }
     }
@@ -683,5 +755,29 @@ struct RunThreadScreen: View {
                 }
             }
         } catch {}
+    }
+}
+
+private struct ThreadLandingKey: EnvironmentKey {
+    /// No navigator above: a landing goes nowhere.
+    static let defaultValue = ThreadLanding()
+}
+
+private struct CurrentThreadIdKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    /// EXP-1284: the navigator's landing box (`ThreadLanding`).
+    var threadLanding: ThreadLanding {
+        get { self[ThreadLandingKey.self] }
+        set { self[ThreadLandingKey.self] = newValue }
+    }
+
+    /// EXP-1284 (T-N9): the thread whose page hosts this view — an embedded
+    /// issue's `Threads` row leaves it out (it IS the page you are on).
+    var currentThreadId: String? {
+        get { self[CurrentThreadIdKey.self] }
+        set { self[CurrentThreadIdKey.self] = newValue }
     }
 }

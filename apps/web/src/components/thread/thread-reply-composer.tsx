@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Button, Spinner, Textarea, conceptIcon, cn } from "@exp/ui"
+import { Button, Spinner, Textarea, conceptIcon, cn, toast } from "@exp/ui"
 import type { CodingSession } from "@/db/schema"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { acquireSteerSession } from "@/lib/steer-session-store"
@@ -19,7 +19,23 @@ import { trpc } from "@/lib/trpc-client"
 
 const SendIcon = conceptIcon(`ui-send`)
 
+/** Review T9: the reply's note when the session it would resume cannot come
+ *  back (×4: desktop `SESSION_ENDED_COPY`, Android `THREAD_SESSION_ENDED`,
+ *  iOS `endedTitle` + `endedDescription`). */
+export const THREAD_SESSION_ENDED_COPY = `That session ended. Your reply starts a new session in this thread.`
+
 export const THREAD_REPLY_PLACEHOLDER = `Reply in this thread`
+
+/** Review T10: how long a held reply waits for its resumed session (the
+ *  composer start's deadline). */
+export const THREAD_REPLY_RESUME_TIMEOUT_MS = 30_000
+export const THREAD_REPLY_RESUME_TIMEOUT_COPY = `It did not come back in time. Your reply is back in the box.`
+
+interface HeldReply {
+  text: string
+  fromRunId: string
+  startId: string
+}
 
 export function ThreadReplyComposer({
   target,
@@ -36,13 +52,14 @@ export function ThreadReplyComposer({
 }) {
   const [text, setText] = useState(``)
   const [busy, setBusy] = useState(false)
-  // Text waiting for the resumed run (sent once it is live).
-  const [held, setHeld] = useState<{ text: string; fromRunId: string } | null>(null)
+  // Text waiting for the resumed session (sent once it is live), with the
+  // start id its Retry reuses.
+  const [held, setHeld] = useState<HeldReply | null>(null)
   const heldRef = useRef(held)
   heldRef.current = held
 
-  // A held reply goes to the FIRST live run of mine that is not the one it
-  // resumed — the resume, once its row and its stream are up.
+  // A held reply goes to the FIRST live session of mine that is not the one
+  // it resumed — the resume, once its row and its stream are up.
   const sendRunId = target.kind === `send` ? target.runId : null
   useEffect(() => {
     if (!held || !sendRunId || sendRunId === held.fromRunId) return
@@ -58,10 +75,33 @@ export function ThreadReplyComposer({
     return store.subscribe(trySend)
   }, [held, sendRunId])
 
-  const submit = async (reuseStartId?: string) => {
-    const message = text.trim()
+  // Review T10: a resume that never comes up (the machine is offline, it
+  // refused) times out like the composer's start: the text comes back and a
+  // toast offers Retry (the same start id, so the machine never runs it
+  // twice).
+  useEffect(() => {
+    if (!held) return
+    const timer = setTimeout(() => {
+      if (heldRef.current !== held) return
+      setHeld(null)
+      setText((current) => (current.trim() ? current : held.text))
+      failedAction(`resume`, `the session`, undefined, {
+        description: THREAD_REPLY_RESUME_TIMEOUT_COPY,
+        retry: () => void send(held.text, held.startId),
+      })
+    }, THREAD_REPLY_RESUME_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+    // `send` reads the latest target; the timer is per held reply.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [held])
+
+  const send = async (message: string, reuseStartId?: string) => {
     if (!message || busy) return
-    if (target.kind === `start`) {
+    if (target.kind === `start` || (target.kind === `resume` && !resumeRun?.deviceId)) {
+      // Review T9: nothing of mine to resume here (or its machine is
+      // unknown): a new session in this thread. The ended one says so (the
+      // same words ×4).
+      if (target.kind === `resume`) toast.message(THREAD_SESSION_ENDED_COPY)
       onStart(message)
       setText(``)
       return
@@ -88,14 +128,18 @@ export function ThreadReplyComposer({
         { resumeSessionId: resumeRun.id, deviceId: resumeRun.deviceId, startId },
         SKIP_ERROR_TOAST
       )
-      setHeld({ text: message, fromRunId: resumeRun.id })
+      setHeld({ text: message, fromRunId: resumeRun.id, startId })
       setText(``)
     } catch (error) {
-      failedAction(`resume`, `the session`, error, { retry: () => void submit(startId) })
+      setText((current) => (current.trim() ? current : message))
+      failedAction(`resume`, `the session`, error, {
+        retry: () => void send(message, startId),
+      })
     } finally {
       setBusy(false)
     }
   }
+  const submit = () => send(text.trim())
 
   const pending = busy || held !== null
   return (

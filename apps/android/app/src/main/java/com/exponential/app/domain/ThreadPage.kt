@@ -116,23 +116,29 @@ object ThreadPage {
 
     // ── The thread's PR ─────────────────────────────────────────────────────
 
-    /** The PR the thread's Guide merges: the PR of its NEWEST run with one,
-     *  else the URL its issues share most (a batch PR links them all). */
-    fun prUrl(runs: List<CodingSessionEntity>, issues: List<IssueEntity>): String? {
-        runs.filter { !it.prUrl.isNullOrBlank() }
-            .maxByOrNull { epoch(it.startedAt) }
-            ?.let { return it.prUrl }
-        val urls = issues.mapNotNull { it.prUrl?.takeIf { url -> url.isNotBlank() } }
-        if (urls.isEmpty()) return null
-        return urls.groupingBy { it }.eachCount().entries
-            .sortedByDescending { it.value }
-            .first().key
-    }
+    /** The PR the thread's Guide and Merge capsule target ×4
+     *  ([ThreadView.prTarget]): the newest OPEN PR on the thread's sessions
+     *  and issues, else the newest MERGED one. */
+    fun prUrl(runs: List<CodingSessionEntity>, issues: List<IssueEntity>): String? =
+        ThreadView.prTarget(
+            runs.mapNotNull { run ->
+                run.prUrl?.takeIf { it.isNotBlank() }?.let { ThreadView.PrCandidate(it, run.prState, run.updatedAt) }
+            } + issues.mapNotNull { issue ->
+                issue.prUrl?.takeIf { it.isNotBlank() }?.let { ThreadView.PrCandidate(it, issue.prState, issue.updatedAt) }
+            },
+        )
 
     /** EXP-1284 (rule 8): the Guide a reader shows for a run — its THREAD's
      *  once the thread has one, else the run's own (web `guideOfRun`). */
     fun guideResults(runResults: String?, threadResults: String?): String? =
         threadResults ?: runResults
+
+    /** A session BLOCK's Guide: only the entries that session wrote, out of
+     *  the thread's Guide (else its own row's mirror); unstamped legacy
+     *  entries belong to the thread's first session
+     *  ([ThreadView.sessionGuideEntries]). */
+    fun sessionGuide(run: CodingSessionEntity, thread: ThreadEntity?, firstSessionId: String?): String? =
+        ThreadView.sessionGuideEntries(guideResults(run.results, thread?.results), run.id, firstSessionId)
 
     // ── Bundles (web `useThreadBundles`) ────────────────────────────────────
 
@@ -145,8 +151,10 @@ object ThreadPage {
         /** The issues its issue items name (visible ones), link order. */
         val issues: List<IssueEntity>,
         val view: ThreadView.View,
-        /** The viewer owns a live run in it ([ThreadView.partition]). */
+        /** The viewer owns a live session in it ([ThreadView.partition]). */
         val mineLive: Boolean,
+        /** The viewer has a session in it or created it (Recent lists only these). */
+        val mine: Boolean,
         /** The newest live run of the viewer's. */
         val myLiveRun: CodingSessionEntity?,
         /** The newest live run of anyone's (its state = a list row's mark). */
@@ -195,25 +203,53 @@ object ThreadPage {
                 issues = threadIssues,
                 view = view,
                 mineLive = myLive.isNotEmpty(),
+                mine = viewerId != null && (thread.createdBy == viewerId || threadRuns.any { it.userId == viewerId }),
                 myLiveRun = myLive.lastOrNull(),
                 liveRun = liveRuns.lastOrNull(),
             )
         }
     }
 
-    /** The list surfaces' model: Running (a live run of mine) vs Recent,
-     *  newest activity first. A thread whose every child is gone (trashed
-     *  board, purged runs) has nothing to show. */
-    fun list(bundles: List<Bundle>): ThreadView.Partition<Bundle> {
+    /** The list surfaces' model: Running (a live session of mine) vs Recent
+     *  (my other threads), newest activity first. Phones list EVERY team
+     *  ([teamId] null) and band the rows per team (T6). A thread whose every
+     *  child is gone (trashed board, purged sessions) has nothing to show. */
+    fun list(bundles: List<Bundle>, teamId: String? = null): ThreadView.Partition<Bundle> {
         val parts = ThreadView.partition(
             bundles
                 .filter { it.runs.isNotEmpty() || it.issues.isNotEmpty() }
-                .map { ThreadView.ListEntry(it.thread.id, it.thread.updatedAt, it.mineLive, it) },
+                .map {
+                    ThreadView.ListEntry(
+                        threadId = it.thread.id,
+                        teamId = it.thread.teamId,
+                        updatedAt = it.thread.updatedAt,
+                        mineLive = it.mineLive,
+                        mine = it.mine,
+                        value = it,
+                    )
+                },
+            teamId,
         )
         return ThreadView.Partition(
             running = parts.running.map { it.value },
             recent = parts.recent.map { it.value },
         )
+    }
+
+    /** T4: my LIVE sessions no thread item names yet (placement failed or
+     *  the thread-items shape lags) — listed in Running as plain session
+     *  rows so a live session never vanishes. Heartbeat-aware; newest first. */
+    fun orphanLiveSessions(
+        sessions: List<CodingSessionEntity>,
+        items: List<ThreadItemEntity>,
+        viewerId: String?,
+        nowMs: Long,
+    ): List<CodingSessionEntity> {
+        if (viewerId == null) return emptyList()
+        val placed = items.mapNotNullTo(HashSet()) { it.sessionId }
+        return sessions
+            .filter { it.userId == viewerId && it.id !in placed && isSessionLive(it, nowMs) }
+            .sortedByDescending { epoch(it.startedAt) }
     }
 
     private fun epoch(value: String?): Long = value?.let { WireTimestamps.parseEpochMs(it) } ?: 0L

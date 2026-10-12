@@ -57,7 +57,7 @@ const fakeTx = {
       where: () => ({
         returning: async () => {
           state.updates.push(values)
-          return [{ id: THREAD, teamId: TEAM, ...values }]
+          return [{ id: THREAD, teamId: TEAM, hasVisibleItems: true, ...values }]
         },
       }),
     }),
@@ -175,6 +175,8 @@ describe(`threads.update`, () => {
     expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, TEAM, `mutate_resources`)
     expect(state.updates[0]).toMatchObject({ title: `Ship it` })
     expect(result).toMatchObject({ txid: 42, thread: { title: `Ship it` } })
+    // The visibility flag is server-only, like in the shape.
+    expect(result.thread).not.toHaveProperty(`hasVisibleItems`)
   })
 
   it.each([null, ``, `   `])(`clears the title on %j`, async (title) => {
@@ -235,13 +237,16 @@ describe(`threads.link`, () => {
     state.run = { id: RUN, teamId: TEAM, userId: `someone`, hostUserId: null }
     await expect(
       caller.link({ id: THREAD, sessionId: RUN })
-    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    ).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+      message: `Only the session's owner can move it between threads`,
+    })
     expect(h.linkRunToThread).not.toHaveBeenCalled()
   })
 
   it(`refuses a run of another team as BAD_REQUEST`, async () => {
     h.linkRunToThread.mockRejectedValueOnce(
-      new h.ThreadRuleError(`That run belongs to another team`)
+      new h.ThreadRuleError(`That session belongs to another team`)
     )
     await expect(
       caller.link({ id: THREAD, sessionId: RUN })
@@ -252,7 +257,7 @@ describe(`threads.link`, () => {
     state.run = null
     await expect(
       caller.link({ id: THREAD, sessionId: RUN })
-    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    ).rejects.toMatchObject({ code: `NOT_FOUND`, message: `Session not found` })
   })
 
   it(`refuses a non-member`, async () => {

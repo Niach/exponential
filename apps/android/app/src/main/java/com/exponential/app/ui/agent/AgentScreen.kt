@@ -155,6 +155,9 @@ fun AgentScreen(
     onOpenIssue: (issueId: String) -> Unit,
     /** EXP-1284: a Running / Recent row opens its THREAD. */
     onOpenThread: (threadId: String) -> Unit = {},
+    /** T-N2: a start LANDS on its thread (Conversation selected), replacing
+     *  this page when it was pushed; default = [onOpenThread]. */
+    onLandInThread: (threadId: String) -> Unit = onOpenThread,
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // The sessions under the composer: the Devices tab's own model, reused
@@ -214,19 +217,27 @@ fun AgentScreen(
     val memberTeams by sessionsViewModel.teams.collectAsStateWithLifecycle()
     // EXP-1284: Running (a live run of mine) vs Recent, as THREADS.
     val threadList by threadsViewModel.list.collectAsStateWithLifecycle()
+    val orphanLive by threadsViewModel.orphanLive.collectAsStateWithLifecycle()
 
     // The desktop picked the start up — open the live session ONCE (EXP-536).
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    // EXP-1284 (T-N2/T11): EVERY start lands on its THREAD with the
+    // Conversation on show — the thread it was started into, else the one
+    // the server placed it in (its synced item, a short wait); a session no
+    // thread names yet opens on its own screen. Kept apart from the one-shot
+    // so consuming it never cancels the wait.
+    var landing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(startedSessionId) {
         startedSessionId?.let {
             viewModel.consumeStartedSession()
-            // EXP-1284: a start INTO a thread lands back on that thread (the
-            // pushed composer pops; the new run is its next block) — the
-            // phone twin of web `landNewRun` turning the New run tab into
-            // the thread's.
-            val back = onBack
-            if (viewModel.seed.threadId != null && back != null) back() else onOpenSteer(it)
+            landing = it
         }
+    }
+    LaunchedEffect(landing) {
+        val sessionId = landing ?: return@LaunchedEffect
+        val threadId = viewModel.seed.threadId ?: threadsViewModel.awaitThreadOf(sessionId)
+        landing = null
+        if (threadId != null) onLandInThread(threadId) else onOpenSteer(sessionId)
     }
     // EXP-1253: computed ONCE per mount (it never flips while you type); the
     // name fills in when the user row syncs.
@@ -518,7 +529,7 @@ fun AgentScreen(
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
     // `min_h_full`, iOS the same rule).
-    val emptyRuns = threadList.running.isEmpty()
+    val emptyRuns = threadList.running.isEmpty() && orphanLive.isEmpty()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -797,6 +808,8 @@ fun AgentScreen(
                         item(key = "__home_recent__") {
                             HomeRecentThreads(
                                 rows = recentThreads.map { it.listRow() },
+                                teamIds = recentThreads.map { it.thread.teamId },
+                                teams = memberTeams,
                                 onOpen = onOpenThread,
                                 modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
                             )
@@ -823,6 +836,9 @@ fun AgentScreen(
                 running = threadList.running,
                 onOpenThread = onOpenThread,
                 teams = memberTeams,
+                // T4: my live sessions no thread names yet stay listed.
+                orphans = orphanLive,
+                onOpenSession = onOpenSteer,
             )
         }
         }
@@ -978,6 +994,9 @@ private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
 @Composable
 private fun HomeRecentThreads(
     rows: List<com.exponential.app.ui.thread.ThreadListRowModel>,
+    /** Each row's team (T6: every team, banded once there are several). */
+    teamIds: List<String>,
+    teams: List<com.exponential.app.data.db.TeamEntity>,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -990,18 +1009,22 @@ private fun HomeRecentThreads(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
             modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
         )
-        rows.forEach { row ->
-            Box(Modifier.testTag(AgentHome.RECENT_ROW_TEST_ID)) {
-                com.exponential.app.ui.thread.ThreadListRow(
-                    title = row.title,
-                    caption = row.caption,
-                    live = row.live,
-                    busy = row.busy,
-                    needsInput = row.needsInput,
-                    agent = row.agent,
-                    markState = row.markState,
-                    onClick = { onOpen(row.threadId) },
-                )
+        val bands = com.exponential.app.ui.components.teamBands(rows.zip(teamIds), teams) { it.second }
+        bands.forEach { band ->
+            band.team?.let { com.exponential.app.ui.components.TeamSectionHeader(it) }
+            band.items.forEach { (row, _) ->
+                Box(Modifier.testTag(AgentHome.RECENT_ROW_TEST_ID)) {
+                    com.exponential.app.ui.thread.ThreadListRow(
+                        title = row.title,
+                        caption = row.caption,
+                        live = row.live,
+                        busy = row.busy,
+                        needsInput = row.needsInput,
+                        agent = row.agent,
+                        markState = row.markState,
+                        onClick = { onOpen(row.threadId) },
+                    )
+                }
             }
         }
     }

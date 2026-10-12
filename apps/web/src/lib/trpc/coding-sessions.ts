@@ -44,7 +44,12 @@ import {
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 import { storedTriggers } from "@/lib/action-trigger-rules"
-import { joinThreadForStart, type StartSubject } from "@/lib/threads"
+import {
+  joinThreadForStart,
+  placeSessionAlone,
+  type StartSubject,
+} from "@/lib/threads"
+import { takeStartThread, type StartThreadSubject } from "@/lib/start-threads"
 
 // Built-in action runs (EXP-257/EXP-259) have no DB row to FK — their session
 // rows are batch-shaped (actionId NULL) with the server-constant name
@@ -419,11 +424,14 @@ async function adoptPredecessor(
 /** EXP-1284: every start opens or joins a thread AFTER its row exists
  * (`joinThreadForStart`: a resume stays in its predecessor's thread, a
  * requested `threadId` of the run's team is joined, an issue joins the
- * issue's newest thread, everything else opens a fresh one). ONE transaction,
+ * issue's open thread, everything else opens a fresh one). ONE transaction,
  * so a half-placed run never leaves an empty thread behind. Placement never
- * fails a start: the row is the device's launch handshake, so a refusal here
- * is logged and the run answers `threadId: null` (a later heartbeat echo or
- * MCP `threads_link` can still place it). */
+ * fails a start: the row is the device's launch handshake. Review T4: a
+ * failed placement is logged and FALLS BACK to a fresh thread of the
+ * session's own (`placeSessionAlone`), so a live session never sits in no
+ * thread (every list shows threads); only when that fails too does the
+ * start answer `threadId: null` (a later heartbeat echo or MCP
+ * `threads_link` can still place it). */
 async function placeRunInThread(
   db: Context[`db`],
   session: { id: string; teamId: string; userId: string; resumedFromId?: string | null },
@@ -441,9 +449,52 @@ async function placeRunInThread(
     )
     return thread.id
   } catch (e) {
-    console.error(`[threads] placing run ${session.id} failed`, e)
+    console.error(
+      `[threads] placing session ${session.id} failed; falling back to a thread of its own`,
+      e
+    )
+  }
+  try {
+    const issueIds =
+      subject.kind === `issue`
+        ? [subject.issueId]
+        : subject.kind === `batch`
+          ? subject.issueIds
+          : []
+    const thread = await db.transaction((tx) =>
+      placeSessionAlone(
+        tx,
+        { id: session.id, teamId: session.teamId, userId: session.userId },
+        issueIds
+      )
+    )
+    return thread.id
+  } catch (e) {
+    console.error(`[threads] the fallback placement of session ${session.id} failed`, e)
     return null
   }
+}
+
+/** EXP-1284 (review T16): the thread a start asks for — the device's echo
+ * of the frame's `threadId`, else the one `steer.startSession` remembered
+ * for this device and subject (`lib/start-threads.ts`: a daemon that
+ * predates threads drops the field). Taken on every non-resume start so an
+ * echoing device clears it too; a resume takes none (its predecessor's
+ * thread wins). */
+function requestedStartThread(
+  ownerId: string,
+  input: { threadId?: string; deviceId?: string; resumedFromId?: string },
+  subject: StartThreadSubject
+): string | undefined {
+  if (input.resumedFromId) return input.threadId
+  const remembered = takeStartThread({ ownerId, deviceId: input.deviceId, subject })
+  if (input.threadId) return input.threadId
+  if (remembered) {
+    console.info(
+      `[threads] a start on device ${input.deviceId} carried no threadId (an older daemon): placing it in ${remembered}, the thread its start frame named`
+    )
+  }
+  return remembered ?? undefined
 }
 
 /** SLOP-17: desktop/CLI 0.14.66 daemons still name the firing trigger
@@ -907,7 +958,7 @@ export const codingSessionsRouter = router({
           // steer.startSession({ resumeSessionId })). History only.
           resumedFromId: z.string().uuid().optional(),
           // EXP-1284: the thread this run starts INTO (the start frame's
-          // `threadId`, echoed by the device; the composer's "start a run
+          // `threadId`, echoed by the device; the composer's "start a session
           // here", MCP `sessions_start{threadId}`). Lenient like every other
           // start echo: a vanished or foreign thread falls through to the
           // default placement, never a refused start. A resume's
@@ -1039,7 +1090,7 @@ export const codingSessionsRouter = router({
           ctx.db,
           session,
           input.actionId === BUILTIN_CHAT_ID ? { kind: `chat` } : { kind: `action` },
-          input.threadId
+          requestedStartThread(ctx.session.user.id, input, { actionId: input.actionId })
         )
 
         return { session, threadId }
@@ -1118,7 +1169,7 @@ export const codingSessionsRouter = router({
           ctx.db,
           session,
           { kind: `action` },
-          input.threadId
+          requestedStartThread(ctx.session.user.id, input, { actionId: action.id })
         )
 
         return { session, threadId }
@@ -1172,7 +1223,7 @@ export const codingSessionsRouter = router({
           ctx.db,
           session,
           { kind: `issue`, issueId: input.issueId },
-          input.threadId
+          requestedStartThread(ctx.session.user.id, input, { issueId: input.issueId })
         )
 
         return { session, threadId }
@@ -1232,7 +1283,9 @@ export const codingSessionsRouter = router({
         ctx.db,
         session,
         { kind: `batch`, issueIds: batchIssueIds ?? [] },
-        input.threadId
+        requestedStartThread(ctx.session.user.id, input, {
+          issueIds: input.batchIssueIds ?? [],
+        })
       )
 
       return { session, threadId }

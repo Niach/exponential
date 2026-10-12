@@ -120,7 +120,7 @@ Issues DUAL-WRITE `status` (the builtin ANCHOR enum) and `statusId` (nullable FK
 
 ### Custom triggers
 
-`db/out/custom/0001_triggers.sql` = 16 functions (identifiers, `updated_at`, scoping/trash/archive/membership mirrors, builtin statuses, `status_id`).
+`db/out/custom/0001_triggers.sql` = 20 functions (identifiers, `updated_at`, scoping/trash/archive/membership mirrors, builtin statuses, `status_id`).
 
 ## Patterns
 

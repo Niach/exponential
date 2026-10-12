@@ -189,17 +189,53 @@ class ThreadViewTest {
             val entries = case.getValue("input").jsonArray.map { it.jsonObject }.map {
                 ThreadView.ListEntry(
                     threadId = it.str("threadId")!!,
+                    teamId = it.str("teamId")!!,
                     updatedAt = it.str("updatedAt")!!,
                     mineLive = it.getValue("mineLive").jsonPrimitive.boolean,
+                    mine = it.getValue("mine").jsonPrimitive.boolean,
                     value = it,
                 )
             }
-            val partition = ThreadView.partition(entries)
+            val partition = ThreadView.partition(entries, case.getValue("scope").jsonObject.str("teamId"))
             val actual = buildJsonObject {
                 put("running", JsonArray(partition.running.map { it.value }))
                 put("recent", JsonArray(partition.recent.map { it.value }))
             }
             assertEquals(case.str("name"), case.getValue("expected"), actual)
+        }
+    }
+
+    @Test
+    fun `every threadPrTarget case matches the fixture`() {
+        val cases = fixture.list("prTargets")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val candidates = case.getValue("input").jsonArray.map { it.jsonObject }.map {
+                ThreadView.PrCandidate(url = it.str("url")!!, state = it.str("state"), at = it.str("at")!!)
+            }
+            val expected = case["expected"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+            assertEquals(case.str("name"), expected, ThreadView.prTarget(candidates))
+        }
+    }
+
+    @Test
+    fun `every sessionGuideEntries case matches the fixture`() {
+        val cases = fixture.list("guideSlices")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            // `results` may be null (a thread with no Guide yet).
+            val rawResults = input["results"]?.takeUnless { it is JsonNull }
+            val results = rawResults?.jsonArray?.map { it.jsonObject }.orEmpty()
+            val actual = ThreadView.sessionGuideEntries(results, input.str("sessionId")!!, input.str("firstSessionId"))
+            assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual))
+            // The raw-text form agrees (empty = null).
+            val raw = ThreadView.sessionGuideEntries(
+                rawResults?.toString(),
+                input.str("sessionId")!!,
+                input.str("firstSessionId"),
+            )
+            assertEquals(case.str("name"), if (actual.isEmpty()) null else JsonArray(actual).toString(), raw)
         }
     }
 

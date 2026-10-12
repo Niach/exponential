@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // EXP-1284: a published picture lands in the run's THREAD's Guide, under the
-// run lock and then the thread's, mirrored onto the run's own row; a picture
-// another run of the thread filed under the same (topic, label) is displaced
-// with its row and bytes. The db, the storage and the thread lookup are
-// mocked; the list algebra and the lock helpers run for real.
+// run lock and then the thread's, mirrored onto the run's own row, stamped
+// with the session. Only a picture the session OWNS under the same (topic,
+// label) is displaced with its row and bytes (review T1): another session's
+// stays. The db, the storage and the thread lookup are mocked; the list
+// algebra and the lock helpers run for real.
 
 const state = vi.hoisted(() => ({
   /** The locked reads in order: the run row, then (with a thread) its row. */
@@ -14,10 +15,13 @@ const state = vi.hoisted(() => ({
   updates: [] as Array<{ table: unknown; values: Record<string, unknown> }>,
   deletedStorageKey: `sessions/old.png` as string | null,
   inserted: true,
+  /** The Guide owner read: none = the session alone (owns legacy). */
+  owner: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock(`@/db/connection`, () => {
   const tx = {
+    execute: async () => ({ rows: state.owner }),
     select: () => {
       const rows = state.lockedReads.shift() ?? []
       const q: Record<string, unknown> = {}
@@ -97,26 +101,50 @@ beforeEach(() => {
   state.updates = []
   state.deletedStorageKey = `sessions/old.png`
   state.inserted = true
+  state.owner = []
   vi.mocked(deleteObject).mockClear()
   vi.mocked(rollbackSessionImage).mockClear()
 })
 
 describe(`publishSessionResultPicture (EXP-1284 thread Guide)`, () => {
-  it(`writes the thread's Guide and the run's mirror, and reclaims another run's displaced picture`, async () => {
+  it(`writes the thread's Guide and the run's mirror, stamped; another session's picture of the same name stays`, async () => {
     state.thread = { id: `th-1`, teamId: `t-1` }
-    // The run's own mirror is stale; the thread holds the first run's shot.
-    state.lockedReads = [[{ results: null }], [{ results: [picture(`Checkout`, `web`, `att-old`)] }]]
+    state.owner = [{ chain_ids: [`s-2`], first_session_id: `s-1` }]
+    // The run's own mirror is stale; the thread holds the first session's shot.
+    const theirs = { ...picture(`Checkout`, `web`, `att-old`), sessionId: `s-1` }
+    state.lockedReads = [[{ results: null }], [{ results: [theirs] }]]
     const published = await publishSessionResultPicture(input, prepared)
 
     expect(state.locks).toEqual([`update`, `update`])
-    expect(published.replaced).toBe(true)
+    expect(published.replaced).toBe(false)
+    // The answer = what THIS session published.
     expect(published.results).toEqual([
-      expect.objectContaining({ topic: `Checkout`, label: `web`, attachmentId: `att-new` }),
+      expect.objectContaining({
+        topic: `Checkout`,
+        label: `web`,
+        attachmentId: `att-new`,
+        sessionId: `s-2`,
+      }),
     ])
     expect(state.updates.map((u) => u.table)).toEqual([threads, codingSessions])
     expect(state.updates[0]!.values.results).toEqual(state.updates[1]!.values.results)
-    // The displaced picture belonged to ANOTHER run of the thread: its bytes
-    // go all the same.
+    expect(state.updates[0]!.values.results).toEqual([
+      theirs,
+      expect.objectContaining({ attachmentId: `att-new`, sessionId: `s-2` }),
+    ])
+    expect(deleteObject).not.toHaveBeenCalled()
+  })
+
+  it(`replaces the session's OWN picture (and the legacy one it inherits), reclaiming the bytes`, async () => {
+    state.thread = { id: `th-1`, teamId: `t-1` }
+    // s-2 resumed s-1, the thread's first session: the unstamped entry is its.
+    state.owner = [{ chain_ids: [`s-2`, `s-1`], first_session_id: `s-1` }]
+    state.lockedReads = [[{ results: null }], [{ results: [picture(`Checkout`, `web`, `att-old`)] }]]
+    const published = await publishSessionResultPicture(input, prepared)
+    expect(published.replaced).toBe(true)
+    expect(published.results).toEqual([
+      expect.objectContaining({ attachmentId: `att-new`, sessionId: `s-2` }),
+    ])
     expect(deleteObject).toHaveBeenCalledWith(`sessions/old.png`)
   })
 

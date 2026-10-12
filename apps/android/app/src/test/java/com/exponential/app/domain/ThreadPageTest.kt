@@ -28,6 +28,7 @@ class ThreadPageTest {
         startedAt: String = "2026-10-12T10:00:00Z",
         updatedAt: String = "2026-10-12T10:59:00Z",
         prUrl: String? = null,
+        prState: String? = null,
         endedBy: String? = null,
         actionName: String? = "Chat",
         agentTitle: String? = null,
@@ -38,6 +39,7 @@ class ThreadPageTest {
         status = status,
         endedBy = endedBy,
         prUrl = prUrl,
+        prState = prState,
         actionName = actionName,
         agentTitle = agentTitle,
         startedAt = startedAt,
@@ -90,13 +92,48 @@ class ThreadPageTest {
     }
 
     @Test
-    fun `the thread's PR is its newest run's, else the URL its issues share`() {
-        val older = run("r1", startedAt = "2026-10-12T09:00:00Z", prUrl = "https://x/pull/1")
-        val newer = run("r2", startedAt = "2026-10-12T10:00:00Z", prUrl = "https://x/pull/2")
-        assertEquals("https://x/pull/2", ThreadPage.prUrl(listOf(newer, older), emptyList()))
-        val issues = listOf(issue("a", "https://x/pull/9"), issue("b", "https://x/pull/7"), issue("c", "https://x/pull/7"))
-        assertEquals("https://x/pull/7", ThreadPage.prUrl(listOf(run("r3")), issues))
-        assertNull(ThreadPage.prUrl(listOf(run("r3")), listOf(issue("d"))))
+    fun `the thread's PR is the newest open one on its sessions and issues, else the newest merged`() {
+        val openOld = run("r1", startedAt = "2026-10-12T09:00:00Z", updatedAt = "2026-10-12T09:30:00Z", prUrl = "https://x/pull/1", prState = "open")
+        val mergedNew = run("r2", startedAt = "2026-10-12T10:00:00Z", updatedAt = "2026-10-12T10:30:00Z", prUrl = "https://x/pull/2", prState = "merged")
+        // T8: a newer MERGED PR never hides an open one.
+        assertEquals("https://x/pull/1", ThreadPage.prUrl(listOf(mergedNew, openOld), emptyList()))
+        assertEquals("https://x/pull/2", ThreadPage.prUrl(listOf(mergedNew), emptyList()))
+        // Issues' PRs are candidates too.
+        val issueOpen = issue("a", "https://x/pull/7").copy(prState = "open", updatedAt = "2026-10-12T11:00:00Z")
+        assertEquals("https://x/pull/7", ThreadPage.prUrl(listOf(mergedNew), listOf(issueOpen)))
+        // Closed only = none.
+        assertNull(ThreadPage.prUrl(listOf(run("r3", prUrl = "https://x/pull/3", prState = "closed")), emptyList()))
+    }
+
+    @Test
+    fun `a session block shows only its own Guide entries`() {
+        val thread = ThreadEntity(
+            id = "t1",
+            results = """[{"topic":"Summary","text":"legacy"},{"topic":"Summary","text":"one","sessionId":"r1"},{"topic":"Summary","text":"two","sessionId":"r2"}]""",
+        )
+        val first = ThreadPage.sessionGuide(run("r1"), thread, firstSessionId = "r1")
+        assertTrue(first!!.contains("\"one\"") && !first.contains("\"two\""))
+        val second = ThreadPage.sessionGuide(run("r2"), thread, firstSessionId = "r1")!!
+        assertTrue(second.contains("\"two\"") && !second.contains("legacy"))
+        // No thread Guide yet: the session's own mirror.
+        assertNull(ThreadPage.sessionGuide(run("r3"), null, firstSessionId = "r1"))
+    }
+
+    @Test
+    fun `my live sessions no thread names list as orphans`() {
+        val items = listOf(ThreadItemEntity(id = "i1", threadId = "t1", kind = "run", sessionId = "placed"))
+        val orphans = ThreadPage.orphanLiveSessions(
+            listOf(
+                run("placed", userId = "me"),
+                run("orphan", userId = "me"),
+                run("theirs", userId = "them"),
+                run("dead", userId = "me", updatedAt = "2026-10-12T05:00:00Z"),
+            ),
+            items,
+            "me",
+            nowMs,
+        )
+        assertEquals(listOf("orphan"), orphans.map { it.id })
     }
 
     @Test

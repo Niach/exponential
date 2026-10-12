@@ -228,6 +228,7 @@ fn list_rows(views: &[(ThreadView, Vec<ThreadViewRun>)], cx: &App) -> AnyElement
                 active: index == 0,
                 glass: true,
                 on_open: Box::new(|_, _, _| {}),
+                stop: Vec::new(),
             },
             cx,
         ));

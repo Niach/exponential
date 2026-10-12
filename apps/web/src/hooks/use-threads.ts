@@ -12,18 +12,18 @@ import { batchRunIssues, isBatchRun } from "@/lib/batch-run"
 import { sessionIdentity } from "@/lib/session-identity"
 import { sessionDeviceRow } from "@/components/session-tree"
 import { teamScopeIds } from "@/lib/team-scope"
-import {
-  buildThreadView,
-  partitionThreadList,
-  type ThreadView,
-} from "@/lib/thread-view"
+import { buildThreadView, type ThreadView } from "@/lib/thread-view"
 import {
   iso,
+  orphanLiveSessions,
+  sameThreadInputs,
+  splitThreadList,
   threadRunStatus,
   toThreadViewItem,
   toThreadViewRun,
 } from "@/lib/thread-page"
 import { useNow } from "@/hooks/use-now"
+import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
 
 // EXP-1284: the web's thread reads — every surface that shows a thread (the
 // thread page, the work-tab chip, the sidebar's Running, Agent home's
@@ -46,8 +46,10 @@ export interface ThreadBundle {
   view: ThreadView
   /** Each run's name (its session identity subject), by run id. */
   runNames: Map<string, string>
-  /** The viewer owns a live run in it (`partitionThreadList`). */
+  /** The viewer owns a live session in it (`partitionThreadList`). */
   mineLive: boolean
+  /** The viewer has a session in it or created it (Recent lists only these). */
+  mine: boolean
   /** The newest live run of the viewer's, for marks + bindings. */
   myLiveRun: CodingSession | null
   /** The newest live run of anyone's (its state = the row's mark). */
@@ -143,6 +145,12 @@ export function useThreadBundles(
   )
   const now = useNow(30_000)
 
+  // EXP-1284 (review T16): ONE view per thread, rebuilt only when ITS
+  // inputs change — a heartbeat on an unrelated session (every live row
+  // ticks) never rebuilds every other thread's view. The cache compares the
+  // inputs by identity (the collections hand back the same row object until
+  // that row changes) plus the derived strings (device label, liveness).
+  const cacheRef = useRef(new Map<string, { deps: unknown[]; bundle: ThreadBundle }>())
   const bundles = useMemo(() => {
     const issuesById = new Map(((issueRows ?? []) as Issue[]).map((row) => [row.id, row]))
     const runsById = new Map(runs.map((row) => [row.id, row]))
@@ -154,7 +162,9 @@ export function useThreadBundles(
       itemsByThread.set(item.threadId, list)
     }
     const pool = [...issuesById.values()]
-    return ((threadRows ?? []) as Thread[]).map((thread): ThreadBundle => {
+    const cache = cacheRef.current
+    const next = new Map<string, { deps: unknown[]; bundle: ThreadBundle }>()
+    const out = ((threadRows ?? []) as Thread[]).map((thread): ThreadBundle => {
       const own = itemsByThread.get(thread.id) ?? []
       const threadRuns = own
         .flatMap((item) => (item.sessionId ? [runsById.get(item.sessionId)] : []))
@@ -166,6 +176,37 @@ export function useThreadBundles(
       const threadIssues = own
         .flatMap((item) => (item.issueId ? [issuesById.get(item.issueId)] : []))
         .filter((issue): issue is Issue => issue !== undefined)
+      const namingIssues = threadRuns.flatMap((run) =>
+        run.issueId
+          ? [issuesById.get(run.issueId)]
+          : isBatchRun(run)
+            ? batchRunIssues(run, pool)
+            : []
+      )
+      const deviceLabels = threadRuns.map(
+        (run) => sessionDeviceRow(run, devices)?.label || run.deviceLabel || null
+      )
+      const statuses = threadRuns.map((run) => threadRunStatus(run, now))
+      const deps: unknown[] = [
+        thread,
+        currentUserId,
+        ...own,
+        `|`,
+        ...threadRuns,
+        `|`,
+        ...threadIssues,
+        `|`,
+        ...namingIssues,
+        `|`,
+        ...deviceLabels,
+        `|`,
+        ...statuses,
+      ]
+      const cached = cache.get(thread.id)
+      if (cached && sameThreadInputs(cached.deps, deps)) {
+        next.set(thread.id, cached)
+        return cached.bundle
+      }
       const runNames = new Map(
         threadRuns.map((run) => [
           run.id,
@@ -190,18 +231,17 @@ export function useThreadBundles(
           title: issue.title,
           createdAt: iso(issue.createdAt),
         })),
-        runs: threadRuns.map((run) =>
+        runs: threadRuns.map((run, index) =>
           toThreadViewRun(run, {
             name: runNames.get(run.id) ?? ``,
-            deviceLabel:
-              sessionDeviceRow(run, devices)?.label || run.deviceLabel || null,
+            deviceLabel: deviceLabels[index] ?? null,
             now,
           })
         ),
       })
-      const liveRuns = threadRuns.filter((run) => threadRunStatus(run, now) !== `ended`)
+      const liveRuns = threadRuns.filter((_, index) => statuses[index] !== `ended`)
       const myLive = liveRuns.filter((run) => run.userId === currentUserId)
-      return {
+      const bundle: ThreadBundle = {
         thread,
         items: own,
         runs: threadRuns,
@@ -209,10 +249,18 @@ export function useThreadBundles(
         view,
         runNames,
         mineLive: myLive.length > 0,
+        // Review T6: a session of mine or a thread I created.
+        mine:
+          (currentUserId != null && thread.createdBy === currentUserId) ||
+          threadRuns.some((run) => run.userId === currentUserId),
         myLiveRun: myLive[myLive.length - 1] ?? null,
         liveRun: liveRuns[liveRuns.length - 1] ?? null,
       }
+      next.set(thread.id, { deps, bundle })
+      return bundle
     })
+    cacheRef.current = next
+    return out
   }, [threadRows, items, runs, issueRows, deviceRows, now, currentUserId])
 
   return {
@@ -235,32 +283,36 @@ export function useThreadBundle(
   return { bundle: bundles[0] ?? null, isReady, now }
 }
 
-/** The list surfaces' model: the team's threads, Running (a live run of
- *  mine) vs Recent, newest activity first. A thread with no run left (only
- *  issues) still lists under Recent. */
+/** The list surfaces' model (review T6, `partitionThreadList`, fixture-
+ *  locked): Running = a thread holding a live session of mine; Recent = my
+ *  other threads (a session of mine, or one I created), newest activity
+ *  first. Scope: ONE team = that team (web md+, the active team); several =
+ *  every one of them (the phone's cross-team lists, banded per team).
+ *  Review T4: `orphans` = my live sessions no listed thread holds (its item
+ *  failed to place, or the items shape lags the sessions shape) — they still
+ *  show, as plain session rows, so a live session never vanishes. */
 export function useThreadList(
   teamId: string | readonly string[] | undefined,
   currentUserId: string | undefined
-): { running: ThreadBundle[]; recent: ThreadBundle[]; isReady: boolean; now: Date } {
+): {
+  running: ThreadBundle[]
+  recent: ThreadBundle[]
+  orphans: CodingSession[]
+  isReady: boolean
+  now: Date
+} {
   const { bundles, isReady, now } = useThreadBundles(teamId, currentUserId)
-  const parts = useMemo(() => {
-    const entries = bundles
-      // A thread whose every child is gone (trashed board, purged runs)
-      // has nothing to show.
-      .filter((bundle) => bundle.runs.length > 0 || bundle.issues.length > 0)
-      .map((bundle) => ({
-        threadId: bundle.thread.id,
-        updatedAt: iso(bundle.thread.updatedAt),
-        mineLive: bundle.mineLive,
-        bundle,
-      }))
-    const { running, recent } = partitionThreadList(entries)
-    return {
-      running: running.map((entry) => entry.bundle),
-      recent: recent.map((entry) => entry.bundle),
-    }
-  }, [bundles])
-  return { ...parts, isReady, now }
+  const { runs: myLive } = useMyLiveRuns(teamId, currentUserId, 30_000)
+  const scopeTeam =
+    typeof teamId === `string` ? teamId : teamId && teamId.length === 1 ? teamId[0]! : null
+  const parts = useMemo(() => splitThreadList(bundles, scopeTeam), [bundles, scopeTeam])
+  const orphans = useMemo(
+    // Only once the thread rows have settled: before that every live
+    // session would flash in as an orphan.
+    () => (isReady ? orphanLiveSessions(bundles, myLive) : []),
+    [bundles, myLive, isReady]
+  )
+  return { ...parts, orphans, isReady, now }
 }
 
 /** The thread a run sits in (its run item), or null while it syncs. */

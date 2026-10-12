@@ -1989,7 +1989,7 @@ export const pins = pgTable(
 // holding it), a batch opens one with its n issues, a resume stays in its
 // predecessor's thread. Team-scoped, member-visible (the shell and its
 // issues; a live run's CONTENT stays owner-only, EXP-312). Synced: the
-// `threads` shape is `team_id IN (member teams)`, no board, no trash mirror.
+// `threads` shape is `team_id IN (member teams) AND has_visible_items`.
 export const threads = pgTable(
   `threads`,
   {
@@ -2009,6 +2009,13 @@ export const threads = pgTable(
     // and caps as `coding_sessions.results`, which keeps a mirror for
     // clients that predate threads (EXP-1258).
     results: jsonb(`results`).$type<CodingSessionResult[]>(),
+    // SERVER-ONLY (never in the shape allowlist; the shape and every read
+    // FILTER on it): false once the thread has items and none of them is
+    // visible (all on trashed/archived boards). Kept by the
+    // `refresh_thread_visibility` trigger on thread_items, which also deletes
+    // a thread whose last item went and whose Guide is empty. A thread that
+    // never had an item (just created) stays visible.
+    hasVisibleItems: boolean(`has_visible_items`).notNull().default(true),
     ...timestamps,
   },
   (table) => [index(`idx_threads_team`).on(table.teamId)]
@@ -2018,10 +2025,10 @@ export const threads = pgTable(
 // (issue_id / session_id), each an FK cascade so an item dies with its
 // target. An issue may sit in several threads (one row per thread); a run in
 // exactly ONE (unique session_id; linking it elsewhere MOVES it). Issue items
-// carry the shared issue-child board context (populate_issue_child_* triggers
+// carry the shared issue-child board context (populate_thread_item_board_id
 // + the board trash/archive fan-outs), so the shape's static predicates hide
-// an issue whose board is trashed or archived; run items keep them NULL and
-// always sync (the run itself is trash-scoped by the coding-sessions shape).
+// an issue whose board is trashed or archived; run items mirror their
+// SESSION's board context (a batch/chat/action run's is NULL: always synced).
 export const threadItems = pgTable(
   `thread_items`,
   {
@@ -2039,8 +2046,9 @@ export const threadItems = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // Issue items only (populate_issue_child_board_id): the issue's board and
-    // the board's trash/archive mirrors. Server-only mirrors, shape-excluded.
+    // The issue's (issue items) or the session's (run items) board and its
+    // trash/archive mirrors (populate_thread_item_board_id). Server-only
+    // mirrors, shape-excluded.
     boardId: uuid(`board_id`).references(() => boards.id, {
       onDelete: `cascade`,
     }),

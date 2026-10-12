@@ -13,6 +13,7 @@ import type { ThreadBundle } from "@/hooks/use-threads"
 // strip.
 
 const running = vi.hoisted(() => ({ value: [] as unknown[] }))
+const orphans = vi.hoisted(() => ({ value: [] as unknown[] }))
 const navigate = vi.hoisted(() => vi.fn())
 const location = vi.hoisted(() => ({ pathname: `/t/acme/inbox` }))
 
@@ -23,8 +24,25 @@ vi.mock(`@tanstack/react-router`, () => ({
     select({ location }),
 }))
 vi.mock(`@/hooks/use-threads`, () => ({
-  useThreadList: () => ({ running: running.value, recent: [], isReady: true, now: new Date() }),
+  useThreadList: () => ({
+    running: running.value,
+    recent: [],
+    orphans: orphans.value,
+    isReady: true,
+    now: new Date(),
+  }),
 }))
+// Review T4: an orphan live session renders as a plain session row.
+vi.mock(`@/components/thread/orphan-session-rows`, () => ({
+  OrphanSessionRows: ({ sessions }: { sessions: { id: string }[] }) => (
+    <>
+      {sessions.map((session) => (
+        <div key={session.id} data-testid={`orphan-session-${session.id}`} />
+      ))}
+    </>
+  ),
+}))
+vi.mock(`@/hooks/use-open-session`, () => ({ useOpenSession: () => vi.fn() }))
 
 import { SidebarRunningSection } from "@/components/team/sidebar-running"
 
@@ -83,6 +101,7 @@ function bundle(over: {
     view,
     runNames: new Map([[run.id, over.title ?? `Chat`]]),
     mineLive: true,
+    mine: true,
     myLiveRun: run,
     liveRun: run,
   }
@@ -99,6 +118,7 @@ function renderSection() {
 describe(`SidebarRunningSection (EXP-923, EXP-1284 threads)`, () => {
   beforeEach(() => {
     running.value = []
+    orphans.value = []
     navigate.mockClear()
     location.pathname = `/t/acme/inbox`
   })
@@ -106,6 +126,13 @@ describe(`SidebarRunningSection (EXP-923, EXP-1284 threads)`, () => {
   it(`renders nothing at all with no running thread`, () => {
     const { container } = renderSection()
     expect(container.firstChild).toBeNull()
+  })
+
+  it(`still lists a live session no thread holds yet (review T4)`, () => {
+    orphans.value = [{ id: `s-orphan` }]
+    renderSection()
+    expect(screen.getByTestId(`sidebar-running`)).toBeTruthy()
+    expect(screen.getByTestId(`orphan-session-s-orphan`)).toBeTruthy()
   })
 
   it(`lists a thread with its caption and opens its page with the running origin`, () => {

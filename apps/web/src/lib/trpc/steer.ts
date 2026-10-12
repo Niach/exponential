@@ -56,6 +56,7 @@ import { findLiveResumeId } from "@/lib/steer-child-messages"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { getThread } from "@/lib/threads"
+import { rememberStartThread } from "@/lib/start-threads"
 import {
   findLiveRunForIssues,
   liveRunConflictMessage,
@@ -369,10 +370,13 @@ export const steerRouter = router({
           // new run is unattended, so its close-out ends it. The parent
           // linkage itself is stamped server-side by the MCP tool.
           parentSessionId: z.string().uuid().optional(),
-          // EXP-1284: start the run INTO this thread (the composer's "start a
-          // run here", MCP `sessions_start{threadId}`). Must be a thread of
-          // the subject's team; rides the frame as top-level `threadId` and
-          // the device echoes it into codingSessions.start, which joins it.
+          // EXP-1284: start the session INTO this thread (the composer's
+          // "start a session here", MCP `sessions_start{threadId}`). Must be
+          // a visible thread of the subject's team; rides the frame as
+          // top-level `threadId` and the device echoes it into
+          // codingSessions.start, which joins it. A daemon that predates
+          // threads drops it: the server remembers it per device + subject
+          // (`lib/start-threads.ts`) and places the start there anyway.
           threadId: z.string().uuid().optional(),
           // Review #3: the client's id for THIS Start press (Retry reuses
           // it). Rides the relay frame as `startId`; the device ignores an
@@ -406,7 +410,7 @@ export const steerRouter = router({
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: [`threadId`],
-                message: `a resumed run stays in its predecessor's thread`,
+                message: `a resumed session stays in its predecessor's thread`,
               })
             }
             const conflicting = (
@@ -696,7 +700,7 @@ export const steerRouter = router({
         const refuse = () =>
           new TRPCError({
             code: `BAD_REQUEST`,
-            message: `threadId must name a thread of the run's team`,
+            message: `threadId must name a thread of the session's team`,
           })
         if (!thread || thread.teamId !== teamId) throw refuse()
         try {
@@ -1265,6 +1269,14 @@ export const steerRouter = router({
             message: `Steer relay error (${result.status})`,
           })
         }
+        if (actionThread.threadId) {
+          rememberStartThread({
+            ownerId,
+            deviceId: input.deviceId,
+            subject: { actionId: action.id },
+            threadId: actionThread.threadId,
+          })
+        }
         return { ok: true as const, startId }
       }
 
@@ -1414,6 +1426,14 @@ export const steerRouter = router({
         throw new TRPCError({
           code: `INTERNAL_SERVER_ERROR`,
           message: `Steer relay error (${result.status})`,
+        })
+      }
+      if (issueThread.threadId) {
+        rememberStartThread({
+          ownerId,
+          deviceId: input.deviceId,
+          subject: input.issueId ? { issueId: input.issueId } : { issueIds: ids },
+          threadId: issueThread.threadId,
         })
       }
       return { ok: true as const, startId }

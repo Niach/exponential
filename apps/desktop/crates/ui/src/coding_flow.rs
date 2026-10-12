@@ -1889,8 +1889,16 @@ impl gpui::Global for FollowedStarts {}
 pub(crate) struct ComposerStartWatch {
     pub(crate) start_id: String,
     pub(crate) handoff: Option<StartHandoff>,
+    /// EXP-1284: the thread the start asked to join (a thread's composer);
+    /// `None` = wait briefly for the session's own `thread_items` row.
+    pub(crate) thread_id: Option<String>,
     pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App)>,
 }
+
+/// EXP-1284 — how long a landed remote start waits for its session's
+/// `thread_items` row (a separate shape) before it opens as the session:
+/// every start lands on its THREAD when the placement shows up in time.
+const THREAD_ITEM_WAIT: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// [`follow_remote_start`] for the composer's own start (review #3): it
 /// follows until the row lands — past the composer's 30 s deadline, up to
@@ -1916,7 +1924,7 @@ pub(crate) fn follow_composer_start(
     let handle = crate::navigation::deferred_open_window(window, cx);
     cx.spawn(async move |cx| {
         let deadline = std::time::Instant::now() + REMOTE_LATE_WAIT;
-        let ComposerStartWatch { start_id, handoff, landed } = watch;
+        let ComposerStartWatch { start_id, handoff, thread_id, landed } = watch;
         let done = |cx: &mut App| {
             cx.default_global::<FollowedStarts>().0.remove(&start_id);
         };
@@ -1926,8 +1934,17 @@ pub(crate) fn follow_composer_start(
                 cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
                 let _ = cx.update(|cx| done(cx));
+                // The placement rides its own shape: give it a moment.
+                let mut thread_id = thread_id.clone();
+                let item_deadline = std::time::Instant::now() + THREAD_ITEM_WAIT;
+                while thread_id.is_none() && std::time::Instant::now() < item_deadline {
+                    thread_id = cx.update(|cx| crate::threads::thread_of_session(&session_id, cx));
+                    if thread_id.is_none() {
+                        cx.background_executor().timer(REMOTE_OPEN_TICK).await;
+                    }
+                }
                 let landed_in_window = handle.update(cx, |_, window, cx| {
-                    open_landed_session(&session_id, None, handoff, window, cx);
+                    open_landed_session(&session_id, thread_id, handoff, window, cx);
                     landed(session_id.clone(), window, cx);
                 });
                 // The window closed while we waited: nothing to land in.

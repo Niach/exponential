@@ -51,6 +51,9 @@ function builder(rows: () => unknown[]) {
 
 vi.mock(`@/db/connection`, () => {
   const tx = {
+    // EXP-1284: the Guide owner read (resume chain + the thread's first
+    // session): none here, the session alone.
+    execute: async () => ({ rows: [] }),
     select: () => builder(() => h.locked.current),
     insert: () => ({
       values: (values: { id: string }) => {
@@ -226,6 +229,8 @@ describe(`POST /api/session-results/$token`, () => {
             height: 900,
             // EXP-1245: every entry is stamped when it is written.
             at: expect.any(Number),
+            // EXP-1284: ... and with the session that wrote it.
+            sessionId: SESSION,
           },
         ],
       })

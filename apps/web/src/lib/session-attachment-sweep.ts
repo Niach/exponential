@@ -21,9 +21,9 @@
 // removed are reclaimed) and the S3 objects go after the commit — the row
 // delete is the atomic multi-instance claim and S3 deletes are idempotent.
 
-import { and, isNull, lte, inArray } from "drizzle-orm"
+import { and, isNull, lte, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { sessionAttachments } from "@/db/schema"
+import { sessionAttachments, threadItems, threads } from "@/db/schema"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 
@@ -99,20 +99,51 @@ export async function reclaimOrphanSessionAttachmentsInTx(
   return { storageKeys: deleted.map((row) => row.storageKey) }
 }
 
+// EXP-1284 (review T3): a thread whose items all went (board purge, account
+// or issue delete, the stale-session sweep) but whose Guide was written is
+// kept, hidden (`has_visible_items` false, the thread_items trigger never
+// deletes a thread holding results). No session is left to own those
+// entries and the session_attachments its pictures name are reclaimed by
+// this same sweep, so after the same week of grace — counted from the
+// thread's last activity — the thread goes too. A thread that still holds
+// ANY item is never due.
+export async function pruneOrphanThreadsInTx(
+  tx: Tx,
+  cutoff: Date
+): Promise<number> {
+  const deleted = await tx
+    .delete(threads)
+    .where(
+      and(
+        lte(threads.updatedAt, cutoff),
+        sql`NOT EXISTS (SELECT 1 FROM ${threadItems} WHERE ${threadItems.threadId} = ${threads.id})`
+      )
+    )
+    .returning({ id: threads.id })
+  return deleted.length
+}
+
 // One sweep pass, injectable clock for tests/manual runs. Returns counts for
 // the caller's logging.
 export async function runSessionAttachmentSweep(
   now: Date = new Date()
-): Promise<{ attachmentsDeleted: number; objectsDeleted: number }> {
+): Promise<{
+  attachmentsDeleted: number
+  objectsDeleted: number
+  threadsDeleted: number
+}> {
   const cutoff = new Date(
     now.getTime() - ORPHAN_SESSION_ATTACHMENT_RETENTION_MS
   )
 
+  const threadsDeleted = await db.transaction((tx) =>
+    pruneOrphanThreadsInTx(tx, cutoff)
+  )
   const { storageKeys } = await db.transaction((tx) =>
     reclaimOrphanSessionAttachmentsInTx(tx, cutoff)
   )
   if (storageKeys.length === 0) {
-    return { attachmentsDeleted: 0, objectsDeleted: 0 }
+    return { attachmentsDeleted: 0, objectsDeleted: 0, threadsDeleted }
   }
 
   // Best-effort, per-key error-swallowed (same as the board-trash purge).
@@ -122,6 +153,7 @@ export async function runSessionAttachmentSweep(
   return {
     attachmentsDeleted: storageKeys.length,
     objectsDeleted: storageKeys.length,
+    threadsDeleted,
   }
 }
 
@@ -137,8 +169,13 @@ async function sweep(): Promise<void> {
     reportSchedulerRun(`session-attachment-sweep`, {
       ok: true,
       durationMs: performance.now() - startMs,
-      detail: `${result.attachmentsDeleted} deleted, ${result.objectsDeleted} objects deleted`,
+      detail: `${result.attachmentsDeleted} deleted, ${result.objectsDeleted} objects deleted, ${result.threadsDeleted} orphan threads deleted`,
     })
+    if (result.threadsDeleted > 0) {
+      console.log(
+        `[session-attachment-sweep] deleted ${result.threadsDeleted} orphan thread(s)`
+      )
+    }
     if (result.attachmentsDeleted > 0) {
       console.log(
         `[session-attachment-sweep] deleted ${result.attachmentsDeleted} orphan steer image(s), deleted ${result.objectsDeleted} object(s)`

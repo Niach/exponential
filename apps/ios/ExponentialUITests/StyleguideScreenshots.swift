@@ -476,16 +476,17 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_chat", settle: 2)
 
         // ── sg_session-row: THE session row, big (EXP-1248) ─────────────────
-        // The Recent sheet behind the page's history glyph draws every run as
-        // the big SessionRow (mark at 12 + 14·depth, caption, device glyph,
-        // children nested, no fold). A detour no later shot needs, so it is
-        // skipped whole when a scoped run did not ask for it.
+        // The Recent sheet behind the page's history glyph draws every row as
+        // the big SessionRow (mark, caption, device glyph). EXP-1284 (T-N1):
+        // its rows are THREADS now (title + list caption), banded per team.
+        // A detour no later shot needs, so it is skipped whole when a scoped
+        // run did not ask for it.
         if ScreenshotShots.isWanted("sg_session-row") {
             anyElement(app, identified: "agent-history-button").tap()
-            let recentSheet = anyElement(app, identified: "recent-runs-sheet")
+            let recentSheet = anyElement(app, identified: "recent-threads-sheet")
             expect(recentSheet, within: Wait.nav, "The Recent sheet did not open")
-            if !anyElement(app, identified: "past-run-row").waitForExistence(timeout: Wait.sync) {
-                print("EXP-1248 sg_session-row: no finished runs — reseed with `bun run seed:screenshots`")
+            if !anyElement(app, identified: "agent-thread-row").waitForExistence(timeout: Wait.sync) {
+                print("EXP-1248 sg_session-row: no recent threads — reseed with `bun run seed:screenshots`")
             }
             snapshot("sg_session-row", settle: 2)
             dismissSheet(app, whileVisible: recentSheet)

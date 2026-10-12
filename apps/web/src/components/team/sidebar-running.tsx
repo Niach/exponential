@@ -1,11 +1,15 @@
 import type * as React from "react"
 import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import {
+  AgentRunMark,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
 } from "@exp/ui"
 import { ThreadLead, ThreadRow } from "@/components/thread/thread-row"
+import { OrphanSessionRows } from "@/components/thread/orphan-session-rows"
+import { useOpenSession } from "@/hooks/use-open-session"
+import type { CodingSession } from "@/db/schema"
 import { useThreadList, type ThreadBundle } from "@/hooks/use-threads"
 import { TABLESS_ORIGIN } from "@/lib/work-tabs"
 
@@ -21,12 +25,14 @@ import { TABLESS_ORIGIN } from "@/lib/work-tabs"
 // person), opening the thread page.
 
 /** The threads the section lists — shared by the expanded group and the
- *  compact rail's icon column. */
+ *  compact rail's icon column — plus (review T4) my live sessions no
+ *  thread holds yet, as plain session rows. */
 export function useMyRunningThreads(
   teamId: string | undefined,
   currentUserId: string | undefined
-): ThreadBundle[] {
-  return useThreadList(teamId, currentUserId).running
+): { threads: ThreadBundle[]; orphans: CodingSession[] } {
+  const { running, orphans } = useThreadList(teamId, currentUserId)
+  return { threads: running, orphans }
 }
 
 /** Which thread the app is SHOWING right now: its page, or the page of one
@@ -46,6 +52,12 @@ function useShownThread(): (bundle: ThreadBundle) => boolean {
     }
     return false
   }
+}
+
+/** The session the app is showing (its own page), for an orphan row. */
+function useShownSessionId(): string | null {
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  return /\/sessions\/([^/]+)$/.exec(pathname)?.[1] ?? null
 }
 
 function useOpenThread(): (bundle: ThreadBundle) => void {
@@ -69,10 +81,11 @@ export function SidebarRunningSection({
   teamId: string | undefined
   currentUserId: string | undefined
 }) {
-  const threads = useMyRunningThreads(teamId, currentUserId)
+  const { threads, orphans } = useMyRunningThreads(teamId, currentUserId)
   const isShown = useShownThread()
   const openThread = useOpenThread()
-  if (threads.length === 0) return null
+  const shownSessionId = useShownSessionId()
+  if (threads.length === 0 && orphans.length === 0) return null
   return (
     <SidebarGroup data-testid="sidebar-running">
       {/* EXP-1022: the main menu's plain group label, like Pinned and Boards
@@ -90,6 +103,13 @@ export function SidebarRunningSection({
               testId={`sidebar-running-${bundle.thread.id}`}
             />
           ))}
+          <OrphanSessionRows
+            teamId={teamId}
+            sessions={orphans}
+            origin={{ kind: `running` }}
+            ringClassName="ring-sidebar"
+            activeSessionId={shownSessionId}
+          />
         </div>
       </SidebarGroupContent>
     </SidebarGroup>
@@ -116,10 +136,12 @@ export function SidebarRunningIcons({
   }) => React.ReactNode
   separator?: React.ReactNode
 }) {
-  const threads = useMyRunningThreads(teamId, currentUserId)
+  const { threads, orphans } = useMyRunningThreads(teamId, currentUserId)
   const isShown = useShownThread()
   const openThread = useOpenThread()
-  if (threads.length === 0) return null
+  const openSession = useOpenSession()
+  const shownSessionId = useShownSessionId()
+  if (threads.length === 0 && orphans.length === 0) return null
   return (
     <>
       {separator}
@@ -130,6 +152,20 @@ export function SidebarRunningIcons({
           active: isShown(bundle),
           onClick: () => openThread(bundle),
           icon: <ThreadLead bundle={bundle} />,
+        })
+      )}
+      {orphans.map((session) =>
+        renderItem({
+          key: session.id,
+          label: session.agentTitle ?? session.actionName ?? `Session`,
+          active: session.id === shownSessionId,
+          onClick: () => openSession(session, { origin: { kind: `running` } }),
+          icon: (
+            <AgentRunMark
+              agent={session.agent}
+              state={session.needsInput ? `needs_input` : session.agentBusy ? `working` : undefined}
+            />
+          ),
         })
       )}
     </>

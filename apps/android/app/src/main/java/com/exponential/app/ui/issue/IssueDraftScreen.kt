@@ -97,6 +97,9 @@ fun IssueDraftScreen(
     onBack: () -> Unit,
     /** Filed: land on it (`openCreatedIssue`, so Back returns to the origin). */
     onCreated: (String) -> Unit,
+    /** EXP-1284 (T11): a thread draft's issue lands on its THREAD with the
+     *  new issue's tab selected; null = [onCreated]. */
+    onCreatedInThread: ((issueId: String, threadId: String) -> Unit)? = null,
     shareMode: Boolean = false,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
@@ -195,7 +198,12 @@ fun IssueDraftScreen(
         if (sharePrefill != null) onSharePrefillConsumed()
         val held = afterCreate
         afterCreate = null
-        if (held != null) held() else onCreated(id)
+        val threadId = viewModel.state.value.threadId
+        when {
+            held != null -> held()
+            threadId != null && onCreatedInThread != null -> onCreatedInThread(id, threadId)
+            else -> onCreated(id)
+        }
     }
     // EXP-1231: another client consumed this draft. The page's OWN exits,
     // like its Create: no leave prompt, no LeaveGuard, and the model is

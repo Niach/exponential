@@ -12,6 +12,8 @@ final class ThreadViewTests: XCTestCase {
     private struct Fixture: Decodable {
         let views: [ViewCase]
         let partitions: [PartitionCase]
+        let prTargets: [PrTargetCase]
+        let guideSlices: [GuideSliceCase]
     }
 
     private struct ViewCase: Decodable {
@@ -251,7 +253,38 @@ final class ThreadViewTests: XCTestCase {
     private struct PartitionCase: Decodable {
         let name: String
         let input: [Entry]
+        let scope: Scope
         let expected: ExpectedPartition
+    }
+
+    private struct Scope: Decodable {
+        let teamId: String?
+    }
+
+    private struct PrTargetCase: Decodable {
+        let name: String
+        let input: [Candidate]
+        let expected: String?
+    }
+
+    private struct Candidate: Decodable {
+        let url: String
+        let state: String?
+        let at: String
+
+        var model: ThreadPrCandidate { ThreadPrCandidate(url: url, state: state, at: at) }
+    }
+
+    private struct GuideSliceCase: Decodable {
+        let name: String
+        let input: GuideSliceInput
+        let expected: [JSONValue]
+    }
+
+    private struct GuideSliceInput: Decodable {
+        let results: JSONValue?
+        let sessionId: String
+        let firstSessionId: String?
     }
 
     private struct ExpectedPartition: Decodable {
@@ -261,8 +294,10 @@ final class ThreadViewTests: XCTestCase {
 
     private struct Entry: Decodable, Equatable, ThreadListEntry {
         let threadId: String
+        let teamId: String
         let updatedAt: String
         let mineLive: Bool
+        let mine: Bool
     }
 
     /// The committed contract fixture, read through `#filePath` because the
@@ -298,9 +333,35 @@ final class ThreadViewTests: XCTestCase {
         let cases = try fixture().partitions
         XCTAssertFalse(cases.isEmpty, "the thread-view fixture must carry partitions")
         for testCase in cases {
-            let actual = ThreadViews.partition(testCase.input)
+            let actual = ThreadViews.partition(testCase.input, teamId: testCase.scope.teamId)
             XCTAssertEqual(actual.running, testCase.expected.running, testCase.name)
             XCTAssertEqual(actual.recent, testCase.expected.recent, testCase.name)
+        }
+    }
+
+    func testThreadPrTargetMatchesEveryFixtureCase() throws {
+        let cases = try fixture().prTargets
+        XCTAssertFalse(cases.isEmpty, "the thread-view fixture must carry prTargets")
+        for testCase in cases {
+            XCTAssertEqual(
+                ThreadViews.prTarget(testCase.input.map(\.model)), testCase.expected, testCase.name
+            )
+        }
+    }
+
+    func testSessionGuideEntriesMatchEveryFixtureCase() throws {
+        let cases = try fixture().guideSlices
+        XCTAssertFalse(cases.isEmpty, "the thread-view fixture must carry guideSlices")
+        for testCase in cases {
+            let raw = testCase.input.results?.rawText
+            let sliced = ThreadViews.sessionGuideEntries(
+                raw, sessionId: testCase.input.sessionId, firstSessionId: testCase.input.firstSessionId
+            )
+            // nil (no Guide) = no entries, like the spec's `[]`.
+            let actual = try sliced.map {
+                try JSONDecoder().decode([JSONValue].self, from: Data($0.utf8))
+            } ?? []
+            XCTAssertEqual(actual, testCase.expected, testCase.name)
         }
     }
 
@@ -364,23 +425,51 @@ final class ThreadViewTests: XCTestCase {
         XCTAssertFalse(ThreadViews.isFresh(createdAt: "garbage", now: now))
     }
 
-    func testRunResultsKeepTheEntriesStampedInsideTheRun() throws {
-        // 10:00:00.000Z = 1791799200000 ms.
-        let raw = #"[{"topic":"Summary","text":"a","at":1791799260000},"#
-            + #"{"topic":"Two","text":"b","at":1791799500000},{"topic":"Old","text":"c"}]"#
-        let first = try XCTUnwrap(ThreadViews.runResults(
-            raw, startedAt: "2026-10-12T10:00:00.000Z", nextStartedAt: "2026-10-12T10:05:00.000Z"
-        ))
-        XCTAssertEqual(sessionThread(first).reply, "a")
-        XCTAssertTrue(first.contains("Old"))
-        XCTAssertFalse(first.contains("Two"))
-        let second = try XCTUnwrap(ThreadViews.runResults(
-            raw, startedAt: "2026-10-12T10:05:00.000Z", nextStartedAt: nil
-        ))
-        XCTAssertTrue(second.contains("Two"))
-        XCTAssertFalse(second.contains("\"a\""))
-        XCTAssertNil(ThreadViews.runResults(nil, startedAt: "2026-10-12T10:00:00.000Z", nextStartedAt: nil))
-        XCTAssertNil(ThreadViews.runResults("[]", startedAt: "2026-10-12T10:00:00.000Z", nextStartedAt: nil))
+    // T8/T-N6 over synced rows: the newest OPEN PR (here an older issue's)
+    // wins over a newer merged one; the capsule merges only an open PR, and
+    // a merged target still names its diff source.
+    func testPrTargetResolvesTheNewestOpenPrToItsIssue() throws {
+        func issue(_ id: String, pr: String?, state: String?, at: String) -> IssueEntity {
+            IssueEntity(
+                id: id, boardId: "b1", number: nil, identifier: id.uppercased(), title: id,
+                description: nil, status: "backlog", priority: "none", assigneeId: nil,
+                creatorId: nil, source: nil, dueDate: nil, sortOrder: nil, completedAt: nil,
+                duplicateOfId: nil, prUrl: pr, prNumber: nil, prState: state, branch: nil,
+                prMergedAt: nil, createdAt: at, updatedAt: at
+            )
+        }
+        func session(_ id: String, pr: String?, state: String?, at: String) -> CodingSessionEntity {
+            CodingSessionEntity(
+                id: id, issueId: nil, teamId: "t", userId: "me", deviceLabel: "mac",
+                status: "ended", startedAt: at, endedAt: at, createdAt: at, updatedAt: at,
+                prUrl: pr, prState: state
+            )
+        }
+        let open = issue("a", pr: "https://x/pull/1", state: "open", at: "2026-10-12T10:01:00.000Z")
+        let merged = session("s2", pr: "https://x/pull/2", state: "merged", at: "2026-10-12T10:05:00.000Z")
+        let target = try XCTUnwrap(ThreadViews.prTarget(sessions: [merged], issues: [open]))
+        XCTAssertEqual(target.url, "https://x/pull/1")
+        XCTAssertEqual(target.mergeTarget, .issue(issueId: "a"))
+
+        let onlyMerged = try XCTUnwrap(ThreadViews.prTarget(sessions: [merged], issues: []))
+        XCTAssertEqual(onlyMerged.subject, .session(sessionId: "s2"))
+        XCTAssertNil(onlyMerged.mergeTarget)
+        XCTAssertNil(ThreadViews.prTarget(sessions: [], issues: []))
+    }
+
+    // T-N8: the thread page's Guide falls back to its newest session's row.
+    func testThreadGuideFallsBackToTheNewestSessionsResults() {
+        func session(_ id: String, results: String?) -> CodingSessionEntity {
+            CodingSessionEntity(
+                id: id, issueId: nil, teamId: "t", userId: "me", deviceLabel: nil,
+                status: "ended", results: results, startedAt: "", endedAt: nil,
+                createdAt: "", updatedAt: ""
+            )
+        }
+        let sessions = [session("s1", results: "[1]"), session("s2", results: "[2]"), session("s3", results: nil)]
+        XCTAssertEqual(ThreadViews.threadGuide(threadResults: "[0]", sessions: sessions), "[0]")
+        XCTAssertEqual(ThreadViews.threadGuide(threadResults: nil, sessions: sessions), "[2]")
+        XCTAssertNil(ThreadViews.threadGuide(threadResults: nil, sessions: []))
     }
 
     func testUnlinkCopyNamesTheIssue() {

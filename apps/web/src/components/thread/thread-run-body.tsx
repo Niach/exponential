@@ -1,8 +1,11 @@
+import { useMemo } from "react"
 import { RunStatusRow, type RunMarkState } from "@exp/ui"
+import { sessionGuideEntries } from "@/lib/thread-view"
 import type { CodingSession } from "@/db/schema"
 import { AgentSessionView } from "@/components/agent-session"
 import { sessionDisplayState } from "@/lib/coding-session-display"
 import { runHasEnded } from "@/lib/past-runs"
+import { threadRunStatus } from "@/lib/thread-page"
 import type { SessionIdentity } from "@/lib/session-identity"
 import {
   runRowCaption,
@@ -26,10 +29,17 @@ export function ThreadRunBody({
   identity,
   prState,
   initialShowWork = false,
+  threadResults,
+  firstSessionId,
   className,
 }: {
   session: CodingSession
   currentUserId: string
+  /** The thread's Guide (`threads.results`); the block shows ONLY this
+   *  session's entries of it (`sessionGuideEntries`). */
+  threadResults: unknown
+  /** The thread's first session: unstamped legacy entries are its. */
+  firstSessionId: string | null
   /** The session's identity (its subject names the block when folded). */
   identity: SessionIdentity
   /** The PR state the display reads (the issue's, else the session's own). */
@@ -48,6 +58,8 @@ export function ThreadRunBody({
       session={session}
       identity={identity}
       initialShowWork={initialShowWork}
+      threadResults={threadResults}
+      firstSessionId={firstSessionId}
       className={className}
     />
   )
@@ -56,11 +68,11 @@ export function ThreadRunBody({
 function statusRowFor(
   session: CodingSession,
   prState: string | null,
-  extra: { paused: boolean; working: boolean }
+  extra: { paused: boolean; working: boolean; ended: boolean }
 ): RunRowState {
   return resolveRunRowState({
     paused: extra.paused,
-    ended: runHasEnded(session),
+    ended: extra.ended,
     awaitingInput: false,
     working: extra.working,
     display: sessionDisplayState(session, prState),
@@ -81,9 +93,14 @@ function TeammateRunBody({
   className?: string
 }) {
   const device = useSessionDevice(session)
+  const clock = useNow(30_000)
+  // Review T9: the heartbeat rule — a row whose host stopped heartbeating
+  // is ended here exactly as the block's state word says.
+  const ended = runHasEnded(session) || threadRunStatus(session, clock) === `ended`
   const state = statusRowFor(session, prState, {
-    paused: device.online === false && !runHasEnded(session),
+    paused: device.online === false && !ended,
     working: false,
+    ended,
   })
   const now = useNow(state === `working` ? 1000 : 30_000)
   const caption = runRowCaption({
@@ -112,13 +129,30 @@ function OwnRunBody({
   session,
   identity,
   initialShowWork,
+  threadResults,
+  firstSessionId,
   className,
 }: {
   session: CodingSession
   identity: SessionIdentity
   initialShowWork: boolean
+  threadResults: unknown
+  firstSessionId: string | null
   className?: string
 }) {
+  // The thread's Guide (else, before its first write, the session's own
+  // mirror) sliced to THIS session's entries — never the whole Guide again
+  // in every block.
+  const source = threadResults ?? session.results
+  const blockResults = useMemo(
+    () =>
+      sessionGuideEntries(
+        Array.isArray(source) ? (source as { sessionId?: string | null }[]) : [],
+        session.id,
+        firstSessionId
+      ),
+    [source, session.id, firstSessionId]
+  )
   return (
     <div className={className} data-testid="thread-run-body" data-owner="true">
       <AgentSessionView
@@ -127,6 +161,7 @@ function OwnRunBody({
         session={session}
         currentUserId={session.userId}
         identity={identity}
+        blockResults={blockResults}
         face="run"
         onFace={noop}
         onBack={noop}

@@ -93,6 +93,13 @@ vi.mock(`@/lib/threads`, () => ({
       teamId: args.session.teamId,
     })
   ),
+  // Review T4: the fallback when the placement above fails.
+  placeSessionAlone: vi.fn(
+    async (_db: unknown, session: { teamId: string }) => ({
+      id: `thread-alone`,
+      teamId: session.teamId,
+    })
+  ),
 }))
 vi.mock(`@/lib/mcp/context-budget`, () => ({
   mcpContextBudget: () => ({
@@ -112,7 +119,8 @@ import {
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 import { syncRunPrBody } from "@/lib/run-pr-body"
-import { joinThreadForStart } from "@/lib/threads"
+import { joinThreadForStart, placeSessionAlone } from "@/lib/threads"
+import { _clearStartThreads, rememberStartThread } from "@/lib/start-threads"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
@@ -295,6 +303,8 @@ beforeEach(() => {
   transactions = 0
   vi.mocked(syncRunPrBody).mockClear()
   vi.mocked(joinThreadForStart).mockClear()
+  vi.mocked(placeSessionAlone).mockClear()
+  _clearStartThreads()
 })
 
 // EXP-1051: a deploy constant, not a per-run one — no input, no db read, and
@@ -3202,16 +3212,76 @@ describe(`codingSessions.start — thread placement (EXP-1284)`, () => {
     expect(placement().predecessorId).toBe(RESUMED_FROM)
   })
 
-  it(`starts anyway, threadless, when placement fails`, async () => {
+  // Review T4: a live session is never threadless (every list shows
+  // threads): a failed placement falls back to a thread of its own, logged.
+  it(`falls back to a thread of its own when placement fails`, async () => {
     const quiet = vi.spyOn(console, `error`).mockImplementation(() => {})
     vi.mocked(joinThreadForStart).mockRejectedValueOnce(new Error(`deadlock`))
 
     const result = await caller.start({ issueId: ISSUE_ID, threadId: THREAD_ID })
 
-    expect(result).toMatchObject({ session: { id: SESSION_ID }, threadId: null })
+    expect(result).toMatchObject({ session: { id: SESSION_ID }, threadId: `thread-alone` })
+    expect(vi.mocked(placeSessionAlone).mock.calls.at(-1)!.slice(1)).toEqual([
+      { id: SESSION_ID, teamId: `ws-issue`, userId: `actor` },
+      [ISSUE_ID],
+    ])
     expect(inserts).toHaveLength(1)
     expect(quiet).toHaveBeenCalled()
     quiet.mockRestore()
+  })
+
+  it(`starts anyway, threadless, when the fallback fails too`, async () => {
+    const quiet = vi.spyOn(console, `error`).mockImplementation(() => {})
+    vi.mocked(joinThreadForStart).mockRejectedValueOnce(new Error(`deadlock`))
+    vi.mocked(placeSessionAlone).mockRejectedValueOnce(new Error(`deadlock`))
+
+    const result = await caller.start({ issueId: ISSUE_ID, threadId: THREAD_ID })
+
+    expect(result).toMatchObject({ session: { id: SESSION_ID }, threadId: null })
+    expect(inserts).toHaveLength(1)
+    expect(quiet).toHaveBeenCalledTimes(2)
+    quiet.mockRestore()
+  })
+
+  // Review T16: a daemon that predates threads drops the frame's threadId;
+  // the thread steer.startSession remembered for this device + subject
+  // places it anyway (once), and an echoing device clears the entry.
+  it(`places a start that dropped threadId in the thread its frame named`, async () => {
+    const info = vi.spyOn(console, `info`).mockImplementation(() => {})
+    rememberStartThread({
+      ownerId: `actor`,
+      deviceId: `mac-1`,
+      subject: { issueId: ISSUE_ID },
+      threadId: THREAD_ID,
+    })
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBe(THREAD_ID)
+    expect(info).toHaveBeenCalled()
+    // Consumed: the next start of the same subject places by default.
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBeNull()
+    info.mockRestore()
+  })
+
+  it(`never hands a remembered thread to another device, subject or a resume`, async () => {
+    const remember = () =>
+      rememberStartThread({
+        ownerId: `actor`,
+        deviceId: `mac-1`,
+        subject: { issueId: ISSUE_ID },
+        threadId: THREAD_ID,
+      })
+    remember()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-2` })
+    expect(placement().requestedThreadId).toBeNull()
+    await caller.start({ teamId: TEAM_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBeNull()
+    // An echoing device's own threadId wins and clears the entry.
+    const OTHER = `88888888-8888-4888-8888-888888888888`
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, threadId: OTHER })
+    expect(placement().requestedThreadId).toBe(OTHER)
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBeNull()
   })
 })
 

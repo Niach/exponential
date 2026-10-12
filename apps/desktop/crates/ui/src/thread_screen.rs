@@ -74,6 +74,10 @@ pub(crate) fn unlink_label(identifier: &str) -> String {
     format!("Unlink {identifier}")
 }
 
+/// The reply's notice when the session it would resume cannot be (review
+/// T9): it ended, so the reply starts a new session in the thread.
+pub(crate) const SESSION_ENDED_COPY: &str = "That session ended. Your reply starts a new session in this thread.";
+
 /// A child linked less than this long before it first renders is NEW to the
 /// viewer: it fades in with a ring.
 pub(crate) const NEW_CHILD_WINDOW: Duration = Duration::from_secs(10);
@@ -767,6 +771,19 @@ pub(crate) struct ThreadRowSpec {
     /// The rail's glass ground (`true`) or a list's.
     pub(crate) glass: bool,
     pub(crate) on_open: crate::run_rows::RunRowAction,
+    /// My live sessions in the thread `(id, name)`: the row's right-click
+    /// menu stops them (review T7, the EXP-874 grammar).
+    pub(crate) stop: Vec<(String, String)>,
+}
+
+/// The rail row menu's verb (×4 `Stop session`); with several of my
+/// sessions live in one thread each row names its session.
+pub(crate) fn stop_session_label(name: &str, several: bool) -> String {
+    if several {
+        format!("Stop session · {name}")
+    } else {
+        "Stop session".to_string()
+    }
 }
 
 pub(crate) fn thread_row(spec: ThreadRowSpec, cx: &App) -> AnyElement {
@@ -791,7 +808,8 @@ pub(crate) fn thread_row(spec: ThreadRowSpec, cx: &App) -> AnyElement {
     };
     let active = spec.active;
     let on_open = spec.on_open;
-    div()
+    let stop = spec.stop;
+    let row = div()
         .id((SharedString::from(format!("{}-row", spec.id_prefix)), spec.index))
         .flex()
         .flex_row()
@@ -831,8 +849,34 @@ pub(crate) fn thread_row(spec: ThreadRowSpec, cx: &App) -> AnyElement {
                         .child(spec.caption),
                 ),
         )
-        .on_click(move |event, window, cx| on_open(event, window, cx))
-        .into_any_element()
+        .on_click(move |event, window, cx| on_open(event, window, cx));
+    if stop.is_empty() {
+        return row.into_any_element();
+    }
+    row.pointer_context_menu(move |mut menu, _window, cx| {
+        let several = stop.len() > 1;
+        for (session_id, name) in &stop {
+            let session_id = session_id.clone();
+            menu = menu.item(
+                crate::controls::danger_menu_item(
+                    stop_session_label(name, several),
+                    Icon::new(registry::CODING_STOP),
+                    cx,
+                )
+                .on_click(move |_, window, cx| {
+                    let host = crate::coding_flow::LocalSessions::global_ref(cx).and_then(|sessions| {
+                        sessions
+                            .read(cx)
+                            .session_by_id(&session_id)
+                            .map(|session| session.host.clone())
+                    });
+                    crate::session_bar::prompt_kill_session(host, session_id.clone(), window, cx);
+                }),
+            );
+        }
+        menu
+    })
+    .into_any_element()
 }
 
 /// Where a thread list row opens its thread.
@@ -862,6 +906,7 @@ pub(crate) fn thread_list_row(
     cx: &App,
 ) -> AnyElement {
     let thread_id = row.thread_id.clone();
+    let orphan = row.orphan_session_id.clone();
     thread_row(
         ThreadRowSpec {
             id_prefix,
@@ -873,9 +918,16 @@ pub(crate) fn thread_list_row(
             display,
             active,
             glass,
+            stop: row.my_live.clone(),
             on_open: Box::new(move |_, window, cx| {
-                let screen = Screen::Thread {
-                    thread_id: thread_id.clone(),
+                // T4: a session in no thread yet opens as the session.
+                let screen = match &orphan {
+                    Some(session_id) => Screen::Session {
+                        session_id: session_id.clone(),
+                    },
+                    None => Screen::Thread {
+                        thread_id: thread_id.clone(),
+                    },
                 };
                 match &open {
                     ThreadRowOpen::LiveRail => crate::navigation::navigate_from_live_rail(window, cx, screen),
@@ -997,6 +1049,9 @@ pub(crate) struct ThreadScreenView {
     /// When each issue item was FIRST rendered, and whether it was new then
     /// (linked inside [`NEW_CHILD_WINDOW`]) — the fade-in ring.
     first_seen: HashMap<String, (Instant, bool)>,
+    /// Review T14: the one `threads.get` asked before the page concludes the
+    /// thread is missing (never a flash of "Thread not found").
+    fetch: ThreadFetch,
     focus_handle: FocusHandle,
     _ring_tick: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
@@ -1044,6 +1099,7 @@ impl ThreadScreenView {
             mention_team: None,
             rename: None,
             first_seen: HashMap::new(),
+            fetch: ThreadFetch::NotAsked,
             focus_handle: cx.focus_handle(),
             _ring_tick: None,
             _subscriptions: subscriptions,
@@ -1195,7 +1251,10 @@ impl ThreadScreenView {
             .map(|run| run.id.clone());
         match reply_target(
             live_mine.as_deref(),
-            model.latest_run().map(|run| (run.id.as_str(), mine(run), crate::run_rows::run_has_ended(run))),
+            // Review T9: "dead" = the heartbeat rule, not only an ended row.
+            model.latest_run().map(|run| {
+                (run.id.as_str(), mine(run), !crate::queries::coding_session_is_live(run, now))
+            }),
         ) {
             ReplyTarget::Steer(run_id) => {
                 let view = self.run_view(&run_id, false, window, cx);
@@ -1210,7 +1269,12 @@ impl ThreadScreenView {
                 let Some(run) = model.runs.get(&run_id).cloned() else {
                     return;
                 };
-                match crate::work_header::resume_path_cached(&run, &mut None, cx) {
+                // A heartbeat gone stale on a row the server has not ended
+                // cannot be resumed: say so and start anew in the thread.
+                let path = crate::run_rows::run_has_ended(&run)
+                    .then(|| crate::work_header::resume_path_cached(&run, &mut None, cx))
+                    .flatten();
+                match path {
                     Some(crate::session_screen::ResumePath::Local) => {
                         crate::action_run::resume_run_on_account(
                             run_id,
@@ -1231,6 +1295,7 @@ impl ThreadScreenView {
                         crate::session_screen::resume_remote(run_id, device_id, label, window, cx);
                     }
                     None => {
+                        crate::toast::info(SESSION_ENDED_COPY, window, cx);
                         crate::screens::open_new_run_tab_in_thread(
                             self.thread_id.clone(),
                             Some(text),
@@ -1536,13 +1601,13 @@ impl ThreadScreenView {
             .into_any_element();
             let line = folded_line(&name, toggle, cx);
             if expanded {
-                let view = self.run_view(&block.run_id, true, window, cx);
-                v_flex().w_full().gap_2().child(line).child(view).into_any_element()
+                let body = self.session_body(&block.run_id, true, model, window, cx);
+                v_flex().w_full().gap_2().child(line).child(body).into_any_element()
             } else {
                 line
             }
         } else {
-            self.run_view(&block.run_id, false, window, cx).into_any_element()
+            self.session_body(&block.run_id, false, model, window, cx)
         };
         let links = self.render_links(&block.run_id, &block.links, agent, model, cx);
         v_flex()
@@ -1553,6 +1618,39 @@ impl ThreadScreenView {
             .child(body)
             .children(links)
             .into_any_element()
+    }
+
+    /// One session block's body. MINE: the session itself, embedded (its
+    /// status row over its thread — only the Guide entries THIS session
+    /// wrote, `ThreadModel::session_guide`). A TEAMMATE's (review T5,
+    /// EXP-312): the status row off the synced row, never a steer viewer
+    /// and never its transcript.
+    fn session_body(
+        &mut self,
+        run_id: &str,
+        show_work: bool,
+        model: &ThreadModel,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let Some(run) = model.runs.get(run_id) else {
+            return div().into_any_element();
+        };
+        if me.is_none() || run.user_id != me {
+            return div()
+                .pl(px(22.))
+                .child(crate::run_rows::synced_status_row(
+                    SharedString::from(format!("thread-status-{run_id}")),
+                    run,
+                    cx,
+                ))
+                .into_any_element();
+        }
+        let guide = model.session_guide(run_id);
+        let view = self.run_view(run_id, show_work, window, cx);
+        view.update(cx, |view, cx| view.set_embedded_results(guide, cx));
+        view.into_any_element()
     }
 
     fn render_parallel_block(
@@ -1709,9 +1807,9 @@ impl ThreadScreenView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let has_guide = domain::thread_view::thread_has_guide(model.thread.results.as_ref());
-        // The Guide reads from the newest run (THE thread Guide through its
-        // thread; the PR files through its PR).
-        let run_id = model.latest_run().map(|run| run.id.clone());
+        // The Guide reads through the session behind the thread's PR (review
+        // T8: newest open, else newest merged), else the newest session.
+        let run_id = model.guide_session_id();
         let body: AnyElement = match (has_guide, run_id) {
             (true, Some(run_id)) => {
                 let stale = self.guide_view.as_ref().is_none_or(|(id, _)| *id != run_id);
@@ -1784,10 +1882,59 @@ pub(crate) fn reply_target(live_mine: Option<&str>, latest: Option<(&str, bool, 
     }
 }
 
-/// Whether the `threads` shape is live and still lacks the thread — the
-/// page then says so instead of a skeleton forever.
-fn thread_missing(cx: &App) -> bool {
-    Store::try_global(cx).is_some_and(|store| store.collections().threads.read(cx).is_ready())
+/// Review T14 — the page's one `threads.get` before "Thread not found".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ThreadFetch {
+    NotAsked,
+    InFlight,
+    /// The server has it: the row is on its way, keep the skeleton.
+    Found,
+    /// The server does not (or refuses): missing.
+    Missing,
+}
+
+/// Whether the page may say "Thread not found" (pure, review T14): the
+/// threads shape has settled, no `thread_items` row names the id, and the
+/// one `threads.get` came back without it.
+pub(crate) fn thread_not_found(threads_ready: bool, item_names_it: bool, fetch: ThreadFetch) -> bool {
+    threads_ready && !item_names_it && fetch == ThreadFetch::Missing
+}
+
+impl ThreadScreenView {
+    /// [`thread_not_found`] against the store, asking `threads.get` once
+    /// the moment the synced answer alone would have concluded "missing".
+    fn thread_missing(&mut self, cx: &mut gpui::Context<Self>) -> bool {
+        let Some(store) = Store::try_global(cx) else {
+            return false;
+        };
+        let collections = store.collections();
+        let ready = collections.threads.read(cx).is_ready();
+        let named = collections
+            .thread_items
+            .read(cx)
+            .iter()
+            .any(|item| item.thread_id == self.thread_id);
+        if ready && !named && self.fetch == ThreadFetch::NotAsked {
+            self.fetch = ThreadFetch::InFlight;
+            if let Some(trpc) = crate::queries::trpc_client(cx) {
+                let id = self.thread_id.clone();
+                cx.spawn(async move |this, cx| {
+                    let found = cx
+                        .background_executor()
+                        .spawn(async move { api::threads::threads_get(&trpc, &id).is_ok() })
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.fetch = if found { ThreadFetch::Found } else { ThreadFetch::Missing };
+                        cx.notify();
+                    });
+                })
+                .detach();
+            } else {
+                self.fetch = ThreadFetch::Missing;
+            }
+        }
+        thread_not_found(ready, named, self.fetch)
+    }
 }
 
 impl Focusable for ThreadScreenView {
@@ -1799,9 +1946,10 @@ impl Focusable for ThreadScreenView {
 impl Render for ThreadScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(model) = self.model.clone() else {
-            // The threads synced and this one is not among them (deleted, a
-            // lost membership, a foreign id): fixture `thread-not-found`.
-            if thread_missing(cx) {
+            // The threads synced and this one is not among them, no item
+            // names it, and the server says so too (deleted, a lost
+            // membership, a foreign id): fixture `thread-not-found`.
+            if self.thread_missing(cx) {
                 return v_flex()
                     .size_full()
                     .px_4()
@@ -1900,6 +2048,18 @@ mod tests {
         assert_eq!(reply_target(None, None), ReplyTarget::Start);
     }
 
+    /// Review T14: never "Thread not found" while the sync has not settled,
+    /// an item names the thread, or before the one `threads.get` said so.
+    #[test]
+    fn thread_not_found_waits_for_the_sync_an_item_and_the_server() {
+        assert!(!thread_not_found(false, false, ThreadFetch::Missing));
+        assert!(!thread_not_found(true, true, ThreadFetch::Missing));
+        assert!(!thread_not_found(true, false, ThreadFetch::NotAsked));
+        assert!(!thread_not_found(true, false, ThreadFetch::InFlight));
+        assert!(!thread_not_found(true, false, ThreadFetch::Found));
+        assert!(thread_not_found(true, false, ThreadFetch::Missing));
+    }
+
     #[test]
     fn the_parallel_meta_names_the_device_and_the_age() {
         let now = crate::run_rows::stamp_ms(Some("2026-10-12T11:02:00.000Z")).unwrap();
@@ -1921,6 +2081,8 @@ mod tests {
         assert_eq!(domain::thread_view::THREAD_LINKED_LABEL, "Linked");
         assert_eq!(domain::thread_view::THREAD_FILED_LABEL, "Filed and linked");
         assert_eq!(THREADS_LABEL, "Threads");
+        assert_eq!(stop_session_label("Fix sync", false), "Stop session");
+        assert_eq!(stop_session_label("Fix sync", true), "Stop session · Fix sync");
         assert_eq!(in_thread_label("Offline sync plan"), "In Offline sync plan");
     }
 }

@@ -625,6 +625,8 @@ private fun AuthenticatedNav(
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenThread = { id -> navController.navigate(threadRoute(id)) },
+                // T-N2: the seeded composer gives way to the thread it started in.
+                onLandInThread = { id -> navController.landOnThread(id, replaceCurrent = true) },
             )
         }
         composable("personal") {
@@ -784,13 +786,14 @@ private fun AuthenticatedNav(
                     defaultValue = null
                 },
             ),
-        ) { entry ->
-            val intoThread = entry.arguments?.getString("thread") != null
+        ) {
             IssueDraftScreen(
                 onBack = { navController.popBackStack() },
-                // A thread's new issue lands back on the thread, its new tab.
-                onCreated = { issueId ->
-                    if (intoThread) navController.popBackStack() else navController.openCreatedIssue(issueId)
+                onCreated = { issueId -> navController.openCreatedIssue(issueId) },
+                // T11: a thread draft (opened from the thread, or reopened
+                // from Drafts) lands on the thread with its new issue's tab.
+                onCreatedInThread = { issueId, threadId ->
+                    navController.landOnThread(threadId, child = issueId, replaceCurrent = true)
                 },
             )
         }
@@ -998,6 +1001,25 @@ private const val THREAD_ROUTE = "thread/{threadId}?child={child}"
  *  Conversation. */
 internal fun threadRoute(threadId: String, child: String? = null): String =
     if (child == null) "thread/$threadId" else "thread/$threadId?child=${Uri.encode(child)}"
+
+/**
+ * EXP-1284 (T-N2/T11): land on the THREAD with [child] on show (an issue id,
+ * or null = the Conversation). The page that started it is replaced when
+ * [replaceCurrent]; when that page sat on this very thread, the old thread
+ * entry goes too, so Back never returns to a stale copy of it.
+ */
+private fun NavHostController.landOnThread(threadId: String, child: String? = null, replaceCurrent: Boolean) {
+    val current = currentBackStackEntry
+    val previous = previousBackStackEntry
+    val overSameThread = previous?.destination?.route == THREAD_ROUTE &&
+        previous.arguments?.getString("threadId") == threadId
+    navigate(threadRoute(threadId, child)) {
+        when {
+            overSameThread && previous != null -> popUpTo(previous.destination.id) { inclusive = true }
+            replaceCurrent && current != null -> popUpTo(current.destination.id) { inclusive = true }
+        }
+    }
+}
 
 /**
  * Open the New issue page. The draft id is minted HERE, at tap time, so the

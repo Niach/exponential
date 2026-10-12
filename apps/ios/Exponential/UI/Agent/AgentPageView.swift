@@ -47,7 +47,7 @@ struct AgentPageView: View {
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
     /// EXP-923: the history sheet — the finished runs, off the toolbar glyph.
     @State private var showRecent = false
-    /// The run picked in that sheet, pushed once the sheet is gone (a push
+    /// The thread picked in that sheet, pushed once the sheet is gone (a push
     /// racing its own dismissal lands on nothing).
     @State private var pendingRecent: String?
     /// The seed's team has been made the active one (once per push).
@@ -123,13 +123,20 @@ struct AgentPageView: View {
                             captions(composer)
                         }
 
-                        // EXP-1284: the threads (draft 3) — Running = a
-                        // live run of mine, Recent = the team's others; a
-                        // row opens the thread.
+                        // EXP-1284: the threads (draft 3; T4/T6) — every
+                        // team, banded: Running = a live session of mine
+                        // (plus my live sessions no thread names yet),
+                        // Recent = my other threads; a row opens the thread.
                         if let threads {
-                            AgentThreadLists(model: threads) { threadId in
-                                pushRoute(.thread(accountId: accountId, threadId: threadId))
-                            }
+                            AgentThreadLists(
+                                model: threads,
+                                onOpen: { threadId in
+                                    pushRoute(.thread(accountId: accountId, threadId: threadId))
+                                },
+                                onOpenSession: { sessionId in
+                                    pushRoute(.runThread(accountId: accountId, sessionId: sessionId))
+                                }
+                            )
                             .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
                         }
                         homeGettingStarted
@@ -189,12 +196,14 @@ struct AgentPageView: View {
             }
         }
         .agentImportFlow($importTarget, devices: sessions?.devices ?? [])
+        // T-N1: the history sheet lists THREADS (banded per team); a row
+        // opens the thread once the sheet has closed.
         .sheet(isPresented: $showRecent, onDismiss: pushPendingRecent) {
-            if let sessions {
-                RecentRunsSheet(
-                    vm: sessions,
-                    onOpen: { sessionId in
-                        pendingRecent = sessionId
+            if let threads {
+                RecentThreadsSheet(
+                    model: threads,
+                    onOpen: { threadId in
+                        pendingRecent = threadId
                         showRecent = false
                     }
                 )
@@ -220,7 +229,6 @@ struct AgentPageView: View {
             alignActiveTeamToSeed()
             ensureModels()
             sessions?.activeTeamId = teamState.activeTeam?.id
-            threads?.activeTeamId = teamState.activeTeam?.id
             threads?.start()
             // Re-arm on every appear: pushing the session stops the
             // observation (onDisappear), popping back must resume it.
@@ -236,7 +244,6 @@ struct AgentPageView: View {
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             sessions?.activeTeamId = teamId
-            threads?.activeTeamId = teamId
             // The composer is bound to ONE team (its pools, its builtins'
             // teamId) — a team switch under the page starts a fresh one. A
             // composer nobody touched yet keeps the play button's seed (the
@@ -268,8 +275,17 @@ struct AgentPageView: View {
                 composer?.startWatcher.startedSession = nil
                 // EXP-1271: the row landed: the starting state ends and the
                 // draft clears as the run opens.
+                // T11/T-N7/T-N9: a start INTO a thread lands back on that
+                // thread's page (the navigator pops to it if it is below,
+                // never a duplicate) on its Conversation; any other start
+                // opens the session's thread once it synced.
+                let threadId = composer?.threadId
                 composer?.runLanded()
-                sessionTarget = started
+                if let threadId {
+                    pushRoute(.thread(accountId: accountId, threadId: threadId, child: .conversation))
+                } else {
+                    sessionTarget = started
+                }
             }
         }
         // EXP-1284: the started run opens as its THREAD once the run's item
@@ -299,12 +315,12 @@ struct AgentPageView: View {
         }
     }
 
-    /// EXP-923: the sheet's pick, pushed once it has actually closed — the
-    /// same destination its rows had while they lived on the page.
+    /// EXP-923: the sheet's pick, pushed once it has actually closed.
+    /// T-N1: a thread now.
     private func pushPendingRecent() {
-        guard let sessionId = pendingRecent else { return }
+        guard let threadId = pendingRecent else { return }
         pendingRecent = nil
-        sessionTarget = .init(sessionId: sessionId)
+        pushRoute(.thread(accountId: accountId, threadId: threadId))
     }
 
     /// EXP-825: the subject may sit on a NON-active team (an issue opened

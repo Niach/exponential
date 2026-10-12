@@ -105,6 +105,8 @@ struct IssueFaceView: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
+    /// EXP-1284 (T-N9): the thread page hosting this face, if any.
+    @Environment(\.currentThreadId) private var currentThreadId
     @Environment(\.motion) private var motion
     @State private var activeSheet: IssueDetailSheet?
     /// A property picker opened straight from the chip box (no Properties
@@ -242,7 +244,9 @@ struct IssueFaceView: View {
                 // EXP-1284: the issue names its THREADS — one chip per thread
                 // holding it (the live mark while one of its runs is live),
                 // each opening the thread. Nothing while it sits in none.
-                if let threads = threadsModel?.threads, !threads.isEmpty {
+                // T-N9: embedded in a thread page, that thread is left out.
+                if let threads = threadsModel?.threads.filter({ $0.id != currentThreadId }),
+                   !threads.isEmpty {
                     IssueThreadsRow(threads: threads)
                 }
 

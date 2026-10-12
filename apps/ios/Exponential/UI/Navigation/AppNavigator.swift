@@ -360,6 +360,8 @@ struct MainNavigator: View {
     /// `onAppear`. Rebuilding it per body pass would invalidate every reader
     /// of `\.pushRoute` on every render.
     @State private var pushRouteAction = PushRouteAction()
+    /// EXP-1284 (T11/T-N9): lands a thread page already on the stack.
+    @State private var threadLanding = ThreadLanding()
     /// EXP-1212: a New issue page with content holds every path change below.
     @State private var draftLeaveGuard = IssueDraftLeaveGuard()
     @State private var boardLoader: MultiAccountBoardLoader?
@@ -401,6 +403,7 @@ struct MainNavigator: View {
         // NavigationLink in a List row draws the system disclosure OUTSIDE
         // the glass card), so they push through this instead.
         .environment(\.pushRoute, pushRouteAction)
+        .environment(\.threadLanding, threadLanding)
         .environment(\.issueDraftLeaveGuard, draftLeaveGuard)
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         .onAppear {
@@ -409,6 +412,11 @@ struct MainNavigator: View {
                 // (an entity chip, a getting-started card) switches to it.
                 if let target = Self.tab(for: route) {
                     selectTab(target)
+                } else if case let .thread(_, threadId, child) = route,
+                          let index = Self.threadIndex(threadId, in: path) {
+                    // EXP-1284 (T-N9): never a second page of the same
+                    // thread — pop back to it and land the child there.
+                    navigate { landOnThread(at: index, threadId: threadId, page: child) }
                 } else {
                     navigate { path.append(route) }
                 }
@@ -807,6 +815,36 @@ struct MainNavigator: View {
         }
     }
 
+    /// EXP-1284: the LAST stack position showing `threadId`, if any.
+    private static func threadIndex(_ threadId: String, in path: [AppRoute]) -> Int? {
+        path.lastIndex { route in
+            if case let .thread(_, id, _) = route { return id == threadId }
+            return false
+        }
+    }
+
+    /// EXP-1284 (T11/T-N9): pop everything above the thread page at `index`
+    /// and land it on `page` (nil = its Conversation).
+    private func landOnThread(at index: Int, threadId: String, page: ThreadPage?) {
+        if index + 1 < path.count {
+            path.removeSubrange((index + 1)...)
+        }
+        threadLanding.land(threadId: threadId, page: page ?? .conversation)
+    }
+
+    /// EXP-1284 (T11/T-N7): the New issue page filed into a thread — it
+    /// leaves the stack (its OWN exit, never held), and the thread shows the
+    /// new issue's tab: the page below when it is on the stack, else a fresh
+    /// thread page.
+    private func landAfterThreadCreate(accountId: String, threadId: String, issueId: String) {
+        if case .issueDraft = path.last { path.removeLast() }
+        if let index = Self.threadIndex(threadId, in: path) {
+            landOnThread(at: index, threadId: threadId, page: .issue(issueId))
+        } else {
+            path.append(.thread(accountId: accountId, threadId: threadId, child: .issue(issueId)))
+        }
+    }
+
     /// Thin status banners: a background account the server has version-gated
     /// (EXP-104/REV2-43), then the active account's live-sync health.
     @ViewBuilder
@@ -925,7 +963,13 @@ struct MainNavigator: View {
                 parentId: parentId,
                 threadId: threadId,
                 onCreated: { createdId in
-                    replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
+                    if let threadId {
+                        // EXP-1284 (T11/T-N7): filed INTO a thread = back on
+                        // that thread with the new issue's tab selected.
+                        landAfterThreadCreate(accountId: accountId, threadId: threadId, issueId: createdId)
+                    } else {
+                        replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
+                    }
                 },
                 onClose: {
                     // Only THIS page: a link may have pushed over it.

@@ -431,6 +431,7 @@ export function AgentSessionView({
   guideResults,
   embedded = false,
   initialShowWork = false,
+  blockResults,
 }: {
   session: CodingSession
   currentUserId: string
@@ -520,6 +521,10 @@ export function AgentSessionView({
   /** EXP-1284: an embedded view opened by a folded block's Show work starts
    *  on the transcript. */
   initialShowWork?: boolean
+  /** EXP-1284 (review): the published results this session's thread / turns
+   *  draw — a session block passes ONLY its own Guide entries
+   *  (`sessionGuideEntries`); absent = the session's own results. */
+  blockResults?: unknown
 }) {
   /** EXP-886: more than one run of mine on the issue — "Runs". */
   const multipleRuns = (issueRuns?.length ?? 0) > 1
@@ -1005,10 +1010,8 @@ export function AgentSessionView({
   )
   /** EXP-1175: the Run face's default body — the same results in publish
    *  order, the Summary text last as the reply. */
-  const thread = useMemo(
-    () => sessionThread(session.results),
-    [session.results]
-  )
+  const threadSource = blockResults !== undefined ? blockResults : session.results
+  const thread = useMemo(() => sessionThread(threadSource), [threadSource])
   /** EXP-1245: the OWNER's thread as TURNS — their messages and the turn
    *  edges of the relay feed they already hold (`useSessionTurnEvents`);
    *  without any (an offline host, a fresh join) the single-row thread. */
@@ -1020,8 +1023,8 @@ export function AgentSessionView({
     session.startedAt
   )
   const turns = useMemo(
-    () => sessionTurns(session.results, turnEvents),
-    [session.results, turnEvents]
+    () => sessionTurns(threadSource, turnEvents),
+    [threadSource, turnEvents]
   )
   const firstEndKnown = useMemo(
     () => firstTurnEndKnown(turnEvents, session.startedAt),

@@ -13,6 +13,9 @@ const state = vi.hoisted(() => ({
   thread: null as { id: string; teamId: string } | null,
   // EXP-1284: the thread's runs holding an open PR (the sibling sync read).
   siblings: [] as Array<{ id: string; prUrl: string | null }>,
+  // EXP-1284: the Guide owner read (the resume chain + the thread's first
+  // session); none = the session alone, owning the legacy entries.
+  owner: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock(`@/db/connection`, () => {
@@ -34,8 +37,10 @@ vi.mock(`@/db/connection`, () => {
     eager.catch(() => {})
     return Object.assign(eager, { for: () => read() })
   }
+  const execute = async () => ({ rows: state.owner })
   const tx = {
     select: () => chain,
+    execute,
     update: () => ({
       set: (values: Record<string, unknown>) => ({
         where: async () => {
@@ -47,6 +52,7 @@ vi.mock(`@/db/connection`, () => {
   return {
     db: {
       select: () => chain,
+      execute,
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
     },
   }
@@ -91,6 +97,7 @@ beforeEach(() => {
   state.updates.length = 0
   state.thread = null
   state.siblings = []
+  state.owner = []
 })
 
 // EXP-1251: the untagged topics a run filed before its PR opened belong to
@@ -126,6 +133,24 @@ describe(`stampRunResultsPrUrl`, () => {
     ).toBe(true)
     const results = state.updates[0]!.results as Array<{ prUrl?: string }>
     expect(results.map((row) => row.prUrl)).toEqual([`https://github.com/acme/web/pull/7`])
+  })
+
+  // EXP-1284 (review T1): the thread's Guide holds every session's entries;
+  // a new PR tags only the WRITING session's untagged ones.
+  it(`tags only the writing session's untagged topics`, async () => {
+    state.row = {
+      results: [
+        { ...untagged(`Summary`, `Mine`), sessionId: `s1` },
+        { ...untagged(`Summary`, `Another session's`), sessionId: `s2` },
+      ],
+    }
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(true)
+    const results = state.updates[0]!.results as Array<{ prUrl?: string; sessionId?: string }>
+    expect(results).toEqual([
+      expect.objectContaining({ sessionId: `s1`, prUrl: `https://github.com/acme/web/pull/7` }),
+      expect.not.objectContaining({ prUrl: expect.anything() }),
+    ])
+    expect(results[1]!.sessionId).toBe(`s2`)
   })
 
   it(`a blank prior url means a first PR`, async () => {
@@ -198,6 +223,26 @@ describe(`runPrBody`, () => {
     expect(out.fromResults).toBe(true)
     expect(out.body).toContain(`Did it\n\n- \`a.ts\``)
     expect(out.body).toContain(`(https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)`)
+  })
+
+  // EXP-1284 (review T1): a thread's Guide holds every session's entries;
+  // the body takes this session's (+ its resume chain's) and the legacy ones.
+  it(`takes this session's entries, never another session's of the thread`, async () => {
+    state.owner = [{ chain_ids: [`s1`, `s0`], first_session_id: `s0` }]
+    state.row = {
+      ...baseRow,
+      prUrl: null,
+      prState: null,
+      results: [
+        { topic: `Summary`, text: `Another session's summary`, sessionId: `s9` },
+        { topic: `Summary`, text: `Resumed from s0`, sessionId: `s0` },
+        { topic: `Notes`, text: `Filed before the stamp` },
+      ],
+    }
+    const out = await runPrBody(`s1`, `agent body`)
+    expect(out.body).toContain(`Resumed from s0`)
+    expect(out.body).toContain(`### Notes`)
+    expect(out.body).not.toContain(`Another session's summary`)
   })
 
   it(`keeps the fallback without a run, without report text or on a failed read`, async () => {

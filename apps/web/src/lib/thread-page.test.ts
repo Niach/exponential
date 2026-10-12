@@ -5,6 +5,11 @@ import {
   selectedThreadChild,
   threadChildSearch,
   threadGuideResults,
+  orphanLiveSessions,
+  sameThreadInputs,
+  splitThreadList,
+  threadPageState,
+  threadPrCandidates,
   threadPrUrl,
   threadReplyTarget,
   threadRunStatus,
@@ -172,25 +177,43 @@ describe(`isFreshThreadChild`, () => {
   })
 })
 
+// Review T8: the newest OPEN PR, else the newest MERGED one, over the PRs on
+// the thread's sessions AND issues (never a closed one).
 describe(`threadPrUrl`, () => {
-  it(`takes the newest run's PR, else the URL the issues share`, () => {
+  it(`targets the newest open PR, whatever is newer and merged`, () => {
     expect(
       threadPrUrl(
         [
-          { prUrl: `https://x/pull/1`, startedAt: at(-30) },
-          { prUrl: `https://x/pull/2`, startedAt: at(-5) },
-          { prUrl: null, startedAt: at(-1) },
+          { prUrl: `https://x/pull/1`, prState: `open`, updatedAt: at(-30) },
+          { prUrl: `https://x/pull/2`, prState: `merged`, updatedAt: at(-5) },
+          { prUrl: null, prState: null, updatedAt: at(-1) },
         ],
         []
       )
-    ).toBe(`https://x/pull/2`)
+    ).toBe(`https://x/pull/1`)
+  })
+
+  it(`falls back to the newest merged PR, issues included`, () => {
     expect(
       threadPrUrl(
-        [{ prUrl: null, startedAt: at(-1) }],
-        [{ prUrl: `https://x/pull/7` }, { prUrl: `https://x/pull/9` }, { prUrl: `https://x/pull/9` }]
+        [{ prUrl: `https://x/pull/2`, prState: `merged`, updatedAt: at(-50) }],
+        [
+          { prUrl: `https://x/pull/9`, prState: `merged`, updatedAt: at(-5) },
+          { prUrl: `https://x/pull/7`, prState: `closed`, updatedAt: at(-1) },
+        ]
       )
     ).toBe(`https://x/pull/9`)
-    expect(threadPrUrl([], [{ prUrl: null }])).toBeNull()
+    expect(threadPrUrl([], [{ prUrl: `https://x/pull/7`, prState: `closed`, updatedAt: at(0) }])).toBeNull()
+    expect(threadPrUrl([], [{ prUrl: null, prState: null, updatedAt: at(0) }])).toBeNull()
+  })
+
+  it(`lists one candidate per PR-bearing row`, () => {
+    expect(
+      threadPrCandidates(
+        [{ prUrl: `https://x/pull/1`, prState: `open`, updatedAt: new Date(at(-3)) }],
+        [{ prUrl: null, prState: null, updatedAt: at(0) }]
+      )
+    ).toEqual([{ url: `https://x/pull/1`, state: `open`, at: at(-3) }])
   })
 })
 
@@ -200,5 +223,76 @@ describe(`threadGuideResults (rule 8)`, () => {
     expect(threadGuideResults({ results: [`run`] }, { results: null })).toEqual([`run`])
     expect(threadGuideResults({ results: [`run`] }, null)).toEqual([`run`])
     expect(threadGuideResults({}, null)).toBeNull()
+  })
+})
+
+// Review T6: the list scope = the ACTIVE team; Recent = MY threads.
+describe(`splitThreadList`, () => {
+  const bundle = (id: string, teamId: string, min: number, flags: { mineLive?: boolean; mine?: boolean; empty?: boolean } = {}) => ({
+    thread: { id, teamId, updatedAt: at(min) },
+    runs: flags.empty ? [] : [{ id: `r-${id}` }],
+    issues: [],
+    mineLive: flags.mineLive ?? false,
+    mine: flags.mine ?? flags.mineLive ?? false,
+  })
+
+  it(`lists the active team only, Running first, Recent = mine`, () => {
+    const all = [
+      bundle(`a`, `t1`, -5, { mineLive: true }),
+      bundle(`b`, `t1`, -1, { mine: true }),
+      bundle(`c`, `t1`, -2),
+      bundle(`d`, `t2`, 0, { mine: true }),
+      bundle(`e`, `t1`, 0, { mine: true, empty: true }),
+    ]
+    const { running, recent } = splitThreadList(all, `t1`)
+    expect(running.map((row) => row.thread.id)).toEqual([`a`])
+    expect(recent.map((row) => row.thread.id)).toEqual([`b`])
+    // Every team (the phone's banded lists).
+    expect(splitThreadList(all, null).recent.map((row) => row.thread.id)).toEqual([`d`, `b`])
+  })
+})
+
+// Review T4: a live session of mine that no listed thread holds.
+describe(`orphanLiveSessions`, () => {
+  it(`keeps only the live sessions no thread lists`, () => {
+    const bundles = [{ thread: { id: `t`, teamId: `x`, updatedAt: at(0) }, runs: [{ id: `r1` }], issues: [], mineLive: true, mine: true }]
+    expect(orphanLiveSessions(bundles, [{ id: `r1` }, { id: `r2` }])).toEqual([{ id: `r2` }])
+    expect(orphanLiveSessions([], [{ id: `r1` }])).toEqual([{ id: `r1` }])
+  })
+})
+
+// Review T16: a thread view is rebuilt only when ITS inputs change.
+describe(`sameThreadInputs`, () => {
+  it(`compares rows by identity and strings by value`, () => {
+    const row = { id: `r1` }
+    expect(sameThreadInputs([row, `macbook`, `running`], [row, `macbook`, `running`])).toBe(true)
+    expect(sameThreadInputs([row], [{ id: `r1` }])).toBe(false)
+    expect(sameThreadInputs([row, `running`], [row, `ended`])).toBe(false)
+    expect(sameThreadInputs([row], [row, row])).toBe(false)
+    expect(sameThreadInputs(undefined, [row])).toBe(false)
+  })
+})
+
+// Review T14: never a flash of "Thread not found" while the thread syncs.
+describe(`threadPageState`, () => {
+  const base = { hasBundle: false, syncSettled: true, itemNamesIt: false, fetch: `idle` as const, graceOver: false }
+
+  it(`renders the thread once its row synced`, () => {
+    expect(threadPageState({ ...base, hasBundle: true })).toBe(`ready`)
+  })
+
+  it(`keeps the skeleton while the sync, an item or the fetch says wait`, () => {
+    expect(threadPageState({ ...base, syncSettled: false })).toBe(`skeleton`)
+    expect(threadPageState({ ...base, fetch: `pending` })).toBe(`skeleton`)
+    expect(threadPageState({ ...base, fetch: `found` })).toBe(`skeleton`)
+    expect(threadPageState({ ...base, itemNamesIt: true })).toBe(`skeleton`)
+    // Not asked yet = not concluded yet.
+    expect(threadPageState(base)).toBe(`skeleton`)
+  })
+
+  it(`concludes missing only on the server's word or after the grace`, () => {
+    expect(threadPageState({ ...base, fetch: `missing` })).toBe(`missing`)
+    expect(threadPageState({ ...base, fetch: `found`, graceOver: true })).toBe(`missing`)
+    expect(threadPageState({ ...base, itemNamesIt: true, fetch: `missing` })).toBe(`missing`)
   })
 })

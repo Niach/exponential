@@ -39,6 +39,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -49,6 +51,9 @@ import kotlinx.coroutines.launch
 // row, a run screen's link to its thread, the Guide readers) resolves it
 // through the ONE model ([ThreadView], fixture-locked ×4) via [ThreadPage] —
 // the twin of web `hooks/use-threads.ts`.
+
+/** T-N2: how long a landing waits for a new session's thread item. */
+const val THREAD_LANDING_WAIT_MS = 4_000L
 
 /** The synced rows every thread bundle is built from (all member teams). */
 private data class ThreadRows(
@@ -115,6 +120,37 @@ class ThreadsViewModel @Inject constructor(
         }.toMap()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    /**
+     * T4: my LIVE sessions no thread item names yet (placement failed, or
+     * the thread-items shape lags the sessions shape), drawn in Running as
+     * plain session rows — a live session never vanishes from the lists.
+     */
+    val orphanLive: StateFlow<List<com.exponential.app.ui.session.PastRunRow>> = combine(
+        threadRowsFlow(dbFlow),
+        auth.userId,
+        CodingSessionLiveness.minuteTicker(),
+    ) { rows, userId, now ->
+        val issuesById = rows.issues.associateBy { it.id }
+        ThreadPage.orphanLiveSessions(rows.sessions, rows.items, userId, now).map { session ->
+            com.exponential.app.ui.session.PastRunRow(
+                session = session,
+                issue = session.issueId?.let(issuesById::get),
+                batchIssues = com.exponential.app.domain.batchRunIssues(session, rows.issues),
+                device = com.exponential.app.domain.resolveSessionDevice(session, rows.devices, now),
+            )
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * T-N2: the thread a just-started session lands in — waits up to
+     * [timeoutMs] for its synced thread item (the start places it server-side);
+     * null = still unplaced, the caller falls back to the session's screen.
+     */
+    suspend fun awaitThreadOf(sessionId: String, timeoutMs: Long = THREAD_LANDING_WAIT_MS): String? =
+        kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
+            threadBySession.first { it.containsKey(sessionId) }.getValue(sessionId).id
+        }
+
     /** The threads holding [issueId] (the issue page's Threads row). */
     fun threadsOfIssue(bundles: List<ThreadPage.Bundle>, issueId: String): List<ThreadPage.Bundle> =
         bundles.filter { bundle -> bundle.items.any { it.issueId == issueId } }
@@ -149,13 +185,35 @@ class ThreadScreenViewModel @Inject constructor(
 
     private val teamId: Flow<String?> = thread.map { it?.teamId }.distinctUntilChanged()
 
-    /** True once the local store answered and holds no such thread (never
-     *  synced, deleted, or a team the viewer left): the screen's
-     *  `thread-not-found` state. False while the first read is in flight. */
-    val missing: StateFlow<Boolean> = dbFlow
-        .scopedQuery<ThreadEntity?>(null) { it.threadDao().observeById(threadId) }
-        .map { it == null }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    /** What the one `threads.get` fallback concluded (T-N9). */
+    private enum class Fetch { Idle, Fetching, Found, NotFound, Failed }
+
+    private val fetch = MutableStateFlow(Fetch.Idle)
+
+    /** The local row as an ANSWER: null until the store answered. */
+    private val localAnswer: Flow<Pair<ThreadEntity?, Boolean>?> = dbFlow
+        .flatMapLatest { db ->
+            if (db == null) {
+                flowOf(null)
+            } else {
+                combine(
+                    db.threadDao().observeById(threadId),
+                    db.threadItemDao().observeByThread(threadId).map { it.isNotEmpty() },
+                ) { row, named -> row to named }
+            }
+        }
+
+    /**
+     * EXP-1284 (T14/T-N9): the screen's `thread-not-found` state — true only
+     * once the store holds no such thread, no synced item names it, and ONE
+     * `threads.get` also came back without it (a tapped link racing the sync
+     * lands on the thread instead of a flash of "not found"). False = the
+     * skeleton while any of that is pending.
+     */
+    val missing: StateFlow<Boolean> = combine(localAnswer, fetch) { answer, fetched ->
+        val (row, named) = answer ?: return@combine false
+        row == null && !named && (fetched == Fetch.NotFound || fetched == Fetch.Failed)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val bundle: StateFlow<ThreadPage.Bundle?> = combine(
         thread,
@@ -235,6 +293,14 @@ class ThreadScreenViewModel @Inject constructor(
     }
 
     init {
+        // T-N9: the first local answer without the thread fetches it ONCE;
+        // a found thread is written through so the screen renders at once
+        // (the shapes reconcile it later).
+        viewModelScope.launch {
+            val answer = localAnswer.filterNotNull().first()
+            if (answer.first != null || answer.second) return@launch
+            fetchThread()
+        }
         viewModelScope.launch {
             auth.activeAccountId.collectLatest { accountId ->
                 _steerEnabled.value = null
@@ -244,6 +310,25 @@ class ThreadScreenViewModel @Inject constructor(
                     runCatching { steerApi.config(accountId).enabled }.getOrDefault(false)
                 }
             }
+        }
+    }
+
+    private suspend fun fetchThread() {
+        if (fetch.value != Fetch.Idle) return
+        val accountId = auth.activeAccountId.value ?: run { fetch.value = Fetch.Failed; return }
+        fetch.value = Fetch.Fetching
+        fetch.value = try {
+            val fetched = threadsApi.get(accountId, threadId)
+            val db = dbFlow.filterNotNull().first()
+            db.threadDao().upsert(fetched.thread)
+            fetched.items.forEach { db.threadItemDao().upsert(it) }
+            Fetch.Found
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: com.exponential.app.data.api.TrpcException) {
+            if (e.code == "NOT_FOUND" || e.code == "FORBIDDEN") Fetch.NotFound else Fetch.Failed
+        } catch (_: Exception) {
+            Fetch.Failed
         }
     }
 

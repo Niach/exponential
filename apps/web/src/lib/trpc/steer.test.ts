@@ -145,6 +145,7 @@ vi.mock(`@/lib/steer`, () => ({
 
 import { steerRouter } from "@/lib/trpc/steer"
 import { takeStartFailure } from "@/lib/start-failures"
+import { _clearStartThreads, takeStartThread } from "@/lib/start-threads"
 
 const ISSUE_A = `11111111-1111-4111-8111-111111111111`
 const ISSUE_B = `22222222-2222-4222-8222-222222222222`
@@ -2922,6 +2923,41 @@ describe(`steer.startSession — threadId (EXP-1284)`, () => {
     })
     expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, threadId: THREAD_ID, startId })
     expect(result).toEqual({ ok: true, startId })
+  })
+
+  // Review T16: an older daemon drops the frame's threadId; the server
+  // remembers it per device owner + device + subject for codingSessions.start.
+  it(`remembers the thread for the device's start (an older daemon drops it)`, async () => {
+    _clearStartThreads()
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, threadId: THREAD_ID })
+    queueOwnDevice()
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    ).toBe(THREAD_ID)
+    // A batch is its SET of issues, in any order.
+    expect(
+      takeStartThread({
+        ownerId: `actor`,
+        deviceId: `dev-1`,
+        subject: { issueIds: [ISSUE_B, ISSUE_A] },
+      })
+    ).toBe(THREAD_ID)
+    expect(
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    ).toBeNull()
+    // Nothing is remembered without a thread.
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    ).toBeNull()
   })
 
   it(`sends no threadId when none was asked for`, async () => {

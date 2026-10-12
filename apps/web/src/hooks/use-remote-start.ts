@@ -20,7 +20,7 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
-import { useOpenSession } from "@/hooks/use-open-session"
+import { useOpenStartedSession } from "@/hooks/use-open-started-session"
 import type { DetailOrigin } from "@/lib/detail-origin"
 import {
   findStartedRun,
@@ -208,7 +208,7 @@ export function useRemoteStart(
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const quietRef = useRef(false)
   const [openedId, setOpenedId] = useState<string | null>(null)
-  const openSession = useOpenSession()
+  const openStarted = useOpenStartedSession()
   const onOpenedRef = useRef(options.onOpened)
   onOpenedRef.current = options.onOpened
   const onSentRef = useRef(options.onSent)
@@ -293,10 +293,13 @@ export function useRemoteStart(
     const handled =
       onOpenedRef.current?.(match, { startId: pending.startId }) === true
     setOpenedId(match.id)
-    if (!handled) openSession(match, openOptions)
+    // EXP-1284 (review T11): an unhandled start lands on its THREAD.
+    if (!handled) {
+      openStarted(match, { ...openOptions, knownThreadId: threadIdRef.current })
+    }
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
     setPending(null)
-  }, [sessionRows, pending, currentUserId, openSession, openOptions])
+  }, [sessionRows, pending, currentUserId, openStarted, openOptions])
 
   // The desktop inserts the coding_sessions row when the launcher spins up.
   // The deadline is not a silent re-enable: a run the desktop REFUSED — a

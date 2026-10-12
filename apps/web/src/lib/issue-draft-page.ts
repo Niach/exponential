@@ -147,3 +147,36 @@ export function canCreateDraft({
 }): boolean {
   return title.trim().length > 0 && !creating && !uploading
 }
+
+/**
+ * EXP-1284 (review T11): where a created draft lands. A "New issue in this
+ * thread" draft lands back on the THREAD with the new issue's tab selected
+ * (`?child=<IDENT>`, Back keeps the thread's own origin); every other draft
+ * lands on the issue's page, keeping `?from=`.
+ */
+export function draftLandingNavigation({
+  teamSlug,
+  threadId,
+  boardSlug,
+  identifier,
+  from,
+}: {
+  teamSlug: string
+  threadId: string | null
+  boardSlug: string
+  identifier: string
+  from?: string
+}) {
+  if (threadId) {
+    return {
+      to: `/t/$teamSlug/threads/$threadId` as const,
+      params: { teamSlug, threadId },
+      search: { child: identifier },
+    }
+  }
+  return {
+    to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier` as const,
+    params: { teamSlug, boardSlug, issueIdentifier: identifier },
+    search: from ? { from } : {},
+  }
+}
