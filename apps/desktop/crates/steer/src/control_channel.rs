@@ -876,6 +876,19 @@ async fn sleep_action(
 mod tests {
     use super::*;
 
+    /// Final review: the device remembers a startId exactly as long as
+    /// `feedback-states.json` `starting.dedupeMs` (= the server's dedupe and
+    /// the composer's watch).
+    #[test]
+    fn the_start_id_memory_is_the_contract_dedupe_window() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/feedback-states.json"
+        ))
+        .expect("feedback-states.json parses");
+        let dedupe = fixture["starting"]["dedupeMs"].as_u64().expect("dedupeMs");
+        assert_eq!(START_IDS_TTL.as_millis(), u128::from(dedupe));
+    }
+
     /// EXP-1259: a startId is started once; a failure gives it back; the
     /// set is bounded and forgets after the TTL.
     #[test]

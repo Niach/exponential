@@ -287,9 +287,11 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // the steer crate's viewer/feed/wire types, and the two ui modules that
     // draw the tab (`session_screen.rs` renders it, `steer_viewer.rs` is the
     // relay-fed feed behind it when this process hosts no engine — which is
-    // exactly how the shot is captured, EXP-732).
+    // exactly how the shot is captured, EXP-732). EXP-1259: `work-card` is
+    // the same session's transcript (Show work on), its cards built off the
+    // same feed.
     test: /^apps\/desktop\/crates\/(engine\/src\/|steer\/src\/(viewer|feed|frames|journal)\.rs)/,
-    views: /^steering$/,
+    views: /^(steering|work-card)$/,
     why: `the coding-session screen and its feed`,
   },
   {

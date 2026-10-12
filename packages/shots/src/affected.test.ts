@@ -121,10 +121,12 @@ describe(`desktop attribution`, () => {
     // The ONE Agent composer screen draws the empty prompt, the issue chips,
     // the action chip and the Create action builtin (EXP-825 retired the
     // create-action dialog), so matching only the exact stem would leave
-    // three of the four stale.
+    // three of the four stale. EXP-1259: the Agent home is that same page
+    // (`agent-home` shares `chat`'s drive).
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `action-create`,
+      `agent-home`,
       `chat`,
       `chat-action`,
       `chat-issues`,
@@ -135,9 +137,10 @@ describe(`desktop attribution`, () => {
     // `_screen` is a wrapper suffix like `_dialog`: `session_screen.rs` is the
     // steering view's own module, not the auth glue `session.rs` names.
     // EXP-1204: `run-changes` is the same screen on its Diff face, so it
-    // rides along; nothing else does.
+    // rides along, and EXP-1259's `work-card` is it with Show work on;
+    // nothing else does.
     const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
-    expect(views(result, `desktop`)).toEqual([`steering`, `run-changes`])
+    expect(views(result, `desktop`)).toEqual([`steering`, `work-card`, `run-changes`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -701,8 +704,9 @@ describe(`fail-safe`, () => {
     })
     expect(named.broad).toEqual([])
     // EXP-1204: the two ui modules also draw `run-changes` (the run's Diff
-    // face); the engine and feed files alone claim steering only.
-    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `run-changes`])
+    // face) and EXP-1259's `work-card` (the transcript with Show work on);
+    // the engine and feed files alone claim the two feed-drawn shots.
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `run-changes`])
     const feedOnly = affectedScope({
       changedFiles: [
         `apps/desktop/crates/steer/src/viewer.rs`,
@@ -711,7 +715,7 @@ describe(`fail-safe`, () => {
       platforms: [`desktop`],
       includeMissing: false,
     })
-    expect(feedOnly.byPlatform.get(`desktop`)).toEqual([`steering`])
+    expect(feedOnly.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`])
 
     // A grid picker rides the feed AND draws into the PTY grid, so it claims
     // both views rather than narrowing to one of them.

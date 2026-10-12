@@ -1539,7 +1539,11 @@ impl gpui::Global for NewRunHandoffs {}
 /// The composer in New session tab `new_run_id` is starting a run in
 /// `window`: the run that start lands lands in that tab.
 pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut App) -> StartHandoff {
+    // A start whose window closed before it settled (a local prepare's
+    // answer has nowhere to go) never takes its claim back: drop those.
+    let open: HashSet<gpui::WindowId> = cx.windows().iter().map(|handle| handle.window_id()).collect();
     let handoffs = cx.default_global::<NewRunHandoffs>();
+    handoffs.tabs.retain(|_, (owner, _)| open.contains(owner));
     handoffs.next += 1;
     let handoff = StartHandoff(handoffs.next);
     handoffs
@@ -1800,8 +1804,9 @@ pub(crate) fn follow_remote_start(
 
 /// How long a COMPOSER's remote start keeps watching for its row after the
 /// composer's own 30 s deadline gave up on it (feedback-states.json
-/// `starting`: a late landing still lands, clears the error and the draft).
-const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// `starting.watchMs`: a late landing still lands and clears the error) —
+/// the same window the server and the device dedupe a startId in.
+pub(crate) const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 /// The composer starts being followed right now, by `startId` — a Retry
 /// (same startId) never spawns a second follower.
@@ -1812,18 +1817,21 @@ impl gpui::Global for FollowedStarts {}
 
 /// Review #3 — what a COMPOSER's remote start hands its follower: the start
 /// (its `startId`), the New session tab it lands in, and what to tell the
-/// composer once the row landed (`landed`, with the run's id).
+/// composer once the row landed (`landed`, with the run's id), which answers
+/// whether the run opens: a LATE landing whose draft the person changed
+/// opens nothing (D11; it shows in Running).
 pub(crate) struct ComposerStartWatch {
     pub(crate) start_id: String,
     pub(crate) handoff: Option<StartHandoff>,
-    pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App)>,
+    pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App) -> bool>,
 }
 
 /// [`follow_remote_start`] for the composer's own start (review #3): it
 /// follows until the row lands — past the composer's 30 s deadline, up to
-/// [`REMOTE_LATE_WAIT`] — and lands it in the start's own New session tab.
-/// `false` (nothing spawned) when `watch.start_id` is already followed:
-/// that follower lands the Retry's run too (the device ignored the repeat).
+/// [`REMOTE_LATE_WAIT`] — and, when the composer says so, lands it in the
+/// start's own New session tab. `false` (nothing spawned) when
+/// `watch.start_id` is already followed: that follower lands the Retry's
+/// run too (the device ignored the repeat).
 pub(crate) fn follow_composer_start(
     device_id: String,
     subject: RemoteRunSubject,
@@ -1853,12 +1861,16 @@ pub(crate) fn follow_composer_start(
                 cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
                 let _ = cx.update(|cx| done(cx));
-                let landed_in_window = handle.update(cx, |_, window, cx| {
-                    open_landed_session(&session_id, handoff, window, cx);
-                    landed(session_id.clone(), window, cx);
+                let opened = handle.update(cx, |_, window, cx| {
+                    let open = landed(session_id.clone(), window, cx);
+                    if open {
+                        open_landed_session(&session_id, handoff, window, cx);
+                    }
+                    open
                 });
-                // The window closed while we waited: nothing to land in.
-                if landed_in_window.is_err() {
+                // Not opened (the draft moved on, or the window closed while
+                // we waited): the New session tab keeps its slot.
+                if !matches!(opened, Ok(true)) {
                     if let Some(handoff) = handoff {
                         let _ = cx.update(|cx| take_back_new_run_tab(handoff, cx));
                     }

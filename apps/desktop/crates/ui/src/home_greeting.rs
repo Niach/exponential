@@ -157,7 +157,8 @@ fn stamp_ms(stamp: Option<&str>) -> i64 {
 
 /// RECENT: the caller's last [`RECENT_COUNT`] OWN top-level runs (no parent
 /// run) in `team_id`, any status, newest first by `updated_at` then
-/// `created_at`. A resume succession (`resumed_from_id`) is ONE row, its
+/// `created_at`, then id ascending (`composer-home.json` `recentCases`). A
+/// resume succession (`resumed_from_id`) is ONE row, its
 /// newest member, the way every session list draws it (review #20,
 /// `domain::session_tree`).
 pub(crate) fn home_recent_runs<'a>(
@@ -179,7 +180,7 @@ pub(crate) fn home_recent_runs<'a>(
         stamp_ms(b.updated_at.as_deref())
             .cmp(&stamp_ms(a.updated_at.as_deref()))
             .then_with(|| stamp_ms(b.created_at.as_deref()).cmp(&stamp_ms(a.created_at.as_deref())))
-            .then_with(|| b.id.cmp(&a.id))
+            .then_with(|| a.id.cmp(&b.id))
     });
     out.truncate(RECENT_COUNT);
     out
@@ -341,6 +342,49 @@ mod tests {
             .map(|row| row.id.as_str())
             .collect();
         assert_eq!(ids, ["third", "other"]);
+    }
+
+    /// Final review #20: every `recentCases` entry of `composer-home.json`
+    /// (the ×4 pin of the Recent rule), ids in order.
+    #[test]
+    fn recent_replays_the_fixture_cases() {
+        let fixture = fixture();
+        let cases = fixture["recentCases"].as_array().expect("recentCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<domain::rows::CodingSession> = case["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|session| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": session["id"],
+                        "user_id": session["userId"],
+                        "team_id": session["teamId"],
+                        "parent_session_id": session["parentSessionId"],
+                        "resumed_from_id": session["resumedFromId"],
+                        "created_at": session["createdAt"],
+                        "updated_at": session["updatedAt"],
+                    }))
+                    .expect("a coding session row")
+                })
+                .collect();
+            let ids: Vec<&str> = home_recent_runs(
+                rows.iter(),
+                case["userId"].as_str().unwrap(),
+                case["teamId"].as_str().unwrap(),
+            )
+            .into_iter()
+            .map(|row| row.id.as_str())
+            .collect();
+            let want: Vec<&str> = case["expected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap())
+                .collect();
+            assert_eq!(ids, want, "{}", case["name"]);
+        }
     }
 
     /// A tie on `updated_at` falls back to `created_at`, newest first.

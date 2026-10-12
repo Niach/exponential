@@ -103,6 +103,8 @@ const STEER_DEPENDENT_VIEWS = new Set([
   `chat-issues`,
   `chat-action`,
   `steering`,
+  // The steered session's transcript (EXP_DEV_SHOW_WORK) — `steering`'s feed.
+  `work-card`,
   `issue-detail`,
   `board`,
   `machine-settings`,
@@ -128,6 +130,7 @@ const FLEET_VIEWS = new Set([
   `chat-from-issue`,
   `composer-menu`,
   `steering`,
+  `work-card`,
   `action-page`,
   `action-create`,
   `action-triggers`,

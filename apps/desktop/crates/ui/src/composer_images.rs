@@ -118,6 +118,12 @@ impl PendingImages {
         self.pending.clear();
     }
 
+    /// The staged entries' strip keys, in order (a draft's attachments, for
+    /// its start fingerprint).
+    pub(crate) fn keys(&self) -> Vec<u64> {
+        self.pending.iter().map(|item| item.key).collect()
+    }
+
     fn image_count(&self) -> usize {
         self.pending.iter().filter(|item| !item.is_file).count()
     }
