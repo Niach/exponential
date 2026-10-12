@@ -5,6 +5,7 @@ import { FEEDBACK_STATES, markStripeSpan } from "@exp/domain-contract/feedback-m
 import { Button } from "./button"
 import {
   actionErrorTitle,
+  errorSurface,
   BlockingOverlay,
   BlockingSurface,
   FieldError,
@@ -251,8 +252,15 @@ describe(`BlockingOverlay`, () => {
   })
 })
 
-// FEED-79: the error rule's two halves, feedback-states.json `errors`.
+// FEED-79: the error rule (toast, inline line, quiet), feedback-states.json `errors`.
 describe(`errors`, () => {
+  it(`renders each case where the fixture says (background work stays quiet)`, () => {
+    for (const c of FEEDBACK_STATES.errors.cases) {
+      expect(errorSurface(c.kind as `action` | `input` | `background`)).toBe(c.render)
+    }
+    expect(FEEDBACK_STATES.errors.cases.some((c) => c.kind === `background`)).toBe(true)
+  })
+
   it(`titles a failed action per the pattern`, () => {
     for (const c of FEEDBACK_STATES.errors.cases.filter((c) => c.kind === `action`)) {
       expect(actionErrorTitle(c.verb!, c.thing!)).toBe(c.title)

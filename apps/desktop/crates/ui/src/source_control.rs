@@ -338,16 +338,12 @@ impl SourceControlView {
                         this.status = Some(summary);
                         this.error = None;
                     }
-                    // FEED-79: a failed read = the empty view + ONE toast per
-                    // failing streak (the status refreshes on its own).
+                    // FEED-79: the status re-reads on its own (scope change,
+                    // after every write), so a failed read is quiet: the
+                    // empty view.
                     Err(err) => {
                         if this.status.is_some() || this.error.is_none() {
-                            crate::action_error::failed_action(
-                                "read",
-                                "the git status",
-                                Some(err.to_string()),
-                                cx,
-                            );
+                            log::warn!("[ui] source control: git status failed: {err}");
                         }
                         this.status = None;
                         this.error = Some(err.to_string().into());
@@ -374,7 +370,7 @@ impl SourceControlView {
                         let rail = this.rail.clone();
                         rail.update(cx, |rail, cx| rail.clear_sc_selection(cx));
                     } else {
-                        this.select_working_tree(cx);
+                        this.select_working_tree(false, cx);
                     }
                 }
                 cx.notify();
@@ -413,7 +409,7 @@ impl SourceControlView {
                 }
                 this.diff.update(cx, |diff, cx| match result {
                     Ok(prepared) => diff.set_prepared(prepared, cx),
-                    Err(err) => diff.set_error(err.to_string(), cx),
+                    Err(err) => diff.set_error(err.to_string(), true, cx),
                 });
             });
         })
@@ -445,7 +441,7 @@ impl SourceControlView {
                 }
                 this.diff.update(cx, |diff, cx| match result {
                     Ok(prepared) => diff.set_prepared(prepared, cx),
-                    Err(err) => diff.set_error(err.to_string(), cx),
+                    Err(err) => diff.set_error(err.to_string(), true, cx),
                 });
             });
         })
@@ -455,7 +451,9 @@ impl SourceControlView {
     /// EXP-509: the uncommitted working tree — the whole `git diff HEAD`
     /// patch plus synthesized adds for untracked files, through the same
     /// shared renderer (per-file headers come free).
-    fn select_working_tree(&mut self, cx: &mut gpui::Context<Self>) {
+    /// `attended` = the person picked the row (a failed read toasts); the
+    /// re-cut after a status refresh is quiet.
+    fn select_working_tree(&mut self, attended: bool, cx: &mut gpui::Context<Self>) {
         self.selection = Selection::WorkingTree;
         let Some(scope) = self.scope.clone() else {
             return;
@@ -480,7 +478,7 @@ impl SourceControlView {
                 }
                 this.diff.update(cx, |diff, cx| match result {
                     Ok(prepared) => diff.set_prepared(prepared, cx),
-                    Err(err) => diff.set_error(err.to_string(), cx),
+                    Err(err) => diff.set_error(err.to_string(), attended, cx),
                 });
             });
         })
@@ -895,7 +893,7 @@ impl Render for SourceControlView {
             self.seen_selection = want.clone();
             match want {
                 ScSelection::Commit(hash) => self.select_commit(hash, cx),
-                ScSelection::WorkingTree => self.select_working_tree(cx),
+                ScSelection::WorkingTree => self.select_working_tree(true, cx),
                 // Deselected out from under us (scope change) — back to the
                 // placeholder.
                 ScSelection::None => {

@@ -72,6 +72,9 @@ pub struct StoragePane {
     generation: u64,
     /// A delete/sweep in flight — disables the mutation affordances.
     busy: bool,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on open or after a write fails quietly.
+    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -93,6 +96,7 @@ impl StoragePane {
             account_id: None,
             generation: 0,
             busy: false,
+            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -143,16 +147,14 @@ impl StoragePane {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
                 }
-                // FEED-79: a failed load = the empty state + the toast.
+                // FEED-79: a failed load = the empty state + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
                 if let Err(message) = &result.list {
-                    let pane = cx.entity().downgrade();
-                    crate::action_error::failed_action_with_retry(
-                        "load",
+                    crate::action_error::failed_load(
                         "the attachments",
+                        attended,
                         Some(message.clone()),
-                        move |_, cx| {
-                            let _ = pane.update(cx, |this, cx| this.refetch(cx));
-                        },
                         cx,
                     );
                 }
@@ -163,11 +165,17 @@ impl StoragePane {
         .detach();
     }
 
-    /// Refetch after a mutation (or the Refresh button): drop the cached
-    /// list; the next render re-fetches.
+    /// Refetch after a mutation: drop the cached list; the next render
+    /// re-fetches.
     fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     /// The per-row Delete confirm + `attachments.delete` → refetch. Mirrors
@@ -544,11 +552,13 @@ impl Render for StoragePane {
             Load::Idle | Load::Loading => {
                 body = body.child(settings_skeleton("storage-skeleton", cx));
             }
-            // A failed load reads as the empty list; the failure was a toast.
+            // A failed load (FEED-79): the empty state + Retry, no toast.
             Load::Ready(Loaded { list: Err(_), .. }) => {
-                body = body.child(crate::controls::empty_state_list(
+                body = body.child(crate::action_error::load_failed_state(
+                    "storage-retry",
                     gpui_component::Icon::new(crate::icons::registry::UI_ATTACH),
                     crate::empty_state_copy::ATTACHMENTS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
                     cx,
                 ));
             }

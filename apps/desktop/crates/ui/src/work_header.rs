@@ -157,8 +157,8 @@ pub(crate) struct RunEntry {
 }
 
 /// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
-pub(crate) const RUN_FACE_LABEL: &str = "Run";
-pub(crate) const RUNS_FACE_LABEL: &str = "Runs";
+pub(crate) const RUN_FACE_LABEL: &str = "Session";
+pub(crate) const RUNS_FACE_LABEL: &str = "Sessions";
 /// EXP-1251: the Guide face's ONE name (contract `diffUi.guideFace`, ×4).
 pub(crate) const GUIDE_FACE_LABEL: &str = domain::contract::DIFF_UI_GUIDE_FACE;
 
@@ -491,7 +491,7 @@ fn run_menu(spec: &FaceToggle, on_pick_run: OnPickRun, cx: &App) -> AnyElement {
                 .with_size(px(12.))
                 .text_color(muted),
         )
-        .tooltip("Switch run")
+        .tooltip("Switch session")
         .dropdown_menu(move |mut menu, _window, _cx| {
             for (entry, agent, mark) in entries.clone() {
                 let is_checked = checked.as_deref() == Some(entry.id.as_str());
@@ -905,7 +905,7 @@ pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, size: PillSize, cx: &A
                 .text_color(cx.theme().muted_foreground),
         )
         .label("Resume")
-        .tooltip("Resume this run")
+        .tooltip("Resume this session")
 }
 
 // ---------------------------------------------------------------------------
@@ -2458,12 +2458,12 @@ mod tests {
             state: FaceState::default(),
         };
         assert!(!spec.multiple_runs());
-        assert_eq!(run_face_label(spec.multiple_runs()), "Run");
+        assert_eq!(run_face_label(spec.multiple_runs()), "Session");
         // The row it continues joins the menu (newest first, the viewed
         // one checked).
         spec.runs.push(entry("original"));
         assert!(spec.multiple_runs());
-        assert_eq!(run_face_label(spec.multiple_runs()), "Runs");
+        assert_eq!(run_face_label(spec.multiple_runs()), "Sessions");
         assert!(spec.is_shown());
         assert_eq!(spec.items(), vec![Face::Run, Face::Guide]);
         assert_eq!(spec.checked_run.as_deref(), Some("resume-1"));
@@ -2471,9 +2471,9 @@ mod tests {
 
     #[test]
     fn the_run_face_reads_runs_with_several_runs() {
-        assert_eq!(run_face_label(false), "Run");
-        assert_eq!(run_face_label(true), "Runs");
-        assert_eq!(RUN_FACE_LABEL, "Run");
-        assert_eq!(RUNS_FACE_LABEL, "Runs");
+        assert_eq!(run_face_label(false), "Session");
+        assert_eq!(run_face_label(true), "Sessions");
+        assert_eq!(RUN_FACE_LABEL, "Session");
+        assert_eq!(RUNS_FACE_LABEL, "Sessions");
     }
 }

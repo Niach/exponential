@@ -73,6 +73,10 @@ pub(super) fn open(
     });
 }
 
+/// The picker when its list failed to load (FEED-79: the empty state +
+/// Retry).
+const NO_REPOSITORIES: &str = "No repositories";
+
 pub struct AddRepositoryDialogView {
     team_id: String,
     /// The pane to refetch once a repo is connected.
@@ -82,9 +86,10 @@ pub struct AddRepositoryDialogView {
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
     adding: bool,
-    /// FEED-79: a failed load toasts ONCE per failing streak (every window
-    /// activation re-lists, so a down server must not toast on each one).
-    load_failed: bool,
+    /// FEED-79: the load in flight is the person's Refresh / Retry press
+    /// (its failure toasts); the load on open, on window activation and
+    /// after a connect hand-back fails quietly into the empty state.
+    retry_pressed: bool,
     /// The add failed a plan cap — the server's own message, rendered with
     /// the neutral "Upgrade on the web" pointer (§4.9).
     plan_limited: Option<SharedString>,
@@ -179,7 +184,7 @@ impl AddRepositoryDialogView {
             load: Load::Loading,
             generation: 0,
             adding: false,
-            load_failed: false,
+            retry_pressed: false,
             plan_limited: None,
             focused_once: false,
             lookup,
@@ -194,7 +199,14 @@ impl AddRepositoryDialogView {
     /// Refresh: a forced re-list (SLOP-7 lists LIVE off GitHub, so a repo
     /// granted since simply appears), keeping the current rows on screen.
     fn refresh_access(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
         self.fetch(true, false, cx);
+    }
+
+    /// The failed list's Retry: the same forced re-list, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.fetch(true, true, cx);
     }
 
     /// Connect / Reconnect GitHub: the in-app link hop; the outcome lands as a
@@ -427,26 +439,18 @@ impl AddRepositoryDialogView {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
                 }
+                let attended = std::mem::take(&mut this.retry_pressed);
                 this.load = match result {
-                    Ok(result) => {
-                        this.load_failed = false;
-                        Load::Ready(result)
-                    }
+                    Ok(result) => Load::Ready(result),
                     Err(message) => {
-                        // FEED-79: the empty state + ONE toast per streak.
-                        if !this.load_failed {
-                            this.load_failed = true;
-                            let dialog = cx.entity().downgrade();
-                            crate::action_error::failed_action_with_retry(
-                                "load",
-                                "your GitHub repositories",
-                                Some(message),
-                                move |_, cx| {
-                                    let _ = dialog.update(cx, |this, cx| this.fetch(true, true, cx));
-                                },
-                                cx,
-                            );
-                        }
+                        // FEED-79: the empty state + Retry; only a Refresh /
+                        // Retry press that fails toasts.
+                        crate::action_error::failed_load(
+                            "your GitHub repositories",
+                            attended,
+                            Some(message),
+                            cx,
+                        );
                         Load::Failed
                     }
                 };
@@ -717,10 +721,15 @@ impl Render for AddRepositoryDialogView {
                     cx,
                 ));
             }
+            // A failed load (FEED-79): the empty state + Retry, no toast.
             Load::Failed => {
-                // A fetch that failed with no data reads like not configured
-                // (web parity); the failure itself was a toast (FEED-79).
-                body = body.child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx));
+                body = body.child(crate::action_error::load_failed_state(
+                    "add-repo-retry",
+                    Icon::new(registry::UI_GITHUB),
+                    NO_REPOSITORIES,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
             }
             Load::Ready(result) if result.prerequisite() == Prerequisite::NotConfigured => {
                 body = body.child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx));

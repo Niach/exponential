@@ -39,6 +39,9 @@ use crate::queries;
 use super::storage::format_created_date;
 use super::{open_url, section, settings_skeleton};
 
+/// The methods band when its load failed (FEED-79: the empty state + Retry).
+const NO_SIGN_IN_METHODS: &str = "No sign-in methods";
+
 enum Load {
     Idle,
     Loading,
@@ -61,6 +64,9 @@ pub struct SignInMethodsSection {
     copy_url: Option<SharedString>,
     /// The last [`SignInLinkOutcome::seq`] adopted.
     outcome_seq: u64,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on entry or after a write fails quietly.
+    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -85,6 +91,7 @@ impl SignInMethodsSection {
             pending_link: None,
             copy_url: None,
             outcome_seq,
+            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -102,6 +109,12 @@ impl SignInMethodsSection {
     pub(crate) fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
+    }
+
+    /// The failed load's Retry: the same read, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     /// The change-email dialog's success: say so, re-read.
@@ -142,19 +155,17 @@ impl SignInMethodsSection {
                 if this.generation != generation {
                     return;
                 }
+                let attended = std::mem::take(&mut this.retry_pressed);
                 this.load = match result {
                     Ok(methods) => Load::Ready(methods),
                     Err(err) => {
                         log::warn!("[ui] users.signInMethods failed: {err}");
-                        // FEED-79: the empty state + the toast.
-                        let section = cx.entity().downgrade();
-                        crate::action_error::failed_action_with_retry(
-                            "load",
+                        // FEED-79: the empty state + Retry; only a Retry
+                        // press that fails again toasts.
+                        crate::action_error::failed_load(
                             "your sign-in methods",
+                            attended,
                             crate::action_error::action_error_description(&err),
-                            move |_, cx| {
-                                let _ = section.update(cx, |this, cx| this.refetch(cx));
-                            },
                             cx,
                         );
                         Load::Error
@@ -623,9 +634,16 @@ impl Render for SignInMethodsSection {
                         passkeys_section.child(v_flex().w_full().min_w_0().children(list));
                 }
             }
-            // A failed load: the empty passkey list, nothing to list above
-            // it; the failure was a toast (FEED-79).
+            // A failed load (FEED-79): the empty state + Retry, no toast;
+            // the passkey list reads empty under it.
             (Load::Error, None) => {
+                methods_section = methods_section.child(crate::action_error::load_failed_state(
+                    "sign-in-methods-retry",
+                    gpui_component::Icon::new(registry::SETTINGS_ACCOUNT),
+                    NO_SIGN_IN_METHODS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
                 passkeys_section = passkeys_section.child(crate::controls::empty_state_list(
                     gpui_component::Icon::new(crate::icons::registry::AUTH_PASSKEY),
                     crate::empty_state_copy::PASSKEYS,

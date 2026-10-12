@@ -15,7 +15,7 @@ const mockState = vi.hoisted(() => ({
   toastError: vi.fn(),
 }))
 
-// FEED-79: a failed list is a toast, not a rose sentence under the field.
+// FEED-79: a failed list is neither a toast nor a rose sentence under the field.
 vi.mock(`sonner`, async (importOriginal) => {
   const actual = await importOriginal<typeof import("sonner")>()
   return {
@@ -114,23 +114,18 @@ describe(`BoardRepoField (FEED-32)`, () => {
     )
   })
 
-  it(`a failed list toasts once and keeps a labelled trigger`, async () => {
+  it(`a failed list stays quiet and keeps a labelled trigger`, async () => {
     mockState.listQuery.mockRejectedValue(new Error(`boom`))
     renderField(`repo-1`)
 
-    await waitFor(() => expect(mockState.toastError).toHaveBeenCalled())
-    const [title, options] = mockState.toastError.mock.calls[0]
-    expect(title).toBe(`Couldn't load the team's repositories`)
-    expect(options.description).toBe(`boom`)
-    expect(options.action?.label).toBe(`Retry`)
-    expect(screen.queryByText(/boom/)).toBeNull()
-    // The one-shot re-list is still in flight for a beat ("Loading
-    // repository…"); what matters is that the trigger settles on a label.
+    // The one-shot re-list is still in flight for a beat; what matters is
+    // that the trigger settles on a label.
     await waitFor(() =>
       expect(trigger().textContent).toContain(`Repository unavailable`)
     )
-    // The one-shot re-list failed too: still ONE toast for the streak.
-    expect(mockState.toastError).toHaveBeenCalledTimes(1)
+    // FEED-79: an automatic list (mount, focus) never toasts.
+    expect(mockState.toastError).not.toHaveBeenCalled()
+    expect(screen.queryByText(/boom/)).toBeNull()
   })
 
   it(`reads "No repository" with nothing selected`, async () => {

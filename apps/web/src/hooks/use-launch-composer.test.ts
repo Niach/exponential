@@ -555,7 +555,7 @@ describe(`useLaunchComposer submit`, () => {
       expect(remote.cancelWatch).toHaveBeenCalled()
       expect(result.current.starting).toBeNull()
       expect(result.current.text).toBe(`hi`)
-      expect(mockState.toastError).toHaveBeenCalledWith(`The run did not start`, {
+      expect(mockState.toastError).toHaveBeenCalledWith(`The session did not start`, {
         description: `buildbox did not answer.`,
         action: { label: `Retry`, onClick: expect.any(Function) },
       })

@@ -287,13 +287,13 @@ describe(`parseActionTriggers`, () => {
 
 describe(`actionRunTitle`, () => {
   it(`says what started the run`, () => {
-    expect(actionRunTitle(`schedule`)).toBe(`Scheduled run`)
-    expect(actionRunTitle(`event`)).toBe(`Event run`)
-    expect(actionRunTitle(null)).toBe(`Manual run`)
-    expect(actionRunTitle(undefined)).toBe(`Manual run`)
+    expect(actionRunTitle(`schedule`)).toBe(`Scheduled session`)
+    expect(actionRunTitle(`event`)).toBe(`Event session`)
+    expect(actionRunTitle(null)).toBe(`Manual session`)
+    expect(actionRunTitle(undefined)).toBe(`Manual session`)
     // A child run another run started is neither a trigger's nor a person's.
-    expect(actionRunTitle(`agent`)).toBe(`Agent run`)
-    expect(actionRunTitle(`workflow`)).toBe(`Agent run`)
+    expect(actionRunTitle(`agent`)).toBe(`Agent session`)
+    expect(actionRunTitle(`workflow`)).toBe(`Agent session`)
   })
 })
 

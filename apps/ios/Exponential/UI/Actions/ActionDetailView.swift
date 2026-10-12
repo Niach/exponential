@@ -14,7 +14,7 @@ enum ActionPageTab: String, CaseIterable, Hashable {
         switch self {
         case .prompt: "Prompt"
         case .triggers: "Triggers"
-        case .runs: "Runs"
+        case .runs: "Sessions"
         }
     }
 }

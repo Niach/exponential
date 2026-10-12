@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
-import { failedAction } from "@/lib/action-error"
 import { BOARD_REPO_NOTE } from "@/lib/board-copy"
 import {
   BranchPicker,
@@ -66,9 +65,8 @@ export function BoardRepoField({
 }) {
   const [repos, setRepos] = useState<RepoList | null>(null)
   // FEED-32: a failed list used to collapse to `[]` silently, which rendered
-  // the selected repo as a BLANK trigger. FEED-79: it says so in a toast,
-  // ONCE per failing streak (every window focus re-lists).
-  const loadFailedRef = useRef(false)
+  // the selected repo as a BLANK trigger. Now the trigger reads "Repository
+  // unavailable"; FEED-79: an automatic list (mount, focus) never toasts.
   const [pickerOpen, setPickerOpen] = useState(false)
 
   // A late response for a previous team must not overwrite the current list.
@@ -81,22 +79,14 @@ export function BoardRepoField({
       const list = await trpc.repositories.list.query({ teamId: forTeam })
       if (teamRef.current !== forTeam) return
       setRepos(list)
-      loadFailedRef.current = false
-    } catch (err) {
+    } catch {
       if (teamRef.current !== forTeam) return
       setRepos((prev) => prev ?? [])
-      if (!loadFailedRef.current) {
-        loadFailedRef.current = true
-        failedAction(`load`, `the team's repositories`, err, {
-          retry: () => void reload(),
-        })
-      }
     }
   }, [teamId])
 
   useEffect(() => {
     setRepos(null)
-    loadFailedRef.current = false
     void reload()
     // Re-detect on focus so a repo installed through the picker's popup shows
     // up when the user returns.

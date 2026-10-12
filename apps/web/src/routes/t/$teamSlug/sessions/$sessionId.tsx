@@ -789,7 +789,7 @@ function EscalationBand({
             className="min-w-0 justify-start truncate text-left text-current"
             onClick={() => openSession(child)}
           >
-            {`Run ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
+            {`Session ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
           </Button>
         )
       })}

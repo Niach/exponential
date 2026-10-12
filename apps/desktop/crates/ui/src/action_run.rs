@@ -634,8 +634,8 @@ pub(crate) fn resume_run_reporting(
         return;
     };
     let Some(record) = coding::run_registry::get(&data_dir, &session_id) else {
-        let message = "This run can't be resumed on this machine: it has no local record. It ran on another \
-machine, was a repo-less run (purged when it ends), or was removed by this machine's session \
+        let message = "This session can't be resumed on this machine: it has no local record. It ran on another \
+machine, was a repo-less session (purged when it ends), or was removed by this machine's session \
 history setting.";
         notify_target_error(target, message, cx);
         report.fail(message, cx);
@@ -644,7 +644,7 @@ history setting.";
     // A reclaimed run worktree is re-created by the launcher; only a
     // branch-less record or a purged scratch dir has nothing to resume into.
     if !record.resumable() {
-        let message = "This run's workspace is gone and can't be re-created.";
+        let message = "This session's workspace is gone and can't be re-created.";
         notify_target_error(target, message, cx);
         report.fail(message, cx);
         return;
@@ -720,7 +720,7 @@ history setting.";
 const SIGNED_OUT_REASON: &str = "remote start failed: the desktop app is signed out";
 
 /// The refusal a second fix-conflicts run on one pull request gets.
-const FIX_RUN_BUSY_REASON: &str = "A fix-conflicts run is already working this pull request.";
+const FIX_RUN_BUSY_REASON: &str = "A fix-conflicts session is already working this pull request.";
 
 /// Surface a runner failure on the target window (best-effort). A RELAY start
 /// carries no target (EXP-357) — it used to swallow the refusal into the log,
@@ -741,9 +741,9 @@ pub(crate) fn notify_target_error(
 }
 
 /// FEED-79: a run that could not start (or resume) is the error toast,
-/// `Couldn't <verb> the run` + the reason.
+/// `Couldn't <verb> the session` + the reason.
 fn run_failed(verb: &str, reason: String) -> crate::toast::Toast {
-    crate::action_error::failed_toast(verb, "the run", Some(reason))
+    crate::action_error::failed_toast(verb, "the session", Some(reason))
 }
 
 /// The launch tail: background `prepare(Action)` → foreground

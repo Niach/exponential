@@ -342,7 +342,7 @@ fun AgentScreen(
         }
         agentNotReady -> "Not ready on ${device?.deviceLabel?.ifBlank { device?.deviceId }}. Run the doctor there."
         multiRepo -> "Pick issues from a single repository per session."
-        overCap -> "At most $MAX_BATCH_ISSUES issues per run. Split the batch."
+        overCap -> "At most $MAX_BATCH_ISSUES issues per session. Split the batch."
         selectedAction != null && ActionInputValues.hasUnsupportedType(selectedActionInputs) ->
             "This action needs a newer app version."
         !AgentComposerPrompt.withinLimit(
@@ -456,7 +456,7 @@ fun AgentScreen(
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
         toaster.error(
-            FeedbackStates.errorTitle("start", "the run"),
+            FeedbackStates.errorTitle("start", "the session"),
             failed.message,
             ToastAction(FeedbackStates.RETRY) { retryStart() },
         )

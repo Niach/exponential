@@ -1023,7 +1023,7 @@ pub(crate) fn prompt_kill_session(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let spec = AlertSpec::from_prompt("Stop run", &domain::prompts::stop_run()).on_ok(
+    let spec = AlertSpec::from_prompt("Stop session", &domain::prompts::stop_run()).on_ok(
         move |_, cx| {
             match &local {
                 Some(host) => host.stop(cx),

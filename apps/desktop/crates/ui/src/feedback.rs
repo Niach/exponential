@@ -114,7 +114,7 @@ pub(crate) const BLOCKING_SIGN_OUT: &str = "Signing out";
 /// `starting.*`: the composer after Start, until the session row lands.
 const STARTING_LABEL: &str = "Starting on {device}";
 pub(crate) const STARTING_TIMEOUT: Duration = Duration::from_millis(30_000);
-const STARTING_TIMEOUT_TITLE: &str = "The run did not start";
+const STARTING_TIMEOUT_TITLE: &str = "The session did not start";
 const STARTING_TIMEOUT_DESCRIPTION: &str = "{device} did not answer.";
 pub(crate) const RETRY: &str = "Retry";
 
@@ -127,7 +127,7 @@ const AUTOSAVE_EDITED: &str = "Edited {ago}";
 
 /// `remoteStart.*`.
 pub(crate) const REMOTE_START_DURATION: Duration = Duration::from_millis(4000);
-const REMOTE_START_TITLE: &str = "{name} started a run on {thisDevice}";
+const REMOTE_START_TITLE: &str = "{name} started a session on {thisDevice}";
 pub(crate) const REMOTE_START_AGENT: &str = "An agent";
 const REMOTE_START_THIS_MAC: &str = "this Mac";
 const REMOTE_START_THIS_COMPUTER: &str = "this computer";
@@ -160,7 +160,7 @@ pub(crate) fn autosave_edited(ago: &str) -> String {
     AUTOSAVE_EDITED.replace("{ago}", ago)
 }
 
-/// "Danny started a run on this Mac".
+/// "Danny started a session on this Mac".
 pub(crate) fn remote_start_title(name: &str) -> String {
     let this_device = if cfg!(target_os = "macos") {
         REMOTE_START_THIS_MAC
@@ -730,10 +730,10 @@ mod tests {
         assert_eq!(starting_label("macbook"), "Starting on macbook");
         assert_eq!(
             starting_timeout_copy("macbook"),
-            ("The run did not start", "macbook did not answer.".to_string())
+            ("The session did not start", "macbook did not answer.".to_string())
         );
         assert_eq!(autosave_edited("2m ago"), "Edited 2m ago");
-        assert!(remote_start_title("Danny").starts_with("Danny started a run on this "));
+        assert!(remote_start_title("Danny").starts_with("Danny started a session on this "));
         assert_eq!(elapsed_label(Duration::from_millis(1440)), "1.4 s");
     }
 

@@ -742,14 +742,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/600/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/900/ltr": {
@@ -770,14 +770,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/light/390/ltr": {
@@ -798,14 +798,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/light/600/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/light/900/ltr": {
@@ -826,14 +826,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/exponential/light/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/390/ltr": {
@@ -854,42 +854,42 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/600/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/900/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/1280/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/light/390/ltr": {
@@ -910,42 +910,42 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/light/600/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/light/900/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/light/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/light/1280/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/light/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/390/ltr": {
@@ -966,42 +966,42 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/600/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/900/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/1280/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/dark/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/390/ltr": {
@@ -1022,42 +1022,42 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/600/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/900/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/900/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 8,
+      "onlyRef": 7,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/1280/ltr": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "kitchen-sink/playful/light/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 6,
       "onlyCand": 0
     },
     "responsive/exponential/dark/390/ltr": {
@@ -1756,7 +1756,7 @@
     {
       "id": "chip-user.image.fallback",
       "only": "ref",
-      "cases": 36,
+      "cases": 20,
       "reason": "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."
     },
     {
@@ -1768,7 +1768,7 @@
     {
       "id": "page-1.fallback",
       "only": "ref",
-      "cases": 28,
+      "cases": 4,
       "reason": "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."
     },
     {

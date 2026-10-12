@@ -1,7 +1,6 @@
 import {
   createFileRoute,
   Link,
-  type ErrorComponentProps,
 } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
 import type React from "react"
@@ -82,8 +81,8 @@ export const Route = createFileRoute(`/_authenticated/admin/performance`)({
   errorComponent: PerformanceError,
 })
 
-function PerformanceError({ error }: ErrorComponentProps) {
-  return <AdminLoadFailure heading="Performance" thing="performance data" error={error} className="max-w-6xl" />
+function PerformanceError() {
+  return <AdminLoadFailure heading="Performance" className="max-w-6xl" />
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────

@@ -194,9 +194,10 @@ pub struct RepositoriesPane {
     /// popover recipe of `crate::pickers`). ONE shared state — only one
     /// popover is ever open, and every open resets it.
     branch_query: Entity<InputState>,
-    /// FEED-79: a failed list load toasts ONCE per failing streak (every
-    /// window activation re-lists, so a down server must not toast on each).
-    load_failed: bool,
+    /// FEED-79: the load in flight is the person's Retry press, so its
+    /// failure toasts; every other load (on open, on focus, after a write)
+    /// fails quietly into the empty state.
+    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -282,7 +283,7 @@ impl RepositoriesPane {
             busy: false,
             branches: HashMap::new(),
             branch_query,
-            load_failed: false,
+            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -365,24 +366,16 @@ impl RepositoriesPane {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
                 }
-                // FEED-79: a failed list = the empty state + ONE toast per
-                // failing streak.
-                match &result.repos {
-                    Err(message) if !this.load_failed => {
-                        this.load_failed = true;
-                        let pane = cx.entity().downgrade();
-                        crate::action_error::failed_action_with_retry(
-                            "load",
-                            "the repositories",
-                            Some(message.clone()),
-                            move |_, cx| {
-                                let _ = pane.update(cx, |this, cx| this.refresh(cx));
-                            },
-                            cx,
-                        );
-                    }
-                    Err(_) => {}
-                    Ok(_) => this.load_failed = false,
+                // FEED-79: a failed list = the empty state + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
+                if let Err(message) = &result.repos {
+                    crate::action_error::failed_load(
+                        "the repositories",
+                        attended,
+                        Some(message.clone()),
+                        cx,
+                    );
                 }
                 this.load = Load::Ready(result);
                 cx.notify();
@@ -402,6 +395,12 @@ impl RepositoriesPane {
         self.load = Load::Idle;
         self.branches.clear();
         cx.notify();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refresh(cx);
     }
 
     /// Kick the branch-list fetch for one repo's picker if it isn't already
@@ -430,19 +429,10 @@ impl RepositoriesPane {
             let _ = this.update(cx, |this, cx| {
                 let load = match result {
                     Ok(out) => BranchLoad::Ready(out.branches),
+                    // Loaded as the picker opens (FEED-79): quiet, the
+                    // empty picker; the next open fetches again.
                     Err(err) => {
                         log::warn!("[ui] repositories.listBranches({repository_id}) failed: {err}");
-                        let pane = cx.entity().downgrade();
-                        let retry_id = repository_id.clone();
-                        crate::action_error::failed_action_with_retry(
-                            "load",
-                            "the branches",
-                            crate::action_error::action_error_description(&err),
-                            move |_, cx| {
-                                let _ = pane.update(cx, |this, cx| this.ensure_branches(&retry_id, cx));
-                            },
-                            cx,
-                        );
                         BranchLoad::Failed
                     }
                 };
@@ -691,12 +681,14 @@ impl Render for RepositoriesPane {
                 body = body.child(self.github_status_line(loaded.status.as_ref(), cx));
 
                 match &loaded.repos {
-                    // A failed list reads as the empty one; the failure was
-                    // a toast (FEED-79). Errors never render inline here.
+                    // A failed load (FEED-79): the empty state + Retry, no
+                    // toast. Errors never render inline here.
                     Err(_) => {
-                        body = body.child(crate::controls::empty_state_list(
+                        body = body.child(crate::action_error::load_failed_state(
+                            "repositories-retry",
                             gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES),
                             copy::NO_REPOSITORIES,
+                            cx.listener(|this, _, _, cx| this.retry_load(cx)),
                             cx,
                         ));
                     }
@@ -1281,7 +1273,7 @@ impl RepositoriesPane {
                             cx,
                         ));
                     }
-                    // The failure was a toast (FEED-79): the empty list.
+                    // A failed load is quiet (FEED-79): the empty list.
                     Some(BranchLoad::Failed) => {
                         column = column
                             .child(crate::pickers::empty_picker_row("No branches found.", cx));

@@ -324,13 +324,13 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
   const [archived, setArchived] = useState<ArchivedBoard[] | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
 
-  // FEED-79: a failed load = the empty state + a toast with Retry.
+  // FEED-79: the list loads on open and after a restore, so a failed load
+  // is quiet: the empty state (or the rows it last had).
   const refresh = useCallback(async (): Promise<void> => {
     try {
       setArchived(await trpc.boards.listArchived.query({ teamId }))
-    } catch (err) {
+    } catch {
       setArchived((current) => current ?? [])
-      failedAction(`load`, `the archived boards`, err, { retry: () => void refresh() })
     }
   }, [teamId])
 
@@ -416,9 +416,9 @@ function PendingDeletionCard({ teamId }: { teamId: string }) {
   const refresh = useCallback(async (): Promise<void> => {
     try {
       setTrashed(await trpc.boards.listDeleted.query({ teamId }))
-    } catch (err) {
+    } catch {
+      // Quiet (FEED-79), like the archived list.
       setTrashed((current) => current ?? [])
-      failedAction(`load`, `the deleted boards`, err, { retry: () => void refresh() })
     }
   }, [teamId])
 

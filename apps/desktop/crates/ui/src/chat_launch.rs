@@ -119,7 +119,7 @@ pub(crate) fn issue_count_blocker(count: usize) -> Option<String> {
     }
     if count > MAX_ISSUES_PER_RUN {
         return Some(format!(
-            "At most {MAX_ISSUES_PER_RUN} issues per run. Split the batch."
+            "At most {MAX_ISSUES_PER_RUN} issues per session. Split the batch."
         ));
     }
     None
@@ -284,7 +284,7 @@ pub(crate) fn repo_blocker(
                 match repo {
                     None => repo = Some(&resolved.repository_id),
                     Some(existing) if existing == resolved.repository_id => {}
-                    Some(_) => return Some("One repository per run. Deselect the others.".into()),
+                    Some(_) => return Some("One repository per session. Deselect the others.".into()),
                 }
                 bases.push(
                     Some(resolved.default_branch.clone())

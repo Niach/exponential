@@ -302,7 +302,7 @@ const NAV_GROUPS: &[NavGroup] = &[
             NavItem::leaf("Agents", SettingsSection::Agents),
             NavItem::leaf("Worktrees", SettingsSection::LocalRepos),
             // SLOP-5: "Runs" — the one word for a coding run in UI copy.
-            NavItem::leaf("Runs", SettingsSection::Sessions),
+            NavItem::leaf("Sessions", SettingsSection::Sessions),
         ],
     },
     // EXP-238: the Personal group is ordinary nav now — the web merged the
@@ -1397,7 +1397,7 @@ mod tests {
             .find(|group| group.label == "This device")
             .expect("This device group");
         let labels: Vec<&str> = device.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Tools", "Agents", "Worktrees", "Runs"]);
+        assert_eq!(labels, vec!["Tools", "Agents", "Worktrees", "Sessions"]);
     }
 
     /// EXP-262/EXP-238: the Personal sections are never gated and never fall

@@ -522,12 +522,8 @@ struct TeamRepositoriesSection: View {
         do {
             repos = try await repositoriesApi.list(accountId: accountId, teamId: teamId)
         } catch {
-            // FEED-79: the section keeps its empty state (or the last good
-            // rows) and the failure is a toast.
-            toaster.error(
-                FeedbackStates.Errors.title(verb: "load", thing: "repositories"),
-                description: error.trpcUserMessage
-            )
+            // FEED-79: the list loads on appear and after every write, so a
+            // failure is quiet: the empty state (or the last good rows).
         }
         // Non-fatal: keep the last good value on failure; with nothing loaded
         // the failed line + Retry renders.

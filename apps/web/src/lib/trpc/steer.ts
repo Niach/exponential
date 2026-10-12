@@ -425,7 +425,7 @@ export const steerRouter = router({
               ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: [key],
-                message: `a resumed run keeps its recorded agent and options`,
+                message: `a resumed session keeps its recorded agent and options`,
               })
             }
             return
@@ -822,7 +822,7 @@ export const steerRouter = router({
         if (runIsStaleEnd(session)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That run only went quiet — it was not ended, and its machine may still be running the agent. Stop it first, then resume.`,
+            message: `That session only went quiet — it was not ended, and its machine may still be running the agent. Stop it first, then resume.`,
           })
         }
         // EXP-849: a resume naming ANOTHER account is the mid-session account
@@ -845,7 +845,7 @@ export const steerRouter = router({
           if (liveResumeId) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
-              message: `That run was already resumed and is live as ${liveResumeId} — track and message that run (exponential_sessions_get / exponential_sessions_message) instead of resuming it again`,
+              message: `That session was already resumed and is live as ${liveResumeId} — track and message that session (exponential_sessions_get / exponential_sessions_message) instead of resuming it again`,
             })
           }
         }
@@ -855,20 +855,20 @@ export const steerRouter = router({
           if (!switching) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
-              message: `That run is still live — stop it first, or name an account to continue it on`,
+              message: `That session is still live — stop it first, or name an account to continue it on`,
             })
           }
           if (session.agent !== `claude`) {
             throw new TRPCError({
               code: `PRECONDITION_FAILED`,
-              message: `Only claude runs can change account while live — stop this ${session.agent ?? `agent`} run and start a new one on the other account`,
+              message: `Only claude sessions can change account while live — stop this ${session.agent ?? `agent`} session and start a new one on the other account`,
             })
           }
         }
         if (!session.deviceId || session.deviceId !== input.deviceId) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That run lives on another machine`,
+            message: `That session lives on another machine`,
           })
         }
         const { ownerId, device, shared } = await resolveTargetDevice(
@@ -889,7 +889,7 @@ export const steerRouter = router({
         if (liveSwitch && !device.caps.includes(`account-switch`)) {
           throw new TRPCError({
             code: `PRECONDITION_FAILED`,
-            message: `That machine runs an older Exponential app that cannot switch account mid-run. Update it, or stop the run and resume it on the other account.`,
+            message: `That machine runs an older Exponential app that cannot switch account mid-session. Update it, or stop the session and resume it on the other account.`,
           })
         }
         // EXP-662: an issue run resumes into the issue's ONE session slot

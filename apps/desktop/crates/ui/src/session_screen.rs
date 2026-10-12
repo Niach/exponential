@@ -969,7 +969,7 @@ fn resume_remote_inner(
         crate::toast::show(
             crate::action_error::failed_toast(
                 "resume",
-                "the run",
+                "the session",
                 Some("Sign in and wait for sync before resuming.".into()),
             ),
             window,
@@ -997,7 +997,7 @@ fn resume_remote_inner(
             )),
             Err(err) => crate::action_error::failed_toast(
                 "resume",
-                "the run",
+                "the session",
                 crate::action_error::action_error_description(&err),
             ),
         };

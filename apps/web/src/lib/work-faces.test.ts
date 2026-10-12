@@ -65,8 +65,8 @@ describe(`work faces`, () => {
 
   it(`labels the faces, Runs once there are several`, () => {
     expect(faceLabel(`issue`)).toBe(`Issue`)
-    expect(faceLabel(`run`)).toBe(`Run`)
-    expect(faceLabel(`run`, true)).toBe(`Runs`)
+    expect(faceLabel(`run`)).toBe(`Session`)
+    expect(faceLabel(`run`, true)).toBe(`Sessions`)
     expect(faceLabel(`guide`)).toBe(`Guide`)
     expect(GUIDE_FACE_LABEL).toBe(`Guide`)
     expect(OPEN_RESULTS_LABEL).toBe(`Open Guide`)

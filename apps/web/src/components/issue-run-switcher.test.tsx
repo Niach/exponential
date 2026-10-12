@@ -87,7 +87,7 @@ describe(`the Runs segment's run menu`, () => {
     unmount()
     // Several runs: the toggle shows for its caret alone.
     render(toggle([row({ id: `a` }), row({ id: `b` })], vi.fn(), `a`, false))
-    expect(screen.getByTestId(`work-face-toggle`).textContent).toBe(`Runs`)
+    expect(screen.getByTestId(`work-face-toggle`).textContent).toBe(`Sessions`)
     expect(screen.getByTestId(`issue-run-switcher`)).toBeTruthy()
   })
 

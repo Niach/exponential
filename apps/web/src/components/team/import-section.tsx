@@ -180,10 +180,8 @@ export function TeamImportSection({
   const [jobs, setJobs] = useState<ImportJob[] | null>(null)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<ImportJob | null>(null)
-  // FEED-79: a failed load toasts ONCE per failure streak (the job poll runs
-  // every POLL_MS) and the step keeps what it last had.
-  const listFailedRef = useRef(false)
-  const jobFailedRef = useRef(false)
+  // FEED-79: the list and the job load on open and the job polls every
+  // POLL_MS, so a failed load is quiet: the step keeps what it last had.
 
   const refreshList = useCallback(async () => {
     try {
@@ -194,11 +192,8 @@ export function TeamImportSection({
         const live = rows.find((row) => !IMPORT_TERMINAL_STATUSES.has(row.status))
         if (live) setActiveJobId(live.id)
       }
-      listFailedRef.current = false
-    } catch (err) {
-      if (listFailedRef.current) return
-      listFailedRef.current = true
-      failedAction(`load`, `the imports`, err, { retry: () => void refreshList() })
+    } catch {
+      // Quiet (FEED-79): the next open or action re-lists.
     }
   }, [team.id, activeJobId])
 
@@ -220,18 +215,14 @@ export function TeamImportSection({
     }
     try {
       setJob(await trpc.imports.get.query({ jobId: activeJobId }))
-      jobFailedRef.current = false
     } catch (err) {
       // EXP-1076: discarding a draft DELETES the row, so the poll that was
       // already in flight 404s. That is the discard landing, not a failure —
       // fall back to the list instead of painting an error.
       if (trpcErrorCode(err) === `NOT_FOUND`) {
         leave()
-        return
       }
-      if (jobFailedRef.current) return
-      jobFailedRef.current = true
-      failedAction(`load`, `the import`, err, { retry: () => void refreshJob() })
+      // Anything else is quiet (FEED-79): the next poll tries again.
     }
   }, [activeJobId, leave])
 

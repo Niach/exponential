@@ -100,7 +100,8 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         )
         .child(feedback::blocking_overlay(feedback::blocking_switch_team("Personal"), cx));
     // 6. Errors: a failed action is a toast with Retry; invalid input stays
-    // inline under its field. Plus the remote-start toast (D11).
+    // inline under its field; a failed LOAD is quiet, the section's empty
+    // state + Retry (FEED-79). Plus the remote-start toast (D11).
     let failed = Toast::error("Couldn't save the team prompt")
         .description("The server didn't answer.")
         .action(feedback::RETRY, |_, _| {});
@@ -115,6 +116,15 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES + 1,
             ),
             cx,
+        ))
+        .child(div().w(px(toast::constants::WIDTH)).child(
+            crate::action_error::load_failed_state(
+                "styleguide-load-failed",
+                gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES),
+                crate::github_connect::copy::NO_REPOSITORIES,
+                |_, _, _| {},
+                cx,
+            ),
         ))
         .child(toast::card(&remote, cx).w(px(toast::constants::WIDTH)));
     // EXP-1243: the motion rules, one line each (the web spec's table).

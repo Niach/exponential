@@ -32,7 +32,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,9 +45,7 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.ui.platform.LocalLayoutDirection
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.failedAction
 import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -473,16 +470,12 @@ private fun GuideRow(
 
 /**
  * EXP-1154: an open PR with no run report while its GitHub body loads
- * (skeleton rows, EXP-1275) or after the fetch failed (FEED-79: the empty
- * state plus ONE toast). The loaded body is a Guide group
- * ([prDescriptionGroups]).
+ * (skeleton rows, EXP-1275) or after the fetch failed (FEED-79: the fetch
+ * runs on open, so the empty state, never a toast). The loaded body is a
+ * Guide group ([prDescriptionGroups]).
  */
 @Composable
 private fun PrFallbackSection(state: PrDescriptionState) {
-    val toaster = LocalToaster.current
-    LaunchedEffect(state) {
-        if (state is PrDescriptionState.Failed) toaster.failedAction("load", "the pull request", state.message)
-    }
     Column(
         modifier = Modifier.testTag("results-pr-fallback"),
         verticalArrangement = Arrangement.spacedBy(8.dp),

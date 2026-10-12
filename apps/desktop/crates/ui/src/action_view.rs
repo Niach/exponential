@@ -771,7 +771,7 @@ impl ActionView {
     fn render_runs(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let mut section = gpui_component::v_flex()
             .min_w_0()
-            .child(glass_section_header("Runs", None, cx));
+            .child(glass_section_header("Sessions", None, cx));
         if self.derived.runs.is_empty() {
             return section
                 .child(crate::controls::empty_state_list(

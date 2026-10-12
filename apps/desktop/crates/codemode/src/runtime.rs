@@ -703,7 +703,7 @@ fn due_sleeps(now: Instant) -> Vec<u64> {
 /// The refusal every native answers once the script is over.
 fn ended_error(state: &EngineState) -> JsResult<()> {
     match state.ended() {
-        Some(ExecError::Cancelled) => Err(JsNativeError::error().with_message("the run ended").into()),
+        Some(ExecError::Cancelled) => Err(JsNativeError::error().with_message("the session ended").into()),
         Some(_) => Err(JsNativeError::error().with_message("the script's deadline passed").into()),
         None => Ok(()),
     }

@@ -320,7 +320,7 @@ function SessionCard({ session }: { session: CodingSession }) {
           <AgentBrandMark agent={session.agent} className="size-3.5" />
         )
       }
-      eyebrow={identity.identifier ? `Run · ${identity.identifier}` : `Run`}
+      eyebrow={identity.identifier ? `Session · ${identity.identifier}` : `Session`}
       title={identity.subject}
       subtitle={ended && started ? `Ended · ${device.label ?? `Unknown device`} · started ${started}` : line.text}
       facts={

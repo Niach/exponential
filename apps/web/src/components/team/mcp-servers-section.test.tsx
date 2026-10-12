@@ -376,7 +376,7 @@ describe(`TeamMcpServersSection`, () => {
       expect(mockState.toastSuccess).toHaveBeenCalled()
     )
     expect(mockState.toastSuccess).toHaveBeenCalledWith(
-      `Shared sentry with the team: action runs on teammates' machines use your connection`
+      `Shared sentry with the team: action sessions on teammates' machines use your connection`
     )
 
     fireEvent.pointerDown(screen.getByLabelText(`Connected to sentry`), {

@@ -108,11 +108,11 @@ struct AgentIssuePickerPage: View {
     private var guards: some View {
         VStack(alignment: .leading, spacing: 4) {
             if model.multiRepo {
-                Text("Pick issues from a single repository per run.")
+                Text("Pick issues from a single repository per session.")
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
             if model.overCap {
-                Text("At most \(AgentComposerModel.maxBatchIssues) issues per run. Split the batch.")
+                Text("At most \(AgentComposerModel.maxBatchIssues) issues per session. Split the batch.")
                     .foregroundStyle(DesignTokens.Semantic.red)
             } else if model.costWarning {
                 Text("Large batches are token-expensive.")

@@ -7,9 +7,9 @@
    collapsed tool groups, the question card you answer IN the card), then the
    one-row steer composer with its inline send and, under it, the footer
    (attach · model pin · context ring). The composer hides while a question
-   is pending (EXP-820) and once the run has ended.
+   is pending (EXP-820) and once the session has ended.
 
-   Diff: the run's changes as a FULL PAGE (EXP-877), file cards in the same
+   Diff: the session's changes as a FULL PAGE (EXP-877), file cards in the same
    work column; the fixture file expands into the side-by-side hunk. ─── */
 import { useEffect, useRef, useState, type KeyboardEvent } from "react"
 import { CONTEXT_PERCENT, RUN_DEVICE, type FeedRow } from "./data"

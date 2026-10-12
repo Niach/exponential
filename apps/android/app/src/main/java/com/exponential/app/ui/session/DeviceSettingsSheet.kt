@@ -343,8 +343,8 @@ fun DeviceSettingsSheet(
                         }
                     }
                     Text(
-                        "Teammates of a shared team can start runs on this " +
-                            "device. Runs are attributed to whoever starts them.",
+                        "Teammates of a shared team can start sessions on this " +
+                            "device. Sessions are attributed to whoever starts them.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
@@ -537,8 +537,8 @@ fun DeviceSettingsSheet(
                     if (device.updateQueued) {
                         // FEED-36, the pinned sentence ×4 (web QUEUED_UPDATE_TOOLTIP).
                         Text(
-                            "Live runs hold this update — the device restarts itself once " +
-                                "every run ends or sits idle for 2 hours.",
+                            "Live sessions hold this update — the device restarts itself once " +
+                                "every session ends or sits idle for 2 hours.",
                             style = MaterialTheme.typography.labelSmall,
                             color = NeedsInputAmber,
                             modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),

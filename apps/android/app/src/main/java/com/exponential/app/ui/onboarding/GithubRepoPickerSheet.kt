@@ -177,7 +177,7 @@ fun GithubRepoPickerSheet(
                         fix = GithubCopy.CONNECT_GITHUB,
                         busy = connecting,
                         onFix = { viewModel.connectGithub(openUrl) },
-                        onDone = { viewModel.load(accountId, teamId, refresh = true) },
+                        onDone = { viewModel.load(accountId, teamId, refresh = true, tapped = true) },
                     )
                 }
                 data.prerequisite == GithubPrerequisite.EXPIRED -> item(key = "reconnect") {
@@ -186,7 +186,7 @@ fun GithubRepoPickerSheet(
                         fix = GithubCopy.RECONNECT_GITHUB,
                         busy = connecting,
                         onFix = { viewModel.connectGithub(openUrl) },
-                        onDone = { viewModel.load(accountId, teamId, refresh = true) },
+                        onDone = { viewModel.load(accountId, teamId, refresh = true, tapped = true) },
                     )
                 }
                 data.prerequisite == GithubPrerequisite.NOT_INSTALLED -> item(key = "install") {
@@ -196,7 +196,7 @@ fun GithubRepoPickerSheet(
                         fix = GithubCopy.INSTALL_APP,
                         enabled = installUrl != null,
                         onFix = { installUrl?.let(openUrl) },
-                        onDone = { viewModel.load(accountId, teamId, refresh = true) },
+                        onDone = { viewModel.load(accountId, teamId, refresh = true, tapped = true) },
                     )
                 }
                 else -> {
@@ -220,7 +220,7 @@ fun GithubRepoPickerSheet(
                             lookupError = lookupError,
                             // The list is live off GitHub: Refresh is a forced
                             // re-list past the server's discovery cache.
-                            onRefresh = { viewModel.load(accountId, teamId, refresh = true) },
+                            onRefresh = { viewModel.load(accountId, teamId, refresh = true, tapped = true) },
                             onInstall = openUrl,
                             onLookup = { viewModel.lookup(lookupName) { repo -> add(repo) } },
                         )

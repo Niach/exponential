@@ -85,7 +85,7 @@ final class StartedRunWatcher {
                 onTimeout()
                 return
             }
-            self.failure = "\(label) never started this run. "
+            self.failure = "\(label) never started this session. "
                 + "Open the Exponential desktop app there to see why."
         }
         guard let userId, let pool = try? db.pool(forAccountId: accountId) else { return }

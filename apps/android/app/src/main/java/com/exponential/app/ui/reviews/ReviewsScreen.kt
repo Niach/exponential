@@ -230,7 +230,7 @@ private fun BandTeamName(name: String) {
 @Composable
 private fun RunsHeader(teamName: String?) {
     SectionHeader(
-        "Agent runs",
+        "Agent sessions",
         trailing = { BandTeamName(teamName ?: ReviewsQueue.RUN_BAND_CAPTION) },
         leading = {
             Icon(

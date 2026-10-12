@@ -111,7 +111,7 @@ struct ReviewsListContent: View {
                 // board. EXP-1186: one band per team.
                 ForEach(snapshot.runs) { group in
                     VStack(alignment: .leading, spacing: 0) {
-                        GlassSectionBand("Agent runs") {
+                        GlassSectionBand("Agent sessions") {
                             AppIcon(AppIcons.prOpen, size: 13)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         } trailing: {

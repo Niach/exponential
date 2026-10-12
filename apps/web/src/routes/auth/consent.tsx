@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { fetchSessionOnce } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -7,6 +7,7 @@ import {
   AuthFormShell,
   Button,
   EMPTY_SCOPE_SELECTION,
+  FEEDBACK_ERRORS,
   FEEDBACK_WORDS,
   ScopePicker,
   SkeletonRows,
@@ -59,6 +60,14 @@ function ConsentPage() {
   // Allow stays off until the request loads.
   const [loadFailed, setLoadFailed] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
+  // FEED-79: the load runs on open, so a failure is quiet (the empty picker
+  // + Retry); only a failed Retry tap, the person's own action, toasts.
+  const retried = useRef(false)
+  const retryLoad = () => {
+    retried.current = true
+    setLoadFailed(false)
+    setLoadAttempt((n) => n + 1)
+  }
   const [pending, setPending] = useState<`allow` | `deny` | null>(null)
 
   const [selection, setSelection] = useState<ScopeSelection>(
@@ -80,12 +89,9 @@ function ConsentPage() {
       .catch((e: unknown) => {
         if (cancelled) return
         setLoadFailed(true)
-        failedAction(`load`, `the consent request`, e, {
-          retry: () => {
-            setLoadFailed(false)
-            setLoadAttempt((n) => n + 1)
-          },
-        })
+        const tapped = retried.current
+        retried.current = false
+        if (tapped) failedAction(`load`, `the consent request`, e, { retry: retryLoad })
       })
     return () => {
       cancelled = true
@@ -148,6 +154,11 @@ function ConsentPage() {
             onChange={setSelection}
             idPrefix="consent"
           />
+          {loadFailed && (
+            <Button type="button" variant="outline" size="sm" onClick={retryLoad}>
+              {FEEDBACK_ERRORS.retry}
+            </Button>
+          )}
 
           <p className="text-xs text-muted-foreground">
             The client acts as you within the selected scope: reading and

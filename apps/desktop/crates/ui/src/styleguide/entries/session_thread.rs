@@ -22,14 +22,14 @@ use crate::steer_viewer::{narration_row, thread_text_row};
 pub(crate) const ID: &str = "session-thread";
 pub(crate) const OWNER: &str = "EXP-1175";
 
-/// A run's published results as an agent files them: the Summary first in
+/// A session's published results as an agent files them: the Summary first in
 /// the blob, drawn last.
 pub(crate) fn thread() -> SessionThread {
     session_thread(Some(&serde_json::json!([
         {"topic": "Summary", "label": null, "attachmentId": null,
-         "text": "The Run face opens on what the run published; Show work brings the transcript back."},
+         "text": "The Session face opens on what the session published; Show work brings the transcript back."},
         {"topic": "Status row", "label": null, "attachmentId": null,
-         "text": "One row over the thread: the run mark, where it builds and for how long, the newest tool call."},
+         "text": "One row over the thread: the session mark, where it builds and for how long, the newest tool call."},
         {"topic": "Status row", "label": "desktop", "attachmentId": "sg-thread-shot", "width": 1440, "height": 900},
         {"topic": "Thread", "label": null, "attachmentId": null,
          "text": "Pictures and report texts keep the order the agent filed them in."},
@@ -163,7 +163,7 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, vec!["text", "picture", "text"]);
-        assert!(thread.reply.is_some_and(|reply| reply.starts_with("The Run face")));
+        assert!(thread.reply.is_some_and(|reply| reply.starts_with("The Session face")));
         // EXP-1245: the owner's island is two turns, the second opened by
         // the person's message and still running.
         let turns = turns();

@@ -471,7 +471,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     )) as TRPCError
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(
-      `EXP-1 already has a live run on studio (session ${live.id}, started by a person). Stop it or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${live.id}, started by a person). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -485,7 +485,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     )) as TRPCError
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(
-      `EXP-2 already has a live run on studio (session ${live.id}, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+      `EXP-2 already has a live session on studio (session ${live.id}, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A, ISSUE_B])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -2077,7 +2077,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by a person). Stop it or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${uuid(9)}, started by a person). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -2106,7 +2106,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${uuid(9)}, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2178,7 +2178,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
     )
     expect((error as TRPCError).message).toBe(
-      `That run is still live — stop it first, or name an account to continue it on`
+      `That session is still live — stop it first, or name an account to continue it on`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2227,7 +2227,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toBe(
-      `Only claude runs can change account while live — stop this codex run and start a new one on the other account`
+      `Only claude sessions can change account while live — stop this codex session and start a new one on the other account`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2249,7 +2249,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toContain(
-      `cannot switch account mid-run`
+      `cannot switch account mid-session`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })

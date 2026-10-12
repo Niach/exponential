@@ -501,11 +501,11 @@ pub(crate) struct RunRowSpec {
 /// instead of repeating the action's name.
 pub(crate) fn action_run_title(started_reason: Option<&str>) -> &'static str {
     match started_reason {
-        Some("schedule") => "Scheduled run",
-        Some("event") => "Event run",
+        Some("schedule") => "Scheduled session",
+        Some("event") => "Event session",
         // Another run started it (`agent`, or a reason added later).
-        Some(reason) if !reason.is_empty() => "Agent run",
-        _ => "Manual run",
+        Some(reason) if !reason.is_empty() => "Agent session",
+        _ => "Manual session",
     }
 }
 
@@ -1164,13 +1164,13 @@ mod tests {
     /// SLOP-2: the four cases, byte-identical ×4 (web `actionRunTitle`).
     #[test]
     fn action_run_title_names_what_started_the_run() {
-        assert_eq!(action_run_title(Some("schedule")), "Scheduled run");
-        assert_eq!(action_run_title(Some("event")), "Event run");
+        assert_eq!(action_run_title(Some("schedule")), "Scheduled session");
+        assert_eq!(action_run_title(Some("event")), "Event session");
         for reason in ["agent", "something-new"] {
-            assert_eq!(action_run_title(Some(reason)), "Agent run", "{reason}");
+            assert_eq!(action_run_title(Some(reason)), "Agent session", "{reason}");
         }
-        assert_eq!(action_run_title(None), "Manual run");
-        assert_eq!(action_run_title(Some("")), "Manual run");
+        assert_eq!(action_run_title(None), "Manual session");
+        assert_eq!(action_run_title(Some("")), "Manual session");
     }
 
     /// EXP-1175 — fixture `run-row.json` ×4: the captions and the labels.
@@ -1426,7 +1426,7 @@ mod tests {
             SharedString::from("Untitled issue")
         );
         let batch = row(serde_json::json!({ "id": "s-1" }));
-        assert_eq!(run_title(&batch, None, &[]), SharedString::from("Batch run"));
+        assert_eq!(run_title(&batch, None, &[]), SharedString::from("Batch session"));
         let action = row(serde_json::json!({ "id": "s-2", "action_name": "Release train" }));
         assert_eq!(
             run_title(&action, None, &[]),
@@ -1492,7 +1492,7 @@ mod tests {
         assert_eq!(run_identifier(&unknown, None, &issues), None);
         assert_eq!(
             run_title(&unknown, None, &issues),
-            SharedString::from("Batch run")
+            SharedString::from("Batch session")
         );
         // An action run never grows one.
         let action = row(serde_json::json!({ "id": "s-3", "action_name": "Chat" }));

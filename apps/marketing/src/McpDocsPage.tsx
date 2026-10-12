@@ -51,8 +51,8 @@ const TOOL_GROUPS: {
       { name: `exponential_issues_create`, desc: `Create an issue. Pass statusId for a custom status.` },
       { name: `exponential_issues_update`, desc: `Update an issue's fields. Pass only what changes.` },
       { name: `exponential_issues_delete`, desc: `Permanently delete an issue and everything attached to it.` },
-      { name: `exponential_issues_update_status`, desc: `Set status during a coding run (PR events move it to the team's configured statuses).` },
-      { name: `exponential_pr_open`, desc: `Open + link the pull request server-side: issueId for one, issueIds + head for a batch, or repositoryId + head for a chore PR that links nothing. A follow-up run builds on its parent run's branch with base; such a tree merges root first, and the root's merge retargets its children.` },
+      { name: `exponential_issues_update_status`, desc: `Set status during a coding session (PR events move it to the team's configured statuses).` },
+      { name: `exponential_pr_open`, desc: `Open + link the pull request server-side: issueId for one, issueIds + head for a batch, or repositoryId + head for a chore PR that links nothing. A follow-up session builds on its parent session's branch with base; such a tree merges root first, and the root's merge retargets its children.` },
       { name: `exponential_pr_merge`, desc: `Squash-merge through the GitHub App (no gh, no token): issueId, issueIds, or repositoryId + prNumber. endSessions overrides the team's end-sessions-on-merge setting for this call.` },
       { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch, the fix for a PR whose base branch is gone.` },
       { name: `exponential_issues_pr_files`, desc: `List the linked PR's changed files with patches and add/delete counts.` },
@@ -136,16 +136,16 @@ const TOOL_GROUPS: {
     tools: [
       { name: `exponential_devices_list`, desc: `List your machines (desktop app or CLI daemon) plus servers shared with the team, with their online state and the agents each can run.` },
       { name: `exponential_devices_account_login`, desc: `Sign an agent account in on one of your own machines. The machine runs the agent's own login; only the sign-in link and the code you type travel, the credential never leaves it.` },
-      { name: `exponential_sessions_start`, desc: `Start a run on an ONLINE device: an issue, a batch of issues, an action, or a resume. Offline devices are refused — starts are live, never queued.` },
-      { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, any usage wall, and who ended an ended run.` },
-      { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended, with any question the run parked for you. waitForIdle holds the call until the run's turn ends (120s at most).` },
+      { name: `exponential_sessions_start`, desc: `Start a session on an ONLINE device: an issue, a batch of issues, an action, or a resume. Offline devices are refused — starts are live, never queued.` },
+      { name: `exponential_sessions_list`, desc: `List coding sessions newest first, with status, subject, branch, device, any usage wall, and who ended an ended session.` },
+      { name: `exponential_sessions_get`, desc: `Get one session; poll it after a start to follow running → in review → ended, with any question the session parked for you. waitForIdle holds the call until the session's turn ends (120s at most).` },
       { name: `exponential_sessions_messages`, desc: `Read what a session you own or host said: its transcript (your messages, its replies, tool calls and questions), its newest messages with a cursor for what comes next.` },
       { name: `exponential_sessions_message`, desc: `Send text into a live session you own or host — it arrives as user input to that agent.` },
-      { name: `exponential_sessions_results`, desc: `Publish a screenshot of this run's work: it hands back a short-lived upload link and a curl line, filed under a topic with one label per picture, and shows up on the run's Results face everywhere.` },
-      { name: `exponential_sessions_show`, desc: `Show a screenshot while the run works: it appears in the run's transcript at the call, on every client, and is filed under the Results face (topic Progress by default). A local file gets a curl line; small images upload inline as base64.` },
-      { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own run.` },
-      { name: `exponential_sessions_end`, desc: `End this run with a close-out summary for whoever started it (not stored on the run). Unattended (trigger- or agent-started) runs call it last; a person-started run only when asked.` },
-      { name: `exponential_sessions_ask_parent`, desc: `Inside a run: ask whoever started it, or the person who owns it, a question and end your turn; its answer arrives as a user message. A starter that is not a run reads the parked question with sessions_get and answers with sessions_message.` },
+      { name: `exponential_sessions_results`, desc: `Publish a screenshot of this session's work: it hands back a short-lived upload link and a curl line, filed under a topic with one label per picture, and shows up on the session's Results face everywhere.` },
+      { name: `exponential_sessions_show`, desc: `Show a screenshot while the session works: it appears in the session's transcript at the call, on every client, and is filed under the Results face (topic Progress by default). A local file gets a curl line; small images upload inline as base64.` },
+      { name: `exponential_sessions_kill`, desc: `Abort a live session you own or host. Never your own session.` },
+      { name: `exponential_sessions_end`, desc: `End this session with a close-out summary for whoever started it (not stored on the session). Unattended (trigger- or agent-started) sessions call it last; a person-started session only when asked.` },
+      { name: `exponential_sessions_ask_parent`, desc: `Inside a session: ask whoever started it, or the person who owns it, a question and end your turn; its answer arrives as a user message. A starter that is not a session reads the parked question with sessions_get and answers with sessions_message.` },
     ],
   },
   {
@@ -329,7 +329,7 @@ openclaw mcp login exponential
             <p>
               Turn on OpenClaw&apos;s MCP Apps bridge (
               <code>openclaw config set mcp.apps.enabled true --strict-json</code>
-              ) and the issue list and a run&apos;s report render as
+              ) and the issue list and a session&apos;s report render as
               Exponential&apos;s own views in the dashboard; the issue list
               also opens straight from the app catalog.
             </p>
@@ -339,8 +339,8 @@ openclaw mcp login exponential
               Clients that render MCP Apps show five tools as Exponential
               views instead of JSON: <code>exponential_issues_show</code> (the
               issue list, grouped by status; a row opens the issue),{` `}
-              <code>exponential_sessions_list</code> (your runs),{` `}
-              <code>exponential_sessions_get</code> (a coding run&apos;s
+              <code>exponential_sessions_list</code> (your sessions),{` `}
+              <code>exponential_sessions_get</code> (a coding session&apos;s
               report), <code>exponential_notifications_list</code> (your
               inbox) and <code>exponential_devices_list</code> (your machines
               and their agent logins). Self-hosted instances serve the same
@@ -376,7 +376,7 @@ npx mcp-remote ${LINKS.app.mcp}
               <code>exponential_sessions_ask_parent</code>,{` `}
               <code>exponential_sessions_results</code> and{` `}
               <code>exponential_sessions_show</code> only inside an agent
-              run the launcher started; and{` `}
+              session the launcher started; and{` `}
               <code>exponential_report_bug</code> only on the cloud. Ask the
               server&apos;s own <code>tools/list</code> for the exact set your
               client sees.
@@ -429,7 +429,7 @@ npx mcp-remote ${LINKS.app.mcp}
               pushed branch). Every listed issue links to the PR and moves to
               In Review; merging completes them all. This is exactly what a
               {` `}
-              <a href="/docs/coding/#batch-runs">batch coding run</a> does.
+              <a href="/docs/coding/#batch-runs">batch coding session</a> does.
             </p>
 
             <h3>A pull request with no issue behind it</h3>
@@ -443,13 +443,13 @@ npx mcp-remote ${LINKS.app.mcp}
               request with nothing linked, moved, or notified.
             </p>
 
-            <h3>Start a run on one of your machines, from chat</h3>
+            <h3>Start a session on one of your machines, from chat</h3>
             <p>
               &quot;Have my build box take EXP-42.&quot; The client calls{` `}
               <code>exponential_devices_list</code> to find an online machine
               that runs the agent you want, then{` `}
-              <code>exponential_sessions_start</code>, and follows the run
-              with <code>exponential_sessions_get</code>. Steer it mid-run
+              <code>exponential_sessions_start</code>, and follows the session
+              with <code>exponential_sessions_get</code>. Steer it mid-session
               with <code>exponential_sessions_message</code> and read its
               replies with <code>exponential_sessions_messages</code>. Details
               in{` `}
@@ -467,7 +467,7 @@ npx mcp-remote ${LINKS.app.mcp}
             <p>
               Everything above is Exponential <em>as</em> an MCP server. This
               is the other direction: the MCP servers <em>your</em> coding
-              runs connect to besides Exponential — your error tracker, your
+              sessions connect to besides Exponential — your error tracker, your
               docs, your internal API.
             </p>
             <p>
@@ -497,9 +497,9 @@ npx mcp-remote ${LINKS.app.mcp}
               you open anywhere and paste the redirect back.
             </p>
             <p>
-              Pick the servers a run gets in the{` `}
+              Pick the servers a session gets in the{` `}
               <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
-              and on the <a href="/docs/coding/#watch-steer">session page</a>. Runs
+              and on the <a href="/docs/coding/#watch-steer">session page</a>. Sessions
               are strict about it: an agent started by Exponential connects to
               the servers Exponential wired in and nothing else, whatever the
               CLI has configured globally.

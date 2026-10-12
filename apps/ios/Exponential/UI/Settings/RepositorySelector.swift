@@ -34,8 +34,6 @@ struct BoardRepoField: View {
     var disabled = false
 
     @Environment(AppDependencies.self) private var deps
-    // FEED-79: a failed list is a toast, never a rose line under the block.
-    @Environment(\.toaster) private var toaster
 
     @State private var repos: [TeamRepo]?
     /// FEED-32: the one-shot re-list for a linked id the list doesn't know —
@@ -111,7 +109,7 @@ struct BoardRepoField: View {
 
             // The ONE explanatory line under the block — byte-identical on
             // every client (lib/board-copy.ts, gated by board-copy.test.ts).
-            Text("Runs start from here.")
+            Text("Sessions start from here.")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         }
@@ -288,14 +286,10 @@ struct BoardRepoField: View {
         do {
             repos = try await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)
         } catch {
-            // FEED-32: a failed list used to collapse silently — keep the
-            // last list and say why the selection can't be resolved (a
-            // toast, FEED-79).
+            // FEED-32: a failed list used to collapse silently; the
+            // selection now reads as unavailable. FEED-79: the list loads on
+            // appear, so no toast.
             repos = repos ?? []
-            toaster.error(
-                FeedbackStates.Errors.title(verb: "load", thing: "the team's repositories"),
-                description: error.trpcUserMessage
-            )
         }
         resolveUnknownRepo()
     }
@@ -331,10 +325,12 @@ private struct BranchPickerRow: View {
 
     @Environment(AppDependencies.self) private var deps
 
-    // FEED-79: a failed branch list = the picker's empty state + a toast.
+    // FEED-79: the branches load when the sheet opens, so a failure is the
+    // picker's empty state + Retry; only a failed Retry tap toasts.
     @Environment(\.toaster) private var toaster
     @State private var showSheet = false
     @State private var branches: [String]?
+    @State private var loadFailed = false
 
     var body: some View {
         BranchPicker(
@@ -342,6 +338,7 @@ private struct BranchPickerRow: View {
             value: value,
             repoDefault: repoDefault,
             onChange: onPick,
+            onRetry: loadFailed ? { Task { await load(retried: true) } } : nil,
             disabled: disabled,
             open: $showSheet
         ) {
@@ -369,9 +366,10 @@ private struct BranchPickerRow: View {
         }
     }
 
-    private func load() async {
+    private func load(retried: Bool = false) async {
         // A failed list left `[]` behind: spin again while re-reading.
         if branches?.isEmpty == true { branches = nil }
+        loadFailed = false
         do {
             branches = try await deps.repositoriesApi.listBranches(
                 accountId: accountId,
@@ -379,6 +377,8 @@ private struct BranchPickerRow: View {
             )
         } catch {
             branches = []
+            loadFailed = true
+            guard retried else { return }
             toaster.error(
                 FeedbackStates.Errors.title(verb: "load", thing: "branches"),
                 description: error.trpcUserMessage

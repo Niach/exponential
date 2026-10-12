@@ -143,7 +143,7 @@ describe(`WorkTabsStrip New run (EXP-1255)`, () => {
     tabs.value = [issueTab]
     renderStrip()
     const plus = screen.getByTestId(`work-tabs-new-run`)
-    expect(plus.getAttribute(`aria-label`)).toBe(`New run`)
+    expect(plus.getAttribute(`aria-label`)).toBe(`New session`)
     const tab = screen.getByTestId(`work-tab-issue:i1`)
     expect(tab.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(plus.nextElementSibling).toBeNull()
@@ -156,7 +156,7 @@ describe(`WorkTabsStrip New run (EXP-1255)`, () => {
     pathname.value = `/t/acme/agent`
     renderStrip()
     const chip = screen.getByTestId(`work-tab-new`)
-    expect(chip.textContent).toContain(`New run`)
+    expect(chip.textContent).toContain(`New session`)
     expect(chip.getAttribute(`data-active`)).toBe(`true`)
     expect(screen.getByTestId(`work-tab-issue:i1`).getAttribute(`data-active`)).toBeNull()
   })

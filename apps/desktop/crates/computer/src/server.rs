@@ -103,7 +103,7 @@ impl Hub {
                 let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 match self.run(token) {
                     Some((session_id, label)) => Ok(self.host.call(&session_id, &label, name, arguments)),
-                    None => Err(json!({ "code": -32000, "message": "This run's computer-use grant ended." })),
+                    None => Err(json!({ "code": -32000, "message": "This session's computer-use grant ended." })),
                 }
             }
             _ => Err(json!({ "code": -32601, "message": format!("Method not found: {method}") })),

@@ -66,7 +66,7 @@ function startFailureToast(
   agent: string,
   retry?: () => void
 ) {
-  const title = actionErrorTitle(`start`, `the run`)
+  const title = actionErrorTitle(`start`, `the session`)
   const description = trpcErrorMessage(
     error,
     `The start command could not be delivered`
@@ -77,7 +77,7 @@ function startFailureToast(
     deviceIsMine(device) &&
     deviceCanAgentLogin(device)
   if (!canSignIn) {
-    failedAction(`start`, `the run`, error, { description, retry })
+    failedAction(`start`, `the session`, error, { description, retry })
     return
   }
   toast.error(title, {
@@ -281,7 +281,7 @@ export function useRemoteStart(
     setPending({ deviceLabel, sentAt: Date.now(), key })
     resetTimerRef.current = setTimeout(() => {
       setPending(null)
-      toast.error(`${deviceLabel} never started this run`, {
+      toast.error(`${deviceLabel} never started this session`, {
         description: `Open the Exponential desktop app there to see why.`,
       })
     }, STARTED_RUN_DEADLINE_MS)

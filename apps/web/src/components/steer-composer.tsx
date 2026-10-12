@@ -369,7 +369,7 @@ export function SteerComposer({
               disabled={!live}
               onClick={() => {
                 if (!store.interrupt()) {
-                  failedAction(`stop`, `the run`, SESSION_GONE)
+                  failedAction(`stop`, `the session`, SESSION_GONE)
                 }
               }}
             />

@@ -332,7 +332,7 @@ function AgentPage() {
               variant="ghost"
               size="icon"
               className="absolute top-3 left-3 z-10 hidden size-8 text-muted-foreground hover:text-foreground md:flex"
-              aria-label="Recent runs"
+              aria-label="Recent sessions"
               data-testid="recent-runs-toggle"
               onClick={() => {
                 setRecentRunsPanelOpen(true)
@@ -348,7 +348,7 @@ function AgentPage() {
               <RecentRunsIcon className="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="right">Recent runs</TooltipContent>
+          <TooltipContent side="right">Recent sessions</TooltipContent>
         </Tooltip>
       )}
       <div className="relative min-h-0 flex-1 overflow-y-auto">

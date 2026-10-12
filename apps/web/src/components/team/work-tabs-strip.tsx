@@ -73,7 +73,7 @@ const UiAddIcon = conceptIcon(`ui-add`)
 const NewRunIcon = conceptIcon(`action-chat`)
 
 /** EXP-1255: the New run chip's title. */
-export const NEW_RUN_TAB_TITLE = `New run`
+export const NEW_RUN_TAB_TITLE = `New session`
 
 interface ChipModel {
   key: string

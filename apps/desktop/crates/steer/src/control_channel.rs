@@ -222,7 +222,7 @@ pub const START_DUPLICATE_REASON: &str =
 /// FEED-63: the refusal reason when a live run on THIS device already holds
 /// the issue (the one-session-per-issue guard).
 pub fn issue_held_here_reason(session_id: &str) -> String {
-    format!("a live run already holds this issue on this device: {session_id}")
+    format!("a live session already holds this issue on this device: {session_id}")
 }
 
 /// FEED-63: the refusal reason when a live run on ANOTHER device holds the
@@ -231,9 +231,9 @@ pub fn issue_held_here_reason(session_id: &str) -> String {
 pub fn issue_held_elsewhere_reason(device: &str, session_id: Option<&str>) -> String {
     match session_id {
         Some(session_id) => format!(
-            "a live run already holds this issue on {device}: {session_id} (one session per issue)"
+            "a live session already holds this issue on {device}: {session_id} (one session per issue)"
         ),
-        None => format!("a live run already holds this issue on {device} (one session per issue)"),
+        None => format!("a live session already holds this issue on {device} (one session per issue)"),
     }
 }
 

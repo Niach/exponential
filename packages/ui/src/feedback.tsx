@@ -263,6 +263,14 @@ export function blockingLabel(kind: keyof typeof BLOCKING_COPY, name = ``): stri
 
 export const FEEDBACK_ERRORS = FEEDBACK_STATES.errors
 
+/** Where a failure renders, by WHO started the work: a person's action =
+ *  a toast, invalid input = its field's line, automatic or background work
+ *  (sync, polling, a load on open or focus) = nothing new (`quiet`): it
+ *  keeps its band spinner / empty state. */
+export function errorSurface(kind: `action` | `input` | `background`): `toast` | `inline` | `quiet` {
+  return kind === `action` ? `toast` : kind === `input` ? `inline` : `quiet`
+}
+
 /** `Couldn't <verb> <thing>`, the failed action's toast title. */
 export function actionErrorTitle(verb: string, thing: string): string {
   return FEEDBACK_ERRORS.titlePattern.replace(`{verb}`, verb).replace(`{thing}`, thing)

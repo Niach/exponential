@@ -35,9 +35,9 @@ import type { SessionStatusTone } from "@/lib/coding-session-display"
 export type WorkFaceKind = `issue` | `run` | `guide`
 
 export const ISSUE_FACE_LABEL = `Issue`
-export const RUN_FACE_LABEL = `Run`
+export const RUN_FACE_LABEL = `Session`
 /** EXP-886: the Run face's label with MORE THAN ONE own run on the issue. */
-export const RUNS_FACE_LABEL = `Runs`
+export const RUNS_FACE_LABEL = `Sessions`
 /** EXP-1251: the Guide face (contract `diffUi.guideFace`). */
 export const GUIDE_FACE_LABEL = contract.diffUi.guideFace
 /** EXP-933: the transcript card under a settled `sessions_guide` call that

@@ -267,7 +267,7 @@ export function TeamSidebar({
                       <TeamLiveDot
                         live={otherLive.any ? otherLive : undefined}
                         placement="corner"
-                        title="Runs in other teams"
+                        title="Sessions in other teams"
                         data-testid="team-switcher-live-dot"
                       />
                     </span>
@@ -297,7 +297,7 @@ export function TeamSidebar({
                         <TeamLiveDot
                           live={teamLive.get(ws.id)}
                           placement="trailing"
-                          title="Runs in this team"
+                          title="Sessions in this team"
                         />
                       )}
                     </DropdownMenuItem>
@@ -384,8 +384,8 @@ export function TeamSidebar({
                             Inbox, Devices, Reviews, Actions, Drafts (while any). */}
                         <SidebarMenu>
                           {/* EXP-818: the Agent page — the composer over the
-                              caller's past runs (the IDE rail's Agent entry).
-                              EXP-1120: no live-run dot — live runs already list
+                              caller's past sessions (the IDE rail's Agent entry).
+                              EXP-1120: no live-run dot — live sessions already list
                               in the sidebar's Running section. */}
                           <SidebarMenuItem>
                             <SidebarMenuButton

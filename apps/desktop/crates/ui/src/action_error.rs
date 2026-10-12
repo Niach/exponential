@@ -10,11 +10,17 @@
 //!   ([`field_error`]): auth forms, the invite email, URL fields, byte caps,
 //!   required fields, names already taken.
 //!
-//! Nothing else draws an error inline; a section whose LOAD failed shows its
-//! empty state plus the toast.
+//! Nothing else draws an error inline. Automatic work (a load on open or on
+//! focus, a re-list after a write, polling, prefetch) NEVER toasts: a
+//! section whose LOAD failed shows its empty state with a Retry
+//! ([`load_failed_state`]); only that Retry PRESS failing again toasts
+//! ([`failed_load`] with `attended`).
 
-use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled, Window};
-use gpui_component::ActiveTheme as _;
+use gpui::{
+    div, px, App, ClickEvent, Div, ElementId, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled, Window,
+};
+use gpui_component::{ActiveTheme as _, Icon};
 
 use crate::toast::{self, Toast};
 
@@ -78,6 +84,35 @@ pub(crate) fn failed_action_with_retry(
     toast::show_in_active_window(toast, cx);
 }
 
+/// A LOAD failed: quiet unless `attended` (the person pressed the empty
+/// state's Retry), then `Couldn't load <thing>` + the reason. The empty
+/// state's own Retry stays the way back, so the toast carries none.
+pub(crate) fn failed_load(thing: &str, attended: bool, description: Option<String>, cx: &mut App) {
+    if attended {
+        failed_action("load", thing, description, cx);
+    }
+}
+
+/// A section whose LOAD failed: its list empty state (`No <noun>`, the
+/// `empty-state.json` copy) with a Retry under it that re-runs the load.
+pub(crate) fn load_failed_state(
+    id: impl Into<ElementId>,
+    icon: Icon,
+    title: impl Into<SharedString>,
+    on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> Div {
+    crate::controls::empty_state_list(icon, title, cx).child(
+        crate::controls::text_button(
+            id,
+            crate::feedback::RETRY,
+            crate::controls::TextButtonVariant::Link,
+            cx,
+        )
+        .on_click(on_retry),
+    )
+}
+
 /// A name the server says is already taken (CONFLICT): INVALID INPUT, so
 /// it stays under its field rather than toasting.
 pub(crate) fn is_name_conflict(err: &api::ApiError) -> bool {
@@ -110,9 +145,18 @@ mod tests {
         assert_eq!(errors["inline"]["size"].as_f64(), Some(FIELD_ERROR_PX as f64));
         let mut actions = 0;
         for case in errors["cases"].as_array().expect("cases") {
-            if case["kind"] != "action" {
-                assert_eq!(case["render"], "inline");
-                continue;
+            match case["kind"].as_str() {
+                Some("action") => {}
+                // Automatic work fails quietly: no toast, no inline line
+                // (`trunk_sync`'s `attended` gate, the quiet loads on open).
+                Some("background") => {
+                    assert_eq!(case["render"], "quiet");
+                    continue;
+                }
+                _ => {
+                    assert_eq!(case["render"], "inline");
+                    continue;
+                }
             }
             actions += 1;
             assert_eq!(case["render"], "toast");

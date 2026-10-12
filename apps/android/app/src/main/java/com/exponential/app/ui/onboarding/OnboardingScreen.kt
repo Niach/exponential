@@ -93,20 +93,25 @@ fun OnboardingScreen(
     val teamJoinError by viewModel.teamJoinError.collectAsStateWithLifecycle()
     val joined by viewModel.joined.collectAsStateWithLifecycle()
     val userEmail by viewModel.userEmail.collectAsStateWithLifecycle()
-    // FEED-79: a failed team resolve (Retry resolves again), create or join.
-    FailedActionToast(error, "load", "your team", onShown = {}, retry = viewModel::prepare)
+    // FEED-79: the team resolve runs on open, so its failure is quiet (the
+    // step's Retry); only a failed Retry tap toasts. A failed create or join
+    // always toasts.
+    var prepareRetried by remember(accountId) { mutableStateOf(false) }
+    val retryPrepare = {
+        prepareRetried = true
+        viewModel.prepare()
+    }
+    FailedActionToast(error?.takeIf { prepareRetried }, "load", "your team", onShown = {}, retry = retryPrepare)
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
-    var step by remember { mutableIntStateOf(0) }
+    // Keyed on the account: signing in as someone else restarts the wizard.
+    var step by remember(accountId) { mutableIntStateOf(0) }
     // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
     // reduce-motion flag is read here and captured.
     val reduceMotion = LocalReduceMotion.current
 
-    LaunchedEffect(Unit) {
-        viewModel.reconcile()
-        viewModel.prepare()
-    }
+    LaunchedEffect(accountId) { viewModel.start(accountId) }
     // Reconcile self-heal: an account that already onboarded elsewhere skips the
     // wizard entirely (a completed create advances to the done step instead).
     LaunchedEffect(done) { if (done) onDone() }
@@ -169,7 +174,7 @@ fun OnboardingScreen(
                         prepareError = error,
                         createError = teamCreateError,
                         joinError = teamJoinError,
-                        onRetry = { viewModel.prepare() },
+                        onRetry = retryPrepare,
                         onCreateTeam = { viewModel.createTeam(it) },
                         onJoinTeam = { viewModel.joinTeam(it) },
                     )
@@ -178,7 +183,7 @@ fun OnboardingScreen(
                         teamId = teamId,
                         preparing = preparing,
                         error = error,
-                        onRetry = { viewModel.prepare() },
+                        onRetry = retryPrepare,
                         onCreated = { boardId ->
                             viewModel.onBoardCreated(boardId)
                             step = 3

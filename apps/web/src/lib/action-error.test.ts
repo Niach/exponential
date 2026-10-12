@@ -7,7 +7,7 @@ vi.mock(`sonner`, async (importOriginal) => {
   return { ...actual, toast: Object.assign(() => {}, actual.toast, { error: toastError }) }
 })
 
-import { actionErrorTitle } from "@exp/ui"
+import { actionErrorTitle, errorSurface } from "@exp/ui"
 import { actionErrorDescription, failedAction } from "./action-error"
 
 // FEED-79: the fixture's action cases are toasts titled per `titlePattern`.
@@ -24,6 +24,13 @@ describe(`feedback-states errors`, () => {
     expect(title).toBe(c.title)
     expect(options.description).toBe(`Server said no`)
     expect(options.action?.label).toBe(c.retry ? FEEDBACK_STATES.errors.retry : undefined)
+  })
+
+  // FEED-79: automatic or background work (sync, polling, a load on open or
+  // focus) never reaches `failedAction`; it keeps its quiet surface.
+  it.each(FEEDBACK_STATES.errors.cases.filter((c) => c.kind === `background`))(`$name`, (c) => {
+    expect(c.render).toBe(`quiet`)
+    expect(errorSurface(`background`)).toBe(`quiet`)
   })
 
   it(`drops JSON-shaped messages and keeps plain ones`, () => {

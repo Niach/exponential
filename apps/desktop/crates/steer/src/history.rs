@@ -57,7 +57,7 @@ pub const JOURNAL_FILE_CAP: u64 = 16 * 1024 * 1024;
 /// EXP-906: the row the publisher puts on the wire (and in its in-memory
 /// journal) the moment the file stops recording — a person reading the run
 /// must learn it from the run, not from a log line on the device.
-pub const JOURNAL_CAP_NOTICE: &str = "[Exponential] Session history stopped recording on this device: the journal reached its size cap. The run continues, but a viewer who joins later sees the transcript only up to here.";
+pub const JOURNAL_CAP_NOTICE: &str = "[Exponential] Session history stopped recording on this device: the journal reached its size cap. The session continues, but a viewer who joins later sees the transcript only up to here.";
 
 /// EXP-906: the line a sidecar'd `diff` leaves in the `.jsonl` — it holds the
 /// diff's place in the line count (= the wire sequence) and parses as nothing

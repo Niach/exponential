@@ -70,15 +70,23 @@ fun LoginScreen(
     val context = LocalContext.current
 
     // FEED-79: a request that never reached the server is a toast; the
-    // server's refusal of what was typed stays inline (auth forms). A failed
-    // config load toasts too (Retry loads again).
+    // server's refusal of what was typed stays inline (auth forms). The
+    // config loads on open, so its failure is quiet (the Retry button); only
+    // a failed Retry tap toasts.
     FailedActionToast(
         state.error?.takeIf(::isTransportFailure),
         "reach",
         "the server",
         onShown = viewModel::clearError,
     )
-    FailedActionToast(state.configError, "load", "the sign-in options", onShown = {}, retry = viewModel::loadConfig)
+    var configRetried by remember { mutableStateOf(false) }
+    FailedActionToast(
+        state.configError?.takeIf { configRetried },
+        "load",
+        "the sign-in options",
+        onShown = {},
+        retry = viewModel::loadConfig,
+    )
 
     if (state.successEmail != null) {
         onLoggedIn()
@@ -115,9 +123,12 @@ fun LoginScreen(
             // EXP-1275: skeleton rows in the Continue list's geometry.
             state.configLoading -> SkeletonRows(rowHeight = 52.dp, dot = false)
 
-            // The failure itself is the toast; the frame keeps its way forward.
+            // A failed load keeps only its way forward (no toast on open).
             state.config == null -> {
-                TextButton(onClick = { viewModel.loadConfig() }) {
+                TextButton(onClick = {
+                    configRetried = true
+                    viewModel.loadConfig()
+                }) {
                     Text("Retry")
                 }
             }

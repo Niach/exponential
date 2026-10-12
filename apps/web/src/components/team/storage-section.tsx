@@ -89,9 +89,10 @@ export function TeamStorageSection({
       })
       setList(result)
       setLoadFailed(false)
-    } catch (error) {
+    } catch {
+      // FEED-79: the list loads on open and re-lists after an action, so a
+      // failed load is quiet: the empty state.
       setLoadFailed(true)
-      failedAction(`load`, `the attachments`, error, { retry: () => void load() })
     }
   }, [team.id])
 

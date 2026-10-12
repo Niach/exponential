@@ -7,7 +7,7 @@
    steer composer: a field with the round send glyph inline (Stop while the
    agent works and nothing is typed), and the footer under the card with the
    attach `+`, the model picker and the context ring. The diff face is the
-   run's changes: the file list over the patches, in place of the
+   session's changes: the file list over the patches, in place of the
    transcript. */
 import { useState } from "react"
 import { useWeb } from "./state"

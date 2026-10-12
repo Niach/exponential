@@ -14,7 +14,7 @@ import SwiftUI
 enum TriggerCopy {
     /// The action demands an input nobody can type on a triggered run, so the
     /// server refuses to ENABLE a trigger on it.
-    static let requiredInputsHint = "This action has required inputs, and a triggered run has none to fill them with. Make the inputs optional to enable it."
+    static let requiredInputsHint = "This action has required inputs, and a triggered session has none to fill them with. Make the inputs optional to enable it."
     /// No machine can run triggers.
     static let noTriggerDevice = "No device can run triggers. Run the desktop app or the exponential daemon and it will appear here."
 }

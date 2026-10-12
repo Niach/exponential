@@ -67,16 +67,16 @@ object SessionAccountSwitch {
     // STAYS: it is byte-locked ×4 by web's `session-account-switch.test.ts`,
     // which reads this file, and web/desktop/iOS still show it.
     const val COST_NOTE =
-        "The run continues under the other account. Re-reading the transcript once costs tokens."
+        "The session continues under the other account. Re-reading the transcript once costs tokens."
 
     // ── Refusals ────────────────────────────────────────────────────────────
     // One sentence each, and the reason is always about the thing the person
     // can change. Shown on the DISABLED control rather than hiding it, so the
     // switch never silently disappears mid-run.
 
-    const val REASON_AGENT = "Only claude can switch accounts during a run."
-    const val REASON_NOT_MINE = "Only the person who started this run can switch its account."
-    const val REASON_ENDED = "This run has ended — resume it instead."
+    const val REASON_AGENT = "Only claude can switch accounts during a session."
+    const val REASON_NOT_MINE = "Only the person who started this session can switch its account."
+    const val REASON_ENDED = "This session has ended — resume it instead."
     const val REASON_OFFLINE = "The machine is offline."
     /**
      * The machine's build cannot take the switch: it either cannot resume a
@@ -89,7 +89,7 @@ object SessionAccountSwitch {
     const val REASON_BUSY = "The agent is working — switching waits for the turn to finish."
     const val REASON_SIGNED_OUT = "Sign in to this account on that machine first."
     const val REASON_NEEDS_RELOGIN = "This account needs a re-login on that machine."
-    const val REASON_ALREADY = "This run is already on this account."
+    const val REASON_ALREADY = "This session is already on this account."
 
     /**
      * The logins the session screen lists for the run's [agent] on its host

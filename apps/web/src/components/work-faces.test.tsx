@@ -96,7 +96,7 @@ describe(`MobileFaceTabs`, () => {
       Array.from(toggle.querySelectorAll(`[data-face]`)).map((node) =>
         node.textContent?.trim()
       )
-    ).toEqual([`Issue`, `Run`, `Guide`])
+    ).toEqual([`Issue`, `Session`, `Guide`])
     expect(
       toggle.querySelector(`[data-face="run"]`)?.getAttribute(`data-state`)
     ).toBe(`active`)
@@ -117,7 +117,7 @@ describe(`MobileFaceTabs`, () => {
         onOpenRun={vi.fn()}
       />
     )
-    expect(screen.getByText(`Runs`)).toBeTruthy()
+    expect(screen.getByText(`Sessions`)).toBeTruthy()
     expect(screen.getByTestId(`issue-run-switcher`)).toBeTruthy()
   })
 })
@@ -379,11 +379,11 @@ describe(`WorkFaceToggle`, () => {
     )
     expect(screen.getByTestId(`work-face-toggle`)).toBeTruthy()
     expect(screen.getByText(`Issue`)).toBeTruthy()
-    expect(screen.getByText(`Run`)).toBeTruthy()
+    expect(screen.getByText(`Session`)).toBeTruthy()
     // No diff segment: `DiffCounts`'s `+N −M` (U+2212) is absent.
     expect(screen.queryByText(/^\+\d+ \u2212\d+$/)).toBeNull()
-    fireEvent.mouseDown(screen.getByText(`Run`))
-    fireEvent.click(screen.getByText(`Run`))
+    fireEvent.mouseDown(screen.getByText(`Session`))
+    fireEvent.click(screen.getByText(`Session`))
     expect(onRun).toHaveBeenCalled()
   })
 
@@ -435,11 +435,11 @@ describe(`WorkHeader`, () => {
 describe(`shared strings (×2 with the IDE)`, () => {
   it(`are byte-identical`, () => {
     expect(ISSUE_FACE_LABEL).toBe(`Issue`)
-    expect(RUN_FACE_LABEL).toBe(`Run`)
+    expect(RUN_FACE_LABEL).toBe(`Session`)
     // EXP-886: the plural once the issue has more than one run of mine.
-    expect(RUNS_FACE_LABEL).toBe(`Runs`)
-    expect(runFaceLabel(false)).toBe(`Run`)
-    expect(runFaceLabel(true)).toBe(`Runs`)
+    expect(RUNS_FACE_LABEL).toBe(`Sessions`)
+    expect(runFaceLabel(false)).toBe(`Session`)
+    expect(runFaceLabel(true)).toBe(`Sessions`)
     expect(GUIDE_FACE_LABEL).toBe(`Guide`)
     expect(STOP_LABEL).toBe(`Stop`)
     expect(RESUME_LABEL).toBe(`Resume`)

@@ -103,8 +103,6 @@ const DisconnectIcon = conceptIcon(`ui-clear`)
 const BackIcon = conceptIcon(`ui-back`)
 const CloseIcon = conceptIcon(`ui-close`)
 const ShareIcon = conceptIcon(`ui-share`)
-/** `useMcpServers`' own fallback line: the toast's title already says it. */
-const LOAD_FALLBACK = `Couldn't load the MCP servers.`
 
 /** A settings deep link's one-shot requests (the route strips them once
  * handed over): `?connect=<id>` starts a connect, `?mcp=…` is the OAuth
@@ -130,13 +128,8 @@ export function TeamMcpServersSection({
   onRequestConsumed?: () => void
 }) {
   const { servers, reloading, error, refresh, setShared } = useMcpServers(teamId)
-  // FEED-79: a failed load = the empty state + one toast per failure.
-  useEffect(() => {
-    if (!error) return
-    failedAction(`load`, `the MCP servers`, error === LOAD_FALLBACK ? undefined : error, {
-      retry: () => void refresh(),
-    })
-  }, [error, refresh])
+  // FEED-79: the list loads on open and re-lists after a write, so a failed
+  // load is quiet: the empty state, never a toast.
   const [editor, setEditor] = useState<Editor | null>(null)
   const [removeTarget, setRemoveTarget] = useState<McpServerRow | null>(null)
   const [keyTarget, setKeyTarget] = useState<McpServerRow | null>(null)
@@ -195,7 +188,7 @@ export function TeamMcpServersSection({
       if (await setShared(server.id, next)) {
         toast.success(
           next
-            ? `Shared ${server.name} with the team: action runs on teammates' machines use your connection`
+            ? `Shared ${server.name} with the team: action sessions on teammates' machines use your connection`
             : `Stopped sharing ${server.name}`
         )
       }
@@ -688,7 +681,7 @@ function ServerRow({
             {server.name}
           </span>
           {server.enabledByDefault && (
-            <Pill size="sm" title="Pre-selected in new runs">
+            <Pill size="sm" title="Pre-selected in new sessions">
               Default
             </Pill>
           )}
@@ -904,7 +897,7 @@ function SecretDialog({
         <DialogHeader>
           <DialogTitle>{`API key for ${server?.name ?? ``}`}</DialogTitle>
           <DialogDescription>
-            Only your runs use it. Stored encrypted; nobody can read it back.
+            Only your sessions use it. Stored encrypted; nobody can read it back.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -1135,7 +1128,7 @@ function McpServerDialog({
               )}
               <GlassToggleRow
                 id="mcp-enabled-by-default"
-                label="Pre-select in new runs"
+                label="Pre-select in new sessions"
                 checked={draft.enabledByDefault}
                 onCheckedChange={(enabledByDefault) => patch({ enabledByDefault })}
               />

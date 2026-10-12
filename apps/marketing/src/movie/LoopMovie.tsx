@@ -43,7 +43,7 @@ const FLOW_META = FLOW_INFO
 
 /* Framing-neutral on purpose: <picture> serves a cropped mobile poster from
    the same scene, and alt cannot vary per <source>. */
-const POSTER_ALT = `The Exponential issue board: the team's live issues with a bug report open as an issue. The whole team collaborates here in realtime, and coding runs start from any device.`
+const POSTER_ALT = `The Exponential issue board: the team's live issues with a bug report open as an issue. The whole team collaborates here in realtime, and coding sessions start from any device.`
 
 const LoopMoviePlayer = lazy(() => import(`./LoopMoviePlayer`))
 

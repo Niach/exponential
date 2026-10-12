@@ -461,15 +461,15 @@ fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
 /// "Issue" — a tab is chrome, so it never renders a transient status string.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
     let Some(store) = Store::try_global(cx) else {
-        return "Run".into();
+        return "Session".into();
     };
     let collections = store.collections();
     let Some(row) = collections.coding_sessions.read(cx).get(session_id).cloned() else {
-        return "Run".into();
+        return "Session".into();
     };
     if let Some(issue_id) = row.issue_id.as_deref() {
         let Some(issue) = collections.issues.read(cx).get(issue_id) else {
-            return "Run".into();
+            return "Session".into();
         };
         let title = issue.title.trim();
         if title.is_empty() {
@@ -1538,7 +1538,7 @@ pub(crate) fn navigate_replacing_tab(window: &Window, cx: &mut App, screen: Scre
 }
 
 /// EXP-1255: a New run tab's chip title (draft 1).
-pub(crate) const NEW_RUN_TITLE: &str = "New run";
+pub(crate) const NEW_RUN_TITLE: &str = "New session";
 
 /// EXP-1170: the New issue page's board chip moved the draft to `board_id` —
 /// the screen follows (so [`active_board_id`] does), in place: no history

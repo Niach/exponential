@@ -96,7 +96,7 @@ export function DocsPage() {
                 <a href={LINKS.downloadPage}>desktop app</a>, open the issue,
                 and hit <strong>Start coding</strong>. Your agent runs on
                 your machine, plans first, implements, and opens the PR
-                itself; the run is a session you can read and steer from
+                itself; the session is one you can read and steer from
                 anywhere. See <a href="/docs/coding/">Coding agents</a>.
               </li>
               <li>

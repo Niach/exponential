@@ -632,14 +632,14 @@ export const mcpServersRouter = router({
       if (await isAgentApiKeySession(ctx.db, ctx.session)) {
         throw new TRPCError({
           code: `FORBIDDEN`,
-          message: `An agent's key never resolves MCP credentials — the launcher does, before the run starts.`,
+          message: `An agent's key never resolves MCP credentials — the launcher does, before the session starts.`,
         })
       }
       const sessionId = parseMcpSessionHeader(ctx.request)
       if (!sessionId) {
         throw new TRPCError({
           code: `FORBIDDEN`,
-          message: `MCP credentials resolve only for a run the Exponential launcher started (missing X-Exp-Session-Id).`,
+          message: `MCP credentials resolve only for a session the Exponential launcher started (missing X-Exp-Session-Id).`,
         })
       }
       const [run] = await ctx.db
@@ -662,7 +662,7 @@ export const mcpServersRouter = router({
       ) {
         throw new TRPCError({
           code: `FORBIDDEN`,
-          message: `MCP credentials resolve only for a live run of your own.`,
+          message: `MCP credentials resolve only for a live session of your own.`,
         })
       }
       await assertTeamMember(userId, run.teamId)

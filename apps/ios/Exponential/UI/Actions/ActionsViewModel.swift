@@ -1,5 +1,4 @@
 import ExpCore
-import ExpUI
 import Foundation
 import GRDB
 
@@ -51,12 +50,9 @@ final class ActionsViewModel {
         if actions.isEmpty { isLoading = true }
         actionsObservationTask?.cancel()
         guard let pool = try? db.pool(forAccountId: accountId) else {
+            // FEED-79: the list loads on its own, so a failure is quiet: the
+            // empty state, never a toast.
             isLoading = false
-            // FEED-79: the list keeps its empty state; the failure is a toast.
-            Toaster.shared.error(
-                FeedbackStates.Errors.title(verb: "load", thing: "actions"),
-                description: "The local database is unavailable."
-            )
             return
         }
         allDevices = await DeviceQueries.devices(
@@ -81,11 +77,8 @@ final class ActionsViewModel {
                 }
             } catch {
                 guard let self, !Task.isCancelled, self.loadedTeamId == teamId else { return }
+                // Quiet (FEED-79): the empty state.
                 self.isLoading = false
-                Toaster.shared.error(
-                    FeedbackStates.Errors.title(verb: "load", thing: "actions"),
-                    description: error.localizedDescription
-                )
             }
         }
     }

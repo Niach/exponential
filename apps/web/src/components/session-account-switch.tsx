@@ -68,7 +68,7 @@ export const WALL_SWITCH_LABEL = `Switch account`
 /** What a switch costs, said once where the switch is offered: the agent
  *  re-enters the recorded run under the other login, which re-reads the
  *  transcript — one extra context read, not a per-message surcharge. */
-export const SWITCH_COST_NOTE = `The run continues under the other account. Re-reading the transcript once costs tokens.`
+export const SWITCH_COST_NOTE = `The session continues under the other account. Re-reading the transcript once costs tokens.`
 
 // EXP-974 retired the continuation byline + its cost note: a resumed run and
 // the run it came out of share ONE toggle now, and the `Runs` caret is the
@@ -79,15 +79,15 @@ export const SWITCH_COST_NOTE = `The run continues under the other account. Re-r
 // change. Shown ON the disabled control rather than hiding it, so the switch
 // never silently disappears mid-run.
 
-export const REASON_AGENT = `Only claude can switch accounts during a run.`
-export const REASON_NOT_MINE = `Only the person who started this run can switch its account.`
-export const REASON_ENDED = `This run has ended — resume it instead.`
+export const REASON_AGENT = `Only claude can switch accounts during a session.`
+export const REASON_NOT_MINE = `Only the person who started this session can switch its account.`
+export const REASON_ENDED = `This session has ended — resume it instead.`
 export const REASON_OFFLINE = `The machine is offline.`
 export const REASON_NO_CAP = `Update the app on that machine to switch accounts.`
 export const REASON_BUSY = `The agent is working — switching waits for the turn to finish.`
 export const REASON_SIGNED_OUT = `Sign in to this account on that machine first.`
 export const REASON_NEEDS_RELOGIN = `This account needs a re-login on that machine.`
-export const REASON_ALREADY = `This run is already on this account.`
+export const REASON_ALREADY = `This session is already on this account.`
 
 /** One account the run's machine holds for the run's agent. */
 export interface SessionAccountOption {
@@ -337,7 +337,7 @@ export function useSessionAccountSwitch(
         if (deadlineRef.current) clearTimeout(deadlineRef.current)
         deadlineRef.current = setTimeout(() => {
           setPending(null)
-          toast.error(`That machine never continued this run`, {
+          toast.error(`That machine never continued this session`, {
             description: `Open the Exponential desktop app there to see why.`,
           })
         }, STARTED_RUN_DEADLINE_MS)
@@ -348,7 +348,7 @@ export function useSessionAccountSwitch(
         failedAction(`switch`, `the account`, error, {
           description: trpcErrorMessage(
             error,
-            `The machine refused to continue this run on that account.`
+            `The machine refused to continue this session on that account.`
           ),
           retry: () => switchRef.current(profileId),
         })

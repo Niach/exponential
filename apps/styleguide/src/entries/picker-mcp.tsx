@@ -31,7 +31,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-792`,
   title: `MCP server picker`,
-  blurb: `The team's MCP servers a run connects to — the Agent composer's "MCP servers" row (multi) and, as the same rows in a PickerList, the Add dialog's one search box over the well-known servers (type a name, or paste any URL and pick its "Use …" row). A server whose host is in the catalog (contract mcpCatalog) wears the REAL brand mark of its service, one of the vendored selfh.st light SVGs in packages/icons brand, reproduced as-is and never recoloured; a command server the terminal, anything else the plug. One the member has not connected renders with "Connect first" as its second line rather than vanishing.`,
+  blurb: `The team's MCP servers a session connects to — the Agent composer's "MCP servers" row (multi) and, as the same rows in a PickerList, the Add dialog's one search box over the well-known servers (type a name, or paste any URL and pick its "Use …" row). A server whose host is in the catalog (contract mcpCatalog) wears the REAL brand mark of its service, one of the vendored selfh.st light SVGs in packages/icons brand, reproduced as-is and never recoloured; a command server the terminal, anything else the plug. One the member has not connected renders with "Connect first" as its second line rather than vanishing.`,
   status: {
     web: {
       state: `ok`,
@@ -43,8 +43,8 @@ export const entry: StyleguideEntry = {
       symbol: `picker::mcp_server_picker`,
       file: `${PICKER_FILES.desktop}/mcp_server_picker.rs`,
     },
-    ios: { state: `n/a`, note: `The native composer has no MCP row yet; its runs connect none.` },
-    android: { state: `n/a`, note: `The native composer has no MCP row yet; its runs connect none.` },
+    ios: { state: `n/a`, note: `The native composer has no MCP row yet; its sessions connect none.` },
+    android: { state: `n/a`, note: `The native composer has no MCP row yet; its sessions connect none.` },
   },
   island: () => (
     <PickerSpecimen

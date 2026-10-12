@@ -12,7 +12,7 @@ use crate::comments::{thread_comment_card, ThreadCommentProps};
 pub(crate) const ID: &str = "comment-call-card";
 pub(crate) const OWNER: &str = "EXP-1241";
 
-const BODY: &str = "**Status 2026-10-08, evening**\n\n#VAPP-98 (renderer hardening) is open as PR #1007; the host API run #VAPP-91 is not based on the new contract yet, so I sent it a heads-up.\n\nNext: the conformance fixtures for the Swift and Compose renderers, then the docs pass.";
+const BODY: &str = "**Status 2026-10-08, evening**\n\n#VAPP-98 (renderer hardening) is open as PR #1007; the host API session #VAPP-91 is not based on the new contract yet, so I sent it a heads-up.\n\nNext: the conformance fixtures for the Swift and Compose renderers, then the docs pass.";
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let muted = cx.theme().muted_foreground;

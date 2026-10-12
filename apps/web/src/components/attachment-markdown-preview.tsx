@@ -11,7 +11,6 @@ import {
   DialogTitle,
   SkeletonRows,
 } from "@exp/ui"
-import { failedAction } from "@/lib/action-error"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import {
   MARKDOWN_PREVIEW_MAX_BYTES,
@@ -84,34 +83,29 @@ export function AttachmentMarkdownPreviewDialog({
   onOpenChange,
 }: AttachmentMarkdownPreviewDialogProps) {
   const [state, setState] = useState<PreviewState>({ status: `loading` })
-  // Bumped by the failure toast's Retry: the effect fetches again.
-  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!open || !attachment) return
     let cancelled = false
     setState({ status: `loading` })
-    // FEED-79: a failed load = the empty body + ONE toast (Retry refetches).
-    const fail = (message: string) => {
-      setState({ status: `error`, message })
-      failedAction(`load`, `the preview`, message, {
-        retry: () => setAttempt((count) => count + 1),
-      })
-    }
+    // FEED-79: the load runs on open, so a failure is the empty body (no
+    // toast); Download stays the way to read it.
     loadMarkdownPreview(attachment)
       .then((next) => {
-        if (cancelled) return
-        if (next.status === `error`) fail(next.message)
-        else setState(next)
+        if (!cancelled) setState(next)
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        fail(error instanceof Error ? error.message : `Couldn't load this file.`)
+        setState({
+          status: `error`,
+          message:
+            error instanceof Error ? error.message : `Couldn't load this file.`,
+        })
       })
     return () => {
       cancelled = true
     }
-  }, [open, attachment, attempt])
+  }, [open, attachment])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

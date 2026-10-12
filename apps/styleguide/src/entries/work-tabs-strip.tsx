@@ -58,7 +58,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1255`,
   title: `Work tab strip`,
-  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). An issue and its run are ONE tab. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Chips that do not fit fold into "+N". A ghost "+" after the last tab opens ONE New run tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); once its run starts the tab turns into that run's tab. Runs started anywhere else only show in Running. Switching tabs never animates.`,
+  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). An issue and its session are ONE tab. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Chips that do not fit fold into "+N". A ghost "+" after the last tab opens ONE New session tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); once its session starts the tab turns into that session's tab. Sessions started anywhere else only show in Running. Switching tabs never animates.`,
   status: {
     web: {
       state: `ok`,
@@ -78,11 +78,11 @@ export const entry: StyleguideEntry = {
     <div className="flex items-center gap-1">
       <Chip lead={<StatusGlyph icon="progress-2-4" colorClass="text-amber-500 size-3.5" />} identifier="EXP-1223" title="ExponentialOS" active />
       <Chip lead={<StatusGlyph icon="circle-dashed" colorClass="text-muted-foreground size-3.5" />} identifier="EXP-563" title="google keywords" hovered />
-      <Chip lead={<NewRunIcon className="size-3.5 text-muted-foreground" />} title="New run" />
+      <Chip lead={<NewRunIcon className="size-3.5 text-muted-foreground" />} title="New session" />
       <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground">
         +2
       </Button>
-      <Button variant="ghost" size="icon-xs" aria-label="New run" className="text-muted-foreground">
+      <Button variant="ghost" size="icon-xs" aria-label="New session" className="text-muted-foreground">
         <UiAddIcon />
       </Button>
     </div>

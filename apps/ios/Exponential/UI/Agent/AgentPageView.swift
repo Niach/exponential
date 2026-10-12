@@ -179,7 +179,7 @@ struct AgentPageView: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
                 }
-                .accessibilityLabel("Recent runs")
+                .accessibilityLabel("Recent sessions")
                 .accessibilityIdentifier("agent-history-button")
             }
         }
@@ -468,7 +468,7 @@ struct AgentPageView: View {
     private var relayOffNote: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            Text("Remote start isn't available on this server. Start runs from the desktop app; live runs show up below.")
+            Text("Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up below.")
                 .font(.caption)
             Spacer(minLength: 0)
         }

@@ -908,7 +908,7 @@ impl IssueDetailView {
                 team_id,
                 cx,
             ),
-            // The failure was a toast (FEED-79): the empty body.
+            // A failed load on open is quiet (FEED-79): the empty body.
             Some(PrBodyState::Error) => pr_body_block(None, PrBodyContent::Ready(""), team_id, cx),
             Some(PrBodyState::Loading) | None => {
                 pr_body_block(None, PrBodyContent::Loading, team_id, cx)
@@ -937,8 +937,10 @@ impl IssueDetailView {
                 if let Some((_, state)) = this.pr_body.as_mut() {
                     *state = match result {
                         Ok(description) => PrBodyState::Ready(description),
+                        // Fetched on open: quiet (FEED-79), the lead
+                        // falls back to the empty body.
                         Err(err) => {
-                            crate::action_error::failed_action_err("load", "the pull request", &err, cx);
+                            log::warn!("[ui] issues.prDescription failed: {err}");
                             PrBodyState::Error
                         }
                     };

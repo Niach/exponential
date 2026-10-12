@@ -90,7 +90,7 @@ export async function publishSessionResultPicture(
       if (exceedsSessionResultsCap(upsert.results)) {
         throw new TRPCError({
           code: `CONFLICT`,
-          message: `This run already published the maximum number of results. Remove one first (exponential_sessions_guide with remove).`,
+          message: `This session already published the maximum number of results. Remove one first (exponential_sessions_guide with remove).`,
         })
       }
       results = upsert.results

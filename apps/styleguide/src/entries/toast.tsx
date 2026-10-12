@@ -75,7 +75,7 @@ export const entry: StyleguideEntry = {
           <ToastSpecimen kind="warning" title="Storage is almost full" description="240 MB of 250 MB used." />
         </Captioned>
         <Captioned caption="with an action">
-          <ToastSpecimen kind="error" title="studio-mac is offline" description="Start the run on another device?" action="Choose device" />
+          <ToastSpecimen kind="error" title="studio-mac is offline" description="Start the session on another device?" action="Choose device" />
         </Captioned>
       </div>
     </div>

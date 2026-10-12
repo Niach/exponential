@@ -785,7 +785,7 @@ impl LocalReposPane {
                 .disabled(busy || in_use);
             if in_use {
                 button = button
-                    .tooltip("A run is active on this repository. Stop it first.");
+                    .tooltip("A session is active on this repository. Stop it first.");
             } else {
                 button = button
                     .tooltip("Delete the local clone and its worktrees from disk (confirmed).")
@@ -907,7 +907,7 @@ impl LocalReposPane {
             // as "Remove local copy", one level down.
             if in_use {
                 button = button
-                    .tooltip("A run is active on this worktree. Stop it first.");
+                    .tooltip("A session is active on this worktree. Stop it first.");
             } else {
                 button = button
                     .tooltip("Remove this worktree from disk (confirmed)")
@@ -1449,7 +1449,7 @@ fn format_size(bytes: u64) -> String {
 fn format_prune_result(report: &coding::PruneReport) -> SharedString {
     if report.blocked_by_launch {
         // EXP-478: the pass never ran — a launch held the clone's gate.
-        return "A run is being launched — try again in a moment.".into();
+        return "A session is being launched. Try again in a moment.".into();
     }
     if report.is_empty() {
         return "No merged worktrees to prune.".into();
@@ -1555,7 +1555,7 @@ mod tests {
                 blocked_by_launch: true,
                 ..Default::default()
             }),
-            SharedString::from("A run is being launched — try again in a moment.")
+            SharedString::from("A session is being launched. Try again in a moment.")
         );
     }
 

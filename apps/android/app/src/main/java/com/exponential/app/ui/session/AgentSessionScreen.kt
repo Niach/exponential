@@ -462,7 +462,7 @@ private fun RunFaceContent(
     val toaster = LocalToaster.current
     LaunchedEffect(killError) {
         val failure = killError ?: return@LaunchedEffect
-        val title = FeedbackStates.errorTitle("stop", "the run")
+        val title = FeedbackStates.errorTitle("stop", "the session")
         toaster.error(
             title,
             failure.takeIf { it != title },
@@ -476,7 +476,7 @@ private fun RunFaceContent(
     val failedStartToaster = LocalToaster.current
     LaunchedEffect(launchRunState) {
         val failed = launchRunState as? ActionRunState.Failed ?: return@LaunchedEffect
-        failedStartToaster.error(FeedbackStates.errorTitle("resume", "the run"), failed.message)
+        failedStartToaster.error(FeedbackStates.errorTitle("resume", "the session"), failed.message)
     }
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     // EXP-760: the run's team issues, newest-first — resolves the identifiers
@@ -1251,7 +1251,7 @@ private fun RunFaceContent(
                 when (val p = phase) {
                     is AgentPhase.Ended -> BannerRow {
                         Text(
-                            p.detail ?: "Run ended",
+                            p.detail ?: "Session ended",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
@@ -2009,7 +2009,7 @@ internal fun sessionStatusLine(
                 if (label != null) "$prefix · $label" else prefix
             }
             AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
-            is AgentPhase.Ended -> "Run ended"
+            is AgentPhase.Ended -> "Session ended"
             is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
         }
     }

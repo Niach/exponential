@@ -785,10 +785,27 @@ fn render_picker(
                 cx,
             ));
         }
-        // The failure was a toast (FEED-79): the empty list.
+        // A failed load is quiet (FEED-79): the empty list + Retry.
         Some(None) => {
+            let retry_control = control.clone();
             list = list.child(
-                div().px_2().py_1p5().text_xs().text_color(muted).child(copy::PICKER_EMPTY),
+                h_flex()
+                    .px_2()
+                    .py_1p5()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_xs().text_color(muted).child(copy::PICKER_EMPTY))
+                    .child(
+                        crate::controls::text_button(
+                            "readiness-picker-retry",
+                            crate::feedback::RETRY,
+                            crate::controls::TextButtonVariant::Link,
+                            cx,
+                        )
+                        .on_click(move |_, _, cx| {
+                            retry_control.update(cx, |this, cx| this.retry_github(cx));
+                        }),
+                    ),
             );
         }
         Some(Some(repos)) => {

@@ -283,12 +283,12 @@ final class TriggerWhenTests: XCTestCase {
     // Byte-locked against the web's `actionRunTitle`: a run in its own
     // action's Runs is titled by what started it.
     func testActionRunTitleNamesWhatStartedTheRun() {
-        XCTAssertEqual(ActionRunTitle.of(startedReason: "schedule"), "Scheduled run")
-        XCTAssertEqual(ActionRunTitle.of(startedReason: "event"), "Event run")
-        XCTAssertEqual(ActionRunTitle.of(startedReason: "agent"), "Agent run")
-        XCTAssertEqual(ActionRunTitle.of(startedReason: "something-new"), "Agent run")
-        XCTAssertEqual(ActionRunTitle.of(startedReason: nil), "Manual run")
-        XCTAssertEqual(ActionRunTitle.of(startedReason: ""), "Manual run")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "schedule"), "Scheduled session")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "event"), "Event session")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "agent"), "Agent session")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: "something-new"), "Agent session")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: nil), "Manual session")
+        XCTAssertEqual(ActionRunTitle.of(startedReason: ""), "Manual session")
     }
 
     // MARK: - The `actions.update` triggers array
@@ -384,7 +384,7 @@ final class TriggerWhenTests: XCTestCase {
         )
         XCTAssertEqual(
             TriggerNote.format(spec),
-            "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540,\"deviceId\":\"d-1\"}]`. A triggered run fills no inputs, so declare none as required."
+            "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540,\"deviceId\":\"d-1\"}]`. A triggered session fills no inputs, so declare none as required."
         )
     }
 
@@ -398,7 +398,7 @@ final class TriggerWhenTests: XCTestCase {
         )
         XCTAssertEqual(
             TriggerNote.format(spec),
-            "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[{\"kind\":\"event\",\"event\":\"created\",\"deviceId\":\"dev-2\",\"agent\":\"codex\",\"model\":\"gpt-5.6-sol\",\"effort\":\"high\"}]`. A triggered run fills no inputs, so declare none as required."
+            "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[{\"kind\":\"event\",\"event\":\"created\",\"deviceId\":\"dev-2\",\"agent\":\"codex\",\"model\":\"gpt-5.6-sol\",\"effort\":\"high\"}]`. A triggered session fills no inputs, so declare none as required."
         )
         // Blank launch fields are omitted (the web's falsy check).
         let blank = TriggerSpec(

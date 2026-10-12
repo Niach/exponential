@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react"
 
-import { actionErrorTitle, toastActionError } from "../feedback"
+import { Button } from "../button"
+import { actionErrorTitle, FEEDBACK_ERRORS, toastActionError } from "../feedback"
 import { Picker, type PickerItem, type PickerSurfaceProps } from "./picker"
 import type { PickerTriggerVariant } from "./picker-trigger"
 
@@ -64,19 +65,22 @@ export function BranchPicker({
   const [loadFailed, setLoadFailed] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  // FEED-79: a failed load is a toast (Retry loads again); the list shows
-  // its empty state, and the next open tries again too.
-  const load = useCallback(async (): Promise<void> => {
+  // FEED-79: the list loads when the picker opens, so a failure is quiet:
+  // the empty list + Retry (the next open tries again too). Only a failed
+  // Retry tap, the person's own action, toasts.
+  const load = useCallback(async (retried = false): Promise<void> => {
     setLoading(true)
     setLoadFailed(false)
     try {
       setBranches(await loadBranches())
     } catch (err) {
       setLoadFailed(true)
-      toastActionError(actionErrorTitle(`load`, `branches`), {
-        description: err instanceof Error && err.message.trim() ? err.message : undefined,
-        retry: () => void load(),
-      })
+      if (retried) {
+        toastActionError(actionErrorTitle(`load`, `branches`), {
+          description: err instanceof Error && err.message.trim() ? err.message : undefined,
+          retry: () => void load(true),
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -114,6 +118,18 @@ export function BranchPicker({
       // fetch; the empty copy there would read as "this repo has no
       // branches".
       loading={loading || (open && names === null && !loadFailed)}
+      error={
+        loadFailed ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start rounded-none text-muted-foreground"
+            onClick={() => void load(true)}
+          >
+            {FEEDBACK_ERRORS.retry}
+          </Button>
+        ) : undefined
+      }
       mobileTitle={label}
       trigger={trigger}
       triggerVariant={triggerVariant}

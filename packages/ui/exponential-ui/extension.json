@@ -67,10 +67,10 @@
     },
     "RunStatusRow": {
       "kind": "native", "group": "list", "lite": true, "children": "none",
-      "description": "A run's status row on its Run face: the agent mark, the status caption and the last tool line.",
+      "description": "A session's status row on its Session face: the agent mark, the status caption and the last tool line.",
       "props": {
         "agent": { "type": "enum", "values": ["claude", "codex"], "description": "Whose brand mark leads the row." },
-        "markState": { "type": "enum", "enum": "runMarkState", "description": "The mark's state badge; absent = a paused run's bare mark." },
+        "markState": { "type": "enum", "enum": "runMarkState", "description": "The mark's state badge; absent = a paused session's bare mark." },
         "caption": { "type": "string", "required": true, "bindable": true, "description": "The status caption (runRowCaption)." },
         "tone": { "type": "enum", "enum": "runTone", "default": "muted", "description": "The caption's colour tone." },
         "toolLine": { "type": "string", "bindable": true, "description": "The last tool line under the caption." },
@@ -80,16 +80,16 @@
     },
     "SessionRow": {
       "kind": "native", "group": "list", "lite": true, "children": "none",
-      "description": "A coding run in a list: the agent mark, the identifier and title, the caption on the big row and the host device's glyph.",
+      "description": "A coding session in a list: the agent mark, the identifier and title, the caption on the big row and the host device's glyph.",
       "props": {
         "size": { "type": "enum", "enum": "sessionRowSize", "default": "big", "description": "small = one line; big = title over the caption." },
         "agent": { "type": "enum", "values": ["claude", "codex"], "description": "Whose brand mark leads the row." },
-        "markState": { "type": "enum", "enum": "runMarkState", "description": "The mark's state badge; absent = a paused run's bare mark." },
-        "identifier": { "type": "string", "bindable": true, "description": "An issue run's identifier or a batch's `EXP-874 +2`." },
-        "title": { "type": "string", "required": true, "bindable": true, "description": "The run's title." },
+        "markState": { "type": "enum", "enum": "runMarkState", "description": "The mark's state badge; absent = a paused session's bare mark." },
+        "identifier": { "type": "string", "bindable": true, "description": "An issue session's identifier or a batch's `EXP-874 +2`." },
+        "title": { "type": "string", "required": true, "bindable": true, "description": "The session's title." },
         "caption": { "type": "string", "bindable": true, "description": "The big row's second line (sessionRowCaption)." },
         "captionTone": { "type": "enum", "enum": "runTone", "default": "muted", "description": "The caption's colour tone." },
-        "depth": { "type": "number", "default": 0, "description": "Nesting depth under a parent run." },
+        "depth": { "type": "number", "default": 0, "description": "Nesting depth under a parent session." },
         "device": { "type": "string", "description": "The host device's name (the glyph's tooltip)." },
         "deviceIcon": { "type": "icon", "description": "The host device's glyph." }
       },
@@ -205,7 +205,7 @@
     },
     "ResultTile": {
       "kind": "native", "group": "data", "lite": true, "children": "none",
-      "description": "One published result of a run: text, a picture or a file list, under its label.",
+      "description": "One published result of a session: text, a picture or a file list, under its label.",
       "props": {
         "kind": { "type": "enum", "enum": "resultKind", "required": true, "description": "What the tile holds." },
         "label": { "type": "string", "description": "The tile caption (web, ios, …)." },
@@ -218,7 +218,7 @@
     },
     "ResultGroup": {
       "kind": "macro", "group": "data", "lite": true, "children": "many",
-      "description": "A run's results for one topic: the topic Section over its tiles.",
+      "description": "A session's results for one topic: the topic Section over its tiles.",
       "props": {
         "topic": { "type": "string", "required": true, "description": "The topic name (Summary first)." },
         "count": { "type": "number", "description": "How many tiles, shown in the band." }
@@ -260,7 +260,7 @@
     },
     "GuideSection": {
       "kind": "macro", "group": "data", "lite": true, "children": "many",
-      "description": "One section of a run's Guide: the title, its text, the author's rows and a Changes row with the file and line counts.",
+      "description": "One section of a session's Guide: the title, its text, the author's rows and a Changes row with the file and line counts.",
       "props": {
         "title": { "type": "string", "required": true, "bindable": true, "description": "The section title." },
         "text": { "type": "markdown", "bindable": true, "description": "The section's prose, above the rows." },

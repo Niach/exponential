@@ -232,7 +232,7 @@ function TeamLayout() {
                 </div>
               </main>
               {/* EXP-818: no dock band under the card — EXP-870 put every
-                  live run in a work tab above it instead. */}
+                  live session in a work tab above it instead. */}
             </div>
 
             {/* Native-style bottom navigation (EXP-189) — fixed-position,

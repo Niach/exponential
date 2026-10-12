@@ -195,8 +195,8 @@ export function DeviceSetup({
     typeof navigator === `undefined` ? undefined : navigator.maxTouchPoints
 
   // The one-time install token. A close (or a newer mint) orphans an
-  // in-flight one; a failed mint leaves the plain command in the box and
-  // toasts once (FEED-79), Retry minting again.
+  // in-flight one. The mint runs on open and on expiry, so a failure is
+  // quiet (FEED-79): the plain command stays in the box.
   const [minted, setMinted] = useState<MintedToken | null>(null)
   const generation = useRef(0)
   const mint = useCallback(async (): Promise<void> => {
@@ -205,10 +205,9 @@ export function DeviceSetup({
       const result = await trpc.devices.createInstallToken.mutate(undefined, SKIP_ERROR_TOAST)
       if (mine !== generation.current) return
       setMinted({ token: result.token, expiresAt: Date.parse(result.expiresAt) })
-    } catch (error) {
+    } catch {
       if (mine !== generation.current) return
       setMinted(null)
-      failedAction(`create`, `the install token`, error, { retry: () => void mint() })
     }
   }, [])
   useEffect(() => {

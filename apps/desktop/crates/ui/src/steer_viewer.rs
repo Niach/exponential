@@ -3793,7 +3793,7 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 
 /// …and the same row when the run left nothing to replay (its workspace,
 /// and with it the device journal, is gone).
-pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this run";
+pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this session";
 
 /// `steer.killSession` off the gpui foreground. Shared with the Devices
 /// screen's per-row kill.

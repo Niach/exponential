@@ -28,8 +28,9 @@ struct GithubRepoPicker: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
-    // FEED-79: a failed load, connect hop or add is a toast, never a rose
-    // line in the picker. Only the typed `owner/name` miss stays inline.
+    // FEED-79: a failed connect hop, add or tapped re-list is a toast, never
+    // a rose line in the picker; an automatic load fails quietly. Only the
+    // typed `owner/name` miss stays inline.
     @Environment(\.toaster) private var toaster
     @State private var result: GithubReposResult?
     @State private var loading = true
@@ -101,8 +102,8 @@ struct GithubRepoPicker: View {
                 installedList(data)
             }
         } else {
-            // Not configured, or the fetch failed with nothing loaded (the
-            // failure itself is a toast, FEED-79).
+            // Not configured, or the fetch failed with nothing loaded (quiet
+            // unless the person tapped the re-list, FEED-79).
             githubNotice(GithubCopy.pickerNotConfigured)
         }
     }
@@ -138,7 +139,7 @@ struct GithubRepoPicker: View {
             .disabled(!enabled || connecting)
             .accessibilityIdentifier("github-picker-fix")
             GlassPill(GithubCopy.pickerConnectedCheck, icon: AppIcons.uiRefresh, mode: .action {
-                Task { await load(refresh: true) }
+                Task { await load(refresh: true, tapped: true) }
             })
         }
     }
@@ -265,7 +266,7 @@ struct GithubRepoPicker: View {
                 GlassPill(
                     GithubCopy.refresh,
                     icon: AppIcons.uiRefresh,
-                    mode: .action { Task { await load(refresh: true) } },
+                    mode: .action { Task { await load(refresh: true, tapped: true) } },
                     enabled: !loading
                 )
                 if data.installUrl != nil {
@@ -379,7 +380,10 @@ struct GithubRepoPicker: View {
         openURL(url)
     }
 
-    private func load(refresh: Bool = false) async {
+    /// FEED-79: the list loads on appear, on return to the app and after a
+    /// connect, so those fail quietly (the picker keeps what it has); only a
+    /// re-list the person tapped toasts its failure.
+    private func load(refresh: Bool = false, tapped: Bool = false) async {
         loading = true
         do {
             let r = try await integrationsApi.githubRepos(accountId: accountId, teamId: teamId, refresh: refresh)
@@ -387,6 +391,7 @@ struct GithubRepoPicker: View {
             loading = false
         } catch {
             loading = false
+            guard tapped else { return }
             toaster.error(
                 FeedbackStates.Errors.title(verb: "load", thing: "your GitHub repositories"),
                 description: error.trpcUserMessage

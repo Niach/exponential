@@ -14,7 +14,7 @@ use crate::prune::{worktree_dirty_state, DirtyState};
 
 /// The message every saved WIP commit carries.
 pub const WIP_COMMIT_MESSAGE: &str =
-    "WIP: uncommitted changes saved when the run was stopped (Exponential)";
+    "WIP: uncommitted changes saved when the session was stopped (Exponential)";
 
 /// The identity a commit falls back to when the worktree has none configured.
 const FALLBACK_NAME: &str = "user.name=Exponential";

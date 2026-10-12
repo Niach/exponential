@@ -312,7 +312,7 @@ class SteerLaunchDelegate @Inject constructor(
                     trpcErrorMessage(
                         t,
                         if (account == null) {
-                            "The run could not be resumed"
+                            "The session could not be resumed"
                         } else {
                             "The account could not be switched"
                         },
@@ -347,7 +347,7 @@ class SteerLaunchDelegate @Inject constructor(
             _startedSessionId.value = sessionId
         } else {
             _runState.value = ActionRunState.Failed(
-                "$label never started this run. Open the Exponential desktop app " +
+                "$label never started this session. Open the Exponential desktop app " +
                     "there to see why.",
             )
         }

@@ -46,6 +46,10 @@ interface LiveSessionSpec {
   agent: `claude` | `codex` | null
   /** EXP-1284: the pinned thread the run sits in (absent = its issue's). */
   threadId?: string
+  /** The stub's feed for this row ends on an unanswered question
+   *  (screenshot-desktop.ts), so the row says so the way a real device
+   *  stamps it: `needs_input`, the ×4 list state (session-display.json). */
+  asks?: boolean
 }
 
 export const DEMO_LIVE_SESSIONS: readonly LiveSessionSpec[] = [
@@ -61,6 +65,7 @@ export const DEMO_LIVE_SESSIONS: readonly LiveSessionSpec[] = [
     deviceLabel: DEMO_DEVICE_LABEL,
     agent: `claude`,
     threadId: DEMO_THREAD_ID,
+    asks: true,
   },
   // Mira's row stays bare: her machine never registers.
   {
@@ -130,6 +135,9 @@ export async function assertDemoLiveSessions(
       deviceLabel: spec.deviceLabel,
       agent: spec.agent,
       status: spec.status,
+      // A capture that opts out of the closing ask (SCREENSHOT_FEED_NO_QUESTION)
+      // has nothing pending, so the row is not waiting either.
+      needsInput: spec.asks === true && process.env.SCREENSHOT_FEED_NO_QUESTION !== `1`,
       startedAt: new Date(now - spec.startedMinutesAgo * 60_000),
       endedAt: null,
       endedBy: null,

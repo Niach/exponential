@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 import type { Board } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
@@ -154,9 +154,8 @@ function GithubSource({
   const [lookupBusy, setLookupBusy] = useState(false)
   const [lookupError, setLookupError] = useState<string | null>(null)
 
-  // FEED-79: a failed load toasts ONCE per failing streak (every window
-  // focus re-lists, so a down server must not toast on each one).
-  const loadFailedRef = useRef(false)
+  // FEED-79: the list runs on open and on every window focus, so a failure
+  // stays quiet (no toast).
   const refresh = useCallback(
     async (force = false) => {
       setLoading(true)
@@ -167,15 +166,8 @@ function GithubSource({
             ...(force ? { refresh: true } : {}),
           })
         )
-        loadFailedRef.current = false
-      } catch (error) {
+      } catch {
         // Leave `data` as-is; the configured/linked branches degrade safely.
-        if (!loadFailedRef.current) {
-          loadFailedRef.current = true
-          failedAction(`load`, `your GitHub repositories`, error, {
-            retry: () => void refresh(true),
-          })
-        }
       } finally {
         setLoading(false)
       }

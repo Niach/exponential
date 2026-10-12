@@ -91,16 +91,16 @@ export function AppsDocsPage() {
               button and the settings gear on its right.
             </p>
             <p>
-              The sidebar never leaves. Open an issue or a run from a list, or
+              The sidebar never leaves. Open an issue or a session from a list, or
               open Settings, and it folds into a narrow icon rail with that
               list beside it, so every entry stays one click away.
             </p>
             <p>
               The working area is a rounded card on a darker ground, the same
               cutout layout the web app uses. Work opens as tabs along its
-              top. An issue and its coding run share one tab, with an{` `}
-              <strong>Issue | Run</strong> switch in the header. Every live
-              run of yours gets a tab too, grouped by agent, and can&apos;t be
+              top. An issue and its coding session share one tab, with an{` `}
+              <strong>Issue | Session</strong> switch in the header. Every live
+              session of yours gets a tab too, grouped by agent, and can&apos;t be
               closed while it runs. Terminals fill the card instead, and open
               terminals get a bar of tabs under it — a bar that is not there
               at all while none is open.
@@ -109,7 +109,7 @@ export function AppsDocsPage() {
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A coding run in the desktop IDE: its tab along the top, the shared header, and the sidebar beside it"
+              caption="A coding session in the desktop IDE: its tab along the top, the shared header, and the sidebar beside it"
             />
             <h3>System notifications</h3>
             <p>
@@ -156,7 +156,7 @@ export function AppsDocsPage() {
             <p>
               The round chat button beside the tab pill opens the{` `}
               <a href="/docs/coding/#start-coding">Agent page</a>: its
-              composer, and your running and past runs. On a board,{` `}
+              composer, and your running and past sessions. On a board,{` `}
               <strong>New issue</strong> sits beside it. Search sits in the
               board header. Select
               issues and the bulk bar takes the tab bar&apos;s place, with
@@ -199,10 +199,10 @@ export function AppsDocsPage() {
             <p>
               A coding session started on your desktop doesn&apos;t chain you
               to the desk. The <strong>Agent</strong> page, on the phone and
-              on the web, lists every run of yours with a{` `}
+              on the web, lists every session of yours with a{` `}
               <strong>live activity feed</strong> one tap away. Watch the
               agent work in real time, and{` `}
-              <strong>send steer messages</strong> mid-run: answer its
+              <strong>send steer messages</strong> mid-session: answer its
               question, veto an approach, add a constraint you forgot.
             </p>
             <p>
@@ -212,25 +212,25 @@ export function AppsDocsPage() {
               <code>@</code> for a teammate, <code>#</code> for an issue and
               {` `}<code>:</code> for an emoji — are the same on the phone as
               on the desktop. On the phone, <strong>Stop</strong> sits in a
-              run&apos;s top bar, and its <strong>…</strong> menu holds{` `}
+              session&apos;s top bar, and its <strong>…</strong> menu holds{` `}
               <strong>Usage</strong> (how much
-              of the agent&apos;s limits this run and this week have spent).
+              of the agent&apos;s limits this session and this week have spent).
               The phone&apos;s work screen is one screen with four faces,{` `}
-              <strong>Issue</strong>, <strong>Run</strong>,{` `}
+              <strong>Issue</strong>, <strong>Session</strong>,{` `}
               <strong>Changes</strong> and <strong>Results</strong>, swapped
               held as screen state under one bottom bar. The bar is three
-              slots: a context slot on the left (the usage ring on Run, the
+              slots: a context slot on the left (the usage ring on Session, the
               file list on Changes), a capsule in the middle (the composer on
-              Run, <strong>Merge PR</strong> on Changes) and the face
-              switcher circle on the right. So an open PR the run opened, on
+              Session, <strong>Merge PR</strong> on Changes) and the face
+              switcher circle on the right. So an open PR the session opened, on
               an issue or from an action or chat, merges from the{` `}
               <strong>Changes</strong> face, with{` `}
               <strong>Fix conflicts</strong> taking the capsule if the merge
-              hits conflicts. <strong>Results</strong> appears once the run
+              hits conflicts. <strong>Results</strong> appears once the session
               has published screenshots.
             </p>
             <p>
-              The full flow (starting runs, plan mode, batches, review) is
+              The full flow (starting sessions, plan mode, batches, review) is
               in <a href="/docs/coding/">Coding agents</a>.
             </p>
           </DocsSection>

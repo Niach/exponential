@@ -61,9 +61,9 @@ pub(crate) const WALL_SWITCH_LABEL: &str = "Switch account";
 /// it ONTO the control, as the second line of the offer's own tooltip. (The web
 /// copy-lock test reads this file for the literal; it stays byte-identical.)
 pub(crate) const COST_NOTE: &str =
-    "The run continues under the other account. Re-reading the transcript once costs tokens.";
+    "The session continues under the other account. Re-reading the transcript once costs tokens.";
 
-const REASON_AGENT: &str = "Only claude can switch accounts during a run.";
+const REASON_AGENT: &str = "Only claude can switch accounts during a session.";
 const REASON_OFFLINE: &str = "The machine is offline.";
 const REASON_NO_CAP: &str = "Update the app on that machine to switch accounts.";
 pub(crate) const REASON_BUSY: &str = "The agent is working — switching waits for the turn to finish.";
@@ -476,7 +476,7 @@ pub(crate) fn switch_to(
                 crate::action_error::failed_toast(
                     "switch",
                     "the account",
-                    Some("This run's machine is unknown.".into()),
+                    Some("This session's machine is unknown.".into()),
                 ),
                 window,
                 cx,
@@ -620,7 +620,7 @@ pub(crate) fn end_then_resume_on_account(
         }
         let _ = cx.update(|cx| {
             coding::unmark_resuming(&session_id);
-            let message = "The run did not stop in time — switch accounts again once it has.";
+            let message = "The session did not stop in time. Switch accounts again once it has.";
             crate::action_run::notify_target_error(target, message, cx);
             report.fail(message, cx);
         });
@@ -709,7 +709,7 @@ mod tests {
             .iter()
             .filter(|target| !target.current)
             .all(|target| target.blocked.as_deref()
-                == Some("Only claude can switch accounts during a run.")));
+                == Some("Only claude can switch accounts during a session.")));
 
         // An offline host, and a host whose build cannot take the switch: the
         // run's own facts outrank the accounts' (the ×4 order).
@@ -887,7 +887,7 @@ mod tests {
         assert_eq!(WALL_SWITCH_LABEL, "Switch account");
         assert_eq!(
             COST_NOTE,
-            "The run continues under the other account. Re-reading the transcript once costs tokens."
+            "The session continues under the other account. Re-reading the transcript once costs tokens."
         );
     }
 

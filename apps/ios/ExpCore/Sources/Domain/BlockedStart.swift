@@ -243,7 +243,7 @@ public enum BlockedStart {
 
     static let lineTemplate =
         "This is the bottom of a stacked line: {line}. After your PR is open and your branch "
-        + "is pushed, start #{next} as a follow-up run on your branch (playbook: Follow-ups "
+        + "is pushed, start #{next} as a follow-up session on your branch (playbook: Follow-ups "
         + "and follow-up runs), even under `no follow-up runs`. If more issues follow it, "
         + "give it this paragraph with your own issue dropped from the line. Do not wait for it."
 

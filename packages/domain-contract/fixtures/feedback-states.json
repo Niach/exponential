@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1275 + EXP-1271 + FEED-79 (EXP-1259 D8-D11): THE feedback-states system x4, one styleguide section \"Feedback states\" on every styleguide (web apps/styleguide, IDE styleguide, iOS + Android styleguide screens) and in the eUI catalog for the low-level three (Spinner, Button pending, Skeleton). Six kinds, nothing else draws a wait or an error. (1) INLINE: a `inline.spinner` px spinner + a progressive word in a band, header or caption (`Saving` then `Saved`); the EXP-1274 list-head spinner (GlassSectionHeader loading) IS this primitive. (2) PENDING: a button that started something swaps its icon slot for the spinner and its label for the progressive word (`pending.words`), its width never changes (it keeps its idle width as a minimum), and nothing changes before `pending.delayMs` so a fast action never flashes; disabled while pending. (3) PLACEHOLDER: skeleton rows in the real row geometry (the row's own height, a dot where its glyph sits, bars where its text sits, `placeholder.barHeight` px bars at radius `placeholder.radius` in the muted fill) pulsing opacity `placeholder.opacity` over `placeholder.pulseMs` ease-in-out, static at `placeholder.reducedOpacity` under reduce motion; it replaces EVERY 'Loading...' text and the phones' centred first-load spinners (empty-state.json's first-load rule now reads: skeleton x4). (4) THE MARK: the logo disc (foreground) whose three cut stripes sweep per `mark` (timeline = pure `markStripeSpan`, TS reference packages/domain-contract/src/feedback-mark.ts, mirrors replay `mark.cases`): each stripe is the logo's cubic `cubic` (100x100 grid, the disc = circle r 50 at 50,50 clips it), cut in the CALLER's ground colour (or a destination-out mask) at `mark.stripeWidth` grid units, drawn only over its visible span [t0,t1] of the cubic's parameter (sampled at `mark.samples` steps); loop `mark.loopMs`, linear phase; reduce motion = the static logo (all three spans [0,1]). Used for `starting` (the composer after Start + the run status row before the first turn) and `blocking`. (5) BLOCKING: a full-window backdrop (the window ground at `blocking.backdropOpacity`) + the mark at `blocking.markSize` + ONE muted line (`blocking.copy`), only for switching team, switching account and signing out; never for a single list or button. (6) ERRORS (FEED-79): `errors.rule`. Toasts per toast-stack.json (kind error, the ui-error icon). AUTOSAVE (D9, the IDE + web team prompt and every autosaving long text field): save `autosave.debounceMs` after the last keystroke and on blur; the caption reads `Saving` (inline spinner) -> `Saved` for `autosave.savedHoldMs` -> `Edited {ago}` (the platform's existing relative-time formatter); there is NO Unsaved state and no Save button. REMOTE START (D11, desktop only): a run started on this device by anything but THIS window's own composer never takes the window; it shows in Running with the starting spinner and raises an info toast (`remoteStart`).",
+  "$comment": "EXP-1275 + EXP-1271 + FEED-79 (EXP-1259 D8-D11): THE feedback-states system x4, one styleguide section \"Feedback states\" on every styleguide (web apps/styleguide, IDE styleguide, iOS + Android styleguide screens) and in the eUI catalog for the low-level three (Spinner, Button pending, Skeleton). Six kinds, nothing else draws a wait or an error. (1) INLINE: a `inline.spinner` px spinner + a progressive word in a band, header or caption (`Saving` then `Saved`); the EXP-1274 list-head spinner (GlassSectionHeader loading) IS this primitive. (2) PENDING: a button that started something swaps its icon slot for the spinner and its label for the progressive word (`pending.words`), its width never changes (it keeps its idle width as a minimum), and nothing changes before `pending.delayMs` so a fast action never flashes; disabled while pending. (3) PLACEHOLDER: skeleton rows in the real row geometry (the row's own height, a dot where its glyph sits, bars where its text sits, `placeholder.barHeight` px bars at radius `placeholder.radius` in the muted fill) pulsing opacity `placeholder.opacity` over `placeholder.pulseMs` ease-in-out, static at `placeholder.reducedOpacity` under reduce motion; it replaces EVERY 'Loading...' text and the phones' centred first-load spinners (empty-state.json's first-load rule now reads: skeleton x4). (4) THE MARK: the logo disc (foreground) whose three cut stripes sweep per `mark` (timeline = pure `markStripeSpan`, TS reference packages/domain-contract/src/feedback-mark.ts, mirrors replay `mark.cases`): each stripe is the logo's cubic `cubic` (100x100 grid, the disc = circle r 50 at 50,50 clips it), cut in the CALLER's ground colour (or a destination-out mask) at `mark.stripeWidth` grid units, drawn only over its visible span [t0,t1] of the cubic's parameter (sampled at `mark.samples` steps); loop `mark.loopMs`, linear phase; reduce motion = the static logo (all three spans [0,1]). Used for `starting` (the composer after Start + the session status row before the first turn) and `blocking`. (5) BLOCKING: a full-window backdrop (the window ground at `blocking.backdropOpacity`) + the mark at `blocking.markSize` + ONE muted line (`blocking.copy`), only for switching team, switching account and signing out; never for a single list or button. (6) ERRORS (FEED-79): `errors.rule`. Toasts per toast-stack.json (kind error, the ui-error icon). AUTOSAVE (D9, the IDE + web team prompt and every autosaving long text field): save `autosave.debounceMs` after the last keystroke and on blur; the caption reads `Saving` (inline spinner) -> `Saved` for `autosave.savedHoldMs` -> `Edited {ago}` (the platform's existing relative-time formatter); there is NO Unsaved state and no Save button. REMOTE START (D11, desktop only): a session started on this device by anything but THIS window's own composer never takes the window; it shows in Running with the starting spinner and raises an info toast (`remoteStart`).",
   "kinds": [
     "inline",
     "pending",
@@ -319,7 +319,7 @@
     "label": "Starting on {device}",
     "timeoutMs": 30000,
     "timeoutToast": {
-      "title": "The run did not start",
+      "title": "The session did not start",
       "description": "{device} did not answer.",
       "action": "Retry"
     }
@@ -335,7 +335,7 @@
   },
   "remoteStart": {
     "durationMs": 4000,
-    "title": "{name} started a run on {thisDevice}",
+    "title": "{name} started a session on {thisDevice}",
     "agentName": "An agent",
     "thisDevice": {
       "macos": "this Mac",
@@ -346,7 +346,7 @@
     "action": "Open"
   },
   "errors": {
-    "rule": "A FAILED ACTION (save, delete, start, connect, merge, send, invite, sign-in request that reached the server) = toast.error(title, {description: the server's message, action: Retry when re-running the same call is safe}). Title = `Couldn't <verb> <thing>` (sentence case, no period). INVALID INPUT stays INLINE under its field in the rose foreground at 13px (a red field border + the line), never a toast: auth forms, the invite email, URL fields, byte caps, required fields, names already taken. Nothing else renders an error inline: no rose sentences in settings sections, dialogs, option lines, pickers or faces; a section whose LOAD failed shows its empty state plus the toast.",
+    "rule": "ONLY a failure of something the PERSON just did toasts. Automatic or background work (trunk sync, polling, refresh on open or on focus, heartbeats, prefetch, live reloads) NEVER toasts: it keeps its existing quiet surface (the IDE trunk_sync badge + banner, a list's band spinner, its empty state). A FAILED ACTION (save, delete, start, connect, merge, send, invite, sign-in request that reached the server) = toast.error(title, {description: the server's message, action: Retry when re-running the same call is safe}). Title = `Couldn't <verb> <thing>` (sentence case, no period). INVALID INPUT stays INLINE under its field in the rose foreground at 13px (a red field border + the line), never a toast: auth forms, the invite email, URL fields, byte caps, required fields, names already taken. Nothing else renders an error inline: no rose sentences in settings sections, dialogs, option lines, pickers or faces; a section whose automatic LOAD failed shows its empty state (plus its Retry); only a failed Retry tap toasts.",
     "titlePattern": "Couldn't {verb} {thing}",
     "retry": "Retry",
     "inline": {
@@ -375,9 +375,9 @@
         "name": "a failed start is a toast with Retry",
         "kind": "action",
         "verb": "start",
-        "thing": "the run",
+        "thing": "the session",
         "render": "toast",
-        "title": "Couldn't start the run",
+        "title": "Couldn't start the session",
         "retry": true
       },
       {
@@ -400,6 +400,11 @@
         "kind": "input",
         "render": "inline",
         "message": "Too long: {used} of {max} bytes"
+      },
+      {
+        "name": "a failed automatic sync or background refresh never toasts",
+        "kind": "background",
+        "render": "quiet"
       }
     ]
   }

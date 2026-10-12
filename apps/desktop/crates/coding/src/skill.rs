@@ -38,7 +38,7 @@ pub const TEAM_PROMPT_HEADING: &str = "# Team instructions";
 /// text and where it ranks (above the requester's additional instructions,
 /// which ride LAST in the seed prompt).
 pub const TEAM_PROMPT_LEAD: &str = "Written by this team's owners in Exponential; it applies to \
-every run of the team and outranks the requester's additional instructions.";
+every session of the team and outranks the requester's additional instructions.";
 
 /// EXP-1025 — the text that goes onto the agent's additive system-prompt
 /// channel for ONE run: the playbook, then the team prompt under
@@ -118,7 +118,7 @@ pub fn computer_use_section(model: &str) -> String {
 /// and that only the script's output comes back.
 pub const CODE_MODE_SECTION: &str = "# Code mode
 
-The `codemode` MCP server runs JavaScript that calls this run's OTHER MCP tools: `exec({script})`, \
+The `codemode` MCP server runs JavaScript that calls this session's OTHER MCP tools: `exec({script})`, \
 where `await tools.<server>.<tool>(args)` (or `tools.mcp__<server>__<tool>`) is any tool of \
 `exponential`, `computer` and the team's HTTP servers; `Promise.all([...])` runs them at once (16 in \
 flight), `sleep(ms)` waits, `console.log` lines and the `return` value come back as JSON (64 KB cap) \
@@ -264,7 +264,7 @@ mod tests {
         assert_eq!(
             tail,
             "\n\n# Team instructions\n\nWritten by this team's owners in Exponential; it applies to \
-every run of the team and outranks the requester's additional instructions.\n\n## Rules\n\n- Always \
+every session of the team and outranks the requester's additional instructions.\n\n## Rules\n\n- Always \
 run `bun test`.\n"
         );
         // The cap is the server's (`teams.update`), mirrored by the contract.

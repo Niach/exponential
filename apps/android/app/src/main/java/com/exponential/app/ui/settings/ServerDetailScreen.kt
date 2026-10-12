@@ -236,11 +236,9 @@ class ServerDetailViewModel @Inject constructor(
                 methods = SignInMethodsState.Ready(usersApi.signInMethods(accountId))
             } catch (e: Exception) {
                 // Keep a loaded list on a failed refresh; a failed first load
-                // draws nothing in the section, plus the toast (FEED-79).
+                // draws nothing in the section. FEED-79: the list loads on its
+                // own (on open, after a change), so no toast.
                 if (methods !is SignInMethodsState.Ready) methods = SignInMethodsState.Error
-                failure = FailedAction("load", "your sign-in methods", trpcErrorMessage(e, "")) {
-                    loadMethods(accountId)
-                }
             }
         }
     }

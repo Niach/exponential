@@ -75,7 +75,7 @@ public enum SessionAccountSwitch {
     /// re-enters the recorded run under the other login, which re-reads the
     /// transcript — one extra context read, not a per-message surcharge.
     public static let costNote =
-        "The run continues under the other account. Re-reading the transcript once costs tokens."
+        "The session continues under the other account. Re-reading the transcript once costs tokens."
 
     // MARK: - Refusals
 
@@ -83,17 +83,17 @@ public enum SessionAccountSwitch {
     // can change. Shown on the DISABLED control rather than hiding it, so the
     // switch never silently disappears mid-run.
 
-    public static let reasonAgent = "Only claude can switch accounts during a run."
+    public static let reasonAgent = "Only claude can switch accounts during a session."
     public static let reasonNotMine =
-        "Only the person who started this run can switch its account."
-    public static let reasonEnded = "This run has ended — resume it instead."
+        "Only the person who started this session can switch its account."
+    public static let reasonEnded = "This session has ended — resume it instead."
     public static let reasonOffline = "The machine is offline."
     public static let reasonNoCap = "Update the app on that machine to switch accounts."
     public static let reasonBusy =
         "The agent is working — switching waits for the turn to finish."
     public static let reasonSignedOut = "Sign in to this account on that machine first."
     public static let reasonNeedsRelogin = "This account needs a re-login on that machine."
-    public static let reasonAlready = "This run is already on this account."
+    public static let reasonAlready = "This session is already on this account."
 
     /// Whether the run's agent can change account at all — what decides if the
     /// readout offers the control in the first place.

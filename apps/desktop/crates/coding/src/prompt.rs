@@ -48,7 +48,7 @@ pub fn close_out(unattended: bool) -> String {
     if unattended {
         format!(
             "{PUBLISH_RESULTS} {WORKTREE_CLEAN} Then report with the `exponential_sessions_end` MCP tool: a \
-one-paragraph summary of what you did and anything left open. That call ends this run; \
+one-paragraph summary of what you did and anything left open. That call ends this session; \
 nobody is watching it, so do not wait for replies. Merging your own PR never ends the \
 session."
         )
@@ -56,7 +56,7 @@ session."
         format!(
             "{PUBLISH_RESULTS} {WORKTREE_CLEAN} This session stays open after you finish: summarize what you did \
 here and keep answering follow-ups. Call the `exponential_sessions_end` MCP tool only when the \
-person asks you to end the run. Merging your own PR never ends the session."
+person asks you to end the session. Merging your own PR never ends the session."
         )
     }
 }
@@ -209,7 +209,7 @@ pub fn reclaimed_workspace_note(
 /// `RESUMED_IDLE_CAPTION` until a person typed — from the outside, switching
 /// the account did nothing at all. The run says why it was restarted and
 /// carries on by itself.
-pub const ACCOUNT_SWITCH_CONTINUE_PROMPT: &str = "Your account was switched; the previous run \
+pub const ACCOUNT_SWITCH_CONTINUE_PROMPT: &str = "Your account was switched; the previous session \
 ended on purpose. Continue exactly where you left off: pick up the task in progress, do not \
 restart or re-plan finished work, and report when done.";
 
@@ -242,7 +242,7 @@ screen you can run; name any screen you could not capture in the report. Before 
 worktree clean: commit and push everything you keep, discard anything you don't (`git checkout -- \
 .`, `git clean -fd` for files you created). This session stays open after you finish: summarize \
 what you did here and keep answering follow-ups. Call the `exponential_sessions_end` MCP tool \
-only when the person asks you to end the run. Merging your own PR never ends the session.
+only when the person asks you to end the session. Merging your own PR never ends the session.
 
 ## Issue context
 
@@ -272,14 +272,14 @@ The login page flickers on slow connections.
     fn only_the_unattended_prompt_closes_out_with_the_tool() {
         let attended = render_prompt("EXP-42", "Fix login flicker", None, false, None);
         assert!(attended.contains(
-            "Call the `exponential_sessions_end` MCP tool only when the person asks you to end the run."
+            "Call the `exponential_sessions_end` MCP tool only when the person asks you to end the session."
         ));
-        assert!(!attended.contains("That call ends this run"));
+        assert!(!attended.contains("That call ends this session"));
         assert!(attended.contains("This session stays open after you finish"));
 
         let unattended = render_prompt("EXP-42", "Fix login flicker", None, true, None);
         assert!(unattended.contains("`exponential_sessions_end`"));
-        assert!(unattended.contains("That call ends this run; nobody is watching it"));
+        assert!(unattended.contains("That call ends this session; nobody is watching it"));
         assert!(!unattended.contains("This session stays open after you finish"));
 
         // Both leave the tree clean and both spell out decision 6.

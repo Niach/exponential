@@ -5,14 +5,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.EmptyStateCopy
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassSheet
@@ -81,11 +85,16 @@ fun CreateBoardSheet(
             if (ws == null || acct == null) {
                 // The team resolve can fail (offline, server error, no team
                 // yet — EXP-188) — without this branch the sheet would wait
-                // forever (EXP-46): FEED-79, the empty state plus a toast
-                // whose Retry resolves again. Still resolving = skeleton rows
-                // (EXP-1275).
+                // forever (EXP-46): FEED-79, the empty state plus Retry (no
+                // toast on open; a failed Retry tap toasts). Still resolving =
+                // skeleton rows (EXP-1275).
                 if (state.setupFailed) {
-                    EmptyState(EmptyStateCopy.noTeam)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        EmptyState(EmptyStateCopy.noTeam)
+                        TextButton(onClick = { viewModel.ensureTeam(teamId, retried = true) }) {
+                            Text(FeedbackStates.RETRY)
+                        }
+                    }
                 } else {
                     SkeletonRows(modifier = Modifier.padding(vertical = 16.dp), dot = false)
                 }

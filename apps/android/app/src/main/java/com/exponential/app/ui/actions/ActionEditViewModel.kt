@@ -41,8 +41,10 @@ data class ActionEditState(
     /** The fetched row, body included; null until it lands. */
     val action: ActionDto? = null,
     val saving: Boolean = false,
-    /** FEED-79: a failed load or save, raised once as an error toast. */
+    /** FEED-79: a failed save (or a failed Retry tap), raised once as an error toast. */
     val failure: FailedAction? = null,
+    /** The fetch failed: the prompt shows its empty state + Retry (no toast on open). */
+    val loadFailed: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -91,7 +93,8 @@ class ActionEditViewModel @Inject constructor(
         _state.value = _state.value.copy(failure = null)
     }
 
-    fun load(actionId: String) {
+    /** [retried] = the person tapped Retry: only then does a failure toast (FEED-79). */
+    fun load(actionId: String, retried: Boolean = false) {
         _state.value = ActionEditState(loading = true)
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
@@ -105,7 +108,10 @@ class ActionEditViewModel @Inject constructor(
                 if (t is CancellationException) throw t
                 _state.value = ActionEditState(
                     loading = false,
-                    failure = FailedAction("load", "the prompt", trpcErrorMessage(t, "")) { load(actionId) },
+                    loadFailed = true,
+                    failure = if (!retried) null else FailedAction("load", "the prompt", trpcErrorMessage(t, "")) {
+                        load(actionId, retried = true)
+                    },
                 )
             }
         }

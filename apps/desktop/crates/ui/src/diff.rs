@@ -1208,11 +1208,20 @@ impl DiffView {
         cx.notify();
     }
 
-    /// A load failure (FEED-79, web parity): the error toast `Couldn't load
-    /// the changes` + the reason, over the empty list.
-    pub fn set_error(&mut self, message: impl Into<SharedString>, cx: &mut gpui::Context<Self>) {
+    /// A load failure: the empty list, plus (FEED-79) the error toast
+    /// `Couldn't load the changes` + the reason only when `attended` (the
+    /// person asked for this diff: a click). A load on open, a prefetch or a
+    /// refresh fails quietly (web `guide-face.tsx` parity).
+    pub fn set_error(
+        &mut self,
+        message: impl Into<SharedString>,
+        attended: bool,
+        cx: &mut gpui::Context<Self>,
+    ) {
         let message: SharedString = message.into();
-        crate::action_error::failed_action("load", "the changes", Some(message.to_string()), cx);
+        if attended {
+            crate::action_error::failed_action("load", "the changes", Some(message.to_string()), cx);
+        }
         self.phase = Phase::Error;
         self.clear_rows();
         cx.notify();
@@ -1322,7 +1331,9 @@ impl DiffView {
                 .await;
             let _ = this.update(cx, |this, cx| match result {
                 Ok(prepared) => this.set_prepared(prepared, cx),
-                Err(err) => this.set_error(err.to_string(), cx),
+                // Fetched on open (the Guide's counts, the Changes face):
+                // quiet, the empty list says it.
+                Err(err) => this.set_error(err.to_string(), false, cx),
             });
         })
         .detach();
@@ -1462,6 +1473,10 @@ impl DiffView {
             .collect();
         let file_ix = sticky_file(&sizes, &self.visible, &self.files, scroll_y)?;
         let row = self.rows.get(self.files.get(file_ix)?.row_index)?;
+        // The header's own fill is the translucent section glass (web pins
+        // it over `backdrop-blur`); gpui cannot blur, so the pinned copy
+        // sits on an OPAQUE band of the panel ground, or the lines that
+        // scroll under it read through the header (EXP-1259).
         Some(
             div()
                 .absolute()
@@ -1469,6 +1484,8 @@ impl DiffView {
                 .left_0()
                 .right_0()
                 .px(px(LIST_PAD))
+                .bg(crate::surface::scrim_ground())
+                .block_mouse_except_scroll()
                 .child(self.render_file_card(row, RowShape::Top, file_ix, cx))
                 .into_any_element(),
         )

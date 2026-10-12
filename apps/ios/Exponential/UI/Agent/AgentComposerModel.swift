@@ -585,7 +585,7 @@ final class AgentComposerModel {
         if !signedOut.isEmpty {
             return "\(signedOut) not signed in on your machines. Sign in on the machine first."
         }
-        return "No desktop online. Open the Exponential desktop app to start a run."
+        return "No desktop online. Open the Exponential desktop app to start a session."
     }
 
     /// EXP-836: why the machine a ▶ seed NAMED is not the one this run would
@@ -660,8 +660,8 @@ final class AgentComposerModel {
         if actionId != nil, selectedAction == nil {
             return "That action is not available on this team."
         }
-        if multiRepo { return "Pick issues from a single repository per run." }
-        if overCap { return "At most \(Self.maxBatchIssues) issues per run. Split the batch." }
+        if multiRepo { return "Pick issues from a single repository per session." }
+        if overCap { return "At most \(Self.maxBatchIssues) issues per session. Split the batch." }
         if let action = selectedAction {
             if ActionInputValues.hasUnsupportedType(action.inputs ?? []) {
                 return "This action needs a newer app version."
@@ -955,7 +955,7 @@ final class AgentComposerModel {
                 starting = nil
                 let message = error.userFacingMessage
                 Toaster.shared.error(
-                    FeedbackStates.Errors.title(verb: "start", thing: "the run"),
+                    FeedbackStates.Errors.title(verb: "start", thing: "the session"),
                     description: message,
                     action: retryAction()
                 )

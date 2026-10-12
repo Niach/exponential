@@ -96,7 +96,7 @@ object GettingStarted {
         GettingStartedStep(GettingStartedStepKey.Github, "Connect GitHub", "ui-github", GettingStartedTarget.Github),
         GettingStartedStep(GettingStartedStepKey.Device, "Add a device", "ui-device", GettingStartedTarget.AddDevice),
         GettingStartedStep(
-            GettingStartedStepKey.Run, "Start a run", "action-run", GettingStartedTarget.Agent,
+            GettingStartedStepKey.Run, "Start a session", "action-run", GettingStartedTarget.Agent,
             needsDevice = true,
         ),
         GettingStartedStep(

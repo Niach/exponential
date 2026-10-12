@@ -58,7 +58,7 @@ struct Snapshot {
 // (`components/team/general-section.tsx`). EXP-1054: one short placeholder,
 // no helper paragraph under the field — the counter is the footer.
 const TEAM_PROMPT_TITLE: &str = "Team prompt";
-const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team follows, as markdown.";
+const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding session of this team follows, as markdown.";
 
 // EXP-1105: the yolo-mode toggle — label only, no description (web parity).
 const YOLO_MODE_TITLE: &str = "Yolo mode";
@@ -107,12 +107,18 @@ fn prompt_counter(bytes: usize) -> String {
 /// per team and the field stays disabled until it lands — a blur can never
 /// save an empty draft over a prompt that has not arrived (nor after the
 /// load failed).
+/// The team prompt when its load failed (web `general-section.tsx`).
+const PROMPT_UNAVAILABLE: &str = "Prompt unavailable";
+
 #[derive(Default)]
 struct PromptState {
     /// The team the loaded text belongs to; a team switch reloads.
     team_id: Option<String>,
     loading: bool,
     load_failed: bool,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); the load on open fails quietly into the empty state.
+    retry_pressed: bool,
     /// What the server holds (trailing whitespace dropped, like it does).
     saved: String,
     /// ISO stamp of the last write, for the "Edited …" caption.
@@ -326,6 +332,7 @@ impl GeneralPane {
                     return;
                 }
                 view.prompt.loading = false;
+                let attended = std::mem::take(&mut view.prompt.retry_pressed);
                 match result {
                     Ok(prompt) => {
                         view.prompt.saved = prompt.agent_prompt.clone();
@@ -336,17 +343,14 @@ impl GeneralPane {
                         });
                     }
                     Err(err) => {
-                        // FEED-79: a failed load = the toast (Retry refetches);
-                        // the field stays disabled.
+                        // FEED-79: the load on open fails quietly: the
+                        // field's empty state + Retry (nothing to save over);
+                        // only a Retry press that fails again toasts.
                         view.prompt.load_failed = true;
-                        let pane = cx.entity().downgrade();
-                        toast::show(
-                            Toast::error("Couldn't load the team prompt")
-                                .description(err.user_message())
-                                .action(feedback::RETRY, move |window, cx| {
-                                    let _ = pane.update(cx, |view, cx| view.fetch_prompt(window, cx));
-                                }),
-                            window,
+                        crate::action_error::failed_load(
+                            "the team prompt",
+                            attended,
+                            crate::action_error::action_error_description(&err),
                             cx,
                         );
                     }
@@ -355,6 +359,13 @@ impl GeneralPane {
             });
         })
         .detach();
+    }
+
+    /// The failed prompt's Retry: the same load, attended.
+    fn retry_prompt(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.prompt.retry_pressed = true;
+        self.fetch_prompt(window, cx);
+        cx.notify();
     }
 
     fn prompt_bytes(&self, cx: &App) -> usize {
@@ -516,6 +527,20 @@ impl GeneralPane {
                     .when(over, |counter| counter.text_color(cx.theme().danger))
                     .child(prompt_counter(bytes)),
             );
+        // A failed load (FEED-79): the field's empty state + Retry.
+        if self.prompt.load_failed && !self.prompt.loading {
+            return section(cx)
+                .child(crate::surface::glass_section_header(TEAM_PROMPT_TITLE, None, cx))
+                .child(crate::surface::glass_group().child(
+                    crate::action_error::load_failed_state(
+                        "team-prompt-retry",
+                        gpui_component::Icon::new(registry::SETTINGS_GENERAL),
+                        PROMPT_UNAVAILABLE,
+                        cx.listener(|this, _, window, cx| this.retry_prompt(window, cx)),
+                        cx,
+                    ),
+                ));
+        }
         section(cx)
             .child(crate::surface::glass_section_header(TEAM_PROMPT_TITLE, trailing, cx))
             .child(crate::surface::glass_group().child(field).child(footer))

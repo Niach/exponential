@@ -39,7 +39,7 @@ vi.mock(`@/hooks/use-agents-data`, () => ({
   }),
 }))
 vi.mock(`@/lib/session-identity`, () => ({
-  sessionIdentity: () => ({ identifier: null, subject: `Chat run` }),
+  sessionIdentity: () => ({ identifier: null, subject: `Chat session` }),
 }))
 vi.mock(`@/lib/page-title`, () => ({
   pageTitle: (...parts: string[]) => parts.join(` `),

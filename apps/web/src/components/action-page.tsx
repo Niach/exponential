@@ -231,7 +231,7 @@ export function ActionPage({
                 Triggers
               </TabsTrigger>
               <TabsTrigger value="runs" className="flex-1">
-                Runs
+                Sessions
               </TabsTrigger>
             </TabsList>
             <TabsContent value="prompt" data-face-body="">

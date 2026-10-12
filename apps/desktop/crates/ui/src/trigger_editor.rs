@@ -99,7 +99,7 @@ const INTERVAL_LABELS: [(ScheduleInterval, &str); 3] = [
 /// instead of letting the owner discover it as a failed toggle. Byte-shared
 /// ×4 (web `REQUIRED_INPUTS_HINT`).
 pub(crate) const TRIGGER_REQUIRED_INPUTS_HINT: &str =
-    "This action has required inputs, and a triggered run has none to fill them with. \
+    "This action has required inputs, and a triggered session has none to fill them with. \
      Make the inputs optional to enable it.";
 
 /// The cap the server enforces per filter list — the pickers stop offering
@@ -1738,7 +1738,7 @@ mod tests {
     fn required_inputs_hint_matches_the_shared_copy() {
         assert_eq!(
             TRIGGER_REQUIRED_INPUTS_HINT,
-            "This action has required inputs, and a triggered run has none to fill them \
+            "This action has required inputs, and a triggered session has none to fill them \
              with. Make the inputs optional to enable it."
         );
     }

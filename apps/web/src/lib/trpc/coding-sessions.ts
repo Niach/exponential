@@ -207,7 +207,7 @@ async function resolveResumedFrom(
   if (row.userId !== callerId && row.hostUserId !== callerId) {
     throw new TRPCError({
       code: `FORBIDDEN`,
-      message: `You can only resume your own run`,
+      message: `You can only resume your own session`,
     })
   }
   // FEED-68: the run is already live again under another id (the account
@@ -219,7 +219,7 @@ async function resolveResumedFrom(
   if (liveResumeId) {
     throw new TRPCError({
       code: `PRECONDITION_FAILED`,
-      message: `That run was already resumed and is live as ${liveResumeId} — open that run instead of resuming it again`,
+      message: `That session was already resumed and is live as ${liveResumeId} — open that session instead of resuming it again`,
     })
   }
   return {
@@ -651,7 +651,7 @@ export function liveRunConflictMessage(
   const how = run.startedReason ? `started by ${run.startedReason}` : `started by a person`
   const facts = [`session ${run.id}`, how, ...(run.branch ? [`branch ${run.branch}`] : [])]
   const where = run.deviceLabel ? ` on ${run.deviceLabel}` : ``
-  const lead = `${subject} already has a live run${where} (${facts.join(`, `)}).`
+  const lead = `${subject} already has a live session${where} (${facts.join(`, `)}).`
   if (callerUserId === undefined || callerUserId === run.userId) {
     return `${lead} Stop it or let it end before starting another.`
   }
@@ -744,7 +744,7 @@ export const codingSessionsRouter = router({
       if (!session.prUrl || session.prNumber == null) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `This run has no pull request`,
+          message: `This session has no pull request`,
         })
       }
       // Lazy imports keep this router leaf-light (its tests run against a
@@ -772,7 +772,7 @@ export const codingSessionsRouter = router({
       if (!repoFullName) {
         throw new TRPCError({
           code: `PRECONDITION_FAILED`,
-          message: `The run's pull request URL is not a GitHub PR URL`,
+          message: `The session's pull request URL is not a GitHub PR URL`,
         })
       }
       const { loadRepositoryByFullName, mergeRepositoryPull } = await import(
@@ -965,7 +965,7 @@ export const codingSessionsRouter = router({
             value.actionId === BUILTIN_TIDY_UP_ID ||
             (Boolean(value.actionId) && !isBuiltinActionId(value.actionId!)),
           {
-            message: `startedReason requires a real actionId — only triggers start runs on their own`,
+            message: `startedReason requires a real actionId — only triggers start sessions on their own`,
           }
         )
         .refine(

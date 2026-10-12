@@ -11,7 +11,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -52,10 +51,7 @@ fun AttachmentMarkdownPreviewSheet(
     var state by remember(attachment.id) {
         mutableStateOf<MarkdownPreviewState>(MarkdownPreviewState.Loading)
     }
-    // Bumped by the failure toast's Retry: the effect fetches again.
-    var attempt by remember(attachment.id) { mutableIntStateOf(0) }
-    val toaster = LocalToaster.current
-    LaunchedEffect(attachment.id, attempt) {
+    LaunchedEffect(attachment.id) {
         state = MarkdownPreviewState.Loading
         val next = markdownPreviewPrecheck(attachment.sizeBytes) ?: try {
             // The loader stops at the ceiling + 1 byte, so a body past it
@@ -75,11 +71,9 @@ fun AttachmentMarkdownPreviewSheet(
                     ?: trpcErrorMessage(t, "Couldn't load this file."),
             )
         }
+        // FEED-79: the load runs on open, so a failure is the empty body
+        // (no toast); Download stays the way to read it.
         state = next
-        // FEED-79: a failed load = the empty body + ONE toast (Retry refetches).
-        if (next is MarkdownPreviewState.Error) {
-            toaster.failedAction("load", "the preview", next.message) { attempt++ }
-        }
     }
 
     GlassSheet(

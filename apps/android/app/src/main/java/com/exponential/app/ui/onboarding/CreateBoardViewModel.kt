@@ -69,7 +69,9 @@ class CreateBoardViewModel @Inject constructor(
     private val _teamId = MutableStateFlow<String?>(null)
     val teamId: StateFlow<String?> = _teamId.asStateFlow()
 
-    fun ensureTeam(explicit: String?) {
+    /** [retried] = the person tapped Retry: only then does a failure toast
+     *  (FEED-79: the resolve on open fails quietly into the empty state). */
+    fun ensureTeam(explicit: String?, retried: Boolean = false) {
         if (explicit != null) {
             _teamId.value = explicit
             return
@@ -77,7 +79,7 @@ class CreateBoardViewModel @Inject constructor(
         if (_teamId.value != null) return
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
-            // A retry (the toast's Retry re-calls this) starts clean.
+            // A retry starts clean.
             _state.value = _state.value.copy(setupFailed = false)
             runCatching {
                 // Resolve-only (EXP-188): getDefault never creates. A null team
@@ -93,9 +95,11 @@ class CreateBoardViewModel @Inject constructor(
                 .onFailure {
                     _state.value = _state.value.copy(
                         setupFailed = true,
-                        setupFailure = FailedAction("load", "your team", trpcErrorMessage(it, it.message ?: "")) {
-                            ensureTeam(explicit)
-                        },
+                        setupFailure = if (!retried) null else FailedAction(
+                            "load",
+                            "your team",
+                            trpcErrorMessage(it, it.message ?: ""),
+                        ) { ensureTeam(explicit, retried = true) },
                     )
                 }
         }
@@ -115,16 +119,10 @@ class CreateBoardViewModel @Inject constructor(
                 .onSuccess { repos ->
                     _state.value = _state.value.copy(repos = repos, loadingRepos = false)
                 }
-                .onFailure { err ->
-                    // Don't let a failed registry load masquerade as "no repos
-                    // connected" — a toast whose Retry loads again.
-                    _state.value = _state.value.copy(
-                        repos = emptyList(),
-                        loadingRepos = false,
-                        failure = FailedAction("load", "the team's repositories", trpcErrorMessage(err, "")) {
-                            loadRepos(teamId)
-                        },
-                    )
+                .onFailure {
+                    // FEED-79: the list loads when the form opens, so a failed
+                    // load is quiet (no repository to pick), never a toast.
+                    _state.value = _state.value.copy(repos = emptyList(), loadingRepos = false)
                 }
         }
     }

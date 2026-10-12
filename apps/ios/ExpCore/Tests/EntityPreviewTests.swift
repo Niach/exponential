@@ -150,8 +150,8 @@ final class EntityPreviewTests: XCTestCase {
     }
 
     func testTheNounsAndTheClamp() {
-        XCTAssertEqual(EntityPreview.kindNoun("session", count: 1), "run")
-        XCTAssertEqual(EntityPreview.kindNoun("session", count: 0), "runs")
+        XCTAssertEqual(EntityPreview.kindNoun("session", count: 1), "session")
+        XCTAssertEqual(EntityPreview.kindNoun("session", count: 0), "sessions")
         XCTAssertEqual(EntityPreview.kindNoun("thing"), "item")
         XCTAssertEqual(EntityPreview.clampChipLabel("  short  "), "short")
         let exact = String(repeating: "a", count: 48)

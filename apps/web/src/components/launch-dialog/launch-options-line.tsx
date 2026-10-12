@@ -60,7 +60,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   if (candidateDevices.length === 0) {
     return (
       <p className="px-1 text-xs text-muted-foreground" data-testid="agent-options-row">
-        No desktop online. Open the Exponential desktop app to start a run.
+        No desktop online. Open the Exponential desktop app to start a session.
       </p>
     )
   }
@@ -151,7 +151,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
               size="sm"
               checked={model.resume}
               onCheckedChange={model.setResume}
-              aria-label="Resume previous run"
+              aria-label="Resume previous session"
             />
           </Label>
         )}
@@ -200,15 +200,15 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           FEED-79): the field's own rose line, not a toast. */}
       {model.overCap && (
         <FieldError>
-          {`At most ${MAX_ISSUES_PER_RUN} issues per run. Split the batch.`}
+          {`At most ${MAX_ISSUES_PER_RUN} issues per session. Split the batch.`}
         </FieldError>
       )}
       {model.spansRepos && (
-        <FieldError>Pick issues from a single repository per run.</FieldError>
+        <FieldError>Pick issues from a single repository per session.</FieldError>
       )}
       {model.spansBranches && (
         <FieldError>
-          Pick issues that branch from a single base branch per run.
+          Pick issues that branch from a single base branch per session.
         </FieldError>
       )}
       {model.costHint && <p>Large batches are token-expensive.</p>}

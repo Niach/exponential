@@ -36,9 +36,9 @@ public enum SessionDotTone: String, Equatable, Sendable {
 
 public enum WorkFaces {
     public static let issueFaceLabel = "Issue"
-    public static let runFaceLabel = "Run"
+    public static let runFaceLabel = "Session"
     /// EXP-886: the Run face's label with MORE THAN ONE own run on the issue.
-    public static let runsFaceLabel = "Runs"
+    public static let runsFaceLabel = "Sessions"
     /// EXP-1251: the Guide face (contract `diffUi.guideFace`).
     public static let guideFaceLabel = DomainContract.diffUiGuideFace
     /// EXP-933: the transcript card under a settled `sessions_guide` call that

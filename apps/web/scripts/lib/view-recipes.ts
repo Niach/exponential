@@ -216,26 +216,26 @@ async function recipeScrollToComments(page: Page): Promise<void> {
   // scrolls is not knowable from the styles alone — the walk tries each
   // candidate and only accepts one whose `scrollTop` actually moved.
   //
-  // ONLY on the composer path. The phone layout keeps its composer in a
-  // floating bottom bar, so its target is the Activity header, and "scroll its
-  // container to the end" would mean something quite different there — it
-  // reframes the shot past the header it was asked to reach.
+  // The phone path too (EXP-1259): its Activity header already peeks out
+  // under the floating bottom bar on the first frame, so
+  // `scrollIntoViewIfNeeded` counted it visible and never moved, and the shot
+  // came back identical to `issue-detail`. The thread is the end of the
+  // phone's scroller as well, so its end is the frame there too (the natives'
+  // `sg_issue-comments` lands on the last comments the same way).
   // Twice: the thread below the fold can still be laying out after the first
   // scroll (EXP-1245 renders the activity feed progressively), which left the
   // first pass short of the composer.
-  if (hasComposer) {
-    for (let pass = 0; pass < 2; pass += 1) {
-      await target.evaluate((node) => {
-        for (let el = node.parentElement; el; el = el.parentElement) {
-          if (el.scrollHeight <= el.clientHeight + 1) continue
-          const before = el.scrollTop
-          el.scrollTop = el.scrollHeight
-          if (el.scrollTop !== before) return
-        }
-        window.scrollTo(0, document.documentElement.scrollHeight)
-      })
-      await page.waitForTimeout(300)
-    }
+  for (let pass = 0; pass < 2; pass += 1) {
+    await target.evaluate((node) => {
+      for (let el = node.parentElement; el; el = el.parentElement) {
+        if (el.scrollHeight <= el.clientHeight + 1) continue
+        const before = el.scrollTop
+        el.scrollTop = el.scrollHeight
+        if (el.scrollTop !== before) return
+      }
+      window.scrollTo(0, document.documentElement.scrollHeight)
+    })
+    await page.waitForTimeout(300)
   }
   // Let the smooth-scroll land before the anchor wait starts measuring.
   await page.waitForTimeout(400)

@@ -44,9 +44,9 @@
       "icon": "nav-boards"
     },
     {
-      "name": "a session is a run",
+      "name": "a session reads Session",
       "ref": { "kind": "session", "id": "s-1" },
-      "label": "Run",
+      "label": "Session",
       "detail": null,
       "icon": "coding-running"
     },
@@ -95,7 +95,7 @@
     {
       "name": "a list of one is singular",
       "ref": { "kind": "list", "id": "session", "title": "sessions", "count": 1 },
-      "label": "1 run",
+      "label": "1 session",
       "detail": null,
       "icon": "coding-running"
     },

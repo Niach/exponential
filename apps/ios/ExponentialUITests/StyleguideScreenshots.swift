@@ -727,16 +727,16 @@ final class StyleguideScreenshots: XCTestCase {
         // reads "Scheduled run". Same gate as the Triggers tab: rows, or
         // the empty note on an older seed.
         let runsTab = anyElement(app, identified: "action-tab-runs")
-        expect(runsTab, within: Wait.nav, "Runs tab missing")
+        expect(runsTab, within: Wait.nav, "Sessions tab missing")
         runsTab.tap()
         // EXP-1248: live and ended runs are the same SessionRow now.
         let actionRunRow = anyElement(app, identified: "action-run-row")
         if !actionRunRow.waitForExistence(timeout: Wait.sync) {
             print("SLOP-2 sg_action-runs: no run rows — reseed with `bun run seed:screenshots`")
             expect(
-                app.staticTexts["No runs yet"],
+                app.staticTexts["No sessions yet"],
                 within: Wait.nav,
-                "The Runs tab rendered neither rows nor its empty note"
+                "The Sessions tab rendered neither rows nor its empty note"
             )
         }
         snapshot("sg_action-runs", settle: 2)

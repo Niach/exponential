@@ -395,7 +395,7 @@ impl StartPick {
     /// The line the RUN carries (prefixed to its seed prompt, so the hop is
     /// visible in the transcript and the agent knows nothing else changed).
     pub fn run_note(&self) -> String {
-        format!("Note: Exponential moved this run to another account before it started — {}.", self.message)
+        format!("Note: Exponential moved this session to another account before it started — {}.", self.message)
     }
 }
 
@@ -1018,7 +1018,7 @@ fn lock_probes(probes: &Mutex<InflightProbes>) -> std::sync::MutexGuard<'_, Infl
 /// every switch resume). Read by the agent AND shown in the run.
 pub fn switch_prompt(from: &str, to: &str, window: &str, resets_at_ms: Option<i64>) -> String {
     format!(
-        "Exponential moved this run from {from} to {to}: the {} window hit its limit{}.",
+        "Exponential moved this session from {from} to {to}: the {} window hit its limit{}.",
         window_label(window),
         until_suffix(resets_at_ms)
     )
@@ -1280,7 +1280,7 @@ mod tests {
         assert_eq!(pick.from, "home");
         assert_eq!(pick.to, "b");
         // Named by email.
-        assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b@example.com"), "{}", pick.run_note());
+        assert!(pick.run_note().starts_with("Note: Exponential moved this session to another account before it started — Starting on b@example.com"), "{}", pick.run_note());
         assert!(pick.message.starts_with("Starting on b@example.com — home@example.com hit its 5h limit"), "{}", pick.message);
         // Less headroom, not walled, UNPINNED: move too (most headroom).
         let less = vec![profile("home", 60, 10), profile("b", 20, 10)];
@@ -1484,7 +1484,7 @@ mod tests {
         };
         assert_eq!(target, "b");
         // The run's own note names the logins.
-        assert!(prompt.starts_with("Exponential moved this run from a@example.com to b@example.com: the 5h window hit its limit"), "{prompt}");
+        assert!(prompt.starts_with("Exponential moved this session from a@example.com to b@example.com: the 5h window hit its limit"), "{prompt}");
         // The chain keeps its state while its run is momentarily absent (the
         // switch ended the row, the resume has not registered yet) — only a
         // chain unseen past the grace is forgotten.

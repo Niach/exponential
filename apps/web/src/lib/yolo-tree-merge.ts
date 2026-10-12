@@ -140,7 +140,7 @@ export interface YoloTree {
 
 function batchName(row: YoloRunRow): string {
   const total = Math.max(row.batchIssueIds?.length ?? 0, row.batchIdentifier ? 1 : 0)
-  if (!row.batchIdentifier) return `Batch run`
+  if (!row.batchIdentifier) return `Batch session`
   return total > 1 ? `${row.batchIdentifier} +${total - 1}` : row.batchIdentifier
 }
 
@@ -161,7 +161,7 @@ function runOf(row: YoloRunRow, depth: number): YoloRun {
         : null
   const name =
     kind === `issue`
-      ? (row.issueIdentifier ?? `Issue run`)
+      ? (row.issueIdentifier ?? `Issue session`)
       : kind === `batch`
         ? batchName(row)
         : (row.actionName?.trim() || `Chat`)

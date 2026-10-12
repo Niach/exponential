@@ -276,7 +276,8 @@ final class IssueDetailViewModel {
             }
         }
         guard let pool = try? db.pool(forAccountId: accountId) else {
-            self.fail(verb: "open", thing: "the issue", nil)
+            // FEED-79: the observation starts on appear, so a failure is
+            // quiet (the face stays empty), never a toast.
             return
         }
         // Captured locally so the tracking closures don't retain self.

@@ -1,7 +1,7 @@
 /* ─── Agents — your devices run your agents, you steer from anywhere ───
    SLOP-6: the product in its four nouns (People · Devices · Apps · Actions),
    one sentence each, over REAL captures from the committed store (shots/):
-   the same run on the desktop IDE and on an iPhone. No bespoke mockups and
+   the same session on the desktop IDE and on an iPhone. No bespoke mockups and
    no scripted stage; every claim maps onto a shipped surface. */
 import { motion } from "motion/react"
 import {
@@ -24,12 +24,12 @@ const NOUNS = [
   {
     icon: IcMonitor,
     title: `Devices`,
-    text: `Your desktop or a headless server runs Claude Code or Codex on your own subscription, and you steer every run from any of your devices.`,
+    text: `Your desktop or a headless server runs Claude Code or Codex on your own subscription, and you steer every session from any of your devices.`,
   },
   {
     icon: IcInbox,
     title: `Apps`,
-    text: `Boards, issues, reviews and your inbox: start a run on an issue, then review and merge the pull request it opens.`,
+    text: `Boards, issues, reviews and your inbox: start a session on an issue, then review and merge the pull request it opens.`,
   },
   {
     icon: IcBot,
@@ -69,7 +69,7 @@ export function AgentsSection() {
           <motion.div className={`aw-copy`} {...sectionReveal}>
             <h2 className={`section-title`}>Your devices run your agents</h2>
             <p className={`section-sub`}>
-              Start a run on an issue and your own machine works on it in a
+              Start a session on an issue and your own machine works on it in a
               fresh worktree with your own agent subscription, then opens a
               pull request. Answer its questions and steer it live from your
               desktop, the web or your phone.
@@ -91,7 +91,7 @@ export function AgentsSection() {
               className={`aw-shot aw-shot-phone`}
             />
             <figcaption className={`aw-shots-caption`}>
-              The same run on the desktop app and on iPhone
+              The same session on the desktop app and on iPhone
             </figcaption>
           </motion.figure>
         </div>

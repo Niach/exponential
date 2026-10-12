@@ -74,8 +74,8 @@ export function StopRunPill({
         className
       )}
       onClick={onStop}
-      aria-label="Stop the agent and end the run"
-      title="Stop the agent and end the run"
+      aria-label="Stop the agent and end the session"
+      title="Stop the agent and end the session"
       data-testid="run-stop-pill"
     >
       <CodingStopIcon className={PLACEMENT_GLYPH[placement]} />
@@ -131,8 +131,8 @@ export function ResumeRunPill({
       className={cn(`shrink-0`, placementClass(placement), className)}
       disabled={resuming}
       onClick={() => void resume()}
-      aria-label="Resume this run"
-      title="Resume this run"
+      aria-label="Resume this session"
+      title="Resume this session"
       data-testid="run-resume-pill"
     >
       {/* The pending state (feedback-states D8.2): the Spinner in the glyph

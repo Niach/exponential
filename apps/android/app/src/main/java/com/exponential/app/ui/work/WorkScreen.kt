@@ -284,6 +284,19 @@ fun WorkScreen(
     // EXP-895: the raw `git diff` is parsed ONCE here — the Changes face draws
     // the files.
     val parsedDiff = remember(latestDiff) { latestDiff?.let { Diff.parse(it) } }
+    // EXP-875 (web `shouldConnectSessionDiff`): the run's live diff is what
+    // gives a running issue its Guide tab, so the screen dials it while the
+    // Issue face shows too (only the Run face's own mount dialed before, and
+    // the tab appeared only after visiting it). A live run, or one riding an
+    // open PR; the connection is the shared one the Run face reuses.
+    val dialForDiff = shownSession?.let { run ->
+        run.status == DomainContract.codingSessionStatusRunning ||
+            run.status == DomainContract.codingSessionStatusInReview ||
+            (run.prState ?: issue?.prState) == DomainContract.prStateOpen
+    } == true
+    LaunchedEffect(sessionVm, dialForDiff) {
+        if (dialForDiff) sessionVm?.ensureConnected()
+    }
 
     // EXP-773/849: a Resume or an account switch lands a NEW row — the
     // continuation swaps into the same screen in place.

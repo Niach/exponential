@@ -22,7 +22,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,7 +38,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.TriggerBadge
 import com.exponential.app.domain.TriggerBadges
 import com.exponential.app.domain.triggerBadges
@@ -48,7 +46,6 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamSectionHeader
@@ -92,10 +89,8 @@ fun ActionsScreen(
     // EXP-1186: cross-team — one band per team once there are several.
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val multiTeam = teams.size > 1
-    val toaster = LocalToaster.current
-    LaunchedEffect(state.error) {
-        state.error?.let { toaster.error(FeedbackStates.errorTitle("load", "actions"), it) }
-    }
+    // FEED-79: the list loads on its own, so a failed load is quiet (the
+    // empty state), never a toast.
     // EXP-1186: with several teams each team band carries its own "New
     // action", creating in THAT team (web + iOS parity).
     val newActionPill: @Composable (teamId: String?) -> Unit = { teamId ->

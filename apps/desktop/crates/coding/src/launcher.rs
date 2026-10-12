@@ -2257,7 +2257,7 @@ fn prepare_action(
     };
     if matches!(req.kind, ActionRunKind::FixConflicts { .. }) && repo.is_none() {
         return Err(CodingError::Io(
-            "the fix-conflicts run needs the pull request's repository".to_string(),
+            "the fix-conflicts session needs the pull request's repository".to_string(),
         ));
     }
     // EXP-712: the fix-conflicts run is the only action shape that belongs to
@@ -2294,7 +2294,7 @@ fn prepare_action(
                 .filter(|value| !value.is_empty());
             if prompt.is_none() && unattended {
                 return Err(CodingError::Io(
-                    "the chat run is missing its prompt".to_string(),
+                    "the chat session is missing its prompt".to_string(),
                 ));
             }
             prompt.map(str::to_string)
@@ -2538,7 +2538,7 @@ fn prepare_action(
                 .filter(|value| !value.is_empty())
             else {
                 return Err(CodingError::Io(
-                    "the builtin Create-action run is missing its request text".to_string(),
+                    "the builtin Create-action session is missing its request text".to_string(),
                 ));
             };
             let repo_input = req
@@ -3101,7 +3101,7 @@ fn prepare_resume_run(
         if agent != CodingAgent::Claude {
             return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
                 message: format!(
-                    "{} cannot continue a run on another account — start a new run on it instead.",
+                    "{} cannot continue a session on another account. Start a new session on it instead.",
                     agent.label()
                 ),
             }));
@@ -3145,7 +3145,7 @@ fn prepare_resume_run(
     let workspace_reclaimed = record.workspace_reclaimed();
     if !cwd.is_dir() && !workspace_reclaimed {
         return Err(CodingError::Io(format!(
-            "this run's workspace is gone ({})",
+            "this session's workspace is gone ({})",
             cwd.display()
         )));
     }
@@ -5710,7 +5710,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
 
             match prepare(&PrepareRequest::Action(req), &deps) {
                 Err(CodingError::Io(message)) => {
-                    assert_eq!(message, "the chat run is missing its prompt");
+                    assert_eq!(message, "the chat session is missing its prompt");
                 }
                 other => panic!("expected the missing-prompt error (repo_less={repo_less}), got {other:?}"),
             }
@@ -5934,8 +5934,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert!(prompt.contains("`repositoryId: \"repo-run-wt\"`"));
         // EXP-679 / EXP-1222: a hand-started action run keeps its session
         // open and ends itself only when the person asks.
-        assert!(prompt.contains("only when the person asks you to end the run"), "{prompt}");
-        assert!(!prompt.contains("That call ends this run"), "{prompt}");
+        assert!(prompt.contains("only when the person asks you to end the session"), "{prompt}");
+        assert!(!prompt.contains("That call ends this session"), "{prompt}");
         assert!(prompt.contains("This session stays open after you finish"));
         // The run is recorded so it can be resumed after it ends.
         let record = crate::run_registry::get(&dir.0, "sess-a").expect("run record");
@@ -6556,10 +6556,10 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         };
         assert_eq!(prepared.acp.resume, None);
         let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("RESUMING the run \"Code review\""), "{prompt}");
+        assert!(prompt.contains("RESUMING the session \"Code review\""), "{prompt}");
         // EXP-679: a LOCAL resume is a person's — attended close-out.
-        assert!(prompt.contains("only when the person asks you to end the run"), "{prompt}");
-        assert!(!prompt.contains("That call ends this run"), "{prompt}");
+        assert!(prompt.contains("only when the person asks you to end the session"), "{prompt}");
+        assert!(!prompt.contains("That call ends this session"), "{prompt}");
         assert!(prompt.contains("This session stays open after you finish"));
     }
 
@@ -7071,8 +7071,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             other => panic!("expected Ready, got {other:?}"),
         };
         let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("only when the person asks you to end the run"), "{prompt}");
-        assert!(!prompt.contains("That call ends this run"), "{prompt}");
+        assert!(prompt.contains("only when the person asks you to end the session"), "{prompt}");
+        assert!(!prompt.contains("That call ends this session"), "{prompt}");
         assert_eq!(prepared.heartbeat_scope.started_reason, None);
         let requests = captured.lock().unwrap();
         assert!(!requests.iter().any(|r| r.contains("startedReason")));
