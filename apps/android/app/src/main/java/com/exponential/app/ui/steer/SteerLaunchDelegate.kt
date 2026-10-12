@@ -206,10 +206,12 @@ class SteerLaunchDelegate @Inject constructor(
         inputs: Map<String, String>,
         prompt: String? = null,
         startId: String? = null,
+        sentAtMs: Long? = null,
+        watchMs: Long = StartedRunMatch.DEADLINE_MS,
     ): Boolean {
         val scope = scope ?: return false
         val accountId = auth.activeAccountId.value ?: return false
-        beginStart()
+        supersede(startId)
         _runState.value = ActionRunState.Sending
         try {
             steerApi.startActionSession(
@@ -229,7 +231,7 @@ class SteerLaunchDelegate @Inject constructor(
             )
             return false
         }
-        watch = scope.launch { awaitStartedRun(StartedRunKey.Action(action.name), device) }
+        beginWatch(scope, StartedRunKey.Action(action.name), device, startId, sentAtMs, watchMs)
         return true
     }
 
@@ -246,11 +248,13 @@ class SteerLaunchDelegate @Inject constructor(
         options: SteerStartOptions,
         prompt: String? = null,
         startId: String? = null,
+        sentAtMs: Long? = null,
+        watchMs: Long = StartedRunMatch.DEADLINE_MS,
     ): Boolean {
         val key = StartedRunKey.forIssues(issueIds) ?: return false
         val scope = scope ?: return false
         val accountId = auth.activeAccountId.value ?: return false
-        beginStart()
+        supersede(startId)
         _runState.value = ActionRunState.Sending
         try {
             if (issueIds.size >= 2) {
@@ -265,7 +269,7 @@ class SteerLaunchDelegate @Inject constructor(
             )
             return false
         }
-        watch = scope.launch { awaitStartedRun(key, device) }
+        beginWatch(scope, key, device, startId, sentAtMs, watchMs)
         return true
     }
 
@@ -275,13 +279,45 @@ class SteerLaunchDelegate @Inject constructor(
     /** Review #3: the host's own deadline passed and it toasted ([quietWatch]). */
     private var quiet = false
 
-    /** A new start supersedes a timed-out one still being watched quietly. */
-    private fun beginStart() {
-        if (quiet) {
-            watch?.cancel()
-            watch = null
-        }
+    /** The startId the quiet [watch] is looking for. */
+    private var watchStartId: String? = null
+
+    /**
+     * The startId whose row just landed in [startedSessionId] (null for a
+     * resume or a start without one), read by the host as it consumes it.
+     */
+    var landedStartId: String? = null
+        private set
+
+    /**
+     * Final review (B6): a DIFFERENT start supersedes a quietly watched one
+     * (its late row must never land into the new draft), so a host calls this
+     * before its uploads. A re-send of the SAME startId keeps the watch: the
+     * device dedupes the re-send, the original row is the one that lands.
+     */
+    fun supersede(startId: String?) {
+        if (!quiet || (startId != null && startId == watchStartId)) return
+        watch?.cancel()
+        watch = null
         quiet = false
+        watchStartId = null
+    }
+
+    private fun beginWatch(
+        scope: CoroutineScope,
+        key: StartedRunKey,
+        device: SteerDevice,
+        startId: String?,
+        sentAtMs: Long?,
+        watchMs: Long,
+    ) {
+        // An accepted send's own watch replaces any earlier one.
+        watch?.cancel()
+        quiet = false
+        watchStartId = startId
+        watch = scope.launch {
+            awaitStartedRun(key, device.deviceLabel.ifBlank { device.deviceId }, startId, sentAtMs, watchMs)
+        }
     }
 
     /**
@@ -350,19 +386,34 @@ class SteerLaunchDelegate @Inject constructor(
      * the caption would just vanish and nothing would ever appear (EXP-357).
      * The desktop holds the reason (it notifies there); say so.
      */
-    private suspend fun awaitStartedRun(key: StartedRunKey, device: SteerDevice) =
-        awaitStartedRun(key, device.deviceLabel.ifBlank { device.deviceId })
-
-    private suspend fun awaitStartedRun(key: StartedRunKey, label: String) {
+    private suspend fun awaitStartedRun(
+        key: StartedRunKey,
+        label: String,
+        startId: String? = null,
+        sentAtMs: Long? = null,
+        watchMs: Long = StartedRunMatch.DEADLINE_MS,
+    ) {
         _runState.value = ActionRunState.Sent(label)
         val userId = auth.userId.value
         val sessionId = if (userId == null) {
             null
         } else {
-            StartedRunMatch.await(liveSessionRows, key, userId)
+            StartedRunMatch.await(
+                liveSessionRows,
+                key,
+                userId,
+                sentAtMs ?: System.currentTimeMillis(),
+                watchMs,
+            )
         }
         if (sessionId != null) {
             _runState.value = ActionRunState.Idle
+            if (currentCoroutineContext()[Job] === watch) {
+                watch = null
+                quiet = false
+                watchStartId = null
+            }
+            landedStartId = startId
             _startedSessionId.value = sessionId
         } else if (quiet && currentCoroutineContext()[Job] === watch) {
             // The quieted start's own watch ran out: the toast already said it.

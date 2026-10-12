@@ -270,7 +270,7 @@ struct TeamRepositoriesSection: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer()
                 GlassPill(GithubCopy.retry, icon: AppIcons.uiRefresh, mode: .action {
-                    Task { await reload() }
+                    Task { await reload(retried: true) }
                 })
             }
             .padding(.horizontal, 12)
@@ -511,7 +511,9 @@ struct TeamRepositoriesSection: View {
 
     // MARK: - Data (server-only registry; refetched after every mutation)
 
-    private func reload() async {
+    /// `retried` = the person's own Retry tap: its failure toasts (D10);
+    /// the loads on appear and after writes stay quiet.
+    private func reload(retried: Bool = false) async {
         guard let teamId = team?.id else { return }
         loading = repos.isEmpty
         refreshing = !repos.isEmpty
@@ -536,6 +538,15 @@ struct TeamRepositoriesSection: View {
             githubStatusFailed = false
         } catch {
             githubStatusFailed = true
+            if retried {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "load", thing: "GitHub"),
+                    description: error.trpcUserMessage,
+                    action: ToastAction(label: FeedbackStates.Errors.retry) {
+                        Task { @MainActor in await reload(retried: true) }
+                    }
+                )
+            }
         }
     }
 

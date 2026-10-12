@@ -131,6 +131,8 @@ class FeedbackMarkTest {
         val starting = fixture.obj("starting")
         assertEquals(starting.string("label"), FeedbackStates.STARTING_LABEL)
         assertEquals(starting.getValue("timeoutMs").jsonPrimitive.long, FeedbackStates.STARTING_TIMEOUT_MS)
+        assertEquals(starting.getValue("watchMs").jsonPrimitive.long, FeedbackStates.STARTING_WATCH_MS)
+        assertEquals(starting.getValue("dedupeMs").jsonPrimitive.long, FeedbackStates.STARTING_DEDUPE_MS)
         val toast = starting.obj("timeoutToast")
         assertEquals(toast.string("title"), FeedbackStates.STARTING_TIMEOUT_TITLE)
         assertEquals(toast.string("description"), FeedbackStates.STARTING_TIMEOUT_DESCRIPTION)

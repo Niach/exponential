@@ -158,6 +158,8 @@ final class FeedbackMarkTests: XCTestCase {
             (starting["label"] as? String)?.replacingOccurrences(of: "{device}", with: "macbook")
         )
         XCTAssertEqual(FeedbackStates.Starting.timeoutMs, starting["timeoutMs"] as? Int)
+        XCTAssertEqual(FeedbackStates.Starting.watchMs, starting["watchMs"] as? Int)
+        XCTAssertEqual(FeedbackStates.Starting.dedupeMs, starting["dedupeMs"] as? Int)
         let toast = try XCTUnwrap(starting["timeoutToast"] as? [String: String])
         XCTAssertEqual(FeedbackStates.Starting.timeoutTitle, toast["title"])
         XCTAssertEqual(

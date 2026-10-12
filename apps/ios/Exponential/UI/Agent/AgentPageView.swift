@@ -42,6 +42,8 @@ struct AgentPageView: View {
     @State private var steerEnabled: Bool?
     /// The started run's push target, consumed once.
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
+    /// On screen (appear → disappear): only a visible page pushes a landing.
+    @State private var visible = false
     /// EXP-923: the history sheet — the finished runs, off the toolbar glyph.
     @State private var showRecent = false
     /// The run picked in that sheet, pushed once the sheet is gone (a push
@@ -208,6 +210,14 @@ struct AgentPageView: View {
             steerEnabled = config.enabled
         }
         .onAppear {
+            visible = true
+            // A session that landed (unchanged draft) while the page was
+            // off-screen opens on the way back, the way Android's ViewModel
+            // hands it over; pushed a beat later so it never races the pop.
+            if let landed = composer?.landedSession {
+                composer?.landedSession = nil
+                Task { @MainActor in sessionTarget = landed }
+            }
             if greeting == nil {
                 greeting = HomeGreeting.greeting(name: deps.auth.userName)
             }
@@ -240,11 +250,12 @@ struct AgentPageView: View {
             }
         }
         .onDisappear {
+            visible = false
             sessions?.stopObserving()
-            composer?.startWatcher.stop()
-            // EXP-1271: nothing watches for the row any more, so the card
-            // must not stay "Starting" (`abandonStarting`).
-            composer?.abandonStarting()
+            // B5: the start watch is NOT stopped here: it lives on the
+            // composer model, bounded by its own window, so a session that
+            // lands while the page is off-screen still clears the error and
+            // the unchanged draft.
         }
         // The resolved machine can change underneath the options (a
         // heartbeat dropping it, the pool arriving): reseed off the new one.
@@ -252,13 +263,13 @@ struct AgentPageView: View {
             composer?.reconcileDevice()
         }
         // The desktop picked the start up — push the live steer screen ONCE
-        // (the same destination the .agentSession route arm builds).
-        .onChange(of: composer?.startWatcher.startedSession) { _, started in
-            if let started {
-                composer?.startWatcher.startedSession = nil
-                // EXP-1271: the row landed: the starting state ends and the
-                // draft clears as the run opens.
-                composer?.runLanded()
+        // (the same destination the .agentSession route arm builds). The
+        // model already ended the starting state and cleared the draft; it
+        // sets this only when the draft was unchanged since the send. Off
+        // screen it waits for the page to come back (`onAppear`).
+        .onChange(of: composer?.landedSession) { _, started in
+            if let started, visible {
+                composer?.landedSession = nil
                 sessionTarget = started
             }
         }
