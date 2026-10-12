@@ -3171,7 +3171,10 @@ impl ChatScreenView {
     /// away (the panel has no back row of its own).
     fn render_page(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let launcher = self.render_launcher(window, cx);
-        let greeting = self.render_greeting(cx);
+        // The greeting leads only while nothing is picked; a picked
+        // subject's own headline (inside the launcher) leads instead (web
+        // `subject === null`, composer-home.json).
+        let greeting = matches!(self.subject, Subject::None).then(|| self.render_greeting(cx));
         let recent = self.render_recent(cx);
         // EXP-1270: a team with no board yet gets the Getting started block
         // after Recent (its first card creates the board).
@@ -3209,8 +3212,12 @@ impl ChatScreenView {
             .max_w(px(PROMPT_MAX_W))
             .min_w_0()
             .flex_shrink_0()
-            .child(greeting)
-            .child(div().h(px(home_greeting::HEADLINE_TO_CARD_PX)))
+            .children(greeting.map(|greeting| {
+                v_flex()
+                    .w_full()
+                    .child(greeting)
+                    .child(div().h(px(home_greeting::HEADLINE_TO_CARD_PX)))
+            }))
             .child(launcher)
             .children(recent.map(|recent| {
                 div()

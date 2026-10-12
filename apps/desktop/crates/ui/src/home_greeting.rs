@@ -145,10 +145,12 @@ pub(crate) fn home_greeting_now(name: Option<&str>) -> String {
     home_greeting(now.date_naive(), now.hour(), name)
 }
 
-/// A row stamp as epoch milliseconds (unparseable = 0, sorts last).
+/// A row stamp as epoch milliseconds (unparseable = 0, sorts last). Synced
+/// rows carry Postgres `timestamptz` text (`2026-10-12 08:00:00.123+00`), not
+/// RFC 3339, so this goes through the tolerant [`crate::inbox::parse_timestamp`].
 fn stamp_ms(stamp: Option<&str>) -> i64 {
     stamp
-        .and_then(|stamp| chrono::DateTime::parse_from_rfc3339(stamp).ok())
+        .and_then(crate::inbox::parse_timestamp)
         .map(|at| at.timestamp_millis())
         .unwrap_or(0)
 }
@@ -283,5 +285,47 @@ mod tests {
             .collect();
         assert_eq!(ids, ["c", "b", "a"]);
         assert!(home_recent_runs(rows.iter(), "nobody", "t").is_empty());
+    }
+
+    fn stamped(id: &str, updated: &str, created: &str) -> domain::rows::CodingSession {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "user_id": "me",
+            "team_id": "t",
+            "updated_at": updated,
+            "created_at": created,
+        }))
+        .expect("a coding session row")
+    }
+
+    /// The synced Postgres text form (space separator, short offset) sorts by
+    /// time like RFC 3339 does, never by id.
+    #[test]
+    fn recent_sorts_the_synced_postgres_stamp_form() {
+        let rows = vec![
+            stamped("z-oldest", "2026-10-12 07:00:00.5+00", "2026-10-12 07:00:00+00"),
+            stamped("a-newest", "2026-10-12 11:00:00.25+00", "2026-10-12 06:00:00+00"),
+            stamped("m-middle", "2026-10-12T10:00:00Z", "2026-10-12T06:00:00Z"),
+            stamped("y-old", "2026-10-12 08:00:00+02", "2026-10-12 05:00:00+00"),
+        ];
+        let ids: Vec<&str> = home_recent_runs(rows.iter(), "me", "t")
+            .into_iter()
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(ids, ["a-newest", "m-middle", "z-oldest"]);
+    }
+
+    /// A tie on `updated_at` falls back to `created_at`, newest first.
+    #[test]
+    fn recent_breaks_an_updated_tie_by_created() {
+        let rows = vec![
+            stamped("first", "2026-10-12 09:00:00+00", "2026-10-12 06:00:00+00"),
+            stamped("second", "2026-10-12 09:00:00+00", "2026-10-12 07:00:00+00"),
+        ];
+        let ids: Vec<&str> = home_recent_runs(rows.iter(), "me", "t")
+            .into_iter()
+            .map(|row| row.id.as_str())
+            .collect();
+        assert_eq!(ids, ["second", "first"]);
     }
 }
