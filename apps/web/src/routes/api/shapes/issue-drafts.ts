@@ -15,27 +15,33 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // restores; the purge cascade removes it. Every column is synced — the
 // draft's attachments are server-only rows (`attachments.draft_id`, excluded
 // from the attachments shape) fetched via `issueDrafts.listAttachments`.
+/** The synced columns (EXP-1284: `thread_id` = the thread a "New issue in
+ *  this thread" draft files into). Checked against the schema by
+ *  `shape-columns.test.ts`. */
+export const ISSUE_DRAFT_COLUMNS = [
+  `id`,
+  `user_id`,
+  `team_id`,
+  `board_id`,
+  `title`,
+  `description`,
+  `status_id`,
+  `priority`,
+  `assignee_id`,
+  `label_ids`,
+  `due_date`,
+  `thread_id`,
+  `created_at`,
+  `updated_at`,
+] as const
+
 export const Route = createFileRoute(`/api/shapes/issue-drafts`)({
   server: {
     handlers: {
       GET: createShapeRouteHandler({
         table: `issue_drafts`,
         requireAuth: true,
-        columns: [
-          `id`,
-          `user_id`,
-          `team_id`,
-          `board_id`,
-          `title`,
-          `description`,
-          `status_id`,
-          `priority`,
-          `assignee_id`,
-          `label_ids`,
-          `due_date`,
-          `created_at`,
-          `updated_at`,
-        ],
+        columns: [...ISSUE_DRAFT_COLUMNS],
         getWhere: async (userId) => {
           if (!userId) return null
           return `"user_id" = ${sqlStringLiteral(userId)}`

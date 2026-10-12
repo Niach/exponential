@@ -49,6 +49,8 @@ use domain::thread_view::{
 };
 
 use crate::controls::PointerContextMenuExt as _;
+use crate::controls::WebControl as _;
+use gpui_component::button::ButtonVariants as _;
 use crate::icons::registry;
 use crate::navigation::Screen;
 use crate::steer_viewer::SteerSessionView;
@@ -122,17 +124,71 @@ pub(crate) fn forget_new_run_thread(id: &str, cx: &mut App) {
     }
 }
 
-/// "New issue in this thread" → the New issue page `draft_id` files INTO a
-/// thread (`issues.create({threadId})`).
+/// "New issue in this thread" → the FRESH New issue page `draft_id` files
+/// INTO a thread. Only the opener's seed: the draft's first write stores it
+/// on the row (`issue_drafts.thread_id`), which is what a reopen reads.
 #[derive(Default)]
 struct DraftThreads(HashMap<String, String>);
 
 impl gpui::Global for DraftThreads {}
 
-/// The thread the New issue page `draft_id` files into, if it was opened
-/// from one.
+/// The thread a fresh New issue page `draft_id` was opened for.
 pub(crate) fn draft_thread(draft_id: &str, cx: &App) -> Option<String> {
     cx.try_global::<DraftThreads>()?.0.get(draft_id).cloned()
+}
+
+/// The New issue page's `In <thread>` chip (the thread it files into); a
+/// click opens the thread.
+pub(crate) fn draft_thread_chip(thread_id: &str, cx: &App) -> AnyElement {
+    use crate::surface::{glass_pill, PillMode, PillSize};
+    let theme = cx.theme();
+    let title = crate::threads::thread_title(thread_id, cx);
+    let thread_id = thread_id.to_string();
+    glass_pill("draft-thread", PillSize::Sm, PillMode::Action, cx)
+        .max_w(px(280.))
+        .child(
+            Icon::new(registry::ACTION_CHAT)
+                .with_size(px(PillSize::Sm.glyph()))
+                .text_color(theme.muted_foreground),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_xs()
+                .text_color(theme.foreground)
+                .child(SharedString::from(in_thread_label(&title))),
+        )
+        .on_click(move |_, window, cx| {
+            crate::navigation::navigate(
+                window,
+                cx,
+                Screen::Thread {
+                    thread_id: thread_id.clone(),
+                },
+            );
+        })
+        .into_any_element()
+}
+
+/// `In <thread title>`.
+pub(crate) fn in_thread_label(title: &str) -> String {
+    format!("In {title}")
+}
+
+/// A thread child to select when that thread's view next renders (a new
+/// issue filed into it lands on its child).
+#[derive(Default)]
+struct PendingThreadChild(HashMap<String, String>);
+
+impl gpui::Global for PendingThreadChild {}
+
+/// Open `issue_id`'s child the next time `thread_id`'s view renders with it
+/// linked.
+pub(crate) fn request_thread_child(thread_id: &str, issue_id: &str, cx: &mut App) {
+    cx.default_global::<PendingThreadChild>()
+        .0
+        .insert(thread_id.to_string(), issue_id.to_string());
 }
 
 /// Open a New issue page that files into `thread_id`, on the board of the
@@ -1728,6 +1784,12 @@ pub(crate) fn reply_target(live_mine: Option<&str>, latest: Option<(&str, bool, 
     }
 }
 
+/// Whether the `threads` shape is live and still lacks the thread — the
+/// page then says so instead of a skeleton forever.
+fn thread_missing(cx: &App) -> bool {
+    Store::try_global(cx).is_some_and(|store| store.collections().threads.read(cx).is_ready())
+}
+
 impl Focusable for ThreadScreenView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
@@ -1737,6 +1799,34 @@ impl Focusable for ThreadScreenView {
 impl Render for ThreadScreenView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(model) = self.model.clone() else {
+            // The threads synced and this one is not among them (deleted, a
+            // lost membership, a foreign id): fixture `thread-not-found`.
+            if thread_missing(cx) {
+                return v_flex()
+                    .size_full()
+                    .px_4()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        crate::controls::empty_state(
+                            Icon::new(registry::WORK_FACES),
+                            crate::empty_state_copy::THREAD_NOT_FOUND,
+                            Some(crate::empty_state_copy::THREAD_NOT_FOUND_DESCRIPTION.into()),
+                            cx,
+                        )
+                        .child(
+                            crate::controls::empty_state_actions().child(
+                                gpui_component::button::Button::new("thread-not-found-agent")
+                                    .primary()
+                                    .web_sm()
+                                    .label(crate::empty_state_copy::THREAD_NOT_FOUND_ACTION)
+                                    .on_click(|_, window, cx| {
+                                        crate::navigation::navigate(window, cx, Screen::Chat);
+                                    }),
+                            ),
+                        ),
+                    );
+            }
             // FEED: skeletons, never "Loading…" (feedback-states.json).
             return v_flex()
                 .size_full()
@@ -1744,6 +1834,16 @@ impl Render for ThreadScreenView {
                 .pt_5()
                 .child(crate::feedback::skeleton_rows("thread-loading", 3, 36., cx));
         };
+        // A new issue filed into this thread lands on its child once its
+        // item has synced.
+        let pending = cx
+            .try_global::<PendingThreadChild>()
+            .and_then(|pending| pending.0.get(&self.thread_id).cloned())
+            .filter(|issue_id| model.view.issue_ids.contains(issue_id));
+        if let Some(issue_id) = pending {
+            cx.global_mut::<PendingThreadChild>().0.remove(&self.thread_id);
+            self.set_child(ThreadChildSel::Issue(issue_id), window, cx);
+        }
         let header = self.render_header(&model, cx);
         let child = match self.child.clone() {
             ThreadChildSel::Conversation => self.render_conversation(&model, window, cx),
@@ -1821,5 +1921,6 @@ mod tests {
         assert_eq!(domain::thread_view::THREAD_LINKED_LABEL, "Linked");
         assert_eq!(domain::thread_view::THREAD_FILED_LABEL, "Filed and linked");
         assert_eq!(THREADS_LABEL, "Threads");
+        assert_eq!(in_thread_label("Offline sync plan"), "In Offline sync plan");
     }
 }

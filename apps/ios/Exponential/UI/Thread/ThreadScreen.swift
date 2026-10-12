@@ -18,7 +18,8 @@ import SwiftUI
 ///   (`threads.results`) with the Merge capsule of the thread's PR
 ///   (`ThreadViews.mergeTarget`).
 ///
-/// The "+" and an issue tab's long press open THE Menu: Link an issue (THE
+/// The "+" and an issue tab's long press open THE Menu as a bottom sheet
+/// (`ThreadMenuSheet`, the sheet Android and web-mobile open): Link an issue (THE
 /// search list → `threads.link`), New issue in this thread (the New issue
 /// page carrying the thread → `issues.create({threadId})`), Start a session here
 /// (the Agent page composer carrying the thread → `steer.startSession(
@@ -40,10 +41,10 @@ struct ThreadScreen: View {
     @State private var issueVMs: [String: IssueDetailViewModel] = [:]
     /// nil until the relay config resolves (the reply box waits for it).
     @State private var steerEnabled: Bool?
-    /// THE Menu: the "+" (issueId nil) or an issue tab's long press.
-    @State private var menuOpen = false
-    @State private var menuAnchor: CGRect = .zero
-    @State private var menuIssueId: String?
+    /// THE Menu's sheet: the "+" (issueId nil) or an issue tab's long press.
+    @State private var menuTarget: ThreadMenuTarget?
+    /// The sheet's pick, run once the sheet has dismissed.
+    @State private var pendingMenuAction: (action: ThreadMenuSheet.Action, issueId: String?)?
     @State private var linkSheetOpen = false
     // Guide
     @State private var guideSection: GuideSectionKey?
@@ -91,11 +92,14 @@ struct ThreadScreen: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .workHeaderBand(ground: page == .conversation) { header(rows: rows, view: view) }
-            } else if model?.resolved == true {
-                Text("This thread isn't available")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model?.missing == true {
+                // EXP-1284: empty-state.json `thread-not-found`; its action
+                // lands on the Agent tab.
+                EmptyState(.threadNotFound) {
+                    pushRoute(.agent(accountId: accountId, seed: .empty))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("thread-not-found")
             } else {
                 // EXP-1275 (D8): a first load is skeleton rows.
                 SkeletonRows()
@@ -106,8 +110,17 @@ struct ThreadScreen: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
-        .glassMenuOverlay(isPresented: $menuOpen, anchor: menuAnchor, presentation: .inline) {
-            menuItems
+        // Each presentation on its OWN node (EXP-240).
+        .background {
+            Color.clear
+                .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
+                    ThreadMenuSheet(
+                        identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier }
+                    ) { action in
+                        pendingMenuAction = (action, target.issueId)
+                        menuTarget = nil
+                    }
+                }
         }
         .sheet(isPresented: $linkSheetOpen) {
             if let rows {
@@ -396,33 +409,23 @@ struct ThreadScreen: View {
 
     // MARK: - THE Menu (brief §4)
 
-    private func openMenu(issueId: String?, anchor: CGRect) {
+    /// The anchor the strip reports is unused: on a phone THE Menu is a
+    /// sheet, never a popover.
+    private func openMenu(issueId: String?, anchor _: CGRect) {
         guard canEdit else { return }
-        menuIssueId = issueId
-        menuAnchor = anchor
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) { menuOpen = true }
+        UIApplication.endEditing()
+        menuTarget = ThreadMenuTarget(issueId: issueId)
     }
 
-    @ViewBuilder
-    private var menuItems: some View {
-        GlassMenuItem(ThreadViews.linkIssueLabel, icon: AppIcons.navSearch) {
-            linkSheetOpen = true
-        }
-        GlassMenuItem(ThreadViews.newIssueLabel, icon: AppIcons.uiAdd) {
-            newIssue(nextTo: menuIssueId)
-        }
-        GlassMenuItem(ThreadViews.startRunLabel, icon: AppIcons.actionRun) {
-            openComposer(issueId: menuIssueId, text: nil)
-        }
-        if let issueId = menuIssueId, let identifier = rows?.issue(id: issueId)?.identifier {
-            Rectangle()
-                .fill(.white.opacity(GlassMenuTokens.dividerOpacity))
-                .frame(height: GlassTokens.hairline)
-            GlassMenuItem(ThreadViews.unlinkLabel(identifier), icon: AppIcons.uiClose) {
-                unlink(issueId)
-            }
+    private func runPendingMenuAction() {
+        guard let pending = pendingMenuAction else { return }
+        pendingMenuAction = nil
+        switch pending.action {
+        case .linkIssue: linkSheetOpen = true
+        case .newIssue: newIssue(nextTo: pending.issueId)
+        case .startSession: openComposer(issueId: pending.issueId, text: nil)
+        case .unlink:
+            if let issueId = pending.issueId { unlink(issueId) }
         }
     }
 
@@ -562,9 +565,15 @@ struct ThreadScreen: View {
     private func switchPage(_ next: ThreadPage) {
         guard next != page else { return }
         UIApplication.endEditing()
-        menuOpen = false
         page = next
     }
+}
+
+/// EXP-1284: what the thread's menu sheet is open for — an issue tab
+/// (`issueId`) or the strip's "+" (nil).
+struct ThreadMenuTarget: Identifiable {
+    let issueId: String?
+    var id: String { issueId ?? "add" }
 }
 
 /// EXP-1284: the Conversation's reply box — `Reply in this thread`, the send

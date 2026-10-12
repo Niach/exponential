@@ -363,6 +363,13 @@ public enum ThreadViews {
     public static let threadsLabel = "Threads"
     public static let showWorkLabel = "Show work"
 
+    /// A "New issue in this thread" draft's line: `In <thread title>`.
+    public static let inThreadPrefix = "In"
+
+    public static func inThreadLabel(_ title: String) -> String {
+        "\(inThreadPrefix) \(title)"
+    }
+
     public static func unlinkLabel(_ identifier: String) -> String {
         "Unlink \(identifier)"
     }

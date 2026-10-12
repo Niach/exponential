@@ -14,8 +14,9 @@ import SwiftUI
 ///   linked EXP-1276 and filed + linked EXP-1277, its reply under them.
 /// * `thread-runs` (draft 2): "UI batch plan" — Run 1 ended, Run 2 its
 ///   resume (ended), Runs 3 and 4 the live children of Run 2 on two devices
-///   as ONE card; a child's menu (Link an issue · New issue in this thread ·
-///   Start a session here · Unlink EXP-1270) open over the strip.
+///   as ONE card; EXP-1270's menu sheet (Link an issue · New issue in this
+///   thread · Start a session here · Unlink EXP-1270) presented over it, the
+///   same bottom sheet Android's shot shows.
 ///
 /// Capture only: the styleguide suite opens one with `-uiTestingStyleguide
 /// <thread|thread-runs>` on a signed-out relaunch (`ThreadCardsScreen`'s
@@ -61,35 +62,15 @@ struct ThreadStyleguideScreen: View {
                 }
                 .padding(.top, 4)
             }
-            if kind == "thread-runs" {
-                childMenu
-            }
         }
         .preferredColorScheme(.dark)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("thread-styleguide-screen")
-    }
-
-    /// THE Menu as an issue tab's long press opens it (draft 2), drawn in
-    /// place under the strip.
-    private var childMenu: some View {
-        GlassMenuSurface {
-            VStack(spacing: 0) {
-                GlassMenuItemLabel(ThreadViews.linkIssueLabel, icon: AppIcons.navSearch)
-                GlassMenuItemLabel(ThreadViews.newIssueLabel, icon: AppIcons.uiAdd)
-                GlassMenuItemLabel(ThreadViews.startRunLabel, icon: AppIcons.actionRun)
-                Rectangle()
-                    .fill(.white.opacity(GlassMenuTokens.dividerOpacity))
-                    .frame(height: GlassTokens.hairline)
-                GlassMenuItemLabel(ThreadViews.unlinkLabel("EXP-1270"), icon: AppIcons.uiClose)
-            }
-            .frame(minWidth: GlassMenuTokens.minWidth, maxWidth: GlassMenuTokens.maxWidth, alignment: .leading)
-            .fixedSize(horizontal: true, vertical: true)
+        // Draft 2 / Android's shot: EXP-1270's long press, THE Menu's sheet
+        // presented for real over the screen.
+        .sheet(isPresented: .constant(kind == "thread-runs")) {
+            ThreadMenuSheet(identifier: "EXP-1270") { _ in }
         }
-        .padding(.top, 90)
-        .padding(.trailing, 16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        .accessibilityIdentifier("thread-styleguide-menu")
     }
 
     // MARK: - Fake rows

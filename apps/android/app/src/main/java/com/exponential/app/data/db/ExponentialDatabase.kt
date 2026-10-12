@@ -398,8 +398,11 @@ import androidx.room.TypeConverters
     // v85 (EXP-1284): the threads + thread_items tables (two new shapes).
     //      Explicit [MIGRATION_84_85] creates both empty; every other row and
     //      offset survives, and the new shapes snapshot from scratch.
+    // v86 (EXP-1284): issue_drafts.thread_id — the thread a draft files into.
+    //      Explicit [MIGRATION_85_86] adds the nullable column and refetches
+    //      only the issue-drafts shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 85,
+    version = 86,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

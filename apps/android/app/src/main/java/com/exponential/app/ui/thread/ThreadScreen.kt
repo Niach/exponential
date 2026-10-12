@@ -56,7 +56,11 @@ import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.runRowCaption
 import com.exponential.app.domain.runRowState
 import com.exponential.app.domain.sessionThread
+import com.exponential.app.domain.EmptyStateCopy
+import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.LocalDetailHaze
@@ -119,6 +123,8 @@ fun ThreadScreen(
     initialChild: String? = null,
     /** Another thread (an issue tab's `Threads` row). */
     onOpenThread: (String) -> Unit = {},
+    /** The `thread-not-found` state's "Go to Agent". */
+    onGoToAgent: () -> Unit = onBack,
     viewModel: ThreadScreenViewModel = hiltViewModel(),
 ) {
     val bundle by viewModel.bundle.collectAsStateWithLifecycle()
@@ -129,6 +135,7 @@ fun ThreadScreen(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val linkCandidates by viewModel.linkCandidates.collectAsStateWithLifecycle()
     val newIssueBoardId by viewModel.newIssueBoardId.collectAsStateWithLifecycle()
+    val missing by viewModel.missing.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     val view = bundle?.view
@@ -191,7 +198,24 @@ fun ThreadScreen(
             ) { padding ->
                 val current = bundle
                 if (current == null) {
-                    Box(Modifier.padding(padding).fillMaxSize())
+                    Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                        // EXP-1284: the ×4 `thread-not-found` page state, once
+                        // the store answered without the thread.
+                        if (missing) {
+                            EmptyState(
+                                EmptyStateCopy.threadNotFound,
+                                modifier = Modifier.testTag("thread-not-found"),
+                                action = {
+                                    GlassPill(
+                                        EmptyStateCopy.threadNotFound.action!!,
+                                        size = PillSize.Md,
+                                        primary = true,
+                                        onClick = onGoToAgent,
+                                    )
+                                },
+                            )
+                        }
+                    }
                     return@Scaffold
                 }
                 TabPager(

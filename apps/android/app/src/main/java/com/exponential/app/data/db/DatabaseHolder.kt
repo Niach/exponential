@@ -36,7 +36,7 @@ class DatabaseHolder @Inject constructor(
                 // and every shape's offset survive), as does EXP-1196's 80 → 81
                 // (one added column) and EXP-1284's 84 → 85 (two new tables).
                 // Any OLDER schema still wipes and lets Electric resync.
-                .addMigrations(MIGRATION_78_79, MIGRATION_79_80, MIGRATION_80_81, MIGRATION_81_82, MIGRATION_82_83, MIGRATION_83_84, MIGRATION_84_85)
+                .addMigrations(MIGRATION_78_79, MIGRATION_79_80, MIGRATION_80_81, MIGRATION_81_82, MIGRATION_82_83, MIGRATION_83_84, MIGRATION_84_85, MIGRATION_85_86)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             instances[accountId] = db

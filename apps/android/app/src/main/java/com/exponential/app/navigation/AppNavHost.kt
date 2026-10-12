@@ -878,6 +878,7 @@ private fun AuthenticatedNav(
                 },
                 initialChild = entry.arguments?.getString("child"),
                 onOpenThread = { id -> navController.navigate(threadRoute(id)) },
+                onGoToAgent = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
         }
         composable("invite/{token}") { entry ->

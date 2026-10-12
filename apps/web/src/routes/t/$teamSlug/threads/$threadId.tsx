@@ -139,10 +139,10 @@ function ThreadPage() {
       <div className="flex h-full min-h-0 flex-col">
         <MobileDetailHeader title="Thread" onBack={goBack} />
         <div className="flex flex-1 flex-col items-center justify-center">
-          <Empty id="run-not-found">
+          <Empty id="thread-not-found">
             <Button asChild variant="outline" size="sm">
               <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
-                {emptyStateCopy(`run-not-found`).action}
+                {emptyStateCopy(`thread-not-found`).action}
               </Link>
             </Button>
           </Empty>

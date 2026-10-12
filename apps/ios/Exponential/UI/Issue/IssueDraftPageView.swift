@@ -352,6 +352,23 @@ struct IssueDraftPageView: View {
                         )
                     }
 
+                    // EXP-1284: a "New issue in this thread" draft names
+                    // its thread (kept across leave + reopen from Drafts).
+                    if let threadTitle = vm.threadTitle {
+                        HStack(spacing: 6) {
+                            Text(ThreadViews.inThreadPrefix)
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .fixedSize()
+                            ThreadChip(title: threadTitle, live: false) {}
+                                .allowsHitTesting(false)
+                            Spacer(minLength: 0)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(ThreadViews.inThreadLabel(threadTitle))
+                        .accessibilityIdentifier("issue-draft-thread")
+                    }
+
                     IssueTitleField(
                         text: Binding(get: { vm.title }, set: { vm.setTitle($0) }),
                         placeholder: IssueDraftPage.titlePlaceholder,

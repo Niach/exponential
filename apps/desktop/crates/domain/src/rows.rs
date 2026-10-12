@@ -378,6 +378,11 @@ pub struct IssueDraftRow {
     /// `YYYY-MM-DD` — date only, like `issues.due_date`.
     #[serde(default)]
     pub due_date: Option<String>,
+    /// EXP-1284: "New issue in this thread" — the thread the issue files
+    /// into (`issues.create({draftId})` links it there). Stored on the draft,
+    /// so a draft reopened from Drafts still files into its thread.
+    #[serde(default)]
+    pub thread_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1401,9 +1406,13 @@ mod tests {
             // The Postgres array literal, exactly like devices.shared_team_ids.
             "label_ids": "{l-1,l-2}",
             "due_date": "2026-09-14",
+            "thread_id": "th-1",
         }))
         .expect("full draft hydrates");
         assert_eq!(full.label_ids, vec!["l-1", "l-2"]);
+        // EXP-1284: the draft's thread (absent = files into none).
+        assert_eq!(full.thread_id.as_deref(), Some("th-1"));
+        assert_eq!(bare.thread_id, None);
         assert_eq!(full.priority, Some(IssuePriority::High));
         assert_eq!(full.due_date.as_deref(), Some("2026-09-14"));
 

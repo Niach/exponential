@@ -86,4 +86,26 @@ final class ThreadsApiWireTests: XCTestCase {
         let threaded = try object(CreateIssueInput(boardId: "b1", title: "x", threadId: "t1"))
         XCTAssertEqual(threaded["threadId"] as? String, "t1")
     }
+
+    // `issueDrafts.upsert({threadId})`: a "New issue in this thread" draft
+    // carries its thread; absent (nil) KEEPS the row's server-side.
+    func testDraftUpsertCarriesTheThreadOnlyWhenSet() throws {
+        func object(_ input: UpsertIssueDraftInput) throws -> [String: Any] {
+            let data = try JSONEncoder().encode(input)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        let plain = try object(UpsertIssueDraftInput(
+            id: "d1", teamId: "t", boardId: "b1", title: "x", description: ""
+        ))
+        XCTAssertNil(plain.index(forKey: "threadId"))
+        let threaded = try object(UpsertIssueDraftInput(
+            id: "d1", teamId: "t", boardId: "b1", title: "x", description: "", threadId: "th1"
+        ))
+        XCTAssertEqual(threaded["threadId"] as? String, "th1")
+        let dto = try JSONDecoder().decode(
+            IssueDraftDto.self,
+            from: Data(#"{"id":"d1","userId":"u1","teamId":"t","boardId":"b1","threadId":"th1"}"#.utf8)
+        )
+        XCTAssertEqual(dto.entity().threadId, "th1")
+    }
 }

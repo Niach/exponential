@@ -37,6 +37,14 @@ object EmptyStateCopy {
     val actions = State("actions", Size.Page, "nav-actions", "No actions yet", "Create one on the web or desktop app.", null)
     val actionUnavailable = State("action-unavailable", Size.Page, "action-default", "Action unavailable", "It may still be syncing, or it was deleted.", null)
     val runNotFound = State("run-not-found", Size.Page, "action-run", "Session not found", null, "Go to Agent")
+    val threadNotFound = State(
+        "thread-not-found",
+        Size.Page,
+        "work-faces",
+        "Thread not found",
+        "It may still be syncing, or it was deleted.",
+        "Go to Agent",
+    )
     val noSelectionIssue = State("no-selection-issue", Size.Page, "ui-issue", "No issue selected", null, null)
     val noSelectionNotification = State("no-selection-notification", Size.Page, "nav-inbox", "No notification selected", null, null)
     val boardSwitcher = State("board-switcher", Size.List, "nav-boards", "No boards yet", null, null)
@@ -75,6 +83,7 @@ object EmptyStateCopy {
         actions,
         actionUnavailable,
         runNotFound,
+        threadNotFound,
         noSelectionIssue,
         noSelectionNotification,
         boardSwitcher,
@@ -132,6 +141,7 @@ object EmptyStateCopy {
         "ui-empty-search" -> ExpIcons.uiEmptySearch
         "ui-issue" -> ExpIcons.uiIssue
         "ui-team" -> ExpIcons.uiTeam
+        "work-faces" -> ExpIcons.workFaces
         "work-results" -> ExpIcons.workResults
         else -> null
     }

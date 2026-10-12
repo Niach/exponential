@@ -2398,6 +2398,28 @@ public final class DatabaseManager: @unchecked Sendable {
             )
         }
 
+        // v67 (EXP-1284): `issue_drafts.thread_id`, the thread a "New issue
+        // in this thread" draft files into — synced (it joined the
+        // issue-drafts shape's columns), so a draft left and reopened from
+        // Drafts keeps its thread. The v63 pattern: a guarded additive ALTER,
+        // and the issue-drafts offset resets only when the column was added,
+        // so already-synced rows re-arrive carrying it.
+        migrator.registerMigration("v67_issue_draft_thread") { db in
+            guard try db.tableExists("issue_drafts") else { return }
+            let existing = Set(try db.columns(in: "issue_drafts").map(\.name))
+            guard !existing.contains("thread_id") else { return }
+            try db.alter(table: "issue_drafts") { t in
+                t.add(column: "thread_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'issue-drafts'
+                    """)
+            }
+        }
+
         return migrator
     }
 

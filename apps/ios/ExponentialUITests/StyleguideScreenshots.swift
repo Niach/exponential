@@ -33,8 +33,9 @@ import XCTest
 /// and the reply box — drawn by its real pieces over fake rows matching the
 /// approved drafts (`ThreadStyleguideScreen`, `-uiTestingStyleguide
 /// thread|thread-runs`, the run-thread cards' seam): one live run whose agent
-/// linked and filed an issue, and four runs (an ended run, its resume, two
-/// live children of it as one card) with a child's menu open.
+/// linked and filed an issue, and four sessions (an ended one, its resume, two
+/// live children of it as one card) with an issue tab's menu SHEET open
+/// (the bottom sheet Android's shot shows).
 ///
 /// EXP-1259 added the last four: the Agent HOME the app lands on (the
 /// greeting, the composer, Recent), the `#` typeahead's search-list sheet,
@@ -1004,12 +1005,10 @@ final class StyleguideScreenshots: XCTestCase {
             "The thread specimen drew no agent link rows"
         )
         snapshot("sg_thread", settle: 2)
-        openThreadSpecimen(app, "thread-runs")
-        expect(
-            anyElement(app, identified: "thread-parallel-block"),
-            within: Wait.nav,
-            "The thread-runs specimen drew no parallel card"
-        )
+        // EXP-1284: the child menu is a BOTTOM SHEET ×phones (Android's
+        // shot); a presented sheet hides the screen beneath it from the
+        // accessibility tree, so the relaunch waits on the sheet itself.
+        openThreadSpecimen(app, "thread-runs", awaiting: "thread-menu-sheet")
         snapshot("sg_thread-runs", settle: 2)
 
         finished = true
@@ -1030,10 +1029,12 @@ final class StyleguideScreenshots: XCTestCase {
 
     /// EXP-1284: relaunch signed out onto one Thread screen specimen.
     @MainActor
-    private func openThreadSpecimen(_ app: XCUIApplication, _ kind: String) {
+    private func openThreadSpecimen(
+        _ app: XCUIApplication, _ kind: String, awaiting identifier: String = "thread-styleguide-screen"
+    ) {
         launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", kind])
         expect(
-            anyElement(app, identified: "thread-styleguide-screen"),
+            anyElement(app, identified: identifier),
             within: Wait.launch,
             "The \(kind) specimen never opened — is -uiTestingStyleguide wired?"
         )

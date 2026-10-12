@@ -125,7 +125,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id", "v66_threads"]
+             "v65_trigger_id", "v66_threads",
+             "v67_issue_draft_thread"]
         )
     }
 
@@ -177,7 +178,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id", "v66_threads"]
+             "v65_trigger_id", "v66_threads",
+             "v67_issue_draft_thread"]
         )
     }
 
@@ -700,7 +702,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id", "v66_threads"]
+             "v65_trigger_id", "v66_threads",
+             "v67_issue_draft_thread"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -800,7 +803,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id", "v66_threads"]
+             "v65_trigger_id", "v66_threads",
+             "v67_issue_draft_thread"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1419,7 +1423,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "issue_drafts"),
             ["id", "user_id", "team_id", "board_id", "title", "description",
              "status_id", "priority", "assignee_id", "label_ids", "due_date",
-             "created_at", "updated_at"]
+             "created_at", "updated_at", "thread_id"]
         )
         let indexed = try pool.read { db in
             Set(try db.indexes(on: "issue_drafts").map(\.columns))
@@ -1595,6 +1599,63 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
+    // v67 (EXP-1284): `issue_drafts.thread_id`. A store whose drafts table
+    // predates it gains the nullable column via the guarded ALTER, keeps its
+    // rows, and gets the issue-drafts offset reset (so synced drafts re-arrive
+    // carrying their thread); other shapes' offsets are untouched.
+    func testIssueDraftThreadColumnAddedToExistingStore() throws {
+        let pool = try makePool("issue-draft-thread")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v66_threads")
+        try pool.write { db in
+            XCTAssertFalse(try db.columns(in: "issue_drafts").contains { $0.name == "thread_id" })
+            try db.execute(sql: """
+                INSERT INTO "issue_drafts" ("id", "user_id", "team_id", "board_id", "title")
+                VALUES ('d1', 'u1', 't1', 'b1', 'Kept')
+                """)
+            for shape in ["issue-drafts", "issues"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let column = try pool.read { db in
+            try db.columns(in: "issue_drafts").first { $0.name == "thread_id" }
+        }
+        XCTAssertNotNil(column)
+        XCTAssertFalse(column?.isNotNull ?? true)
+        let kept = try pool.read { db in
+            try String.fetchOne(db, sql: "SELECT \"title\" FROM \"issue_drafts\" WHERE \"id\" = 'd1'")
+        }
+        XCTAssertEqual(kept, "Kept")
+        let reset = try pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: "SELECT \"handle\" = '' AND \"offset\" = '-1' AND \"needs_refetch\" = 1 "
+                    + "AND \"is_live\" = 0 FROM \"electric_offsets\" WHERE \"shape\" = 'issue-drafts'"
+            )
+        }
+        XCTAssertEqual(reset, true)
+        let untouched = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "needs_refetch" FROM "electric_offsets" WHERE "shape" = 'issues'
+                    """
+            )
+        }
+        XCTAssertEqual(untouched?["handle"] as String?, "h")
+        XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false)
+        // Idempotent: the guard makes a re-run a no-op.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
     func testFreshStoreHasIssueDraftId() throws {
         let pool = try makePool("issue-draft-id-fresh")
         try DatabaseManager.runMigrations(on: pool)
@@ -1718,7 +1779,7 @@ final class DatabaseMigrationTests: XCTestCase {
             draftCols,
             ["id", "user_id", "team_id", "board_id", "title", "description",
              "status_id", "priority", "assignee_id", "label_ids", "due_date",
-             "created_at", "updated_at"]
+             "created_at", "updated_at", "thread_id"]
         )
 
         // status_id is NULLABLE: NULL means the team's Backlog builtin.

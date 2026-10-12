@@ -88,8 +88,13 @@ final class IssueDraftViewModel {
     private(set) var boardId: String
     let parentId: String?
     /// EXP-1284: the thread the issue is filed INTO (the thread's "New issue
-    /// in this thread", `issues.create({threadId})`); nil = none.
-    let threadId: String?
+    /// in this thread", `issues.create({threadId})`); nil = none. The route
+    /// seeds it; a draft reopened from Drafts restores it off its row
+    /// (`issue_drafts.thread_id`), and every upsert carries it.
+    private(set) var threadId: String?
+    /// The thread's display title (`ThreadViews.build`), the page's
+    /// `In <thread>` line; nil while unresolved or with no thread.
+    private(set) var threadTitle: String?
     /// The route's pre-picked status row (nil = the team's Backlog builtin).
     private let initialStatusId: String?
 
@@ -297,7 +302,8 @@ final class IssueDraftViewModel {
             labelIds: labels.isEmpty
                 ? Array(labelIds)
                 : Array(labelIds.filter { id in labels.contains { $0.id == id } }),
-            dueDate: dueDate
+            dueDate: dueDate,
+            threadId: threadId
         )
     }
 
@@ -337,6 +343,8 @@ final class IssueDraftViewModel {
                 assigneeId = row.assigneeId
                 labelIds = Set(row.labelIds)
                 dueDate = row.dueDate
+                // EXP-1284: the route's thread wins; else the row's.
+                if threadId == nil { threadId = row.threadId }
                 seededStatusId = row.statusId
                 if let files = try? await deps.issueDraftsApi.listAttachments(
                     accountId: accountId, id: draftId
@@ -364,6 +372,13 @@ final class IssueDraftViewModel {
         if let parentId {
             parentIssue = (try? await pool.read { db in
                 try IssueEntity.fetchOne(db, key: parentId)
+            }) ?? nil
+        }
+
+        // EXP-1284: name the thread the issue files into.
+        if let threadId {
+            threadTitle = (try? await pool.read { db in
+                try ThreadRows.load(db: db, threadId: threadId)?.view.title
             }) ?? nil
         }
 

@@ -688,6 +688,8 @@ pub const SHAPES: [ShapeSpec; 23] = [
             "assignee_id",
             "label_ids",
             "due_date",
+            // EXP-1284: the thread "New issue in this thread" files into.
+            "thread_id",
             "created_at",
             "updated_at",
         ],
@@ -1206,6 +1208,7 @@ mod tests {
             "assignee_id",
             "label_ids",
             "due_date",
+            "thread_id",
         ] {
             assert!(spec.columns.contains(&column), "issue_drafts needs {column}");
         }

@@ -676,6 +676,49 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(patched?.dueDate, "2026-10-01")
     }
 
+    // EXP-1284: `issue_drafts.thread_id` — a "New issue in this thread"
+    // draft keeps its thread across a partial that does not touch it, and a
+    // partial that nulls it (the thread was deleted: FK SET NULL) clears it.
+    func testIssueDraftThreadIdPersistsAndSurvivesPartials() async throws {
+        let json = """
+            {"id":"d2","user_id":"u1","team_id":"ws1","board_id":"b1",
+             "title":"In a thread","priority":"none","label_ids":"{}",
+             "thread_id":"t1",
+             "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
+            """
+        let draft = try JSONDecoder().decode(IssueDraftEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(draft.threadId, "t1")
+        try await applyBatch(
+            messages: [ShapeMessage<IssueDraftEntity>.insert(
+                key: #""public"."issue_drafts"/"d2""#, value: draft
+            )],
+            name: "issue-drafts", table: "issue_drafts", pool: pool
+        )
+        let stored = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d2") }
+        XCTAssertEqual(stored?.threadId, "t1")
+
+        try await applyBatch(
+            messages: [ShapeMessage<IssueDraftEntity>.partialUpdate(
+                key: #""public"."issue_drafts"/"d2""#,
+                columns: columns(["id": "d2", "title": "Renamed"])
+            )],
+            name: "issue-drafts", table: "issue_drafts", pool: pool
+        )
+        let renamed = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d2") }
+        XCTAssertEqual(renamed?.title, "Renamed")
+        XCTAssertEqual(renamed?.threadId, "t1")
+
+        try await applyBatch(
+            messages: [ShapeMessage<IssueDraftEntity>.partialUpdate(
+                key: #""public"."issue_drafts"/"d2""#,
+                columns: columns(["id": "d2", "thread_id": NSNull()])
+            )],
+            name: "issue-drafts", table: "issue_drafts", pool: pool
+        )
+        let cleared = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d2") }
+        XCTAssertNil(cleared?.threadId)
+    }
+
     // EXP-878: a draft renders ONLY when its board resolves locally (the
     // shape is per-user and never trash-scoped, exactly like pins), and a
     // NULL `status_id` resolves to the team's Backlog builtin.

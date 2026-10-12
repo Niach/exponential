@@ -35,6 +35,7 @@ import { FilesSectionView } from "@/components/issue-files-section"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { PropertiesTrayCard } from "@/components/issue-properties-tray"
 import { IssueTitleInput } from "@/components/issue-title-field"
+import { DraftThreadRow } from "@/components/thread/issue-threads-row"
 import {
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
@@ -421,6 +422,16 @@ export function IssueDraftPage({
     />
   )
 
+  // EXP-1284: where a "New issue in this thread" draft files.
+  const threadRow = (
+    <DraftThreadRow
+      threadId={editor.threadId}
+      teamId={teamId}
+      teamSlug={teamSlug}
+      className="px-5 pt-1 pb-2"
+    />
+  )
+
   const tray = (
     <PropertiesTrayCard>
       <div className="min-w-0 flex-1">
@@ -562,6 +573,7 @@ export function IssueDraftPage({
           style={{ paddingTop: mobileHeaderSize.height }}
         >
           <div ref={titleRef}>{titleInput}</div>
+          {threadRow}
           {tray}
           <div className="pt-2">{descriptionEditor}</div>
           {filesSection}
@@ -602,6 +614,7 @@ export function IssueDraftPage({
               >
                 {titleInput}
               </div>
+              {threadRow}
             </div>
             {/* EXP-1191: the tray stays in view, like the issue's. */}
             <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>

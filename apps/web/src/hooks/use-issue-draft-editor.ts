@@ -94,7 +94,7 @@ export function useIssueDraftEditor({
   teamId,
   initialBoardId,
   initialStatusId = null,
-  threadId = null,
+  threadId: requestedThreadId = null,
   draft,
   boards,
   labels,
@@ -132,6 +132,11 @@ export function useIssueDraftEditor({
   const [dueDate, setDueDateState] = useState<string | null>(
     seed?.dueDate ?? null
   )
+  // EXP-1284: the thread this draft files into — a reopened draft keeps its
+  // own (persisted by the upsert), a fresh page takes `?thread=`.
+  const [threadId] = useState<string | null>(
+    seed ? seed.threadId : requestedThreadId
+  )
   const [files, setFiles] = useState<FilesSectionFile[]>([])
   const [creating, setCreating] = useState(false)
   // Eager uploads in flight (the page reports them): Create waits for them,
@@ -162,6 +167,7 @@ export function useIssueDraftEditor({
     assigneeId,
     labelIds,
     dueDate,
+    threadId,
     attachmentCount: files.length,
   }
   const statusRef = useRef(status)
@@ -533,6 +539,7 @@ export function useIssueDraftEditor({
     assigneeId,
     labelIds,
     dueDate,
+    threadId,
     files,
     creating,
     uploading: uploadCount > 0,

@@ -12,8 +12,10 @@ import GRDB
 @MainActor @Observable
 final class ThreadScreenModel {
     private(set) var rows: ThreadRows?
-    /// Whether the thread has been READ at least once (skeleton until then).
-    private(set) var resolved = false
+    /// Whether the thread is known to be MISSING: not in the store and
+    /// `threads.get` refused it (or it vanished after it was shown) — the
+    /// `thread-not-found` state. Skeleton until either the rows or this.
+    private(set) var missing = false
     private(set) var now = Date()
     /// Item ids already on screen when the screen first drew them — a child
     /// linked AFTER that fades in with a ring once (brief §1).
@@ -77,8 +79,13 @@ final class ThreadScreenModel {
                             self.seenItemIds = Set(rows.items.map(\.id))
                         }
                         self.rows = rows
-                        self.resolved = true
-                        if rows == nil { await self.fetchMissing(api: api, pool: pool) }
+                        if rows != nil {
+                            self.missing = false
+                        } else if !(await self.fetchMissing(api: api, pool: pool)) {
+                            // Mirrored rows re-emit through this stream; only
+                            // a refusal (or a second miss) is not-found.
+                            self.missing = true
+                        }
                     }
                     return
                 } catch is CancellationError {
@@ -92,14 +99,20 @@ final class ThreadScreenModel {
 
     /// A thread the shapes have not delivered (a deep link racing the sync):
     /// one `threads.get`, mirrored into the store; the observation then
-    /// re-reads it. A refusal leaves the screen on its empty state.
-    private func fetchMissing(api: ThreadsApi, pool: DatabasePool) async {
-        guard !fetchedOnce else { return }
+    /// re-reads it. Returns whether rows are on their way; a refusal (or a
+    /// second miss) = false, the screen's `thread-not-found` state.
+    private func fetchMissing(api: ThreadsApi, pool: DatabasePool) async -> Bool {
+        guard !fetchedOnce else { return false }
         fetchedOnce = true
-        guard let detail = try? await api.get(accountId: accountId, id: threadId) else { return }
-        try? await pool.write { db in
-            try detail.thread.entity().save(db)
-            for item in detail.items { try item.entity().save(db) }
+        guard let detail = try? await api.get(accountId: accountId, id: threadId) else { return false }
+        do {
+            try await pool.write { db in
+                try detail.thread.entity().save(db)
+                for item in detail.items { try item.entity().save(db) }
+            }
+            return true
+        } catch {
+            return false
         }
     }
 }

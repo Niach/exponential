@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -101,6 +102,9 @@ object ThreadCopy {
     const val RECENT = "Recent"
 
     fun unlink(identifier: String) = "Unlink $identifier"
+
+    /** A thread draft's line: where the new issue files into. */
+    fun inThread(title: String) = "In $title"
 }
 
 /** A child of the strip as the saveable page key: `conversation`,
@@ -846,3 +850,29 @@ data class ThreadListRowModel(
     val agent: String?,
     val markState: CodingSessionDisplayState? = null,
 )
+
+/**
+ * EXP-1284: the New issue page's line for a thread draft — `In <thread>`
+ * with the conversation glyph, so a draft reopened from Drafts still says
+ * where its issue files into. The title resolves through the ONE model.
+ */
+@Composable
+fun DraftThreadLine(threadId: String, modifier: Modifier = Modifier) {
+    val threadsVm: ThreadsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val bundles by threadsVm.bundles.collectAsStateWithLifecycle()
+    val title = bundles.firstOrNull { it.thread.id == threadId }?.view?.title ?: return
+    Row(
+        modifier = modifier.fillMaxWidth().testTag("issue-draft-thread"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(ExpIcons.actionChat, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            ThreadCopy.inThread(title),
+            style = MaterialTheme.typography.bodySmall,
+            color = Secondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}

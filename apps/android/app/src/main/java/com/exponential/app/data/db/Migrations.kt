@@ -165,6 +165,22 @@ val MIGRATION_84_85: Migration = object : Migration(84, 85) {
     }
 }
 
+/**
+ * v86 (EXP-1284): `issue_drafts.thread_id`, the thread a "New issue in this
+ * thread" draft files into. The nullable column lands empty, so the
+ * issue-drafts shape refetches (its offset resets) and already-synced drafts
+ * re-arrive carrying it.
+ */
+val MIGRATION_85_86: Migration = object : Migration(85, 86) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `issue_drafts` ADD COLUMN `thread_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'issue_drafts'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,

@@ -149,6 +149,14 @@ class ThreadScreenViewModel @Inject constructor(
 
     private val teamId: Flow<String?> = thread.map { it?.teamId }.distinctUntilChanged()
 
+    /** True once the local store answered and holds no such thread (never
+     *  synced, deleted, or a team the viewer left): the screen's
+     *  `thread-not-found` state. False while the first read is in flight. */
+    val missing: StateFlow<Boolean> = dbFlow
+        .scopedQuery<ThreadEntity?>(null) { it.threadDao().observeById(threadId) }
+        .map { it == null }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     val bundle: StateFlow<ThreadPage.Bundle?> = combine(
         thread,
         dbFlow.scopedQuery(emptyList<ThreadItemEntity>()) { it.threadItemDao().observeByThread(threadId) },

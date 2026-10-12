@@ -904,6 +904,9 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
     public let labelIds: [String]
     /// `YYYY-MM-DD`, date-only like `issues.due_date` (REV2-49).
     public let dueDate: String?
+    /// EXP-1284: the thread a "New issue in this thread" draft files into
+    /// (FK SET NULL server-side: a deleted thread leaves a plain draft).
+    public let threadId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -919,6 +922,7 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
         assigneeId: String? = nil,
         labelIds: [String] = [],
         dueDate: String? = nil,
+        threadId: String? = nil,
         createdAt: String = "",
         updatedAt: String = ""
     ) {
@@ -933,6 +937,7 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
         self.assigneeId = assigneeId
         self.labelIds = labelIds
         self.dueDate = dueDate
+        self.threadId = threadId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -946,6 +951,7 @@ public struct IssueDraftEntity: FetchableRecord, PersistableRecord, Identifiable
         case assigneeId = "assignee_id"
         case labelIds = "label_ids"
         case dueDate = "due_date"
+        case threadId = "thread_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -971,6 +977,7 @@ extension IssueDraftEntity: Codable {
         assigneeId = try c.decodeIfPresent(String.self, forKey: .assigneeId)
         labelIds = c.decodeWireStringList(forKey: .labelIds)
         dueDate = try c.decodeIfPresent(String.self, forKey: .dueDate)
+        threadId = try c.decodeIfPresent(String.self, forKey: .threadId)
         createdAt = (try? c.decode(String.self, forKey: .createdAt)) ?? ""
         updatedAt = (try? c.decode(String.self, forKey: .updatedAt)) ?? ""
     }

@@ -45,6 +45,7 @@ public enum EmptyStateCopy {
         .actions,
         .actionUnavailable,
         .runNotFound,
+        .threadNotFound,
         .noSelectionIssue,
         .noSelectionNotification,
         .boardSwitcher,
@@ -113,6 +114,12 @@ public extension EmptyStateCopy.State {
     static let runNotFound = Self(
         id: "run-not-found", size: .page, icon: "action-run",
         title: "Session not found", description: nil, action: "Go to Agent"
+    )
+    /// EXP-1284: a thread the store does not hold (and `threads.get` refused).
+    static let threadNotFound = Self(
+        id: "thread-not-found", size: .page, icon: "work-faces",
+        title: "Thread not found", description: "It may still be syncing, or it was deleted.",
+        action: "Go to Agent"
     )
     static let noSelectionIssue = Self(
         id: "no-selection-issue", size: .page, icon: "ui-issue",

@@ -938,6 +938,8 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `assignee_id`,
       `label_ids`,
       `due_date`,
+      // EXP-1284: the thread a "New issue in this thread" draft files into.
+      `thread_id`,
       `created_at`,
       `updated_at`,
     ])
