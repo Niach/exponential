@@ -736,6 +736,203 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(orphan?.title, "Orphan")
     }
 
+    // EXP-1284: a threads row off the wire — `results` (the thread's Guide)
+    // is jsonb, a native array here, stored as TEXT the way
+    // `coding_sessions.results` is and parsed by the same reader; a column
+    // the shape adds later is ignored by the decoder. A partial retitles and
+    // rewrites the Guide as raw JSON text, dropping an unknown column; a
+    // value-less delete removes the row by its key.
+    func testThreadInsertPartialAndDeleteApply() async throws {
+        let json = """
+            {"id":"t1","team_id":"ws1","title":null,"created_by":"u1",
+             "results":[{"topic":"Summary","label":"Board","attachmentId":"a1",
+                         "width":1170,"height":2532}],
+             "some_future_column":"x",
+             "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
+            """
+        let thread = try JSONDecoder().decode(ThreadEntity.self, from: Data(json.utf8))
+        XCTAssertNil(thread.title)
+        XCTAssertEqual(thread.createdBy, "u1")
+        XCTAssertEqual(parseSessionResults(thread.results).map(\.attachmentId), ["a1"])
+
+        let key = #""public"."threads"/"t1""#
+        try await applyBatch(
+            messages: [ShapeMessage<ThreadEntity>.insert(key: key, value: thread)],
+            name: "threads", table: "threads", pool: pool
+        )
+        let stored = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
+        XCTAssertEqual(stored?.teamId, "ws1")
+        XCTAssertEqual(parseSessionResults(stored?.results).first?.width, 1170)
+
+        let partial = ShapeMessage<ThreadEntity>.partialUpdate(
+            key: key,
+            columns: columns([
+                "id": "t1",
+                "title": "Onboarding polish",
+                "results": #"[{"topic":"Summary","label":"After","attachmentId":"a2"}]"#,
+                "updated_at": "2026-10-12T10:00:00Z",
+                "some_future_column": "y",
+            ])
+        )
+        try await applyBatch(messages: [partial], name: "threads", table: "threads", pool: pool)
+        let patched = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
+        XCTAssertEqual(patched?.title, "Onboarding polish")
+        XCTAssertEqual(parseSessionResults(patched?.results).map(\.attachmentId), ["a2"])
+        XCTAssertEqual(patched?.updatedAt, "2026-10-12T10:00:00Z")
+        // Untouched columns survive the partial.
+        XCTAssertEqual(patched?.createdBy, "u1")
+
+        // A partial clearing the title back to derived (JSON null).
+        let cleared = ShapeMessage<ThreadEntity>.partialUpdate(
+            key: key, columns: columns(["id": "t1", "title": NSNull()])
+        )
+        try await applyBatch(messages: [cleared], name: "threads", table: "threads", pool: pool)
+        let untitled = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
+        XCTAssertNil(untitled?.title)
+
+        try await applyBatch(
+            messages: [ShapeMessage<ThreadEntity>.delete(key: key, value: nil)],
+            name: "threads", table: "threads", pool: pool
+        )
+        let gone = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
+        XCTAssertNil(gone)
+    }
+
+    // EXP-1284: a thread_items row off the wire — `sort_order` arrives as
+    // Postgres text, the unused target column as null, and a server-only
+    // mirror leaking onto the wire never bricks the decode. A partial that
+    // MOVES a run (new `thread_id`) applies, an unknown column drops, and a
+    // value-less delete removes the row.
+    func testThreadItemInsertPartialAndDeleteApply() async throws {
+        let json = """
+            {"id":"ti1","thread_id":"t1","kind":"run","issue_id":null,
+             "session_id":"cs1","team_id":"ws1","board_id":null,
+             "added_by":"u1","added_by_session_id":"cs0","source":"agent",
+             "sort_order":"1.5","board_archived_at":null,
+             "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
+            """
+        let item = try JSONDecoder().decode(ThreadItemEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(item.kind, DomainContract.threadItemKindRun)
+        XCTAssertEqual(item.targetId, "cs1")
+        XCTAssertEqual(item.source, DomainContract.threadItemSourceAgent)
+        XCTAssertEqual(item.sortOrder, 1.5)
+        XCTAssertNil(item.issueId)
+
+        let key = #""public"."thread_items"/"ti1""#
+        try await applyBatch(
+            messages: [ShapeMessage<ThreadItemEntity>.insert(key: key, value: item)],
+            name: "thread-items", table: "thread_items", pool: pool
+        )
+        let stored = try await pool.read { try ThreadItemEntity.fetchOne($0, key: "ti1") }
+        XCTAssertEqual(stored?.sessionId, "cs1")
+        XCTAssertEqual(stored?.addedBySessionId, "cs0")
+        XCTAssertEqual(stored?.sortOrder, 1.5)
+
+        let moved = ShapeMessage<ThreadItemEntity>.partialUpdate(
+            key: key,
+            columns: columns([
+                "id": "ti1", "thread_id": "t2", "sort_order": "3",
+                "board_deleted_at": "2026-10-12T10:00:00Z",
+            ])
+        )
+        try await applyBatch(
+            messages: [moved], name: "thread-items", table: "thread_items", pool: pool
+        )
+        let patched = try await pool.read { try ThreadItemEntity.fetchOne($0, key: "ti1") }
+        XCTAssertEqual(patched?.threadId, "t2")
+        XCTAssertEqual(patched?.sortOrder, 3)
+        XCTAssertEqual(patched?.source, DomainContract.threadItemSourceAgent)
+
+        try await applyBatch(
+            messages: [ShapeMessage<ThreadItemEntity>.delete(key: key, value: nil)],
+            name: "thread-items", table: "thread_items", pool: pool
+        )
+        let gone = try await pool.read { try ThreadItemEntity.fetchOne($0, key: "ti1") }
+        XCTAssertNil(gone)
+    }
+
+    // EXP-1284: an issue item decodes with `source` absent (server default
+    // `user`) and a NATIVE sort order (tRPC/fixture form).
+    func testThreadItemDecodesIssueItemWithDefaults() throws {
+        let json = """
+            {"id":"ti2","thread_id":"t1","kind":"issue","issue_id":"i1",
+             "session_id":null,"team_id":"ws1","board_id":"b1","sort_order":2,
+             "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
+            """
+        let item = try JSONDecoder().decode(ThreadItemEntity.self, from: Data(json.utf8))
+        XCTAssertEqual(item.targetId, "i1")
+        XCTAssertEqual(item.boardId, "b1")
+        XCTAssertEqual(item.source, DomainContract.threadItemSourceUser)
+        XCTAssertEqual(item.sortOrder, 2)
+        XCTAssertNil(item.addedBy)
+    }
+
+    // EXP-1284: the four thread reads — a team's threads by activity, a
+    // thread's items in order, the threads holding an issue (several, newest
+    // first), and the ONE thread of a run.
+    func testThreadQueries() async throws {
+        try await pool.write { db in
+            try ThreadEntity(
+                id: "t-old", teamId: "ws1", createdAt: "2026-10-12T09:00:00Z",
+                updatedAt: "2026-10-12T09:00:00Z"
+            ).save(db)
+            try ThreadEntity(
+                id: "t-new", teamId: "ws1", title: "Newest",
+                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T11:00:00Z"
+            ).save(db)
+            try ThreadEntity(
+                id: "t-other", teamId: "ws2", createdAt: "2026-10-12T09:00:00Z",
+                updatedAt: "2026-10-12T12:00:00Z"
+            ).save(db)
+            // i1 sits in BOTH ws1 threads; cs1 in t-new only.
+            try ThreadItemEntity(
+                id: "ti-b", threadId: "t-new", kind: DomainContract.threadItemKindIssue,
+                issueId: "i1", teamId: "ws1", boardId: "b1", sortOrder: 2,
+                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T09:00:00Z"
+            ).save(db)
+            try ThreadItemEntity(
+                id: "ti-a", threadId: "t-new", kind: DomainContract.threadItemKindRun,
+                sessionId: "cs1", teamId: "ws1", source: DomainContract.threadItemSourceAgent,
+                sortOrder: 1,
+                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T09:00:00Z"
+            ).save(db)
+            try ThreadItemEntity(
+                id: "ti-c", threadId: "t-old", kind: DomainContract.threadItemKindIssue,
+                issueId: "i1", teamId: "ws1", boardId: "b1",
+                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T09:00:00Z"
+            ).save(db)
+        }
+
+        let teamThreads = try await pool.read { db in
+            try ThreadQueries.threads(db: db, teamId: "ws1")
+        }
+        XCTAssertEqual(teamThreads.map(\.id), ["t-new", "t-old"])
+
+        let items = try await pool.read { db in
+            try ThreadQueries.items(db: db, threadId: "t-new")
+        }
+        XCTAssertEqual(items.map(\.id), ["ti-a", "ti-b"])
+
+        let holding = try await pool.read { db in
+            try ThreadQueries.threadsHoldingIssue(db: db, issueId: "i1")
+        }
+        XCTAssertEqual(holding.map(\.id), ["t-new", "t-old"])
+        let none = try await pool.read { db in
+            try ThreadQueries.threadsHoldingIssue(db: db, issueId: "i-missing")
+        }
+        XCTAssertTrue(none.isEmpty)
+
+        let ofRun = try await pool.read { db in
+            try ThreadQueries.threadOfSession(db: db, sessionId: "cs1")
+        }
+        XCTAssertEqual(ofRun?.id, "t-new")
+        // An issue id is never mistaken for a run's.
+        let notARun = try await pool.read { db in
+            try ThreadQueries.threadOfSession(db: db, sessionId: "i1")
+        }
+        XCTAssertNil(notARun)
+    }
+
     func testIssuelessNotificationInsertPersistsTeamId() async throws {
         // The notifications shape carries team_id — set on issue-less
         // agent_message / session_blocked rows (the helpdesk (gone, SLOP-4)

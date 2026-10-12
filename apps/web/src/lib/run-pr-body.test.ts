@@ -10,11 +10,17 @@ const state = vi.hoisted(() => ({
   patch: vi.fn(async (_opts: unknown) => {}),
   // The stamp's row-locked read-modify-write: what it SET on the row.
   updates: [] as Array<Record<string, unknown>>,
+  thread: null as { id: string; teamId: string } | null,
+  // EXP-1284: the thread's runs holding an open PR (the sibling sync read).
+  siblings: [] as Array<{ id: string; prUrl: string | null }>,
 }))
 
 vi.mock(`@/db/connection`, () => {
   const chain: Record<string, unknown> = {}
-  for (const name of [`from`, `leftJoin`, `where`]) chain[name] = () => chain
+  for (const name of [`from`, `leftJoin`, `innerJoin`, `where`]) chain[name] = () => chain
+  // Only the sibling read awaits the chain itself (no `.limit`).
+  chain.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
+    Promise.resolve(state.siblings).then(resolve, reject)
   const read = async () => {
     if (state.selectThrows) throw new Error(`db down`)
     return state.row ? [state.row] : []
@@ -51,6 +57,10 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
 vi.mock(`@/lib/trpc/pr-update`, () => ({
   patchPullDescription: (opts: unknown) => state.patch(opts),
 }))
+// EXP-1284: the run's thread; null = the run's own row is the Guide.
+vi.mock(`@/lib/threads`, () => ({
+  getThreadOfSession: async () => state.thread,
+}))
 
 import {
   loadRunReport,
@@ -79,6 +89,8 @@ beforeEach(() => {
   state.token = { token: `tok`, installationId: 1, expiresAt: 0 }
   state.patch.mockReset()
   state.updates.length = 0
+  state.thread = null
+  state.siblings = []
 })
 
 // EXP-1251: the untagged topics a run filed before its PR opened belong to
@@ -136,6 +148,35 @@ describe(`stampRunResultsPrUrl`, () => {
   })
 })
 
+// EXP-1284: the Guide is the run's THREAD's.
+describe(`the thread's Guide`, () => {
+  const untagged = { topic: `Summary`, label: null, attachmentId: null, text: `Did it` }
+
+  it(`the PR body reads the thread's Guide, the run's own results only without one`, async () => {
+    state.row = {
+      ...baseRow,
+      results: [{ ...untagged, text: `Stale mirror` }],
+      threadResults: [{ ...untagged, text: `The thread's words` }],
+    }
+    expect((await loadRunReport(`s1`))?.results).toEqual([
+      { ...untagged, text: `The thread's words` },
+    ])
+    state.row = { ...baseRow, threadResults: null }
+    expect((await loadRunReport(`s1`))?.results).toEqual(report)
+  })
+
+  it(`the prUrl stamp writes the thread's Guide and mirrors it onto the run`, async () => {
+    state.thread = { id: `th-1`, teamId: `t-1` }
+    state.row = { results: [untagged] }
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(true)
+    expect(state.updates).toHaveLength(2)
+    expect(state.updates[0]!.results).toEqual(state.updates[1]!.results)
+    expect((state.updates[0]!.results as Array<{ prUrl?: string }>)[0]!.prUrl).toBe(
+      `https://github.com/acme/web/pull/7`
+    )
+  })
+})
+
 describe(`loadRunReport`, () => {
   it(`links an issue run to the issue's Guide`, async () => {
     expect((await loadRunReport(`s1`))?.resultsUrl).toBe(
@@ -184,6 +225,28 @@ describe(`syncRunPrBody`, () => {
     expect(call.token).toBe(`tok`)
     expect(call.fields.title).toBeUndefined()
     expect(call.fields.body).toContain(`Did it`)
+  })
+
+  it(`also re-patches the thread's other open PRs, once per PR (EXP-1284)`, async () => {
+    state.thread = { id: `t1`, teamId: `team` }
+    state.siblings = [
+      { id: `s1`, prUrl: `https://github.com/acme/web/pull/7` },
+      { id: `s2`, prUrl: `https://github.com/acme/web/pull/8` },
+      { id: `s3`, prUrl: `https://github.com/acme/web/pull/8` },
+      { id: `s4`, prUrl: `https://github.com/acme/web/pull/7` },
+    ]
+    expect(await syncRunPrBody(`s1`)).toBe(`synced`)
+    await vi.waitFor(() => expect(state.patch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(pendingRunPrBodySyncs()).toBe(0))
+    expect(state.patch).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a targeted sync (pr_open's expectPrUrl) stays on the run`, async () => {
+    state.thread = { id: `t1`, teamId: `team` }
+    state.siblings = [{ id: `s2`, prUrl: `https://github.com/acme/web/pull/8` }]
+    await syncRunPrBody(`s1`, { expectPrUrl: `https://github.com/acme/web/pull/7` })
+    await vi.waitFor(() => expect(pendingRunPrBodySyncs()).toBe(0))
+    expect(state.patch).toHaveBeenCalledTimes(1)
   })
 
   it(`skips without an open PR or report text`, async () => {

@@ -54,6 +54,8 @@ import {
 import { runIsStaleEnd } from "@/lib/past-runs"
 import { findLiveResumeId } from "@/lib/steer-child-messages"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
+import { resolveTeamAccess } from "@/lib/auth/access"
+import { getThread } from "@/lib/threads"
 import {
   findLiveRunForIssues,
   liveRunConflictMessage,
@@ -367,6 +369,11 @@ export const steerRouter = router({
           // new run is unattended, so its close-out ends it. The parent
           // linkage itself is stamped server-side by the MCP tool.
           parentSessionId: z.string().uuid().optional(),
+          // EXP-1284: start the run INTO this thread (the composer's "start a
+          // run here", MCP `sessions_start{threadId}`). Must be a thread of
+          // the subject's team; rides the frame as top-level `threadId` and
+          // the device echoes it into codingSessions.start, which joins it.
+          threadId: z.string().uuid().optional(),
         })
         .refine(
           (value) =>
@@ -390,6 +397,14 @@ export const steerRouter = router({
           // the transcript into it, the credential never moves), so it rides
           // a resume on purpose.
           if (value.resumeSessionId) {
+            // EXP-1284: a resume stays in its predecessor's thread.
+            if (value.threadId !== undefined) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [`threadId`],
+                message: `a resumed run stays in its predecessor's thread`,
+              })
+            }
             const conflicting = (
               [
                 `resume`,
@@ -661,6 +676,32 @@ export const steerRouter = router({
       // (lib/mcp-servers-guard.ts).
       const assertMcpServersInTeam = (teamId: string) =>
         assertMcpServersInTeamGuard(input.mcpServerIds, teamId)
+
+      // EXP-1284: the requested thread must exist, be readable to the caller
+      // and belong to the subject's team — checked before the frame leaves,
+      // so a foreign id is refused here instead of silently falling through
+      // to the default placement on the device's codingSessions.start. One
+      // message for "missing" and "foreign": a thread id never probes
+      // another team.
+      const startThread = async (
+        teamId: string
+      ): Promise<{ threadId?: string }> => {
+        if (!input.threadId) return {}
+        const { db } = await import(`@/db/connection`)
+        const thread = await getThread(db, input.threadId)
+        const refuse = () =>
+          new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `threadId must name a thread of the run's team`,
+          })
+        if (!thread || thread.teamId !== teamId) throw refuse()
+        try {
+          await resolveTeamAccess(userId, thread.teamId, `comment`)
+        } catch {
+          throw refuse()
+        }
+        return { threadId: thread.id }
+      }
 
       const targetDeviceColumns = {
         agents: devicesTable.agents,
@@ -991,6 +1032,8 @@ export const steerRouter = router({
           inputDefs = row.inputs
         }
 
+        const actionThread = await startThread(action.teamId)
+
         // Validate + resolve the filled input values against the schema —
         // display names ride the frame so the desktop needs no lookups.
         const resolved = await resolveActionInputs(
@@ -1189,6 +1232,7 @@ export const steerRouter = router({
           startId,
           ...(shared ? { startedBy: userId } : {}),
           ...agentStarted,
+          ...actionThread,
           actionId: action.id,
           actionName: action.name,
           teamId: action.teamId,
@@ -1241,6 +1285,7 @@ export const steerRouter = router({
       }
       const teamId = contexts[0]!.teamId
       await assertTeamMember(userId, teamId)
+      const issueThread = await startThread(teamId)
       const { db } = await import(`@/db/connection`)
       // FEED-57/46/47: a live run on any target issue (its own, or a batch
       // covering it) makes the device drop the frame silently, and the
@@ -1336,6 +1381,7 @@ export const steerRouter = router({
             startId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
+            ...issueThread,
               issueId: input.issueId,
             ...(prompt ? { prompt } : {}),
             ...options,
@@ -1346,6 +1392,7 @@ export const steerRouter = router({
             startId,
             ...(shared ? { startedBy: userId } : {}),
             ...agentStarted,
+            ...issueThread,
               issueIds: ids,
             teamId,
             repo: repo!,

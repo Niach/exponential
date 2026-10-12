@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { codingSessions, sessionAttachments } from "@/db/schema"
+import { sessionAttachments } from "@/db/schema"
 import type { CodingSessionResult } from "@exp/db-schema/domain"
 import { deleteObject } from "@/lib/storage"
 import {
@@ -14,14 +14,19 @@ import {
   nextShowLabel,
   upsertSessionResult,
 } from "@/lib/session-result-writes"
+import { lockRunGuide, writeRunGuide } from "@/lib/thread-guide"
 
 // EXP-879/EXP-1172: the ONE write behind every published picture — the
 // token-gated upload route (`sessions_guide` and `sessions_show` grants)
 // and `exponential_sessions_show`'s `dataBase64`. The object is already put
 // (`prepareSessionImage*`); this lands the `session_attachments` row and the
-// `coding_sessions.results` entry inside a transaction holding `FOR UPDATE`
-// on the run (a jsonb read-modify-write: two pictures in flight would
-// otherwise lose one another), then reclaims a replaced picture's bytes.
+// Guide entry inside a transaction holding `FOR UPDATE` on the run (a jsonb
+// read-modify-write: two pictures in flight would otherwise lose one
+// another), then reclaims a replaced picture's bytes.
+// EXP-1284: the Guide is the run's THREAD's (`lib/thread-guide.ts`: the run
+// lock, then the thread's, the array mirrored onto the run's own row). A
+// picture another run of the thread filed under the same (topic, label) is
+// displaced like any other: its row and bytes go too.
 
 export interface SessionResultPicture {
   sessionId: string
@@ -55,15 +60,7 @@ export async function publishSessionResultPicture(
 
   try {
     await db.transaction(async (tx) => {
-      const [locked] = await tx
-        .select({
-          id: codingSessions.id,
-          results: codingSessions.results,
-        })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, input.sessionId))
-        .limit(1)
-        .for(`update`)
+      const locked = await lockRunGuide(tx, input.sessionId)
 
       if (!locked) {
         throw new TRPCError({
@@ -120,10 +117,7 @@ export async function publishSessionResultPicture(
         displacedStorageKey = gone?.storageKey ?? null
       }
 
-      await tx
-        .update(codingSessions)
-        .set({ results: upsert.results, updatedAt: new Date() })
-        .where(eq(codingSessions.id, input.sessionId))
+      await writeRunGuide(tx, locked, upsert.results)
     })
   } catch (error) {
     // The row never landed, so the object it points at is garbage, unless

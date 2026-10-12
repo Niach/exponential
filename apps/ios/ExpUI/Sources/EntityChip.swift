@@ -35,6 +35,7 @@ public enum EntityChipIcon {
         "nav-notifications": AppIcons.navNotifications,
         "ui-attach": AppIcons.uiAttach,
         "ui-checklist": AppIcons.uiChecklist,
+        "work-faces": AppIcons.workFaces,
     ]
 
     /// The glyph a concept draws; an unknown concept wears the list glyph,

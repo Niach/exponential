@@ -187,6 +187,11 @@ pub struct RemoteStart {
     /// [`remote_start_from_frame`]; `None` on pre-FEED-63
     /// frames.
     pub start_id: Option<String>,
+    /// EXP-1284: the frame's `threadId` — the thread this start joins,
+    /// echoed into `codingSessions.start`. Set after
+    /// [`remote_start_from_frame`] and dropped on a resume
+    /// ([`start_thread_id`]); `None` on pre-threads frames.
+    pub thread_id: Option<String>,
 }
 
 /// EXP-1249: the frame's per-run `computerUse`, kept for a fresh start and
@@ -196,6 +201,15 @@ pub(crate) fn start_computer_use(start: &RemoteStart, computer_use: Option<bool>
     match start.subject {
         RemoteStartSubject::Resume { .. } => None,
         _ => computer_use,
+    }
+}
+
+/// EXP-1284: the frame's `threadId`, kept for a fresh start and dropped on
+/// a resume — the server keeps a resumed run in its predecessor's thread.
+pub(crate) fn start_thread_id(start: &RemoteStart, thread_id: Option<String>) -> Option<String> {
+    match start.subject {
+        RemoteStartSubject::Resume { .. } => None,
+        _ => thread_id,
     }
 }
 
@@ -304,6 +318,7 @@ pub(crate) fn remote_start_from_frame(
             subagent_model: None,
             computer_use: None,
             start_id: None,
+            thread_id: None,
         });
     }
     let subject = match (issue_id, issue_ids, action_id) {
@@ -340,6 +355,7 @@ pub(crate) fn remote_start_from_frame(
         subagent_model,
         computer_use: None,
         start_id: None,
+        thread_id: None,
     })
 }
 
@@ -715,6 +731,7 @@ async fn connect_and_listen(
                             subagent_model,
                             computer_use,
                             start_id,
+                            thread_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
@@ -724,6 +741,7 @@ async fn connect_and_listen(
                             Some(mut start) => {
                                 start.start_id = start_id;
                                 start.computer_use = start_computer_use(&start, computer_use);
+                                start.thread_id = start_thread_id(&start, thread_id);
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
                                 on_start_session(start);
                             }
@@ -850,6 +868,14 @@ mod tests {
         assert_eq!(start_computer_use(&fresh, None), None);
         let resumed = frame(Some("sess-old"));
         assert_eq!(start_computer_use(&resumed, Some(true)), None);
+        // EXP-1284: the requested thread follows the same rule — a resume
+        // stays in its predecessor's thread.
+        assert_eq!(
+            start_thread_id(&fresh, Some("th-1".to_string())).as_deref(),
+            Some("th-1")
+        );
+        assert_eq!(start_thread_id(&fresh, None), None);
+        assert_eq!(start_thread_id(&resumed, Some("th-1".to_string())), None);
     }
 
     /// EXP-637: a resume is its OWN subject. It excludes every other one,
@@ -1030,6 +1056,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
 
@@ -1076,6 +1103,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }
@@ -1132,6 +1160,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }
@@ -1177,6 +1206,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }
@@ -1396,6 +1426,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -1496,6 +1527,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }

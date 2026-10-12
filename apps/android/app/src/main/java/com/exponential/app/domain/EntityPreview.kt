@@ -96,6 +96,7 @@ object EntityPreview {
         "notification" to "nav-notifications",
         "attachment" to "ui-attach",
         "list" to "ui-checklist",
+        "thread" to "work-faces",
     )
 
     private val NOUNS: Map<String, Pair<String, String>> = mapOf(
@@ -114,6 +115,7 @@ object EntityPreview {
         "notification" to ("notification" to "notifications"),
         "attachment" to ("attachment" to "attachments"),
         "list" to ("list" to "lists"),
+        "thread" to ("thread" to "threads"),
     )
 
     /** The product noun for a kind: singular for [count] 1, plural otherwise.

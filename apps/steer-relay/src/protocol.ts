@@ -828,6 +828,11 @@ export interface StartSessionOptions {
    * incl. a resume. Verbatim pass-through: the device reports a failed start
    * back to the web server under it. Absent from older web builds. */
   startId?: string
+  /** EXP-1284: the thread the run starts into (composer "start a run here",
+   * MCP `sessions_start{threadId}`). Verbatim pass-through the device echoes
+   * into `codingSessions.start`; never on a resume (it stays in its
+   * predecessor's thread). The web server validated it. */
+  threadId?: string
 }
 
 /** Server-resolved repo group for a BATCH or ACTION remote start — the

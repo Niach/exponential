@@ -44,6 +44,7 @@ import {
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
 import { storedTriggers } from "@/lib/action-trigger-rules"
+import { joinThreadForStart, type StartSubject } from "@/lib/threads"
 
 // Built-in action runs (EXP-257/EXP-259) have no DB row to FK — their session
 // rows are batch-shaped (actionId NULL) with the server-constant name
@@ -412,6 +413,36 @@ async function adoptPredecessor(
   if (carriedReport && session.prUrl) {
     const { syncRunPrBody } = await import(`@/lib/run-pr-body`)
     await syncRunPrBody(session.id)
+  }
+}
+
+/** EXP-1284: every start opens or joins a thread AFTER its row exists
+ * (`joinThreadForStart`: a resume stays in its predecessor's thread, a
+ * requested `threadId` of the run's team is joined, an issue joins the
+ * issue's newest thread, everything else opens a fresh one). ONE transaction,
+ * so a half-placed run never leaves an empty thread behind. Placement never
+ * fails a start: the row is the device's launch handshake, so a refusal here
+ * is logged and the run answers `threadId: null` (a later heartbeat echo or
+ * MCP `threads_link` can still place it). */
+async function placeRunInThread(
+  db: Context[`db`],
+  session: { id: string; teamId: string; userId: string; resumedFromId?: string | null },
+  subject: StartSubject,
+  requestedThreadId: string | undefined
+): Promise<string | null> {
+  try {
+    const thread = await db.transaction((tx) =>
+      joinThreadForStart(tx, {
+        session: { id: session.id, teamId: session.teamId, userId: session.userId },
+        subject,
+        predecessorId: session.resumedFromId ?? null,
+        requestedThreadId: requestedThreadId ?? null,
+      })
+    )
+    return thread.id
+  } catch (e) {
+    console.error(`[threads] placing run ${session.id} failed`, e)
+    return null
   }
 }
 
@@ -875,6 +906,13 @@ export const codingSessionsRouter = router({
           // EXP-637: the ended run this one continues (desktop Resume or
           // steer.startSession({ resumeSessionId })). History only.
           resumedFromId: z.string().uuid().optional(),
+          // EXP-1284: the thread this run starts INTO (the start frame's
+          // `threadId`, echoed by the device; the composer's "start a run
+          // here", MCP `sessions_start{threadId}`). Lenient like every other
+          // start echo: a vanished or foreign thread falls through to the
+          // default placement, never a refused start. A resume's
+          // predecessor thread wins over it.
+          threadId: z.string().uuid().optional(),
           // EXP-484: the agent CLI running the session, recorded so every
           // client can name it (and pair the run with the host device's usage
           // windows). Absent on rows from clients that predate it.
@@ -997,8 +1035,14 @@ export const codingSessionsRouter = router({
         if (predecessor) {
           await adoptPredecessor(ctx.db, predecessor, started)
         }
+        const threadId = await placeRunInThread(
+          ctx.db,
+          session,
+          input.actionId === BUILTIN_CHAT_ID ? { kind: `chat` } : { kind: `action` },
+          input.threadId
+        )
 
-        return { session }
+        return { session, threadId }
       }
 
       if (input.actionId) {
@@ -1070,8 +1114,14 @@ export const codingSessionsRouter = router({
         if (predecessor) {
           await adoptPredecessor(ctx.db, predecessor, started)
         }
+        const threadId = await placeRunInThread(
+          ctx.db,
+          session,
+          { kind: `action` },
+          input.threadId
+        )
 
-        return { session }
+        return { session, threadId }
       }
 
       if (input.issueId) {
@@ -1118,8 +1168,14 @@ export const codingSessionsRouter = router({
         if (predecessor) {
           await adoptPredecessor(ctx.db, predecessor, started)
         }
+        const threadId = await placeRunInThread(
+          ctx.db,
+          session,
+          { kind: `issue`, issueId: input.issueId },
+          input.threadId
+        )
 
-        return { session }
+        return { session, threadId }
       }
 
       await assertTeamMember(ctx.session.user.id, input.teamId!)
@@ -1172,8 +1228,14 @@ export const codingSessionsRouter = router({
       if (predecessor) {
         await adoptPredecessor(ctx.db, predecessor, started)
       }
+      const threadId = await placeRunInThread(
+        ctx.db,
+        session,
+        { kind: `batch`, issueIds: batchIssueIds ?? [] },
+        input.threadId
+      )
 
-      return { session }
+      return { session, threadId }
     }),
 
   // Liveness ping from the desktop while the claude child is alive. The
@@ -1236,6 +1298,10 @@ export const codingSessionsRouter = router({
           // EXP-909: echoed so a resurrected row keeps naming the LOGIN it
           // spends (the usage readout would otherwise fall back to a guess).
           agentAccount: z.string().min(1).max(64).optional(),
+          // EXP-1284: the thread the run sits in, echoed so a resurrected row
+          // REJOINS it (the sweep's delete cascaded its thread item away).
+          // Absent or stale = the default placement for its scope.
+          threadId: z.string().uuid().optional(),
         })
         .refine((value) => !(value.branch && value.issueId), {
           message: `branch excludes issueId — an issue session's branch lives on the issue`,
@@ -1321,6 +1387,12 @@ export const codingSessionsRouter = router({
                   : `running`,
               ...(merged ? { endedAt: new Date() } : {}),
             })
+            await placeRunInThread(
+              ctx.db,
+              { id: input.id, teamId: issueCtx.teamId, userId: attribution.userId },
+              { kind: `issue`, issueId: input.issueId },
+              input.threadId
+            )
           } else {
             await assertTeamMember(ctx.session.user.id, input.teamId!)
             const attribution = await resolveStartAttribution(
@@ -1431,6 +1503,16 @@ export const codingSessionsRouter = router({
               // label only; rare suspend edge, never kills anything).
               status: `running`,
             })
+            await placeRunInThread(
+              ctx.db,
+              { id: input.id, teamId: input.teamId!, userId: attribution.userId },
+              input.actionId === BUILTIN_CHAT_ID
+                ? { kind: `chat` }
+                : input.actionId
+                  ? { kind: `action` }
+                  : { kind: `batch`, issueIds: batchIssueIds ?? [] },
+              input.threadId
+            )
           }
           return { alive: true }
         } catch {

@@ -101,6 +101,9 @@ const h = vi.hoisted(() => {
     findLiveResumeId: vi.fn(async (): Promise<string | null> => null),
     dbQueue,
     db: { select: () => makeChain() },
+    // EXP-1284: the requested thread's lookup + its team gate.
+    getThread: vi.fn(),
+    resolveTeamAccess: vi.fn(),
   }
 })
 
@@ -128,6 +131,10 @@ vi.mock(`@/lib/trpc/coding-sessions`, async (importOriginal) => ({
 }))
 vi.mock(`@/lib/steer-child-messages`, () => ({
   findLiveResumeId: h.findLiveResumeId,
+}))
+vi.mock(`@/lib/threads`, () => ({ getThread: h.getThread }))
+vi.mock(`@/lib/auth/access`, () => ({
+  resolveTeamAccess: h.resolveTeamAccess,
 }))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
@@ -239,6 +246,10 @@ beforeEach(() => {
   h.findLiveRunForIssues.mockReset()
   h.findLiveRunForIssues.mockResolvedValue(null)
   h.dbQueue.length = 0
+  h.getThread.mockReset()
+  h.getThread.mockResolvedValue(null)
+  h.resolveTeamAccess.mockReset()
+  h.resolveTeamAccess.mockResolvedValue({ kind: `member` })
 })
 
 describe(`steer.startSession — subject XOR`, () => {
@@ -2779,5 +2790,121 @@ describe(`steer.startSession — start failure channel (FEED-63)`, () => {
         reason: `x`,
       })
     ).resolves.toEqual({ recorded: false })
+  })
+})
+
+// EXP-1284: a start may name the thread it runs INTO. The id is checked here
+// (exists, the caller's, the subject's team) before the frame leaves, then
+// rides it top-level as `threadId` for the device to echo into
+// codingSessions.start. A resume never carries one.
+describe(`steer.startSession — threadId (EXP-1284)`, () => {
+  const THREAD_ID = `88888888-8888-4888-8888-888888888888`
+
+  it(`forwards the thread on a single-issue start`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, `ws-1`, `comment`)
+    expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, threadId: THREAD_ID })
+  })
+
+  it(`forwards the thread on a batch start`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(lastStartBody()).toMatchObject({
+      issueIds: [ISSUE_A, ISSUE_B],
+      threadId: THREAD_ID,
+    })
+  })
+
+  it(`forwards the thread on an action start`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueAction({ name: `Code review` })
+    queueOwnDevice()
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(lastStartBody()).toMatchObject({ actionId: ACTION_ID, threadId: THREAD_ID })
+  })
+
+  it(`forwards the thread on a builtin start, checked against its teamId`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: BUILTIN_TEAM_ID })
+    queueOwnDevice({ caps: [`start-prompt`] })
+    await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      prompt: `Look into the flaky test`,
+      threadId: THREAD_ID,
+    })
+    expect(lastStartBody()).toMatchObject({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      threadId: THREAD_ID,
+    })
+  })
+
+  it(`sends no threadId when none was asked for`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(`threadId` in lastStartBody()).toBe(false)
+    expect(h.getThread).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a thread that does not exist`, async () => {
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, threadId: THREAD_ID })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a thread of another team`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-other` })
+    queueAction()
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1`, threadId: THREAD_ID })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses when the caller fails the thread team's access`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    h.resolveTeamAccess.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
+    )
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, threadId: THREAD_ID })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a threadId together with resumeSessionId`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: SESSION_ID,
+        deviceId: `dev-1`,
+        threadId: THREAD_ID,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.getThread).not.toHaveBeenCalled()
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })

@@ -168,6 +168,10 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_teams_get: [`team`],
   exponential_teams_list: [`list`, `team`],
   exponential_teams_update: [`team`],
+  exponential_threads_get: [`thread`, `list`, `issue`, `list`, `session`],
+  exponential_threads_link: [`thread`, `issue`, `session`],
+  exponential_threads_unlink: [`thread`, `issue`, `session`],
+  exponential_threads_update: [`thread`],
 }
 
 /** The kinds a contract spec (`kind@path …`) names, in order. */

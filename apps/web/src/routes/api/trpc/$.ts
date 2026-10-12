@@ -35,6 +35,7 @@ import { widgetsRouter } from "@/lib/trpc/widgets"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
 import { pinsRouter } from "@/lib/trpc/pins"
+import { threadsRouter } from "@/lib/trpc/threads"
 import { importsRouter } from "@/lib/trpc/imports"
 
 export const appRouter = router({
@@ -69,6 +70,7 @@ export const appRouter = router({
   mcpGrants: mcpGrantsRouter,
   mcpServers: mcpServersRouter,
   pins: pinsRouter,
+  threads: threadsRouter,
   imports: importsRouter,
 })
 

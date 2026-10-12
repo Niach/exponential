@@ -976,6 +976,184 @@ extension IssueDraftEntity: Codable {
     }
 }
 
+// MARK: - Thread (EXP-1284)
+
+// The unit of work: a thread holds n issues and m runs (`thread_items`), and
+// every start opens or joins one. Team-scoped and member-visible (the 22nd
+// shape, `team_id IN (member teams)` — no board, no trash mirror). `title`
+// NULL = derived for display (the first issue's title, else the first run's
+// name). `results` is THE thread's Guide, stored as the raw jsonb TEXT off the
+// wire exactly like `coding_sessions.results` (same `{topic, …}` array, parsed
+// by `parseSessionResults`); `updated_at` bumps on every link/unlink, so it is
+// the activity sort. Mirrors packages/db-schema threads.
+public struct ThreadEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "threads"
+
+    public let id: String
+    public let teamId: String
+    /// nil = no explicit title; the display derives one from the items.
+    public let title: String?
+    /// The user who opened it; nil once their account is gone (FK SET NULL).
+    public let createdBy: String?
+    /// The thread's Guide — the raw jsonb TEXT, nil / `[]` = nothing yet.
+    public let results: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        title: String? = nil,
+        createdBy: String? = nil,
+        results: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.title = title
+        self.createdBy = createdBy
+        self.results = results
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, results
+        case teamId = "team_id"
+        case createdBy = "created_by"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: `results` is jsonb — raw text off the wire, a native array
+// from fixtures — through the same non-throwing helper as
+// `coding_sessions.results`, so a malformed Guide degrades one column, never
+// the row. A same-file extension keeps encode(to:) synthesis.
+extension ThreadEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
+        results = c.decodeWireJsonString(forKey: .results)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// MARK: - ThreadItem (EXP-1284)
+
+// One child of a thread (the 23rd shape, team-scoped with the static
+// board trash/archive predicates like every issue child): `kind` ∈ contract
+// `threadItemKind` names the ONE target column that is set — `issue_id` for
+// `issue`, `session_id` for `run`. An issue may sit in several threads (one
+// row each); a run sits in exactly ONE (linking it elsewhere MOVES the row).
+// `board_id` is the issue's board on issue items, nil on run items; the
+// server's board trash/archive mirrors are shape-excluded. `source` ∈
+// contract `threadItemSource` (`user` | `agent`; an agent link also names the
+// run that made it in `added_by_session_id`). Mirrors packages/db-schema
+// threadItems.
+public struct ThreadItemEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {
+    public static let databaseTableName = "thread_items"
+
+    public let id: String
+    public let threadId: String
+    /// `issue` | `run` (`DomainContract.threadItemKindValues`).
+    public let kind: String
+    public let issueId: String?
+    public let sessionId: String?
+    public let teamId: String
+    /// The issue's board (issue items only).
+    public let boardId: String?
+    public let addedBy: String?
+    public let addedBySessionId: String?
+    /// `user` | `agent` (`DomainContract.threadItemSourceValues`).
+    public let source: String
+    /// Ascending = display order within the thread.
+    public let sortOrder: Double
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        threadId: String,
+        kind: String,
+        issueId: String? = nil,
+        sessionId: String? = nil,
+        teamId: String,
+        boardId: String? = nil,
+        addedBy: String? = nil,
+        addedBySessionId: String? = nil,
+        source: String = DomainContract.threadItemSourceUser,
+        sortOrder: Double = 0,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.threadId = threadId
+        self.kind = kind
+        self.issueId = issueId
+        self.sessionId = sessionId
+        self.teamId = teamId
+        self.boardId = boardId
+        self.addedBy = addedBy
+        self.addedBySessionId = addedBySessionId
+        self.source = source
+        self.sortOrder = sortOrder
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    /// The one target id the row points at, whichever column carries it.
+    public var targetId: String? {
+        switch kind {
+        case DomainContract.threadItemKindIssue: issueId
+        case DomainContract.threadItemKindRun: sessionId
+        default: nil
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, kind, source
+        case threadId = "thread_id"
+        case issueId = "issue_id"
+        case sessionId = "session_id"
+        case teamId = "team_id"
+        case boardId = "board_id"
+        case addedBy = "added_by"
+        case addedBySessionId = "added_by_session_id"
+        case sortOrder = "sort_order"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+// Custom decode: `sort_order` comes off the Electric wire as Postgres text
+// (the pins precedent) and as a native number from fixtures; `source` has a
+// server default, so an absent one reads as `user`.
+extension ThreadItemEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        threadId = try c.decode(String.self, forKey: .threadId)
+        kind = try c.decode(String.self, forKey: .kind)
+        issueId = try c.decodeIfPresent(String.self, forKey: .issueId)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        boardId = try c.decodeIfPresent(String.self, forKey: .boardId)
+        addedBy = try c.decodeIfPresent(String.self, forKey: .addedBy)
+        addedBySessionId = try c.decodeIfPresent(String.self, forKey: .addedBySessionId)
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+            ?? DomainContract.threadItemSourceUser
+        sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
 // MARK: - Label
 
 public struct LabelEntity: FetchableRecord, PersistableRecord, Identifiable, Sendable {

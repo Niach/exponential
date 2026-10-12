@@ -52,6 +52,8 @@ import { Route as ApiSupportThreadRouteImport } from './routes/api/support/threa
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
+import { Route as ApiShapesThreadsRouteImport } from './routes/api/shapes/threads'
+import { Route as ApiShapesThreadItemsRouteImport } from './routes/api/shapes/thread-items'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
 import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
@@ -338,6 +340,16 @@ const ApiSupportAttachmentRoute = ApiSupportAttachmentRouteImport.update({
 const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
   id: '/api/shapes/users',
   path: '/api/shapes/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesThreadsRoute = ApiShapesThreadsRouteImport.update({
+  id: '/api/shapes/threads',
+  path: '/api/shapes/threads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesThreadItemsRoute = ApiShapesThreadItemsRouteImport.update({
+  id: '/api/shapes/thread-items',
+  path: '/api/shapes/thread-items',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesTeamsRoute = ApiShapesTeamsRouteImport.update({
@@ -769,6 +781,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
+  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
+  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -877,6 +891,8 @@ export interface FileRoutesByTo {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
+  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
+  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -990,6 +1006,8 @@ export interface FileRoutesById {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
+  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
+  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -1103,6 +1121,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
+    | '/api/shapes/thread-items'
+    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1211,6 +1231,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
+    | '/api/shapes/thread-items'
+    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1323,6 +1345,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
+    | '/api/shapes/thread-items'
+    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1426,6 +1450,8 @@ export interface RootRouteChildren {
   ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
+  ApiShapesThreadItemsRoute: typeof ApiShapesThreadItemsRoute
+  ApiShapesThreadsRoute: typeof ApiShapesThreadsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
   ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
@@ -1743,6 +1769,20 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/users'
       fullPath: '/api/shapes/users'
       preLoaderRoute: typeof ApiShapesUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/threads': {
+      id: '/api/shapes/threads'
+      path: '/api/shapes/threads'
+      fullPath: '/api/shapes/threads'
+      preLoaderRoute: typeof ApiShapesThreadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/thread-items': {
+      id: '/api/shapes/thread-items'
+      path: '/api/shapes/thread-items'
+      fullPath: '/api/shapes/thread-items'
+      preLoaderRoute: typeof ApiShapesThreadItemsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/teams': {
@@ -2408,6 +2448,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
+  ApiShapesThreadItemsRoute: ApiShapesThreadItemsRoute,
+  ApiShapesThreadsRoute: ApiShapesThreadsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
   ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,

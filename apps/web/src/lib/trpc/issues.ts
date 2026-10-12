@@ -15,6 +15,7 @@ import {
   labels,
   notifications,
   boards,
+  threadItems,
 } from "@/db/schema"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import {
@@ -106,6 +107,7 @@ import {
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { getThread, linkIssueToThread } from "@/lib/threads"
 import {
   awaitRebaseOffMergedBranch,
   basedOnMergedPr,
@@ -722,6 +724,10 @@ export const issuesRouter = router({
           // are reparented onto the new issue and the draft row is deleted,
           // all under this mutation's txId.
           draftId: z.string().uuid().optional(),
+          // EXP-1284: file the issue straight into this thread (the thread
+          // page's "new issue", MCP issues_create{threadId}), linked in the
+          // create transaction. Must be a thread of the board's team.
+          threadId: z.string().uuid().optional(),
         })
         // A brand-new issue has nothing to dedupe, and create has no canonical
         // issue to pair with — status='duplicate' + duplicateOfId=null breaks
@@ -843,6 +849,18 @@ export const issuesRouter = router({
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `The parent issue must be in the same team`,
+          })
+        }
+      }
+
+      // EXP-1284: the thread must be the issue's team's — checked before the
+      // transaction opens like the parent, so a refusal leaves no issue.
+      if (input.threadId) {
+        const thread = await getThread(ctx.db, input.threadId)
+        if (!thread || thread.teamId !== board.teamId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `The thread must be in the same team`,
           })
         }
       }
@@ -1008,6 +1026,20 @@ export const issuesRouter = router({
             teamId: board.teamId,
             actorUserId: ctx.session.user.id,
           })
+        }
+
+        // EXP-1284: the thread link rides the create transaction too; an
+        // agent's create (MCP, `ctx.viaMcp`) is stamped `agent`.
+        if (input.threadId) {
+          await linkIssueToThread(
+            tx,
+            { id: input.threadId, teamId: board.teamId },
+            issue.id,
+            {
+              userId: ctx.session.user.id,
+              source: ctx.viaMcp ? `agent` : `user`,
+            }
+          )
         }
 
         return { issue, txId, mentionedUserIds }
@@ -1541,6 +1573,11 @@ export const issuesRouter = router({
           .update(notifications)
           .set({ boardId: input.boardId })
           .where(eq(notifications.issueId, input.id))
+        // EXP-1284: the issue's thread items (one per thread holding it).
+        await tx
+          .update(threadItems)
+          .set({ boardId: input.boardId })
+          .where(eq(threadItems.issueId, input.id))
 
         await recordIssueEvent(tx, {
           issueId: input.id,

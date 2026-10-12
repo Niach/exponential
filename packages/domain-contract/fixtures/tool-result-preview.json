@@ -1028,6 +1028,39 @@
           "identifier": "EXP-1"
         }
       ]
+    },
+    {
+      "name": "threads_get: the thread, then its issues and its runs as two lists",
+      "tool": "mcp__exponential__exponential_threads_get",
+      "input": {},
+      "result": {
+        "id": "th-1",
+        "teamId": "t-1",
+        "title": "Checkout redesign",
+        "issues": [
+          { "id": "i-1", "identifier": "EXP-7", "title": "Checkout redesign", "status": "in_progress", "prUrl": null, "source": "user", "addedBySessionId": null }
+        ],
+        "runs": [
+          { "id": "s-1", "name": "Redesign checkout", "status": "running", "live": true, "issueId": "i-1", "source": "user", "addedBySessionId": null }
+        ]
+      },
+      "refs": [
+        { "kind": "thread", "id": "th-1", "title": "Checkout redesign" },
+        { "kind": "list", "id": "issue", "title": "issues", "count": 1 },
+        { "kind": "issue", "id": "i-1", "identifier": "EXP-7", "title": "Checkout redesign" },
+        { "kind": "list", "id": "session", "title": "sessions", "count": 1 },
+        { "kind": "session", "id": "s-1", "title": "Redesign checkout" }
+      ]
+    },
+    {
+      "name": "threads_link: an issue link names the thread and the issue",
+      "tool": "exponential_threads_link",
+      "input": { "issueId": "EXP-7" },
+      "result": { "threadId": "th-1", "issueId": "i-1", "added": true },
+      "refs": [
+        { "kind": "thread", "id": "th-1" },
+        { "kind": "issue", "id": "i-1" }
+      ]
     }
   ]
 }

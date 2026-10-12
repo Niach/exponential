@@ -1,6 +1,13 @@
-import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import type { ThreadItemSource } from "@exp/db-schema/domain"
-import { boards, issues, threadItems, threads, type Thread } from "@/db/schema"
+import {
+  boards,
+  codingSessions,
+  issues,
+  threadItems,
+  threads,
+  type Thread,
+} from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
 
 // EXP-1284 — the ONE place threads and their children are written. A thread
@@ -378,5 +385,68 @@ export async function listItemsOfThreads(db: Db, threadIds: string[]) {
     .select()
     .from(threadItems)
     .where(inArray(threadItems.threadId, threadIds))
+    .orderBy(asc(threadItems.sortOrder), asc(threadItems.createdAt))
+}
+
+/** EXP-1284 (MCP `exponential_threads_get`): the thread's VISIBLE issues in
+ * link order, with what an agent needs to decide about them (status, PR) and
+ * who linked each one. The caller applies its grant per `boardId`. */
+export async function listThreadIssueRows(db: Db, threadId: string) {
+  return db
+    .select({
+      id: issues.id,
+      identifier: issues.identifier,
+      title: issues.title,
+      status: issues.status,
+      statusId: issues.statusId,
+      boardId: issues.boardId,
+      teamId: boards.teamId,
+      prUrl: issues.prUrl,
+      prState: issues.prState,
+      source: threadItems.source,
+      addedBy: threadItems.addedBy,
+      addedBySessionId: threadItems.addedBySessionId,
+    })
+    .from(threadItems)
+    .innerJoin(issues, eq(issues.id, threadItems.issueId))
+    .innerJoin(boards, eq(boards.id, issues.boardId))
+    .where(and(eq(threadItems.threadId, threadId), boardVisible()))
+    .orderBy(asc(threadItems.sortOrder), asc(threadItems.createdAt))
+}
+
+/** EXP-1284: the thread's runs, oldest link first: the row's STATE only (a
+ * live run's words stay with its owner, EXP-312), minus runs on a trashed or
+ * archived board like every session read. `hostUserId` is for the caller's
+ * grant check; it never reaches a response. */
+export async function listThreadRunRows(db: Db, threadId: string) {
+  return db
+    .select({
+      id: codingSessions.id,
+      teamId: codingSessions.teamId,
+      boardId: codingSessions.boardId,
+      issueId: codingSessions.issueId,
+      userId: codingSessions.userId,
+      hostUserId: codingSessions.hostUserId,
+      status: codingSessions.status,
+      agentTitle: codingSessions.agentTitle,
+      actionName: codingSessions.actionName,
+      branch: codingSessions.branch,
+      prUrl: codingSessions.prUrl,
+      prState: codingSessions.prState,
+      parentSessionId: codingSessions.parentSessionId,
+      startedAt: codingSessions.startedAt,
+      endedAt: codingSessions.endedAt,
+      source: threadItems.source,
+      addedBySessionId: threadItems.addedBySessionId,
+    })
+    .from(threadItems)
+    .innerJoin(codingSessions, eq(codingSessions.id, threadItems.sessionId))
+    .where(
+      and(
+        eq(threadItems.threadId, threadId),
+        isNull(codingSessions.boardDeletedAt),
+        isNull(codingSessions.boardArchivedAt)
+      )
+    )
     .orderBy(asc(threadItems.sortOrder), asc(threadItems.createdAt))
 }

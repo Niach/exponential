@@ -116,6 +116,11 @@ pub enum LaunchOrigin {
         /// unattended: its prompt closes out with `exponential_sessions_end`
         /// LAST, and that call ends it. `None` = a person asked for this start.
         started_reason: Option<String>,
+        /// EXP-1284: the frame's `threadId` — the thread the requester asked
+        /// this start to JOIN. Echoed into `codingSessions.start` on every
+        /// fresh subject form (the api layer drops it beside a resume link).
+        /// `None` = the start opens or joins its default thread.
+        thread_id: Option<String>,
     },
 }
 
@@ -126,23 +131,31 @@ pub enum LaunchOrigin {
 /// one, otherwise THIS machine's steer deviceId ([`CodingDeps::device_id`],
 /// EXP-549) so the server can stamp `coding_sessions.device_id` and snapshot
 /// the machine's current label. `(None, None)` — the byte-identical legacy
-/// wire — when neither is known (tests).
+/// wire — when neither is known (tests). EXP-1284: a relay start also carries
+/// the thread its frame asked to join (`thread_id`).
 fn attribution<'a>(
     origin: &'a LaunchOrigin,
     deps: &'a CodingDeps,
 ) -> coding_sessions::Attribution<'a> {
-    let (started_by_id, relay_device_id) = match origin {
+    let (started_by_id, relay_device_id, thread_id) = match origin {
         LaunchOrigin::Relay {
             device_id,
             started_by,
+            thread_id,
             ..
-        } => (started_by.as_deref(), Some(device_id.as_str())),
-        _ => (None, None),
+        } => (
+            started_by.as_deref(),
+            Some(device_id.as_str()),
+            thread_id.as_deref(),
+        ),
+        _ => (None, None, None),
     };
     coding_sessions::Attribution {
         // Only a `started_by` relay start re-owns the row (EXP-432).
         started_by_id,
         device_id: relay_device_id.or(deps.device_id.as_deref()),
+        // EXP-1284: local starts join no requested thread (yet).
+        thread_id,
     }
 }
 
@@ -2084,6 +2097,9 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                 batch_issue_ids: Vec::new(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
+                // EXP-1284: the thread the start placed the run in, so a
+                // resurrected row rejoins it (`None` = an older server).
+                thread_id: session.thread_id.clone(),
             }
         }
         PrepareRequest::Batch(batch_req) => {
@@ -2110,6 +2126,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                     .collect(),
                 agent: agent.wire_id().map(str::to_string),
                 agent_account: Some(agent_account.clone()),
+                thread_id: session.thread_id.clone(),
             }
         }
         PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
@@ -2860,6 +2877,7 @@ fn prepare_action(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            thread_id: session.thread_id.clone(),
         },
         acp: AcpLaunch {
             prompt: rendered.clone(),
@@ -3585,6 +3603,7 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            thread_id: session.thread_id.clone(),
         },
         RunKind::Batch => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3604,6 +3623,7 @@ fn prepare_resume_run(
                 .collect(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            thread_id: session.thread_id.clone(),
         },
         _ => coding_sessions::HeartbeatScope {
             issue_id: None,
@@ -3618,6 +3638,7 @@ fn prepare_resume_run(
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
             agent_account: Some(agent_account.clone()),
+            thread_id: session.thread_id.clone(),
         },
     };
     let issue_identifier = match record.kind {
@@ -5678,6 +5699,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
                 claimant: "claim-1".to_string(),
                 started_by: None,
                 started_reason: Some("agent".to_string()),
+                thread_id: None,
             };
 
             match prepare(&PrepareRequest::Action(req), &deps) {
@@ -5984,6 +6006,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             claimant: "acct".to_string(),
             started_by: None,
             started_reason: started_reason.map(str::to_string),
+            thread_id: None,
         }
     }
 
@@ -6437,6 +6460,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             claimant: "acct".to_string(),
             started_by: None,
             started_reason: Some("agent".to_string()),
+            thread_id: None,
         };
 
         let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
@@ -6877,6 +6901,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             claimant: "acct".to_string(),
             started_by: None,
             started_reason: Some("agent".to_string()),
+            thread_id: None,
         };
 
         let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
@@ -6905,6 +6930,74 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             .find(|r| r.contains("codingSessions.start"))
             .expect("start mutation");
         assert!(start.contains(r#""startedReason":"agent""#), "{start}");
+    }
+
+    /// EXP-1284: a relay frame's `threadId` rides the start mutation, and the
+    /// thread the server answers (`{session, threadId}`) lands in the
+    /// heartbeat scope so a resurrected row rejoins it. A local start sends
+    /// none and an older server's thread-less answer leaves the scope empty.
+    #[test]
+    fn prepare_issue_relay_thread_rides_the_start_and_the_heartbeat() {
+        let dir = temp_dir("issue-relay-thread");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"},"threadId":"th-9"}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-42");
+        req.origin = LaunchOrigin::Relay {
+            device_id: "dev-1".to_string(),
+            claimant: "acct".to_string(),
+            started_by: None,
+            started_reason: None,
+            thread_id: Some("th-9".to_string()),
+        };
+
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.heartbeat_scope.thread_id.as_deref(), Some("th-9"));
+        let requests = captured.lock().unwrap();
+        let start = requests
+            .iter()
+            .find(|r| r.contains("codingSessions.start"))
+            .expect("start mutation");
+        assert!(start.contains(r#""threadId":"th-9""#), "{start}");
+        drop(requests);
+
+        // A local start against an older server: no thread on either side.
+        let dir = temp_dir("issue-local-thread");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (200, START_OK.to_string()),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.heartbeat_scope.thread_id, None);
+        let requests = captured.lock().unwrap();
+        assert!(!requests.iter().any(|r| r.contains("threadId")));
     }
 
     /// EXP-679: a LOCAL issue start is a person's — no reason anywhere, and

@@ -54,6 +54,7 @@ pub const ENTITY_REF_ICON: &[(&str, &str)] = &[
     ("notification", "nav-notifications"),
     ("attachment", "ui-attach"),
     ("list", "ui-checklist"),
+    ("thread", "work-faces"),
 ];
 
 const NOUNS: &[(&str, &str, &str)] = &[
@@ -72,6 +73,7 @@ const NOUNS: &[(&str, &str, &str)] = &[
     ("notification", "notification", "notifications"),
     ("attachment", "attachment", "attachments"),
     ("list", "list", "lists"),
+    ("thread", "thread", "threads"),
 ];
 
 /// The icon concept for a KIND, `None` for one this build does not know.

@@ -125,7 +125,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id"]
+             "v65_trigger_id", "v66_threads"]
         )
     }
 
@@ -177,7 +177,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id"]
+             "v65_trigger_id", "v66_threads"]
         )
     }
 
@@ -700,7 +700,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id"]
+             "v65_trigger_id", "v66_threads"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -800,7 +800,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
-             "v65_trigger_id"]
+             "v65_trigger_id", "v66_threads"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1525,6 +1525,76 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
+    // v66 (EXP-1284 threads): a store created before threads existed must
+    // gain both tables (+ their indexes) on upgrade. Two brand-new shapes
+    // have no offset rows, so no other shape's offset is touched.
+    func testThreadTablesAddedToExistingStore() throws {
+        let pool = try makePool("threads")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v65_trigger_id")
+        try pool.write { db in
+            XCTAssertFalse(try db.tableExists("threads"))
+            XCTAssertFalse(try db.tableExists("thread_items"))
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertTrue(try pool.read { db in try db.tableExists("threads") })
+        XCTAssertTrue(try pool.read { db in try db.tableExists("thread_items") })
+        XCTAssertEqual(
+            try columnNames(pool, "threads"),
+            ["id", "team_id", "title", "created_by", "results", "created_at", "updated_at"]
+        )
+        XCTAssertEqual(
+            try columnNames(pool, "thread_items"),
+            ["id", "thread_id", "kind", "issue_id", "session_id", "team_id", "board_id",
+             "added_by", "added_by_session_id", "source", "sort_order",
+             "created_at", "updated_at"]
+        )
+        let threadIndexed = try pool.read { db in
+            Set(try db.indexes(on: "threads").map(\.columns))
+        }
+        XCTAssertTrue(threadIndexed.contains(["team_id"]))
+        let itemIndexed = try pool.read { db in
+            Set(try db.indexes(on: "thread_items").map(\.columns))
+        }
+        XCTAssertTrue(itemIndexed.contains(["thread_id"]))
+        XCTAssertTrue(itemIndexed.contains(["team_id"]))
+        XCTAssertTrue(itemIndexed.contains(["issue_id"]))
+        XCTAssertTrue(itemIndexed.contains(["session_id"]))
+        // The nullable columns stay nullable (a NULL title = derived; run
+        // items carry no issue/board, issue items no session).
+        let nullable = try pool.read { db -> [String: Bool] in
+            var out: [String: Bool] = [:]
+            for col in try db.columns(in: "threads") { out["threads.\(col.name)"] = !col.isNotNull }
+            for col in try db.columns(in: "thread_items") { out["thread_items.\(col.name)"] = !col.isNotNull }
+            return out
+        }
+        XCTAssertEqual(nullable["threads.title"], true)
+        XCTAssertEqual(nullable["threads.results"], true)
+        XCTAssertEqual(nullable["thread_items.issue_id"], true)
+        XCTAssertEqual(nullable["thread_items.session_id"], true)
+        XCTAssertEqual(nullable["thread_items.board_id"], true)
+        XCTAssertEqual(nullable["thread_items.kind"], false)
+        // Other shapes' offsets are untouched.
+        let untouched = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "needs_refetch" FROM "electric_offsets" WHERE "shape" = 'coding-sessions'
+                    """
+            )
+        }
+        XCTAssertEqual(untouched?["handle"] as String?, "h")
+        XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false)
+        // Idempotent: a re-run converges (ifNotExists everywhere).
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
     func testFreshStoreHasIssueDraftId() throws {
         let pool = try makePool("issue-draft-id-fresh")
         try DatabaseManager.runMigrations(on: pool)
@@ -1539,7 +1609,7 @@ final class DatabaseMigrationTests: XCTestCase {
                       "attachments", "notifications", "issue_subscribers",
                       "issue_events", "coding_sessions", "actions",
                       "issue_statuses", "pins", "issue_drafts",
-                      "electric_offsets"] {
+                      "threads", "thread_items", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
@@ -1657,6 +1727,23 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertNotNil(draftStatusId)
         XCTAssertFalse(draftStatusId?.isNotNull ?? true)
+
+        // EXP-1284: threads (22nd shape) carry their Guide as jsonb TEXT, the
+        // items (23rd) the shape's allowlist — never the server-only board
+        // trash/archive mirrors.
+        XCTAssertEqual(
+            try columnNames(pool, "threads"),
+            ["id", "team_id", "title", "created_by", "results", "created_at", "updated_at"]
+        )
+        let threadItemCols = try columnNames(pool, "thread_items")
+        XCTAssertEqual(
+            threadItemCols,
+            ["id", "thread_id", "kind", "issue_id", "session_id", "team_id", "board_id",
+             "added_by", "added_by_session_id", "source", "sort_order",
+             "created_at", "updated_at"]
+        )
+        XCTAssertFalse(threadItemCols.contains("board_deleted_at"))
+        XCTAssertFalse(threadItemCols.contains("board_archived_at"))
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table
         // plus the nullable `status_id` on issues. `issues.status` STAYS as the

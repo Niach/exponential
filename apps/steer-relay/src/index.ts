@@ -354,6 +354,17 @@ app.post(`/start`, async (c) => {
     }
   }
 
+  // EXP-1284: threadId is an OPTIONAL pass-through on the three subject
+  // forms (never on a resume) — a PRESENT key must be a non-empty string
+  // ≤64 chars, else 400 (the startedBy stance).
+  let threadId: string | undefined
+  if (body && `threadId` in body) {
+    threadId = asString(body.threadId)
+    if (hasResume || !threadId || threadId.length > 64) {
+      return c.json({ error: `Bad request` }, 400)
+    }
+  }
+
   const options: StartSessionOptions = {
     ...(startedBy ? { startedBy } : {}),
     ...(startedReason ? { startedReason } : {}),
@@ -370,6 +381,7 @@ app.post(`/start`, async (c) => {
     ...(account ? { account } : {}),
     ...(prompt ? { prompt } : {}),
     ...(startId ? { startId } : {}),
+    ...(threadId ? { threadId } : {}),
   }
   const result = hub.startSession(userId, deviceId, subject, options)
   if (!result.ok) return c.json({ error: result.reason }, 404)

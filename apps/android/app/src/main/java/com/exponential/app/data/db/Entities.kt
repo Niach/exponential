@@ -780,6 +780,73 @@ data class IssueDraftEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
+// One thread (EXP-1284, the `threads` shape): the unit of work — n issues
+// and m runs (its `thread_items`), linked by the person or by the agent over
+// MCP. TEAM-scoped and member-visible: the shape is `team_id IN (member
+// teams)` with no board and no trash predicate. Every field but the PK
+// defaults: a column absent on the wire must never drop the row (the
+// attachments.uploader_id lesson).
+@Entity(
+    tableName = "threads",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class ThreadEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // Agent-editable; NULL = derived for display (the first issue's title,
+    // else the first run's name).
+    val title: String? = null,
+    // SET NULL server-side: the thread outlives its creator's account.
+    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy")
+    val createdBy: String? = null,
+    // THE thread's Guide (ONE per thread): the same `CodingSessionResult[]`
+    // jsonb as `coding_sessions.results`, kept as the raw TEXT off the wire
+    // exactly like it (that column stays a mirror for clients that predate
+    // threads). NULL or `[]` = nothing published.
+    @ColumnInfo(name = "results") @SerialName("results")
+    @Serializable(with = JsonAsStringSerializer::class) val results: String? = null,
+    // Bumped on every link/unlink — the activity sort.
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// One child of a thread (EXP-1284, the `thread-items` shape): `kind` (contract
+// `threadItemKind`: issue | run) names which of issue_id / session_id is set.
+// An issue may sit in several threads; a run in exactly ONE (linking it
+// elsewhere MOVES it). Board-scoped like every issue child — the shape is
+// team-scoped with the static trash/archive predicates, so an issue item
+// whose board is trashed or archived never arrives; run items carry no
+// board and always sync. Every field but the PK defaults.
+@Entity(
+    tableName = "thread_items",
+    indices = [Index("thread_id"), Index("issue_id"), Index("session_id"), Index("team_id")],
+)
+@Serializable
+data class ThreadItemEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "thread_id") @SerialName("thread_id") @JsonNames("threadId") val threadId: String = "",
+    // Contract `threadItemKind`; an unknown value (a newer server) renders
+    // nothing rather than dropping the row.
+    val kind: String = "",
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // Issue items only (trigger-derived from the issue); null on run items.
+    @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
+    // Who linked it, and the run when an agent did (source `agent`). Both
+    // SET NULL server-side: the link outlives either.
+    @ColumnInfo(name = "added_by") @SerialName("added_by") @JsonNames("addedBy") val addedBy: String? = null,
+    @ColumnInfo(name = "added_by_session_id") @SerialName("added_by_session_id") @JsonNames("addedBySessionId")
+    val addedBySessionId: String? = null,
+    // Contract `threadItemSource`: user | agent.
+    val source: String = com.exponential.app.domain.DomainContract.threadItemSourceUser,
+    // Ascending = display order (a Postgres double).
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
 @Entity(tableName = "electric_offsets")
 data class ElectricOffsetEntity(
     @PrimaryKey @ColumnInfo(name = "shape") val shape: String,

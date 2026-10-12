@@ -508,7 +508,7 @@ fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
         // and this machine is the one that ends that run (`ended_by: client`)
         // before re-entering it under the other login.
         steer::RemoteStartSubject::Resume { session_id } => {
-            let origin = relay_origin(cx, start.started_by.clone(), start.started_reason.clone());
+            let origin = relay_origin(cx, &start);
             match start.account.clone().filter(|id| !id.trim().is_empty()) {
                 Some(account) => {
                     if !crate::account_switch::end_then_resume_on_account(
@@ -726,7 +726,7 @@ fn remote_action_start(
             team_id,
             repo: crate::action_run::ActionRepo::Provided(repo_group),
             options,
-            origin: relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
+            origin: relay_origin(cx, &start),
             inputs,
             target: None,
             activate_app: true,
@@ -751,11 +751,10 @@ fn remote_action_start(
 /// login suppression consumes it wherever it does arrive). `started_reason`
 /// is EXP-679's: `agent` when another coding session asked for this start,
 /// which makes the run unattended (it gets the close-out tool that ends it).
-fn relay_origin(
-    cx: &App,
-    started_by: Option<String>,
-    started_reason: Option<String>,
-) -> LaunchOrigin {
+/// `thread_id` is EXP-1284's: the thread the requester asked this start to
+/// join (already dropped on a resume frame), echoed into
+/// `codingSessions.start`.
+fn relay_origin(cx: &App, start: &steer::RemoteStart) -> LaunchOrigin {
     let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
     let claimant = queries::active_account(cx)
         .map(|account| account.id)
@@ -763,8 +762,9 @@ fn relay_origin(
     LaunchOrigin::Relay {
         device_id,
         claimant,
-        started_by,
-        started_reason,
+        started_by: start.started_by.clone(),
+        started_reason: start.started_reason.clone(),
+        thread_id: start.thread_id.clone(),
     }
 }
 
@@ -835,7 +835,7 @@ fn remote_issue_start(
         return;
     }
 
-    let origin = relay_origin(cx, start.started_by.clone(), start.started_reason.clone());
+    let origin = relay_origin(cx, &start);
     // The remote client's composer choices (EXP-149), settings
     // defaults for anything it didn't send. Plan mode stays OFF unless the
     // client explicitly opted in (F7: an option-less start must never park
@@ -1097,7 +1097,7 @@ fn remote_batch_start(
         },
         issues,
         device_label: coding::default_device_label(),
-        origin: relay_origin(cx, start.started_by.clone(), start.started_reason.clone()),
+        origin: relay_origin(cx, &start),
         options,
         prompt: start.prompt.clone(),
     };

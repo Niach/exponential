@@ -1,7 +1,8 @@
 import { SESSION_RESULT_FILES_MAX } from "@exp/db-schema/domain"
 
 // EXP-1154: a run's PR body = a TEXT projection of its Guide (EXP-1251,
-// formerly the Results report; `coding_sessions.results`). GitHub cannot
+// formerly the Results report; EXP-1284: the run's THREAD's Guide,
+// `threads.results`, else the run's own `coding_sessions.results`). GitHub cannot
 // render our pictures (every attachment read is member-only), so the body
 // carries the Guide's words and file lists and closes with one link to the
 // issue's Guide, where the screenshots live. EXP-1251: a run that stacks a

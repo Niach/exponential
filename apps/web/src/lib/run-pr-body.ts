@@ -1,7 +1,13 @@
-import { eq } from "drizzle-orm"
-import type { CodingSessionResult } from "@exp/db-schema/domain"
+import { and, eq, isNotNull } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { boards, codingSessions, issues, teams } from "@/db/schema"
+import {
+  boards,
+  codingSessions,
+  issues,
+  teams,
+  threadItems,
+  threads,
+} from "@/db/schema"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import {
   appBaseUrl,
@@ -10,6 +16,8 @@ import {
 } from "@/lib/notification-email-policy"
 import { PR_BODY_RESULTS_LINK_LABEL, prBodyFromResults } from "@/lib/pr-body-from-results"
 import { stampUntaggedResults } from "@/lib/session-result-writes"
+import { guideOfRun, lockRunGuide, writeRunGuide } from "@/lib/thread-guide"
+import { getThreadOfSession } from "@/lib/threads"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
 
 // EXP-1154: the I/O half of "the PR body IS the run's report" (EXP-1251: its
@@ -18,6 +26,8 @@ import { patchPullDescription } from "@/lib/trpc/pr-update"
 // EXP-1251: each PR's body keeps only its own topics (`prUrl`) plus the
 // untagged ones; `stampRunResultsPrUrl` tags the untagged ones when the run
 // opens a NEW PR, so a later stacked PR never claims them.
+// EXP-1284: the Guide is the run's THREAD's (`threads.results`, else the
+// run's own results); the PR is still the one stamped on the run's row.
 // One module so the MCP tests mock all of it at once; the pure projection is
 // `pr-body-from-results.ts`.
 
@@ -35,6 +45,7 @@ export async function loadRunReport(sessionId: string): Promise<RunReport | null
     .select({
       id: codingSessions.id,
       results: codingSessions.results,
+      threadResults: threads.results,
       prUrl: codingSessions.prUrl,
       prNumber: codingSessions.prNumber,
       prState: codingSessions.prState,
@@ -46,6 +57,8 @@ export async function loadRunReport(sessionId: string): Promise<RunReport | null
     .leftJoin(issues, eq(issues.id, codingSessions.issueId))
     .leftJoin(boards, eq(boards.id, issues.boardId))
     .leftJoin(teams, eq(teams.id, codingSessions.teamId))
+    .leftJoin(threadItems, eq(threadItems.sessionId, codingSessions.id))
+    .leftJoin(threads, eq(threads.id, threadItems.threadId))
     .where(eq(codingSessions.id, sessionId))
     .limit(1)
   if (!row) return null
@@ -61,7 +74,7 @@ export async function loadRunReport(sessionId: string): Promise<RunReport | null
     resultsUrl = `${appBaseUrl()}${buildSessionDeepLinkPath(row.teamSlug, row.id)}?view=guide`
   }
   return {
-    results: row.results,
+    results: guideOfRun(row),
     prUrl: row.prUrl ?? null,
     prNumber: row.prNumber ?? null,
     prState: row.prState ?? null,
@@ -114,12 +127,26 @@ const syncChains = new Map<string, Promise<unknown>>()
 
 /** Re-patch the run's OPEN PR body from its report. Best effort: skipped
  *  without an open PR (or report text, unless `removal`), `failed` on any
- *  GitHub/DB error, never throws. Serialised per run id. */
+ *  GitHub/DB error, never throws. Serialised per run id.
+ *  EXP-1284: the Guide is the THREAD's, so a Guide write also re-patches the
+ *  open PRs of the thread's OTHER runs (each body keeps its own topics), in
+ *  the background; a targeted sync (`expectPrUrl`, pr_open) stays on the run. */
 export function syncRunPrBody(
   sessionId: string | null,
   opts: SyncRunPrBodyOptions = {}
 ): Promise<`synced` | `skipped` | `failed`> {
   if (!sessionId) return Promise.resolve(`skipped`)
+  const own = chainRunPrBodySync(sessionId, opts)
+  if (opts.expectPrUrl === undefined) {
+    void syncThreadSiblingPrBodies(sessionId, opts.removal === true)
+  }
+  return own
+}
+
+function chainRunPrBodySync(
+  sessionId: string,
+  opts: SyncRunPrBodyOptions
+): Promise<`synced` | `skipped` | `failed`> {
   const previous = syncChains.get(sessionId) ?? Promise.resolve()
   const run = previous.then(
     () => syncRunPrBodyNow(sessionId, opts),
@@ -130,6 +157,38 @@ export function syncRunPrBody(
     if (syncChains.get(sessionId) === run) syncChains.delete(sessionId)
   })
   return run
+}
+
+/** The other runs of the caller's thread holding an OPEN PR other than the
+ *  caller's (one per PR), each re-patched on its own chain. Never throws. */
+async function syncThreadSiblingPrBodies(
+  sessionId: string,
+  removal: boolean
+): Promise<void> {
+  try {
+    const ref = await getThreadOfSession(db, sessionId)
+    if (!ref) return
+    const rows = await db
+      .select({ id: codingSessions.id, prUrl: codingSessions.prUrl })
+      .from(threadItems)
+      .innerJoin(codingSessions, eq(codingSessions.id, threadItems.sessionId))
+      .where(
+        and(
+          eq(threadItems.threadId, ref.id),
+          eq(codingSessions.prState, `open`),
+          isNotNull(codingSessions.prUrl)
+        )
+      )
+    const own = rows.find((row) => row.id === sessionId)?.prUrl ?? null
+    const seen = new Set<string>(own ? [own] : [])
+    for (const row of rows) {
+      if (row.id === sessionId || !row.prUrl || seen.has(row.prUrl)) continue
+      seen.add(row.prUrl)
+      void chainRunPrBodySync(row.id, removal ? { removal } : {})
+    }
+  } catch (err) {
+    console.warn(`[run-pr-body] thread PR body sync failed for ${sessionId}`, err)
+  }
 }
 
 /** Test seam: how many runs have a sync chain in flight. */
@@ -177,8 +236,9 @@ async function syncRunPrBodyNow(
 /**
  * EXP-1251: call once a run's NEW PR is stamped on its row (`pr_open`): the
  * text topics it filed so far without a `prUrl` are that PR's, so they get
- * its url (under the run's row lock, a jsonb read-modify-write). Tagged
- * topics keep theirs. Best effort: false on any error, never throws.
+ * its url (under the run's row lock and its thread's, a jsonb
+ * read-modify-write of the thread's Guide, EXP-1284). Tagged topics keep
+ * theirs. Best effort: false on any error, never throws.
  *
  * `priorPrUrl` = the url the row carried BEFORE this PR (the caller's
  * snapshot; the park has overwritten the column by now). A run that already
@@ -194,22 +254,11 @@ export async function stampRunResultsPrUrl(
   const target = opts.priorPrUrl?.trim() || prUrl
   try {
     return await db.transaction(async (tx) => {
-      const [locked] = await tx
-        .select({ results: codingSessions.results })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, sessionId))
-        .limit(1)
-        .for(`update`)
+      const locked = await lockRunGuide(tx, sessionId)
       if (!locked) return false
-      const stamped = stampUntaggedResults(
-        (locked.results ?? null) as CodingSessionResult[] | null,
-        target
-      )
+      const stamped = stampUntaggedResults(locked.results, target)
       if (!stamped.changed) return false
-      await tx
-        .update(codingSessions)
-        .set({ results: stamped.results, updatedAt: new Date() })
-        .where(eq(codingSessions.id, sessionId))
+      await writeRunGuide(tx, locked, stamped.results)
       return true
     })
   } catch (err) {

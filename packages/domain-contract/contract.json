@@ -1324,6 +1324,50 @@
         "doneMany": "Updated {n} teams",
         "subjectKey": "id",
         "result": "none"
+      },
+      {
+        "name": "threads_get",
+        "title": "Read thread",
+        "blurb": "Reads a thread, the unit of work: its title, its issues and its runs.",
+        "progressive": "Reading thread",
+        "done": "Read thread",
+        "progressiveMany": "Reading {n} threads",
+        "doneMany": "Read {n} threads",
+        "subjectKey": "threadId",
+        "result": "none"
+      },
+      {
+        "name": "threads_link",
+        "title": "Add to thread",
+        "blurb": "Adds an issue or a run to a thread; a run moves, it sits in one thread.",
+        "progressive": "Adding to thread",
+        "done": "Added to thread",
+        "progressiveMany": "Adding {n} items to threads",
+        "doneMany": "Added {n} items to threads",
+        "subjectKey": "issueId",
+        "result": "none"
+      },
+      {
+        "name": "threads_unlink",
+        "title": "Remove from thread",
+        "blurb": "Detaches an issue or a run from a thread; a run gets a fresh thread of its own.",
+        "progressive": "Removing from thread",
+        "done": "Removed from thread",
+        "progressiveMany": "Removing {n} items from threads",
+        "doneMany": "Removed {n} items from threads",
+        "subjectKey": "issueId",
+        "result": "none"
+      },
+      {
+        "name": "threads_update",
+        "title": "Rename thread",
+        "blurb": "Sets or clears a thread's title.",
+        "progressive": "Renaming thread",
+        "done": "Renamed thread",
+        "progressiveMany": "Renaming {n} threads",
+        "doneMany": "Renamed {n} threads",
+        "subjectKey": "title",
+        "result": "none"
       }
     ]
   },
@@ -1460,7 +1504,11 @@
       { "name": "teams_create", "refs": "team@" },
       { "name": "teams_get", "refs": "team@" },
       { "name": "teams_list", "refs": "list:team@" },
-      { "name": "teams_update", "refs": "team@" }
+      { "name": "teams_update", "refs": "team@" },
+      { "name": "threads_get", "refs": "thread@ list:issue@issues list:session@runs" },
+      { "name": "threads_link", "refs": "thread@ issue@ session@" },
+      { "name": "threads_unlink", "refs": "thread@ issue@ session@" },
+      { "name": "threads_update", "refs": "thread@" }
     ]
   }
 }

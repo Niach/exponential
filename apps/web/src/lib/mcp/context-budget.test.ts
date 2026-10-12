@@ -395,6 +395,10 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_sessions_guide`,
     // EXP-1172: a screenshot when a picture helps, while it works.
     `exponential_sessions_show`,
+    // EXP-1284: the run's thread and what the agent links into it.
+    `exponential_threads_get`,
+    `exponential_threads_link`,
+    `exponential_threads_unlink`,
   ]) {
     expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
   }

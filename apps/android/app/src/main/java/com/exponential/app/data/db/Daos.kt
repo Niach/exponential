@@ -433,6 +433,78 @@ interface IssueDraftDao {
     suspend fun clear()
 }
 
+// EXP-1284: threads — the unit of work (n issues + m runs). Team-scoped like
+// the shape; lists sort by `updated_at`, which the server bumps on every
+// link/unlink (the activity sort).
+@Dao
+interface ThreadDao {
+    @Query("SELECT * FROM threads WHERE team_id = :teamId ORDER BY updated_at DESC, created_at DESC, id")
+    fun observeByTeam(teamId: String): Flow<List<ThreadEntity>>
+
+    // Phones list across EVERY member team (EXP-1186), banded by team.
+    @Query("SELECT * FROM threads ORDER BY updated_at DESC, created_at DESC, id")
+    fun observeAll(): Flow<List<ThreadEntity>>
+
+    @Query("SELECT * FROM threads WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<ThreadEntity?>
+
+    // The threads holding an issue (an issue may sit in several), newest
+    // activity first — the first one is where an issue start lands.
+    @Query(
+        "SELECT threads.* FROM threads INNER JOIN thread_items ON thread_items.thread_id = threads.id " +
+            "WHERE thread_items.issue_id = :issueId " +
+            "ORDER BY threads.updated_at DESC, threads.created_at DESC, threads.id",
+    )
+    fun observeHoldingIssue(issueId: String): Flow<List<ThreadEntity>>
+
+    // The ONE thread a run sits in (session_id is unique server-side).
+    @Query(
+        "SELECT threads.* FROM threads INNER JOIN thread_items ON thread_items.thread_id = threads.id " +
+            "WHERE thread_items.session_id = :sessionId LIMIT 1",
+    )
+    fun observeOfSession(sessionId: String): Flow<ThreadEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: ThreadEntity)
+
+    @Query("DELETE FROM threads WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM threads")
+    suspend fun clear()
+}
+
+// EXP-1284: a thread's children (issue | run items). Display order is
+// `sort_order` ascending, ties broken by creation.
+@Dao
+interface ThreadItemDao {
+    @Query("SELECT * FROM thread_items WHERE thread_id = :threadId ORDER BY sort_order, created_at, id")
+    fun observeByThread(threadId: String): Flow<List<ThreadItemEntity>>
+
+    // Every item of a team's threads — what a thread LIST needs to derive
+    // titles (first issue, else first run) and counts without a query per row.
+    @Query("SELECT * FROM thread_items WHERE team_id = :teamId ORDER BY thread_id, sort_order, created_at, id")
+    fun observeByTeam(teamId: String): Flow<List<ThreadItemEntity>>
+
+    @Query("SELECT * FROM thread_items ORDER BY thread_id, sort_order, created_at, id")
+    fun observeAll(): Flow<List<ThreadItemEntity>>
+
+    @Query("SELECT * FROM thread_items WHERE issue_id = :issueId ORDER BY created_at, id")
+    fun observeByIssue(issueId: String): Flow<List<ThreadItemEntity>>
+
+    @Query("SELECT * FROM thread_items WHERE session_id = :sessionId LIMIT 1")
+    fun observeBySession(sessionId: String): Flow<ThreadItemEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: ThreadItemEntity)
+
+    @Query("DELETE FROM thread_items WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM thread_items")
+    suspend fun clear()
+}
+
 @Dao
 interface AttachmentDao {
     @Query("SELECT * FROM attachments WHERE issue_id = :issueId ORDER BY created_at ASC")

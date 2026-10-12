@@ -1798,6 +1798,14 @@ pub enum ServerFrame {
         /// sender (then a failure stays log-only, as before).
         #[serde(default)]
         start_id: Option<String>,
+        /// EXP-1284: the thread the requester asked this start to JOIN
+        /// (`steer.startSession({threadId})`, a thread of the subject's
+        /// team). Echoed into `codingSessions.start({threadId})`; never on a
+        /// resume frame (the server refuses it beside `resumeSessionId`) and
+        /// absent on every pre-threads sender (the start then opens or joins
+        /// its default thread).
+        #[serde(default)]
+        thread_id: Option<String>,
     },
     /// EXP-773: a viewer asked for the transcript of a session that is no
     /// longer live, and the relay routed the ask to THIS device (the ticket
@@ -3239,6 +3247,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
     }
@@ -3375,6 +3384,27 @@ mod tests {
         }
     }
 
+    /// EXP-1284: the thread a start joins, camelCase and top-level; absent
+    /// on every pre-threads sender.
+    #[test]
+    fn start_session_deserializes_thread_id() {
+        match ServerFrame::parse(
+            r#"{"t":"start_session","actionId":"act-1","actionName":"Chat","teamId":"t-1","threadId":"th-1"}"#,
+        )
+        .unwrap()
+        {
+            ServerFrame::StartSession { thread_id, action_id, .. } => {
+                assert_eq!(thread_id.as_deref(), Some("th-1"));
+                assert_eq!(action_id.as_deref(), Some("act-1"));
+            }
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+        match ServerFrame::parse(r#"{"t":"start_session","issueId":"issue-9"}"#).unwrap() {
+            ServerFrame::StartSession { thread_id, .. } => assert_eq!(thread_id, None),
+            other => panic!("expected StartSession, got {other:?}"),
+        }
+    }
+
     #[test]
     fn start_session_deserializes_started_by() {
         // EXP-432: a shared-device start carries the requesting teammate's
@@ -3407,6 +3437,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
     }
@@ -3444,6 +3475,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
         // Absent (every person-started frame, and every pre-EXP-679 sender)
@@ -3537,6 +3569,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
     }
@@ -3576,6 +3609,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
     }
@@ -3616,6 +3650,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
     }
@@ -3670,6 +3705,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
     }
@@ -3710,6 +3746,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             }
         );
     }
