@@ -360,6 +360,7 @@ export function draftStartFingerprint(draft: {
     computerUse: options.computerUse,
     ultracode: options.ultracode,
     subagentModel: options.subagentModel,
+    resume: options.resume,
   })
 }
 

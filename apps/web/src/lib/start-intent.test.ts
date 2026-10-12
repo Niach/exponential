@@ -42,6 +42,7 @@ describe(`sameDraftStart (feedback-states.json starting.fingerprint)`, () => {
       computerUse: { computerUse: false },
       ultracode: { ultracode: true },
       subagentModel: { subagentModel: `haiku` },
+      "resume (the composer's Resume toggle; absent = false)": { resume: true },
     }
     expect(Object.keys(changes).sort()).toEqual([...FINGERPRINT.fields].sort())
     for (const change of Object.values(changes)) {

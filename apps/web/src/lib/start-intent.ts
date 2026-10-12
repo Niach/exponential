@@ -51,6 +51,8 @@ export interface DraftStartFields {
   computerUse?: boolean | null
   ultracode?: boolean | null
   subagentModel?: string | null
+  /** The composer's Resume toggle (continue the previous session). */
+  resume?: boolean | null
 }
 
 const asSet = (values: readonly string[] | null | undefined): string[] =>
@@ -79,6 +81,7 @@ export function draftStartKey(draft: DraftStartFields): string {
     draft.computerUse ?? null,
     draft.ultracode ?? null,
     draft.subagentModel ?? null,
+    draft.resume ?? false,
   ])
 }
 

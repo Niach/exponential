@@ -347,7 +347,8 @@
         "mcpServerIds (set)",
         "computerUse",
         "ultracode",
-        "subagentModel"
+        "subagentModel",
+        "resume (the composer's Resume toggle; absent = false)"
       ],
       "cases": [
         {
@@ -1017,6 +1018,63 @@
             "computerUse": null,
             "ultracode": false,
             "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "the Resume toggle switched on is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null,
+            "resume": true
           },
           "same": false
         }
