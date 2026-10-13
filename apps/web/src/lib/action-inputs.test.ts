@@ -14,8 +14,8 @@ const PR_ISSUE_ID = `44444444-4444-4444-8444-444444444444`
 // EXP-825: every input is a pick — the free-text kinds are gone (the start's
 // `prompt` carries that). `icon` stands in as the lookup-free required pick.
 const defs: ActionInputDef[] = [
-  { key: `topic`, label: `Topic`, type: `icon`, required: true },
-  { key: `notes`, label: `Notes`, type: `icon`, required: false },
+  { key: `topic`, label: `Topic`, type: `icon` as never, required: true },
+  { key: `notes`, label: `Notes`, type: `icon` as never, required: false },
   { key: `repo`, label: `Repository`, type: `repo`, required: false },
   { key: `board`, label: `Board`, type: `board`, required: false },
   { key: `pr`, label: `Pull request`, type: `pr`, required: false },
@@ -62,7 +62,7 @@ describe(`resolveActionInputs`, () => {
     expect(result).toEqual({
       ok: true,
       inputs: [
-        { key: `topic`, label: `Topic`, type: `icon`, value: `rocket`, display: `rocket` },
+        { key: `topic`, label: `Topic`, type: `icon` as never, value: `rocket`, display: `rocket` },
         {
           key: `repo`,
           label: `Repository`,
@@ -176,7 +176,7 @@ describe(`resolveActionInputs`, () => {
   // against the curated contract set instead of a team-scoped lookup, so it
   // must bypass the uuid gate the repo/board/pr branches share.
   const iconDefs: ActionInputDef[] = [
-    { key: `glyph`, label: `Icon`, type: `icon`, required: false },
+    { key: `glyph`, label: `Icon`, type: `icon` as never, required: false },
   ]
 
   it(`resolves a curated icon name without hitting a lookup`, async () => {
@@ -192,7 +192,7 @@ describe(`resolveActionInputs`, () => {
         {
           key: `glyph`,
           label: `Icon`,
-          type: `icon`,
+          type: `icon` as never,
           value: `rocket`,
           display: `rocket`,
         },

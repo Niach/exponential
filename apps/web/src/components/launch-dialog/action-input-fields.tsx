@@ -96,7 +96,7 @@ export function ActionInputFields({
             </div>
           )
         }
-        if (def.type === `icon`) {
+        if ((def.type as string) === `icon`) {
           // EXP-273: the same curated picker the board form uses — the value
           // is a registry icon NAME, not an id, so there is nothing to scope
           // to the team.

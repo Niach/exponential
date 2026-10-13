@@ -8,7 +8,7 @@ import {
   creem_subscriptions,
   devices,
   issues,
-  sessions,
+  authSessions as sessions,
   teamInvites,
   teamMembers,
   teams,

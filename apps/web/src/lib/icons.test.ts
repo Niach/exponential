@@ -302,10 +302,6 @@ describe(`icon registry`, () => {
     }
   })
 
-  it(`the actionInputType contract carries the icon picker type`, () => {
-    expect(contract.actionInputType.values).toContain(`icon`)
-  })
-
   it(`covers every enum value that clients render an icon for`, () => {
     // The inbox derives its icons from `notification-<kebab>` concepts, and
     // the status/priority tables from `status-*`/`priority-*`. A new enum

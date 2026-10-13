@@ -57,8 +57,13 @@ import { Route as ApiShapesThreadItemsRouteImport } from './routes/api/shapes/th
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
 import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
+import { Route as ApiShapesSessionsRouteImport } from './routes/api/shapes/sessions'
+import { Route as ApiShapesSessionIssuesRouteImport } from './routes/api/shapes/session-issues'
+import { Route as ApiShapesPullRequestsRouteImport } from './routes/api/shapes/pull-requests'
+import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
 import { Route as ApiShapesPinsRouteImport } from './routes/api/shapes/pins'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
+import { Route as ApiShapesMessagesRouteImport } from './routes/api/shapes/messages'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
@@ -368,6 +373,27 @@ const ApiShapesTeamInvitesRoute = ApiShapesTeamInvitesRouteImport.update({
   path: '/api/shapes/team-invites',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesSessionsRoute = ApiShapesSessionsRouteImport.update({
+  id: '/api/shapes/sessions',
+  path: '/api/shapes/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesSessionIssuesRoute = ApiShapesSessionIssuesRouteImport.update({
+  id: '/api/shapes/session-issues',
+  path: '/api/shapes/session-issues',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesPullRequestsRoute = ApiShapesPullRequestsRouteImport.update({
+  id: '/api/shapes/pull-requests',
+  path: '/api/shapes/pull-requests',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesPullRequestIssuesRoute =
+  ApiShapesPullRequestIssuesRouteImport.update({
+    id: '/api/shapes/pull-request-issues',
+    path: '/api/shapes/pull-request-issues',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiShapesPinsRoute = ApiShapesPinsRouteImport.update({
   id: '/api/shapes/pins',
   path: '/api/shapes/pins',
@@ -376,6 +402,11 @@ const ApiShapesPinsRoute = ApiShapesPinsRouteImport.update({
 const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
   id: '/api/shapes/notifications',
   path: '/api/shapes/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesMessagesRoute = ApiShapesMessagesRouteImport.update({
+  id: '/api/shapes/messages',
+  path: '/api/shapes/messages',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesLabelsRoute = ApiShapesLabelsRouteImport.update({
@@ -783,8 +814,13 @@ export interface FileRoutesByFullPath {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
@@ -894,8 +930,13 @@ export interface FileRoutesByTo {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
@@ -1010,8 +1051,13 @@ export interface FileRoutesById {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
@@ -1126,8 +1172,13 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
+    | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-requests'
+    | '/api/shapes/session-issues'
+    | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
@@ -1237,8 +1288,13 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
+    | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-requests'
+    | '/api/shapes/session-issues'
+    | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
@@ -1352,8 +1408,13 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
+    | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-requests'
+    | '/api/shapes/session-issues'
+    | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
@@ -1458,8 +1519,13 @@ export interface RootRouteChildren {
   ApiShapesIssueSubscribersRoute: typeof ApiShapesIssueSubscribersRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
+  ApiShapesMessagesRoute: typeof ApiShapesMessagesRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
   ApiShapesPinsRoute: typeof ApiShapesPinsRoute
+  ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
+  ApiShapesPullRequestsRoute: typeof ApiShapesPullRequestsRoute
+  ApiShapesSessionIssuesRoute: typeof ApiShapesSessionIssuesRoute
+  ApiShapesSessionsRoute: typeof ApiShapesSessionsRoute
   ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
@@ -1819,6 +1885,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesTeamInvitesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/sessions': {
+      id: '/api/shapes/sessions'
+      path: '/api/shapes/sessions'
+      fullPath: '/api/shapes/sessions'
+      preLoaderRoute: typeof ApiShapesSessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/session-issues': {
+      id: '/api/shapes/session-issues'
+      path: '/api/shapes/session-issues'
+      fullPath: '/api/shapes/session-issues'
+      preLoaderRoute: typeof ApiShapesSessionIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/pull-requests': {
+      id: '/api/shapes/pull-requests'
+      path: '/api/shapes/pull-requests'
+      fullPath: '/api/shapes/pull-requests'
+      preLoaderRoute: typeof ApiShapesPullRequestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/pull-request-issues': {
+      id: '/api/shapes/pull-request-issues'
+      path: '/api/shapes/pull-request-issues'
+      fullPath: '/api/shapes/pull-request-issues'
+      preLoaderRoute: typeof ApiShapesPullRequestIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/pins': {
       id: '/api/shapes/pins'
       path: '/api/shapes/pins'
@@ -1831,6 +1925,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/notifications'
       fullPath: '/api/shapes/notifications'
       preLoaderRoute: typeof ApiShapesNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/messages': {
+      id: '/api/shapes/messages'
+      path: '/api/shapes/messages'
+      fullPath: '/api/shapes/messages'
+      preLoaderRoute: typeof ApiShapesMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/labels': {
@@ -2465,8 +2566,13 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesIssueSubscribersRoute: ApiShapesIssueSubscribersRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
+  ApiShapesMessagesRoute: ApiShapesMessagesRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
   ApiShapesPinsRoute: ApiShapesPinsRoute,
+  ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
+  ApiShapesPullRequestsRoute: ApiShapesPullRequestsRoute,
+  ApiShapesSessionIssuesRoute: ApiShapesSessionIssuesRoute,
+  ApiShapesSessionsRoute: ApiShapesSessionsRoute,
   ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,

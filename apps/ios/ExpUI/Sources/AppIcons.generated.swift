@@ -554,8 +554,6 @@ public enum AppIcons {
     public static let navRailExpand: String = "panel-left-open"
     /// Concept `nav-report-bug`.
     public static let navReportBug: String = "bug"
-    /// Concept `nav-reviews`.
-    public static let navReviews: String = "git-pull-request"
     /// Concept `nav-search`.
     public static let navSearch: String = "search"
     /// Concept `nav-settings`.
@@ -568,6 +566,8 @@ public enum AppIcons {
     public static let navTeamSwitcher: String = "chevrons-up-down"
     /// Concept `nav-terminal`.
     public static let navTerminal: String = "square-terminal"
+    /// Concept `nav-threads`.
+    public static let navThreads: String = "list-tree"
     /// Concept `notification-agent-message`.
     public static let notificationAgentMessage: String = "bot"
     /// Concept `notification-issue-assigned`.

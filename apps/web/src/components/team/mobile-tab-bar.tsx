@@ -22,7 +22,7 @@ const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
-const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavReviewsIcon = conceptIcon(`nav-threads`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
 
 // Bottom padding for every scroll container that sits under the floating

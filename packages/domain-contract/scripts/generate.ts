@@ -42,8 +42,8 @@ interface Contract {
   commentAudience: Section
   notificationType: Section
   prState: Section
-  codingSessionStatus: Section
-  codingSessionEndedBy: Section
+  sessionKind: Section
+  sessionStatus: Section
   codingSessionBlocked: { kinds: string[]; windows: string[] }
   codingSession: {
     staleHours: number
@@ -103,8 +103,10 @@ interface Contract {
   issueEventType: Section
   issueRelationType: Section & { forwardLabels: string[]; inverseLabels: string[] }
   issueRelationSource: Section
-  threadItemKind: Section
-  threadItemSource: Section
+  sessionIssueSource: Section
+  messageAuthorKind: Section
+  messageCardKind: Section
+  messageEventKind: Section
   codingAgent: Section
   codingModel: Section
   codingEffort: Section
@@ -115,12 +117,6 @@ interface Contract {
   actionInputType: Section
   mcpTransport: Section
   mcpAuth: Section
-  builtinAction: {
-    createActionId: string
-    fixConflictsId: string
-    chatId: string
-    tidyUpId: string
-  }
   // A device's agent defaults.
   deviceAgentDefaults: {
     model: string
@@ -128,16 +124,26 @@ interface Contract {
   }
   actionInputs: { max: number; maxTextLength: number }
   startPrompt: { maxLength: number; maxImages: number }
-  actionTrigger: {
+  agentTrigger: {
     eventValues: string[]
     scheduleIntervalValues: string[]
     eventSourceValues: string[]
     maxFilterIds: number
-    maxPerAction: number
+    maxPerAgent: number
     cooldownSeconds: number
     eventCatchupHours: number
-    deviceCap: string
-    legacyDeviceCap: string
+  }
+  // EXP-1291: sessions.send's caps (one entrypoint ×4).
+  sessionsSend: {
+    textMax: number
+    maxAttachments: number
+    maxIssues: number
+    briefMaxBytes: number
+    messageBodyMax: number
+    agentNameMax: number
+    agentInstructionsMaxBytes: number
+    treeMaxDepth: number
+    treeMaxSessions: number
   }
   steerCommands: {
     commands: {
@@ -211,12 +217,12 @@ const codingSessionStaleMs = contract.codingSession.staleHours * 60 * 60 * 1000
 // (devices heartbeat ~30s; 90s = three missed beats). Pre-multiplied to ms.
 const deviceOnlineWindowMs = contract.device.onlineWindowSeconds * 1000
 
-// EXP-530 trigger-host tuning, pre-multiplied to ms like the windows above:
+// EXP-530/EXP-1291 agent trigger-host tuning, pre-multiplied to ms like the windows above:
 // cooldown after any triggered action start, and how far back an offline
 // device replays issue_events when it reconnects.
-const triggerCooldownMs = contract.actionTrigger.cooldownSeconds * 1000
+const triggerCooldownMs = contract.agentTrigger.cooldownSeconds * 1000
 const triggerEventCatchupMs =
-  contract.actionTrigger.eventCatchupHours * 60 * 60 * 1000
+  contract.agentTrigger.eventCatchupHours * 60 * 60 * 1000
 
 // EXP-783: the steering transcript's budgets, window and page size — the
 // same numbers on every client, so the byte-budget trim and the rendered
@@ -478,8 +484,8 @@ ${swiftStringArray("commentSourceValues", contract.commentSource.values)}
 ${swiftStringArray("commentAudienceValues", contract.commentAudience.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
-${swiftStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
-${swiftStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${swiftStringArray("sessionKindValues", contract.sessionKind.values)}
+${swiftStringArray("sessionStatusValues", contract.sessionStatus.values)}
 ${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${swiftStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${swiftStringArray("toolKindValues", contract.toolKind.values)}
@@ -491,8 +497,10 @@ ${swiftStringArray("issueRelationTypeValues", contract.issueRelationType.values)
 ${swiftStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
 ${swiftStringArray("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
 ${swiftStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
-${swiftStringArray("threadItemKindValues", contract.threadItemKind.values)}
-${swiftStringArray("threadItemSourceValues", contract.threadItemSource.values)}
+${swiftStringArray("sessionIssueSourceValues", contract.sessionIssueSource.values)}
+${swiftStringArray("messageAuthorKindValues", contract.messageAuthorKind.values)}
+${swiftStringArray("messageCardKindValues", contract.messageCardKind.values)}
+${swiftStringArray("messageEventKindValues", contract.messageEventKind.values)}
 ${swiftStringArray("codingAgentValues", contract.codingAgent.values)}
 ${swiftStringArray("codingModelValues", contract.codingModel.values)}
 ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
@@ -502,8 +510,8 @@ ${swiftStringArray("computerUseModelValues", contract.computerUseModel.values)}
 ${swiftStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${swiftStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${swiftStringArray("mcpAuthValues", contract.mcpAuth.values)}
-${swiftStringArray("actionTriggerEventValues", contract.actionTrigger.eventValues)}
-${swiftStringArray("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
+${swiftStringArray("agentTriggerEventValues", contract.agentTrigger.eventValues)}
+${swiftStringArray("agentScheduleIntervalValues", contract.agentTrigger.scheduleIntervalValues)}
 ${swiftStringArray("steerCommandNames", steerCommandNames)}
 ${swiftStringArray("steerCommandDescriptions", steerCommandDescriptions)}
 ${swiftStringArray("steerCommandArgHints", steerCommandArgHints)}
@@ -554,10 +562,15 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
     public static let codingSessionSteerFilesCap: String = "${contract.codingSession.steerFilesCap}"
     public static let deviceOnlineWindowMs: Int = ${deviceOnlineWindowMs}
-    public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
-    public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
-    public static let builtinChatId: String = "${contract.builtinAction.chatId}"
-    public static let builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
+    public static let sessionsSendTextMax: Int = ${contract.sessionsSend.textMax}
+    public static let sessionsSendMaxAttachments: Int = ${contract.sessionsSend.maxAttachments}
+    public static let sessionsSendMaxIssues: Int = ${contract.sessionsSend.maxIssues}
+    public static let sessionsSendBriefMaxBytes: Int = ${contract.sessionsSend.briefMaxBytes}
+    public static let sessionsSendMessageBodyMax: Int = ${contract.sessionsSend.messageBodyMax}
+    public static let sessionsSendAgentNameMax: Int = ${contract.sessionsSend.agentNameMax}
+    public static let sessionsSendAgentInstructionsMaxBytes: Int = ${contract.sessionsSend.agentInstructionsMaxBytes}
+    public static let sessionsSendTreeMaxDepth: Int = ${contract.sessionsSend.treeMaxDepth}
+    public static let sessionsSendTreeMaxSessions: Int = ${contract.sessionsSend.treeMaxSessions}
     public static let deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     public static let deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
     public static let deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
@@ -565,12 +578,10 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     public static let startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     public static let startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
-    public static let actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
-    public static let actionTriggerMaxPerAction: Int = ${contract.actionTrigger.maxPerAction}
+    public static let agentTriggerMaxFilterIds: Int = ${contract.agentTrigger.maxFilterIds}
+    public static let agentTriggerMaxPerAgent: Int = ${contract.agentTrigger.maxPerAgent}
     public static let triggerCooldownMs: Int = ${triggerCooldownMs}
     public static let triggerEventCatchupMs: Int = ${triggerEventCatchupMs}
-    public static let triggerDeviceCap: String = "${contract.actionTrigger.deviceCap}"
-    public static let triggerLegacyDeviceCap: String = "${contract.actionTrigger.legacyDeviceCap}"
     public static let steerFeedByteCap: Int = ${steerFeed.byteCap}
     public static let steerFeedItemCap: Int = ${steerFeed.itemCap}
     public static let steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
@@ -594,15 +605,17 @@ ${swiftNamedValues("commentSource", contract.commentSource.values)}
 ${swiftNamedValues("commentAudience", contract.commentAudience.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
-${swiftNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
-${swiftNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
+${swiftNamedValues("sessionKind", contract.sessionKind.values)}
+${swiftNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${swiftNamedValues("pinKind", contract.pinKind.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 ${swiftNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${swiftNamedValues("issueRelationSource", contract.issueRelationSource.values)}
-${swiftNamedValues("threadItemKind", contract.threadItemKind.values)}
-${swiftNamedValues("threadItemSource", contract.threadItemSource.values)}
+${swiftNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
+${swiftNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
+${swiftNamedValues("messageCardKind", contract.messageCardKind.values)}
+${swiftNamedValues("messageEventKind", contract.messageEventKind.values)}
 }
 `
 
@@ -630,8 +643,8 @@ ${kotlinStringArray("commentSourceValues", contract.commentSource.values)}
 ${kotlinStringArray("commentAudienceValues", contract.commentAudience.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
-${kotlinStringArray("codingSessionStatusValues", contract.codingSessionStatus.values)}
-${kotlinStringArray("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${kotlinStringArray("sessionKindValues", contract.sessionKind.values)}
+${kotlinStringArray("sessionStatusValues", contract.sessionStatus.values)}
 ${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${kotlinStringArray("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${kotlinStringArray("toolKindValues", contract.toolKind.values)}
@@ -643,8 +656,10 @@ ${kotlinStringArray("issueRelationTypeValues", contract.issueRelationType.values
 ${kotlinStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
 ${kotlinStringArray("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
 ${kotlinStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
-${kotlinStringArray("threadItemKindValues", contract.threadItemKind.values)}
-${kotlinStringArray("threadItemSourceValues", contract.threadItemSource.values)}
+${kotlinStringArray("sessionIssueSourceValues", contract.sessionIssueSource.values)}
+${kotlinStringArray("messageAuthorKindValues", contract.messageAuthorKind.values)}
+${kotlinStringArray("messageCardKindValues", contract.messageCardKind.values)}
+${kotlinStringArray("messageEventKindValues", contract.messageEventKind.values)}
 ${kotlinStringArray("codingAgentValues", contract.codingAgent.values)}
 ${kotlinStringArray("codingModelValues", contract.codingModel.values)}
 ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
@@ -654,8 +669,8 @@ ${kotlinStringArray("computerUseModelValues", contract.computerUseModel.values)}
 ${kotlinStringArray("actionInputTypeValues", contract.actionInputType.values)}
 ${kotlinStringArray("mcpTransportValues", contract.mcpTransport.values)}
 ${kotlinStringArray("mcpAuthValues", contract.mcpAuth.values)}
-${kotlinStringArray("actionTriggerEventValues", contract.actionTrigger.eventValues)}
-${kotlinStringArray("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
+${kotlinStringArray("agentTriggerEventValues", contract.agentTrigger.eventValues)}
+${kotlinStringArray("agentScheduleIntervalValues", contract.agentTrigger.scheduleIntervalValues)}
 ${kotlinStringArray("steerCommandNames", steerCommandNames)}
 ${kotlinStringArray("steerCommandDescriptions", steerCommandDescriptions)}
 ${kotlinStringArray("steerCommandArgHints", steerCommandArgHints)}
@@ -706,10 +721,15 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
     const val codingSessionSteerFilesCap: String = "${contract.codingSession.steerFilesCap}"
     const val deviceOnlineWindowMs: Long = ${deviceOnlineWindowMs}L
-    const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
-    const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
-    const val builtinChatId: String = "${contract.builtinAction.chatId}"
-    const val builtinTidyUpId: String = "${contract.builtinAction.tidyUpId}"
+    const val sessionsSendTextMax: Int = ${contract.sessionsSend.textMax}
+    const val sessionsSendMaxAttachments: Int = ${contract.sessionsSend.maxAttachments}
+    const val sessionsSendMaxIssues: Int = ${contract.sessionsSend.maxIssues}
+    const val sessionsSendBriefMaxBytes: Int = ${contract.sessionsSend.briefMaxBytes}
+    const val sessionsSendMessageBodyMax: Int = ${contract.sessionsSend.messageBodyMax}
+    const val sessionsSendAgentNameMax: Int = ${contract.sessionsSend.agentNameMax}
+    const val sessionsSendAgentInstructionsMaxBytes: Int = ${contract.sessionsSend.agentInstructionsMaxBytes}
+    const val sessionsSendTreeMaxDepth: Int = ${contract.sessionsSend.treeMaxDepth}
+    const val sessionsSendTreeMaxSessions: Int = ${contract.sessionsSend.treeMaxSessions}
     const val deviceAgentDefaultsModel: String = "${contract.deviceAgentDefaults.model}"
     const val deviceAgentDefaultsSubagentModel: String = "${contract.deviceAgentDefaults.subagentModel}"
     const val deviceComputerUseDefaultsModel: String = "${contract.deviceComputerUseDefaults.model}"
@@ -717,12 +737,10 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val actionInputTextMax: Int = ${contract.actionInputs.maxTextLength}
     const val startPromptMaxLength: Int = ${contract.startPrompt.maxLength}
     const val startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
-    const val actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
-    const val actionTriggerMaxPerAction: Int = ${contract.actionTrigger.maxPerAction}
+    const val agentTriggerMaxFilterIds: Int = ${contract.agentTrigger.maxFilterIds}
+    const val agentTriggerMaxPerAgent: Int = ${contract.agentTrigger.maxPerAgent}
     const val triggerCooldownMs: Long = ${triggerCooldownMs}L
     const val triggerEventCatchupMs: Long = ${triggerEventCatchupMs}L
-    const val triggerDeviceCap: String = "${contract.actionTrigger.deviceCap}"
-    const val triggerLegacyDeviceCap: String = "${contract.actionTrigger.legacyDeviceCap}"
     const val steerFeedByteCap: Long = ${steerFeed.byteCap}L
     const val steerFeedItemCap: Int = ${steerFeed.itemCap}
     const val steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
@@ -746,15 +764,17 @@ ${kotlinNamedValues("commentSource", contract.commentSource.values)}
 ${kotlinNamedValues("commentAudience", contract.commentAudience.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
-${kotlinNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
-${kotlinNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
+${kotlinNamedValues("sessionKind", contract.sessionKind.values)}
+${kotlinNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${kotlinNamedValues("pinKind", contract.pinKind.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 ${kotlinNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${kotlinNamedValues("issueRelationSource", contract.issueRelationSource.values)}
-${kotlinNamedValues("threadItemKind", contract.threadItemKind.values)}
-${kotlinNamedValues("threadItemSource", contract.threadItemSource.values)}
+${kotlinNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
+${kotlinNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
+${kotlinNamedValues("messageCardKind", contract.messageCardKind.values)}
+${kotlinNamedValues("messageEventKind", contract.messageEventKind.values)}
 }
 `
 
@@ -784,8 +804,8 @@ ${rustStrSlice("commentSourceValues", contract.commentSource.values)}
 ${rustStrSlice("commentAudienceValues", contract.commentAudience.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
-${rustStrSlice("codingSessionStatusValues", contract.codingSessionStatus.values)}
-${rustStrSlice("codingSessionEndedByValues", contract.codingSessionEndedBy.values)}
+${rustStrSlice("sessionKindValues", contract.sessionKind.values)}
+${rustStrSlice("sessionStatusValues", contract.sessionStatus.values)}
 ${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
 ${rustStrSlice("codingSessionBlockedWindows", contract.codingSessionBlocked.windows)}
 ${rustStrSlice("toolKindValues", contract.toolKind.values)}
@@ -797,8 +817,10 @@ ${rustStrSlice("issueRelationTypeValues", contract.issueRelationType.values)}
 ${rustStrSlice("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
 ${rustStrSlice("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
 ${rustStrSlice("issueRelationSourceValues", contract.issueRelationSource.values)}
-${rustStrSlice("threadItemKindValues", contract.threadItemKind.values)}
-${rustStrSlice("threadItemSourceValues", contract.threadItemSource.values)}
+${rustStrSlice("sessionIssueSourceValues", contract.sessionIssueSource.values)}
+${rustStrSlice("messageAuthorKindValues", contract.messageAuthorKind.values)}
+${rustStrSlice("messageCardKindValues", contract.messageCardKind.values)}
+${rustStrSlice("messageEventKindValues", contract.messageEventKind.values)}
 ${rustStrSlice("codingAgentValues", contract.codingAgent.values)}
 ${rustStrSlice("codingModelValues", contract.codingModel.values)}
 ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
@@ -808,8 +830,8 @@ ${rustStrSlice("computerUseModelValues", contract.computerUseModel.values)}
 ${rustStrSlice("actionInputTypeValues", contract.actionInputType.values)}
 ${rustStrSlice("mcpTransportValues", contract.mcpTransport.values)}
 ${rustStrSlice("mcpAuthValues", contract.mcpAuth.values)}
-${rustStrSlice("actionTriggerEventValues", contract.actionTrigger.eventValues)}
-${rustStrSlice("actionScheduleIntervalValues", contract.actionTrigger.scheduleIntervalValues)}
+${rustStrSlice("agentTriggerEventValues", contract.agentTrigger.eventValues)}
+${rustStrSlice("agentScheduleIntervalValues", contract.agentTrigger.scheduleIntervalValues)}
 ${rustStrSlice("steerCommandNames", steerCommandNames)}
 ${rustStrSlice("steerCommandDescriptions", steerCommandDescriptions)}
 ${rustStrSlice("steerCommandArgHints", steerCommandArgHints)}
@@ -862,11 +884,16 @@ ${rustStrSlice("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
 pub const CODING_SESSION_COMPUTER_USE_CAP: &str = "${contract.codingSession.computerUseCap}";
 pub const CODING_SESSION_STEER_FILES_CAP: &str = "${contract.codingSession.steerFilesCap}";
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = ${deviceOnlineWindowMs};
+pub const SESSIONS_SEND_TEXT_MAX: usize = ${contract.sessionsSend.textMax};
+pub const SESSIONS_SEND_MAX_ATTACHMENTS: usize = ${contract.sessionsSend.maxAttachments};
+pub const SESSIONS_SEND_MAX_ISSUES: usize = ${contract.sessionsSend.maxIssues};
+pub const SESSIONS_SEND_BRIEF_MAX_BYTES: usize = ${contract.sessionsSend.briefMaxBytes};
+pub const SESSIONS_SEND_MESSAGE_BODY_MAX: usize = ${contract.sessionsSend.messageBodyMax};
+pub const SESSIONS_SEND_AGENT_NAME_MAX: usize = ${contract.sessionsSend.agentNameMax};
+pub const SESSIONS_SEND_AGENT_INSTRUCTIONS_MAX_BYTES: usize = ${contract.sessionsSend.agentInstructionsMaxBytes};
+pub const SESSIONS_SEND_TREE_MAX_DEPTH: usize = ${contract.sessionsSend.treeMaxDepth};
+pub const SESSIONS_SEND_TREE_MAX_SESSIONS: usize = ${contract.sessionsSend.treeMaxSessions};
 pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = ${contract.team.agentPromptMaxBytes};
-pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";
-pub const BUILTIN_FIX_CONFLICTS_ID: &str = "${contract.builtinAction.fixConflictsId}";
-pub const BUILTIN_CHAT_ID: &str = "${contract.builtinAction.chatId}";
-pub const BUILTIN_TIDY_UP_ID: &str = "${contract.builtinAction.tidyUpId}";
 pub const DEVICE_AGENT_DEFAULTS_MODEL: &str = "${contract.deviceAgentDefaults.model}";
 pub const DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL: &str = "${contract.deviceAgentDefaults.subagentModel}";
 pub const DEVICE_COMPUTER_USE_DEFAULTS_MODEL: &str = "${contract.deviceComputerUseDefaults.model}";
@@ -874,12 +901,10 @@ pub const ACTION_INPUTS_MAX: usize = ${contract.actionInputs.max};
 pub const ACTION_INPUT_TEXT_MAX: usize = ${contract.actionInputs.maxTextLength};
 pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
 pub const START_PROMPT_MAX_IMAGES: usize = ${contract.startPrompt.maxImages};
-pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = ${contract.actionTrigger.maxFilterIds};
-pub const ACTION_TRIGGER_MAX_PER_ACTION: usize = ${contract.actionTrigger.maxPerAction};
+pub const AGENT_TRIGGER_MAX_FILTER_IDS: usize = ${contract.agentTrigger.maxFilterIds};
+pub const AGENT_TRIGGER_MAX_PER_AGENT: usize = ${contract.agentTrigger.maxPerAgent};
 pub const TRIGGER_COOLDOWN_MS: i64 = ${triggerCooldownMs};
 pub const TRIGGER_EVENT_CATCHUP_MS: i64 = ${triggerEventCatchupMs};
-pub const TRIGGER_DEVICE_CAP: &str = "${contract.actionTrigger.deviceCap}";
-pub const TRIGGER_LEGACY_DEVICE_CAP: &str = "${contract.actionTrigger.legacyDeviceCap}";
 pub const STEER_FEED_BYTE_CAP: usize = ${steerFeed.byteCap};
 pub const STEER_FEED_ITEM_CAP: usize = ${steerFeed.itemCap};
 pub const STEER_FEED_TRIM_TARGET_PERCENT: usize = ${steerFeed.trimTargetPercent};
@@ -903,15 +928,17 @@ ${rustNamedValues("commentSource", contract.commentSource.values)}
 ${rustNamedValues("commentAudience", contract.commentAudience.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}
-${rustNamedValues("codingSessionStatus", contract.codingSessionStatus.values)}
-${rustNamedValues("codingSessionEndedBy", contract.codingSessionEndedBy.values)}
+${rustNamedValues("sessionKind", contract.sessionKind.values)}
+${rustNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}
 ${rustNamedValues("pinKind", contract.pinKind.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
 ${rustNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${rustNamedValues("issueRelationSource", contract.issueRelationSource.values)}
-${rustNamedValues("threadItemKind", contract.threadItemKind.values)}
-${rustNamedValues("threadItemSource", contract.threadItemSource.values)}
+${rustNamedValues("sessionIssueSource", contract.sessionIssueSource.values)}
+${rustNamedValues("messageAuthorKind", contract.messageAuthorKind.values)}
+${rustNamedValues("messageCardKind", contract.messageCardKind.values)}
+${rustNamedValues("messageEventKind", contract.messageEventKind.values)}
 `
 
 const swiftPath = join(

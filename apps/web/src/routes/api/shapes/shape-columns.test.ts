@@ -4,6 +4,11 @@ import {
   codingSessions,
   issueDrafts,
   issues,
+  messages,
+  pullRequestIssues,
+  pullRequests,
+  sessionIssues,
+  sessions,
   threadItems,
   threads,
 } from "@exp/db-schema"
@@ -13,6 +18,11 @@ import { CODING_SESSION_COLUMNS } from "./coding-sessions"
 import { THREAD_COLUMNS } from "./threads"
 import { THREAD_ITEM_COLUMNS } from "./thread-items"
 import { ISSUE_DRAFT_COLUMNS } from "./issue-drafts"
+import { SESSION_COLUMNS } from "./sessions"
+import { SESSION_ISSUE_COLUMNS } from "./session-issues"
+import { MESSAGE_COLUMNS } from "./messages"
+import { PULL_REQUEST_COLUMNS } from "./pull-requests"
+import { PULL_REQUEST_ISSUE_COLUMNS } from "./pull-request-issues"
 
 // A proxy's `columns` allowlist is sent to Electric verbatim: a name the table
 // does not have fails the SHAPE, not the column — the client then syncs none
@@ -26,6 +36,12 @@ const lists = {
   threads: [THREAD_COLUMNS, threads],
   thread_items: [THREAD_ITEM_COLUMNS, threadItems],
   issue_drafts: [ISSUE_DRAFT_COLUMNS, issueDrafts],
+  // EXP-1291
+  sessions: [SESSION_COLUMNS, sessions],
+  session_issues: [SESSION_ISSUE_COLUMNS, sessionIssues],
+  messages: [MESSAGE_COLUMNS, messages],
+  pull_requests: [PULL_REQUEST_COLUMNS, pullRequests],
+  pull_request_issues: [PULL_REQUEST_ISSUE_COLUMNS, pullRequestIssues],
 } as const
 
 describe(`shape column allowlists`, () => {

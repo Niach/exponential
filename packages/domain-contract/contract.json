@@ -232,11 +232,11 @@
   "prState": {
     "values": ["open", "closed", "merged", "draft"]
   },
-  "codingSessionStatus": {
-    "values": ["running", "in_review", "ended"]
+  "sessionKind": {
+    "values": ["thread", "agent"]
   },
-  "codingSessionEndedBy": {
-    "values": ["agent", "user", "client", "merge", "system", "stale"]
+  "sessionStatus": {
+    "values": ["queued", "running", "idle", "ended"]
   },
   "codingSessionBlocked": {
     "kinds": ["rate_limit"],
@@ -244,9 +244,20 @@
   },
   "codingSession": {
     "staleHours": 2,
-    "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "resume", "mcpServerIds", "account", "computerUse"],
+    "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "mcpServerIds", "account", "computerUse"],
     "computerUseCap": "computer-use-run",
     "steerFilesCap": "steer-files"
+  },
+  "sessionsSend": {
+    "textMax": 16384,
+    "maxAttachments": 10,
+    "maxIssues": 30,
+    "briefMaxBytes": 65536,
+    "messageBodyMax": 65536,
+    "agentNameMax": 64,
+    "agentInstructionsMaxBytes": 16384,
+    "treeMaxDepth": 3,
+    "treeMaxSessions": 10
   },
   "device": {
     "onlineWindowSeconds": 90
@@ -366,11 +377,17 @@
   "issueRelationSource": {
     "values": ["user", "reference"]
   },
-  "threadItemKind": {
-    "values": ["issue", "run"]
-  },
-  "threadItemSource": {
+  "sessionIssueSource": {
     "values": ["user", "agent"]
+  },
+  "messageAuthorKind": {
+    "values": ["user", "agent", "system"]
+  },
+  "messageCardKind": {
+    "values": ["question", "plan", "subagent", "session", "picture", "event", "thread_started"]
+  },
+  "messageEventKind": {
+    "values": ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
   },
   "codingAgent": {
     "values": ["claude", "codex"]
@@ -394,7 +411,7 @@
     "values": ["minimal", "low", "medium", "high", "xhigh"]
   },
   "actionInputType": {
-    "values": ["repo", "board", "pr", "icon"]
+    "values": ["repo", "board", "pr", "issue"]
   },
   "mcpTransport": {
     "values": ["http", "stdio"]
@@ -425,7 +442,7 @@
       { "id": "todoist", "name": "Todoist", "url": "https://ai.todoist.net/mcp", "mark": "todoist" }
     ]
   },
-  "actionTrigger": {
+  "agentTrigger": {
     "eventValues": [
       "created",
       "status_changed",
@@ -438,17 +455,9 @@
     "scheduleIntervalValues": ["daily", "weekly", "monthly"],
     "eventSourceValues": ["exponential"],
     "maxFilterIds": 20,
-    "maxPerAction": 10,
+    "maxPerAgent": 10,
     "cooldownSeconds": 60,
-    "eventCatchupHours": 24,
-    "deviceCap": "triggers",
-    "legacyDeviceCap": "automations"
-  },
-  "builtinAction": {
-    "createActionId": "builtin:create-action",
-    "fixConflictsId": "builtin:fix-conflicts",
-    "chatId": "builtin:chat",
-    "tidyUpId": "builtin:tidy-up"
+    "eventCatchupHours": 24
   },
   "actionInputs": {
     "max": 10,

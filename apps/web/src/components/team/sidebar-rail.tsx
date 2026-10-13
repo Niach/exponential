@@ -48,7 +48,7 @@ const NavAgentIcon = conceptIcon(`action-chat`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
-const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavReviewsIcon = conceptIcon(`nav-threads`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 

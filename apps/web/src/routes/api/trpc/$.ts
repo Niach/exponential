@@ -36,9 +36,12 @@ import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
 import { pinsRouter } from "@/lib/trpc/pins"
 import { threadsRouter } from "@/lib/trpc/threads"
+import { sessionsRouter, pullRequestsRouter } from "@/lib/trpc/sessions"
 import { importsRouter } from "@/lib/trpc/imports"
 
 export const appRouter = router({
+  sessions: sessionsRouter,
+  pullRequests: pullRequestsRouter,
   teams: teamsRouter,
   boards: boardsRouter,
   issues: issuesRouter,

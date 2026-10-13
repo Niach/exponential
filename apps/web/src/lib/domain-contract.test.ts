@@ -20,8 +20,21 @@ import {
   notificationTypeValues,
   prStateValues,
   DEVICE_AGENT_DEFAULTS,
-  codingSessionStatusValues,
-  codingSessionEndedByValues,
+  sessionKindValues,
+  sessionStatusValues,
+  sessionIssueSourceValues,
+  messageAuthorKindValues,
+  messageCardKindValues,
+  messageEventKindValues,
+  SESSIONS_SEND_TEXT_MAX,
+  SESSIONS_SEND_MAX_ATTACHMENTS,
+  SESSIONS_SEND_MAX_ISSUES,
+  SESSION_BRIEF_MAX_BYTES,
+  MESSAGE_BODY_MAX,
+  AGENT_NAME_MAX,
+  AGENT_INSTRUCTIONS_MAX_BYTES,
+  SESSION_TREE_MAX_DEPTH,
+  SESSION_TREE_MAX_SESSIONS,
   codingSessionBlockedKindValues,
   codingSessionBlockedWindowValues,
   subscriberSourceValues,
@@ -29,8 +42,6 @@ import {
   issueEventTypeValues,
   issueRelationTypeValues,
   issueRelationSourceValues,
-  threadItemKindValues,
-  threadItemSourceValues,
   ISSUE_RELATION_LABELS,
   issueStatusOrder,
   CODING_SESSION_STALE_HOURS,
@@ -41,16 +52,11 @@ import {
   MAX_ACTION_INPUT_TEXT,
   MAX_START_PROMPT,
   MAX_START_PROMPT_IMAGES,
-  actionTriggerEventValues,
-  actionScheduleIntervalValues,
+  agentTriggerEventValues,
+  agentScheduleIntervalValues,
   MAX_TRIGGER_FILTER_IDS,
 } from "@exp/db-schema/domain"
 import { MAX_STEER_IMAGES } from "@/lib/steer-image-message"
-import {
-  BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_FIX_CONFLICTS_ID,
-  BUILTIN_TIDY_UP_ID,
-} from "@/lib/builtin-actions"
 import {
   getIssuePriorityConfig,
   getIssueStatusConfig,
@@ -192,17 +198,33 @@ describe(`domain-contract parity`, () => {
     })
   })
 
-  it(`coding session status values match the contract`, () => {
-    expect([...codingSessionStatusValues]).toEqual([
-      ...contract.codingSessionStatus.values,
+  // EXP-1291: the session tree's vocabulary + sessions.send's caps.
+  it(`session tree vocabulary and caps match the contract`, () => {
+    expect([...sessionKindValues]).toEqual([...contract.sessionKind.values])
+    expect([...sessionStatusValues]).toEqual([...contract.sessionStatus.values])
+    expect([...sessionIssueSourceValues]).toEqual([
+      ...contract.sessionIssueSource.values,
     ])
-  })
-
-  // EXP-637: who ended a run (EXP-686 dropped the self-reported outcome).
-  it(`coding session endedBy values match the contract`, () => {
-    expect([...codingSessionEndedByValues]).toEqual([
-      ...contract.codingSessionEndedBy.values,
+    expect([...messageAuthorKindValues]).toEqual([
+      ...contract.messageAuthorKind.values,
     ])
+    expect([...messageCardKindValues]).toEqual([
+      ...contract.messageCardKind.values,
+    ])
+    expect([...messageEventKindValues]).toEqual([
+      ...contract.messageEventKind.values,
+    ])
+    expect(contract.sessionsSend).toEqual({
+      textMax: SESSIONS_SEND_TEXT_MAX,
+      maxAttachments: SESSIONS_SEND_MAX_ATTACHMENTS,
+      maxIssues: SESSIONS_SEND_MAX_ISSUES,
+      briefMaxBytes: SESSION_BRIEF_MAX_BYTES,
+      messageBodyMax: MESSAGE_BODY_MAX,
+      agentNameMax: AGENT_NAME_MAX,
+      agentInstructionsMaxBytes: AGENT_INSTRUCTIONS_MAX_BYTES,
+      treeMaxDepth: SESSION_TREE_MAX_DEPTH,
+      treeMaxSessions: SESSION_TREE_MAX_SESSIONS,
+    })
   })
 
   // EXP-804: the usage-wall row state. Both vocabularies are hand-mirrored
@@ -239,13 +261,6 @@ describe(`domain-contract parity`, () => {
   // EXP-736: the relation vocabulary AND both label halves — every client
   // renders its side's label from the generated contract, so a reordered
   // values list or a reworded label would silently desync four UIs.
-  it(`thread item kinds and sources match the contract (EXP-1284)`, () => {
-    expect([...threadItemKindValues]).toEqual([...contract.threadItemKind.values])
-    expect([...threadItemSourceValues]).toEqual([
-      ...contract.threadItemSource.values,
-    ])
-  })
-
   it(`issue relation types, sources and labels match the contract`, () => {
     expect([...issueRelationTypeValues]).toEqual([
       ...contract.issueRelationType.values,
@@ -266,7 +281,7 @@ describe(`domain-contract parity`, () => {
     expect([...mcpAuthValues]).toEqual([...contract.mcpAuth.values])
   })
 
-  it(`action input types + limits + builtin id match the contract (EXP-257)`, () => {
+  it(`action input types + limits match the contract (EXP-257)`, () => {
     expect([...actionInputTypeValues]).toEqual([
       ...contract.actionInputType.values,
     ])
@@ -276,26 +291,19 @@ describe(`domain-contract parity`, () => {
     expect(MAX_START_PROMPT).toBe(contract.startPrompt.maxLength)
     expect(MAX_START_PROMPT_IMAGES).toBe(contract.startPrompt.maxImages)
     expect(MAX_STEER_IMAGES).toBe(contract.startPrompt.maxImages)
-    expect(BUILTIN_CREATE_ACTION_ID).toBe(contract.builtinAction.createActionId)
-    expect(BUILTIN_FIX_CONFLICTS_ID).toBe(
-      contract.builtinAction.fixConflictsId
-    )
-    // FEED-50: the listed, automatable board cleanup.
-    expect(BUILTIN_TIDY_UP_ID).toBe(contract.builtinAction.tidyUpId)
-    expect(BUILTIN_TIDY_UP_ID).toBe(`builtin:tidy-up`)
   })
 
-  it(`action trigger vocabulary + filter cap match the contract (EXP-530)`, () => {
-    expect([...actionTriggerEventValues]).toEqual([
-      ...contract.actionTrigger.eventValues,
+  it(`agent trigger vocabulary + filter cap match the contract (EXP-530/1291)`, () => {
+    expect([...agentTriggerEventValues]).toEqual([
+      ...contract.agentTrigger.eventValues,
     ])
-    expect([...actionScheduleIntervalValues]).toEqual([
-      ...contract.actionTrigger.scheduleIntervalValues,
+    expect([...agentScheduleIntervalValues]).toEqual([
+      ...contract.agentTrigger.scheduleIntervalValues,
     ])
-    expect(MAX_TRIGGER_FILTER_IDS).toBe(contract.actionTrigger.maxFilterIds)
+    expect(MAX_TRIGGER_FILTER_IDS).toBe(contract.agentTrigger.maxFilterIds)
     // Trigger events are strictly a subset of the issue-event vocabulary the
     // devices watch (`created` etc. included above).
-    for (const event of contract.actionTrigger.eventValues) {
+    for (const event of contract.agentTrigger.eventValues) {
       expect(issueEventTypeValues).toContain(event)
     }
   })

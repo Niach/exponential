@@ -95,7 +95,10 @@ export const users = pgTable(
   ]
 )
 
-export const sessions = pgTable(`sessions`, {
+// EXP-1291: renamed from `sessions` (the product session tree took the name).
+// Better Auth still resolves it as its `sessions` model (lib/auth/index.ts
+// maps the key).
+export const authSessions = pgTable(`auth_sessions`, {
   id: text(`id`).primaryKey(),
   expiresAt: timestamp(`expires_at`).notNull(),
   token: text(`token`).notNull().unique(),

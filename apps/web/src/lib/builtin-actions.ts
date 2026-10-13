@@ -15,29 +15,28 @@
 // automation may target.
 
 import type { ActionInputDef } from "@exp/db-schema/domain"
-import { contract } from "@exp/domain-contract"
 
 /** Reserved non-UUID id — can never collide with a `uuid` PK. */
-export const BUILTIN_CREATE_ACTION_ID = contract.builtinAction.createActionId
+export const BUILTIN_CREATE_ACTION_ID = `builtin:create-action`
 
 export const BUILTIN_CREATE_ACTION_NAME = `Create action`
 
 /** Reserved non-UUID id of the "Fix merge conflicts" builtin (EXP-259). */
-export const BUILTIN_FIX_CONFLICTS_ID = contract.builtinAction.fixConflictsId
+export const BUILTIN_FIX_CONFLICTS_ID = `builtin:fix-conflicts`
 
 export const BUILTIN_FIX_CONFLICTS_NAME = `Fix merge conflicts`
 
 /** Reserved non-UUID id of the hidden "Chat" builtin (EXP-615). Unlike the
  * other two it is NEVER appended to `actions.list` or any picker — clients
  * reach it only through the Agent page composer with no subject picked. */
-export const BUILTIN_CHAT_ID = contract.builtinAction.chatId
+export const BUILTIN_CHAT_ID = `builtin:chat`
 
 export const BUILTIN_CHAT_NAME = `Chat`
 
 /** FEED-50: the "Tidy up" builtin — a non-destructive board cleanup
  * (duplicates, existing labels, relations; nothing is deleted). LISTED like
  * Create action / Fix conflicts. Builtins never carry triggers. */
-export const BUILTIN_TIDY_UP_ID = contract.builtinAction.tidyUpId
+export const BUILTIN_TIDY_UP_ID = `builtin:tidy-up`
 
 export const BUILTIN_TIDY_UP_NAME = `Tidy up`
 
@@ -80,7 +79,6 @@ const CREATE_ACTION_INPUTS: ActionInputDef[] = [
   // EXP-273: the user picks the new action's glyph up front and the
   // action-creator prompt passes it to `exponential_actions_create`, so a
   // team's action list is visually scannable from the moment it is authored.
-  { key: `icon`, label: `Icon`, type: `icon`, required: false },
 ]
 
 const FIX_CONFLICTS_INPUTS: ActionInputDef[] = [

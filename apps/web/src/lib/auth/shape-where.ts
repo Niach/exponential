@@ -87,3 +87,22 @@ export function orClauses(...clauses: string[]): string {
   if (clauses.length === 1) return clauses[0]
   return clauses.map((clause) => `(${clause})`).join(` OR `)
 }
+
+/**
+ * EXP-1291: the session tree's ONE visibility rule ×4 — a team member sees
+ * a session (and its messages, issues) when it is `shared` (started on a
+ * device shared with the team) or they started it. `ownerColumn` = `user_id`
+ * on `sessions`, the `owner_id` mirror on its child tables. Static per user:
+ * the identity rotates only on membership changes.
+ */
+export function buildSessionVisibleWhere(
+  teamIds: string[],
+  userId: string | null,
+  ownerColumn: `user_id` | `owner_id`
+): string {
+  if (!userId) return buildWhereClause(`id`, [])
+  return andClauses(
+    buildWhereClause(`team_id`, teamIds),
+    orClauses(`"shared" = true`, `"${ownerColumn}" = ${sqlStringLiteral(userId)}`)
+  )
+}

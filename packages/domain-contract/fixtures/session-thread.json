@@ -1,0 +1,874 @@
+{
+  "$comment": "EXP-1291 Threads v2: the THREAD screen ×4 (a thread IS a root session). Header = the title + ONE tab strip: Conversation · one issue chip per linked issue (session_issues of the ROOT by sortOrder; unsynced issues drop out) · '+' (link/file an issue) · Guide (a dot while the root's guide holds any text or picture); nothing else (no captions, no Stop, no right sidebar). Phones use the strip as the pager. Conversation rows = the root's own session card first (session-card.json, ordinal 1), then the ROOT's messages oldest first (createdAt, ties by id): a card-less row = a message bubble (author user|agent|system, empty bodies skipped; a person's row reads `queued` until the device consumed it); card `session`/`thread_started` = that session's card (ordinal = its place in the tree's creation order; an unsynced target drops out); `question` (question, options, answer, answered = answeredAt set) and `plan` (plan, decision) answer IN the card; `subagent` (title, status); `picture` (attachmentId, width, height, caption; no attachmentId = dropped); `event` = one muted line from `copy.events` ({issue} = the issue's identifier, {pr} = '#<number>'; an unresolvable target or unknown event = dropped); unknown card kinds are dropped. Children's own messages never inline: they show when that session is opened. The composer below = THE session composer box (Composer primitive), placeholder `copy.placeholder`, sending `sessions.send({sessionId: root})` (an ended thread continues server-side in a new child). title = threadTitle: the stored title, else the action name, else the first issue's title, else the first line of the root's first person message (image lines skipped, capped at `titleMax` chars with '…'), else `copy.untitled`; titleDerived = not stored. private = !root.shared (a lock glyph beside the title). live/busy/needsYou aggregate the tree's non-ended sessions. Model = pure `buildSessionThread(input)` (packages/domain-contract/src/session-tree.ts), every mirror replays `cases` comparing the WHOLE expected object.",
+  "copy": {
+    "untitled": "Untitled",
+    "placeholder": "Reply…",
+    "conversation": "Conversation",
+    "guide": "Guide",
+    "events": {
+      "issue_linked": "Linked {issue}",
+      "issue_filed": "Filed {issue}",
+      "issue_unlinked": "Unlinked {issue}",
+      "pr_opened": "Opened PR {pr}",
+      "pr_merged": "Merged PR {pr}",
+      "pr_closed": "Closed PR {pr}",
+      "session_ended": "Session ended"
+    }
+  },
+  "titleMax": 80,
+  "testIds": {
+    "tabs": "thread-tabs",
+    "conversation": "thread-conversation",
+    "composer": "thread-composer"
+  },
+  "cases": [
+    {
+      "name": "a live thread with two issues, a child card, cards and a queued reply",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": [
+            {
+              "topic": "Summary",
+              "label": null,
+              "attachmentId": null,
+              "width": null,
+              "height": null,
+              "text": "Fixed it."
+            }
+          ],
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r1",
+          "id": "r1"
+        },
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": [
+              {
+                "topic": "Summary",
+                "label": null,
+                "attachmentId": null,
+                "width": null,
+                "height": null,
+                "text": "Fixed it."
+              }
+            ],
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r1",
+            "id": "r1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r1",
+            "kind": "thread",
+            "userId": "u-dana",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Review the fix",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-13T10:05:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:05:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "r1",
+            "id": "c1"
+          }
+        ],
+        "sessionIssues": [
+          {
+            "sessionId": "r1",
+            "issueId": "i-b",
+            "sortOrder": 2
+          },
+          {
+            "sessionId": "r1",
+            "issueId": "i-a",
+            "sortOrder": 1
+          },
+          {
+            "sessionId": "r1",
+            "issueId": "i-missing",
+            "sortOrder": 3
+          }
+        ],
+        "issues": [
+          {
+            "id": "i-a",
+            "identifier": "EXP-12",
+            "title": "Login fails on Safari"
+          },
+          {
+            "id": "i-b",
+            "identifier": "EXP-13",
+            "title": "Session cookie expires early"
+          }
+        ],
+        "pullRequests": [
+          {
+            "id": "pr-1",
+            "number": 45
+          }
+        ],
+        "now": "2026-10-13T10:12:34.000Z",
+        "messages": [
+          {
+            "authorKind": "user",
+            "authorId": "u-dana",
+            "body": "Fix the Safari login\n\nIt loops.",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m1",
+            "sessionId": "r1",
+            "createdAt": "2026-10-13T10:00:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "Found it: the cookie's SameSite flag.",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m2",
+            "sessionId": "r1",
+            "createdAt": "2026-10-13T10:02:00.000Z"
+          },
+          {
+            "authorKind": "system",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "event",
+              "event": "issue_filed",
+              "issueId": "i-b"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m3",
+            "sessionId": "r1",
+            "createdAt": "2026-10-13T10:03:00.000Z"
+          },
+          {
+            "authorKind": "system",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "session",
+              "sessionId": "c1"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m4",
+            "sessionId": "r1",
+            "createdAt": "2026-10-13T10:05:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "Child chatter never inlines.",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m5",
+            "sessionId": "c1",
+            "createdAt": "2026-10-13T10:06:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "question",
+              "question": "Ship behind a flag?",
+              "options": [
+                "Yes",
+                "No"
+              ]
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m6",
+            "sessionId": "r1",
+            "createdAt": "2026-10-13T10:07:00.000Z"
+          },
+          {
+            "authorKind": "system",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "event",
+              "event": "pr_opened",
+              "pullRequestId": "pr-1"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "m7",
+            "sessionId": "r1",
+            "createdAt": "2026-10-13T10:08:00.000Z"
+          },
+          {
+            "authorKind": "user",
+            "authorId": "u-dana",
+            "body": "Yes, flag it.",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": null,
+            "id": "m8",
+            "sessionId": "r1",
+            "createdAt": "2026-10-13T10:09:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "rootId": "r1",
+        "title": "Login fails on Safari",
+        "titleDerived": true,
+        "private": false,
+        "tabs": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "issue",
+            "issueId": "i-a",
+            "identifier": "EXP-12"
+          },
+          {
+            "kind": "issue",
+            "issueId": "i-b",
+            "identifier": "EXP-13"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": true
+          }
+        ],
+        "rows": [
+          {
+            "type": "session",
+            "id": "r1",
+            "card": {
+              "sessionId": "r1",
+              "icon": "coding-running",
+              "name": "Session 1",
+              "kindWord": "Working",
+              "state": "working",
+              "tone": "foreground",
+              "elapsed": "12m 34s",
+              "running": true,
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "message",
+            "id": "m1",
+            "author": "user",
+            "authorId": "u-dana",
+            "body": "Fix the Safari login\n\nIt loops.",
+            "queued": false
+          },
+          {
+            "type": "message",
+            "id": "m2",
+            "author": "agent",
+            "authorId": null,
+            "body": "Found it: the cookie's SameSite flag.",
+            "queued": false
+          },
+          {
+            "type": "event",
+            "id": "m3",
+            "event": "issue_filed",
+            "text": "Filed EXP-13"
+          },
+          {
+            "type": "session",
+            "id": "m4",
+            "card": {
+              "sessionId": "c1",
+              "icon": "coding-assistant",
+              "name": "Review the fix",
+              "kindWord": "Waiting",
+              "state": "waiting",
+              "tone": "muted",
+              "elapsed": "7m 34s",
+              "running": false,
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "question",
+            "id": "m6",
+            "question": "Ship behind a flag?",
+            "options": [
+              "Yes",
+              "No"
+            ],
+            "answer": null,
+            "answered": false
+          },
+          {
+            "type": "event",
+            "id": "m7",
+            "event": "pr_opened",
+            "text": "Opened PR #45"
+          },
+          {
+            "type": "message",
+            "id": "m8",
+            "author": "user",
+            "authorId": "u-dana",
+            "body": "Yes, flag it.",
+            "queued": true
+          }
+        ],
+        "composer": {
+          "sessionId": "r1",
+          "placeholder": "Reply…"
+        },
+        "live": true,
+        "busy": true,
+        "needsYou": false
+      }
+    },
+    {
+      "name": "an ended private thread titled by its action, cards resolved and dropped",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "ended",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": false,
+          "title": null,
+          "guide": null,
+          "actionName": "Tidy up",
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": "2026-10-13T10:30:00.000Z",
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r2",
+          "id": "r2"
+        },
+        "sessions": [],
+        "sessionIssues": [],
+        "issues": [
+          {
+            "id": "i-a",
+            "identifier": "EXP-12",
+            "title": "Login fails on Safari"
+          },
+          {
+            "id": "i-b",
+            "identifier": "EXP-13",
+            "title": "Session cookie expires early"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-13T10:12:34.000Z",
+        "messages": [
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "plan",
+              "plan": "1. Close stale issues",
+              "decision": "approved"
+            },
+            "answeredAt": "2026-10-13T10:01:00.000Z",
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n1",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:01:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "subagent",
+              "title": "Scan board",
+              "status": "done"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n2",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:02:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "picture",
+              "attachmentId": "att-1",
+              "width": 1440,
+              "height": 900,
+              "caption": "Before"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n3",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:03:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "picture"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n4",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:04:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "event",
+              "event": "pr_merged",
+              "pullRequestId": "pr-x"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n5",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:05:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "session",
+              "sessionId": "gone"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n6",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:06:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "future_kind"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n7",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:07:00.000Z"
+          },
+          {
+            "authorKind": "system",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "event",
+              "event": "session_ended"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n8",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:30:00.000Z"
+          },
+          {
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "   ",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-13T10:00:01.000Z",
+            "id": "n9",
+            "sessionId": "r2",
+            "createdAt": "2026-10-13T10:31:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "rootId": "r2",
+        "title": "Tidy up",
+        "titleDerived": true,
+        "private": true,
+        "tabs": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "rows": [
+          {
+            "type": "session",
+            "id": "r2",
+            "card": {
+              "sessionId": "r2",
+              "icon": "coding-ended",
+              "name": "Session 1",
+              "kindWord": "Ended",
+              "state": "ended",
+              "tone": "muted",
+              "elapsed": "30m 00s",
+              "running": false,
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "plan",
+            "id": "n1",
+            "plan": "1. Close stale issues",
+            "decision": "approved"
+          },
+          {
+            "type": "subagent",
+            "id": "n2",
+            "title": "Scan board",
+            "status": "done"
+          },
+          {
+            "type": "picture",
+            "id": "n3",
+            "attachmentId": "att-1",
+            "width": 1440,
+            "height": 900,
+            "caption": "Before"
+          },
+          {
+            "type": "event",
+            "id": "n8",
+            "event": "session_ended",
+            "text": "Session ended"
+          }
+        ],
+        "composer": {
+          "sessionId": "r2",
+          "placeholder": "Reply…"
+        },
+        "live": false,
+        "busy": false,
+        "needsYou": false
+      }
+    },
+    {
+      "name": "a stored title names the thread and its own card",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "idle",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": "Release train",
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r3",
+          "id": "r3"
+        },
+        "sessions": [],
+        "sessionIssues": [],
+        "issues": [],
+        "pullRequests": [],
+        "now": "2026-10-13T10:12:34.000Z",
+        "messages": []
+      },
+      "expected": {
+        "rootId": "r3",
+        "title": "Release train",
+        "titleDerived": false,
+        "private": false,
+        "tabs": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "rows": [
+          {
+            "type": "session",
+            "id": "r3",
+            "card": {
+              "sessionId": "r3",
+              "icon": "coding-assistant",
+              "name": "Release train",
+              "kindWord": "Waiting",
+              "state": "waiting",
+              "tone": "muted",
+              "elapsed": "12m 34s",
+              "running": false,
+              "testId": "session-card"
+            }
+          }
+        ],
+        "composer": {
+          "sessionId": "r3",
+          "placeholder": "Reply…"
+        },
+        "live": true,
+        "busy": false,
+        "needsYou": false
+      }
+    },
+    {
+      "name": "a request titles the thread by its first text line, capped",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "queued",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": null,
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r4",
+          "id": "r4"
+        },
+        "sessions": [],
+        "sessionIssues": [],
+        "issues": [],
+        "pullRequests": [],
+        "now": "2026-10-13T10:12:34.000Z",
+        "messages": [
+          {
+            "authorKind": "user",
+            "authorId": "u-dana",
+            "body": "![image](/api/attachments/x)\nPlease rewrite the onboarding wizard so that every step fits on one phone screen and nothing scrolls",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": null,
+            "id": "q1",
+            "sessionId": "r4",
+            "createdAt": "2026-10-13T10:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "rootId": "r4",
+        "title": "Please rewrite the onboarding wizard so that every step fits on one phone scree…",
+        "titleDerived": true,
+        "private": false,
+        "tabs": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "rows": [
+          {
+            "type": "session",
+            "id": "r4",
+            "card": {
+              "sessionId": "r4",
+              "icon": "ui-clock",
+              "name": "Session 1",
+              "kindWord": "Queued",
+              "state": "queued",
+              "tone": "muted",
+              "elapsed": null,
+              "running": false,
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "message",
+            "id": "q1",
+            "author": "user",
+            "authorId": "u-dana",
+            "body": "![image](/api/attachments/x)\nPlease rewrite the onboarding wizard so that every step fits on one phone screen and nothing scrolls",
+            "queued": true
+          }
+        ],
+        "composer": {
+          "sessionId": "r4",
+          "placeholder": "Reply…"
+        },
+        "live": true,
+        "busy": false,
+        "needsYou": false
+      }
+    },
+    {
+      "name": "nothing to name it by reads Untitled",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "r5",
+          "id": "r5"
+        },
+        "sessions": [],
+        "sessionIssues": [],
+        "issues": [],
+        "pullRequests": [],
+        "now": "2026-10-13T10:12:34.000Z",
+        "messages": []
+      },
+      "expected": {
+        "rootId": "r5",
+        "title": "Untitled",
+        "titleDerived": true,
+        "private": false,
+        "tabs": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "rows": [
+          {
+            "type": "session",
+            "id": "r5",
+            "card": {
+              "sessionId": "r5",
+              "icon": "coding-assistant",
+              "name": "Session 1",
+              "kindWord": "Waiting",
+              "state": "waiting",
+              "tone": "muted",
+              "elapsed": "12m 34s",
+              "running": false,
+              "testId": "session-card"
+            }
+          }
+        ],
+        "composer": {
+          "sessionId": "r5",
+          "placeholder": "Reply…"
+        },
+        "live": true,
+        "busy": false,
+        "needsYou": false
+      }
+    }
+  ]
+}

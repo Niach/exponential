@@ -27,8 +27,19 @@ import {
   type ActionTrigger,
   type CodingSessionBlocked,
   type CodingSessionPendingQuestion,
+  type AgentTrigger,
   type CodingSessionResult,
+  type GuideEntry,
+  type MessageCard,
   codingSessionStatusSchema,
+  messageAuthorKindSchema,
+  messageAuthorKindValues,
+  sessionIssueSourceSchema,
+  sessionIssueSourceValues,
+  sessionKindSchema,
+  sessionKindValues,
+  sessionStatusSchema,
+  sessionStatusValues,
   commentBodyWithAttachmentsSchema,
   commentAudienceValues,
   commentSourceValues,
@@ -146,6 +157,18 @@ export const threadItemKindEnum = pgEnum(`thread_item_kind`, threadItemKindValue
 export const threadItemSourceEnum = pgEnum(
   `thread_item_source`,
   threadItemSourceValues
+)
+
+// EXP-1291 Threads v2: the session tree's vocabulary.
+export const sessionKindEnum = pgEnum(`session_kind`, sessionKindValues)
+export const sessionStatusEnum = pgEnum(`session_status`, sessionStatusValues)
+export const sessionIssueSourceEnum = pgEnum(
+  `session_issue_source`,
+  sessionIssueSourceValues
+)
+export const messageAuthorKindEnum = pgEnum(
+  `message_author_kind`,
+  messageAuthorKindValues
 )
 
 // EXP-741: who posted a comment (a person, or an agent over MCP).
@@ -1079,6 +1102,14 @@ export const attachments = pgTable(
     draftId: uuid(`draft_id`).references(() => issueDrafts.id, {
       onDelete: `cascade`,
     }),
+    // EXP-1291: the conversation message the file rides (`sessions.send
+    // ({attachmentIds})` claims eager uploads; replaces session_attachments).
+    // NULL on all three owners = an upload not yet sent (the orphan sweep
+    // reclaims it after the grace window). Never synced (the attachments
+    // shape keeps `issue_id IS NOT NULL`); bytes via /api/attachments/{id}.
+    messageId: uuid(`message_id`).references((): AnyPgColumn => messages.id, {
+      onDelete: `cascade`,
+    }),
     // Mirrors of the parent board's deleted_at / archived_at
     // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
     // archive predicates. Server-only, shape-excluded.
@@ -1131,13 +1162,16 @@ export const attachments = pgTable(
   (table) => [
     check(
       `attachments_owner_check`,
-      sql`(issue_id IS NOT NULL) <> (draft_id IS NOT NULL)`
+      sql`num_nonnulls(issue_id, draft_id, message_id) <= 1`
     ),
     index(`idx_attachments_issue`).on(table.issueId),
     index(`idx_attachments_team`).on(table.teamId),
     index(`idx_attachments_board`).on(table.boardId),
     // EXP-878: the draft FK cascade + the reparent UPDATE. Partial — most
     // attachments belong to issues.
+    index(`idx_attachments_message`)
+      .on(table.messageId)
+      .where(sql`message_id IS NOT NULL`),
     index(`idx_attachments_draft`)
       .on(table.draftId)
       .where(sql`draft_id IS NOT NULL`),
@@ -2089,6 +2123,310 @@ export const threadItems = pgTable(
   ]
 )
 
+
+// ---------------------------------------------------------------------------
+// EXP-1291 Threads v2: ONE session tree
+// ---------------------------------------------------------------------------
+// A thread IS a root session (`kind = thread`, `parent_id` NULL); a team
+// agent is a root of `kind = agent`; children are sub-sessions (kind
+// `thread`) on any device. The root carries the thread facets (issues via
+// `session_issues`, the Guide, PRs via `pull_requests`, the action it came
+// from); an agent root carries the agent facets. Every start and message is
+// `sessions.send` and the DATABASE is the bus: a new session is a `queued`
+// row naming its device, which picks it up off the sessions shape.
+//
+// Visibility (ONE rule ×4): `shared` is stamped at creation = the device is
+// shared with the team (a child inherits its root's). Shared rows sync to
+// every team member (read, post, answer, Stop); unshared rows to the starter
+// only. The shape = `team_id IN (member teams) AND (shared OR user_id = me)`;
+// every child table carries `shared` + `owner_id` mirrors so its shape stays
+// single-table.
+export const sessions = pgTable(
+  `sessions`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // The tree. NULL parent = a root (a thread or an agent). `root_id` = the
+    // root's id (its own on a root), written by the app at insert; `depth` =
+    // 0 on a root (follow-up cap: contract sessionsSend.treeMaxDepth).
+    parentId: uuid(`parent_id`).references((): AnyPgColumn => sessions.id, {
+      onDelete: `cascade`,
+    }),
+    rootId: uuid(`root_id`)
+      .notNull()
+      .references((): AnyPgColumn => sessions.id, { onDelete: `cascade` }),
+    depth: integer().notNull().default(0),
+    kind: sessionKindEnum().notNull().default(`thread`),
+    // ── runner ──
+    // The STARTER (the real person; a teammate's start on a shared server
+    // device stays theirs). Visibility keys on it.
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // SERVER-ONLY: the device owner hosting a teammate's start (EXP-432);
+    // NULL when the starter owns the device.
+    hostUserId: text(`host_user_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    // The steer deviceId of the machine that runs it (no FK: devices rows
+    // are per (user, deviceId)). The device picks up `queued` rows naming it.
+    deviceId: varchar(`device_id`, { length: 128 }).notNull(),
+    // The agent CLI (contract codingAgent), its account profile, model,
+    // effort and launch switches — the composer's pickers, fixed at start.
+    cli: varchar({ length: 16 }),
+    account: varchar({ length: 64 }),
+    model: varchar({ length: 64 }),
+    effort: varchar({ length: 32 }),
+    planMode: boolean(`plan_mode`).notNull().default(false),
+    computerUse: boolean(`computer_use`).notNull().default(false),
+    ultracode: boolean().notNull().default(false),
+    // SERVER-ONLY (EXP-1140): the team MCP servers this session picked —
+    // the only ids `mcpServers.resolveForLaunch` hands credentials for.
+    mcpServerIds: jsonb(`mcp_server_ids`).$type<string[]>(),
+    repositoryId: uuid(`repository_id`).references(() => repositories.id, {
+      onDelete: `set null`,
+    }),
+    // The session's working branch (device-written at claim).
+    branch: varchar({ length: 255 }),
+    // ── state ──
+    status: sessionStatusEnum().notNull().default(`queued`),
+    // Device-written turn state (EXP-848): the ONLY list-spinner input ×4.
+    busy: boolean().notNull().default(false),
+    // A question/plan card waits for a person (the "Needs you" group).
+    needsInput: boolean(`needs_input`).notNull().default(false),
+    // EXP-804: the usage wall as row state (a blocked session stays live).
+    blocked: jsonb().$type<CodingSessionBlocked>(),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    lastTurnAt: timestamp(`last_turn_at`, { withTimezone: true }),
+    endedAt: timestamp(`ended_at`, { withTimezone: true }),
+    // ── visibility ── (stamped at creation, never changes)
+    shared: boolean().notNull().default(false),
+    // ── thread facets (roots of kind thread) ──
+    // Set by a person or the agent; NULL = derived for display
+    // (`buildThreadView`). On a child: the CLI's auto-name (EXP-905).
+    title: varchar({ length: 255 }),
+    // The thread's ONE Guide = every PR body (`guide_write`, FOR UPDATE).
+    guide: jsonb().$type<GuideEntry[]>(),
+    // The action this thread ran (saved prompt) + its filled picks, and a
+    // name snapshot so a deleted action still names the thread.
+    actionId: uuid(`action_id`).references(() => actions.id, {
+      onDelete: `set null`,
+    }),
+    actionName: varchar(`action_name`, { length: 255 }),
+    actionInputs: jsonb(`action_inputs`).$type<Record<string, string>>(),
+    // The agent or thread session that started this root (an agent spawning
+    // a thread, a trigger firing). History only.
+    spawnedBySessionId: uuid(`spawned_by_session_id`).references(
+      (): AnyPgColumn => sessions.id,
+      { onDelete: `set null` }
+    ),
+    // ── agent facets (roots of kind agent) ──
+    name: varchar({ length: 64 }),
+    icon: varchar({ length: 64 }),
+    color: varchar({ length: 7 }),
+    // SERVER-ONLY (behind the shape allowlist, `sessions.getAgent`): goes
+    // into every agent turn's system append.
+    instructions: text(),
+    triggers: jsonb()
+      .$type<AgentTrigger[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      `sessions_agent_root_check`,
+      sql`kind = 'thread' OR (parent_id IS NULL AND name IS NOT NULL)`
+    ),
+    check(
+      `sessions_root_check`,
+      sql`(parent_id IS NULL AND depth = 0 AND root_id = id) OR (parent_id IS NOT NULL AND depth > 0)`
+    ),
+    index(`idx_sessions_team`).on(table.teamId),
+    index(`idx_sessions_parent`).on(table.parentId),
+    index(`idx_sessions_root`).on(table.rootId),
+    index(`idx_sessions_user`).on(table.userId),
+    index(`idx_sessions_action`).on(table.actionId),
+    index(`idx_sessions_spawned_by`).on(table.spawnedBySessionId),
+    // The device pickup + the live sweep.
+    index(`idx_sessions_device_live`)
+      .on(table.deviceId, table.status)
+      .where(sql`status <> 'ended'`),
+  ]
+)
+
+// A thread's issues (n ↔ n: an issue may sit in several threads). Always on
+// the ROOT. Carries the issue's board mirrors (trash/archive, REV2-5) and the
+// root's visibility mirrors (`shared`, `owner_id`), all trigger-maintained.
+export const sessionIssues = pgTable(
+  `session_issues`,
+  {
+    id: uuidPk(),
+    sessionId: uuid(`session_id`)
+      .notNull()
+      .references(() => sessions.id, { onDelete: `cascade` }),
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Server-only mirrors (shape-excluded; the where clause filters on them).
+    boardId: uuid(`board_id`).references(() => boards.id, {
+      onDelete: `cascade`,
+    }),
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
+    shared: boolean().notNull().default(false),
+    ownerId: text(`owner_id`).references(() => users.id, {
+      onDelete: `cascade`,
+    }),
+    source: sessionIssueSourceEnum().notNull().default(`user`),
+    addedBy: text(`added_by`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    addedBySessionId: uuid(`added_by_session_id`).references(
+      (): AnyPgColumn => sessions.id,
+      { onDelete: `set null` }
+    ),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.sessionId, table.issueId),
+    index(`idx_session_issues_issue`).on(table.issueId),
+    index(`idx_session_issues_team`).on(table.teamId),
+    index(`idx_session_issues_board`).on(table.boardId),
+    index(`idx_session_issues_added_by_session`).on(table.addedBySessionId),
+  ]
+)
+
+// The Conversation: one row per person message, per agent turn reply (the
+// turn's FINAL text, written by the device), per card. The raw tool
+// transcript stays on the device (journal + relay) and shows only when a
+// session is opened. A person's message is the bus: the device delivers it
+// into the session (resuming an idle one) and stamps `consumed_at`.
+export const messages = pgTable(
+  `messages`,
+  {
+    id: uuidPk(),
+    sessionId: uuid(`session_id`)
+      .notNull()
+      .references(() => sessions.id, { onDelete: `cascade` }),
+    // Mirrors of the session (app-written at insert, immutable).
+    rootId: uuid(`root_id`)
+      .notNull()
+      .references(() => sessions.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    shared: boolean().notNull().default(false),
+    ownerId: text(`owner_id`).references(() => users.id, {
+      onDelete: `cascade`,
+    }),
+    authorKind: messageAuthorKindEnum(`author_kind`).notNull(),
+    // The person (author_kind user); NULL for agent/system rows.
+    authorId: text(`author_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    // Plain GFM (images `![alt](/api/attachments/{id})`, mentions `@email`,
+    // refs `#IDENT`). Empty on a pure card.
+    body: text().notNull().default(``),
+    card: jsonb().$type<MessageCard>(),
+    // A question/plan card's answer time (the answer lives in `card`).
+    answeredAt: timestamp(`answered_at`, { withTimezone: true }),
+    // A person's message: when the device delivered it into the agent.
+    // NULL = queued (the queue bar ×4).
+    consumedAt: timestamp(`consumed_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_messages_session_created`).on(table.sessionId, table.createdAt),
+    index(`idx_messages_root`).on(table.rootId),
+    index(`idx_messages_team`).on(table.teamId),
+    index(`idx_messages_pending`)
+      .on(table.sessionId)
+      .where(sql`author_kind = 'user' AND consumed_at IS NULL`),
+  ]
+)
+
+// A thread's pull requests (n: a tree, a stack or independent). All PR and
+// branch state lives here, never on `issues`. Team-visible (an issue's PR
+// badge is team data; GitHub shows it anyway). `base_pull_request_id` = the
+// open PR this one is stacked on (native GitHub stacks).
+export const pullRequests = pgTable(
+  `pull_requests`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    rootSessionId: uuid(`root_session_id`).references(() => sessions.id, {
+      onDelete: `set null`,
+    }),
+    // The session that opened it (`pr_open`).
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
+      onDelete: `set null`,
+    }),
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    number: integer().notNull(),
+    url: text().notNull(),
+    title: varchar({ length: 500 }),
+    head: varchar({ length: 255 }).notNull(),
+    base: varchar({ length: 255 }).notNull(),
+    basePullRequestId: uuid(`base_pull_request_id`).references(
+      (): AnyPgColumn => pullRequests.id,
+      { onDelete: `set null` }
+    ),
+    state: prStateEnum().notNull().default(`open`),
+    mergedAt: timestamp(`merged_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.repositoryId, table.number),
+    uniqueIndex(`uniq_pull_requests_url`).on(table.url),
+    index(`idx_pull_requests_team`).on(table.teamId),
+    index(`idx_pull_requests_root`).on(table.rootSessionId),
+    index(`idx_pull_requests_session`).on(table.sessionId),
+    index(`idx_pull_requests_head`).on(table.repositoryId, table.head),
+    index(`idx_pull_requests_base_pr`).on(table.basePullRequestId),
+  ]
+)
+
+// Which issues a PR closes (n ↔ n). Carries the issue's board mirrors.
+export const pullRequestIssues = pgTable(
+  `pull_request_issues`,
+  {
+    id: uuidPk(),
+    pullRequestId: uuid(`pull_request_id`)
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: `cascade` }),
+    issueId: uuid(`issue_id`)
+      .notNull()
+      .references(() => issues.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    boardId: uuid(`board_id`).references(() => boards.id, {
+      onDelete: `cascade`,
+    }),
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.pullRequestId, table.issueId),
+    index(`idx_pull_request_issues_issue`).on(table.issueId),
+    index(`idx_pull_request_issues_team`).on(table.teamId),
+    index(`idx_pull_request_issues_board`).on(table.boardId),
+  ]
+)
+
 // EXP-878: issue drafts — what the create-issue dialog keeps when it is
 // closed with content in it, on every client. Per USER like pins (the shape
 // is the static `user_id = me`, never team- or trash-scoped; a row renders
@@ -2966,6 +3304,49 @@ export const selectCodingSessionSchema = createSelectSchema(codingSessions, {
 
 export const selectRepositorySchema = createSelectSchema(repositories)
 
+// EXP-1291: the synced projections of the session tree. Tolerant jsonb reads
+// (a future card kind or trigger must never brick a collection).
+export const selectSessionSchema = createSelectSchema(sessions, {
+  kind: sessionKindSchema,
+  status: sessionStatusSchema,
+  guide: z.custom<GuideEntry[]>((value) => value === null || Array.isArray(value)),
+  triggers: z.custom<AgentTrigger[]>((value) => Array.isArray(value)),
+  actionInputs: z.record(z.string(), z.string()).nullable(),
+  mcpServerIds: z.array(z.string()).nullable(),
+})
+export const selectSyncedSessionSchema = selectSessionSchema.omit({
+  hostUserId: true,
+  mcpServerIds: true,
+  instructions: true,
+})
+export const selectSessionIssueSchema = createSelectSchema(sessionIssues, {
+  source: sessionIssueSourceSchema,
+})
+export const selectSyncedSessionIssueSchema = selectSessionIssueSchema.omit({
+  boardId: true,
+  boardDeletedAt: true,
+  boardArchivedAt: true,
+  shared: true,
+  ownerId: true,
+})
+export const selectMessageSchema = createSelectSchema(messages, {
+  authorKind: messageAuthorKindSchema,
+  card: z.custom<MessageCard>((value) => value === null || typeof value === `object`).nullable(),
+})
+export const selectSyncedMessageSchema = selectMessageSchema.omit({
+  shared: true,
+  ownerId: true,
+})
+export const selectPullRequestSchema = createSelectSchema(pullRequests, {
+  state: prStateSchema,
+})
+export const selectPullRequestIssueSchema = createSelectSchema(pullRequestIssues)
+export const selectSyncedPullRequestIssueSchema = selectPullRequestIssueSchema.omit({
+  boardId: true,
+  boardDeletedAt: true,
+  boardArchivedAt: true,
+})
+
 export const selectMcpServerSchema = createSelectSchema(mcpServers, {
   transport: mcpTransportSchema,
   auth: mcpAuthSchema,
@@ -3062,6 +3443,11 @@ export type ThreadItem = InferSelectModel<typeof threadItems>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>
+export type Session = InferSelectModel<typeof sessions>
+export type SessionIssue = InferSelectModel<typeof sessionIssues>
+export type Message = InferSelectModel<typeof messages>
+export type PullRequest = InferSelectModel<typeof pullRequests>
+export type PullRequestIssue = InferSelectModel<typeof pullRequestIssues>
 export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>
 export type McpCredential = InferSelectModel<typeof mcpCredentials>

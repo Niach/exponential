@@ -100,7 +100,7 @@ export async function resolveActionInputs(
     // validated against the contract set rather than a team-scoped lookup
     // (icons are global, so there is nothing to scope). Checked before the
     // uuid gate below, which it would otherwise fail.
-    if (def.type === `icon`) {
+    if ((def.type as string) === `icon`) {
       if (!(boardIconValues as readonly string[]).includes(raw)) {
         return {
           ok: false,

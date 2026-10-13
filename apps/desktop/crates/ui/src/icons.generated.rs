@@ -556,8 +556,6 @@ pub const NAV_RAIL_COLLAPSE: ExpIcon = ExpIcon::PanelLeftClose;
 pub const NAV_RAIL_EXPAND: ExpIcon = ExpIcon::PanelLeftOpen;
 /// Registry concept `nav-report-bug` -> Lucide `bug`.
 pub const NAV_REPORT_BUG: ExpIcon = ExpIcon::Bug;
-/// Registry concept `nav-reviews` -> Lucide `git-pull-request`.
-pub const NAV_REVIEWS: ExpIcon = ExpIcon::GitPullRequest;
 /// Registry concept `nav-search` -> Lucide `search`.
 pub const NAV_SEARCH: ExpIcon = ExpIcon::Search;
 /// Registry concept `nav-settings` -> Lucide `settings`.
@@ -570,6 +568,8 @@ pub const NAV_SOURCE_CONTROL: ExpIcon = ExpIcon::GitMerge;
 pub const NAV_TEAM_SWITCHER: ExpIcon = ExpIcon::ChevronsUpDown;
 /// Registry concept `nav-terminal` -> Lucide `square-terminal`.
 pub const NAV_TERMINAL: ExpIcon = ExpIcon::SquareTerminal;
+/// Registry concept `nav-threads` -> Lucide `list-tree`.
+pub const NAV_THREADS: ExpIcon = ExpIcon::ListTree;
 /// Registry concept `notification-agent-message` -> Lucide `bot`.
 pub const NOTIFICATION_AGENT_MESSAGE: ExpIcon = ExpIcon::Bot;
 /// Registry concept `notification-issue-assigned` -> Lucide `user-plus`.
@@ -1000,13 +1000,13 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-rail-collapse" => NAV_RAIL_COLLAPSE,
         "nav-rail-expand" => NAV_RAIL_EXPAND,
         "nav-report-bug" => NAV_REPORT_BUG,
-        "nav-reviews" => NAV_REVIEWS,
         "nav-search" => NAV_SEARCH,
         "nav-settings" => NAV_SETTINGS,
         "nav-sign-out" => NAV_SIGN_OUT,
         "nav-source-control" => NAV_SOURCE_CONTROL,
         "nav-team-switcher" => NAV_TEAM_SWITCHER,
         "nav-terminal" => NAV_TERMINAL,
+        "nav-threads" => NAV_THREADS,
         "notification-agent-message" => NOTIFICATION_AGENT_MESSAGE,
         "notification-issue-assigned" => NOTIFICATION_ISSUE_ASSIGNED,
         "notification-issue-comment" => NOTIFICATION_ISSUE_COMMENT,

@@ -1,0 +1,541 @@
+// EXP-1291 Threads v2: the session tree's view models, ONE reference ×4.
+// Pure and byte-locked by the fixtures every mirror replays:
+//   fixtures/session-card.json   → sessionCard()
+//   fixtures/session-thread.json → buildSessionThread()
+//   fixtures/threads-list.json   → partitionThreads() + listAgents()
+// Mirrors: desktop `domain::session_tree`, iOS ExpCore `SessionTree.swift`,
+// Android `domain/SessionTree.kt`. The fixtures' `$comment`s hold the rules;
+// this file is the reference.
+
+import cardFixture from "../fixtures/session-card.json" with { type: "json" }
+import threadFixture from "../fixtures/session-thread.json" with { type: "json" }
+import listFixture from "../fixtures/threads-list.json" with { type: "json" }
+
+export interface TreeSession {
+  id: string
+  teamId: string
+  parentId: string | null
+  rootId: string
+  kind: string
+  userId: string
+  status: string
+  busy: boolean
+  needsInput: boolean
+  blocked: { window?: string | null; resetsAt?: string | null } | null
+  shared: boolean
+  title: string | null
+  guide: { text?: string | null; label?: string | null }[] | null
+  actionName: string | null
+  name: string | null
+  icon: string | null
+  color: string | null
+  sortOrder: number
+  startedAt: string | null
+  endedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TreeSessionIssue {
+  sessionId: string
+  issueId: string
+  sortOrder: number
+}
+
+export interface TreeIssue {
+  id: string
+  identifier: string
+  title: string
+}
+
+export interface TreeMessage {
+  id: string
+  sessionId: string
+  authorKind: string
+  authorId: string | null
+  body: string
+  card: Record<string, unknown> | null
+  answeredAt: string | null
+  consumedAt: string | null
+  createdAt: string
+}
+
+export interface TreePullRequest {
+  id: string
+  number: number
+}
+
+export const SESSION_CARD_COPY = cardFixture.copy
+export const SESSION_CARD_ICONS = cardFixture.icons
+export const THREAD_COPY = threadFixture.copy
+export const THREADS_LIST_COPY = listFixture.copy
+
+const ms = (iso: string | null | undefined): number | null => {
+  if (!iso) return null
+  const value = Date.parse(iso)
+  return Number.isNaN(value) ? null : value
+}
+
+/** The work card's elapsed ladder: `37s`, `2m 04s`, `1h 03m`. */
+export function formatElapsed(durationMs: number): string {
+  const total = Math.max(0, Math.floor(durationMs / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  const pad = (value: number) => String(value).padStart(2, `0`)
+  if (hours > 0) return `${hours}h ${pad(minutes)}m`
+  if (minutes > 0) return `${minutes}m ${pad(seconds)}s`
+  return `${seconds}s`
+}
+
+export type SessionState =
+  | `queued`
+  | `working`
+  | `waiting`
+  | `needs_you`
+  | `blocked`
+  | `ended`
+
+/** One state word per session, the card's kind word and tone. */
+export function sessionState(session: TreeSession): SessionState {
+  if (session.status === `ended`) return `ended`
+  if (session.needsInput) return `needs_you`
+  if (session.blocked) return `blocked`
+  if (session.status === `queued`) return `queued`
+  if (session.busy) return `working`
+  return `waiting`
+}
+
+/** Sessions of one tree in creation order (ties by id): `Session N` names. */
+export function treeOrder(sessions: readonly TreeSession[]): TreeSession[] {
+  return [...sessions].sort(
+    (a, b) =>
+      (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
+      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  )
+}
+
+export interface SessionCard {
+  sessionId: string
+  icon: string
+  name: string
+  kindWord: string
+  state: SessionState
+  tone: string
+  elapsed: string | null
+  running: boolean
+  testId: string
+}
+
+/**
+ * THE session card = the Work card's header row (EXP-1240): icon, name,
+ * the muted state word, trailing elapsed, a spinner while `running`. Tapping
+ * it opens that session's raw view. `ordinal` = its 1-based place in the
+ * tree's creation order (names an untitled session `Session N`).
+ */
+export function sessionCard(
+  session: TreeSession,
+  ordinal: number,
+  now: string
+): SessionCard {
+  const state = sessionState(session)
+  const start = ms(session.startedAt)
+  const end = state === `ended` ? ms(session.endedAt) ?? ms(session.updatedAt) : ms(now)
+  const elapsed =
+    start !== null && end !== null && state !== `queued` ? formatElapsed(end - start) : null
+  const title = session.title?.trim()
+  return {
+    sessionId: session.id,
+    icon: SESSION_CARD_ICONS[state],
+    name: title ? title : `${SESSION_CARD_COPY.session} ${ordinal}`,
+    kindWord: SESSION_CARD_COPY.states[state],
+    state,
+    tone: cardFixture.tones[state],
+    elapsed,
+    running: state === `working`,
+    testId: cardFixture.testIds.card,
+  }
+}
+
+/** First line of a person's text, capped (a thread named by its request). */
+function firstLine(body: string, max: number): string | null {
+  const line = body
+    .split(`\n`)
+    .map((part) => part.trim())
+    .find((part) => part.length > 0 && !part.startsWith(`![`))
+  if (!line) return null
+  return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line
+}
+
+/**
+ * A thread's title: the stored one, else the action it ran, else its first
+ * issue's title (sort order), else the first line of the first person
+ * message, else `Untitled`. `derived` = not stored.
+ */
+export function threadTitle(
+  root: TreeSession,
+  issues: readonly TreeIssue[],
+  messages: readonly TreeMessage[]
+): { title: string; derived: boolean } {
+  const stored = root.title?.trim()
+  if (stored) return { title: stored, derived: false }
+  if (root.actionName?.trim()) return { title: root.actionName.trim(), derived: true }
+  if (issues.length > 0) return { title: issues[0].title, derived: true }
+  const first = [...messages]
+    .filter((m) => m.sessionId === root.id && m.authorKind === `user`)
+    .sort((a, b) => (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0))[0]
+  const line = first ? firstLine(first.body, threadFixture.titleMax) : null
+  if (line) return { title: line, derived: true }
+  return { title: THREAD_COPY.untitled, derived: true }
+}
+
+function rootIssues(
+  rootId: string,
+  sessionIssues: readonly TreeSessionIssue[],
+  issues: readonly TreeIssue[]
+): TreeIssue[] {
+  const byId = new Map(issues.map((issue) => [issue.id, issue]))
+  return sessionIssues
+    .filter((link) => link.sessionId === rootId)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((link) => byId.get(link.issueId))
+    .filter((issue): issue is TreeIssue => issue !== undefined)
+}
+
+export type ThreadTab =
+  | { kind: `conversation` }
+  | { kind: `issue`; issueId: string; identifier: string }
+  | { kind: `add` }
+  | { kind: `guide`; dot: boolean }
+
+export type ThreadRow =
+  | {
+      type: `message`
+      id: string
+      author: `user` | `agent` | `system`
+      authorId: string | null
+      body: string
+      queued: boolean
+    }
+  | { type: `session`; id: string; card: SessionCard }
+  | {
+      type: `question`
+      id: string
+      question: string
+      options: string[]
+      answer: string | null
+      answered: boolean
+    }
+  | { type: `plan`; id: string; plan: string; decision: string | null }
+  | { type: `subagent`; id: string; title: string; status: string }
+  | {
+      type: `picture`
+      id: string
+      attachmentId: string
+      width: number | null
+      height: number | null
+      caption: string | null
+    }
+  | { type: `event`; id: string; event: string; text: string }
+
+export interface SessionThreadView {
+  rootId: string
+  title: string
+  titleDerived: boolean
+  private: boolean
+  tabs: ThreadTab[]
+  rows: ThreadRow[]
+  composer: { sessionId: string; placeholder: string }
+  live: boolean
+  busy: boolean
+  needsYou: boolean
+}
+
+function eventText(
+  card: Record<string, unknown>,
+  issues: ReadonlyMap<string, TreeIssue>,
+  prs: ReadonlyMap<string, TreePullRequest>
+): string | null {
+  const event = String(card.event ?? ``)
+  const template = (THREAD_COPY.events as Record<string, string>)[event]
+  if (!template) return null
+  const issue = typeof card.issueId === `string` ? issues.get(card.issueId) : undefined
+  const pr = typeof card.pullRequestId === `string` ? prs.get(card.pullRequestId) : undefined
+  if (template.includes(`{issue}`)) {
+    if (!issue) return null
+    return template.replace(`{issue}`, issue.identifier)
+  }
+  if (template.includes(`{pr}`)) {
+    if (!pr) return null
+    return template.replace(`{pr}`, `#${pr.number}`)
+  }
+  return template
+}
+
+/**
+ * The thread screen: the header tabs (Conversation · one chip per issue ·
+ * + · Guide), the root's conversation as rows (the root's own session card
+ * first, then its messages oldest first; a `session`/`thread_started` card
+ * becomes that session's card) and the composer target (the root: a message
+ * to an ended thread continues it server-side).
+ */
+export function buildSessionThread(input: {
+  root: TreeSession
+  sessions: readonly TreeSession[]
+  sessionIssues: readonly TreeSessionIssue[]
+  issues: readonly TreeIssue[]
+  messages: readonly TreeMessage[]
+  pullRequests: readonly TreePullRequest[]
+  now: string
+}): SessionThreadView {
+  const { root, now } = input
+  const tree = treeOrder(input.sessions.filter((s) => s.rootId === root.id || s.id === root.id))
+  if (!tree.some((s) => s.id === root.id)) tree.unshift(root)
+  const ordinals = new Map(tree.map((s, index) => [s.id, index + 1]))
+  const byId = new Map(input.sessions.map((s) => [s.id, s]))
+  byId.set(root.id, root)
+  const issues = rootIssues(root.id, input.sessionIssues, input.issues)
+  const issueMap = new Map(input.issues.map((issue) => [issue.id, issue]))
+  const prMap = new Map(input.pullRequests.map((pr) => [pr.id, pr]))
+  const own = input.messages
+    .filter((m) => m.sessionId === root.id)
+    .sort(
+      (a, b) =>
+        (ms(a.createdAt) ?? 0) - (ms(b.createdAt) ?? 0) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    )
+  const { title, derived } = threadTitle(root, issues, own)
+
+  const rows: ThreadRow[] = [
+    { type: `session`, id: root.id, card: sessionCard(root, 1, now) },
+  ]
+  for (const message of own) {
+    const card = message.card
+    if (!card) {
+      const author =
+        message.authorKind === `user` || message.authorKind === `agent`
+          ? message.authorKind
+          : `system`
+      if (!message.body.trim()) continue
+      rows.push({
+        type: `message`,
+        id: message.id,
+        author,
+        authorId: message.authorId,
+        body: message.body,
+        queued: author === `user` && message.consumedAt === null,
+      })
+      continue
+    }
+    switch (card.kind) {
+      case `session`:
+      case `thread_started`: {
+        const target = typeof card.sessionId === `string` ? byId.get(card.sessionId) : undefined
+        if (!target) break
+        rows.push({
+          type: `session`,
+          id: message.id,
+          card: sessionCard(target, ordinals.get(target.id) ?? 1, now),
+        })
+        break
+      }
+      case `question`:
+        rows.push({
+          type: `question`,
+          id: message.id,
+          question: String(card.question ?? ``),
+          options: Array.isArray(card.options) ? card.options.map(String) : [],
+          answer: typeof card.answer === `string` ? card.answer : null,
+          answered: message.answeredAt !== null,
+        })
+        break
+      case `plan`:
+        rows.push({
+          type: `plan`,
+          id: message.id,
+          plan: String(card.plan ?? ``),
+          decision: typeof card.decision === `string` ? card.decision : null,
+        })
+        break
+      case `subagent`:
+        rows.push({
+          type: `subagent`,
+          id: message.id,
+          title: String(card.title ?? ``),
+          status: String(card.status ?? ``),
+        })
+        break
+      case `picture`:
+        if (typeof card.attachmentId !== `string`) break
+        rows.push({
+          type: `picture`,
+          id: message.id,
+          attachmentId: card.attachmentId,
+          width: typeof card.width === `number` ? card.width : null,
+          height: typeof card.height === `number` ? card.height : null,
+          caption: typeof card.caption === `string` ? card.caption : null,
+        })
+        break
+      case `event`: {
+        const text = eventText(card, issueMap, prMap)
+        if (text) rows.push({ type: `event`, id: message.id, event: String(card.event), text })
+        break
+      }
+      default:
+        break
+    }
+  }
+
+  const guideDot = (root.guide ?? []).some(
+    (entry) => (entry.text ?? ``).trim().length > 0 || (entry.label ?? null) !== null
+  )
+  const live = tree.filter((s) => s.status !== `ended`)
+  return {
+    rootId: root.id,
+    title,
+    titleDerived: derived,
+    private: !root.shared,
+    tabs: [
+      { kind: `conversation` },
+      ...issues.map((issue) => ({
+        kind: `issue` as const,
+        issueId: issue.id,
+        identifier: issue.identifier,
+      })),
+      { kind: `add` },
+      { kind: `guide`, dot: guideDot },
+    ],
+    rows,
+    composer: { sessionId: root.id, placeholder: THREAD_COPY.placeholder },
+    live: live.length > 0,
+    busy: live.some((s) => s.busy),
+    needsYou: live.some((s) => s.needsInput),
+  }
+}
+
+export interface ThreadsListRow {
+  sessionId: string
+  teamId: string
+  title: string
+  private: boolean
+  busy: boolean
+  needsYou: boolean
+  activityAt: string
+}
+
+export interface ThreadsListGroup {
+  key: `needs_you` | `running` | `recent`
+  title: string
+  rows: ThreadsListRow[]
+}
+
+/**
+ * The Threads page/rail list: roots of kind `thread` in scope (`teamId` =
+ * the ACTIVE team; null = every team, phones band rows per team), grouped
+ * Needs you (a live session of the tree waits on a person) · Running (any
+ * session queued or running) · Recent (the rest), each by the tree's newest
+ * `updatedAt` desc. Empty groups are omitted.
+ */
+export function partitionThreads(input: {
+  sessions: readonly TreeSession[]
+  sessionIssues: readonly TreeSessionIssue[]
+  issues: readonly TreeIssue[]
+  messages: readonly TreeMessage[]
+  teamId: string | null
+}): ThreadsListGroup[] {
+  const roots = input.sessions.filter(
+    (s) =>
+      s.parentId === null &&
+      s.kind === `thread` &&
+      (input.teamId === null || s.teamId === input.teamId)
+  )
+  const byRoot = new Map<string, TreeSession[]>()
+  for (const session of input.sessions) {
+    const list = byRoot.get(session.rootId) ?? []
+    list.push(session)
+    byRoot.set(session.rootId, list)
+  }
+  const buckets: Record<ThreadsListGroup[`key`], ThreadsListRow[]> = {
+    needs_you: [],
+    running: [],
+    recent: [],
+  }
+  for (const root of roots) {
+    const tree = byRoot.get(root.id) ?? [root]
+    const live = tree.filter((s) => s.status !== `ended`)
+    const needsYou = live.some((s) => s.needsInput)
+    const running = live.some((s) => s.status === `queued` || s.status === `running`)
+    const activity = tree.reduce(
+      (latest, s) => ((ms(s.updatedAt) ?? 0) > (ms(latest) ?? 0) ? s.updatedAt : latest),
+      root.updatedAt
+    )
+    const { title } = threadTitle(
+      root,
+      rootIssues(root.id, input.sessionIssues, input.issues),
+      input.messages
+    )
+    const row: ThreadsListRow = {
+      sessionId: root.id,
+      teamId: root.teamId,
+      title,
+      private: !root.shared,
+      busy: live.some((s) => s.busy),
+      needsYou,
+      activityAt: activity,
+    }
+    buckets[needsYou ? `needs_you` : running ? `running` : `recent`].push(row)
+  }
+  const order = (rows: ThreadsListRow[]) =>
+    rows.sort(
+      (a, b) =>
+        (ms(b.activityAt) ?? 0) - (ms(a.activityAt) ?? 0) ||
+        (a.sessionId < b.sessionId ? -1 : 1)
+    )
+  return (Object.keys(buckets) as ThreadsListGroup[`key`][])
+    .map((key) => ({ key, title: THREADS_LIST_COPY.groups[key], rows: order(buckets[key]) }))
+    .filter((group) => group.rows.length > 0)
+}
+
+export interface AgentRow {
+  sessionId: string
+  teamId: string
+  name: string
+  icon: string
+  color: string
+  busy: boolean
+  needsYou: boolean
+}
+
+/**
+ * The rail's Agents section (above Boards): one row per agent root of the
+ * team, icon + color like boards, by `sortOrder` then name. An agent's
+ * spinner/needs-you dot covers its own row only (the threads it spawns are
+ * their own roots).
+ */
+export function listAgents(
+  sessions: readonly TreeSession[],
+  teamId: string | null
+): AgentRow[] {
+  return sessions
+    .filter(
+      (s) =>
+        s.parentId === null &&
+        s.kind === `agent` &&
+        (teamId === null || s.teamId === teamId)
+    )
+    .sort(
+      (a, b) =>
+        a.sortOrder - b.sortOrder ||
+        (a.name ?? ``).localeCompare(b.name ?? ``) ||
+        (a.id < b.id ? -1 : 1)
+    )
+    .map((s) => ({
+      sessionId: s.id,
+      teamId: s.teamId,
+      name: s.name ?? ``,
+      icon: s.icon ?? listFixture.agentDefaults.icon,
+      color: s.color ?? listFixture.agentDefaults.color,
+      busy: s.busy,
+      needsYou: s.needsInput,
+    }))
+}

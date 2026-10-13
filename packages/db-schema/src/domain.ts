@@ -707,7 +707,7 @@ export const codingSessionSummarySchema = z
 // rides the start as `prompt` (see MAX_START_PROMPT) and reaches the run as
 // an "Additional instructions" section, so an action never declares a field
 // for it.
-export const actionInputTypeValues = [`repo`, `board`, `pr`, `icon`] as const
+export const actionInputTypeValues = [`repo`, `board`, `pr`, `issue`] as const
 export type ActionInputType = (typeof actionInputTypeValues)[number]
 
 // EXP-792: team MCP servers (server-only `mcp_servers` rows, never synced).
@@ -1180,3 +1180,209 @@ export const codingSessionPendingQuestionSchema = z.object({
   question: z.string().max(4_000),
   askedAt: z.string().max(64),
 })
+
+// ── Threads v2 (EXP-1291): ONE session tree ─────────────────────────────────
+// A thread IS a root session (`sessions.kind = thread`, `parent_id` NULL); a
+// team agent is a root of kind `agent` (never ends: it idles and wakes on a
+// message or a trigger). Children are sub-sessions on any device (kind
+// `thread`). Every start, message, follow-up, action run, trigger firing and
+// agent spawn is ONE call: `sessions.send` (sessionsSendInputSchema below).
+// The database is the bus: a new session is a `queued` row naming its device,
+// a message a `messages` row; the device picks both up off its shapes.
+
+export const sessionKindValues = [`thread`, `agent`] as const
+export type SessionKind = (typeof sessionKindValues)[number]
+export const sessionKindSchema = z.enum(sessionKindValues)
+
+/** queued → running ⇄ idle → ended. A message to an idle session resumes the
+ *  SAME row; agents never reach `ended`. */
+export const sessionStatusValues = [`queued`, `running`, `idle`, `ended`] as const
+export type SessionStatus = (typeof sessionStatusValues)[number]
+export const sessionStatusSchema = z.enum(sessionStatusValues)
+
+/** Who linked an issue to a thread (session_issues.source). */
+export const sessionIssueSourceValues = [`user`, `agent`] as const
+export type SessionIssueSource = (typeof sessionIssueSourceValues)[number]
+export const sessionIssueSourceSchema = z.enum(sessionIssueSourceValues)
+
+/** messages.author_kind: a person, the session's agent (its turn's final
+ *  reply or a card), or the server (event cards). */
+export const messageAuthorKindValues = [`user`, `agent`, `system`] as const
+export type MessageAuthorKind = (typeof messageAuthorKindValues)[number]
+export const messageAuthorKindSchema = z.enum(messageAuthorKindValues)
+
+export const messageCardKindValues = [
+  `question`,
+  `plan`,
+  `subagent`,
+  `session`,
+  `picture`,
+  `event`,
+  `thread_started`,
+] as const
+export type MessageCardKind = (typeof messageCardKindValues)[number]
+
+export const messageEventKindValues = [
+  `issue_linked`,
+  `issue_filed`,
+  `issue_unlinked`,
+  `pr_opened`,
+  `pr_merged`,
+  `pr_closed`,
+  `session_ended`,
+] as const
+export type MessageEventKind = (typeof messageEventKindValues)[number]
+
+/** messages.card: what a non-text conversation row shows. `session` = ONE
+ *  child session's card (the Work card header row, EXP-1240; opens that
+ *  session), `thread_started` = an agent channel's "started ▸ Thread" card,
+ *  `question`/`plan` answer IN the card (`answer` + messages.answered_at),
+ *  `picture` = a Guide picture the session showed while it worked. */
+export type MessageCard =
+  | { kind: `question`; question: string; options?: string[]; answer?: string | null }
+  | { kind: `plan`; plan: string; decision?: `approved` | `rejected` | null; feedback?: string | null }
+  | { kind: `subagent`; title: string; status: string; summary?: string | null }
+  | { kind: `session`; sessionId: string }
+  | { kind: `picture`; attachmentId: string; width: number | null; height: number | null; caption?: string | null }
+  | {
+      kind: `event`
+      event: MessageEventKind
+      issueId?: string | null
+      pullRequestId?: string | null
+      sessionId?: string | null
+    }
+  | { kind: `thread_started`; sessionId: string }
+
+// Tolerant read schema (a future card kind must not brick a collection):
+// clients render unknown kinds as nothing.
+export const messageCardSchema = z
+  .object({ kind: z.string().max(32) })
+  .passthrough()
+
+/** The Guide (ONE per thread, on the root): the PR body of every PR of the
+ *  thread. Same entry shape and caps as the EXP-879/1154 results. */
+export type GuideEntry = CodingSessionResult
+
+// ── Agent triggers (agent roots only; SLOP-2's action triggers moved here) ──
+// A trigger carries only its WHEN: the runner is the agent itself (its
+// device, account, model). LOCAL-ONLY like before: the agent's device reads
+// them off the sessions shape and posts the firing as a message into the
+// agent's channel (`sessions.send({sessionId: agent})`).
+export const agentTriggerEventValues = actionTriggerEventValues
+export const agentScheduleIntervalValues = actionScheduleIntervalValues
+export const MAX_AGENT_TRIGGERS = 10
+
+export type AgentTrigger = { id: string; enabled: boolean } & (
+  | ScheduleTriggerWhen
+  | (EventTriggerWhen & { source: ActionTriggerSource })
+)
+
+export const agentTriggerSchema = z.discriminatedUnion(`kind`, [
+  z
+    .strictObject({
+      id: z.string().uuid().optional(),
+      enabled: z.boolean().default(true),
+      ...scheduleTriggerShape,
+    })
+    .superRefine(refineSchedule),
+  z
+    .strictObject({
+      id: z.string().uuid().optional(),
+      enabled: z.boolean().default(true),
+      ...eventTriggerShape,
+    })
+    .superRefine(refineEvent),
+])
+export const agentTriggersSchema = z.array(agentTriggerSchema).max(MAX_AGENT_TRIGGERS)
+
+// ── sessions.send (THE entrypoint) ──────────────────────────────────────────
+export const SESSIONS_SEND_TEXT_MAX = 16384
+export const SESSIONS_SEND_MAX_ATTACHMENTS = 10
+export const SESSIONS_SEND_MAX_ISSUES = 30
+export const SESSION_BRIEF_MAX_BYTES = 65536
+export const MESSAGE_BODY_MAX = 65536
+export const AGENT_NAME_MAX = 64
+export const AGENT_INSTRUCTIONS_MAX_BYTES = 16384
+/** Follow-up trees: depth below a root, sessions per tree. */
+export const SESSION_TREE_MAX_DEPTH = 3
+export const SESSION_TREE_MAX_SESSIONS = 10
+
+export const agentFacetsSchema = z.object({
+  name: z.string().trim().min(1).max(AGENT_NAME_MAX),
+  icon: boardIconSchema,
+  color: hexColorSchema,
+  instructions: z.string().max(AGENT_INSTRUCTIONS_MAX_BYTES).default(``),
+  triggers: agentTriggersSchema.default([]),
+})
+export type AgentFacetsInput = z.infer<typeof agentFacetsSchema>
+
+const sendUuid = z.string().uuid()
+
+/**
+ * `sessions.send`: message an existing session (`sessionId`; resumes it when
+ * idle, an ended THREAD continues in a new child), start a CHILD
+ * (`parentId`), or start a new ROOT (neither): a thread (optionally with
+ * `issueIds` / `actionId`+`inputs` / `repositoryId`) or, with `agent`, a team
+ * agent. A new session needs `deviceId` (the composer's device picker; an
+ * agent's spawn defaults to the agent's own device). `teamId` = the ACTIVE
+ * team; omitted, it resolves from `sessionId`/`parentId`, else the CALLING
+ * session's team (MCP), else it is required.
+ */
+export const sessionsSendInputSchema = z
+  .object({
+    teamId: sendUuid.optional(),
+    sessionId: sendUuid.optional(),
+    parentId: sendUuid.optional(),
+    // Runner pickers (new sessions only).
+    deviceId: z.string().min(1).max(128).optional(),
+    cli: z.string().min(1).max(16).optional(),
+    account: z.string().min(1).max(64).optional(),
+    model: z.string().max(64).optional(),
+    effort: z.string().max(32).optional(),
+    planMode: z.boolean().optional(),
+    computerUse: z.boolean().optional(),
+    ultracode: z.boolean().optional(),
+    mcpServerIds: z.array(sendUuid).max(20).optional(),
+    // The message.
+    text: z
+      .string()
+      .max(SESSIONS_SEND_TEXT_MAX)
+      .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`)
+      .optional(),
+    attachmentIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_ATTACHMENTS).optional(),
+    // Facets of a NEW root thread.
+    issueIds: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_ISSUES).optional(),
+    actionId: sendUuid.optional(),
+    inputs: z.record(z.string(), z.string().max(MAX_ACTION_INPUT_TEXT)).optional(),
+    repositoryId: sendUuid.optional(),
+    // A NEW team agent root (Settings → Agents).
+    agent: agentFacetsSchema.optional(),
+  })
+  .superRefine((input, ctx) => {
+    const issue = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+    const rootFacets =
+      input.issueIds !== undefined ||
+      input.actionId !== undefined ||
+      input.repositoryId !== undefined ||
+      input.agent !== undefined
+    if (input.sessionId) {
+      if (input.parentId) issue(`sessionId and parentId are exclusive`)
+      if (rootFacets) issue(`a message to a session takes no root facets`)
+      if (!input.text?.trim() && !input.attachmentIds?.length)
+        issue(`a message needs text or attachments`)
+      return
+    }
+    if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
+    if (input.agent && (input.issueIds || input.actionId))
+      issue(`an agent takes no issues or action`)
+    if (input.inputs && !input.actionId) issue(`inputs need an actionId`)
+    if (!input.agent && !input.text?.trim() && !input.issueIds && !input.actionId)
+      issue(`a new session needs text, issues or an action`)
+  })
+export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>
+export interface SessionsSendResult {
+  sessionId: string
+  /** The `messages` row the text became; null for a start without text. */
+  messageId: string | null
+}

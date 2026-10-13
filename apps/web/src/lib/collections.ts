@@ -14,6 +14,11 @@ import {
 } from "@/lib/connectivity"
 import {
   selectSyncedActionSchema,
+  selectSyncedSessionSchema,
+  selectSyncedSessionIssueSchema,
+  selectSyncedMessageSchema,
+  selectPullRequestSchema,
+  selectSyncedPullRequestIssueSchema,
   selectAttachmentSchema,
   selectCodingSessionSchema,
   selectCommentSchema,
@@ -336,6 +341,54 @@ export const threadItemsCollection = createCollection(
     id: `thread_items`,
     shapeOptions: shapeOptions(`/api/shapes/thread-items`),
     schema: selectSyncedThreadItemSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// ── EXP-1291 Threads v2: the session tree ──────────────────────────────────
+// Visibility = `shared OR mine` inside member teams (the shapes filter; the
+// server-only columns never stream).
+export const sessionCollection = createCollection(
+  electricCollectionOptions({
+    id: `sessions`,
+    shapeOptions: shapeOptions(`/api/shapes/sessions`),
+    schema: selectSyncedSessionSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const sessionIssueCollection = createCollection(
+  electricCollectionOptions({
+    id: `session_issues`,
+    shapeOptions: shapeOptions(`/api/shapes/session-issues`),
+    schema: selectSyncedSessionIssueSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const messageCollection = createCollection(
+  electricCollectionOptions({
+    id: `messages`,
+    shapeOptions: shapeOptions(`/api/shapes/messages`),
+    schema: selectSyncedMessageSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const pullRequestCollection = createCollection(
+  electricCollectionOptions({
+    id: `pull_requests`,
+    shapeOptions: shapeOptions(`/api/shapes/pull-requests`),
+    schema: selectPullRequestSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+export const pullRequestIssueCollection = createCollection(
+  electricCollectionOptions({
+    id: `pull_request_issues`,
+    shapeOptions: shapeOptions(`/api/shapes/pull-request-issues`),
+    schema: selectSyncedPullRequestIssueSchema,
     getKey: (item) => item.id,
   })
 )
