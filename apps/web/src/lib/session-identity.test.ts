@@ -1,216 +1,40 @@
 import { describe, expect, it } from "vitest"
-import {
-  isChatSession,
-  sessionIdentity,
-  tabPhaseLabel,
-} from "@/lib/session-identity"
+import { sessionIdentity, tabPhaseLabel } from "@/lib/session-identity"
 
-// EXP-740: the pure half of "what is this run" — the dock strip, the session
-// route and the chat page all read it, so it is pinned here rather than
-// re-derived per surface.
-
-function session(over: {
-  issueId?: string | null
-  actionId?: string | null
-  actionName?: string | null
-  batchIssueIds?: string[] | null
-  branch?: string | null
-  agentTitle?: string | null
-  status?: string
-  needsInput?: boolean
-}) {
-  return {
-    issueId: over.issueId ?? null,
-    actionId: over.actionId ?? null,
-    actionName: over.actionName ?? null,
-    batchIssueIds: over.batchIssueIds ?? null,
-    branch: over.branch ?? null,
-    agentTitle: over.agentTitle ?? null,
-    status: over.status ?? `running`,
-    needsInput: over.needsInput ?? false,
-  } as never
-}
-
-describe(`isChatSession`, () => {
-  it(`is the reserved name on an issue-less, action-less row`, () => {
-    expect(isChatSession(session({ actionName: `Chat` }))).toBe(true)
-  })
-
-  it(`is not a batch run`, () => {
-    expect(isChatSession(session({}))).toBe(false)
-  })
-
-  it(`is not an action run that happens to be NAMED Chat`, () => {
-    // A team action called "Chat" carries a real `action_id`; only the hidden
-    // builtin runs with none.
-    expect(
-      isChatSession(session({ actionId: `a1`, actionName: `Chat` }))
-    ).toBe(false)
-  })
-
-  it(`is not an issue run`, () => {
-    expect(
-      isChatSession(session({ issueId: `i1`, actionName: `Chat` }))
-    ).toBe(false)
-  })
-})
+const base = { title: null, actionName: null, name: null }
 
 describe(`sessionIdentity`, () => {
-  const issue = { identifier: `EXP-1`, title: `  Ship it  ` }
-
-  it(`leads with the issue`, () => {
-    expect(sessionIdentity({ session: session({ issueId: `i1` }), issue })).toEqual(
-      { identifier: `EXP-1`, subject: `Ship it` }
-    )
-  })
-
-  it(`names an untitled issue`, () => {
-    expect(
-      sessionIdentity({
-        session: session({ issueId: `i1` }),
-        issue: { identifier: `EXP-2`, title: `   ` },
-      })
-    ).toEqual({ identifier: `EXP-2`, subject: `Untitled issue` })
-  })
-
-  it(`names a chat run Chat`, () => {
-    expect(
-      sessionIdentity({ session: session({ actionName: `Chat` }), issue: undefined })
-    ).toEqual({ identifier: null, subject: `Chat` })
-  })
-
-  it(`names a chat run after its agent-set title (EXP-905)`, () => {
-    expect(
-      sessionIdentity({
-        session: session({ actionName: `Chat`, agentTitle: `  Fix tab padding ` }),
-        issue: undefined,
-      })
-    ).toEqual({ identifier: null, subject: `Fix tab padding` })
-  })
-
-  it(`falls back to Chat on a blank agent title`, () => {
-    expect(
-      sessionIdentity({
-        session: session({ actionName: `Chat`, agentTitle: `   ` }),
-        issue: undefined,
-      })
-    ).toEqual({ identifier: null, subject: `Chat` })
-  })
-
-  it(`ignores an agent title on non-chat runs`, () => {
-    expect(
-      sessionIdentity({
-        session: session({ actionName: `Deploy`, actionId: `a1`, agentTitle: `x` }),
-        issue: undefined,
-      })
-    ).toEqual({ identifier: null, subject: `Deploy` })
-    expect(
-      sessionIdentity({
-        session: session({ issueId: `i1`, agentTitle: `x` }),
-        issue: { identifier: `EXP-1`, title: `Ship it` },
-      })
-    ).toEqual({ identifier: `EXP-1`, subject: `Ship it` })
-  })
-
-  it(`keeps an action's name snapshot`, () => {
-    expect(
-      sessionIdentity({
-        session: session({ actionId: `a1`, actionName: `Nightly triage` }),
-        issue: undefined,
-      })
-    ).toEqual({ identifier: null, subject: `Nightly triage` })
-  })
-
-  it(`falls back to Batch run`, () => {
-    expect(sessionIdentity({ session: session({}), issue: undefined })).toEqual({
-      identifier: null,
-      subject: `Batch session`,
+  it(`prefers the title, then the action, the agent name, the first issue`, () => {
+    const issue = { identifier: `EXP-1`, title: `Login` }
+    expect(sessionIdentity({ session: { ...base, title: `Mine` }, issue })).toEqual({
+      identifier: `EXP-1`,
+      subject: `Mine`,
     })
-  })
-
-  // EXP-876: a batch names itself after the issues it covers — `batch-run.ts`
-  // owns the rule, this is the wiring.
-  it(`names a batch run after its issues`, () => {
-    const covered = [
-      {
-        id: `i-1`,
-        identifier: `EXP-874`,
-        title: `Session list fixes`,
-        branch: `exp/batch-1a2b3c4d`,
-        createdAt: `2026-09-01T10:00:00Z`,
-      },
-      {
-        id: `i-2`,
-        identifier: `EXP-876`,
-        title: `Batch session names`,
-        branch: `exp/batch-1a2b3c4d`,
-        createdAt: `2026-09-02T10:00:00Z`,
-      },
-    ]
-    expect(
-      sessionIdentity({
-        session: session({ batchIssueIds: [`i-1`, `i-2`] }),
-        issue: undefined,
-        batchIssues: covered,
-      })
-    ).toEqual({ identifier: `EXP-874 +1`, subject: `Session list fixes` })
-    // A surface that joins no issues keeps the generic label.
-    expect(
-      sessionIdentity({
-        session: session({ batchIssueIds: [`i-1`, `i-2`] }),
-        issue: undefined,
-      })
-    ).toEqual({ identifier: null, subject: `Batch session` })
-  })
-
-  it(`says so while the issue is still syncing`, () => {
-    expect(
-      sessionIdentity({ session: session({ issueId: `i1` }), issue: undefined })
-    ).toEqual({ identifier: null, subject: `Issue syncing…` })
+    expect(sessionIdentity({ session: { ...base, actionName: `Tidy` }, issue }).subject).toBe(
+      `Tidy`
+    )
+    expect(sessionIdentity({ session: { ...base, name: `Ada` }, issue: undefined })).toEqual({
+      identifier: null,
+      subject: `Ada`,
+    })
+    expect(sessionIdentity({ session: base, issue }).subject).toBe(`Login`)
+    expect(sessionIdentity({ session: base, issue: undefined }).subject).toBe(`Untitled`)
   })
 })
 
 describe(`tabPhaseLabel`, () => {
-  const device = { label: `macbook` }
-
-  it(`names the offline machine first`, () => {
-    expect(
-      tabPhaseLabel({ session: session({}), device, paused: true })
-    ).toBe(`Paused · macbook is offline`)
-  })
-
-  it(`falls back when the run never named a device`, () => {
-    expect(
-      tabPhaseLabel({ session: session({}), device: { label: null }, paused: true })
-    ).toBe(`Paused · the device is offline`)
-  })
-
-  it(`reports an ended run`, () => {
-    expect(
-      tabPhaseLabel({
-        session: session({ status: `ended` }),
-        device,
-        paused: false,
-      })
-    ).toBe(`Session ended`)
-  })
-
-  it(`beats live with needs-input`, () => {
-    expect(
-      tabPhaseLabel({
-        session: session({ needsInput: true }),
-        device,
-        paused: false,
-      })
-    ).toBe(`Needs your input · macbook`)
-  })
-
-  it(`is live otherwise`, () => {
-    expect(tabPhaseLabel({ session: session({}), device, paused: false })).toBe(
-      `Live · macbook`
+  const device = { label: `mac` }
+  it(`names the phase`, () => {
+    const s = (status: string, needsInput = false) =>
+      ({ status, needsInput }) as never
+    expect(tabPhaseLabel({ session: s(`running`), device, paused: true })).toBe(
+      `Paused · mac is offline`
     )
-    expect(
-      tabPhaseLabel({ session: session({}), device: { label: null }, paused: false })
-    ).toBe(`Live`)
+    expect(tabPhaseLabel({ session: s(`ended`), device, paused: false })).toBe(`Session ended`)
+    expect(tabPhaseLabel({ session: s(`idle`, true), device, paused: false })).toBe(
+      `Needs your input · mac`
+    )
+    expect(tabPhaseLabel({ session: s(`queued`), device, paused: false })).toBe(`Queued · mac`)
+    expect(tabPhaseLabel({ session: s(`idle`), device, paused: false })).toBe(`Live · mac`)
   })
 })

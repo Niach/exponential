@@ -105,7 +105,7 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   // EXP-660: the gated families register behind per-caller gates whose
   // DEFAULT is the full surface — if that default ever flips, the budget
   // would silently stop measuring them.
-  expect(defs.some((def) => def.name === `exponential_sessions_end`)).toBe(
+  expect(defs.some((def) => def.name === `exponential_guide_write`)).toBe(
     true
   )
   // Every listed tool actually registers, and nothing else carries the flag —
@@ -127,111 +127,47 @@ it(`keeps the always-loaded MCP tool set exactly ALWAYS_LOAD_TOOLS`, () => {
   expect(flagged).not.toContain(`exponential_report_bug`)
 })
 
-// EXP-679 / EXP-1222: the close-out tool registers for every run of the
-// caller's, attended included — only a human's MCP client (no run) lacks it.
-it(`registers exponential_sessions_end only behind its gate`, () => {
-  expect(
-    serializeToolDefs().some((def) => def.name === `exponential_sessions_end`)
-  ).toBe(true)
-  const person = serializeToolDefs({
-    sessionsEnd: true,
-    unattended: false,
-    askParent: true,
-    sessionResults: true,
-  })
-  expect(person.some((def) => def.name === `exponential_sessions_end`)).toBe(
-    true
-  )
+// EXP-1291: the tools that act on the caller's OWN session (the Guide,
+// compaction) register only behind the session gate; `sessions_end` takes an
+// id, so every caller has it.
+it(`registers the own-session tools only behind the session gate`, () => {
   const headerless = serializeToolDefs({
-    sessionsEnd: false,
+    inSession: false,
     unattended: false,
-    askParent: false,
-    sessionResults: false,
-  })
-  expect(
-    headerless.some((def) => def.name === `exponential_sessions_end`)
-  ).toBe(false)
-})
-
-// EXP-700: the ask tool is registered only for an AGENT-started run with a
-// linked parent; every other unattended run (schedule/event) stays without it.
-it(`registers exponential_sessions_ask_parent only behind its gate`, () => {
-  expect(
-    serializeToolDefs().some(
-      (def) => def.name === `exponential_sessions_ask_parent`
-    )
-  ).toBe(true)
-  const automation = serializeToolDefs({
-    sessionsEnd: true,
-    unattended: true,
-    askParent: false,
-    sessionResults: true,
-  })
-  expect(
-    automation.some((def) => def.name === `exponential_sessions_ask_parent`)
-  ).toBe(false)
-  // The generic message tool is NOT gated — a header-less orchestrator
-  // answers its children with it.
-  expect(
-    automation.some((def) => def.name === `exponential_sessions_message`)
-  ).toBe(true)
-})
-
-// EXP-879: publishing pictures needs a run to publish them ON — a human's
-// MCP client (no session header) never sees the tool.
-it(`registers exponential_sessions_guide only behind its gate`, () => {
-  expect(
-    serializeToolDefs().some(
-      (def) => def.name === `exponential_sessions_guide`
-    )
-  ).toBe(true)
-  const headerless = serializeToolDefs({
-    sessionsEnd: false,
+    agent: false,
+  }).map((def) => def.name)
+  const inSession = serializeToolDefs({
+    inSession: true,
     unattended: false,
-    askParent: false,
-    sessionResults: false,
-  })
-  expect(
-    headerless.some((def) => def.name === `exponential_sessions_guide`)
-  ).toBe(false)
-  // It does NOT ride the close-out's gate: an attended run publishes too.
-  const attended = serializeToolDefs({
-    sessionsEnd: false,
-    unattended: false,
-    askParent: false,
-    sessionResults: true,
-  })
-  expect(
-    attended.some((def) => def.name === `exponential_sessions_guide`)
-  ).toBe(true)
-  // EXP-1251: the old name is gone.
-  expect(
-    attended.some((def) => def.name === `exponential_sessions_results`)
-  ).toBe(false)
-})
-
-// EXP-988/EXP-936: compaction acts on the caller's OWN run, so it rides the
-// same gate as publishing pictures — a human's MCP client never sees it.
-it(`registers exponential_sessions_compact only behind the session gate`, () => {
-  expect(
-    serializeToolDefs().some(
-      (def) => def.name === `exponential_sessions_compact`
-    )
-  ).toBe(true)
-  const headerless = serializeToolDefs({
-    sessionsEnd: false,
-    unattended: false,
-    askParent: false,
-    sessionResults: false,
-  })
-  expect(
-    headerless.some((def) => def.name === `exponential_sessions_compact`)
-  ).toBe(false)
+    agent: false,
+  }).map((def) => def.name)
+  for (const name of [`exponential_guide_write`, `exponential_sessions_compact`]) {
+    expect(inSession, name).toContain(name)
+    expect(headerless, name).not.toContain(name)
+  }
+  expect(headerless).toContain(`exponential_sessions_end`)
+  expect(headerless).toContain(`exponential_sessions_send`)
+  // EXP-1291: the retired surface is gone.
+  for (const name of [
+    `exponential_sessions_start`,
+    `exponential_sessions_message`,
+    `exponential_sessions_messages`,
+    `exponential_sessions_ask_parent`,
+    `exponential_sessions_guide`,
+    `exponential_sessions_show`,
+    `exponential_sessions_kill`,
+    `exponential_notifications_send`,
+    `exponential_threads_get`,
+    `exponential_issues_pr_files`,
+    `exponential_repositories_branch_diff`,
+  ]) {
+    expect(inSession, name).not.toContain(name)
+  }
 })
 
 it(`keeps the serialized MCP tool context within budget`, () => {
   const defs = serializeToolDefs()
-  // The gated one counts too: an unattended run carries it from turn one.
+  // The gated one counts too: every session carries it from turn one.
   const alwaysLoadedNames: readonly string[] = [
     ...ALWAYS_LOAD_TOOLS,
     ...GATED_ALWAYS_LOAD_TOOLS,
@@ -285,66 +221,55 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
   expect(MCP_SERVER_INSTRUCTIONS.split(`\n\n`)[0].length).toBeLessThanOrEqual(
     512
   )
-  // EXP-679 / EXP-1222: the person-started variant has the close-out tool
-  // but is told to call it only when asked — never the unattended LAST rule —
-  // and must stay inside the same two budgets.
+  // EXP-1222: the person-started variant has the close-out tool but is told
+  // to call it only when asked — never the unattended LAST rule.
   const person = mcpServerInstructions({
-    sessionsEnd: true,
+    inSession: true,
     unattended: false,
-    askParent: true,
+    agent: false,
     reportBug: true,
-    sessionResults: true,
   })
   expect(person).toContain(
     `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
   )
   expect(person).not.toContain(`This session is unattended`)
-  expect(person).toContain(`exponential_sessions_ask_parent with to 'user'`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end LAST`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`only when the person asks`)
-  expect(person.length).toBeLessThan(2_000)
-  expect(person.split(`\n\n`)[0].length).toBeLessThanOrEqual(512)
-  // EXP-700: same rule for the ask tool — an automation-started run (no
-  // parent) must not be told to ask a starter it does not have.
-  const automation = mcpServerInstructions({
-    sessionsEnd: true,
-    unattended: true,
-    askParent: false,
+  // A team agent never ends and writes no Guide of its own.
+  const agent = mcpServerInstructions({
+    inSession: true,
+    unattended: false,
+    agent: true,
     reportBug: true,
-    sessionResults: true,
   })
-  expect(automation).not.toContain(`exponential_sessions_ask_parent`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_ask_parent`)
-  // FEED-21: the report-bug trigger follows the tool's EXP-496 cloud gate — a
-  // self-hosted instance never registers the tool, so it must not name it.
+  expect(agent).toContain(`You are a team agent`)
+  expect(agent).not.toContain(`exponential_sessions_end`)
+  // FEED-21: the report-bug trigger follows the tool's EXP-496 cloud gate.
   const selfHosted = mcpServerInstructions({
-    sessionsEnd: true,
+    inSession: true,
     unattended: true,
-    askParent: true,
+    agent: false,
     reportBug: false,
-    sessionResults: true,
   })
   expect(selfHosted).not.toContain(`exponential_report_bug`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_report_bug`)
-  // EXP-879: the screenshot ask follows its own gate, and lands LAST.
-  const noRun = mcpServerInstructions({
-    sessionsEnd: false,
+  // EXP-879/1251: the Guide ask follows the session gate.
+  const noSession = mcpServerInstructions({
+    inSession: false,
     unattended: false,
-    askParent: false,
+    agent: false,
     reportBug: true,
-    sessionResults: false,
   })
-  expect(noRun).not.toContain(`exponential_sessions_guide`)
-  expect(noRun).not.toContain(`exponential_sessions_end`)
-  // EXP-1216: the caller with no run of its own is the starter nothing
-  // pushes to — it is told how to read and wait on the runs it starts.
-  expect(noRun).toContain(`exponential_sessions_messages`)
-  expect(noRun).toContain(`exponential_sessions_get waitForIdle`)
-  expect(noRun.length).toBeLessThan(2_000)
-  expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`exponential_sessions_messages`)
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_guide`)
-  // EXP-933: the notify rule rides the same run-only paragraph.
-  expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_notifications_send`)
+  expect(noSession).not.toContain(`Close out with a Guide`)
+  expect(noSession).not.toContain(`exponential_sessions_end`)
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`Close out with a Guide`)
+  // EXP-1291: people are pinged by @email, never a notify tool.
+  expect(MCP_SERVER_INSTRUCTIONS).toContain(`@email`)
+  expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`notifications_send`)
+  for (const variant of [person, agent, selfHosted, noSession]) {
+    expect(variant.length).toBeLessThan(2_000)
+    expect(variant.split(`\n\n`)[0].length).toBeLessThanOrEqual(512)
+  }
 })
 
 /** The repo root, walked up from the vitest cwd (apps/web). */
@@ -364,12 +289,12 @@ it(`keeps CLAUDE.md under Claude Code's 40k-char performance warning`, () => {
 // EXP-763: the run playbook the desktop + CLI launcher appends to EVERY
 // coding session's system prompt (claude `--append-system-prompt`, codex
 // `developer_instructions`). It lives with the launcher
-// (`crates/coding/src/skill.md`) because that is what ships it, but it names
+// (`crates/coding/src/runbook.md`, EXP-1291) because that is what ships it, but it names
 // server tools by their exact names — so the server's test is what catches a
 // renamed or removed tool, and the byte cap mirrors the crate's own.
 it(`keeps the run playbook in budget and naming only registered tools`, () => {
   const playbook = readFileSync(
-    join(repoRoot(), `apps/desktop/crates/coding/src/skill.md`),
+    join(repoRoot(), `apps/desktop/crates/coding/src/runbook.md`),
     `utf8`
   )
   expect(playbook.length).toBeLessThan(6 * 1024)
@@ -382,23 +307,19 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
   }
   // The point of the document: the deferred tools a run never found by itself.
   for (const name of [
-    `exponential_sessions_start`,
+    `exponential_sessions_send`,
     `exponential_issues_create`,
     `exponential_issue_relations_add`,
     `exponential_report_bug`,
-    // EXP-988: the three contract tools the leaves fill in.
+    // EXP-988: the contract tools the leaves fill in.
     `exponential_attachments_list`,
     `exponential_attachments_upload`,
     `exponential_sessions_compact`,
-    // EXP-933: when to notify; EXP-1251: the close-out Guide's tool.
-    `exponential_notifications_send`,
-    `exponential_sessions_guide`,
-    // EXP-1172: a screenshot when a picture helps, while it works.
-    `exponential_sessions_show`,
-    // EXP-1284: the run's thread and what the agent links into it.
-    `exponential_threads_get`,
-    `exponential_threads_link`,
-    `exponential_threads_unlink`,
+    // EXP-1251 → EXP-1291: the close-out Guide's tool, and what the agent
+    // links into its thread.
+    `exponential_guide_write`,
+    `exponential_sessions_get`,
+    `exponential_sessions_link`,
   ]) {
     expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
   }

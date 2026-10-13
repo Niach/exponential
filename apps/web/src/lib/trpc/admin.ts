@@ -27,7 +27,7 @@ import {
   creem_subscriptions,
   devices,
   userClientPlatforms,
-  codingSessions,
+  sessions as agentSessions,
   repositories,
 } from "@/db/schema"
 import { suppressSesDestination } from "@/lib/email"
@@ -50,7 +50,7 @@ import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
-import { relayKillSessionsBestEffort } from "@/lib/coding-session-kill"
+import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import {
   captureOAuthTokens,
   revokeOAuthTokensBestEffort,
@@ -792,8 +792,8 @@ export const adminRouter = router({
             .orderBy(desc(repositories.createdAt)),
           ctx.db
             .select({ count: sql<number>`count(*)::int` })
-            .from(codingSessions)
-            .where(eq(codingSessions.userId, input.userId)),
+            .from(agentSessions)
+            .where(eq(agentSessions.userId, input.userId)),
         ])
 
       // One grouped subscription query for all of the user's teams —
@@ -937,7 +937,7 @@ export const adminRouter = router({
           githubConnected: sql<number>`count(*) filter (where ${githubConnectedSql(users.id)})::int`,
           teamHasRepo: sql<number>`count(*) filter (where exists (select 1 from ${teamMembers} join ${repositories} on ${qcol(repositories.teamId)} = ${qcol(teamMembers.teamId)} where ${qcol(teamMembers.userId)} = ${qcol(users.id)}))::int`,
           hasDevice: sql<number>`count(*) filter (where exists (select 1 from ${devices} where ${qcol(devices.userId)} = ${qcol(users.id)}))::int`,
-          startedSession: sql<number>`count(*) filter (where exists (select 1 from ${codingSessions} where ${qcol(codingSessions.userId)} = ${qcol(users.id)}))::int`,
+          startedSession: sql<number>`count(*) filter (where exists (select 1 from ${agentSessions} where ${qcol(agentSessions.userId)} = ${qcol(users.id)}))::int`,
         })
         .from(users),
     ])

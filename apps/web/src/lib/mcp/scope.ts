@@ -243,7 +243,7 @@ function grantsNothing(access: McpAccess): boolean {
 }
 
 export interface GrantScopeColumns {
-  /** The row's board — NULLABLE on coding_sessions (issue-less runs). */
+  /** The row's board — NULLABLE where a row may have none. */
   boardCol: Column
   /** The row's team. */
   teamCol: Column

@@ -1,160 +1,95 @@
-// Orphan steer-image reclaim (EXP-702). session_attachments rows point at
-// their coding_sessions row with ON DELETE SET NULL, and coding_sessions rows
-// DO get deleted — the staleness sweep (coding-session-sweep.ts) is the
-// routine path, plus any other row delete. The image row survives that with a
-// NULL session_id: nothing can ever reach it again (the read route serves it
-// only through the run's transcript embed), yet its bytes keep counting
-// against the team's storage budget in getTeamUsage forever, and there is no
-// delete UI. On the cloud free tier (250MB) a handful of 10MB steering
-// screenshots silently eats the whole allowance.
+// EXP-1291: orphan upload reclaim. Conversation files and Guide pictures are
+// team-scoped `attachments` rows with no owner column set at upload (issue,
+// draft and message all NULL): `sessions.send({attachmentIds})` claims a
+// message's (`message_id`), and a Guide entry references a picture by id in
+// its root's `sessions.guide`. An upload never sent, a revoked message's or
+// a deleted agent's files (both hand them back owner-less first) and a
+// picture whose session tree is gone are unreachable, yet their bytes count
+// against the team's storage budget with no delete UI.
 //
-// This sweep deletes orphan rows once they age past the retention window and
-// reclaims their S3 blobs. It is deliberately a SEPARATE sweep rather than a
-// cascade folded into coding-session-sweep.ts: orphans are produced by every
-// coding_sessions delete path (and by rows already orphaned before this
-// shipped), so keying on the orphan state itself is the only rule that
-// catches all of them — and the grace window keeps a just-swept session's
-// images readable for a week rather than vanishing the instant its row goes.
-//
-// Mirrors board-trash.ts: storage keys are collected IN the deleting
-// transaction (via DELETE ... RETURNING, so only rows this pass actually
-// removed are reclaimed) and the S3 objects go after the commit — the row
-// delete is the atomic multi-instance claim and S3 deletes are idempotent.
+// This sweep deletes owner-less rows once they age past the grace window
+// AND no `sessions.guide` names them, then reclaims their blobs. Mirrors
+// board-trash.ts: storage keys come from DELETE ... RETURNING in the
+// deleting transaction (the atomic multi-instance claim), the S3 objects go
+// after the commit (idempotent).
 
-import { and, isNull, lte, inArray, sql } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { sessionAttachments, threadItems, threads } from "@/db/schema"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
+import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
 
-// A week of grace after the session row goes: long enough that a sweep of a
-// crashed-but-interesting run does not evaporate its screenshots the same
-// day, short enough that the budget is not held hostage.
+// A week of grace: an upload the composer has not sent yet, or a picture a
+// Guide is about to reference, is never reclaimed under its writer.
 export const ORPHAN_SESSION_ATTACHMENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
 const INITIAL_DELAY_MS = 4 * 60 * 1000
 const SWEEP_INTERVAL_MS = 30 * 60 * 1000
 
-// Bounds one transaction (and one S3 fan-out) — a backlog just drains over
-// the following passes.
+// Bounds one transaction (and one S3 fan-out); a backlog drains over passes.
 const MAX_BATCH = 500
 
-// Pure reclaim-due predicate: only a row that lost its session (session_id
-// NULL) and has aged past the retention window is due. A row still attached
-// to a session is NEVER due, however old — the run's transcript still embeds
-// it. The sweep query applies the equivalent cutoff server-side; this
-// documents (and tests) the rule.
+/** The pure reclaim-due rule: owner-less, unreferenced by any Guide, aged
+ *  past the window. The sweep's SQL applies the same predicate. */
 export function isOrphanSessionAttachmentPurgeDue(
-  sessionId: string | null,
-  createdAt: Date,
+  row: {
+    issueId: string | null
+    draftId: string | null
+    messageId: string | null
+    createdAt: Date
+  },
+  referencedByGuide: boolean,
   now: Date = new Date()
 ): boolean {
-  if (sessionId !== null) return false
-  return (
-    createdAt.getTime() + ORPHAN_SESSION_ATTACHMENT_RETENTION_MS <=
-    now.getTime()
-  )
+  if (row.issueId || row.draftId || row.messageId || referencedByGuide) return false
+  return row.createdAt.getTime() + ORPHAN_SESSION_ATTACHMENT_RETENTION_MS <= now.getTime()
 }
 
-// The server-side form of the predicate above, shared by the select and the
-// re-checking delete so the two can never drift apart.
-export function orphanSessionAttachmentCondition(cutoff: Date) {
-  return and(
-    isNull(sessionAttachments.sessionId),
-    lte(sessionAttachments.createdAt, cutoff)
-  )
+/** The server-side predicate over `attachments a`, shared by the select and
+ *  the re-checking delete. The Guide probe is team-scoped (an attachment
+ *  and the Guide naming it share the team). */
+function orphanCondition(cutoff: Date) {
+  return sql`a.issue_id IS NULL AND a.draft_id IS NULL AND a.message_id IS NULL
+    AND a.created_at <= ${cutoff}
+    AND NOT EXISTS (
+      SELECT 1 FROM sessions s
+      WHERE s.team_id = a.team_id
+        AND s.guide IS NOT NULL
+        AND s.guide @> jsonb_build_array(jsonb_build_object('attachmentId', a.id::text))
+    )`
 }
 
-// Delete up to MAX_BATCH due orphans inside a transaction and hand back the
-// storage keys of the rows this transaction actually removed, for the
-// caller's post-commit S3 cleanup. Re-applies the cutoff on the delete so a
-// concurrent writer can never lose a row that stopped being due.
 export async function reclaimOrphanSessionAttachmentsInTx(
   tx: Tx,
   cutoff: Date
 ): Promise<{ storageKeys: string[] }> {
-  const due = await tx
-    .select({ id: sessionAttachments.id })
-    .from(sessionAttachments)
-    .where(orphanSessionAttachmentCondition(cutoff))
-    .limit(MAX_BATCH)
-
-  if (due.length === 0) return { storageKeys: [] }
-
-  const deleted = await tx
-    .delete(sessionAttachments)
-    .where(
-      and(
-        inArray(
-          sessionAttachments.id,
-          due.map((row) => row.id)
-        ),
-        orphanSessionAttachmentCondition(cutoff)
-      )
+  const deleted = await tx.execute(sql`
+    DELETE FROM attachments
+    WHERE id IN (
+      SELECT a.id FROM attachments a WHERE ${orphanCondition(cutoff)} LIMIT ${MAX_BATCH}
     )
-    .returning({ storageKey: sessionAttachments.storageKey })
-
-  return { storageKeys: deleted.map((row) => row.storageKey) }
+    RETURNING storage_key, poster_storage_key
+  `)
+  const rows = (deleted.rows as Array<{ storage_key: string; poster_storage_key: string | null }>).map(
+    (row) => ({ storageKey: row.storage_key, posterStorageKey: row.poster_storage_key })
+  )
+  return { storageKeys: collectAttachmentStorageKeys(rows) }
 }
 
-// EXP-1284 (review T3): a thread whose items all went (board purge, account
-// or issue delete, the stale-session sweep) but whose Guide was written is
-// kept, hidden (`has_visible_items` false, the thread_items trigger never
-// deletes a thread holding results). No session is left to own those
-// entries and the session_attachments its pictures name are reclaimed by
-// this same sweep, so after the same week of grace — counted from the
-// thread's last activity — the thread goes too. A thread that still holds
-// ANY item is never due.
-export async function pruneOrphanThreadsInTx(
-  tx: Tx,
-  cutoff: Date
-): Promise<number> {
-  const deleted = await tx
-    .delete(threads)
-    .where(
-      and(
-        lte(threads.updatedAt, cutoff),
-        sql`NOT EXISTS (SELECT 1 FROM ${threadItems} WHERE ${threadItems.threadId} = ${threads.id})`
-      )
-    )
-    .returning({ id: threads.id })
-  return deleted.length
-}
-
-// One sweep pass, injectable clock for tests/manual runs. Returns counts for
-// the caller's logging.
 export async function runSessionAttachmentSweep(
   now: Date = new Date()
-): Promise<{
-  attachmentsDeleted: number
-  objectsDeleted: number
-  threadsDeleted: number
-}> {
-  const cutoff = new Date(
-    now.getTime() - ORPHAN_SESSION_ATTACHMENT_RETENTION_MS
-  )
-
-  const threadsDeleted = await db.transaction((tx) =>
-    pruneOrphanThreadsInTx(tx, cutoff)
-  )
+): Promise<{ attachmentsDeleted: number; objectsDeleted: number }> {
+  const cutoff = new Date(now.getTime() - ORPHAN_SESSION_ATTACHMENT_RETENTION_MS)
   const { storageKeys } = await db.transaction((tx) =>
     reclaimOrphanSessionAttachmentsInTx(tx, cutoff)
   )
-  if (storageKeys.length === 0) {
-    return { attachmentsDeleted: 0, objectsDeleted: 0, threadsDeleted }
-  }
-
-  // Best-effort, per-key error-swallowed (same as the board-trash purge).
-  // Uses the Bun-native client: see bun-s3-cleanup.ts for why this module
-  // must not reach aws-sdk.
+  if (storageKeys.length === 0) return { attachmentsDeleted: 0, objectsDeleted: 0 }
+  // Best-effort, per-key error-swallowed (bun-s3-cleanup.ts: this module
+  // must not reach aws-sdk).
   await deleteStorageObjectsViaBun(storageKeys)
-  return {
-    attachmentsDeleted: storageKeys.length,
-    objectsDeleted: storageKeys.length,
-    threadsDeleted,
-  }
+  return { attachmentsDeleted: storageKeys.length, objectsDeleted: storageKeys.length }
 }
 
 let started = false
@@ -169,16 +104,11 @@ async function sweep(): Promise<void> {
     reportSchedulerRun(`session-attachment-sweep`, {
       ok: true,
       durationMs: performance.now() - startMs,
-      detail: `${result.attachmentsDeleted} deleted, ${result.objectsDeleted} objects deleted, ${result.threadsDeleted} orphan threads deleted`,
+      detail: `${result.attachmentsDeleted} deleted, ${result.objectsDeleted} objects deleted`,
     })
-    if (result.threadsDeleted > 0) {
-      console.log(
-        `[session-attachment-sweep] deleted ${result.threadsDeleted} orphan thread(s)`
-      )
-    }
     if (result.attachmentsDeleted > 0) {
       console.log(
-        `[session-attachment-sweep] deleted ${result.attachmentsDeleted} orphan steer image(s), deleted ${result.objectsDeleted} object(s)`
+        `[session-attachment-sweep] deleted ${result.attachmentsDeleted} orphan upload(s)`
       )
     }
   } catch (err) {
@@ -193,9 +123,7 @@ async function sweep(): Promise<void> {
   }
 }
 
-// Start the in-process reclaim scheduler — call once at boot (server-bun.ts).
-// Double-start-guarded within the process. Worst-case an orphan lives
-// ~SWEEP_INTERVAL_MS past its window, which is fine for a storage budget.
+/** Start the in-process reclaim scheduler — once at boot (server-bun.ts). */
 export function startSessionAttachmentSweepScheduler(): void {
   if (started) return
   started = true

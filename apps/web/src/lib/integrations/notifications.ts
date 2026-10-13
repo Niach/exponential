@@ -6,13 +6,13 @@ import {
   inArray,
   isNotNull,
   isNull,
-  or,
   sql,
 } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
-  codingSessions,
   comments,
+  messages,
+  sessions,
   emailDeliveries,
   issueSubscribers,
   issues,
@@ -38,7 +38,8 @@ import {
 import { peekAgentIssueActors } from "@/lib/integrations/pr-actor-claims"
 import { recordNotificationFanout } from "@/lib/metrics/registry"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
-import { batchRunName, isBatchRun } from "@/lib/batch-run"
+import { deriveSessionTitle } from "@/lib/sessions/brief"
+import { resolveMentions } from "@/lib/integrations/mentions"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
 
@@ -56,7 +57,6 @@ interface IssueMeta {
   teamSlug: string
   boardSlug: string
   assigneeId: string | null
-  prUrl: string | null
 }
 
 async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
@@ -69,7 +69,6 @@ async function loadIssueMeta(issueId: string): Promise<IssueMeta | null> {
       teamSlug: teams.slug,
       boardSlug: boards.slug,
       assigneeId: issues.assigneeId,
-      prUrl: issues.prUrl,
     })
     .from(issues)
     .innerJoin(boards, eq(boards.id, issues.boardId))
@@ -503,26 +502,14 @@ export function fireAndForgetStatusChangeNotify(args: {
 }
 
 // Fallback attribution for webhook/cron PR events, which carry no mapped app
-// user (EXP-463): the owner of the issue's most recent coding session is the
-// human whose agent produced the PR. Without this, a null actor makes the
-// exclusion below a no-op and the auto-subscribed creator gets pushed about
-// their OWN agent's PR — the GitHub `opened`/`closed` webhook usually beats
-// the MCP open_pr/merge write, so the anonymous fan-out was the one that
-// fired. Resolving the same actor also makes the racing pair's titles
-// identical, so deliver()'s dedupe window collapses them for everyone else.
-// Accepted residual edge: a teammate merging on GitHub itself (or losing the
-// mergePr-vs-webhook race) is misattributed to the session owner —
-// notification-only, and the in-app merge path passes the real actor.
-//
-// Batch runs are issue-less (issue XOR batch XOR action, EXP-479), so the
-// issue-scoped lookup misses a batch run's combined PR. Every run owns the PR
-// it opened (`pr_open` stamps the caller's row), so the second arm is the run
-// row carrying the issue's EXACT pr_url, in the issue's team. A genuinely
-// out-of-band PR with no session stays anonymous.
-// One query since EXP-617 (it used to be two, and the viaAgent path ran the
-// first one a second time). Ordered issue-scoped first, then most recent: the
-// HEAD is the naming candidate, and EVERY row contributes its owner AND its
-// host to the self-exclusion set.
+// user (EXP-463): the starter of the session that opened a PR closing the
+// issue (EXP-1291: `pull_requests.session_id`), else of a thread holding the
+// issue, is the human whose agent produced the PR. Without this, a null actor
+// makes the exclusion below a no-op and the auto-subscribed creator gets
+// pushed about their OWN agent's PR. Ordered PR openers first, then most
+// recent: the HEAD is the naming candidate, and EVERY row contributes its
+// starter AND its host to the self-exclusion set. A genuinely out-of-band PR
+// with no session stays anonymous.
 const PR_SESSION_CANDIDATE_LIMIT = 4
 
 interface PrSessionCandidate {
@@ -533,27 +520,17 @@ interface PrSessionCandidate {
 async function loadPrSessionCandidates(
   issue: IssueMeta
 ): Promise<PrSessionCandidate[]> {
-  const arms = [eq(codingSessions.issueId, issue.id)]
-  if (issue.prUrl) {
-    arms.push(
-      and(
-        eq(codingSessions.teamId, issue.teamId),
-        eq(codingSessions.prUrl, issue.prUrl)
-      )!
-    )
-  }
+  const openers = sql`SELECT pr.session_id FROM pull_requests pr
+    JOIN pull_request_issues pri ON pri.pull_request_id = pr.id
+    WHERE pri.issue_id = ${issue.id} AND pr.session_id IS NOT NULL`
   return await db
-    .select({
-      userId: codingSessions.userId,
-      hostUserId: codingSessions.hostUserId,
-    })
-    .from(codingSessions)
-    .where(arms.length === 1 ? arms[0] : or(...arms))
-    // The issue's own runs outrank the runs that only share its PR.
-    .orderBy(
-      sql`(${codingSessions.issueId} is not distinct from ${issue.id}) desc`,
-      desc(codingSessions.startedAt)
+    .select({ userId: sessions.userId, hostUserId: sessions.hostUserId })
+    .from(sessions)
+    .where(
+      sql`${sessions.id} IN (${openers}) OR ${sessions.rootId} IN (SELECT si.session_id FROM session_issues si WHERE si.issue_id = ${issue.id})`
     )
+    // The PR openers outrank the threads that only hold the issue.
+    .orderBy(sql`(${sessions.id} IN (${openers})) DESC`, desc(sessions.createdAt))
     .limit(PR_SESSION_CANDIDATE_LIMIT)
 }
 
@@ -902,55 +879,24 @@ export async function sendAgentMessage(args: {
   }
 }
 
-/** `EXP-12`, `EXP-12 +2` for a batch, the action's name, else `Agent run`:
- *  what a run is called in a sentence. A batch is named by the SAME rule
- *  every client's list row uses (`batchRunName`, lib/batch-run.ts), so the
- *  push and the row it opens agree on the lead issue and the count. */
-async function sessionRunName(session: {
-  issueId: string | null
-  batchIssueIds: string[] | null
-  actionName: string | null
-}): Promise<string> {
-  if (session.issueId) {
-    const [issue] = await db
-      .select({ identifier: issues.identifier })
-      .from(issues)
-      .where(eq(issues.id, session.issueId))
-      .limit(1)
-    if (issue) return issue.identifier
-  } else if (isBatchRun(session) && session.batchIssueIds?.length) {
-    const covered = await db
-      .select({ id: issues.id, identifier: issues.identifier, title: issues.title })
-      .from(issues)
-      .where(inArray(issues.id, session.batchIssueIds))
-    const name = batchRunName(session, covered).identifier
-    if (name) return name
-  }
-  return session.actionName?.trim() || `Agent session`
-}
-
 // EXP-1005: the per-profile wall-notification window.
 const SESSION_BLOCKED_THROTTLE_MS = 60 * 60 * 1000
 
 function blockedProfileKey(row: {
   deviceId: string | null
-  agent: string | null
-  agentAccount: string | null
+  cli: string | null
+  account: string | null
 }): string {
-  return JSON.stringify([
-    row.deviceId ?? null,
-    row.agent ?? null,
-    row.agentAccount ?? `system`,
-  ])
+  return JSON.stringify([row.deviceId ?? null, row.cli ?? null, row.account ?? `system`])
 }
 
 /**
- * EXP-980: a coding run hit a wall (`coding_sessions.blocked` went null →
- * set). EVERY run tells its OWNER: a walled run still reads `running`, so
- * without a push nobody notices until they look. One issue-less row carrying
- * `session_id` + `team_id` (the inbox row and the push both route to the run),
- * push-first like every fan-out, muted per type by the usual prefs.
- * Best-effort, never throws: the caller is the device's `setBlocked` write.
+ * EXP-980: a session hit a wall (`sessions.blocked` went null → set). Its
+ * STARTER is told: a walled session still reads live, so without a push
+ * nobody notices until they look. One issue-less row carrying `session_id` +
+ * `team_id` (the inbox row and the push both route to the session),
+ * push-first, muted per type by the usual prefs. Best-effort, never throws:
+ * the caller is the device's `sessions.report` write.
  */
 export async function notifySessionBlocked(
   sessionId: string,
@@ -959,35 +905,37 @@ export async function notifySessionBlocked(
   try {
     const [session] = await db
       .select({
-        userId: codingSessions.userId,
-        teamId: codingSessions.teamId,
+        id: sessions.id,
+        rootId: sessions.rootId,
+        title: sessions.title,
+        actionName: sessions.actionName,
+        name: sessions.name,
+        userId: sessions.userId,
+        teamId: sessions.teamId,
         teamSlug: teams.slug,
-        issueId: codingSessions.issueId,
-        batchIssueIds: codingSessions.batchIssueIds,
-        actionName: codingSessions.actionName,
-        deviceId: codingSessions.deviceId,
-        agent: codingSessions.agent,
-        agentAccount: codingSessions.agentAccount,
+        deviceId: sessions.deviceId,
+        cli: sessions.cli,
+        account: sessions.account,
       })
-      .from(codingSessions)
-      .innerJoin(teams, eq(teams.id, codingSessions.teamId))
-      .where(eq(codingSessions.id, sessionId))
+      .from(sessions)
+      .innerJoin(teams, eq(teams.id, sessions.teamId))
+      .where(eq(sessions.id, sessionId))
       .limit(1)
     if (!session) return
 
     // EXP-1005 throttle: at most ONE wall notification per PROFILE (device ×
-    // agent × account, unrecorded = one bucket) per hour — parallel runs
-    // on one login hit the same wall together, and one row says it all.
+    // agent × account) per hour — parallel sessions on one login hit the
+    // same wall together, and one row says it all.
     const since = new Date(Date.now() - SESSION_BLOCKED_THROTTLE_MS)
     const recent = await db
       .select({
         createdAt: notifications.createdAt,
-        deviceId: codingSessions.deviceId,
-        agent: codingSessions.agent,
-        agentAccount: codingSessions.agentAccount,
+        deviceId: sessions.deviceId,
+        cli: sessions.cli,
+        account: sessions.account,
       })
       .from(notifications)
-      .innerJoin(codingSessions, eq(notifications.sessionId, codingSessions.id))
+      .innerJoin(sessions, eq(notifications.sessionId, sessions.id))
       .where(
         and(
           eq(notifications.userId, session.userId),
@@ -1001,14 +949,9 @@ export async function notifySessionBlocked(
         new Date(row.createdAt).getTime() >= since.getTime() &&
         blockedProfileKey(row) === profile
     )
-    if (throttled) {
-      console.debug(
-        `[notify] session_blocked throttled for ${sessionId} (profile ${profile})`
-      )
-      return
-    }
+    if (throttled) return
 
-    const name = await sessionRunName(session)
+    const name = await deriveSessionTitle(session)
     const rateLimited = (blocked.kind ?? `rate_limit`) === `rate_limit`
     await deliverToTeam({
       teamId: session.teamId,
@@ -1027,6 +970,79 @@ export async function notifySessionBlocked(
   } catch (err) {
     console.error(`[notify] session_blocked failed:`, err)
   }
+}
+
+/**
+ * EXP-1291: `@email` mentions inside a Conversation message (a person's or
+ * the agent's) notify the mentioned members who can SEE the session (a
+ * private session's only reader is its starter). One issue-less row carrying
+ * `session_id` + `team_id`, typed `agent_message` (the inbox's
+ * session-routed type); an agent author's mentions honour the recipients'
+ * `allow_agent_messages` block like every agent message.
+ */
+export function fireAndForgetSessionMessageNotify(args: { messageId: string }): void {
+  void (async () => {
+    try {
+      const [row] = await db
+        .select({
+          body: messages.body,
+          authorKind: messages.authorKind,
+          authorId: messages.authorId,
+          sessionId: sessions.id,
+          rootId: sessions.rootId,
+          title: sessions.title,
+          actionName: sessions.actionName,
+          name: sessions.name,
+          teamId: sessions.teamId,
+          teamSlug: teams.slug,
+          shared: sessions.shared,
+          userId: sessions.userId,
+        })
+        .from(messages)
+        .innerJoin(sessions, eq(sessions.id, messages.sessionId))
+        .innerJoin(teams, eq(teams.id, sessions.teamId))
+        .where(eq(messages.id, args.messageId))
+        .limit(1)
+      if (!row || row.authorKind === `system` || !row.body.includes(`@`)) return
+
+      const mentioned = await db.transaction((tx) => resolveMentions(tx, row.body, row.teamId))
+      const actor = row.authorKind === `user` ? row.authorId : row.userId
+      let recipients = mentioned.filter(
+        (id) => id !== row.authorId && (row.shared || id === row.userId)
+      )
+      if (row.authorKind === `agent`) {
+        const blocked = await getAgentMessageBlocklist(
+          recipients.filter((id) => id !== row.userId)
+        )
+        recipients = recipients.filter((id) => !blocked.has(id))
+      }
+      if (recipients.length === 0) return
+
+      const who = actor ? await actorName(actor) : `Someone`
+      const thread = await deriveSessionTitle({
+        id: row.sessionId,
+        rootId: row.rootId,
+        title: row.title,
+        actionName: row.actionName,
+        name: row.name,
+      })
+      const source = row.body.trim()
+      await deliverToTeam({
+        teamId: row.teamId,
+        recipientIds: recipients,
+        type: `agent_message`,
+        title:
+          row.authorKind === `agent`
+            ? `${who}'s agent mentioned you in ${thread}`
+            : `${who} mentioned you in ${thread}`,
+        body: source.length > 140 ? `${source.slice(0, 139)}…` : source,
+        pushData: { sessionId: row.sessionId, teamId: row.teamId, teamSlug: row.teamSlug },
+        sessionId: row.sessionId,
+      })
+    } catch (err) {
+      console.error(`[notify] session mention failed:`, err)
+    }
+  })()
 }
 
 /**
