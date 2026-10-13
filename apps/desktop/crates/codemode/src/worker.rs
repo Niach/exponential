@@ -483,20 +483,36 @@ mod tests {
         }
     }
 
-    /// Answers `echo` with its arguments, `slow` after `ms`, `fail` with a
-    /// refusal; records every tool name.
+    /// Answers `echo` with its arguments, `meet` with its arguments once `n`
+    /// meet calls are in flight at once (a rendezvous: calls that never
+    /// overlap refuse after [`MEET_WAIT`]), `fail` with a refusal; records
+    /// every tool name.
+    #[derive(Default)]
     struct FakeHost {
         seen: Mutex<Vec<String>>,
+        arrived: Mutex<u64>,
+        met: std::sync::Condvar,
     }
+
+    /// How long a `meet` call waits for its party before it refuses; a
+    /// safety net for a regression to sequential calls, never a race bound.
+    const MEET_WAIT: Duration = Duration::from_secs(60);
 
     impl CallHost for FakeHost {
         fn call(&self, _server: &str, tool: &str, args: Value) -> Result<Value, String> {
             self.seen.lock().unwrap().push(tool.to_string());
             match tool {
                 "echo" => Ok(json!({ "content": [{ "type": "text", "text": "ok" }], "structuredContent": args })),
-                "slow" => {
-                    std::thread::sleep(Duration::from_millis(args.get("ms").and_then(Value::as_u64).unwrap_or(100)));
-                    Ok(json!({ "content": [{ "type": "text", "text": "slept" }] }))
+                "meet" => {
+                    let party = args.get("n").and_then(Value::as_u64).unwrap_or(2);
+                    let mut arrived = self.arrived.lock().unwrap();
+                    *arrived += 1;
+                    self.met.notify_all();
+                    let (arrived, waited) = self.met.wait_timeout_while(arrived, MEET_WAIT, |arrived| *arrived < party).unwrap();
+                    if waited.timed_out() {
+                        return Err(format!("met {} of {party}: the calls never overlapped", *arrived));
+                    }
+                    Ok(json!({ "content": [{ "type": "text", "text": "met" }], "structuredContent": args }))
                 }
                 "fail" => Ok(json!({ "content": [{ "type": "text", "text": "no such window" }], "isError": true })),
                 other => Err(format!("tool_unavailable: {other}")),
@@ -506,7 +522,7 @@ mod tests {
 
     fn catalog() -> Arc<Catalog> {
         Arc::new(Catalog {
-            tools: ["echo", "slow", "fail"]
+            tools: ["echo", "meet", "fail"]
                 .into_iter()
                 .map(|name| ToolSpec {
                     server: "t".into(),
@@ -525,7 +541,7 @@ mod tests {
     }
 
     fn run_cancellable(script: &str, limits: Limits, cancelled: Arc<AtomicBool>) -> (ExecOutcome, Arc<FakeHost>) {
-        let host = Arc::new(FakeHost { seen: Mutex::default() });
+        let host = Arc::new(FakeHost::default());
         let dyn_host: Arc<dyn CallHost> = host.clone();
         let outcome = runtime::run_script_with(Isolation::Worker(test_command()), script, catalog(), dyn_host, cancelled, limits);
         (outcome, host)
@@ -533,27 +549,37 @@ mod tests {
 
     /// The whole loop across the pipe: calls run in the host (with its
     /// credentials, in parallel), prints land in the host's console, the
-    /// result and the log come back.
+    /// result and the log come back. The three `meet` calls only return once
+    /// all three are in flight together, so overlap is proven by the
+    /// rendezvous itself, never by a wall-clock span.
     #[test]
     fn a_script_runs_in_the_worker_with_calls_console_and_the_call_log() {
         let (outcome, host) = run(
             r#"console.log("start", {a: 1});
-const [a, b, c] = await Promise.all([tools.t.echo({x: 1}), tools.t.slow({ms: 200}), tools.t.slow({ms: 200})]);
+const [a, b, c] = await Promise.all([tools.t.meet({n: 3, x: 1}), tools.t.meet({n: 3, y: 2}), tools.t.meet({n: 3, z: 3})]);
+const d = await tools.t.echo({w: 4});
 const settled = await Promise.allSettled([tools.t.fail({windowId: "w-9"})]);
 console.error("warned");
-return { a, b, c, rejected: settled[0].status === "rejected" ? settled[0].reason.message : null };"#,
+return { a, b, c, d, rejected: settled[0].status === "rejected" ? settled[0].reason.message : null };"#,
             Limits::default(),
         );
         assert_eq!(outcome.error, None, "{outcome:?}");
-        assert_eq!(outcome.result, json!({ "a": { "x": 1 }, "b": "slept", "c": "slept", "rejected": "no such window" }));
+        assert_eq!(
+            outcome.result,
+            json!({ "a": { "n": 3, "x": 1 }, "b": { "n": 3, "y": 2 }, "c": { "n": 3, "z": 3 }, "d": { "w": 4 }, "rejected": "no such window" })
+        );
         assert_eq!(outcome.console, "start {\"a\":1}\nwarned\n");
-        assert_eq!((outcome.calls.count, outcome.calls.failed), (4, 1));
-        assert_eq!(outcome.workers, 3, "the two slow calls overlapped on the host's pool");
-        assert!(outcome.elapsed < Duration::from_millis(2500), "{:?}", outcome.elapsed);
+        assert_eq!((outcome.calls.count, outcome.calls.failed), (5, 1));
+        // The rendezvous held three pool threads at once; a thread that has
+        // delivered but not yet parked may let the later calls start one more.
+        assert!(outcome.workers >= 3, "{} threads", outcome.workers);
         let log: Vec<(&str, Option<&str>, bool)> =
             outcome.calls.log.iter().map(|call| (call.tool.as_str(), call.subject.as_deref(), call.ok)).collect();
-        assert_eq!(log, [("t.echo", None, true), ("t.slow", None, true), ("t.slow", None, true), ("t.fail", Some("w-9"), false)]);
-        assert_eq!(host.seen.lock().unwrap().len(), 4);
+        assert_eq!(
+            log,
+            [("t.meet", None, true), ("t.meet", None, true), ("t.meet", None, true), ("t.echo", None, true), ("t.fail", Some("w-9"), false)]
+        );
+        assert_eq!(host.seen.lock().unwrap().len(), 5);
     }
 
     /// THE point of the issue: a synchronous loop nothing in boa can
@@ -609,7 +635,7 @@ return { a, b, c, rejected: settled[0].status === "rejected" ? settled[0].reason
     fn a_worker_that_exits_without_a_result_is_an_error_not_a_hang() {
         let mut command = test_command();
         command.args[1] = "worker::tests::no_such_test".into();
-        let host: Arc<dyn CallHost> = Arc::new(FakeHost { seen: Mutex::default() });
+        let host: Arc<dyn CallHost> = Arc::new(FakeHost::default());
         let outcome = runtime::run_script_with(
             Isolation::Worker(command),
             "return 1;",
@@ -627,7 +653,7 @@ return { a, b, c, rejected: settled[0].status === "rejected" ? settled[0].reason
     #[test]
     fn a_worker_that_cannot_spawn_falls_back_to_the_in_process_engine() {
         let command = WorkerCommand { program: "/nonexistent/codemode-worker".into(), args: Vec::new(), env: Vec::new() };
-        let host: Arc<dyn CallHost> = Arc::new(FakeHost { seen: Mutex::default() });
+        let host: Arc<dyn CallHost> = Arc::new(FakeHost::default());
         let outcome = runtime::run_script_with(
             Isolation::Worker(command),
             "return (await tools.t.echo({ok: true})).ok;",
