@@ -427,7 +427,7 @@
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
         "anchor": {
-          "testId": "work-face-toggle",
+          "text": "Startup profiling shows",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -965,7 +965,7 @@
       "web": {
         "route": "/t/$teamSlug",
         "anchor": {
-          "testId": "agent-home-greeting",
+          "testId": "agent-composer",
           "timeoutMs": 30000
         },
         "settleMs": 800
@@ -1284,7 +1284,7 @@
       "web": {
         "route": "/t/$teamSlug/actions/$actionId",
         "anchor": {
-          "text": "Daily at 03:00 (device time)",
+          "text": "Save changes",
           "timeoutMs": 20000
         },
         "settleMs": 600
