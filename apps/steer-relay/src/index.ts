@@ -499,6 +499,13 @@ app.post(`/sessions/:id/kill`, (c) => {
   return c.json({ ok: true, delivered })
 })
 
+// EXP-1291: `sessions.stop` — interrupt the running turn. Same delivery
+// contract as kill (200 with delivered=false without a live publisher).
+app.post(`/sessions/:id/interrupt`, (c) => {
+  const delivered = hub.interruptSession(c.req.param(`id`))
+  return c.json({ ok: true, delivered })
+})
+
 // EXP-700: inject text as the session owner's input (parent↔child messages —
 // a child's question/report into its parent, a parent's answer into its
 // child). Mirrors the kill contract: 200 with delivered=false when no live

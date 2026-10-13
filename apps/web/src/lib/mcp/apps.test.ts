@@ -10,10 +10,10 @@ import {
 describe(`MCP Apps (EXP-1183)`, () => {
   it(`stamps the view into the built document`, () => {
     const built = `<html><head><meta name="exp-view" content="issues" /></head></html>`
-    expect(mcpAppHtml(`run`, built)).toContain(
-      `<meta name="exp-view" content="run" />`
+    expect(mcpAppHtml(`devices`, built)).toContain(
+      `<meta name="exp-view" content="devices" />`
     )
-    expect(mcpAppHtml(`run`, built)).not.toContain(`content="issues"`)
+    expect(mcpAppHtml(`devices`, built)).not.toContain(`content="issues"`)
   })
 
   it(`serves a placeholder document when the views are not built`, () => {
@@ -25,7 +25,7 @@ describe(`MCP Apps (EXP-1183)`, () => {
       ui: { resourceUri: `ui://exponential/issues` },
       "openai/ui": { entrypoints: [{ type: `global` }] },
     })
-    for (const view of [`run`, `runs`, `inbox`, `devices`] as const) {
+    for (const view of [`inbox`, `devices`] as const) {
       expect(mcpAppToolMeta(view)).toEqual({
         ui: { resourceUri: `ui://exponential/${view}` },
       })

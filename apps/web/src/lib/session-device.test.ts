@@ -27,24 +27,18 @@ function device(
 }
 
 describe(`resolveSessionDevice`, () => {
-  it(`resolves the renamed registry label by device_id (snapshot ignored)`, () => {
-    expect(
-      resolveSessionDevice(
-        { deviceId: `dev-1`, deviceLabel: `MacBook-Pro.local`, userId: `me` },
-        [device()],
-        NOW
-      )
-    ).toEqual({ label: `macbook`, online: true })
+  it(`resolves the registry label by device_id`, () => {
+    expect(resolveSessionDevice({ deviceId: `dev-1`, userId: `me` }, [device()], NOW)).toEqual({
+      label: `macbook`,
+      online: true,
+    })
   })
 
-  it(`prefers the session owner's row when two users share a device id`, () => {
+  it(`prefers the session starter's row when two users share a device id`, () => {
     expect(
       resolveSessionDevice(
-        { deviceId: `dev-1`, deviceLabel: null, userId: `me` },
-        [
-          device({ userId: `other`, label: `theirs` }),
-          device({ userId: `me`, label: `mine` }),
-        ],
+        { deviceId: `dev-1`, userId: `me` },
+        [device({ userId: `other`, label: `theirs` }), device({ userId: `me`, label: `mine` })],
         NOW
       ).label
     ).toBe(`mine`)
@@ -52,68 +46,33 @@ describe(`resolveSessionDevice`, () => {
 
   it(`reads offline once last_seen_at is past the online window`, () => {
     expect(
-      resolveSessionDevice(
-        { deviceId: `dev-1`, deviceLabel: null, userId: `me` },
-        [device({ lastSeenAt: stale })],
-        NOW
-      )
+      resolveSessionDevice({ deviceId: `dev-1`, userId: `me` }, [device({ lastSeenAt: stale })], NOW)
     ).toEqual({ label: `macbook`, online: false })
   })
 
-  it(`falls back to the snapshot with unknown online-ness when the id matches nothing`, () => {
-    expect(
-      resolveSessionDevice(
-        { deviceId: `dev-9`, deviceLabel: `box`, userId: `me` },
-        [device({ label: `box` })],
-        NOW
-      )
-    ).toEqual({ label: `box`, online: null })
-  })
-
-  it(`rows without an id keep their snapshot even when one label matches (EXP-560)`, () => {
-    expect(
-      resolveSessionDevice(
-        { deviceId: null, deviceLabel: `macbook`, userId: `me` },
-        [device({ lastSeenAt: stale }), device({ deviceId: `dev-2`, label: `server` })],
-        NOW
-      )
-    ).toEqual({ label: `macbook`, online: null })
-  })
-
-  it(`legacy rows with an ambiguous label resolve to the snapshot only`, () => {
-    expect(
-      resolveSessionDevice(
-        { deviceId: null, deviceLabel: `macbook`, userId: `me` },
-        [device(), device({ deviceId: `dev-2` })],
-        NOW
-      )
-    ).toEqual({ label: `macbook`, online: null })
-  })
-
-  it(`a session that never named a device stays label-less`, () => {
-    expect(
-      resolveSessionDevice(
-        { deviceId: null, deviceLabel: null, userId: `me` },
-        [device()],
-        NOW
-      )
-    ).toEqual({ label: null, online: null })
+  it(`an id matching no row is unknown`, () => {
+    expect(resolveSessionDevice({ deviceId: `dev-9`, userId: `me` }, [device()], NOW)).toEqual({
+      label: null,
+      online: null,
+    })
   })
 })
 
 describe(`sessionIsPaused`, () => {
   const offline = { label: `macbook`, online: false }
-  it(`pauses working, needs_input and an idle run without a PR`, () => {
-    expect(sessionIsPaused(`working`, `running`, offline)).toBe(true)
-    expect(sessionIsPaused(`needs_input`, `in_review`, offline)).toBe(true)
-    expect(sessionIsPaused(`done`, `running`, offline)).toBe(true)
+  const s = (status: string, busy = false, needsInput = false) =>
+    ({ status, busy, needsInput }) as never
+  it(`pauses running, queued, busy and waiting sessions`, () => {
+    expect(sessionIsPaused(s(`running`), offline)).toBe(true)
+    expect(sessionIsPaused(s(`queued`), offline)).toBe(true)
+    expect(sessionIsPaused(s(`idle`, false, true), offline)).toBe(true)
   })
-  it(`never overrides a PR in review or merged`, () => {
-    expect(sessionIsPaused(`review`, `in_review`, offline)).toBe(false)
-    expect(sessionIsPaused(`done`, `in_review`, offline)).toBe(false)
+  it(`never pauses an ended or a quiet idle session`, () => {
+    expect(sessionIsPaused(s(`ended`), offline)).toBe(false)
+    expect(sessionIsPaused(s(`idle`), offline)).toBe(false)
   })
   it(`unknown or online devices never pause`, () => {
-    expect(sessionIsPaused(`working`, `running`, { label: `x`, online: null })).toBe(false)
-    expect(sessionIsPaused(`working`, `running`, { label: `x`, online: true })).toBe(false)
+    expect(sessionIsPaused(s(`running`), { label: `x`, online: null })).toBe(false)
+    expect(sessionIsPaused(s(`running`), { label: `x`, online: true })).toBe(false)
   })
 })

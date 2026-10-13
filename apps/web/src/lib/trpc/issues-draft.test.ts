@@ -20,18 +20,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 //     hangs off that draft.
 
 const h = vi.hoisted(() => ({
-  draftRows: [] as { id: string; teamId: string; threadId?: string | null }[],
-  getThread: vi.fn(async (_db: unknown, _id: string): Promise<{ id: string; teamId: string } | null> => null),
-  linkIssueToThread: vi.fn(async (..._args: unknown[]) => ({ added: true })),
+  draftRows: [] as { id: string; teamId: string; sessionId?: string | null }[],
+  loadSessionForUser: vi.fn(
+    async (_userId: string, id: string): Promise<{ id: string; rootId: string; teamId: string }> => ({
+      id,
+      rootId: `root-of-${id}`,
+      teamId: `ws-1`,
+    })
+  ),
+  linkIssues: vi.fn(async (..._args: unknown[]) => ({ linked: [] })),
   ownedAttachmentIds: [] as string[],
   hasMarkdownImages: vi.fn((_text: string) => false),
   canonicalize: vi.fn((text: string) => text),
 }))
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
-vi.mock(`@/lib/threads`, () => ({
-  getThread: h.getThread,
-  linkIssueToThread: h.linkIssueToThread,
+vi.mock(`@/lib/sessions/access`, () => ({
+  loadSessionForUser: h.loadSessionForUser,
+}))
+vi.mock(`@/lib/sessions/issues`, () => ({
+  linkIssues: h.linkIssues,
 }))
 vi.mock(`@/lib/auth`, () => ({ auth: {} }))
 
@@ -59,9 +67,6 @@ vi.mock(`@/lib/integrations/github-pr`, () => ({
 vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => false,
   resolveRepoInstallationToken: vi.fn(),
-}))
-vi.mock(`@/lib/integrations/pr-sync`, () => ({
-  applyPrMergeState: vi.fn(),
 }))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   resolveBoardRepository: vi.fn(),
@@ -337,60 +342,62 @@ describe(`issues.create with a draft (EXP-878)`, () => {
   })
 })
 
-// EXP-1284: a "New issue in this thread" draft persisted its thread
-// (`issue_drafts.thread_id`); consuming it files the issue into that thread
-// unless the create names its own. A thread that vanished (or is another
-// team's) since the draft was written is simply no link — never a failure.
-describe(`issues.create with a draft's thread (EXP-1284)`, () => {
-  const THREAD_ID = `55555555-5555-4555-8555-555555555555`
-  const OTHER_THREAD = `66666666-6666-4666-8666-666666666666`
+// EXP-1291: a "New issue in this thread" draft persisted its session
+// (`issue_drafts.session_id`); consuming it files the issue into that
+// session's thread (its root) unless the create names its own. A session that
+// vanished (or is another team's) since the draft was written is simply no
+// link — never a failure.
+describe(`issues.create with a draft's thread (EXP-1291)`, () => {
+  const SESSION_ID = `55555555-5555-4555-8555-555555555555`
+  const OTHER_SESSION = `66666666-6666-4666-8666-666666666666`
 
   beforeEach(() => {
     insertedIssues.length = 0
-    h.draftRows = [{ id: DRAFT_ID, teamId: `ws-1`, threadId: THREAD_ID }]
+    h.draftRows = [{ id: DRAFT_ID, teamId: `ws-1`, sessionId: SESSION_ID }]
     h.ownedAttachmentIds = []
     h.hasMarkdownImages.mockReturnValue(false)
-    h.getThread.mockReset()
-    h.getThread.mockImplementation(async (_db, id) => ({ id, teamId: `ws-1` }))
-    h.linkIssueToThread.mockClear()
+    h.loadSessionForUser.mockClear()
+    h.linkIssues.mockClear()
     transaction.mockClear()
   })
 
   it(`links the issue into the consumed draft's thread`, async () => {
     await caller.create({ boardId: BOARD_ID, title: `From a thread draft`, draftId: DRAFT_ID })
-    expect(h.linkIssueToThread).toHaveBeenCalledWith(
-      tx,
-      { id: THREAD_ID, teamId: `ws-1` },
-      ISSUE_ID,
-      { userId: `actor`, source: `user` }
-    )
+    expect(h.linkIssues).toHaveBeenCalledWith(tx, {
+      rootId: `root-of-${SESSION_ID}`,
+      issueIds: [ISSUE_ID],
+      source: `user`,
+      addedBy: `actor`,
+      addedBySessionId: null,
+      filed: true,
+    })
   })
 
-  it(`lets an explicit threadId win over the draft's`, async () => {
+  it(`lets an explicit sessionId win over the draft's`, async () => {
     await caller.create({
       boardId: BOARD_ID,
       title: `Explicit`,
       draftId: DRAFT_ID,
-      threadId: OTHER_THREAD,
+      sessionId: OTHER_SESSION,
     })
-    expect(h.linkIssueToThread).toHaveBeenCalledTimes(1)
-    expect(h.linkIssueToThread.mock.calls[0]![1]).toEqual({ id: OTHER_THREAD, teamId: `ws-1` })
+    expect(h.linkIssues).toHaveBeenCalledTimes(1)
+    expect(h.linkIssues.mock.calls[0]![1]).toMatchObject({ rootId: `root-of-${OTHER_SESSION}` })
   })
 
   it.each([
-    [`a vanished thread`, null],
-    [`another team's thread`, { id: THREAD_ID, teamId: `ws-2` }],
-  ])(`files with no link for %s`, async (_name, thread) => {
-    h.getThread.mockResolvedValue(thread)
+    [`a vanished session`, async () => Promise.reject(new Error(`Session not found`))],
+    [`another team's session`, async () => ({ id: SESSION_ID, rootId: `r`, teamId: `ws-2` })],
+  ])(`files with no link for %s`, async (_name, load) => {
+    h.loadSessionForUser.mockImplementationOnce(load as never)
     await caller.create({ boardId: BOARD_ID, title: `Stale`, draftId: DRAFT_ID })
     expect(insertedIssues).toHaveLength(1)
-    expect(h.linkIssueToThread).not.toHaveBeenCalled()
+    expect(h.linkIssues).not.toHaveBeenCalled()
   })
 
-  it(`never reads a thread for a draft without one`, async () => {
-    h.draftRows = [{ id: DRAFT_ID, teamId: `ws-1`, threadId: null }]
+  it(`never reads a session for a draft without one`, async () => {
+    h.draftRows = [{ id: DRAFT_ID, teamId: `ws-1`, sessionId: null }]
     await caller.create({ boardId: BOARD_ID, title: `Plain`, draftId: DRAFT_ID })
-    expect(h.getThread).not.toHaveBeenCalled()
-    expect(h.linkIssueToThread).not.toHaveBeenCalled()
+    expect(h.loadSessionForUser).not.toHaveBeenCalled()
+    expect(h.linkIssues).not.toHaveBeenCalled()
   })
 })

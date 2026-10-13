@@ -7,38 +7,27 @@
 // the always-present set. Other agents mirror the same split through their
 // dynamic tool loading, reading this very flag off `tools/list`.
 //
-// So the old "every tool must fit one shared byte ceiling" rule is gone; what
-// matters now is that the handful of tools a coding run needs on its FIRST
-// turn are present without a search. Everything else — boards, labels,
-// members, attachments, notifications, repositories, invites, teams — is
-// discovered through search, which the instructions tell the agent to do.
+// What matters is that the handful of tools a session needs on its FIRST
+// turn are present without a search: read the issue, talk on it, the one
+// session verb (EXP-1291 `sessions_send`), open and merge the PR, close out.
+// Everything else is discovered through search, which the instructions tell
+// the agent to do.
 //
 // Keep this list short. Each entry costs context on every single session.
 export const ALWAYS_LOAD_TOOLS = [
   `exponential_issues_get`,
   `exponential_comments_list`,
   `exponential_comments_create`,
-  `exponential_issues_update_status`,
+  `exponential_sessions_send`,
+  `exponential_sessions_end`,
   `exponential_pr_open`,
   `exponential_pr_merge`,
-  `exponential_pr_retarget`,
-  `exponential_actions_create`,
 ] as const
 
-// EXP-679: always-loaded WHEN registered. `exponential_sessions_end`
-// registers for every run of the caller's (gates.sessionsEnd, EXP-1222) — an
-// unattended run needs it on turn one, so it keeps the flag. It stays out of
-// ALWAYS_LOAD_TOOLS because a human's MCP client (no run) never sees it.
-export const GATED_ALWAYS_LOAD_TOOLS = [
-  `exponential_sessions_end`,
-  // EXP-700: a child run must know it CAN ask before it ever searches.
-  `exponential_sessions_ask_parent`,
-  // EXP-879: a run that never learns it can publish a screenshot never does —
-  // the instructions ask for one, so the tool has to be there when it looks.
-  `exponential_sessions_guide`,
-  // EXP-1172: the playbook asks for a shot when a picture helps.
-  `exponential_sessions_show`,
-] as const
+// Always-loaded WHEN registered: the Guide writes on the caller's own
+// session (gates.inSession), so a human's MCP client never sees it — but a
+// session that is never shown the tool never writes its Guide.
+export const GATED_ALWAYS_LOAD_TOOLS = [`exponential_guide_write`] as const
 
 /** Spread into a `registerTool` config to mark it always-loaded. */
 export const ALWAYS_LOAD_META = { "anthropic/alwaysLoad": true } as const

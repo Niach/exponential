@@ -24,7 +24,7 @@ const APP_STAMPED: Record<string, string> = {
   // Better Auth owns these tables and its Drizzle adapter applies its own
   // onUpdate hook to the declared updatedAt field on every write.
   users: `better-auth adapter stamps it`,
-  sessions: `better-auth adapter stamps it`,
+  auth_sessions: `better-auth adapter stamps it`,
   accounts: `better-auth adapter stamps it`,
   verifications: `better-auth adapter stamps it`,
   apikeys: `better-auth adapter stamps it`,
@@ -38,9 +38,6 @@ const APP_STAMPED: Record<string, string> = {
   // register/heartbeat/rename explicitly (last_seen_at is the liveness
   // column; updated_at just mirrors the same writes).
   devices: `devices router stamps it on every write`,
-  // EXP-702: write-once steer images — nothing ever updates a row after
-  // insert (only the session FK's SET NULL touches it).
-  session_attachments: `write-once — no app writer updates rows`,
 }
 
 function tablesWithUpdatedAt(): string[] {

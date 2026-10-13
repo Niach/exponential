@@ -119,8 +119,6 @@ export function serializeIssue(
     | `priority`
     | `assigneeId`
     | `dueDate`
-    | `prUrl`
-    | `prState`
     | `createdAt`
     | `updatedAt`
     | `source`
@@ -143,8 +141,6 @@ export function serializeIssue(
       : null,
     dueDate: issue.dueDate ?? null,
     labels: labelNames,
-    prUrl: issue.prUrl ?? null,
-    prState: issue.prState ?? null,
     createdAt: toIso(issue.createdAt),
     updatedAt: toIso(issue.updatedAt),
   }

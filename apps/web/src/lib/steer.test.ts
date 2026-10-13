@@ -8,7 +8,7 @@ import {
   relayPostInput,
   relayPostKill,
   relayPostNudge,
-  relayPostStart,
+  relayPostInterrupt,
   steerHttpBase,
   steerTicketUrl,
   steerWsBase,
@@ -314,16 +314,12 @@ describe(`relay admin HTTP`, () => {
       .fn<RelayFetch>()
       .mockResolvedValue(fakeResponse(200, { devices: [], delivered: true }))
 
-    await relayPostStart(
-      config,
-      { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
-      fetchImpl
-    )
+    await relayPostInterrupt(config, `sess-1`, fetchImpl)
     await relayPostKill(config, `sess-1`, fetchImpl)
     await relayPostNudge(config, `user-1`, `dev-1`, fetchImpl)
     await relayPostInput(config, `sess-1`, `hello`, fetchImpl)
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
-      `http://steer-relay:4002/start`,
+      `http://steer-relay:4002/sessions/sess-1/interrupt`,
       `http://steer-relay:4002/sessions/sess-1/kill`,
       `http://steer-relay:4002/devices/user-1/dev-1/nudge`,
       `http://steer-relay:4002/sessions/sess-1/input`,
@@ -333,182 +329,6 @@ describe(`relay admin HTTP`, () => {
     expect(`url` in minted && minted.url).toMatch(
       /^wss:\/\/issues\.example\.com\/steer\/ws\?ticket=/
     )
-  })
-
-  it(`posts /start with the secret and reports success`, async () => {
-    const fetchImpl = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(200, { ok: true }))
-
-    await expect(
-      relayPostStart(
-        CONFIG,
-        { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
-        fetchImpl
-      )
-    ).resolves.toEqual({ ok: true })
-    expect(fetchImpl).toHaveBeenCalledWith(`https://steer.example.com/start`, {
-      method: `POST`,
-      headers: {
-        "content-type": `application/json`,
-        "x-relay-secret": `test-secret`,
-      },
-      body: JSON.stringify({
-        userId: `user-1`,
-        deviceId: `dev-1`,
-        issueId: `issue-1`,
-      }),
-      // REV-34: bounded — a wedged relay must not hang startSession.
-      signal: expect.any(AbortSignal),
-    })
-  })
-
-  it(`passes launch options through to /start; undefineds never hit the wire`, async () => {
-    const fetchImpl = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(200, { ok: true }))
-
-    await relayPostStart(
-      CONFIG,
-      {
-        userId: `user-1`,
-        deviceId: `dev-1`,
-        issueId: `issue-1`,
-        model: `opus`,
-        effort: ``,
-        ultracode: true,
-        planMode: undefined,
-      },
-      fetchImpl
-    )
-    const body = JSON.parse(
-      (fetchImpl.mock.calls[0][1] as { body: string }).body
-    ) as Record<string, unknown>
-    expect(body).toEqual({
-      userId: `user-1`,
-      deviceId: `dev-1`,
-      issueId: `issue-1`,
-      model: `opus`,
-      effort: ``,
-      ultracode: true,
-    })
-    expect(`planMode` in body).toBe(false)
-  })
-
-  it(`serializes a batch subject verbatim: issueIds/teamId/repo, no issueId/installationId`, async () => {
-    const fetchImpl = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(200, { ok: true }))
-
-    await relayPostStart(
-      CONFIG,
-      {
-        userId: `user-1`,
-        deviceId: `dev-1`,
-        issueIds: [`issue-1`, `issue-2`],
-        teamId: `ws-1`,
-        repo: {
-          repositoryId: `repo-1`,
-          fullName: `acme/api`,
-          defaultBranch: `main`,
-        },
-        ultracode: true,
-      },
-      fetchImpl
-    )
-    const body = JSON.parse(
-      (fetchImpl.mock.calls[0][1] as { body: string }).body
-    ) as Record<string, unknown>
-    expect(body).toEqual({
-      userId: `user-1`,
-      deviceId: `dev-1`,
-      issueIds: [`issue-1`, `issue-2`],
-      teamId: `ws-1`,
-      repo: {
-        repositoryId: `repo-1`,
-        fullName: `acme/api`,
-        defaultBranch: `main`,
-      },
-      ultracode: true,
-    })
-    // A batch body never carries the single-issue key, and the repo group
-    // never carries the server-only installationId.
-    expect(`issueId` in body).toBe(false)
-    expect(`installationId` in (body.repo as Record<string, unknown>)).toBe(
-      false
-    )
-  })
-
-  it(`surfaces the relay reason on 404 (device offline)`, async () => {
-    const fetchImpl = vi
-      .fn<RelayFetch>()
-      .mockResolvedValue(fakeResponse(404, { error: `device_offline` }))
-    await expect(
-      relayPostStart(
-        CONFIG,
-        { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
-        fetchImpl
-      )
-    ).resolves.toEqual({ ok: false, status: 404, reason: `device_offline` })
-  })
-
-  it(`falls back to a generic reason when the relay body is not JSON`, async () => {
-    const fetchImpl = vi.fn<RelayFetch>().mockResolvedValue({
-      ok: false,
-      status: 500,
-      json: async () => {
-        throw new Error(`not json`)
-      },
-    })
-    await expect(
-      relayPostStart(
-        CONFIG,
-        { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
-        fetchImpl
-      )
-    ).resolves.toEqual({ ok: false, status: 500, reason: `relay_error` })
-  })
-
-  // REV-34: startSession awaits this inline — an accepting-but-wedged relay
-  // must abort into the structured failure shape (which the caller surfaces
-  // as a retryable relay error), not hold the mutation open indefinitely.
-  it(`start bounds a hung relay with an armed timeout signal`, async () => {
-    const hungFetch = vi.fn<RelayFetch>().mockImplementation(
-      (_url, init) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener(`abort`, () =>
-            reject(new DOMException(`The operation timed out.`, `TimeoutError`))
-          )
-        })
-    )
-    const call = relayPostStart(
-      CONFIG,
-      { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
-      hungFetch
-    )
-    const signal = hungFetch.mock.calls[0]?.[1]?.signal
-    expect(signal).toBeInstanceOf(AbortSignal)
-    expect(signal?.aborted).toBe(false)
-    await expect(call).resolves.toEqual({
-      ok: false,
-      status: 504,
-      reason: `relay_timeout`,
-    })
-  })
-
-  // Non-timeout transport failures keep the pre-REV-34 contract: they throw
-  // to the caller (startSession is not best-effort like kill/nudge).
-  it(`start still throws on a non-timeout fetch failure`, async () => {
-    const downFetch = vi
-      .fn<RelayFetch>()
-      .mockRejectedValue(new Error(`ECONNREFUSED`))
-    await expect(
-      relayPostStart(
-        CONFIG,
-        { userId: `user-1`, deviceId: `dev-1`, issueId: `issue-1` },
-        downFetch
-      )
-    ).rejects.toThrow(`ECONNREFUSED`)
   })
 
   it(`kill is best-effort: reports delivery and never throws`, async () => {

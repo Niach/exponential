@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { getTableColumns } from "drizzle-orm"
 import {
-  codingSessions,
   issueDrafts,
   issues,
   messages,
@@ -9,14 +8,9 @@ import {
   pullRequests,
   sessionIssues,
   sessions,
-  threadItems,
-  threads,
 } from "@exp/db-schema"
 
 import { ISSUE_COLUMNS } from "./issues"
-import { CODING_SESSION_COLUMNS } from "./coding-sessions"
-import { THREAD_COLUMNS } from "./threads"
-import { THREAD_ITEM_COLUMNS } from "./thread-items"
 import { ISSUE_DRAFT_COLUMNS } from "./issue-drafts"
 import { SESSION_COLUMNS } from "./sessions"
 import { SESSION_ISSUE_COLUMNS } from "./session-issues"
@@ -31,10 +25,6 @@ import { PULL_REQUEST_ISSUE_COLUMNS } from "./pull-request-issues"
 // checked against the schema rather than against a copy of themselves.
 const lists = {
   issues: [ISSUE_COLUMNS, issues],
-  coding_sessions: [CODING_SESSION_COLUMNS, codingSessions],
-  // EXP-1284
-  threads: [THREAD_COLUMNS, threads],
-  thread_items: [THREAD_ITEM_COLUMNS, threadItems],
   issue_drafts: [ISSUE_DRAFT_COLUMNS, issueDrafts],
   // EXP-1291
   sessions: [SESSION_COLUMNS, sessions],

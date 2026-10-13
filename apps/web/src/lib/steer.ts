@@ -6,9 +6,6 @@
 // packages/steer-ticket.
 
 import { signSteerTicket, type SteerTicketClaims } from "@exp/steer-ticket"
-import type { SteerStartInput } from "@/lib/action-inputs"
-
-export type { SteerStartInput } from "@/lib/action-inputs"
 
 // ── Config (env) ──────────────────────────────────────────────────────────────
 
@@ -101,7 +98,7 @@ export type SteerTicketSeed =
       teamId: string
       sessionId: string
       /** EXP-773: the machine that ran the session
-       * (`coding_sessions.device_id`). Riding the ticket is what lets the
+       * (`sessions.device_id`). Riding the ticket is what lets the
        * relay ask that device for the transcript when the room is not up —
        * the transcript never leaves the device. Absent on rows that named no
        * device. */
@@ -192,160 +189,6 @@ export type RelayFetch = (
   }
 ) => Promise<RelayResponse>
 
-export type RelayStartResult =
-  | { ok: true }
-  | { ok: false; status: number; reason: string }
-
-/**
- * Launch options a remote start may carry (EXP-149) — the client's
- * Start-coding dialog choices. All optional; an absent field means "desktop
- * settings default" (and plan mode OFF). `effort: ""` is an explicit
- * "CLI default" (omit --effort), distinct from absent.
- */
-export interface SteerStartOptions {
-  /** EXP-201: the agent CLI to launch (`claude`/`codex`); absent =
-   * claude (the pre-EXP-201 behavior on every desktop). */
-  agent?: string
-  model?: string
-  effort?: string
-  /** EXP-981: claude only — the model its subagents run on. */
-  subagentModel?: string
-  ultracode?: boolean
-  planMode?: boolean
-  /** EXP-481: resume the issue's existing worktree/agent session instead of
-   * starting fresh. Single-issue starts only; the web server gates it on the
-   * device's `resume` cap, and the device-side launcher degrades a missing/
-   * foreign worktree to a fresh session seeded with a resume prompt. */
-  resume?: boolean
-  /** EXP-792: the team MCP servers (`mcp_servers` row ids, validated
-   * against the subject's team in steer.startSession) the run connects to
-   * beside `exponential`. The device resolves ids to its held secrets. */
-  mcpServerIds?: string[]
-  /** EXP-1249: computer use for this run; absent = the device's
-   * `launch_defaults.computerUse`. */
-  computerUse?: boolean
-  /** EXP-792 (EXP-747 B7): the agent account profile to run on; absent =
-   * the machine's last used profile. */
-  account?: string
-}
-
-/**
- * The repo group a BATCH remote start carries. Resolved server-side (from the
- * batch's shared board repository) because the desktop syncs no repositories
- * collection — the relay frame must be "fat" enough for the launcher to clone
- * without a lookup. NEVER includes installationId: that is a server-only
- * secret and must never ride the relay.
- */
-export interface SteerStartRepo {
-  repositoryId: string
-  fullName: string
-  defaultBranch: string
-}
-
-/**
- * The subject of a remote start: a single issue (wire-unchanged), a batch of
- * issues sharing one team + repo group, or an action (EXP-253 — the name is
- * a display snapshot so the desktop can title the tab/trust dialog before
- * its own `actions.get` resolves; `repo` is absent for repo-less actions).
- * `inputs` (EXP-257) are the action's filled input values, fully resolved
- * server-side (display names included) so the desktop injects them into the
- * prompt with zero lookups. Or (EXP-637) a resume of an ended run. Exactly
- * one form.
- */
-export type SteerStartSubject =
-  | { issueId: string; prompt?: string }
-  | { issueIds: string[]; teamId: string; repo: SteerStartRepo; prompt?: string }
-  | {
-      actionId: string
-      actionName: string
-      teamId: string
-      repo?: SteerStartRepo
-      inputs?: SteerStartInput[]
-      /** EXP-825: the requester's free text — the chat text for the Chat
-       * builtin, the request for Create action, additional instructions
-       * otherwise — in the steer-image-message shape (validated in
-       * `steer.startSession`, forwarded byte-identical). */
-      prompt?: string
-    }
-  // EXP-637: resume an ENDED run. The device looks the run up in its own run
-  // registry (cwd, agent, options, native transcript id), so the frame only
-  // has to name it — the optional fields are display/routing hints the
-  // device uses before its registry lookup resolves, never the source of
-  // truth. `teamId` is required like every other subject so the relay can
-  // route without a DB read.
-  | {
-      resumeSessionId: string
-      teamId: string
-      issueId?: string
-      actionId?: string
-      actionName?: string
-      branch?: string
-    }
-
-/**
- * REV-34: `steer.startSession` awaits this call inline — an accepting-but-
- * wedged relay must fail the Start button fast, not pin the mutation (and a
- * server connection) open until the client gives up. A healthy relay answers
- * /start in milliseconds (it validates and routes before replying), so 3s is
- * generous; the timeout resolves into the structured failure shape below and
- * the caller surfaces it as a retryable relay error.
- */
-const RELAY_START_TIMEOUT_MS = 3_000
-
-/** POST /start — route a remote start to the device's control socket.
- * Undefined option fields are dropped by JSON.stringify — never sent.
- * `startedBy` (EXP-432): the requesting teammate on a start targeting a
- * SHARED server device — `userId` is then the device OWNER (whose presence
- * bucket holds the socket). Absent on every own-device start.
- * `startedReason` (EXP-679): `agent` when another coding session asked for
- * this start — the device writes it onto `coding_sessions.started_reason` so
- * the run is unattended (its close-out ends it). Absent otherwise.
- * `threadId` (EXP-1284): the thread the run starts into, validated against
- * the subject's team in steer.startSession; the device echoes it into
- * `codingSessions.start({ threadId })`. Never on a resume (a resume stays in
- * its predecessor's thread). */
-export async function relayPostStart(
-  config: SteerRelayConfig,
-  body: {
-    userId: string
-    deviceId: string
-    // FEED-63: names this start; the device echoes it to
-    // steer.reportStartFailure when it cannot launch the run.
-    startId?: string
-    startedBy?: string
-    startedReason?: `agent`
-    threadId?: string
-  } &
-    SteerStartSubject &
-    SteerStartOptions,
-  fetchImpl: RelayFetch = globalThis.fetch
-): Promise<RelayStartResult> {
-  let res: RelayResponse
-  try {
-    res = await fetchImpl(`${steerServerHttpBase(config)}/start`, {
-      method: `POST`,
-      headers: {
-        "content-type": `application/json`,
-        "x-relay-secret": config.secret,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(RELAY_START_TIMEOUT_MS),
-    })
-  } catch (err) {
-    // The armed timeout raises a `TimeoutError` DOMException — which does not
-    // extend Error in every runtime, so match on the name alone.
-    if ((err as { name?: unknown } | null)?.name === `TimeoutError`) {
-      return { ok: false, status: 504, reason: `relay_timeout` }
-    }
-    throw err
-  }
-  if (res.ok) return { ok: true }
-  const json = (await res.json().catch(() => null)) as {
-    error?: string
-  } | null
-  return { ok: false, status: res.status, reason: json?.error ?? `relay_error` }
-}
-
 /**
  * How long a kill fan-out may hang before we give up on it. The PR-merge path
  * (`applyPrMergeState`) awaits this fan-out post-commit inside the GitHub
@@ -372,6 +215,38 @@ export async function relayPostKill(
         method: `POST`,
         headers: { "x-relay-secret": config.secret },
         signal: AbortSignal.timeout(RELAY_KILL_TIMEOUT_MS),
+      }
+    )
+    if (!res.ok) return { delivered: false }
+    const json = (await res.json().catch(() => null)) as {
+      delivered?: boolean
+    } | null
+    return { delivered: json?.delivered === true }
+  } catch {
+    return { delivered: false }
+  }
+}
+
+const RELAY_INTERRUPT_TIMEOUT_MS = 3_000
+
+/**
+ * POST /sessions/:id/interrupt — EXP-1291 Stop: interrupt the running TURN
+ * (the relay forwards its `interrupt` frame to the publisher; the session
+ * stays live). Best-effort and never throws; a relay without the route 404s
+ * and reads as not-delivered.
+ */
+export async function relayPostInterrupt(
+  config: SteerRelayConfig,
+  sessionId: string,
+  fetchImpl: RelayFetch = globalThis.fetch
+): Promise<{ delivered: boolean }> {
+  try {
+    const res = await fetchImpl(
+      `${steerServerHttpBase(config)}/sessions/${encodeURIComponent(sessionId)}/interrupt`,
+      {
+        method: `POST`,
+        headers: { "x-relay-secret": config.secret },
+        signal: AbortSignal.timeout(RELAY_INTERRUPT_TIMEOUT_MS),
       }
     )
     if (!res.ok) return { delivered: false }

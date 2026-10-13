@@ -18,7 +18,6 @@ import { contract } from "@exp/domain-contract"
 import { relativeTime } from "@/components/comment-rows/format"
 import type { SessionUsageState } from "@/lib/agent-feed"
 import type {
-  CodingSession,
   Device,
   DeviceAgentAccount,
   DeviceAgentHealth,
@@ -151,7 +150,7 @@ export function formatResetCountdown(
 }
 
 /** EXP-804: the one-line badge for a run's usage wall
- * (`coding_sessions.blocked`) — `Rate limited · resets in 2h`, or bare
+ * (`sessions.blocked`) — `Rate limited · resets in 2h`, or bare
  * `Rate limited` when the agent named no reset time. Null when the run is not
  * blocked, so a caller can render it beside the session state with a single
  * truthiness check.
@@ -475,15 +474,18 @@ export function deviceWorstHealth(
   return worstHealth(healths)
 }
 
-type SessionUsageRow = Pick<
-  CodingSession,
-  `deviceId` | `userId` | `agent` | `status`
->
+/** EXP-1291: a session as the usage bar reads it (`agent` = `sessions.cli`). */
+export interface SessionUsageRow {
+  deviceId: string | null
+  userId: string
+  agent: string | null
+  status: string
+}
 type SessionUsageDevice = Pick<Device, `deviceId` | `userId` | `agentUsage`>
 
 /** The usage bar a coding session shows, or null when it shows none.
  *
- * Renders only for a run that is still going (`running` / `in_review`) on a
+ * Renders only for a session that is still live (`running` / `idle`) on a
  * machine whose report is FRESH and non-empty for the run's OWN agent: a
  * finished run's host limits are nobody's business, and stale numbers beside
  * a live agent read as current ones. The devices-row join mirrors
@@ -495,7 +497,7 @@ export function sessionAgentUsage(
   devices: readonly SessionUsageDevice[],
   now: Date
 ): { agent: string; usage: DeviceAgentUsage } | null {
-  if (session.status !== `running` && session.status !== `in_review`) {
+  if (session.status !== `running` && session.status !== `idle`) {
     return null
   }
   if (!session.agent || !session.deviceId) return null

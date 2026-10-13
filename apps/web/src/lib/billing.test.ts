@@ -365,11 +365,10 @@ describe(`getUserPlan — best purchased tier for the abuse guard`, () => {
 
 describe(`getTeamUsage`, () => {
   it(`counts members, storage MB, and widget configs`, async () => {
-    // Order matches getTeamUsage's Promise.all: members, issue-attachment
-    // storage, session-attachment storage (EXP-702), widgets.
+    // Order matches getTeamUsage's Promise.all: members, attachment storage
+    // (issue, draft and, since EXP-1291, session files in one sum), widgets.
     selectResults.push([{ count: 1 }]) // members
-    selectResults.push([{ totalBytes: `${3 * 1024 * 1024}` }]) // 3 MB issues
-    selectResults.push([{ totalBytes: `${2 * 1024 * 1024}` }]) // 2 MB sessions
+    selectResults.push([{ totalBytes: `${5 * 1024 * 1024}` }]) // 5 MB
     selectResults.push([{ count: 2 }]) // widget configs
     const usage = await getTeamUsage(WS)
     expect(usage).toEqual({ members: 1, storageMb: 5, widgetConfigs: 2 })
@@ -401,7 +400,6 @@ describe(`assertCanInviteMember — seat gate wired to team usage`, () => {
     selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: members }]) // usage members
     selectResults.push([{ totalBytes: `0` }]) // usage storage (issues)
-    selectResults.push([{ totalBytes: `0` }]) // usage storage (sessions)
     selectResults.push([{ count: 0 }]) // usage widgets
   }
 
@@ -545,7 +543,6 @@ describe(`assertCanCreateWidget — server-side widget-count gate`, () => {
     selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
     selectResults.push([{ totalBytes: `0` }]) // usage storage (issues)
-    selectResults.push([{ totalBytes: `0` }]) // usage storage (sessions)
     selectResults.push([{ count: widgets }]) // usage widgets
   }
 
@@ -580,7 +577,6 @@ describe(`assertWithinStorageLimit — per-team storage budget`, () => {
     selectResults.push([{ compTier }]) // getTeamPlan comp-tier lookup
     selectResults.push([{ count: 1 }]) // usage members
     selectResults.push([{ totalBytes: `${usedMb * 1024 * 1024}` }]) // issues
-    selectResults.push([{ totalBytes: `0` }]) // sessions
     selectResults.push([{ count: 0 }]) // widgets
   }
 
