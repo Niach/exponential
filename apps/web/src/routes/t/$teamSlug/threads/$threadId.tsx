@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
 import {
   conceptIcon,
   EmptyState,
@@ -116,6 +116,17 @@ function ThreadPage() {
     const timer = setTimeout(() => setGraceOver(true), SYNC_GRACE_MS)
     return () => clearTimeout(timer)
   }, [threadId])
+
+  // A team agent's root is no thread: its page is the agent's channel.
+  if (thread.root?.kind === `agent`) {
+    return (
+      <Navigate
+        to="/t/$teamSlug/agents/$agentId"
+        params={{ teamSlug, agentId: thread.root.id }}
+        replace
+      />
+    )
+  }
 
   if (!team || !thread.view || !thread.root) {
     if (team && thread.isReady && graceOver) {
@@ -305,6 +316,7 @@ function ThreadScreen({
         view={view}
         users={users as User[]}
         canReply={permissions.isMember}
+        busy={root.busy}
       />
     )
   }
@@ -388,12 +400,15 @@ function ConversationBody({
   view,
   users,
   canReply,
+  busy,
 }: {
   teamId: string
   teamSlug: string
   view: SessionThreadView
   users: User[]
   canReply: boolean
+  /** The ROOT's busy: Stop stops the root, so a busy child never shows it. */
+  busy: boolean
 }) {
   const navigate = useNavigate()
   const messages = useSessionMessages(view.rootId)
@@ -439,7 +454,7 @@ function ConversationBody({
             sessionId={view.composer.sessionId}
             placeholder={view.composer.placeholder}
             users={users}
-            busy={view.busy}
+            busy={busy}
             canStop
             testId="thread-composer"
             className="mx-auto max-w-3xl"

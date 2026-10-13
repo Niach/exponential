@@ -16,7 +16,7 @@ import {
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
-import { sessionCollection } from "@/lib/collections"
+import { messageCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 
@@ -99,7 +99,10 @@ export function SessionComposer({
       for (const entry of files) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
       setText(``)
       setFiles([])
-      await sessionCollection.utils.awaitTxId(result.txid).catch(() => undefined)
+      // A message to a live session writes only a `messages` row: free the
+      // composer now, then wait (bounded) for that row to sync.
+      setSending(false)
+      await messageCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch {
       toast.error(`Couldn't send the message`)
     } finally {

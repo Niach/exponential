@@ -65,6 +65,15 @@ describe(`routePathFromLocation`, () => {
     })
   })
 
+  it(`names no tab for a session's Guide redirect`, () => {
+    expect(routePathFromLocation(`/t/acme/sessions/s1`, null, `guide`)).toBeNull()
+    expect(routePathFromLocation(`/t/acme/threads/t1`, null, `guide`)).toEqual({
+      kind: `thread`,
+      threadId: `t1`,
+      from: null,
+    })
+  })
+
   it(`is null on lists, full pages and broken escapes`, () => {
     for (const path of [
       `/t/acme`,

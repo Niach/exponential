@@ -7,6 +7,21 @@ import {
   type TeamLiveRuns,
 } from "@/lib/sessions/team-live-runs"
 
+/** The ids of every synced team agent root (kind `agent`): sessions under
+ *  them never count as live (`countsAsLiveSession`). */
+export function useAgentRootIds(): ReadonlySet<string> {
+  const { data } = useLiveQuery((query) =>
+    query
+      .from({ sessions: sessionCollection })
+      .where(({ sessions }) => eq(sessions.kind, `agent`))
+      .select(({ sessions }) => ({ id: sessions.id }))
+  )
+  return useMemo(
+    () => new Set(((data ?? []) as { id: string }[]).map((row) => row.id)),
+    [data]
+  )
+}
+
 // EXP-1075: the caller's own live sessions across EVERY team they sync,
 // grouped by team — the team picker's dot. Team-blind on purpose: it answers
 // "where else is something of mine alive".
@@ -24,11 +39,12 @@ export function useTeamLiveRuns(
         : undefined,
     [currentUserId]
   )
+  const agentRootIds = useAgentRootIds()
   return useMemo(
     () =>
       currentUserId
-        ? liveRunsByTeam((data ?? []) as SessionRow[], { me: currentUserId })
+        ? liveRunsByTeam((data ?? []) as SessionRow[], { me: currentUserId, agentRootIds })
         : new Map<string, TeamLiveRuns>(),
-    [data, currentUserId]
+    [data, currentUserId, agentRootIds]
   )
 }

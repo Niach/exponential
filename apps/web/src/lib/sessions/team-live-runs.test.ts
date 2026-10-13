@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  countsAsLiveSession,
   liveRunsByTeam,
   otherTeamsLive,
   type TeamLiveRunSession,
@@ -15,6 +16,8 @@ const run = (over: Partial<TeamLiveRunSession> = {}): TeamLiveRunSession =>
     userId: `u-me`,
     status: `running`,
     needsInput: false,
+    kind: `thread`,
+    rootId: null,
     ...over,
   }) as TeamLiveRunSession
 
@@ -49,6 +52,20 @@ describe(`liveRunsByTeam`, () => {
     )
     expect(summary(map)).toEqual({
       "team-b": { count: 2, needsInput: false },
+    })
+  })
+
+  it(`skips team agents and every session under one`, () => {
+    const map = liveRunsByTeam(
+      [
+        run({ kind: `agent` }),
+        run({ rootId: `agent-1` }),
+        run({ teamId: `team-b`, rootId: `thread-1` }),
+      ],
+      { me: `u-me`, agentRootIds: new Set([`agent-1`]) }
+    )
+    expect(summary(map)).toEqual({
+      "team-b": { count: 1, needsInput: false },
     })
   })
 
@@ -91,5 +108,20 @@ describe(`otherTeamsLive`, () => {
         `team-a`
       )
     ).toEqual({ any: false, needsInput: false })
+  })
+})
+
+describe(`countsAsLiveSession`, () => {
+  const agents = new Set([`agent-1`])
+
+  it(`counts a live thread root and its children`, () => {
+    expect(countsAsLiveSession(run(), agents)).toBe(true)
+    expect(countsAsLiveSession(run({ rootId: `thread-1` }), agents)).toBe(true)
+  })
+
+  it(`never counts an agent root, its children or an ended row`, () => {
+    expect(countsAsLiveSession(run({ kind: `agent` }), agents)).toBe(false)
+    expect(countsAsLiveSession(run({ rootId: `agent-1` }), agents)).toBe(false)
+    expect(countsAsLiveSession(run({ status: `ended` }), agents)).toBe(false)
   })
 })

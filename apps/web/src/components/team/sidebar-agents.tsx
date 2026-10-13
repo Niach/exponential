@@ -85,15 +85,17 @@ export function SidebarAgentsSection({
   return (
     <SidebarGroup data-testid="sidebar-agents">
       <SidebarGroupLabel>{THREADS_LIST_COPY.agents}</SidebarGroupLabel>
-      <SidebarGroupAction asChild title="New agent">
-        <Link
-          to="/t/$teamSlug/settings/agents/new"
-          params={{ teamSlug }}
-          aria-label="New agent"
-        >
-          <UiAddIcon className="h-4 w-4" />
-        </Link>
-      </SidebarGroupAction>
+      {isOwner && (
+        <SidebarGroupAction asChild title="New agent">
+          <Link
+            to="/t/$teamSlug/settings/agents/new"
+            params={{ teamSlug }}
+            aria-label="New agent"
+          >
+            <UiAddIcon className="h-4 w-4" />
+          </Link>
+        </SidebarGroupAction>
+      )}
       <SidebarGroupContent>
         <SidebarMenu>
           {agents.map((agent) => (

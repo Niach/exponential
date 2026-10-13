@@ -33,7 +33,10 @@ import { trpc } from "@/lib/trpc-client"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { deleteTriggerPrompt, promptActions } from "@/lib/prompts"
 import { healthBadgeLabel } from "@/lib/agent-usage"
-import { accountOptionKey } from "@/lib/accounts/account-option"
+import {
+  accountOptionKey,
+  lastUsedAccountOption,
+} from "@/lib/accounts/account-option"
 import {
   composeDeviceList,
   defaultDeviceId,
@@ -55,6 +58,7 @@ import {
   accountPinOf,
   pickedAccountOption,
   seedAccountPin,
+  triggerAccountKey,
   type TriggerAccountPin,
 } from "@/components/trigger-fields"
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
@@ -84,6 +88,36 @@ const SettingsAgentsIcon = conceptIcon(`settings-agents`)
 const DEFAULT_AGENT_COLOR = `#6366f1`
 const DEFAULT_AGENT_ICON: BoardIcon = BOARD_ICON_OPTIONS[0].name
 const EMPTY_PIN: TriggerAccountPin = { agent: ``, account: `` }
+
+/** The device's logins, narrowed to one CLI when the agent has one. */
+function cliAccountOptions(
+  device: SteerDevice | undefined,
+  cli: string | null
+) {
+  const all = accountOptionsOf(device)
+  return cli ? all.filter((option) => option.agent === cli) : all
+}
+
+/** `seedAccountPin` for an agent locked to one CLI: keep a pin the machine
+ *  still reports, else that CLI's last used login, else the CLI's default
+ *  (no account). Never crosses to another CLI. */
+function seedCliAccountPin(
+  device: SteerDevice | undefined,
+  cli: string,
+  current: TriggerAccountPin
+): TriggerAccountPin | undefined {
+  if (!device) return undefined
+  const options = cliAccountOptions(device, cli)
+  const key = triggerAccountKey(current)
+  if (
+    current.agent === cli &&
+    options.some((option) => accountOptionKey(option) === key)
+  ) {
+    return undefined
+  }
+  const fallback = lastUsedAccountOption(options)
+  return fallback ? accountPinOf(fallback) : { agent: cli, account: `` }
+}
 const DELETE_TRIGGER = deleteTriggerPrompt()
 
 /**
@@ -278,7 +312,13 @@ export function AgentSettingsPage({
   const quietly = (promise: Promise<void>) => void promise.catch(() => {})
 
   // ── Account ──
-  const accountOptions = useMemo(() => accountOptionsOf(device), [device])
+  // An existing agent's CLI is fixed (`updateAgent` takes no `cli`), so its
+  // Account picker offers only that CLI's logins; no stored CLI = all.
+  const lockedCli = creating ? null : (agent?.cli ?? null)
+  const accountOptions = useMemo(
+    () => cliAccountOptions(device, lockedCli),
+    [device, lockedCli]
+  )
   const pickedAccount = pickedAccountOption(accountOptions, pin)
   // A machine switch re-seeds the pin to a login THAT machine reports (the
   // trigger editor's EXP-995 rule): profile ids are device-local. The create
@@ -297,10 +337,10 @@ export function AgentSettingsPage({
     setDeviceId(next)
     setErrors((current) => current.filter((error) => error.field !== `device`))
     if (creating) return
-    const nextPin = seedAccountPin(
-      devices?.find((candidate) => candidate.deviceId === next),
-      pin
-    )
+    const nextDevice = devices?.find((candidate) => candidate.deviceId === next)
+    const nextPin = lockedCli
+      ? seedCliAccountPin(nextDevice, lockedCli, pin)
+      : seedAccountPin(nextDevice, pin)
     if (nextPin) setPin(nextPin)
     quietly(
       update(

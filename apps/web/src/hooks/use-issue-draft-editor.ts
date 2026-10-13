@@ -84,6 +84,7 @@ export type DraftConsumedElsewhere =
   | { kind: `discarded` }
 
 export interface CreatedIssue {
+  id: string
   identifier: string
   boardSlug: string | null
 }
@@ -465,7 +466,7 @@ export function useIssueDraftEditor({
     creatingRef.current = true
     const snapshot = snapshotRef.current
     const statusOption = statusRef.current
-    let created: { identifier: string }
+    let created: { id: string; identifier: string }
     let txId: number
     try {
       const result = await trpc.issues.create.mutate({
@@ -508,7 +509,11 @@ export function useIssueDraftEditor({
       // The issue exists; the detail route catches up on its own.
     }
     const board = boardsRef.current.find((row) => row.id === snapshot.boardId)
-    return { identifier: created.identifier, boardSlug: board?.slug ?? null }
+    return {
+      id: created.id,
+      identifier: created.identifier,
+      boardSlug: board?.slug ?? null,
+    }
   }
 
   /** Throw the draft away: delete the row if there is one, write nothing on

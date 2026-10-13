@@ -35,6 +35,8 @@ export interface EntityRefRouteContext {
   teamSlugById: (id: string) => string | null
   /** A synced session's ROOT id (itself for a root); null = not synced. */
   sessionRootId: (id: string) => string | null
+  /** Whether a synced session row is a team AGENT root (kind `agent`). */
+  sessionIsAgent: (id: string) => boolean
 }
 
 function issueRoute(
@@ -88,7 +90,14 @@ export function entityRefRoute(
       return issueId ? issueRoute(teamSlug, ctx.issueById(issueId)) : null
     }
     case `session`:
-      // EXP-1293: a root IS a thread (its page); a sub-session opens raw.
+      // EXP-1293: an agent root opens its channel; a thread root IS a thread
+      // (its page); a sub-session opens raw.
+      if (ctx.sessionIsAgent(ref.id)) {
+        return {
+          to: `/t/$teamSlug/agents/$agentId`,
+          params: { teamSlug, agentId: ref.id },
+        }
+      }
       return ctx.sessionRootId(ref.id) === ref.id
         ? {
             to: `/t/$teamSlug/threads/$threadId`,

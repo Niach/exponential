@@ -71,7 +71,16 @@ export function WorkTabsSync({
       return typeof value === `string` ? value : null
     },
   })
-  const path = useMemo(() => routePathFromLocation(pathname, from), [pathname, from])
+  const view = useRouterState({
+    select: (s) => {
+      const value = (s.location.search as { view?: unknown }).view
+      return typeof value === `string` ? value : null
+    },
+  })
+  const path = useMemo(
+    () => routePathFromLocation(pathname, from, view),
+    [pathname, from, view]
+  )
 
   // (2) Did this navigation leave the New session tab's page? Declared
   // BEFORE the upsert so both see the same commit.

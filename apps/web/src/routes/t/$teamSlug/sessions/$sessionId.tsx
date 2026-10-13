@@ -109,6 +109,10 @@ function SessionPage() {
 function SessionScreen({ teamSlug, row }: { teamSlug: string; row: SessionRow }) {
   const rootId = row.rootId ?? row.id
   const { tree } = useTreeSessions(rootId)
+  const { row: syncedRoot } = useSessionRow(rootId === row.id ? null : rootId)
+  const rootRow = rootId === row.id ? row : syncedRoot
+  // Under a team agent the way back is the agent's channel, never /threads.
+  const agentRoot = rootRow?.kind === `agent` ? rootRow : null
   const card = useSessionCard(row, tree)
   const { view } = useSessionThread(rootId)
   const { users } = useTeamUsers(row.teamId)
@@ -125,7 +129,17 @@ function SessionScreen({ teamSlug, row }: { teamSlug: string; row: SessionRow })
       className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 pt-4 pb-2`)}
       data-testid="session-header"
     >
-      {!isRoot || threadTitle ? (
+      {agentRoot ? (
+        <Link
+          to="/t/$teamSlug/agents/$agentId"
+          params={{ teamSlug, agentId: agentRoot.id }}
+          className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          data-testid="session-back"
+        >
+          <BackIcon className="size-4 shrink-0" />
+          <span className="truncate">{agentRoot.name || `Back`}</span>
+        </Link>
+      ) : !isRoot || threadTitle ? (
         <Link
           to="/t/$teamSlug/threads/$threadId"
           params={{ teamSlug, threadId: rootId }}

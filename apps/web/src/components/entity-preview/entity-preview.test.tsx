@@ -109,7 +109,9 @@ function context(over: Partial<EntityRefRouteContext> = {}): EntityRefRouteConte
     attachmentIssueId: (id) => (id === `at-1` ? `i-1` : null),
     notificationIssueId: (id) => (id === `n-1` ? `i-1` : null),
     teamSlugById: (id) => (id === `t-2` ? `other` : null),
-    sessionRootId: (id) => (id === `root-1` ? `root-1` : id === `s-1` ? `root-1` : null),
+    sessionRootId: (id) =>
+      id === `root-1` || id === `s-1` ? `root-1` : id === `agent-1` ? `agent-1` : null,
+    sessionIsAgent: (id) => id === `agent-1`,
     ...over,
   }
 }
@@ -172,6 +174,13 @@ describe(`entityRefRoute`, () => {
     expect(route({ kind: `session`, id: `s-9` })).toEqual({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug: `acme`, sessionId: `s-9` },
+    })
+  })
+
+  it(`sends a team agent root to its channel`, () => {
+    expect(route({ kind: `session`, id: `agent-1` })).toEqual({
+      to: `/t/$teamSlug/agents/$agentId`,
+      params: { teamSlug: `acme`, agentId: `agent-1` },
     })
   })
 

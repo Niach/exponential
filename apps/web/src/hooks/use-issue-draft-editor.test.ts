@@ -471,7 +471,7 @@ describe(`useIssueDraftEditor create`, () => {
       })
     )
     expect(mocks.awaitTxId).toHaveBeenCalledWith(3)
-    expect(created).toEqual({ identifier: `WEB-7`, boardSlug: `web` })
+    expect(created).toEqual({ id: `i1`, identifier: `WEB-7`, boardSlug: `web` })
   })
 
   it(`passes no draftId when no row exists and sends the fallback anchor`, async () => {

@@ -110,10 +110,13 @@ export type RoutePath =
   | { kind: `session`; sessionId: string; from: string | null }
 
 /** The work item a pathname shows — `null` for every other screen (lists,
- * full pages, settings, the Agent page). */
+ * full pages, settings, the Agent page). `view` = the `?view=` search value:
+ * `/sessions/<id>?view=guide` only redirects to the thread's Guide, so it
+ * names no tab. */
 export function routePathFromLocation(
   pathname: string,
-  from: string | null | undefined
+  from: string | null | undefined,
+  view?: string | null
 ): RoutePath | null {
   const rest = pathname.match(/^\/t\/[^/]+(\/.*)?$/)?.[1]?.replace(/\/$/, ``)
   if (!rest) return null
@@ -140,6 +143,7 @@ export function routePathFromLocation(
     if (id === null) return null
     if (single[1] === `threads`) return { kind: `thread`, threadId: id, from: token }
     if (single[1] === `agents`) return { kind: `agent`, agentId: id, from: token }
+    if (view === `guide`) return null
     return { kind: `session`, sessionId: id, from: token }
   }
   return null

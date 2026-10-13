@@ -10,8 +10,21 @@ import type { SessionRow } from "@/lib/session-tree"
  *  row (or a test fixture) still passes one. */
 export type TeamLiveRunSession = Pick<
   SessionRow,
-  `teamId` | `userId` | `status` | `needsInput`
+  `teamId` | `userId` | `status` | `needsInput` | `kind` | `rootId`
 >
+
+/** A live session counts only when its ROOT is a thread: a team agent root
+ *  (kind `agent`) never ends, and neither does its channel, so the agent and
+ *  every session under it stay out of the "something runs" dots. */
+export function countsAsLiveSession(
+  session: Pick<SessionRow, `kind` | `rootId` | `status`>,
+  agentRootIds: ReadonlySet<string>
+): boolean {
+  if (session.status === `ended`) return false
+  if (session.kind === `agent`) return false
+  if (session.rootId && agentRootIds.has(session.rootId)) return false
+  return true
+}
 
 /** One team's live summary: how many of MY sessions are alive there, and
  *  whether any of them is parked on a question (the amber tone). */
@@ -22,12 +35,12 @@ export type TeamLiveRuns = { count: number; needsInput: boolean }
  *  test. */
 export function liveRunsByTeam(
   sessions: readonly TeamLiveRunSession[],
-  { me }: { me: string }
+  { me, agentRootIds = new Set() }: { me: string; agentRootIds?: ReadonlySet<string> }
 ): Map<string, TeamLiveRuns> {
   const byTeam = new Map<string, TeamLiveRuns>()
   for (const session of sessions) {
     if (session.userId !== me) continue
-    if (session.status === `ended`) continue
+    if (!countsAsLiveSession(session, agentRootIds)) continue
     const entry = byTeam.get(session.teamId) ?? { count: 0, needsInput: false }
     entry.count += 1
     if (session.needsInput) entry.needsInput = true
