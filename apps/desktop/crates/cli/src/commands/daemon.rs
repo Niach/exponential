@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context as _};
-use coding::session_rows::{MessageRow, SessionRow};
+use domain::rows::{MessageRow, SessionRow};
 use coding::LaunchOptions;
 use steer::{ControlApi, DeviceIdentity, TrpcControlApi};
 
@@ -1683,7 +1683,7 @@ fn switch_account(
     let mut options = deps.options.clone();
     // EXP-849: a named account on a resume IS the switch.
     options.account = Some(target);
-    let identifiers = match (deps.issue_identifiers)(row.root()) {
+    let identifiers = match (deps.issue_identifiers)(row.root_id_or_self()) {
         found if !found.is_empty() => found,
         _ => record.issues.clone(),
     };
@@ -2820,14 +2820,14 @@ impl DaemonHost {
     fn reconcile_rows(&self, rows: &[SessionRow], messages: &[MessageRow]) {
         let pending: HashSet<&str> = messages
             .iter()
-            .filter(|message| message.is_pending_person_message())
-            .filter_map(|message| message.session_id.as_deref())
+            .filter(|message| message.is_queued())
+            .map(|message| message.session_id.as_str())
             .collect();
         let stale: Vec<String> = rows
             .iter()
             .filter(|row| {
                 row.on_device(&self.pickup.device_id)
-                    && row.status_is(coding::session_rows::SESSION_STATUS_RUNNING)
+                    && row.status_is(domain::contract::SESSION_STATUS_RUNNING)
                     && !self.pickup.live.contains_live(&row.id)
                     && !pending.contains(row.id.as_str())
             })
@@ -3023,8 +3023,8 @@ fn busy_agent_ids(
     busy.extend(
         messages
             .iter()
-            .filter(|message| message.is_pending_person_message())
-            .filter_map(|message| message.session_id.clone()),
+            .filter(|message| message.is_queued())
+            .map(|message| message.session_id.clone()),
     );
     busy
 }
@@ -3070,32 +3070,26 @@ fn session_row(store: &sync::store::ShapeStore, session_id: &str) -> Option<Sess
 /// `issues`) — the branch name and the run's label. Issues not synced here
 /// are skipped.
 fn root_issue_identifiers(store: &sync::store::ShapeStore, root_id: &str) -> Vec<String> {
-    let links = read_shape_rows::<coding::session_rows::SessionIssueRow>(store, "session_issues");
+    let links = read_shape_rows::<domain::rows::SessionIssueRow>(store, "session_issues");
     ordered_issue_ids(links, root_id)
         .into_iter()
         .filter_map(|issue_id| issue_field(store, &issue_id, "identifier"))
         .collect()
 }
 
-/// A root's linked issue ids in `sort_order` (a TEXT-stored number), ties by
+/// A root's linked issue ids in `sort_order`, ties by
 /// row id (pure, unit-tested).
 fn ordered_issue_ids(
-    links: Vec<coding::session_rows::SessionIssueRow>,
+    links: Vec<domain::rows::SessionIssueRow>,
     root_id: &str,
 ) -> Vec<String> {
-    let order = |link: &coding::session_rows::SessionIssueRow| -> f64 {
-        match &link.sort_order {
-            Some(serde_json::Value::Number(number)) => number.as_f64().unwrap_or(0.0),
-            Some(serde_json::Value::String(text)) => text.trim().parse().unwrap_or(0.0),
-            _ => 0.0,
-        }
-    };
+    let order = |link: &domain::rows::SessionIssueRow| link.sort_order.unwrap_or(0.0);
     let mut links: Vec<_> = links
         .into_iter()
-        .filter(|link| link.session_id.as_deref() == Some(root_id))
+        .filter(|link| link.session_id == root_id)
         .collect();
     links.sort_by(|a, b| order(a).total_cmp(&order(b)).then_with(|| a.id.cmp(&b.id)));
-    links.into_iter().filter_map(|link| link.issue_id).collect()
+    links.into_iter().map(|link| link.issue_id).collect()
 }
 
 /// Hydrate a whole shape table into row structs (§5.5 tolerant decode — an
@@ -3865,7 +3859,7 @@ mod tests {
     #[test]
     fn a_roots_issues_come_in_link_order() {
         let link = |id: &str, session: &str, issue: &str, order: serde_json::Value| {
-            serde_json::from_value::<coding::session_rows::SessionIssueRow>(serde_json::json!({
+            serde_json::from_value::<domain::rows::SessionIssueRow>(serde_json::json!({
                 "id": id, "session_id": session, "issue_id": issue, "sort_order": order,
             }))
             .expect("link decodes")

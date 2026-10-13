@@ -70,7 +70,7 @@ pub fn running_sessions(ctx: &Ctx) -> anyhow::Result<Vec<RemoteSession>> {
     let rows = mcp_tools::sessions_list(&ctx.trpc, &query).map_err(tool_error)?;
     Ok(rows
         .into_iter()
-        .filter(|row| row.status == coding::session_rows::SESSION_STATUS_RUNNING)
+        .filter(|row| row.status == domain::contract::SESSION_STATUS_RUNNING)
         .collect())
 }
 

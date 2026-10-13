@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, bail, Context as _};
 use api::mcp_tools::{self, RemoteSession, SessionsSendInput};
 use coding::pickup::{ClaimLock, LaunchQueued, LiveEngine, LiveRegistry, PickupDeps};
-use coding::session_rows::SessionRow;
+use domain::rows::SessionRow;
 use coding::{CodingDeps, GitWorktrees, LaunchOptions};
 use serde::Deserialize;
 
@@ -388,7 +388,7 @@ fn start_foreground_sync(ctx: &Ctx, db_path: &std::path::Path) -> Option<Arc<syn
 fn foreground_pass(store: &sync::store::ShapeStore, deps: &PickupDeps, session_id: &str) {
     use coding::pickup::PickupAction;
     let rows: Vec<SessionRow> = crate::commands::daemon::read_shape_rows(store, "sessions");
-    let messages: Vec<coding::session_rows::MessageRow> =
+    let messages: Vec<domain::rows::MessageRow> =
         crate::commands::daemon::read_shape_rows(store, "messages");
     deps.live.settle_handed(&messages);
     let views = deps.live.live_views();
@@ -421,7 +421,7 @@ fn poll_for_end(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
     match mcp_tools::sessions_get(&ctx.trpc, session_id) {
         Ok(tree)
             if tree.session(session_id).is_some_and(|remote| {
-                remote.status == coding::session_rows::SESSION_STATUS_ENDED
+                remote.status == domain::contract::SESSION_STATUS_ENDED
             }) =>
         {
             log::info!("session {session_id} was ended — stopping it");
@@ -486,7 +486,7 @@ pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput
         repository_id: remote.repository_id.clone(),
         branch: remote.branch.clone(),
         status: Some(if remote.status.is_empty() {
-            coding::session_rows::SESSION_STATUS_QUEUED.to_string()
+            domain::contract::SESSION_STATUS_QUEUED.to_string()
         } else {
             remote.status.clone()
         }),
@@ -632,14 +632,14 @@ mod tests {
             ..SessionsSendInput::default()
         };
         let row = session_row_from_remote(&remote, &input);
-        assert!(row.status_is(coding::session_rows::SESSION_STATUS_QUEUED));
+        assert!(row.status_is(domain::contract::SESSION_STATUS_QUEUED));
         assert!(row.on_device("cli-dev"));
         assert_eq!(row.repository_id.as_deref(), Some("r1"));
         assert_eq!(row.cli.as_deref(), Some("claude"));
         assert_eq!(row.effort.as_deref(), Some("high"));
         assert!(row.plan_mode);
         assert!(!row.is_agent());
-        assert_eq!(row.root(), "s1");
+        assert_eq!(row.root_id_or_self(), "s1");
     }
 
     /// Two foreground starts on one machine serialize on the gate the

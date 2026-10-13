@@ -78,6 +78,13 @@
       }
     },
     "agent-channel": {
+      "android": {
+        "file": "shots/agent-channel/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 35814,
+        "sha256": "72a6b5a0fb765f1d87a1a20902882eb1e815a4786c2d4e1be8e9067ea64b3db3"
+      },
       "web": {
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
@@ -3982,6 +3989,13 @@
       }
     },
     "threads": {
+      "android": {
+        "file": "shots/threads/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 27110,
+        "sha256": "a29da3338c19674d149a670e0dd926ae4e02342e778576fd473948f6610f8f82"
+      },
       "web": {
         "file": "shots/threads/web.webp",
         "width": 1800,

@@ -80,7 +80,6 @@ pub mod scratch;
 pub mod scm;
 pub mod wip_save;
 pub mod session_retention;
-pub mod session_rows;
 pub mod settings;
 pub mod skill;
 #[cfg(test)]

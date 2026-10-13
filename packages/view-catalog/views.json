@@ -1842,10 +1842,18 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-team-agent",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "agent:$agent"
+        }
+      },
       "notes": {
-        "desktop": "Not captured yet (EXP-1293 Threads v2): the desktop lane adds its shot when its client lands the screen.",
-        "ios": "Not captured yet (EXP-1293 Threads v2): the iOS lane adds its shot when its client lands the screen.",
-        "android": "Not captured yet (EXP-1293 Threads v2): the Android lane adds its shot when its client lands the screen.",
+        "android": "Not captured (EXP-1299 integration): the Android screenshot suite has no walk to this screen yet.",
         "web": "`$agentId` resolves to DEMO_AGENT_ID, the Triage agent (on the shared build server, one daily schedule trigger). The instructions are server-only (`sessions.getAgent`), so the card fills after that query."
       }
     },
@@ -4605,10 +4613,21 @@
         "settleMs": 1200
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_threads",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_threads",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "threads"
+        }
+      },
       "notes": {
-        "desktop": "Not captured yet (EXP-1293 Threads v2): the desktop lane adds its shot when its client lands the screen.",
-        "ios": "Not captured yet (EXP-1293 Threads v2): the iOS lane adds its shot when its client lands the screen.",
-        "android": "Not captured yet (EXP-1293 Threads v2): the Android lane adds its shot when its client lands the screen.",
         "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top."
       }
     },
@@ -4627,10 +4646,15 @@
         "settleMs": 2500
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$session"
+        }
+      },
       "notes": {
-        "desktop": "Not captured yet (EXP-1293 Threads v2): the desktop lane adds its shot when its client lands the screen.",
-        "ios": "Not captured yet (EXP-1293 Threads v2): the iOS lane adds its shot when its client lands the screen.",
-        "android": "Not captured yet (EXP-1293 Threads v2): the Android lane adds its shot when its client lands the screen.",
+        "ios": "Not captured (EXP-1299 integration): the iOS screenshot suite has no walk to this screen yet.",
+        "android": "Not captured (EXP-1299 integration): the Android screenshot suite has no walk to this screen yet.",
         "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land."
       }
     },
@@ -4649,10 +4673,21 @@
         "settleMs": 1200
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_agent-channel",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_agent-channel",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "agent:$agent"
+        }
+      },
       "notes": {
-        "desktop": "Not captured yet (EXP-1293 Threads v2): the desktop lane adds its shot when its client lands the screen.",
-        "ios": "Not captured yet (EXP-1293 Threads v2): the iOS lane adds its shot when its client lands the screen.",
-        "android": "Not captured yet (EXP-1293 Threads v2): the Android lane adds its shot when its client lands the screen.",
         "web": "`$agentId` resolves to DEMO_AGENT_ID (apps/web/scripts/screenshot-demo.ts), the Triage agent. Its four messages sit at pinned instants (DEMO_AGENT_CHANNEL_TIMES) because the rows print a time of day; the anchor is DEMO_AGENT_REQUEST."
       }
     }

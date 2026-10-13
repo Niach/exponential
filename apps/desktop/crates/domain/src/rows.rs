@@ -664,7 +664,7 @@ pub struct IssueSubscriber {
 ///
 /// Only `id` is required; the bools the UI branches on read `false` when
 /// absent or unparsable, jsonb arrives tolerant (a TEXT cell re-parses).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct SessionRow {
     pub id: String,
     #[serde(default)]
@@ -784,7 +784,17 @@ impl SessionRow {
     }
 
     pub fn is_queued(&self) -> bool {
-        self.status.as_deref() == Some(crate::contract::SESSION_STATUS_QUEUED)
+        self.status_is(crate::contract::SESSION_STATUS_QUEUED)
+    }
+
+    /// `status` equals the contract `sessionStatus` value.
+    pub fn status_is(&self, status: &str) -> bool {
+        self.status.as_deref() == Some(status)
+    }
+
+    /// Hosted by this steer device.
+    pub fn on_device(&self, device_id: &str) -> bool {
+        self.device_id.as_deref() == Some(device_id)
     }
 
     /// Not ended (queued, running or idle).
@@ -848,7 +858,7 @@ pub struct SessionIssueRow {
 /// `system`); `card` = jsonb `{kind, …}` (contract `messageCardKind`; an
 /// unknown kind renders nothing). A person's message with `consumed_at`
 /// NULL is QUEUED (the device has not picked it up yet).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct MessageRow {
     pub id: String,
     pub session_id: String,

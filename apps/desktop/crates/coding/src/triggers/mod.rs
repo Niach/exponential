@@ -45,7 +45,8 @@ pub mod trigger;
 
 use std::collections::{HashMap, HashSet};
 
-use crate::session_rows::{SessionRow, SESSION_STATUS_ENDED};
+use domain::contract::SESSION_STATUS_ENDED;
+use domain::rows::SessionRow;
 
 pub use events::{
     event_matches, matching_events, seen_window, EventCursor, EventRow, EVENT_GRACE_MS,

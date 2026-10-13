@@ -43,7 +43,7 @@ use crate::context_layout::{self, CarriedBase, ContextLayers};
 use crate::mcp_servers::ResolvedMcp;
 use crate::run_cleanup::RunCleanup;
 use crate::run_registry::{launch_extra, RunKind, RunRecord};
-use crate::session_rows::SessionRow;
+use domain::rows::SessionRow;
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_credentials;
 use crate::git_worktree::{
@@ -1320,7 +1320,7 @@ fn join_personal_key(
 /// segments sanitized (server ids are untrusted here by design, so a crafted
 /// id can never escape the scratch root). Created on demand.
 fn scratch_cwd(deps: &CodingDeps, row: &SessionRow) -> Result<PathBuf, CodingError> {
-    let (Some(root), Some(session)) = (path_segment(row.root()), path_segment(&row.id)) else {
+    let (Some(root), Some(session)) = (path_segment(row.root_id_or_self()), path_segment(&row.id)) else {
         return Err(CodingError::Io("empty session id".to_string()));
     };
     let dir = crate::scratch::scratch_root(&deps.data_dir).join(root).join(session);

@@ -478,9 +478,11 @@ describe(`icon call sites`, () => {
       webNav.set(m[1], m[2])
     }
     // desktop: `SettingsSection::General => Icon::from(registry::SETTINGS_GENERAL)`
+    // (EXP-1294: an or-pattern arm, `AgentClis | Agent(_) => { … }`, counts
+    // once under its first variant).
     const desktopNav = new Map<string, string>()
     for (const m of desktop.matchAll(
-      /SettingsSection::(\w+)(?:\(_\))? => Icon::from\(registry::([A-Z0-9_]+)\)/g
+      /SettingsSection::(\w+)(?:\(_\))?(?:\s*\|\s*SettingsSection::\w+(?:\(_\))?)* => \{?\s*Icon::from\(registry::([A-Z0-9_]+)\)/g
     )) {
       desktopNav.set(m[1], m[2].toLowerCase().replace(/_/g, `-`))
     }

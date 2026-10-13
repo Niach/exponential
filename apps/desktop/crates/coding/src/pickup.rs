@@ -19,10 +19,11 @@ use api::ApiError;
 
 use crate::launcher::{PrepareRequest, Prepared, ResumeRun, SessionLaunchRequest};
 use crate::run_registry::{RunKind, RunRecord};
-use crate::session_rows::{
-    MessageRow, SessionRow, SESSION_KIND_AGENT, SESSION_STATUS_ENDED, SESSION_STATUS_IDLE,
-    SESSION_STATUS_QUEUED, SESSION_STATUS_RUNNING,
+use domain::contract::{
+    SESSION_KIND_AGENT, SESSION_STATUS_ENDED, SESSION_STATUS_IDLE, SESSION_STATUS_QUEUED,
+    SESSION_STATUS_RUNNING,
 };
+use domain::rows::{MessageRow, SessionRow};
 
 /// What the host knows about one session it runs RIGHT NOW (an engine is
 /// attached in this process).
@@ -99,10 +100,8 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     let messages: HashMap<&str, &MessageRow> =
         input.messages.iter().map(|row| (row.id.as_str(), row)).collect();
     let mut pending: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
-    for message in input.messages.iter().filter(|m| m.is_pending_person_message()) {
-        if let Some(session_id) = message.session_id.as_deref() {
-            pending.entry(session_id).or_default().push(message);
-        }
+    for message in input.messages.iter().filter(|m| m.is_queued()) {
+        pending.entry(message.session_id.as_str()).or_default().push(message);
     }
     for queue in pending.values_mut() {
         queue.sort_by(|a, b| message_order(a, b));
@@ -743,7 +742,7 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     // the host's shapes may not have them yet.
     let mut issue_identifiers = brief_issue_identifiers(&brief.brief);
     if issue_identifiers.is_empty() {
-        issue_identifiers = (deps.issue_identifiers)(row.root());
+        issue_identifiers = (deps.issue_identifiers)(row.root_id_or_self());
     }
     let req = SessionLaunchRequest {
         session: row.clone(),
@@ -819,7 +818,7 @@ fn deliver(
 ) -> Result<Vec<String>, String> {
     let mut pending: Vec<&MessageRow> = rows
         .iter()
-        .filter(|m| m.session_id.as_deref() == Some(session_id) && m.is_pending_person_message())
+        .filter(|m| m.session_id == session_id && m.is_queued())
         .collect();
     pending.sort_by(|a, b| message_order(a, b));
     deps.live.settle_handed(rows);
@@ -881,7 +880,7 @@ fn deliver(
     // tries again.
     let brief = session_device::brief(&deps.coding.trpc, session_id)
         .map_err(|err| format!("brief of session {session_id}: {err}"))?;
-    let mut identifiers = (deps.issue_identifiers)(row.root());
+    let mut identifiers = (deps.issue_identifiers)(row.root_id_or_self());
     if identifiers.is_empty() {
         identifiers = brief_issue_identifiers(&brief.brief);
     }
@@ -1116,7 +1115,7 @@ mod tests {
     fn message(id: &str, session_id: &str, created_at: &str) -> MessageRow {
         MessageRow {
             id: id.to_string(),
-            session_id: Some(session_id.to_string()),
+            session_id: session_id.to_string(),
             author_kind: Some("user".to_string()),
             body: Some(format!("body of {id}")),
             created_at: Some(created_at.to_string()),
