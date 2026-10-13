@@ -259,6 +259,119 @@ function rowPhases(card: WorkCardModel): number[] {
   )
 }
 
+/** The Work card's HEADER row: kind icon, name, the muted kind word, then
+ *  trailing (a 12px spinner while `running`, then the muted text). Shared by
+ *  the Work card and THE session card (EXP-1291 `session-card.json`). */
+export function WorkCardHeader({
+  icon,
+  name,
+  kindWord,
+  kindWordClassName,
+  running,
+  trailing,
+  after,
+}: {
+  icon: IconConcept
+  name: string
+  kindWord: string | null
+  /** Tone override for the kind word (the session card's amber/rose). */
+  kindWordClassName?: string
+  running: boolean
+  trailing: string | null
+  /** A glyph after the trailing text (the session card's chevron). */
+  after?: ReactNode
+}) {
+  const Icon = conceptIcon(icon)
+  return (
+    <div className="flex min-w-0 items-center gap-2 px-3" style={{ height: G.header }}>
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate font-medium">{name}</span>
+      {kindWord && (
+        <span className={cn(`shrink-0 text-muted-foreground`, kindWordClassName)}>
+          {kindWord}
+        </span>
+      )}
+      {(running || trailing || after) && (
+        <Trailing>
+          {running && <Spinner size={12} label="Running" />}
+          {trailing}
+          {after}
+        </Trailing>
+      )}
+    </div>
+  )
+}
+
+/** `sessionCard()` from `@exp/domain-contract/session-tree`, structurally. */
+export interface SessionCardModel {
+  sessionId: string
+  icon: string
+  name: string
+  kindWord: string
+  state: string
+  tone: string
+  elapsed: string | null
+  running: boolean
+  testId: string
+}
+
+const SESSION_CARD_TONE: Record<string, string> = {
+  amber: `text-amber-400`,
+  rose: `text-rose-400`,
+  foreground: `text-foreground`,
+  muted: ``,
+}
+
+/**
+ * EXP-1291 THE session card ×4: a session inside a thread (or a thread an
+ * agent started) is ONE card = the Work card's header row in the Work
+ * card's shell (radius lg, card hairline, no shadow). Tapping it opens that
+ * session's raw view. No device, account, branch or other caption.
+ */
+export function SessionCard({
+  card,
+  onOpen,
+  className,
+}: {
+  card: SessionCardModel
+  onOpen?: () => void
+  className?: string
+}) {
+  const header = (
+    <WorkCardHeader
+      icon={card.icon as IconConcept}
+      name={card.name}
+      kindWord={card.kindWord}
+      kindWordClassName={SESSION_CARD_TONE[card.tone]}
+      running={card.running}
+      trailing={card.elapsed}
+      after={onOpen ? <ChevronIcon className="size-3.5 shrink-0" /> : undefined}
+    />
+  )
+  const shell = cn(
+    `block w-full min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-row text-left text-xs`,
+    className
+  )
+  if (!onOpen) {
+    return (
+      <div data-testid={card.testId} data-state={card.state} className={shell}>
+        {header}
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-testid={card.testId}
+      data-state={card.state}
+      className={cn(shell, `hover:bg-glass-active/50`)}
+      onClick={onOpen}
+    >
+      {header}
+    </button>
+  )
+}
+
 export function WorkCard({
   card,
   foldedPhases,
@@ -281,7 +394,6 @@ export function WorkCard({
   children?: ReactNode
   className?: string
 }) {
-  const Icon = conceptIcon(card.icon as IconConcept)
   const trailing = [card.progress, card.elapsed]
     .filter((part): part is string => part !== null)
     .join(WORK_CARD_SEPARATOR)
@@ -289,22 +401,13 @@ export function WorkCard({
   const subagentOpens = card.kind === `subagent` && onOpenSubagent !== undefined
 
   const header = (
-    <div
-      className="flex min-w-0 items-center gap-2 px-3"
-      style={{ height: G.header }}
-    >
-      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 truncate font-medium">{card.name}</span>
-      {card.kindWord && card.kindWord !== card.name && (
-        <span className="shrink-0 text-muted-foreground">{card.kindWord}</span>
-      )}
-      {(card.running || trailing) && (
-        <Trailing>
-          {card.running && <Spinner size={12} label="Running" />}
-          {trailing}
-        </Trailing>
-      )}
-    </div>
+    <WorkCardHeader
+      icon={card.icon as IconConcept}
+      name={card.name}
+      kindWord={card.kindWord !== card.name ? card.kindWord : null}
+      running={card.running}
+      trailing={trailing || null}
+    />
   )
 
   return (
