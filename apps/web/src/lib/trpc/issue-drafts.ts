@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issueDrafts, issues, issueStatuses } from "@/db/schema"
 import { getBoardTeamId, resolveTeamAccess } from "@/lib/team-membership"
-import { getThread } from "@/lib/threads"
+import { loadSessionForUser } from "@/lib/sessions/access"
 import {
   dateOnlySchema,
   issueDescriptionSchema,
@@ -93,10 +93,11 @@ export const issueDraftsRouter = router({
         assigneeId: z.string().nullish(),
         labelIds: z.array(z.string().uuid()).max(50).default([]),
         dueDate: dateOnlySchema.nullish(),
-        // EXP-1284: "New issue in this thread" — the thread the issue files
-        // into when the draft is created. Absent = keep the row's; null
-        // clears it. Must be a thread of the board's team.
-        threadId: z.string().uuid().nullish(),
+        // EXP-1291: "New issue in this thread" — the thread (a session; its
+        // ROOT is stored) the issue files into when the draft is created.
+        // Absent = keep the row's; null clears it. Must be a thread the
+        // caller sees in the board's team.
+        sessionId: z.string().uuid().nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -128,14 +129,16 @@ export const issueDraftsRouter = router({
         }
       }
 
-      if (input.threadId) {
-        const thread = await getThread(ctx.db, input.threadId)
-        if (!thread || thread.teamId !== board.teamId) {
+      let threadRootId: string | null | undefined = input.sessionId
+      if (input.sessionId) {
+        const thread = await loadSessionForUser(userId, input.sessionId).catch(() => null)
+        if (!thread || thread.teamId !== board.teamId || thread.kind !== `thread`) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `The thread must belong to this team`,
           })
         }
+        threadRootId = thread.rootId
       }
 
       // EXP-1231: consumed by a create already? Then this write is a stale
@@ -206,7 +209,7 @@ export const issueDraftsRouter = router({
           assigneeId: input.assigneeId ?? null,
           labelIds: input.labelIds ?? [],
           dueDate: input.dueDate ?? null,
-          threadId: input.threadId ?? null,
+          sessionId: threadRootId ?? null,
         }
         const [draft] = await tx
           .insert(issueDrafts)
@@ -224,7 +227,7 @@ export const issueDraftsRouter = router({
               labelIds: values.labelIds,
               dueDate: values.dueDate,
               // Absent keeps the row's thread; null clears it.
-              ...(input.threadId !== undefined ? { threadId: values.threadId } : {}),
+              ...(input.sessionId !== undefined ? { sessionId: values.sessionId } : {}),
             },
             // The id is client-minted, so a collision with SOMEBODY ELSE's
             // row is reachable (by guess or by malice). The setWhere makes

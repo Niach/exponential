@@ -3,12 +3,11 @@ import { fetchPullFiles, type PullFile } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
-// EXP-1154: every md+ issue view with an open PR asks `prFiles`, so a warm
-// answer must not first resolve an installation token (an uncached App-JWT
+// EXP-1154: every view with an open PR asks for its files, so a warm answer
+// must not first resolve an installation token (an uncached App-JWT
 // round-trip). Keyed by PR, same 60s as `fetchPullFiles`' own cache, which
 // still holds the per-auth-posture answers underneath. Rejections evict.
-// EXP-1194: shared by `issues.prFiles` and `codingSessions.prFiles` (an
-// issue-less run's PR), so both readers of one PR hit one entry.
+// EXP-1291: the ONE reader is `pullRequestFiles` (lib/pull-requests.ts).
 const prFilesAnswerCache = new TtlPromiseCache<PullFile[]>({
   ttlMs: 60_000,
   maxEntries: 200,
@@ -25,8 +24,8 @@ export type PrFilesAnswer = {
 }
 
 /** The changed files of the PR at `prUrl` — the diff view's one GitHub read.
- *  The repo comes from the URL (a run has no board); no PR = no files. The
- *  caller has already gated membership. */
+ *  The repo comes from the URL; no PR = no files. The caller has already
+ *  gated membership. */
 export async function loadPrFiles(
   prUrl: string | null,
   prNumber: number | null

@@ -975,6 +975,15 @@ export class Hub {
     return true
   }
 
+  /** EXP-1291: server-side Stop (`sessions.stop`): interrupt the running
+   * turn exactly like a viewer's `interrupt` frame; the session stays live. */
+  interruptSession(sessionId: string): boolean {
+    const room = this.rooms.get(sessionId)
+    if (!room?.publisher) return false
+    room.publisher.sock.send(frame({ t: `interrupt` }))
+    return true
+  }
+
   /** EXP-700: server-side text injection — the web app relays a parent/child
    * message into the session's agent as if the owner typed it. Same
    * convention as the browser viewer: text chunked at ≤4096 chars (never

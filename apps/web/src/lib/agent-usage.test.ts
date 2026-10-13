@@ -30,12 +30,8 @@ import {
   NO_LOGIN_REPORTED,
   USAGE_FRESH_MS,
 } from "./agent-usage"
-import type { CodingSession, Device, DeviceAgentUsage } from "@/db/schema"
-
-type SessionUsageRow = Pick<
-  CodingSession,
-  `deviceId` | `userId` | `agent` | `status`
->
+import type { Device, DeviceAgentUsage } from "@/db/schema"
+import type { SessionUsageRow } from "./agent-usage"
 type SessionUsageDevice = Pick<Device, `deviceId` | `userId` | `agentUsage`>
 
 // EXP-484: the ONE fixture every client's presentation tests run against
@@ -447,7 +443,7 @@ describe(`sessionAgentUsage`, () => {
       agent: `claude`,
     })
     expect(
-      sessionAgentUsage({ ...session, status: `in_review` }, [device], NOW)
+      sessionAgentUsage({ ...session, status: `idle` }, [device], NOW)
     ).not.toBeNull()
   })
 

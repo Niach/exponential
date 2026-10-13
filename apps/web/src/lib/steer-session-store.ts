@@ -55,7 +55,7 @@ import {
   stagePendingImages,
   type PendingAttachment,
 } from "@/lib/pending-images"
-import type { CodingSession } from "@/db/schema"
+import type { Session } from "@/db/schema"
 
 // EXP-621: the viewer connection to the steer relay, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
@@ -718,7 +718,7 @@ export interface SteerSessionStore {
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
    *  relay's own signals plus the dock reaper. */
-  noteSessionStatus(status: CodingSession[`status`]): void
+  noteSessionStatus(status: Session[`status`]): void
   /** EXP-773: the host machine's label, for the history phases' copy. */
   noteDeviceLabel(label: string | null): void
   sendMessage(text: string): boolean
@@ -773,7 +773,7 @@ export function createSteerSessionStore(
   // Consecutive auto-redials (`starting` and slow-consumer alike) — drives
   // the backoff; a live connection resets it so the next stall starts fast.
   let retries = 0
-  let sessionStatus: CodingSession[`status`] | null = null
+  let sessionStatus: Session[`status`] | null = null
   /** EXP-773: the host machine's label, for the history phases' copy. The
    *  owning view feeds it off the synced devices row. */
   let deviceLabel: string | null = null

@@ -24,14 +24,10 @@ import { z } from "zod"
 import {
   type ActionInputDef,
   actionInputsSchema,
-  type ActionTrigger,
   type CodingSessionBlocked,
-  type CodingSessionPendingQuestion,
   type AgentTrigger,
-  type CodingSessionResult,
   type GuideEntry,
   type MessageCard,
-  codingSessionStatusSchema,
   messageAuthorKindSchema,
   messageAuthorKindValues,
   sessionIssueSourceSchema,
@@ -67,8 +63,6 @@ import {
   pinKindSchema,
   pinKindValues,
   subscriberSourceSchema,
-  threadItemKindValues,
-  threadItemSourceValues,
   subscriberSourceValues,
   teamRoleSchema,
   teamRoleValues,
@@ -118,16 +112,6 @@ export const teamMemberRoleEnum = pgEnum(`team_member_role`, teamRoleValues)
 
 export const prStateEnum = pgEnum(`pr_state`, prStateValues)
 
-// The PG type keeps the orphan `merged` label (EXP-540 migrated every row to
-// `ended`): dropping an enum VALUE needs a full type recreate, and no writer
-// or reader can produce it any more. Deliberately NOT derived from
-// codingSessionStatusValues — that list is the app vocabulary.
-export const codingSessionStatusEnum = pgEnum(`coding_session_status`, [
-  `running`,
-  `in_review`,
-  `merged`,
-  `ended`,
-])
 
 export const issueEventTypeEnum = pgEnum(
   `issue_event_type`,
@@ -152,12 +136,6 @@ export const issueRelationSourceEnum = pgEnum(
   issueRelationSourceValues
 )
 
-// EXP-1284: what a thread child is, and who linked it.
-export const threadItemKindEnum = pgEnum(`thread_item_kind`, threadItemKindValues)
-export const threadItemSourceEnum = pgEnum(
-  `thread_item_source`,
-  threadItemSourceValues
-)
 
 // EXP-1291 Threads v2: the session tree's vocabulary.
 export const sessionKindEnum = pgEnum(`session_kind`, sessionKindValues)
@@ -525,21 +503,6 @@ export const issues = pgTable(
       (): AnyPgColumn => issues.id,
       { onDelete: `set null` }
     ),
-    // PR linkage (one issue = one PR = one branch/worktree). Kept on the
-    // issue row (PR is 1:1 with the issue) and synced to every client so the
-    // diff view + PR badge work without parsing comment bodies. Written by the
-    // MCP `open_pr` tool and the merge webhook/cron. All nullable (no PR until
-    // one is opened).
-    prUrl: text(`pr_url`),
-    prNumber: integer(`pr_number`),
-    prState: prStateEnum(`pr_state`),
-    branch: text(`branch`),
-    prMergedAt: timestamp(`pr_merged_at`, { withTimezone: true }),
-    // EXP-897: the PR's base ref as GitHub last reported it (written by
-    // `pr_open`, retarget and the `edited` webhook leg). SYNCED: the stack
-    // edge every client derives is `child.pr_base_branch == lower.branch`
-    // within one repository. NULL = the board's default branch / no PR.
-    prBaseBranch: text(`pr_base_branch`),
     // EXP-1231: the issue DRAFT this issue was created from (`issues.create
     // ({ draftId })` consumed that `issue_drafts` row in the same
     // transaction). No FK: the draft row is gone by the time this is
@@ -560,16 +523,6 @@ export const issues = pgTable(
     index(`idx_issues_assignee`).on(table.assigneeId),
     index(`idx_issues_creator`).on(table.creatorId),
     index(`idx_issues_due_date`).on(table.dueDate),
-    // PR→issue resolution is exact-pr_url match (batch PRs link many issues to
-    // one URL): the webhook, merge/close batch-sibling lookups, and the
-    // self-hosted poller all filter on it. Partial — most issues have no PR.
-    index(`idx_issues_pr_url`)
-      .on(table.prUrl)
-      .where(sql`pr_url IS NOT NULL`),
-    // EXP-897: "who is stacked on my branch?", asked by the merge guard.
-    index(`idx_issues_pr_base_branch`)
-      .on(table.prBaseBranch)
-      .where(sql`pr_base_branch IS NOT NULL`),
     // The duplicate_of_id SET NULL RI trigger fires on every issue delete;
     // without this it seq-scans issues per deleted row inside the cascade.
     index(`idx_issues_duplicate_of`)
@@ -826,253 +779,6 @@ export const comments = pgTable(
   ]
 )
 
-// The live "coding now" record — one row per interactive desktop coding
-// session (one session tab + one agent CLI child driven over ACP —
-// claude/codex, EXP-201). SYNCED as an Electric shape
-// so every coordination client shows the badge + Watch/Steer button. No
-// plan/approval state, no run history, no slot pool — PR outcome lives on
-// `issues` (prUrl/prNumber/prState/branch). Three session subjects: issue-
-// scoped (`issue_id` set — one worktree, one issue), batch-scoped (`issue_id`
-// and `board_id` NULL, `team_id` written directly — the desktop multi-issue
-// batch run), and action-scoped (EXP-253: like batch but with `action_id` +
-// the `action_name` display snapshot — actions are server-only, never synced,
-// so clients label rows off the snapshot). Enforced by the tRPC writer
-// (exactly one of issueId/teamId/actionId in the start input). `team_id` is
-// denormalized from issue→board by trigger for issue rows (the populate
-// triggers no-op when issue_id IS NULL).
-export const codingSessions = pgTable(
-  `coding_sessions`,
-  {
-    id: uuidPk(),
-    // Nullable: NULL for batch (multi-issue) orchestrator sessions.
-    issueId: uuid(`issue_id`).references(() => issues.id, {
-      onDelete: `cascade`,
-    }),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    // Denormalized from issue→board (populate_issue_child_board_id).
-    // Nullable: a batch-scoped session spans boards and carries no board
-    // identity.
-    boardId: uuid(`board_id`).references(() => boards.id, {
-      onDelete: `cascade`,
-    }),
-    // Mirrors of the parent board's deleted_at / archived_at
-    // (trigger-maintained, REV2-5 + EXP-500) — the shape's static trash and
-    // archive predicates; both stay NULL on batch rows, which therefore
-    // always sync. Server-only, shape-excluded.
-    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
-    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
-    // Action-scoped sessions (EXP-253): the action being run (SET NULL — a
-    // deleted action degrades the row to batch-shaped) plus a display-name
-    // snapshot (actions are server-only, never synced — clients can't join).
-    actionId: uuid(`action_id`).references(() => actions.id, {
-      onDelete: `set null`,
-    }),
-    actionName: varchar(`action_name`, { length: 255 }),
-    // EXP-530: why the session started — 'schedule' | 'event' | 'agent'
-    // (documented varchar, startedReasonValues in domain.ts; NULL = a person
-    // started it). Set only by codingSessions.start: schedule/event when a
-    // device's trigger host fires an action trigger, and 'agent'
-    // (EXP-679) when another coding session started this one through
-    // `exponential_sessions_start` — equally unattended, so its close-out
-    // ends it. Powers the "Automated" badge + the action's run history on
-    // every client (synced via the shape).
-    startedReason: varchar(`started_reason`, { length: 16 }),
-    // EXP-583/SLOP-2: the id of the action TRIGGER (`actions.triggers[].id`)
-    // that fired this run; NULL for every human start. No FK: triggers live
-    // in a jsonb array, so the id outlives a removed trigger as plain history.
-    // Powers per-trigger "last run" on every client (synced via the shape).
-    triggerId: uuid(`trigger_id`),
-    // EXP-679: the run that started this one via `exponential_sessions_start`
-    // (stamped by the MCP tool from its session header). Synced since EXP-818
-    // (the session tree nests on it ×4); history only, so SET NULL keeps the
-    // child when the parent is purged.
-    parentSessionId: uuid(`parent_session_id`).references(
-      (): AnyPgColumn => codingSessions.id,
-      { onDelete: `set null` }
-    ),
-    // EXP-1082 §4: the question this run parked on (`ask_parent` → user),
-    // the durable copy beside `needs_input` + `agent_caption`. Synced.
-    pendingQuestion: jsonb(`pending_question`).$type<CodingSessionPendingQuestion>(),
-    // The real user driving the session under their own auth — NOT a synthetic
-    // agent identity. For a start on a teammate's shared server device
-    // (EXP-432) this is the REQUESTER, so EXP-312 owner-only steering lets
-    // them watch/steer/kill what they launched.
-    userId: text(`user_id`)
-      .notNull()
-      .references(() => users.id, { onDelete: `cascade` }),
-    // EXP-432, server-only — NEVER add to the shape allowlist. The device
-    // owner's account hosting a teammate-started session on a shared server
-    // device: their daemon executes the run under its own auth, so session
-    // procedures (get/heartbeat/setNeedsInput/end, publisher tickets, the MCP
-    // batch flip) accept host OR owner. NULL for every self-hosted start.
-    // SET NULL, not cascade: the row belongs to the requester and survives
-    // the host's account deletion.
-    hostUserId: text(`host_user_id`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
-    // Human label of the host device ("Dennis's MacBook"), shown on the badge.
-    // Since EXP-549 a SNAPSHOT of the devices row's `label` at start/heartbeat
-    // time (server-resolved from `device_id`; the client-sent hostname is the
-    // fallback) — clients prefer the live devices row (see `deviceId`).
-    deviceLabel: varchar(`device_label`, { length: 255 }),
-    // EXP-549/550: the steer deviceId of the machine hosting the session
-    // (= `devices.device_id` of the caller's own row; no FK — devices rows are
-    // per (user, deviceId) and removable). Synced, so clients join the live
-    // devices row for the RENAMED label and its `last_seen_at` freshness (the
-    // "paused — device offline" state). NULL on rows from pre-EXP-549 clients.
-    deviceId: varchar(`device_id`, { length: 128 }),
-    // EXP-484: the agent CLI running the session (documented varchar, values
-    // = contract `codingAgent`, like `started_reason`). Written by the
-    // launcher at start (and echoed on the heartbeat re-create); NULL on rows
-    // from clients that predate it. Synced, so every client can show which
-    // agent a run uses and pair it with the device's usage windows.
-    agent: varchar({ length: 16 }),
-    // EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE the run was launched
-    // on (`system` = the ambient login, else a device-local profile id).
-    // EXP-909: SYNCED (on the coding-sessions shape allowlist) so every
-    // client can point the run's usage readout at the run's OWN login and
-    // the account switch knows the current one; NULL on rows written before
-    // the desktop stamped it, which reads as "unknown", never as the
-    // ambient login. Old native builds drop unknown columns safely.
-    agentAccount: varchar(`agent_account`, { length: 64 }),
-    status: codingSessionStatusEnum().notNull().default(`running`),
-    // EXP-545: the batch↔PR linkage. Stamped with the PR's head branch
-    // (`exp/batch-<id8>`) when the MCP pr_open batch flip parks the row in
-    // `in_review`, so clients tie a batch session's Merge shortcut to ITS
-    // OWN PR instead of "the team's sole open batch PR" (which could target
-    // a teammate's PR once the session's own PR closed unmerged). NULL on
-    // issue-scoped sessions (the issue row carries the branch) and on batch
-    // rows whose PR isn't open yet; action and chat rows carry their run
-    // branch from the start (EXP-637) and the chore pr_open re-stamps it.
-    branch: varchar(`branch`, { length: 255 }),
-    // EXP-734: the pull request an issue-LESS run opened — the chore PR of an
-    // action or chat run (`exponential_pr_open({ repositoryId, head })`,
-    // EXP-626). Populated ONLY for PRs that link no issue; issue-scoped and
-    // batch rows keep reading the issue row(s) (prUrl/prNumber/prState
-    // there). Synced, so every client's Merge shortcut and Reviews queue key
-    // on the run itself; `applySessionPrState` (pr-sync) keeps `pr_state` in
-    // step on every merge/close/reopen path (merge helper, webhook, poller)
-    // and ends the run on merge like every other path.
-    prUrl: text(`pr_url`),
-    prNumber: integer(`pr_number`),
-    prState: prStateEnum(`pr_state`),
-    // EXP-1165: that PR's base ref (pr_open, retarget, the `edited` webhook
-    // leg), the issue column's twin: the merge guards read it to refuse an
-    // issue-less run PR stacked on another open PR.
-    prBaseBranch: text(`pr_base_branch`),
-    // EXP-637 close-out (synced). The agent's own summary is REPORTED to the
-    // run that started this one (`exponential_sessions_end`, EXP-862) and no
-    // longer stored: EXP-864 dropped the `summary` column.
-    // Who ended the run (codingSessionEndedByValues, documented varchar):
-    // `agent` (sessions_end) · `user` (steer.killSession) · `client`
-    // (codingSessions.end — agent exit, tab close, quit) · `merge` (the PR
-    // merge paths) · `system` (the stale sweep, account deletion). NULL on
-    // rows ended by pre-EXP-637 servers.
-    endedBy: varchar(`ended_by`, { length: 16 }),
-    // The ended run this one resumes (steer.startSession({ resumeSessionId })
-    // or the desktop's Resume). SET NULL so purging an old run keeps the
-    // resumed row; clients use it to match a resume they just requested.
-    resumedFromId: uuid(`resumed_from_id`).references(
-      (): AnyPgColumn => codingSessions.id,
-      { onDelete: `set null` }
-    ),
-    // SERVER-ONLY (never in the shape allowlist, like host_user_id): the
-    // session merged the PR it opened, via the MCP `exponential_pr_merge`
-    // tool with its own session header. Every merge-driven end skips flagged
-    // rows (EXP-637 decision 6) — a session that merges its own PR ends only
-    // through `exponential_sessions_end` or its own exit, never through the
-    // merge it just performed (webhook and poller spare it too, which is why
-    // this is a durable column and not an in-memory claim).
-    mergedOwnPr: boolean(`merged_own_pr`).notNull().default(false),
-    // Desktop-written attention flag (EXP-214): the agent is parked on a
-    // plan-approval or AskUserQuestion picker and waits for a human. Composes
-    // with running/in_review (which stay server-owned) instead of being a
-    // status of its own; cleared by the desktop when the picker resolves.
-    needsInput: boolean(`needs_input`).notNull().default(false),
-    // EXP-848: device-written turn state — the agent is EXECUTING a turn right
-    // now. Like `needs_input` it composes with the server-owned status instead
-    // of being one (a busy run is `running`; every server end path clears it),
-    // and it is what the session lists key their working spinner on: `running`
-    // alone only says the run is live, not that the agent is thinking.
-    agentBusy: boolean(`agent_busy`).notNull().default(false),
-    // EXP-850: the device-written working caption, the ONE line a session list
-    // row can show about what the run is doing right now (the newest running
-    // workflow's `workflowCaption`). NULL = nothing to say, which is also what
-    // the device writes at turn end and at teardown, and what every server end
-    // path clears alongside `agent_busy`. Capped at the contract's
-    // `steerWorking.previewMax` (160) by the writer, never a story.
-    agentCaption: text(`agent_caption`),
-    // EXP-905: the device-written title the agent CLI auto-names the run with
-    // (claude's transcript `ai-title` entry, codex's thread name). NULL = not
-    // named yet. A CHAT run's identity reads it as its subject (else `Chat`);
-    // issue/action/batch runs keep their names. Unlike `agent_caption` it is
-    // NOT cleared at end: an ended chat keeps its name.
-    agentTitle: varchar(`agent_title`, { length: 255 }),
-    // EXP-804: the agent's usage wall as row state. NULL = not blocked. The
-    // run stays `running` — a blocked run is still live, steerable and
-    // killable; this is orthogonal to status, like `needs_input` above.
-    // `resetsAt`/`since` are ISO strings (the steer wire carries unix ms and
-    // claude's own frame unix seconds — both normalised on the device so this
-    // matches DeviceUsageWindow.resetsAt). Written by the run's device and
-    // cleared on the next assistant token.
-    blocked: jsonb(`blocked`).$type<CodingSessionBlocked>(),
-    // EXP-879: the screenshots the run published of its own work — a flat
-    // ordered `{ topic, label, attachmentId, width, height }[]` (NULL/[] =
-    // none; every client's Results face renders only when non-empty). Bytes
-    // are `session_attachments` rows on this session; clients derive the URL.
-    // Written ONLY by the token-gated `/api/session-results/$token` upload
-    // (minted by MCP `exponential_sessions_results`) under `FOR UPDATE`, since
-    // this is a jsonb read-modify-write. Capped at SESSION_RESULTS_MAX entries
-    // of SESSION_RESULT_TEXT_MAX-char topic/label because the row re-ships
-    // whole on every heartbeat.
-    results: jsonb(`results`).$type<CodingSessionResult[]>(),
-    // EXP-876: the issues a BATCH run covers, in the order the composer
-    // listed them — the only thing that can NAME such a row ("Batch run"
-    // named every one of them alike). Written once by `codingSessions.start`
-    // from the launching device's `issueIds`, never updated: it is the run's
-    // subject, not its outcome, and an issue later removed from the PR was
-    // still what this run set out to do. NULL/[] on every other subject, and
-    // on batch rows started by a client too old to send it — those still name
-    // themselves off the issues sharing the branch `pr_open` stamped
-    // (EXP-545). Capped at 30 entries, the batch cap every start form holds.
-    batchIssueIds: jsonb(`batch_issue_ids`).$type<string[]>(),
-    // EXP-1140: the team MCP servers this run PICKED (`mcp_servers` ids of
-    // the run's team, in pick order), written once by `codingSessions.start`
-    // from the launching device. The ONLY thing `mcpServers.resolveForLaunch`
-    // will hand credentials for: the launcher names its row through
-    // `X-Exp-Session-Id` and gets values for these ids alone, so a leaked or
-    // prompt-injected `expu_` key can reach at most what its own live run
-    // already holds. NULL = no pick. SERVER-ONLY (never in the shape
-    // allowlist): no client needs it, and it must never widen.
-    mcpServerIds: jsonb(`mcp_server_ids`).$type<string[]>(),
-    // EXP-701: the device's pickup ack. The launching device creates this row
-    // right before it spawns the agent, then its FIRST liveness heartbeat —
-    // fired immediately after the spawn — stamps this (the server coalesces it
-    // on every `codingSessions.heartbeat`, since any beat proves the run's
-    // host is alive). A `running` row whose acked_at stays NULL for minutes
-    // means the device died between creating the row and spawning the agent —
-    // the signal orchestrators use to tell a dead start from a quiet run.
-    // SERVER-ONLY (never in the shape allowlist, like merged_own_pr): exposed
-    // through tRPC `codingSessions.get` and the MCP session tools.
-    ackedAt: timestamp(`acked_at`, { withTimezone: true }),
-    startedAt: timestamp(`started_at`, { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    endedAt: timestamp(`ended_at`, { withTimezone: true }),
-    ...timestamps,
-  },
-  (table) => [
-    index(`idx_coding_sessions_issue`).on(table.issueId),
-    index(`idx_coding_sessions_team`).on(table.teamId),
-    index(`idx_coding_sessions_board`).on(table.boardId),
-    index(`idx_coding_sessions_user`).on(table.userId),
-    index(`idx_coding_sessions_action`).on(table.actionId),
-    // The session-tree parent walks run on it.
-    index(`idx_coding_sessions_parent`).on(table.parentSessionId),
-  ]
-)
 
 export const attachments = pgTable(
   `attachments`,
@@ -1183,49 +889,6 @@ export const attachments = pgTable(
   ]
 )
 
-// EXP-702: steer images. EVERY image attached to a steered message lands
-// here — issue runs included, so steering screenshots never clutter the
-// issue's Files section, and issue-less runs (chat/action/batch) get image
-// upload at all. SERVER-ONLY, never synced: the natives pin `issue_id` NOT
-// NULL on the synced attachments table, so these rows must never ride that
-// shape.
-// They are served by the SAME `/api/attachments/{id}` read route, keeping the
-// load-bearing steer embed `![image](/api/attachments/{id})` (EXP-511) intact
-// for every host and viewer. `session_id` is SET NULL (the staleness sweep
-// deletes coding_sessions rows), and the orphan reclaim sweep
-// (apps/web/src/lib/session-attachment-sweep.ts) deletes such rows plus their
-// blobs after a 7-day grace window — otherwise unreachable bytes would count
-// against the team's storage budget forever. Blob reclamation also keys on
-// `team_id` at team/account deletion, exactly like issue attachments.
-export const sessionAttachments = pgTable(
-  `session_attachments`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
-      onDelete: `set null`,
-    }),
-    uploaderId: text(`uploader_id`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
-    filename: varchar({ length: 500 }).notNull(),
-    contentType: varchar(`content_type`, { length: 255 }).notNull(),
-    sizeBytes: bigint(`size_bytes`, { mode: `number` }).notNull(),
-    storageKey: text(`storage_key`).notNull(),
-    url: text().notNull(),
-    // Intrinsic pixel dimensions, probed at upload time (nullable — probing
-    // is best-effort, matching attachments).
-    width: integer(),
-    height: integer(),
-    ...timestamps,
-  },
-  (table) => [
-    index(`idx_session_attachments_team`).on(table.teamId),
-    index(`idx_session_attachments_session`).on(table.sessionId),
-  ]
-)
 
 // One row per (token, user): several accounts signed in on one device each
 // keep their own registration of the shared FCM device token, so pushes reach
@@ -1861,7 +1524,7 @@ export const notifications = pgTable(
     // EXP-980: the coding run a `session_blocked` row is about. Synced (in
     // the shape allowlist) so the inbox row routes to the run ×4; SET NULL
     // keeps the delivered row when the run's row is pruned.
-    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
       onDelete: `set null`,
     }),
     type: notificationTypeEnum().notNull(),
@@ -1983,7 +1646,7 @@ export const pins = pgTable(
     issueId: uuid(`issue_id`).references(() => issues.id, {
       onDelete: `cascade`,
     }),
-    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
       onDelete: `cascade`,
     }),
     actionId: uuid(`action_id`).references(() => actions.id, {
@@ -2016,112 +1679,7 @@ export const pins = pgTable(
   ]
 )
 
-// EXP-1284 threads: the unit of work. A thread holds n issues and m runs
-// (`thread_items`) and the AGENT decides what belongs in it, linking over MCP.
-// Every start opens or joins one (`lib/threads.ts`): a composer start opens a
-// new thread, an issue start joins the issue's newest thread (else opens one
-// holding it), a batch opens one with its n issues, a resume stays in its
-// predecessor's thread. Team-scoped, member-visible (the shell and its
-// issues; a live run's CONTENT stays owner-only, EXP-312). Synced: the
-// `threads` shape is `team_id IN (member teams) AND has_visible_items`.
-export const threads = pgTable(
-  `threads`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    // Agent-editable (`exponential_threads_update`). NULL = derived for
-    // display: the first issue's title, else the first run's name.
-    title: varchar({ length: 255 }),
-    // SET NULL: the thread outlives its creator's account deletion.
-    createdBy: text(`created_by`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
-    // The thread's Guide (ONE per thread): `sessions_guide`/`sessions_show`
-    // write here under `FOR UPDATE` and the PR body renders it. Same shape
-    // and caps as `coding_sessions.results`, which keeps a mirror for
-    // clients that predate threads (EXP-1258).
-    results: jsonb(`results`).$type<CodingSessionResult[]>(),
-    // SERVER-ONLY (never in the shape allowlist; the shape and every read
-    // FILTER on it): false once the thread has items and none of them is
-    // visible (all on trashed/archived boards). Kept by the
-    // `refresh_thread_visibility` trigger on thread_items, which also deletes
-    // a thread whose last item went and whose Guide is empty. A thread that
-    // never had an item (just created) stays visible.
-    hasVisibleItems: boolean(`has_visible_items`).notNull().default(true),
-    ...timestamps,
-  },
-  (table) => [index(`idx_threads_team`).on(table.teamId)]
-)
 
-// EXP-1284: a thread's children. `kind` names the target column that is set
-// (issue_id / session_id), each an FK cascade so an item dies with its
-// target. An issue may sit in several threads (one row per thread); a run in
-// exactly ONE (unique session_id; linking it elsewhere MOVES it). Issue items
-// carry the shared issue-child board context (populate_thread_item_board_id
-// + the board trash/archive fan-outs), so the shape's static predicates hide
-// an issue whose board is trashed or archived; run items mirror their
-// SESSION's board context (a batch/chat/action run's is NULL: always synced).
-export const threadItems = pgTable(
-  `thread_items`,
-  {
-    id: uuidPk(),
-    threadId: uuid(`thread_id`)
-      .notNull()
-      .references(() => threads.id, { onDelete: `cascade` }),
-    kind: threadItemKindEnum().notNull(),
-    issueId: uuid(`issue_id`).references(() => issues.id, {
-      onDelete: `cascade`,
-    }),
-    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
-      onDelete: `cascade`,
-    }),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    // The issue's (issue items) or the session's (run items) board and its
-    // trash/archive mirrors (populate_thread_item_board_id). Server-only
-    // mirrors, shape-excluded.
-    boardId: uuid(`board_id`).references(() => boards.id, {
-      onDelete: `cascade`,
-    }),
-    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
-    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
-    // Who linked it: the person, and the run when an agent did (source
-    // `agent`). Both SET NULL: the link outlives either.
-    addedBy: text(`added_by`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
-    addedBySessionId: uuid(`added_by_session_id`).references(
-      (): AnyPgColumn => codingSessions.id,
-      { onDelete: `set null` }
-    ),
-    source: threadItemSourceEnum().notNull().default(`user`),
-    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
-    ...timestamps,
-  },
-  (table) => [
-    check(
-      `thread_items_kind_target_check`,
-      sql`(kind = 'issue' AND issue_id IS NOT NULL AND session_id IS NULL) OR (kind = 'run' AND session_id IS NOT NULL AND issue_id IS NULL)`
-    ),
-    uniqueIndex(`uniq_thread_items_thread_issue`)
-      .on(table.threadId, table.issueId)
-      .where(sql`issue_id IS NOT NULL`),
-    uniqueIndex(`uniq_thread_items_session`)
-      .on(table.sessionId)
-      .where(sql`session_id IS NOT NULL`),
-    index(`idx_thread_items_thread`).on(table.threadId),
-    // Plain indexes on the FKs: the RI cascades' unconditional deletes
-    // can't use the partial uniques above.
-    index(`idx_thread_items_issue`).on(table.issueId),
-    index(`idx_thread_items_session`).on(table.sessionId),
-    index(`idx_thread_items_team`).on(table.teamId),
-    index(`idx_thread_items_board`).on(table.boardId),
-    index(`idx_thread_items_added_by_session`).on(table.addedBySessionId),
-  ]
-)
 
 
 // ---------------------------------------------------------------------------
@@ -2468,7 +2026,7 @@ export const issueDrafts = pgTable(
     // EXP-1284: the thread a "New issue in this thread" draft files into
     // (`issues.create` consuming the draft links the issue there). SET NULL:
     // a deleted thread leaves a plain draft.
-    threadId: uuid(`thread_id`).references(() => threads.id, {
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
       onDelete: `set null`,
     }),
     ...timestamps,
@@ -2735,13 +2293,12 @@ export const mcpOauthFlows = pgTable(
   (table) => [index(`idx_mcp_oauth_flows_user`).on(table.userId)]
 )
 
-// Team action prompts. An action is a named markdown prompt the desktop runs
-// as an interactive agent session on the trunk clone (or a scratch dir when
-// repo-less) — code review, backlog grooming, deploys… Synced as the 15th
-// Electric shape MINUS `body` (EXP-268): the ≤64KB prompt never rides sync —
-// clients list from the shape and fetch the body via tRPC `actions.get` on
-// demand (editors on open, the desktop right before a run). Writes stay
-// team-owner-only over tRPC; every member may list/run.
+// Team actions = SAVED PROMPTS (EXP-1291): a named markdown prompt plus
+// typed pick inputs. Running one = `sessions.send({actionId, inputs})`; the
+// server composes it into the session's brief. No triggers, repository or MCP
+// picks (triggers live on team agents). Synced MINUS `body` (EXP-268): the
+// ≤64KB prompt is fetched via tRPC `actions.get` on demand. Writes stay
+// team-owner-only; every member may list/run.
 export const actions = pgTable(
   `actions`,
   {
@@ -2749,15 +2306,7 @@ export const actions = pgTable(
     teamId: uuid(`team_id`)
       .notNull()
       .references(() => teams.id, { onDelete: `cascade` }),
-    // Optional execution context: with a repo the run targets its trunk clone
-    // on the default branch; without one, a scratch dir holding only the MCP
-    // config. SET NULL so disconnecting a repo degrades the action to
-    // repo-less instead of deleting it.
-    repositoryId: uuid(`repository_id`).references(() => repositories.id, {
-      onDelete: `set null`,
-    }),
     name: varchar({ length: 255 }).notNull(),
-    description: text(),
     // EXP-273: the action's display glyph — a curated icon name from the
     // shared registry (same set as boards.icon). NULL = clients fall back to
     // the generic action glyph. Varchar rather than the pg enum so growing the
@@ -2776,23 +2325,6 @@ export const actions = pgTable(
     // picked — what the requester should type now that free-text inputs are
     // gone (their placeholder/label seeded it). NULL = the generic hint.
     promptPlaceholder: varchar(`prompt_placeholder`, { length: 200 }),
-    // SLOP-2: the action's triggers — schedules and event watchers, each
-    // carrying its runner (device, agent/account/model/effort, enabled).
-    // `manual` is implied, never stored. '[]' = manual only. The bound device
-    // reads them off the shape and self-starts; there is no server scheduler.
-    triggers: jsonb()
-      .$type<ActionTrigger[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
-    // FEED-73: the team MCP servers EVERY run of this action uses (trigger,
-    // remote and composer starts alike; `codingSessions.start` copies it onto
-    // the run, ignoring the launch pick). SERVER-ONLY like `body`: behind the
-    // shape's columns allowlist, `actions.get` returns it. Members' shared
-    // connections resolve as extra `<server>-as-<member>` entries.
-    mcpServerIds: jsonb(`mcp_server_ids`)
-      .$type<string[]>()
-      .notNull()
-      .default(sql`'[]'::jsonb`),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },
@@ -3230,7 +2762,6 @@ export const selectIssueSchema = createSelectSchema(issues, {
   priority: issuePrioritySchema,
   status: issueStatusSchema,
   source: issueSourceSchema,
-  prState: prStateSchema.nullable(),
 })
 export const createIssueSchema = createInsertSchema(issues).omit({
   id: true,
@@ -3298,9 +2829,6 @@ export const selectIssueEventSchema = createSelectSchema(issueEvents, {
   type: issueEventTypeSchema,
 })
 
-export const selectCodingSessionSchema = createSelectSchema(codingSessions, {
-  status: codingSessionStatusSchema,
-})
 
 export const selectRepositorySchema = createSelectSchema(repositories)
 
@@ -3358,11 +2886,6 @@ export const selectMcpServerSchema = createSelectSchema(mcpServers, {
 
 export const selectActionSchema = createSelectSchema(actions, {
   inputs: actionInputsSchema,
-  // TOLERANT read (unlike the strict write schema in domain.ts): the actions
-  // collection must not brick on a future trigger kind or source, so runtime
-  // validation only checks "array" — clients parse each trigger leniently
-  // (parseActionTrigger) and treat unknown shapes as "never fires".
-  triggers: z.custom<ActionTrigger[]>((value) => Array.isArray(value)),
 })
 
 // The shape-synced projection: the actions shape pins a columns allowlist
@@ -3432,17 +2955,13 @@ export type IssueLabel = InferSelectModel<typeof issueLabels>
 export type IssueRelation = InferSelectModel<typeof issueRelations>
 export type Comment = InferSelectModel<typeof comments>
 export type Attachment = InferSelectModel<typeof attachments>
-export type SessionAttachment = InferSelectModel<typeof sessionAttachments>
 
 export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>
 export type Pin = InferSelectModel<typeof pins>
 export type IssueDraft = InferSelectModel<typeof issueDrafts>
-export type Thread = InferSelectModel<typeof threads>
-export type ThreadItem = InferSelectModel<typeof threadItems>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
-export type CodingSession = InferSelectModel<typeof codingSessions>
 export type Session = InferSelectModel<typeof sessions>
 export type SessionIssue = InferSelectModel<typeof sessionIssues>
 export type Message = InferSelectModel<typeof messages>

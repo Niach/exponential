@@ -35,7 +35,7 @@ import {
   scopeSelectionInput,
 } from "@/lib/mcp/scope-selection"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
-import { relayKillSessionsBestEffort } from "@/lib/coding-session-kill"
+import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import {
   captureOAuthTokens,
   revokeOAuthTokensBestEffort,

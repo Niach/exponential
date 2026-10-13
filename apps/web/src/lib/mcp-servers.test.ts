@@ -1,13 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { BUILTIN_CHAT_ID, BUILTIN_TIDY_UP_ID } from "@/lib/builtin-actions"
-import {
-  isTeamMcp,
-  sharedSummary,
-  subjectOwnsMcpServers,
-} from "@/lib/mcp-servers"
+import { isTeamMcp, sharedSummary } from "@/lib/mcp-servers"
 
 // FEED-73: shared MCP connections. A team MCP = no sign-in, or at least one
-// member shares their connection; a real action subject owns its MCP list.
+// member shares their connection.
 
 describe(`isTeamMcp`, () => {
   it(`counts a no-sign-in server and a shared one, never an unshared sign-in`, () => {
@@ -37,15 +32,5 @@ describe(`sharedSummary`, () => {
     expect(
       sharedSummary({ connectedCount: 2, memberCount: 3, sharedCount: 1 })
     ).toBe(`2 of 3 connected · 1 shared`)
-  })
-})
-
-describe(`subjectOwnsMcpServers`, () => {
-  it(`is true only for a real action`, () => {
-    expect(subjectOwnsMcpServers({ kind: `action`, id: `a1` })).toBe(true)
-    expect(subjectOwnsMcpServers({ kind: `action`, id: BUILTIN_TIDY_UP_ID })).toBe(false)
-    expect(subjectOwnsMcpServers({ kind: `action`, id: BUILTIN_CHAT_ID })).toBe(false)
-    expect(subjectOwnsMcpServers({ kind: `issues` })).toBe(false)
-    expect(subjectOwnsMcpServers(null)).toBe(false)
   })
 })

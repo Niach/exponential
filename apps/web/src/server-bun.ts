@@ -45,7 +45,7 @@ import { startDeviceCommandSweepScheduler } from "@/lib/device-command-sweep"
 import { kickImportWorker } from "@/lib/import/kick"
 import { startEmailDigestScheduler } from "@/lib/notification-email-digest"
 import { startBoardTrashScheduler } from "@/lib/board-trash"
-import { startCodingSessionSweepScheduler } from "@/lib/coding-session-sweep"
+import { startSessionSweepScheduler } from "@/lib/sessions/lifecycle"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
 import {
@@ -82,15 +82,14 @@ startEmailDigestScheduler()
 // guard only; the row delete is the atomic multi-instance claim.
 startBoardTrashScheduler()
 
-// Coding sessions: periodic sweep that force-ends rows still `running` past
-// the staleness window — a crashed desktop never fires its exit hook, and the
-// orphaned row would otherwise pin a phantom "coding now" badge forever.
-startCodingSessionSweepScheduler()
+// Sessions (EXP-1291): a `running` session whose device stopped heartbeating
+// goes idle — a crashed device never reports its turn's end, and the row
+// would otherwise pin a phantom spinner forever. A message resumes it.
+startSessionSweepScheduler()
 
-// Steer images (EXP-702): periodic reclaim of session_attachments rows whose
-// session row is gone (session_id SET NULL) and that have aged past the
-// grace window — unreachable bytes that would otherwise count against the
-// team's storage budget forever, with no delete UI.
+// Conversation + Guide uploads (EXP-1291): periodic reclaim of owner-less
+// attachments rows no Guide references, past the grace window — unreachable
+// bytes that would otherwise count against the team's storage budget.
 startSessionAttachmentSweepScheduler()
 
 // Attachment sizes (EXP-955): periodic pass finalizing rows still at

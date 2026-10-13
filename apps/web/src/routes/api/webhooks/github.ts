@@ -2,15 +2,15 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, repositories } from "@/db/schema"
+import { repositories } from "@/db/schema"
 import {
-  applyPrClosedState,
-  applyPrMergeState,
-  applyPrOpenedState,
-  applyPrReopenedState,
-  applyPrBaseBranchEdit,
-  applySessionPrState,
-  findIssueIdByBranch,
+  adoptOutOfBandPullRequest,
+  applyPullRequestBase,
+  applyPullRequestClosed,
+  applyPullRequestDraft,
+  applyPullRequestMerged,
+  applyPullRequestReopened,
+  loadPullRequestByUrl,
 } from "@/lib/integrations/pr-sync"
 import {
   takePrMergeClaim,
@@ -41,39 +41,15 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
   return timingSafeEqual(a, b)
 }
 
-// Resolve the payload's PR to our issues: exact prUrl match first — plural,
-// because a batch coding run links ALL its issues to ONE combined PR — then a
-// deterministic single-issue fallback that parses the `exp/<IDENTIFIER>` head
-// branch and resolves through the repositories registry, so PRs opened
-// out-of-band still link. (Batch branches are `exp/batch-<hex>` — lowercase by
-// construction, so the branch parse can never mis-link them.)
-async function resolveIssuesForPr(args: {
-  htmlUrl: string
-  repoFullName?: string
-  headRef?: string
-}): Promise<string[]> {
-  const byUrl = await db
-    .select({ id: issues.id })
-    .from(issues)
-    .where(eq(issues.prUrl, args.htmlUrl))
-  if (byUrl.length > 0) return byUrl.map((row) => row.id)
-  if (args.repoFullName && args.headRef) {
-    const issueId = await findIssueIdByBranch(args.repoFullName, args.headRef)
-    return issueId ? [issueId] : []
-  }
-  return []
-}
-
 // GitHub webhook receiver — the CLOUD PR-linking + merge-detection trigger
 // (self-hosted uses the outbound cron for merges instead). Acts on
 // `installation` `created`/`unsuspend` (upsert + clear the suspension mark),
 // `suspend` (mark, never delete — REV2-29) and `deleted` (drop the row),
 // `installation_repositories` (repo-selection
-// changes → flag/heal `repositories.inaccessible_at`), `pull_request` `opened`
-// (link an out-of-band PR to its issue) and `closed` (flip prState to merged
-// or, when closed without merging, to closed).
-// Issues resolve by exact prUrl OR by the `exp/<IDENTIFIER>` head-branch
-// parse; everything else is acked and ignored.
+// changes → flag/heal `repositories.inaccessible_at`) and `pull_request`
+// (EXP-1291: the `pull_requests` row by url: merged / closed / reopened /
+// base edits / draft flips; `opened` adopts an out-of-band PR whose
+// `exp/<IDENTIFIER>` head names an issue). Everything else is acked.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -187,9 +163,10 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         number?: number
         merged?: boolean
         merged_at?: string | null
+        title?: string
         draft?: boolean
         head?: { ref?: string }
-        // The base GitHub reports on every delivery (`pr_base_branch`).
+        // The base GitHub reports on every delivery.
         base?: { ref?: string }
         // EXP-617: the GitHub identity behind the event. `user` is the PR
         // author, `merged_by` whoever pressed Merge; both are the App bot for
@@ -200,7 +177,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       }
       repository?: { full_name?: string }
       sender?: GithubActorRef
-      // `edited` names what changed; a base change moves `pr_base_branch`.
+      // `edited` names what changed; a base change moves the stored base.
       changes?: { base?: { from?: { ref?: string } } }
     }
 
@@ -211,146 +188,100 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     const htmlUrl = pr.html_url
     const repoFullName = payload.repository?.full_name
     const headRef = pr.head?.ref
+    const row = await loadPullRequestByUrl(htmlUrl)
 
-    // Merge: flip prState → merged, stamp prMergedAt, emit pr_merged (once
-    // per issue). A batch PR resolves to every linked issue — merging it
-    // completes them all (each apply is idempotent per issue).
+    // Merge: the claim inside applyPullRequestMerged makes a redelivery (or
+    // the in-app merge that already wrote it) a no-op.
     if (payload.action === `closed` && pr.merged === true) {
-      const mergedAt = pr.merged_at ? new Date(pr.merged_at) : new Date()
-      const issueIds = await resolveIssuesForPr({
-        htmlUrl,
-        repoFullName,
-        headRef,
-      })
-      // EXP-494: a merge initiated in-app (issues.mergePr /
-      // repositories.mergePull) claimed its actor right before the GitHub
-      // call — resolve it ONCE per delivery (one claim covers every issue of
-      // a batch PR) so this leg fires attributed and the initiator is
-      // excluded even when no coding_sessions row survived to fall back on.
+      // REV-26: a PR whose `opened` delivery was lost is adopted here first
+      // (branch parse), so its issue never stays unlinked.
+      let merged = row
+      if (!merged && repoFullName && headRef && pr.number) {
+        await adoptOutOfBandPullRequest({
+          repoFullName,
+          url: htmlUrl,
+          number: pr.number,
+          title: pr.title ?? null,
+          head: headRef,
+          base: pr.base?.ref ?? ``,
+          actorUserId: null,
+        })
+        merged = await loadPullRequestByUrl(htmlUrl)
+      }
+      if (!merged) return jsonResponse(200, { ok: true })
+      // EXP-494: an in-app merge claimed its actor right before the GitHub
+      // call (the webhook beats its own write).
       const claim =
-        repoFullName && pr.number
-          ? takePrMergeClaim(repoFullName, pr.number)
-          : null
-      // EXP-617: whoever actually pressed Merge on github.com, if they have
-      // ever connected that GitHub account here. `merged_by` names the button
-      // presser; `sender` is the fallback for a payload that omits it.
-      // Resolved ONCE per delivery, like the claim. Never `pull_request.user`
-      // — a PR author absolutely wants to hear that their PR landed.
+        repoFullName && pr.number ? takePrMergeClaim(repoFullName, pr.number) : null
+      // EXP-617: whoever pressed Merge, if they ever connected that GitHub
+      // account here. Never `pull_request.user` (an author wants to hear it).
       const githubActorUserId = await resolveAppUserForGithubActor(
         pr.merged_by ?? payload.sender
       )
-      // EXP-711: the claim also carries the merger's per-call `endSessions`
-      // override, so the echo of an in-app merge honours it.
-      const endSessions = claim?.endSessions
-      // EXP-637/EXP-626/EXP-734: every run's PR also lives on the
-      // coding_sessions row that opened it (an issue-less chore PR resolves to
-      // no issue above), so flip it to merged and end the run there
-      // (idempotent against the in-app merge helper that already did so),
-      // except the session that merged its own PR, which lives on until
-      // sessions_end.
-      await applySessionPrState({
-        prUrl: htmlUrl,
-        state: `merged`,
-        ...(endSessions !== undefined ? { endSessions } : {}),
+      await applyPullRequestMerged({
+        pullRequestId: merged.id,
+        mergedAt: pr.merged_at ? new Date(pr.merged_at) : new Date(),
+        githubActorUserId,
+        ...(claim
+          ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
+          : { actorUserId: null }),
       })
-      for (const issueId of issueIds) {
-        await applyPrMergeState({
-          githubActorUserId,
-          issueId,
-          prUrl: htmlUrl,
-          ...(endSessions !== undefined ? { endSessions } : {}),
-          // Backfill sources for a never-linked issue (branch-parse fallback
-          // whose 'opened' webhook was lost) — see applyPrMergeState (REV-26).
-          ...(pr.number != null ? { prNumber: pr.number } : {}),
-          ...(headRef ? { headBranch: headRef } : {}),
-          mergedAt,
-          ...(claim
-            ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
-            : { actorUserId: null }),
-        })
-      }
       return jsonResponse(200, { ok: true })
     }
 
-    // Closed without merging: flip prState → closed so the issue leaves the
-    // Reviews open-PR surfaces (state-only; no pr_closed event type exists).
-    if (payload.action === `closed` && pr.merged !== true) {
-      const issueIds = await resolveIssuesForPr({
-        htmlUrl,
-        repoFullName,
-        headRef,
-      })
-      for (const issueId of issueIds) {
-        await applyPrClosedState({ issueId, prUrl: htmlUrl })
-      }
-      await applySessionPrState({ prUrl: htmlUrl, state: `closed` })
+    if (payload.action === `closed`) {
+      if (row) await applyPullRequestClosed({ pullRequestId: row.id })
       return jsonResponse(200, { ok: true })
     }
 
-    // Reopened after a close-without-merge: heal closed → open.
     if (payload.action === `reopened`) {
-      const issueIds = await resolveIssuesForPr({
-        htmlUrl,
-        repoFullName,
-        headRef,
-      })
-      for (const issueId of issueIds) {
-        await applyPrReopenedState({
-          issueId,
-          prUrl: htmlUrl,
-          // The close cleared the base edge; the payload carries the live one.
-          baseBranch: pr.base?.ref ?? null,
+      if (row) {
+        await applyPullRequestReopened({
+          pullRequestId: row.id,
+          base: pr.base?.ref ?? null,
+          draft: pr.draft === true,
         })
       }
-      await applySessionPrState({
-        prUrl: htmlUrl,
-        state: `open`,
-        baseBranch: pr.base?.ref ?? null,
-      })
       return jsonResponse(200, { ok: true })
     }
 
-    // Opened out-of-band: link the PR to its issue if it has none yet.
     if (payload.action === `opened` && repoFullName && headRef && pr.number) {
-      const issueIds = await resolveIssuesForPr({
-        htmlUrl,
-        repoFullName,
-        headRef,
-      })
-      // EXP-494: the MCP open_pr tool claimed its actor (keyed on the head
-      // branch — the PR number doesn't exist before creation) so this leg
-      // fires attributed with a title byte-identical to the tool's own
-      // fan-out; deliver()'s dedupe window collapses the racing pair.
+      // EXP-494: pr_open claimed its actor keyed on the head branch.
       const claim = takePrOpenClaim(repoFullName, headRef)
-      // EXP-617: for a PR opened OUT OF BAND (an agent running `gh` under the
-      // developer's own credentials, or the compare view on github.com) this
-      // is the only signal that names a human — our own open_pr calls carry
-      // the App bot and resolve to nobody, leaving the claim in charge.
+      // EXP-617: for a PR opened out of band this is the only signal that
+      // names a human; our own pr_open calls carry the App bot.
       const githubActorUserId = await resolveAppUserForGithubActor(
         pr.user ?? payload.sender
       )
-      for (const issueId of issueIds) {
-        await applyPrOpenedState({
-          githubActorUserId,
-          issueId,
-          prUrl: htmlUrl,
-          prNumber: pr.number,
-          branch: headRef,
-          // A new PR never inherits the base of an earlier, closed one.
-          baseBranch: pr.base?.ref ?? null,
-          ...(claim
-            ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
-            : { actorUserId: null }),
-        })
-      }
+      await adoptOutOfBandPullRequest({
+        repoFullName,
+        url: htmlUrl,
+        number: pr.number,
+        title: pr.title ?? null,
+        head: headRef,
+        base: pr.base?.ref ?? ``,
+        draft: pr.draft === true,
+        githubActorUserId,
+        ...(claim
+          ? { actorUserId: claim.userId, actorViaAgent: claim.viaAgent }
+          : { actorUserId: null }),
+      })
       return jsonResponse(200, { ok: true })
     }
 
-    // The PR was retargeted (on github.com, or by our own retarget/heal).
-    if (payload.action === `edited` && payload.changes?.base) {
-      await applyPrBaseBranchEdit({
-        prUrl: htmlUrl,
-        baseRef: pr.base?.ref ?? null,
+    // Retargeted (on github.com, by our own retarget, or GitHub's restack).
+    if (payload.action === `edited` && payload.changes?.base && row && pr.base?.ref) {
+      await applyPullRequestBase({ pullRequestId: row.id, base: pr.base.ref })
+      return jsonResponse(200, { ok: true })
+    }
+
+    if (
+      (payload.action === `converted_to_draft` || payload.action === `ready_for_review`) &&
+      row
+    ) {
+      await applyPullRequestDraft({
+        pullRequestId: row.id,
+        draft: payload.action === `converted_to_draft`,
       })
       return jsonResponse(200, { ok: true })
     }

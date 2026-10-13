@@ -110,13 +110,13 @@ vi.mock(`@/lib/auth/membership-cache`, () => ({
 
 // EXP-481: membership end clears device shares; a cleared share ends the
 // foreign-hosted sessions it was the consent for.
-vi.mock(`@/lib/coding-session-kill`, () => ({
+vi.mock(`@/lib/sessions/lifecycle`, () => ({
   endForeignHostedSessions: vi.fn(async () => [] as string[]),
 }))
 
 import { teamMembersRouter } from "@/lib/trpc/team-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import { endForeignHostedSessions } from "@/lib/coding-session-kill"
+import { endForeignHostedSessions } from "@/lib/sessions/lifecycle"
 import {
   devices,
   issues,

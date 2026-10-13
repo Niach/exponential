@@ -52,8 +52,6 @@ import { Route as ApiSupportThreadRouteImport } from './routes/api/support/threa
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
-import { Route as ApiShapesThreadsRouteImport } from './routes/api/shapes/threads'
-import { Route as ApiShapesThreadItemsRouteImport } from './routes/api/shapes/thread-items'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
 import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
@@ -75,13 +73,12 @@ import { Route as ApiShapesIssueDraftsRouteImport } from './routes/api/shapes/is
 import { Route as ApiShapesDevicesRouteImport } from './routes/api/shapes/devices'
 import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shapes/device-worktrees'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
-import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
 import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
-import { Route as ApiSessionResultsTokenRouteImport } from './routes/api/session-results/$token'
 import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
 import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
+import { Route as ApiGuideUploadsTokenRouteImport } from './routes/api/guide-uploads/$token'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
@@ -348,16 +345,6 @@ const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
   path: '/api/shapes/users',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesThreadsRoute = ApiShapesThreadsRouteImport.update({
-  id: '/api/shapes/threads',
-  path: '/api/shapes/threads',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesThreadItemsRoute = ApiShapesThreadItemsRouteImport.update({
-  id: '/api/shapes/thread-items',
-  path: '/api/shapes/thread-items',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiShapesTeamsRoute = ApiShapesTeamsRouteImport.update({
   id: '/api/shapes/teams',
   path: '/api/shapes/teams',
@@ -466,11 +453,6 @@ const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
   path: '/api/shapes/comments',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesCodingSessionsRoute = ApiShapesCodingSessionsRouteImport.update({
-  id: '/api/shapes/coding-sessions',
-  path: '/api/shapes/coding-sessions',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiShapesBoardsRoute = ApiShapesBoardsRouteImport.update({
   id: '/api/shapes/boards',
   path: '/api/shapes/boards',
@@ -486,11 +468,6 @@ const ApiShapesActionsRoute = ApiShapesActionsRouteImport.update({
   path: '/api/shapes/actions',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSessionResultsTokenRoute = ApiSessionResultsTokenRouteImport.update({
-  id: '/api/session-results/$token',
-  path: '/api/session-results/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiMcpOauthClientDotjsonRoute =
   ApiMcpOauthClientDotjsonRouteImport.update({
     id: '/api/mcp-oauth/client.json',
@@ -500,6 +477,11 @@ const ApiMcpOauthClientDotjsonRoute =
 const ApiMcpOauthCallbackRoute = ApiMcpOauthCallbackRouteImport.update({
   id: '/api/mcp-oauth/callback',
   path: '/api/mcp-oauth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGuideUploadsTokenRoute = ApiGuideUploadsTokenRouteImport.update({
+  id: '/api/guide-uploads/$token',
+  path: '/api/guide-uploads/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
@@ -796,13 +778,12 @@ export interface FileRoutesByFullPath {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
-  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
-  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -824,8 +805,6 @@ export interface FileRoutesByFullPath {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
-  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
-  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -912,13 +891,12 @@ export interface FileRoutesByTo {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
-  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
-  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -940,8 +918,6 @@ export interface FileRoutesByTo {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
-  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
-  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -1033,13 +1009,12 @@ export interface FileRoutesById {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
-  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
-  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -1061,8 +1036,6 @@ export interface FileRoutesById {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
-  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
-  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -1154,13 +1127,12 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
-    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
-    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1182,8 +1154,6 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
-    | '/api/shapes/thread-items'
-    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1270,13 +1240,12 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
-    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
-    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1298,8 +1267,6 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
-    | '/api/shapes/thread-items'
-    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1390,13 +1357,12 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
-    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
-    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1418,8 +1384,6 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
-    | '/api/shapes/thread-items'
-    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1501,13 +1465,12 @@ export interface RootRouteChildren {
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
+  ApiGuideUploadsTokenRoute: typeof ApiGuideUploadsTokenRoute
   ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
-  ApiSessionResultsTokenRoute: typeof ApiSessionResultsTokenRoute
   ApiShapesActionsRoute: typeof ApiShapesActionsRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
-  ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesDeviceWorktreesRoute: typeof ApiShapesDeviceWorktreesRoute
   ApiShapesDevicesRoute: typeof ApiShapesDevicesRoute
@@ -1529,8 +1492,6 @@ export interface RootRouteChildren {
   ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
-  ApiShapesThreadItemsRoute: typeof ApiShapesThreadItemsRoute
-  ApiShapesThreadsRoute: typeof ApiShapesThreadsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
   ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
@@ -1850,20 +1811,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/threads': {
-      id: '/api/shapes/threads'
-      path: '/api/shapes/threads'
-      fullPath: '/api/shapes/threads'
-      preLoaderRoute: typeof ApiShapesThreadsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/thread-items': {
-      id: '/api/shapes/thread-items'
-      path: '/api/shapes/thread-items'
-      fullPath: '/api/shapes/thread-items'
-      preLoaderRoute: typeof ApiShapesThreadItemsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/shapes/teams': {
       id: '/api/shapes/teams'
       path: '/api/shapes/teams'
@@ -2011,13 +1958,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesCommentsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/coding-sessions': {
-      id: '/api/shapes/coding-sessions'
-      path: '/api/shapes/coding-sessions'
-      fullPath: '/api/shapes/coding-sessions'
-      preLoaderRoute: typeof ApiShapesCodingSessionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/shapes/boards': {
       id: '/api/shapes/boards'
       path: '/api/shapes/boards'
@@ -2039,13 +1979,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesActionsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/session-results/$token': {
-      id: '/api/session-results/$token'
-      path: '/api/session-results/$token'
-      fullPath: '/api/session-results/$token'
-      preLoaderRoute: typeof ApiSessionResultsTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/mcp-oauth/client.json': {
       id: '/api/mcp-oauth/client.json'
       path: '/api/mcp-oauth/client.json'
@@ -2058,6 +1991,13 @@ declare module '@tanstack/react-router' {
       path: '/api/mcp-oauth/callback'
       fullPath: '/api/mcp-oauth/callback'
       preLoaderRoute: typeof ApiMcpOauthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/guide-uploads/$token': {
+      id: '/api/guide-uploads/$token'
+      path: '/api/guide-uploads/$token'
+      fullPath: '/api/guide-uploads/$token'
+      preLoaderRoute: typeof ApiGuideUploadsTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/email/unsubscribe': {
@@ -2548,13 +2488,12 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
+  ApiGuideUploadsTokenRoute: ApiGuideUploadsTokenRoute,
   ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
-  ApiSessionResultsTokenRoute: ApiSessionResultsTokenRoute,
   ApiShapesActionsRoute: ApiShapesActionsRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
-  ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesDeviceWorktreesRoute: ApiShapesDeviceWorktreesRoute,
   ApiShapesDevicesRoute: ApiShapesDevicesRoute,
@@ -2576,8 +2515,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
-  ApiShapesThreadItemsRoute: ApiShapesThreadItemsRoute,
-  ApiShapesThreadsRoute: ApiShapesThreadsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
   ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,

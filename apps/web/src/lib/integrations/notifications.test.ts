@@ -17,7 +17,7 @@ function chain(): Promise<unknown[]> & Record<string, () => unknown> {
   const p = Promise.resolve(
     selectResults.shift() ?? []
   ) as Promise<unknown[]> & Record<string, () => unknown>
-  for (const m of [`from`, `where`, `innerJoin`, `leftJoin`, `limit`]) {
+  for (const m of [`from`, `where`, `innerJoin`, `leftJoin`, `limit`, `orderBy`]) {
     p[m] = () => p
   }
   return p
@@ -172,19 +172,23 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     since: `2026-09-19T00:00:00Z`,
   } as const
 
-  it(`names an issue run by its identifier and pushes the session target`, async () => {
-    selectResults.push([
-      {
-        userId: `owner`,
-        teamId: `team-1`,
-        teamSlug: `acme`,
-        issueId: `issue-1`,
-        batchIssueIds: null,
-        actionName: null,
-      },
-    ])
+  const session = {
+    id: `sess-1`,
+    rootId: `sess-1`,
+    title: null,
+    actionName: null,
+    name: null,
+    userId: `owner`,
+    teamId: `team-1`,
+    teamSlug: `acme`,
+    deviceId: `dev-1`,
+    cli: `claude`,
+    account: null,
+  }
+
+  it(`names the session by its title and pushes the session target`, async () => {
+    selectResults.push([{ ...session, title: `Fix login` }])
     selectResults.push([]) // throttle: no recent wall
-    selectResults.push([{ identifier: `EXP-12` }])
     selectResults.push([{ id: `owner` }]) // membership guard
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([]) // push prefs: not muted
@@ -193,107 +197,35 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
 
     expect(executeState.calls).toBe(1)
     const [recipients, payload] = vi.mocked(sendToUsers).mock.calls[0]!
-    expect(recipients).toEqual([
-      { userId: `owner`, data: { notificationId: `n-1` } },
-    ])
+    expect(recipients).toEqual([{ userId: `owner`, data: { notificationId: `n-1` } }])
     expect(payload).toMatchObject({
-      title: `EXP-12 hit a rate limit`,
+      title: `Fix login hit a rate limit`,
       body: `Rate limited`,
-      data: {
-        type: `session_blocked`,
-        sessionId: `sess-1`,
-        teamId: `team-1`,
-        teamSlug: `acme`,
-      },
+      data: { type: `session_blocked`, sessionId: `sess-1`, teamId: `team-1`, teamSlug: `acme` },
     })
   })
 
-  it(`names a batch by its first issue and the rest, an action run by its name`, async () => {
-    selectResults.push([
-      {
-        userId: `owner`,
-        teamId: `team-1`,
-        teamSlug: `acme`,
-        issueId: null,
-        batchIssueIds: [`issue-1`, `issue-2`, `issue-3`],
-        actionName: null,
-      },
-    ])
-    selectResults.push([]) // throttle: no recent wall
-    // The covered rows, in whatever order the lookup returns them: the name
-    // follows the STORED order (lib/batch-run.ts), the same rule every list
-    // row uses, so the push and the row it opens agree.
-    selectResults.push([
-      { id: `issue-3`, identifier: `EXP-14`, title: `Third` },
-      { id: `issue-1`, identifier: `EXP-12`, title: `First` },
-      { id: `issue-2`, identifier: `EXP-13`, title: `Second` },
-    ])
+  it(`derives an untitled thread's name from its first issue, else its action`, async () => {
+    selectResults.push([session])
+    selectResults.push([]) // throttle
+    selectResults.push([{ identifier: `EXP-12`, title: `Login bug` }]) // the root's issues
     selectResults.push([{ id: `owner` }])
     executeState.rows = [{ id: `n-1`, user_id: `owner` }]
     selectResults.push([])
     await notifySessionBlocked(`sess-1`, blocked)
-    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(
-      `EXP-12 +2 hit a rate limit`
-    )
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Login bug hit a rate limit`)
 
-    // A lead issue that no longer resolves: the next covered one leads and
-    // the stored count still names the whole batch — batchRunName's rule,
-    // not a fall-through to `Agent run`.
     vi.mocked(sendToUsers).mockClear()
-    selectResults.push([
-      {
-        userId: `owner`,
-        teamId: `team-1`,
-        teamSlug: `acme`,
-        issueId: null,
-        batchIssueIds: [`gone`, `issue-2`, `issue-3`],
-        actionName: null,
-      },
-    ])
-    selectResults.push([]) // throttle: no recent wall
-    selectResults.push([
-      { id: `issue-2`, identifier: `EXP-13`, title: `Second` },
-      { id: `issue-3`, identifier: `EXP-14`, title: `Third` },
-    ])
-    selectResults.push([{ id: `owner` }])
-    executeState.rows = [{ id: `n-1`, user_id: `owner` }]
+    selectResults.push([{ ...session, actionName: `Triage inbox` }])
     selectResults.push([])
-    await notifySessionBlocked(`sess-1`, blocked)
-    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(
-      `EXP-13 +2 hit a rate limit`
-    )
-
-    vi.mocked(sendToUsers).mockClear()
-    selectResults.push([
-      {
-        userId: `owner`,
-        teamId: `team-1`,
-        teamSlug: `acme`,
-        issueId: null,
-        batchIssueIds: null,
-        actionName: `Triage inbox`,
-      },
-    ])
-    selectResults.push([]) // throttle: no recent wall
     selectResults.push([{ id: `owner` }])
     selectResults.push([])
     await notifySessionBlocked(`sess-2`, blocked)
-    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(
-      `Triage inbox hit a rate limit`
-    )
+    expect(vi.mocked(sendToUsers).mock.calls[0]![1].title).toBe(`Triage inbox hit a rate limit`)
   })
 
   it(`writes nothing for an owner who left the team, and never throws`, async () => {
-    selectResults.push([
-      {
-        userId: `owner`,
-        teamId: `team-1`,
-        teamSlug: `acme`,
-        issueId: null,
-        batchIssueIds: null,
-        actionName: null,
-      },
-    ])
+    selectResults.push([{ ...session, title: `Gone` }])
     selectResults.push([]) // throttle: no recent wall
     selectResults.push([]) // membership guard: gone
     await notifySessionBlocked(`sess-1`, blocked)
@@ -309,17 +241,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
   // account) per owner per hour. The throttle query returns the owner's
   // recent session_blocked rows with their runs' profiles.
   describe(`the per-profile hourly throttle`, () => {
-    const walled = {
-      userId: `owner`,
-      teamId: `team-1`,
-      teamSlug: `acme`,
-      issueId: null,
-      batchIssueIds: null,
-      actionName: `Triage inbox`,
-      deviceId: `dev-1`,
-      agent: `claude`,
-      agentAccount: null,
-    }
+    const walled = { ...session, actionName: `Triage inbox` }
     const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000)
 
     function expectDelivered() {
@@ -334,8 +256,8 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         {
           createdAt: minutesAgo(20),
           deviceId: `dev-1`,
-          agent: `claude`,
-          agentAccount: null,
+          cli: `claude`,
+          account: null,
         },
       ])
       await notifySessionBlocked(`sess-2`, blocked)
@@ -344,19 +266,19 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
     })
 
     it(`a wall on another profile of the same device is delivered`, async () => {
-      selectResults.push([{ ...walled, agentAccount: `work` }])
+      selectResults.push([{ ...walled, account: `work` }])
       selectResults.push([
         {
           createdAt: minutesAgo(5),
           deviceId: `dev-1`,
-          agent: `claude`,
-          agentAccount: null, // an unrecorded account
+          cli: `claude`,
+          account: null, // an unrecorded account
         },
         {
           createdAt: minutesAgo(5),
           deviceId: `dev-1`,
-          agent: `codex`,
-          agentAccount: `work`,
+          cli: `codex`,
+          account: `work`,
         },
       ])
       expectDelivered()
@@ -371,8 +293,8 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
         {
           createdAt: minutesAgo(61),
           deviceId: `dev-1`,
-          agent: `claude`,
-          agentAccount: null,
+          cli: `claude`,
+          account: null,
         },
       ])
       expectDelivered()
