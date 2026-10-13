@@ -278,6 +278,10 @@ pub(crate) fn outcome_result(outcome: &ExecOutcome) -> Value {
         ExecError::Script(text) => text.clone(),
         ExecError::Timeout => format!("timed out after {:?}; split the work or raise timeout_ms", outcome.elapsed),
         ExecError::Cancelled => "the session ended while the script ran".to_string(),
+        ExecError::OutOfMemory { ceiling_bytes } => format!(
+            "the script held more than {} MB of memory and was stopped; keep less in memory (summarize as you go, return less)",
+            ceiling_bytes / (1024 * 1024)
+        ),
     });
     let structured = json!({
         "ok": outcome.ok(),
@@ -371,9 +375,9 @@ text (Promise.allSettled tolerates it); `tools.<s>.<t>.raw(args)` returns the wh
 images replaced by `[image omitted; N bytes]`. The script is the body of an async function: top-level \
 `await` and `return` work. Back comes: console lines + the returned value as JSON (64 KB cap). \
 `ALL_TOOLS` is the name list with one-line summaries; `describe` has the schemas. No fs, network, imports \
-or timers besides sleep. timeout_ms ends the script at any await or call; a synchronous loop that never \
-awaits is bounded only by a 10M-iterations-per-function ceiling, so keep loops short and await inside \
-them. One call = a direct tool call, not a script.";
+or timers besides sleep. The script runs in its own process: timeout_ms ends it (a loop that never awaits \
+included) and so does holding more than 768 MB of memory, so keep loops short and summarize as you go. \
+One call = a direct tool call, not a script.";
 
 const DESCRIBE_DESCRIPTION: &str = "Input schemas of this session's MCP tools for use inside `exec`. `names` as \
 `mcp__<server>__<tool>`, `<server>.<tool>` or a bare tool name when unambiguous; omit it for every tool's \

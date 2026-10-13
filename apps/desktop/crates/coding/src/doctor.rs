@@ -1351,7 +1351,6 @@ fn output_with_optional_stdin(
     input: Option<String>,
     timeout: Duration,
 ) -> std::io::Result<std::process::Output> {
-    use std::io::Read as _;
     use std::io::Write as _;
     use std::process::Stdio;
     use wait_timeout::ChildExt as _;
@@ -1382,18 +1381,20 @@ fn output_with_optional_stdin(
     }
     // Drain the pipes on threads: a child that fills the ~64KB pipe buffer
     // would otherwise never exit and the wait below would never return.
-    let mut out_pipe = child.stdout.take().expect("stdout piped above");
-    let mut err_pipe = child.stderr.take().expect("stderr piped above");
-    let out = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = out_pipe.read_to_end(&mut buf);
-        buf
-    });
-    let err = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        let _ = err_pipe.read_to_end(&mut buf);
-        buf
-    });
+    // EXP-1287: the readers poll with a stop flag instead of blocking in
+    // `read_to_end`, so a probe survivor outside the process group that
+    // keeps a pipe open no longer parks two threads for the host's life.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let out_pipe = child.stdout.take().expect("stdout piped above");
+    let err_pipe = child.stderr.take().expect("stderr piped above");
+    let out = {
+        let stop = stop.clone();
+        std::thread::spawn(move || drain_until(out_pipe, &stop))
+    };
+    let err = {
+        let stop = stop.clone();
+        std::thread::spawn(move || drain_until(err_pipe, &stop))
+    };
     match child.wait_timeout(timeout)? {
         Some(status) => Ok(std::process::Output {
             status,
@@ -1407,11 +1408,9 @@ fn output_with_optional_stdin(
             }
             let _ = child.kill();
             let _ = child.wait(); // reap the direct child
-            // Deliberately NOT joining the readers: a survivor outside the
-            // process group could still hold a pipe; the threads exit on
-            // their own once every writer is gone.
-            drop(out);
-            drop(err);
+            // The readers end at their next poll (a survivor holding a
+            // pipe cannot keep them); not waited for here.
+            stop.store(true, std::sync::atomic::Ordering::Release);
             Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 format!("probe exceeded {timeout:?}"),
@@ -1419,6 +1418,54 @@ fn output_with_optional_stdin(
         }
     }
 }
+
+/// Read `pipe` to EOF, giving up once `stop` is set: the read waits in
+/// `poll(2)` slices of [`DRAIN_POLL`] so a writer that never closes cannot
+/// pin the thread.
+#[cfg(unix)]
+fn drain_until<R: std::io::Read + std::os::fd::AsRawFd>(
+    mut pipe: R,
+    stop: &std::sync::atomic::AtomicBool,
+) -> Vec<u8> {
+    let fd = pipe.as_raw_fd();
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        if stop.load(std::sync::atomic::Ordering::Acquire) {
+            return buf;
+        }
+        let mut pfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd for an fd this thread owns.
+        let ready = unsafe { libc::poll(&mut pfd, 1, DRAIN_POLL.as_millis() as libc::c_int) };
+        if ready < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return buf;
+        }
+        if ready == 0 {
+            continue;
+        }
+        match pipe.read(&mut chunk) {
+            Ok(0) => return buf,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return buf,
+        }
+    }
+}
+
+/// Windows pipes are not pollable this way and no probe runs in a process
+/// group there: a plain read to EOF.
+#[cfg(not(unix))]
+fn drain_until<R: std::io::Read>(mut pipe: R, _stop: &std::sync::atomic::AtomicBool) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let _ = pipe.read_to_end(&mut buf);
+    buf
+}
+
+/// How long a draining reader waits per poll before looking at its stop flag.
+const DRAIN_POLL: Duration = Duration::from_millis(100);
 
 /// First non-empty line of `--version` output, with the tool's own noise
 /// prefix stripped (`git version 2.39.5 …` → `2.39.5 …`; `codex-cli 0.46.0`

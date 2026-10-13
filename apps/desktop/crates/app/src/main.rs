@@ -36,6 +36,11 @@ fn main() {
     if let Some(generation) = coding::computer::worker::requested_generation() {
         coding::computer::worker::run_and_exit(generation);
     }
+    // EXP-1287: and as code mode's script worker (`__codemode-worker`, one
+    // child per `exec`): the engine and nothing else, killable by its host.
+    if coding::codemode::worker::requested() {
+        coding::codemode::worker::run_and_exit();
+    }
     // EXP-1099: THE logger, first — `{data_dir}/logs/exponential.log`
     // (rotated at 5 MB, 3 kept; level from `EXP_LOG`, default info). Before
     // this the app installed none, so every `log::` line (a failing

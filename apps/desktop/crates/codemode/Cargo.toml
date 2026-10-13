@@ -29,3 +29,9 @@ reqwest = { workspace = true }
 boa_engine = { version = "0.22", default-features = false }
 # EXP-1279: the contract's `expToolDisplay` subject keys, for the call log.
 domain = { path = "../domain" }
+
+# EXP-1287: the script worker's memory ceiling — the host reads the child's
+# resident size (macOS `proc_pidinfo`, Linux `/proc`), the Linux child caps
+# its own data segment.
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }

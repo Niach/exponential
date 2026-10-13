@@ -1725,6 +1725,7 @@ version = "0.14.67"
 dependencies = [
  "boa_engine",
  "domain",
+ "libc",
  "log",
  "reqwest",
  "serde",

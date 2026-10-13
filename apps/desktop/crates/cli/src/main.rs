@@ -141,6 +141,11 @@ fn main() -> ExitCode {
     if let Some(generation) = coding::computer::worker::requested_generation() {
         coding::computer::worker::run_and_exit(generation);
     }
+    // EXP-1287: and as code mode's script worker (`__codemode-worker`, one
+    // child per `exec`): the engine and nothing else, killable by its host.
+    if coding::codemode::worker::requested() {
+        coding::codemode::worker::run_and_exit();
+    }
     // The CLI is its own 426-gated platform: every request must say
     // `cli/<version>`, never ride the desktop's gate. Before any HTTP.
     domain::client_version::set_client_identity("cli", cli_version());

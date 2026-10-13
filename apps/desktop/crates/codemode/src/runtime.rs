@@ -1,12 +1,12 @@
-//! EXP-1236: the script engine behind `exec`. One boa `Context` per script,
-//! on its own thread, with an event loop driven BY HAND: every
-//! `tools.<server>.<tool>(args)` the script awaits becomes a pending JS
-//! promise plus a job on a bounded pool of call threads (at most
-//! [`Limits::max_in_flight`] of them, the rest queue in order); the loop
-//! drains microtasks, waits for completions and settles promises as they
-//! land, so N awaited calls under `Promise.all` really run at once. The
-//! engine's own job executor is replaced by one that looks at the script's
-//! deadline between jobs ([`DeadlineExecutor`]).
+//! EXP-1236: the script engine behind `exec`. One boa `Context` per script
+//! with an event loop driven BY HAND: every `tools.<server>.<tool>(args)`
+//! the script awaits becomes a pending JS promise plus a call the host runs
+//! on a bounded pool of call threads (at most [`Limits::max_in_flight`] of
+//! them, the rest queue in order); the loop drains microtasks, waits for
+//! completions and settles promises as they land, so N awaited calls under
+//! `Promise.all` really run at once. The engine's own job executor is
+//! replaced by one that looks at the script's deadline between jobs
+//! ([`DeadlineExecutor`]).
 //!
 //! Nothing else reaches the script: no filesystem, no network, no timers
 //! besides `sleep`, no imports (the context carries boa's idle module
@@ -15,7 +15,20 @@
 //! capped, so a script that reads a hundred windows puts one summary into
 //! the model's context instead of a hundred screenshots.
 //!
-//! # The deadline and what it cannot stop
+//! # Where the engine runs (EXP-1287)
+//!
+//! The engine is split from the host by [`EngineIo`]: the engine makes
+//! calls and prints, the host answers calls on a [`Completion`] channel.
+//! In production the engine runs in a WORKER PROCESS per script
+//! (`worker.rs`: the host re-runs its own executable, speaks JSON lines
+//! over the child's stdio and keeps the credentials, the call pool, the
+//! console and the call log on ITS side), so a runaway script dies with
+//! its process: at the deadline, at a revoke, or when its resident memory
+//! passes [`Limits::memory_bytes`]. The same engine also runs in process
+//! ([`Isolation::InProcess`]: a thread, the only mode the tests use and
+//! the fallback when the worker cannot be spawned).
+//!
+//! # The deadline inside the engine
 //!
 //! boa 0.22 has no preemptive interrupt: a running function is only ever
 //! stopped by its own limits (a per-call-frame loop ceiling, a recursion
@@ -26,17 +39,13 @@
 //! that awaits anything, or calls anything, ends within one tick of its
 //! deadline; `run_script` itself ALWAYS returns at the deadline.
 //!
-//! The residual: a synchronous loop that never awaits (`while (true) {}`,
-//! a busy-wait in a helper function, a pathological regex) keeps its
+//! The residual in-process: a synchronous loop that never awaits
+//! (`while (true) {}`, a busy-wait in a helper function) keeps its
 //! abandoned engine thread busy until boa's per-frame ceiling ends it
-//! ([`Limits::loop_iterations`] iterations per call frame, seconds in
-//! practice). A loop that re-enters a helper on every iteration gets a
-//! fresh frame ceiling each time, so such a thread can outlive the script
-//! by a long time, pinning one core until the host process exits. The
-//! caller got its timeout answer regardless; nothing the thread does can
-//! reach a tool (every native refuses past the deadline) or the result.
-//! A true kill needs a child process per script, which the hosts do not
-//! wire today.
+//! ([`Limits::loop_iterations`] iterations per call frame), and one that
+//! re-enters a helper per iteration gets a fresh ceiling each time. That is
+//! exactly what the worker process is for; in process the caller still
+//! gets its timeout answer and no native answers past the deadline.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -55,9 +64,11 @@ use boa_engine::module::IdleModuleLoader;
 use boa_engine::object::builtins::JsPromise;
 use boa_engine::property::PropertyKey;
 use boa_engine::{js_string, Context, JsError, JsNativeError, JsResult, JsValue, NativeFunction, Source};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::catalog::Catalog;
+use crate::worker::{self, WorkerCommand};
 
 /// What the engine asks of the run: ONE MCP `tools/call`, answered as the
 /// raw MCP call result (`content`, `structuredContent`, `isError`), or a
@@ -66,8 +77,9 @@ pub trait CallHost: Send + Sync {
     fn call(&self, server: &str, tool: &str, args: Value) -> Result<Value, String>;
 }
 
-/// The ceilings one script runs under.
-#[derive(Clone, Debug)]
+/// The ceilings one script runs under (serialized to the worker as is).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Limits {
     /// Wall clock for the whole script.
     pub timeout: Duration,
@@ -85,6 +97,10 @@ pub struct Limits {
     pub recursion: usize,
     /// boa's value-stack ceiling (entries).
     pub stack_size: usize,
+    /// EXP-1287: the worker process's resident-memory ceiling; past it the
+    /// host kills the worker and the script fails as
+    /// [`ExecError::OutOfMemory`]. In process it is not enforced.
+    pub memory_bytes: u64,
 }
 
 /// `timeout_ms` default and bounds (`exec`'s schema says the same).
@@ -93,6 +109,10 @@ pub const MIN_TIMEOUT: Duration = Duration::from_secs(1);
 pub const MAX_TIMEOUT: Duration = Duration::from_secs(1800);
 /// Nested calls in flight at once.
 pub const MAX_IN_FLIGHT: usize = 16;
+/// EXP-1287: a script that holds more than this is a mistake, not a
+/// program (a few thousand issues as JSON are a few MB); well under what
+/// would push a laptop into swap.
+pub const DEFAULT_MEMORY_BYTES: u64 = 768 * 1024 * 1024;
 
 impl Default for Limits {
     fn default() -> Self {
@@ -104,6 +124,7 @@ impl Default for Limits {
             loop_iterations: 10_000_000,
             recursion: 256,
             stack_size: 10 * 1024,
+            memory_bytes: DEFAULT_MEMORY_BYTES,
         }
     }
 }
@@ -117,6 +138,9 @@ pub enum ExecError {
     Timeout,
     /// The run ended (its grant was revoked) while the script ran.
     Cancelled,
+    /// EXP-1287: the worker's resident memory passed [`Limits::memory_bytes`]
+    /// (the ceiling, in bytes) and it was killed.
+    OutOfMemory { ceiling_bytes: u64 },
 }
 
 /// Counts for the result's footer, plus the call log the host's activity
@@ -205,9 +229,10 @@ impl ExecOutcome {
 }
 
 /// Run `script` to completion (or to a limit) and report. Blocks the caller
-/// for at most `limits.timeout`; on timeout the engine thread is told to
-/// stop (every native and job boundary sees it) and abandoned, see the
-/// module docs for the one case it keeps running.
+/// for at most `limits.timeout`. Outside the crate's own tests the script
+/// runs in a worker process ([`Isolation::Worker`]) that is killed at the
+/// deadline, at a revoke and at the memory ceiling; a worker that cannot be
+/// spawned falls back to the in-process engine with a warning.
 pub fn run_script(
     script: &str,
     catalog: Arc<Catalog>,
@@ -215,12 +240,60 @@ pub fn run_script(
     cancelled: Arc<AtomicBool>,
     limits: Limits,
 ) -> ExecOutcome {
-    run_script_observed(script, catalog, host, cancelled, limits).0
+    run_script_with(default_isolation(), script, catalog, host, cancelled, limits)
 }
 
-/// [`run_script`] plus a flag the engine thread sets when it has really
+/// Where the engine runs.
+#[derive(Clone, Debug)]
+pub(crate) enum Isolation {
+    /// A thread of this process (tests; the fallback).
+    InProcess,
+    /// EXP-1287: a child process per script, killed when it misbehaves.
+    Worker(WorkerCommand),
+}
+
+fn default_isolation() -> Isolation {
+    // The crate's own tests run the engine in process: the test harness
+    // binary is not a worker (the worker tests build their command by hand).
+    if cfg!(test) {
+        return Isolation::InProcess;
+    }
+    match WorkerCommand::own_executable() {
+        Some(command) => Isolation::Worker(command),
+        None => {
+            log::warn!("[codemode] own executable not found; scripts run in process");
+            Isolation::InProcess
+        }
+    }
+}
+
+pub(crate) fn run_script_with(
+    isolation: Isolation,
+    script: &str,
+    catalog: Arc<Catalog>,
+    host: Arc<dyn CallHost>,
+    cancelled: Arc<AtomicBool>,
+    limits: Limits,
+) -> ExecOutcome {
+    match isolation {
+        Isolation::InProcess => run_in_process_observed(script, catalog, host, cancelled, limits).0,
+        Isolation::Worker(command) => {
+            match worker::supervise(&command, script, &catalog, host.clone(), cancelled.clone(), limits.clone()) {
+                Ok(outcome) => outcome,
+                Err(why) => {
+                    log::warn!("[codemode] could not start the script worker ({why}); running in process");
+                    run_in_process_observed(script, catalog, host, cancelled, limits).0
+                }
+            }
+        }
+    }
+}
+
+/// The in-process engine: a thread, abandoned at the deadline (every native
+/// and job boundary sees the stop; see the module docs for the one case it
+/// keeps running). Returns a flag the engine thread sets when it has really
 /// ended (for tests of the abandoned-thread path).
-pub(crate) fn run_script_observed(
+pub(crate) fn run_in_process_observed(
     script: &str,
     catalog: Arc<Catalog>,
     host: Arc<dyn CallHost>,
@@ -228,72 +301,92 @@ pub(crate) fn run_script_observed(
     limits: Limits,
 ) -> (ExecOutcome, Arc<AtomicBool>) {
     let started = Instant::now();
+    let deadline = started + limits.timeout;
     let console = Arc::new(Mutex::new(Console::new(limits.console_cap)));
     let stats = Arc::new(Mutex::new(CallStats::default()));
     let engine_exited = Arc::new(AtomicBool::new(false));
-    let (done_tx, done_rx) = mpsc::channel::<EngineReport>();
+    let (completions_tx, completions_rx) = mpsc::channel::<Completion>();
+    let dispatcher = Arc::new(Dispatcher::new(
+        host,
+        console.clone(),
+        stats.clone(),
+        Arc::new(move |completion| {
+            let _ = completions_tx.send(completion);
+        }),
+        cancelled.clone(),
+        deadline,
+        limits.max_in_flight,
+    ));
+    let prelude = Prelude::of(&catalog);
+    let (done_tx, done_rx) = mpsc::channel::<Result<(Value, bool), ExecError>>();
     let thread = {
         let script = script.to_string();
-        let console = console.clone();
-        let stats = stats.clone();
+        let io: Arc<dyn EngineIo> = dispatcher.clone();
         let cancelled = cancelled.clone();
         let limits = limits.clone();
         let exited = engine_exited.clone();
         std::thread::Builder::new().name("codemode-script".into()).spawn(move || {
-            let report = Engine::run(&script, catalog, host, console, stats, cancelled, limits);
-            let _ = done_tx.send(report);
+            let outcome = Engine::run(&script, &prelude, io, completions_rx, cancelled, limits);
+            let _ = done_tx.send(outcome);
             exited.store(true, Ordering::Release);
         })
     };
-    let (outcome, workers) = match thread {
+    let outcome = match thread {
         Ok(_) => match done_rx.recv_timeout(limits.timeout) {
-            Ok(report) => (report.outcome, report.workers),
+            Ok(outcome) => outcome,
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                (Err(ExecError::Script("the script engine crashed; see the host log".into())), 0)
+                Err(ExecError::Script("the script engine crashed; see the host log".into()))
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Stop everything still in flight from feeding a script
-                // nobody waits for; the engine thread sees the flag at its
-                // next native call or job boundary and returns.
-                cancelled.store(true, Ordering::Release);
-                (Err(ExecError::Timeout), 0)
-            }
+            // Nothing still in flight can feed a script nobody waits for:
+            // every native, pool job and job boundary refuses past the
+            // deadline on its own. (`cancelled` is the RUN's revoke flag,
+            // shared by every script of the run — setting it here would
+            // end the run's code mode with the first timeout.)
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(ExecError::Timeout),
         },
-        Err(err) => (Err(ExecError::Script(format!("could not start the script thread: {err}"))), 0),
+        Err(err) => Err(ExecError::Script(format!("could not start the script thread: {err}"))),
     };
+    (finish(outcome, &console, &stats, started, dispatcher.workers()), engine_exited)
+}
+
+/// The report out of an engine's verdict plus what the host collected.
+pub(crate) fn finish(
+    outcome: Result<(Value, bool), ExecError>,
+    console: &Mutex<Console>,
+    stats: &Mutex<CallStats>,
+    started: Instant,
+    workers: usize,
+) -> ExecOutcome {
     let (console_text, console_cut) = console.lock().unwrap().take();
     let calls = stats.lock().unwrap().clone();
     let (result, error, result_cut) = match outcome {
         Ok((value, cut)) => (value, None, cut),
         Err(error) => (Value::Null, Some(error), false),
     };
-    (
-        ExecOutcome {
-            result,
-            console: console_text,
-            error,
-            calls,
-            truncated: console_cut || result_cut,
-            elapsed: started.elapsed(),
-            workers,
-        },
-        engine_exited,
-    )
+    ExecOutcome {
+        result,
+        console: console_text,
+        error,
+        calls,
+        truncated: console_cut || result_cut,
+        elapsed: started.elapsed(),
+        workers,
+    }
 }
 
 /// The script's captured output, cut at its cap with a note.
-struct Console {
+pub(crate) struct Console {
     text: String,
     cap: usize,
     dropped: usize,
 }
 
 impl Console {
-    fn new(cap: usize) -> Self {
+    pub(crate) fn new(cap: usize) -> Self {
         Self { text: String::new(), cap, dropped: 0 }
     }
 
-    fn push(&mut self, line: &str) {
+    pub(crate) fn push(&mut self, line: &str) {
         let room = self.cap.saturating_sub(self.text.len());
         if room == 0 {
             self.dropped += line.len() + 1;
@@ -313,7 +406,7 @@ impl Console {
         }
     }
 
-    fn take(&mut self) -> (String, bool) {
+    pub(crate) fn take(&mut self) -> (String, bool) {
         let mut text = std::mem::take(&mut self.text);
         let cut = self.dropped > 0;
         if cut {
@@ -323,29 +416,120 @@ impl Console {
     }
 }
 
-/// A completion for one pending promise.
-type Completion = (u64, Result<Value, String>);
+/// A completion for one pending promise: its id and the shaped answer.
+pub(crate) type Completion = (u64, Result<Value, String>);
 
-/// What the engine thread hands back.
-struct EngineReport {
-    outcome: Result<(Value, bool), ExecError>,
-    workers: usize,
+/// One call the script made, as the engine hands it to its host (and as the
+/// worker writes it to its stdout).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CallRequest {
+    pub id: u64,
+    pub server: String,
+    pub tool: String,
+    pub args: Value,
+    /// `tools.<s>.<t>.raw(args)`: the whole MCP result, images noted.
+    pub raw: bool,
+    /// EXP-1279: the argument keys in the order the script wrote them.
+    pub order: Vec<String>,
+}
+
+/// EXP-1287: the engine's two outputs, so the same engine runs in process
+/// (the host IS the [`Dispatcher`]) and in a worker (a pipe to it). A call
+/// is answered later on the engine's [`Completion`] channel; `Err` means it
+/// could not even be taken (the promise rejects at once).
+pub(crate) trait EngineIo: Send + Sync {
+    fn call(&self, request: CallRequest) -> Result<(), String>;
+    fn print(&self, text: &str);
+}
+
+/// What the host does with a call: runs it on the bounded pool with the
+/// run's credentials, shapes the answer, keeps the console, the counts and
+/// the call log, and delivers the completion wherever the engine listens
+/// (a channel in process, the worker's stdin).
+pub(crate) struct Dispatcher {
+    host: Arc<dyn CallHost>,
+    console: Arc<Mutex<Console>>,
+    stats: Arc<Mutex<CallStats>>,
+    pool: Pool,
+    deliver: Arc<dyn Fn(Completion) + Send + Sync>,
+    cancelled: Arc<AtomicBool>,
+    deadline: Instant,
+}
+
+impl Dispatcher {
+    pub(crate) fn new(
+        host: Arc<dyn CallHost>,
+        console: Arc<Mutex<Console>>,
+        stats: Arc<Mutex<CallStats>>,
+        deliver: Arc<dyn Fn(Completion) + Send + Sync>,
+        cancelled: Arc<AtomicBool>,
+        deadline: Instant,
+        max_in_flight: usize,
+    ) -> Self {
+        Self { host, console, stats, pool: Pool::new(max_in_flight), deliver, cancelled, deadline }
+    }
+
+    /// Call threads alive at the peak so far.
+    pub(crate) fn workers(&self) -> usize {
+        self.pool.peak()
+    }
+}
+
+impl EngineIo for Dispatcher {
+    fn call(&self, request: CallRequest) -> Result<(), String> {
+        let CallRequest { id, server, tool, args, raw, order } = request;
+        let subject = call_subject(&tool, &args, &order);
+        // The log slot is taken in CALL order, filled in when the call ends.
+        let logged = {
+            let mut stats = self.stats.lock().unwrap();
+            stats.count += 1;
+            (stats.log.len() < LOG_CAP).then(|| {
+                stats.log.push(CallRecord { tool: format!("{server}.{tool}"), subject, ok: false, ms: None });
+                stats.log.len() - 1
+            })
+        };
+        let (host, deliver, stats, cancelled, deadline) =
+            (self.host.clone(), self.deliver.clone(), self.stats.clone(), self.cancelled.clone(), self.deadline);
+        let job: PoolJob = Box::new(move || {
+            // Queued past the end: do not spend the upstream's time on it.
+            let started = Instant::now();
+            let (out, ran) = match ended(&cancelled, deadline) {
+                Some(_) => (Err("the script's deadline passed before the call started".to_string()), false),
+                None => (host.call(&server, &tool, args).and_then(|result| shape(result, raw)), true),
+            };
+            {
+                let mut stats = stats.lock().unwrap();
+                if out.is_err() {
+                    stats.failed += 1;
+                }
+                if let Some(record) = logged.and_then(|index| stats.log.get_mut(index)) {
+                    record.ok = out.is_ok();
+                    record.ms = ran.then(|| started.elapsed().as_millis() as u64);
+                }
+            }
+            deliver((id, out));
+        });
+        self.pool.submit(job).inspect_err(|_| {
+            self.stats.lock().unwrap().failed += 1;
+        })
+    }
+
+    fn print(&self, text: &str) {
+        self.console.lock().unwrap().push(text);
+    }
 }
 
 /// The engine's per-thread state the native functions reach through
 /// [`ENGINE`] (boa natives are plain `fn` pointers; captures would need the
 /// GC's `Trace`).
 struct EngineState {
-    host: Arc<dyn CallHost>,
-    console: Arc<Mutex<Console>>,
-    stats: Arc<Mutex<CallStats>>,
+    io: Arc<dyn EngineIo>,
     pending: HashMap<u64, ResolvingFunctions>,
     /// `sleep` promises by their due time; the run loop settles them (no
     /// thread per sleep).
     sleeps: Vec<(Instant, u64)>,
     next_id: u64,
-    completions: Sender<Completion>,
-    pool: Pool,
     deadline: Instant,
     cancelled: Arc<AtomicBool>,
 }
@@ -357,7 +541,7 @@ impl EngineState {
 }
 
 /// Which limit ended the script, if one did: a revoke wins over the clock.
-fn ended(cancelled: &AtomicBool, deadline: Instant) -> Option<ExecError> {
+pub(crate) fn ended(cancelled: &AtomicBool, deadline: Instant) -> Option<ExecError> {
     if cancelled.load(Ordering::Acquire) {
         Some(ExecError::Cancelled)
     } else if Instant::now() >= deadline {
@@ -511,6 +695,9 @@ impl JobExecutor for DeadlineExecutor {
         let mut futures: Vec<Pin<Box<dyn Future<Output = JsResult<JsValue>> + '_>>> = Vec::new();
         let waker = Waker::noop();
         let mut task = TaskContext::from_waker(waker);
+        // EXP-1287: a pending native future is re-polled with a backing-off
+        // wait (1 ms doubling to 50 ms), not a thousand wakeups a second.
+        let mut idle_wait = Duration::from_millis(1);
         loop {
             self.check()?;
             // Each queue is taken into a local FIRST: a `for` over the
@@ -549,52 +736,50 @@ impl JobExecutor for DeadlineExecutor {
                 }
                 // A native future with nothing to wake it: poll it again
                 // shortly, against the deadline.
-                std::thread::sleep(Duration::from_millis(1));
+                std::thread::sleep(idle_wait);
+                idle_wait = (idle_wait * 2).min(Duration::from_millis(50));
+            } else {
+                idle_wait = Duration::from_millis(1);
             }
         }
     }
 }
 
-struct Engine;
+pub(crate) struct Engine;
 
 impl Engine {
-    #[allow(clippy::too_many_arguments)]
-    fn run(
+    /// Run `script` on THIS thread against `prelude`'s tools; calls and
+    /// prints go to `io`, call answers arrive on `completions`.
+    pub(crate) fn run(
         script: &str,
-        catalog: Arc<Catalog>,
-        host: Arc<dyn CallHost>,
-        console: Arc<Mutex<Console>>,
-        stats: Arc<Mutex<CallStats>>,
+        prelude: &Prelude,
+        io: Arc<dyn EngineIo>,
+        completions: Receiver<Completion>,
         cancelled: Arc<AtomicBool>,
         limits: Limits,
-    ) -> EngineReport {
-        let (completions_tx, completions_rx) = mpsc::channel::<Completion>();
+    ) -> Result<(Value, bool), ExecError> {
         let deadline = Instant::now() + limits.timeout;
         ENGINE.with(|slot| {
             *slot.borrow_mut() = Some(EngineState {
-                host,
-                console,
-                stats,
+                io,
                 pending: HashMap::new(),
                 sleeps: Vec::new(),
                 next_id: 1,
-                completions: completions_tx,
-                pool: Pool::new(limits.max_in_flight),
                 deadline,
                 cancelled: cancelled.clone(),
             });
         });
-        let outcome = Self::run_inner(script, &catalog, &completions_rx, &cancelled, &limits, deadline);
-        // Drop the resolvers, the pool's sender and the completions sender
-        // with the state: the workers exit after their current call and a
+        let outcome = Self::run_inner(script, prelude, &completions, &cancelled, &limits, deadline);
+        // Drop the resolvers and the io with the state: in process the
+        // dispatcher's pool closes once the host is done with it too, and a
         // late completion just finds a closed channel.
-        let workers = ENGINE.with(|slot| slot.borrow_mut().take().map(|state| state.pool.peak()).unwrap_or(0));
-        EngineReport { outcome, workers }
+        ENGINE.with(|slot| slot.borrow_mut().take());
+        outcome
     }
 
     fn run_inner(
         script: &str,
-        catalog: &Catalog,
+        prelude: &Prelude,
         completions: &Receiver<Completion>,
         cancelled: &Arc<AtomicBool>,
         limits: &Limits,
@@ -621,7 +806,7 @@ impl Engine {
         context
             .register_global_builtin_callable(js_string!("__codemode_print"), 2, NativeFunction::from_fn_ptr(native_print))
             .map_err(script_error)?;
-        context.eval(Source::from_bytes(prelude(catalog).as_bytes())).map_err(script_error)?;
+        context.eval(Source::from_bytes(prelude.source().as_bytes())).map_err(script_error)?;
         // ONE wrapper line before the script: a syntax error's line number is
         // off by exactly one, which `script_error_text` corrects.
         let wrapped = format!("globalThis.__codemode_main = (async () => {{\n{script}\n}})();");
@@ -729,7 +914,6 @@ fn native_call(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
             .collect(),
         None => Vec::new(),
     };
-    let subject = call_subject(&tool, &payload, &order);
     let raw = args.get(3).is_some_and(JsValue::to_boolean);
     let (promise, resolvers) = JsPromise::new_pending(context);
     ENGINE.with(|slot| {
@@ -739,46 +923,11 @@ fn native_call(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
         let id = state.next_id;
         state.next_id += 1;
         state.pending.insert(id, resolvers);
-        // The log slot is taken in CALL order, filled in when the call ends.
-        let logged = {
-            let mut stats = state.stats.lock().unwrap();
-            stats.count += 1;
-            (stats.log.len() < LOG_CAP).then(|| {
-                stats.log.push(CallRecord { tool: format!("{server}.{tool}"), subject, ok: false, ms: None });
-                stats.log.len() - 1
-            })
-        };
-        let (host, tx, stats, cancelled, deadline) = (
-            state.host.clone(),
-            state.completions.clone(),
-            state.stats.clone(),
-            state.cancelled.clone(),
-            state.deadline,
-        );
-        let job: PoolJob = Box::new(move || {
-            // Queued past the end: do not spend the upstream's time on it.
-            let started = Instant::now();
-            let (out, ran) = match ended(&cancelled, deadline) {
-                Some(_) => (Err("the script's deadline passed before the call started".to_string()), false),
-                None => (host.call(&server, &tool, payload).and_then(|result| shape(result, raw)), true),
-            };
-            {
-                let mut stats = stats.lock().unwrap();
-                if out.is_err() {
-                    stats.failed += 1;
-                }
-                if let Some(record) = logged.and_then(|index| stats.log.get_mut(index)) {
-                    record.ok = out.is_ok();
-                    record.ms = ran.then(|| started.elapsed().as_millis() as u64);
-                }
-            }
-            let _ = tx.send((id, out));
-        });
-        if let Err(why) = state.pool.submit(job) {
-            // No thread could run it: the promise rejects with the reason
-            // at once instead of the script waiting for a timeout.
+        let request = CallRequest { id, server, tool, args: payload, raw, order };
+        if let Err(why) = state.io.call(request) {
+            // Nothing could run it: the promise rejects with the reason at
+            // once instead of the script waiting for a timeout.
             if let Some(resolvers) = state.pending.remove(&id) {
-                state.stats.lock().unwrap().failed += 1;
                 let error = JsNativeError::error().with_message(why).into_opaque(context);
                 resolvers.reject.call(&JsValue::undefined(), &[error.into()], context)?;
             }
@@ -818,7 +967,7 @@ fn native_print(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsR
             return Ok(());
         };
         ended_error(state)?;
-        state.console.lock().unwrap().push(&text);
+        state.io.print(&text);
         Ok::<_, JsError>(())
     })?;
     Ok(JsValue::undefined())
@@ -961,15 +1110,32 @@ fn script_error_text(text: String) -> String {
     }
 }
 
-/// The JS that turns the catalog into `tools`, plus `console`, `sleep` and
-/// `ALL_TOOLS`. Catalog data lands as JSON literals, never spliced text.
-fn prelude(catalog: &Catalog) -> String {
-    let pairs: Vec<(String, String)> =
-        catalog.tools.iter().map(|tool| (tool.server.clone(), tool.name.clone())).collect();
-    let pairs = serde_json::to_string(&pairs).unwrap_or_else(|_| "[]".to_string());
-    let all_tools = serde_json::to_string(&catalog.all_tools_text()).unwrap_or_else(|_| "\"\"".to_string());
-    format!(
-        r#"(() => {{
+/// What the script's prelude is built from: the catalog's `(server, tool)`
+/// pairs and the `ALL_TOOLS` text. Small and serializable, so the worker
+/// gets exactly this and never the schemas.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Prelude {
+    pairs: Vec<(String, String)>,
+    all_tools: String,
+}
+
+impl Prelude {
+    pub(crate) fn of(catalog: &Catalog) -> Self {
+        Self {
+            pairs: catalog.tools.iter().map(|tool| (tool.server.clone(), tool.name.clone())).collect(),
+            all_tools: catalog.all_tools_text(),
+        }
+    }
+
+    /// The JS that turns the catalog into `tools`, plus `console`, `sleep`
+    /// and `ALL_TOOLS`. Catalog data lands as JSON literals, never spliced
+    /// text.
+    fn source(&self) -> String {
+        let pairs = serde_json::to_string(&self.pairs).unwrap_or_else(|_| "[]".to_string());
+        let all_tools = serde_json::to_string(&self.all_tools).unwrap_or_else(|_| "\"\"".to_string());
+        format!(
+            r#"(() => {{
 const __pairs = {pairs};
 const __t = Object.create(null);
 for (const [server, name] of __pairs) {{
@@ -994,7 +1160,8 @@ globalThis.console = Object.freeze({{
 }});
 globalThis.ALL_TOOLS = {all_tools};
 }})();"#
-    )
+        )
+    }
 }
 
 #[cfg(test)]
@@ -1245,7 +1412,7 @@ return { names, hasAll: ALL_TOOLS.includes("mcp__t__slow"), direct: ALL_TOOLS.in
     fn a_sync_spin_times_out_at_the_deadline_and_its_thread_ends_at_the_frame_ceiling() {
         let host = FakeHost::new();
         let host_dyn: Arc<dyn CallHost> = host.clone();
-        let (outcome, engine_exited) = run_script_observed(
+        let (outcome, engine_exited) = run_in_process_observed(
             "while (true) {} return 1;",
             catalog(),
             host_dyn,
@@ -1267,7 +1434,7 @@ return { names, hasAll: ALL_TOOLS.includes("mcp__t__slow"), direct: ALL_TOOLS.in
     fn an_async_spin_ends_at_the_deadline() {
         let host = FakeHost::new();
         let host_dyn: Arc<dyn CallHost> = host.clone();
-        let (outcome, engine_exited) = run_script_observed(
+        let (outcome, engine_exited) = run_in_process_observed(
             "let i = 0; while (true) { await null; i++; } return i;",
             catalog(),
             host_dyn,
@@ -1289,7 +1456,7 @@ return { names, hasAll: ALL_TOOLS.includes("mcp__t__slow"), direct: ALL_TOOLS.in
     fn calls_after_the_deadline_are_refused_and_the_thread_ends() {
         let host = FakeHost::new();
         let host_dyn: Arc<dyn CallHost> = host.clone();
-        let (outcome, engine_exited) = run_script_observed(
+        let (outcome, engine_exited) = run_in_process_observed(
             "await tools.t.slow({ms: 600}); await tools.t.echo({late: true}); return 1;",
             catalog(),
             host_dyn,
@@ -1317,6 +1484,27 @@ return { names, hasAll: ALL_TOOLS.includes("mcp__t__slow"), direct: ALL_TOOLS.in
         assert_eq!(outcome.error, Some(ExecError::Timeout));
         assert_eq!(outcome.console, "before\n");
         assert!(outcome.elapsed < Duration::from_millis(1500), "{:?}", outcome.elapsed);
+    }
+
+    /// The flag `exec` passes is the run's revoke flag: a script's timeout
+    /// must not end code mode for the run's next script.
+    #[test]
+    fn a_timeout_does_not_cancel_the_runs_next_script() {
+        let host = FakeHost::new();
+        let host_dyn: Arc<dyn CallHost> = host.clone();
+        let run_cancelled = Arc::new(AtomicBool::new(false));
+        let first = run_script(
+            "await sleep(5000); return 1;",
+            catalog(),
+            host_dyn.clone(),
+            run_cancelled.clone(),
+            Limits { timeout: Duration::from_millis(300), ..Limits::default() },
+        );
+        assert_eq!(first.error, Some(ExecError::Timeout));
+        assert!(!run_cancelled.load(Ordering::Acquire), "the run's flag was set by a timeout");
+        let second = run_script("return (await tools.t.echo({again: true})).again;", catalog(), host_dyn, run_cancelled, Limits::default());
+        assert_eq!(second.error, None, "{second:?}");
+        assert_eq!(second.result, json!(true));
     }
 
     #[test]
