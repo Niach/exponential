@@ -63,6 +63,7 @@
     "dev:steer-relay": "bun --filter @exp/steer-relay dev",
     "start:steer-relay": "bun --filter @exp/steer-relay start",
     "test:steer-relay": "bun --filter @exp/steer-relay test && bun --filter @exp/steer-ticket test",
+    "test:push-relay": "bun --filter @exp/push-relay test",
 
     "dev:desktop": "cd apps/desktop && EXP_INSTANCE_URL=http://localhost:3000 cargo run -p app",
     "build:desktop": "cd apps/desktop && cargo build --release -p app",

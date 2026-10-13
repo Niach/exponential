@@ -42,10 +42,12 @@ jobs:
         run: bun run test:widget
       - name: Steer relay + ticket tests
         run: bun run test:steer-relay
-      # EXP-446: the push relay has no test suite, so its typecheck is the
-      # only source-level gate; nothing ran it in CI before.
+      # EXP-446: nothing ran the push relay's typecheck in CI before; EXP-1289
+      # added its bun-test suite (transport retry, deep health check, stats).
       - name: Typecheck push relay
         run: bun run --filter @exp/push-relay typecheck
+      - name: Push relay tests
+        run: bun run test:push-relay
 
   push-relay-image:
     # EXP-446: Dockerfile.push-relay is built by no publish workflow — Coolify

@@ -76,7 +76,7 @@ bun run ios / ios:test  # tuist+Xcode / ExpCore+ExpUI suites
 bun run android  # productionDebug install + launch
 bun dev  # web dev server (:5173)
 bun run {dev,build}:marketing / movie:{studio,render,poster,still}
-bun run {dev,start}:push-relay / {dev,start,test}:steer-relay  # :4001 / :4002
+bun run {dev,start,test}:push-relay / {dev,start,test}:steer-relay  # :4001 / :4002
 bun run build  # widget FIRST, then web + marketing
 bun run build:web / build:widget / test:widget / dev:widget (watch, /widget/v1/demo.html)
 bun run typecheck / test / test:e2e  # web
