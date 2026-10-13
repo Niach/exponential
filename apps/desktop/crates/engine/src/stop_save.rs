@@ -7,36 +7,16 @@ use std::path::Path;
 
 use crate::host::EngineExit;
 
-/// FEED-63: whether a run ended because a PERSON stopped it, the one end
-/// whose uncommitted work gets saved as a WIP commit. The engine outcome is
-/// `killed` for every hard stop (a relay `kill` frame, the kill poll's
-/// `Now`), a merge end and a withdrawn share included, so the row's
-/// `ended_by` (echoed back by the end call, which keeps an existing end)
-/// decides: `user` (web/mobile Stop, MCP `exponential_sessions_kill`) or
-/// `client` (this host's own forced end). An agent close-out and an
-/// account switch end `ended`; a merge/system end is not a stop.
-///
-/// FEED-67: a FAILED end call (offline, a 5xx) still saves — the outcome is
-/// a hard stop and the save is a local commit that is never pushed, so a
-/// spurious one (a merge end whose echo was lost) costs nothing while a lost
-/// one loses work. A replay skips the end call (`None`): it spawned nothing
-/// and has no worktree work to keep.
-pub fn stopped_by_person(
-    outcome: &str,
-    end: Option<&Result<api::coding_sessions::CodingSession, api::ApiError>>,
-) -> bool {
-    if outcome != "killed" {
-        return false;
-    }
-    match end {
-        Some(Ok(row)) => matches!(
-            row.ended_by.as_deref(),
-            Some(domain::contract::CODING_SESSION_ENDED_BY_USER)
-                | Some(domain::contract::CODING_SESSION_ENDED_BY_CLIENT)
-        ),
-        Some(Err(_)) => true,
-        None => false,
-    }
+/// FEED-63: whether a run ended because it was STOPPED from outside, the one
+/// end whose uncommitted work gets saved as a WIP commit: the `killed`
+/// outcome of a hard stop (a person's Stop through the relay `kill` frame, a
+/// host's own forced end). EXP-1292: the `sessions` row carries no
+/// `ended_by` any more, so the outcome alone decides — an agent close-out and
+/// an account switch end `ended`, a child's exit `exit:<code>`, and none of
+/// them is a stop. A spurious save costs nothing (a local commit, never
+/// pushed); a lost one loses work.
+pub fn stopped_by_person(outcome: &str) -> bool {
+    outcome == "killed"
 }
 
 /// FEED-63: on a run's exit, save `worktree`'s uncommitted work as a WIP
@@ -44,7 +24,7 @@ pub fn stopped_by_person(
 /// did; a clean tree or a repo-less dir is silent. Blocking git calls: run it
 /// off any UI thread (both hosts call it from `EngineHost::on_exit`).
 pub fn save_stopped_run_work(exit: &EngineExit, worktree: &Path) {
-    if !stopped_by_person(&exit.outcome, exit.end.as_ref()) {
+    if !stopped_by_person(&exit.outcome) {
         return;
     }
     match coding::save_wip_commit(worktree) {
@@ -66,39 +46,12 @@ pub fn save_stopped_run_work(exit: &EngineExit, worktree: &Path) {
 mod tests {
     use super::*;
 
-    /// An ended row that also says WHO ended it.
-    fn ended_by(ended_by: &str) -> api::coding_sessions::CodingSession {
-        serde_json::from_value(serde_json::json!({
-            "id": "sess-1",
-            "userId": "me",
-            "status": "ended",
-            "endedBy": ended_by,
-        }))
-        .expect("fixture decodes")
-    }
-
-    /// FEED-63: only a person's hard stop saves a WIP commit.
+    /// FEED-63: only a hard stop saves a WIP commit.
     #[test]
-    fn only_a_person_stop_saves_the_worktree() {
-        let end = |by: &str| Some(Ok(ended_by(by)));
-        assert!(stopped_by_person("killed", end("user").as_ref()));
-        assert!(stopped_by_person("killed", end("client").as_ref()));
-        assert!(!stopped_by_person("killed", end("merge").as_ref()));
-        assert!(!stopped_by_person("killed", end("system").as_ref()));
-        assert!(!stopped_by_person("ended", end("user").as_ref()));
-        assert!(!stopped_by_person("ended", end("agent").as_ref()));
-        assert!(!stopped_by_person("exit:0", end("client").as_ref()));
-        assert!(!stopped_by_person("killed", None));
-    }
-
-    /// FEED-67: the end call failing (offline, a 5xx) must not lose the
-    /// stopped run's work — a `killed` outcome with a failed end saves; an
-    /// agent close-out whose end failed still does not.
-    #[test]
-    fn a_failed_end_call_still_saves_a_killed_run() {
-        let failed = Some(Err(api::ApiError::UpgradeRequired));
-        assert!(stopped_by_person("killed", failed.as_ref()));
-        assert!(!stopped_by_person("ended", failed.as_ref()));
-        assert!(!stopped_by_person("exit:1", failed.as_ref()));
+    fn only_a_hard_stop_saves_the_worktree() {
+        assert!(stopped_by_person("killed"));
+        assert!(!stopped_by_person("ended"));
+        assert!(!stopped_by_person("exit:0"));
+        assert!(!stopped_by_person("exit:1"));
     }
 }

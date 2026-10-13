@@ -1,25 +1,26 @@
-//! Building the three `coding::PrepareRequest` shapes from CLI/daemon
-//! inputs — the headless port of the desktop's `coding_flow::build_launch`
-//! + `action_run::start_action_run` resolution, backed by tRPC instead of
-//! the Electric sync store (`issues.get`, `actions.get`,
-//! `repositories.list`/`forIssue`).
+//! The CLI's launch plumbing, shared by `code`/`run` and the daemon.
+//!
+//! EXP-1292: the database is the bus. Every session — a person's `code`, an
+//! action `run`, a web start, an agent's child — is a `queued` `sessions` row
+//! naming a device, and the ONE launch path is `coding::pickup::launch_queued`
+//! (claim → brief → prepare → spawn). This module builds what it needs from
+//! a CLI context: the launcher collaborators ([`coding_deps`]), the pickup's
+//! host half ([`pickup_deps`], whose spawn is `session_host::launch`), and the
+//! foreground start `code`/`run` share ([`start_foreground`]) with its own
+//! one-session pickup loop ([`spawn_foreground_pickup`]).
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context as _};
-use api::actions::{
-    BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID, BUILTIN_TIDY_UP_ID,
-};
-use api::issues::FetchedIssue;
-use coding::{
-    ActionInputValue, ActionLaunchRequest, ActionRunKind, CodingDeps, GitWorktrees, IssueSeed,
-    LaunchOptions, LaunchOrigin, LaunchRequest, RepoGroup,
-};
-use domain::IssueStatus;
+use api::mcp_tools::{self, RemoteSession, SessionsSendInput};
+use coding::pickup::{ClaimLock, LaunchQueued, LiveEngine, LiveRegistry, PickupDeps};
+use coding::session_rows::SessionRow;
+use coding::{CodingDeps, GitWorktrees, LaunchOptions};
 use serde::Deserialize;
 
 use crate::context::Ctx;
+use crate::session_host::{self, LaunchEnv, RunningSession};
 
 /// Agent-related flags shared by `code` and `run`.
 #[derive(Debug, Default)]
@@ -63,125 +64,436 @@ pub fn agent_options(
     Ok(options)
 }
 
-/// Who hosts a launch — the ONE thing that decides whether the session row
-/// may carry this machine's `device_id` (EXP-550).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LaunchHost {
-    /// `exponential daemon`: it heartbeats the `devices` row, so a session
-    /// stamped with this device resolves ONLINE on every client.
-    Daemon,
-    /// A foreground `exponential code` / `run`: nothing keeps the `devices`
-    /// row fresh. Stamping the id there makes a perfectly live session read
-    /// as "Paused, device offline" the moment a past daemon's row goes
-    /// stale, so these runs send NO device id — the server falls back to the
-    /// hostname label (`resolveSessionDevice` → `online: null`, never
-    /// paused).
-    Foreground,
-}
-
-impl LaunchHost {
-    fn device_id(self, ctx: &Ctx) -> Option<String> {
-        match self {
-            LaunchHost::Daemon => Some(ctx.device_id()),
-            LaunchHost::Foreground => None,
-        }
-    }
-}
-
-/// The injected launcher collaborators, seeded with the issues the caller
-/// already fetched (the seed fn runs off-thread inside `prepare`).
+/// The injected launcher collaborators.
+///
+/// EXP-1292: `device_id` is ALWAYS this machine's CLI device — a session row
+/// names the device that runs it, the daemon and a foreground `code` alike
+/// (the old foreground/daemon split existed only because the launcher
+/// created the row).
 ///
 /// `runtime` is this host's steer runtime (`None` = it failed to start): the
 /// ACP engine drives its connection on it, so a runtime-less process has
 /// nowhere to run a session at all (EXP-773 — `prepare` refuses the launch
 /// with [`coding::DisabledReason::AcpUnavailable`] rather than spawning
 /// something nothing can drive).
-pub fn coding_deps(
-    ctx: &Ctx,
-    seeds: HashMap<String, IssueSeed>,
-    host: LaunchHost,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-) -> CodingDeps {
+pub fn coding_deps(ctx: &Ctx, runtime: Option<&Arc<steer::SteerRuntime>>) -> CodingDeps {
     CodingDeps {
         trpc: Arc::clone(&ctx.trpc),
         token_store: Arc::clone(&ctx.token_store),
         account_id: ctx.account.id.clone(),
         settings: ctx.settings.clone(),
-        issue_seed: Arc::new(move |issue_id: &str| seeds.get(issue_id).cloned()),
         worktrees: Arc::new(GitWorktrees),
         codex_sessions_root: None,
         claude_projects_root: None,
-        // A relay-origin start still stamps the frame's own deviceId
-        // (`attribution` prefers it) — this is only the fallback for starts
-        // that name no device.
-        device_id: host.device_id(ctx),
-        // EXP-746: `session_host::launch_acp` runs the engine on the steer
+        device_id: Some(ctx.device_id()),
+        // EXP-746: `session_host::launch` runs the engine on the steer
         // runtime, so "this host can run one" IS "it has a runtime".
         acp_available: runtime.is_some(),
         data_dir: ctx.data_dir.clone(),
     }
 }
 
-pub fn issue_seed(issue: &FetchedIssue) -> IssueSeed {
-    IssueSeed {
-        title: issue.title.clone(),
-        description: issue.description.clone(),
-    }
+/// Called once a launched session is up, BEFORE the pickup registers its
+/// engine: the host's own registration (the daemon's live list, the
+/// foreground's slot), after which it releases the launch gate (EXP-758).
+pub type OnLaunched = Arc<dyn Fn(Arc<RunningSession>, Option<coding::RunCleanup>) + Send + Sync>;
+
+/// Everything a host hands [`pickup_deps`].
+pub struct PickupHost {
+    pub ctx: Arc<Ctx>,
+    pub runtime: Option<Arc<steer::SteerRuntime>>,
+    pub personal_key: Option<String>,
+    /// EXP-1005: the daemon runs the rotation beat; a foreground run does not.
+    pub rotation_host: bool,
+    /// Fresh settings for this pass (the daemon re-reads them; they move at
+    /// runtime through `remote_admin`).
+    pub settings: coding::Settings,
+    pub options: LaunchOptions,
+    pub live: Arc<LiveRegistry>,
+    /// The root's linked issue identifiers, link order.
+    pub issue_identifiers: Arc<dyn Fn(&str) -> Vec<String> + Send + Sync>,
+    /// EXP-444: whether the session's starter is not this account.
+    pub foreign_host: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    pub on_launched: OnLaunched,
 }
 
-/// `resume_prompt` (EXP-662): this is the FRESH-session shape, so the flag
-/// only seeds the resume prompt (and clamps plan mode) — relaunching a real
-/// transcript goes through `coding::run_registry::latest_for_issue` and a
-/// `PrepareRequest::ResumeRun` instead (the daemon's `remote_issue_start`).
-/// A record-less resume lands here. Local `code` starts stay fresh (no
-/// `--resume` flag yet).
-/// `prompt` (EXP-825): the composer's free text, the prompt's
-/// additional-instructions section.
-pub fn issue_launch_request(
-    issue: &FetchedIssue,
-    options: LaunchOptions,
-    origin: LaunchOrigin,
-    resume_prompt: bool,
-    prompt: Option<String>,
-) -> LaunchRequest {
-    LaunchRequest {
-        issue_id: issue.id.clone(),
-        // EXP-712: the issue's board decides the worktree base + PR target.
-        board_id: issue.board_id.clone(),
-        issue_identifier: issue.identifier.clone(),
-        issue_status: IssueStatus::from_wire(issue.status.as_deref().unwrap_or("")),
+/// The pickup's host half: its spawn is [`session_host::launch`], which
+/// hands back the engine handle the pickup drives.
+pub fn pickup_deps(host: PickupHost) -> PickupDeps {
+    let mut coding = coding_deps(&host.ctx, host.runtime.as_ref());
+    coding.settings = host.settings;
+    let ctx = Arc::clone(&host.ctx);
+    let runtime = host.runtime.clone();
+    let personal_key = host.personal_key.clone();
+    let rotation_host = host.rotation_host;
+    let foreign_host = Arc::clone(&host.foreign_host);
+    let on_launched = Arc::clone(&host.on_launched);
+    let launch: coding::pickup::LaunchFn = Arc::new(move |prepared: coding::PreparedLaunch| {
+        let env = LaunchEnv {
+            ctx: &ctx,
+            runtime: runtime.as_ref(),
+            personal_key: personal_key.clone(),
+            rotation_host,
+        };
+        let foreign = foreign_host(&prepared.session_id);
+        // EXP-637: snapshotted before the launch consumes the prepared value.
+        let cleanup = prepared.run_cleanup.clone();
+        let session = session_host::launch(&env, prepared, foreign)
+            .map(Arc::new)
+            .map_err(|err| format!("{err:#}"))?;
+        log::info!(
+            "session {} started ({}, branch {})",
+            session.session_id,
+            session.issue_identifier,
+            session.branch
+        );
+        let engine: Arc<dyn LiveEngine> = Arc::new(session.engine());
+        on_launched(session, cleanup);
+        Ok(engine)
+    });
+    PickupDeps {
+        coding: Arc::new(coding),
+        device_id: host.ctx.device_id(),
         device_label: coding::default_device_label(),
-        origin,
+        options: host.options,
+        live: host.live,
+        launch,
+        issue_identifiers: host.issue_identifiers,
+    }
+}
+
+/// EXP-1292: the claim-lock id a foreground `code`/`run` holds from BEFORE
+/// its `sessions.send` until it claimed the row it queued. The daemon on the
+/// same machine skips every launch while it is held (`daemon::pickup_pass`),
+/// so it never races the foreground for the row it is about to run — the
+/// row names the SAME device, and the server cannot tell the two apart.
+pub const FOREGROUND_START_LOCK: &str = "foreground-start";
+
+/// How long a foreground start waits for another one's lock.
+const FOREGROUND_LOCK_WAIT: Duration = Duration::from_secs(30);
+
+/// A session `code`/`run` started and runs in THIS process.
+pub struct ForegroundSession {
+    pub session: Arc<RunningSession>,
+    /// Holds the session's claim lock for the process's life.
+    pub _live: Arc<LiveRegistry>,
+    /// The session's pickup loop (people's messages, answered cards, an
+    /// end): stops with the engine.
+    pub _pickup: Option<std::thread::JoinHandle<()>>,
+}
+
+/// What [`start_foreground`] ended with.
+pub enum ForegroundStart {
+    Running(ForegroundSession),
+    /// The launcher refused (doctor, ACP, …): the reason, already replied
+    /// into the conversation and the row settled by the pickup.
+    Refused(String),
+}
+
+/// EXP-1292: `code`/`run` on THIS machine. Queue the session naming this
+/// device (`exponential_sessions_send`), then claim and run it right here
+/// through the same pickup the daemon uses. `input` carries the subject
+/// (issues / action + inputs / text); this fills the device and the
+/// pickers.
+pub fn start_foreground(
+    ctx: Arc<Ctx>,
+    mut input: SessionsSendInput,
+    options: LaunchOptions,
+) -> anyhow::Result<ForegroundStart> {
+    // EXP-746: the shared registry decision for every end this process
+    // issues (daemon parity — `registry::install_end_observer`).
+    crate::registry::install_end_observer(ctx.data_dir.clone());
+    // EXP-746: the runtime is resolved BEFORE `prepare` — the launcher
+    // refuses a host that cannot run the engine.
+    let runtime = steer::SteerRuntime::new().ok();
+    let personal_key = crate::context::ensure_personal_key(&ctx).ok();
+
+    fill_foreground_input(&mut input, &ctx.device_id(), &options);
+    let gate = wait_for_foreground_gate(&ctx.data_dir)?;
+    let sent = mcp_tools::sessions_send(&ctx.trpc, &input)
+        .map_err(crate::commands::devices::tool_error)
+        .context("start the session")?;
+    let remote = mcp_tools::sessions_get(&ctx.trpc, &sent.session_id)
+        .map_err(crate::commands::devices::tool_error)
+        .context("load the session")?;
+    let row = session_row_from_remote(&remote, &input);
+    let identifiers: Vec<String> = remote
+        .issues
+        .iter()
+        .filter_map(|issue| issue.identifier.clone())
+        .collect();
+
+    let live = Arc::new(LiveRegistry::default());
+    let slot: Arc<Mutex<Option<Arc<RunningSession>>>> = Arc::new(Mutex::new(None));
+    let deps = Arc::new(pickup_deps(PickupHost {
+        ctx: Arc::clone(&ctx),
+        runtime,
+        personal_key,
+        rotation_host: false,
+        settings: ctx.settings.clone(),
         options,
-        resume_prompt,
-        prompt,
+        live: Arc::clone(&live),
+        issue_identifiers: Arc::new(move |_root: &str| identifiers.clone()),
+        // `code`/`run` started it as this account.
+        foreign_host: Arc::new(|_session_id: &str| false),
+        on_launched: {
+            let slot = Arc::clone(&slot);
+            Arc::new(move |session: Arc<RunningSession>, _cleanup| {
+                // EXP-758 (EXP-478): this process is the run's only registry:
+                // there is no session list to push into, so the gate ends here.
+                session.release_launch_hold();
+                if let Ok(mut slot) = slot.lock() {
+                    *slot = Some(session);
+                }
+            })
+        },
+    }));
+    let outcome = coding::pickup::launch_queued(&row, &deps).map_err(|err| anyhow!(err));
+    drop(gate);
+    match outcome? {
+        LaunchQueued::Launched { .. } => {
+            let session = slot
+                .lock()
+                .ok()
+                .and_then(|mut slot| slot.take())
+                .ok_or_else(|| anyhow!("the session launched but its handle was lost"))?;
+            let pickup = spawn_foreground_pickup(ctx, deps, sent.session_id.clone());
+            Ok(ForegroundStart::Running(ForegroundSession { session, _live: live, _pickup: pickup }))
+        }
+        LaunchQueued::Disabled { reason } => Ok(ForegroundStart::Refused(reason)),
+        LaunchQueued::Skipped { reason } => bail!(
+            "session {} was not started here ({reason}) — the daemon on this machine may be \
+running it; steer it from the web or `exponential sessions log {} --follow`",
+            sent.session_id,
+            sent.session_id
+        ),
     }
 }
 
-/// Slim `repositories.list` row (the ui crate's `ActionRepoRow` twin).
-#[derive(Clone, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepoRow {
-    pub id: String,
-    pub full_name: String,
-    #[serde(default)]
-    pub default_branch: Option<String>,
+/// How often the foreground loop re-plans with no delta (a missed edge),
+/// and how often it falls back to polling the row while its shapes are not
+/// up (cold, or a build whose sync has no spec for them).
+const FOREGROUND_TICK: Duration = Duration::from_secs(10);
+const FOREGROUND_POLL: Duration = Duration::from_secs(15);
+
+/// The shapes the foreground loop plans over (it plans only once both
+/// reached `up-to-date`: a cold store would read the row as gone → Kill).
+const FOREGROUND_SHAPES: &[&str] = &["sessions", "messages"];
+
+/// EXP-1292: the foreground `code`/`run` process is the ONLY host of its
+/// session — it holds the claim lock, so the daemon on the same machine
+/// skips the row — so it runs its own one-session pickup: the person
+/// messages sent from the web are delivered, answered question/plan cards
+/// reach the engine, and an `ended` row (Stop/end, the agent's
+/// `sessions_end`) kills the run. It syncs the `sessions` + `messages`
+/// shapes into a private store (deleted at the end) and plans over them
+/// like the daemon, acting only on its own session; until those shapes are
+/// up it polls the row for an end over MCP. The thread stops with the
+/// engine.
+fn spawn_foreground_pickup(
+    ctx: Arc<Ctx>,
+    deps: Arc<PickupDeps>,
+    session_id: String,
+) -> Option<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new()
+        .name("exp-foreground-pickup".to_string())
+        .spawn(move || run_foreground_pickup(&ctx, &deps, &session_id))
+        .inspect_err(|err| log::warn!("foreground pickup failed to spawn: {err}"))
+        .ok()
 }
 
-pub fn fetch_repositories(
-    trpc: &api::trpc::TrpcClient,
-    team_id: &str,
-) -> Result<Vec<RepoRow>, api::ApiError> {
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        team_id: &'a str,
+fn run_foreground_pickup(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
+    let store_path = ctx
+        .data_dir
+        .join("accounts")
+        .join(&ctx.account.id)
+        .join(format!("sync-foreground-{session_id}.sqlite"));
+    let manager = start_foreground_sync(ctx, &store_path);
+    let deltas = manager.as_ref().map(|manager| manager.deltas());
+    let mut synced: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
+    let mut last_plan: Option<Instant> = None;
+    let mut last_poll: Option<Instant> = None;
+    let live = || deps.live.get(session_id).is_some_and(|engine| !engine.is_done());
+    while live() {
+        let mut changed = false;
+        match &deltas {
+            Some(deltas) => {
+                if let Ok(first) = deltas.recv_timeout(Duration::from_secs(1)) {
+                    for delta in std::iter::once(first).chain(deltas.try_iter()) {
+                        if let sync::ShapeDelta::Applied { shape, up_to_date, .. } = delta {
+                            if up_to_date {
+                                synced.insert(shape);
+                            }
+                            changed |= FOREGROUND_SHAPES.contains(&shape);
+                        }
+                    }
+                }
+            }
+            None => std::thread::sleep(Duration::from_secs(1)),
+        }
+        let ready = FOREGROUND_SHAPES.iter().all(|shape| synced.contains(shape));
+        let store = manager.as_ref().and_then(|manager| manager.store(&ctx.account.id));
+        match store {
+            Some(store) if ready => {
+                if changed || last_plan.is_none_or(|at| at.elapsed() >= FOREGROUND_TICK) {
+                    last_plan = Some(Instant::now());
+                    foreground_pass(&store, deps, session_id);
+                }
+            }
+            _ => {
+                if last_poll.is_none_or(|at| at.elapsed() >= FOREGROUND_POLL) {
+                    last_poll = Some(Instant::now());
+                    poll_for_end(ctx, deps, session_id);
+                }
+            }
+        }
     }
-    trpc.query_with_input("repositories.list", &Input { team_id })
+    if let Some(manager) = manager {
+        manager.stop_all();
+    }
+    for suffix in ["", "-wal", "-shm", "-journal"] {
+        let mut path = store_path.clone().into_os_string();
+        path.push(suffix);
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The private store's pipeline (sessions + messages only). `None` leaves
+/// the loop on the MCP end poll.
+fn start_foreground_sync(ctx: &Ctx, db_path: &std::path::Path) -> Option<Arc<sync::SyncManager>> {
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).ok()?;
+    }
+    let manager = Arc::new(sync::SyncManager::new());
+    let config = sync::AccountSyncConfig {
+        account_id: ctx.account.id.clone(),
+        base_url: ctx.account.instance_url.clone(),
+        db_path: db_path.to_path_buf(),
+        token: ctx.auth.token_provider_fn(&ctx.account.id),
+        shapes: Some(FOREGROUND_SHAPES),
+    };
+    match manager.start_account(config) {
+        Ok(_) => Some(manager),
+        Err(err) => {
+            log::warn!("foreground pickup: store failed to open ({err}) — polling for an end only");
+            None
+        }
+    }
+}
+
+/// One plan over the private store, acting on THIS session only: deliveries
+/// to the live engine, revokes, answers and the kill. Never a launch or a
+/// resume — this process runs one engine and exits with it.
+fn foreground_pass(store: &sync::store::ShapeStore, deps: &PickupDeps, session_id: &str) {
+    use coding::pickup::PickupAction;
+    let rows: Vec<SessionRow> = crate::commands::daemon::read_shape_rows(store, "sessions");
+    let messages: Vec<coding::session_rows::MessageRow> =
+        crate::commands::daemon::read_shape_rows(store, "messages");
+    deps.live.settle_handed(&messages);
+    let views = deps.live.live_views();
+    let in_flight = std::collections::HashSet::new();
+    let actions = coding::pickup::plan(coding::pickup::PickupInput {
+        device_id: &deps.device_id,
+        sessions: &rows,
+        messages: &messages,
+        live: &views,
+        in_flight: &in_flight,
+    });
+    for action in actions {
+        let ours = match &action {
+            PickupAction::Deliver { session_id: id, .. }
+            | PickupAction::Revoke { session_id: id, .. }
+            | PickupAction::Answer { session_id: id, .. }
+            | PickupAction::Kill { session_id: id } => id == session_id,
+            PickupAction::Launch { .. } | PickupAction::Resume { .. } => false,
+        };
+        if ours {
+            if let Err(err) = coding::pickup::execute(&action, deps) {
+                log::warn!("foreground pickup: {err}");
+            }
+        }
+    }
+}
+
+/// The end half without shapes: an `ended` row kills the run.
+fn poll_for_end(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
+    match mcp_tools::sessions_get(&ctx.trpc, session_id) {
+        Ok(remote) if remote.status == coding::session_rows::SESSION_STATUS_ENDED => {
+            log::info!("session {session_id} was ended — stopping it");
+            let kill = coding::pickup::PickupAction::Kill { session_id: session_id.to_string() };
+            if let Err(err) = coding::pickup::execute(&kill, deps) {
+                log::warn!("foreground pickup: {err}");
+            }
+        }
+        Ok(_) => {}
+        Err(err) => log::debug!("foreground pickup: session {session_id} not read: {err}"),
+    }
+}
+
+/// The device + pickers a foreground start sends: THIS device, the resolved
+/// agent and plan mode (the row's pickers win over the launch defaults, so
+/// the interactive plan default must ride), model/effort only when typed —
+/// absent = the device's own defaults.
+fn fill_foreground_input(input: &mut SessionsSendInput, device_id: &str, options: &LaunchOptions) {
+    input.device_id = Some(device_id.to_string());
+    input.cli = Some(options.agent.id().to_string());
+    input.plan_mode = Some(options.plan_mode);
+}
+
+/// Take [`FOREGROUND_START_LOCK`], waiting out another foreground start.
+fn wait_for_foreground_gate(data_dir: &std::path::Path) -> anyhow::Result<ClaimLock> {
+    let deadline = Instant::now() + FOREGROUND_LOCK_WAIT;
+    loop {
+        if let Some(lock) = ClaimLock::try_acquire(data_dir, FOREGROUND_START_LOCK)
+            .map_err(|err| anyhow!(err))?
+        {
+            return Ok(lock);
+        }
+        if Instant::now() >= deadline {
+            bail!("another `exponential code`/`run` is starting on this machine — try again");
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// The just-queued row as the pickup reads it. The MCP projection carries
+/// the server-resolved columns (team, repository, branch, kind, the agent
+/// CLI); the pickers it does not project come from what this start sent.
+pub fn session_row_from_remote(remote: &RemoteSession, input: &SessionsSendInput) -> SessionRow {
+    SessionRow {
+        id: remote.id.clone(),
+        team_id: remote.team_id.clone(),
+        parent_id: remote.parent_id.clone(),
+        root_id: remote.root_id.clone(),
+        depth: Some(i64::from(remote.depth)),
+        kind: remote.kind.clone(),
+        user_id: remote.user_id.clone(),
+        // Just sent naming this device: a projection that leaves it out
+        // (or the status) still reads as the row this start queued.
+        device_id: remote.device_id.clone().or_else(|| input.device_id.clone()),
+        cli: remote.cli.clone().or_else(|| input.cli.clone()),
+        account: remote.account.clone().or_else(|| input.account.clone()),
+        model: remote.model.clone().or_else(|| input.model.clone()),
+        effort: input.effort.clone(),
+        plan_mode: input.plan_mode.unwrap_or(false),
+        computer_use: input.computer_use.unwrap_or(false),
+        ultracode: input.ultracode.unwrap_or(false),
+        repository_id: remote.repository_id.clone(),
+        branch: remote.branch.clone(),
+        status: Some(if remote.status.is_empty() {
+            coding::session_rows::SESSION_STATUS_QUEUED.to_string()
+        } else {
+            remote.status.clone()
+        }),
+        busy: remote.busy,
+        title: remote.title.clone(),
+        name: remote.name.clone(),
+        ..SessionRow::default()
+    }
 }
 
 /// `teams.getDefault` — the non-creating default-team resolver (oldest
-/// membership or null); the CLI's team fallback for builtin action runs.
+/// membership or null); the CLI's team fallback for an action-name lookup.
 pub fn default_team_id(trpc: &api::trpc::TrpcClient) -> anyhow::Result<String> {
     #[derive(Deserialize)]
     struct Output {
@@ -199,240 +511,6 @@ pub fn default_team_id(trpc: &api::trpc::TrpcClient) -> anyhow::Result<String> {
         .team
         .map(|team| team.id)
         .ok_or_else(|| anyhow!("You are not a member of any team yet."))
-}
-
-/// The resolved `pr` input of a fix-conflicts run (desktop
-/// `action_run::FixConflictsTarget` twin).
-struct FixTarget {
-    identifier: String,
-    branch: String,
-    /// The representative issue's UUID.
-    issue_id: String,
-    board_id: Option<String>,
-}
-
-/// How an action run's repo group arrives (ui `ActionRepo` twin).
-pub enum ActionRepo {
-    /// Remote start: the frame's server-resolved group (`None` = repo-less).
-    Provided(Option<RepoGroup>),
-    /// Local start: resolve `action.repository_id` via `repositories.list`.
-    Resolve,
-}
-
-/// The `action_run::start_action_run` resolution, headless: builtins are
-/// constructed locally (the server rejects `actions.get` for their ids),
-/// team actions fetch the FRESH body, fix-conflicts resolves its `pr` input
-/// (issue UUID or identifier) to the PR branch + repository via tRPC.
-/// `trigger` (EXP-530) is set only by the daemon's trigger host — it feeds
-/// the prompt's `## Trigger` section and the row's `started_reason`; every
-/// user-initiated start passes `None`.
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)] // the one action-request builder
-pub fn resolve_action_request(
-    ctx: &Ctx,
-    action_id: &str,
-    team_id: &str,
-    repo: ActionRepo,
-    inputs: Vec<ActionInputValue>,
-    options: LaunchOptions,
-    origin: LaunchOrigin,
-    trigger: Option<coding::TriggerNote>,
-    // EXP-583: the action trigger that fired this run — stamped on the
-    // session beside `startedReason`. `None` on every person-started run.
-    trigger_id: Option<String>,
-    // EXP-825: the composer's free text — the chat prompt / creator request
-    // for the builtins, additional instructions for everything else.
-    prompt: Option<String>,
-) -> anyhow::Result<ActionLaunchRequest> {
-    let builtin = api::actions::is_builtin_action_id(action_id);
-    let fixing = action_id == BUILTIN_FIX_CONFLICTS_ID;
-    // EXP-615: the hidden chat builtin — a free prompt with the tracker's MCP
-    // tools wired, OPTIONALLY anchored to a repo (EXP-739; desktop
-    // `action_run.rs` parity).
-    let chatting = action_id == BUILTIN_CHAT_ID;
-    // FEED-50: the Tidy up builtin — its optional `repo` input resolves like
-    // a chat's (none = the scratch dir).
-    let tidying = action_id == BUILTIN_TIDY_UP_ID;
-
-    // EXP-259: the fix-conflicts PR target — resolved from the `pr` input
-    // BEFORE anything else so a bad pick fails fast.
-    let fix_target = if fixing {
-        let value = inputs
-            .iter()
-            .find(|input| input.key == "pr")
-            .map(|input| input.value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow!("Pick a pull request to fix (--input pr=<issue>)."))?;
-        let issue = api::issues::issues_get(&ctx.trpc, &value)
-            .context("resolve the pull request's issue")?
-            .issue;
-        if issue.pr_state.as_deref() != Some("open") {
-            bail!("That pull request is no longer open.");
-        }
-        let branch = issue
-            .branch
-            .clone()
-            .filter(|branch| !branch.is_empty())
-            .ok_or_else(|| anyhow!("That pull request has no recorded branch."))?;
-        Some(FixTarget {
-            identifier: issue.identifier.clone(),
-            branch,
-            issue_id: issue.id.clone(),
-            board_id: issue.board_id.clone(),
-        })
-    } else {
-        None
-    };
-
-    let (action, repo_group) = if builtin {
-        // Named explicitly, never an `else` — an id this build does
-        // not know must REFUSE, not fall through to the creator and author an
-        // action nobody asked for (desktop `action_run.rs` parity).
-        let mut action = match action_id {
-            BUILTIN_FIX_CONFLICTS_ID => api::actions::builtin_fix_conflicts_action(team_id),
-            BUILTIN_CHAT_ID => api::actions::builtin_chat_action(team_id),
-            BUILTIN_TIDY_UP_ID => api::actions::builtin_tidy_up_action(team_id),
-            BUILTIN_CREATE_ACTION_ID => api::actions::builtin_create_action(team_id),
-            other => bail!(
-                "this app version does not know the builtin action `{other}`; update Exponential on this machine"
-            ),
-        };
-        // The runner composes the builtin prompts itself — the input schema
-        // is a dialog-side concern only (desktop parity).
-        action.inputs = Vec::new();
-        let repo_group = if chatting || tidying {
-            // EXP-615/EXP-739: a chat's `repo` input picks the run's own cwd,
-            // and it is OPTIONAL — no `--input repo=<id>` is a repo-LESS chat
-            // the launcher runs worktree-less in a scratch dir. Only a pick
-            // that no longer resolves is an error. FEED-50: Tidy up likewise.
-            match repo {
-                ActionRepo::Provided(group) => group,
-                ActionRepo::Resolve => {
-                    match inputs
-                        .iter()
-                        .find(|input| input.key == "repo")
-                        .map(|input| input.value.trim().to_string())
-                        .filter(|value| !value.is_empty())
-                    {
-                        None => None,
-                        Some(repository_id) => {
-                            let rows = fetch_repositories(&ctx.trpc, &action.team_id)
-                                .context("resolve the repository")?;
-                            let row = rows
-                                .into_iter()
-                                .find(|row| row.id == repository_id)
-                                .ok_or_else(|| {
-                                    anyhow!("That repository is no longer connected.")
-                                })?;
-                            Some(RepoGroup {
-                                repository_id: row.id,
-                                full_name: row.full_name,
-                                default_branch: row.default_branch.unwrap_or_default(),
-                            })
-                        }
-                    }
-                }
-            }
-        } else if fixing {
-            match repo {
-                ActionRepo::Provided(group) => group,
-                ActionRepo::Resolve => {
-                    let fix = fix_target.as_ref().expect("fix target resolved above");
-                    let repository = api::repositories::for_issue(&ctx.trpc, &fix.issue_id)
-                        .context("resolve the pull request's repository")?
-                        .ok_or_else(|| {
-                            anyhow!("That pull request's board has no linked repository.")
-                        })?;
-                    Some(RepoGroup {
-                        repository_id: repository.repository_id,
-                        full_name: repository.full_name,
-                        default_branch: repository.default_branch,
-                    })
-                }
-            }
-        } else {
-            // The creator's repo INPUT only pins the authored action's
-            // binding — never this run's cwd.
-            None
-        };
-        (action, repo_group)
-    } else {
-        let action = api::actions::get(&ctx.trpc, action_id).context("load the action")?;
-        let repo_group = match repo {
-            ActionRepo::Provided(group) => group,
-            ActionRepo::Resolve => match &action.repository_id {
-                None => None,
-                Some(repository_id) => {
-                    let rows = fetch_repositories(&ctx.trpc, &action.team_id)
-                        .context("resolve the repository")?;
-                    rows.into_iter()
-                        .find(|row| &row.id == repository_id)
-                        .map(|row| RepoGroup {
-                            repository_id: row.id,
-                            full_name: row.full_name,
-                            default_branch: row.default_branch.unwrap_or_default(),
-                        })
-                    // The registry row vanished — degrade to repo-less
-                    // rather than failing the run (desktop parity).
-                }
-            },
-        };
-        (action, repo_group)
-    };
-
-    let kind = match fix_target {
-        Some(FixTarget {
-            identifier,
-            branch,
-            issue_id,
-            board_id,
-        }) => {
-            let default_branch = repo_group
-                .as_ref()
-                .map(|group| group.default_branch.clone())
-                .unwrap_or_default();
-            if default_branch.is_empty() {
-                // L30: never fabricate `main`.
-                bail!(
-                    "The repository has no known default branch. Refresh it in team settings → Repositories."
-                );
-            }
-            ActionRunKind::FixConflicts {
-                branch,
-                // `repositories.forIssue` (and the relay frame) resolve this
-                // through the issue's BOARD since EXP-712.
-                default_branch,
-                board_id,
-                identifier,
-                issue_id,
-            }
-        }
-        // EXP-615: the builtin kinds are id-dispatched (desktop
-        // parity); the factory above already refused an unknown id.
-        None if chatting => ActionRunKind::Chat,
-        None if tidying => ActionRunKind::TidyUp,
-        None if builtin => ActionRunKind::CreateAction,
-        None => ActionRunKind::Team,
-    };
-
-    Ok(ActionLaunchRequest {
-        // EXP-637: minted here, exactly like the desktop's action_run —
-        // it names the run's worktree branch and keys its `runs.json` record.
-        run_id: coding::new_run_id(),
-        action_id: action.id.clone(),
-        action_name: action.name.clone(),
-        team_id: action.team_id.clone(),
-        body: action.body.clone(),
-        repo: repo_group,
-        inputs,
-        kind,
-        trigger,
-        trigger_id,
-        device_label: coding::default_device_label(),
-        origin,
-        options,
-        prompt,
-    })
 }
 
 #[cfg(test)]
@@ -474,19 +552,15 @@ mod tests {
         (TempDir(dir), ctx)
     }
 
-    /// EXP-550: only the daemon heartbeats the `devices` row, so only a
-    /// daemon-hosted run may stamp its session with this machine's device id.
-    /// A foreground `code`/`run` that stamped it would render as "Paused,
-    /// device offline" everywhere the moment a past daemon's row went stale.
+    /// EXP-1292: a session row names the device that runs it, so every
+    /// CLI-hosted launch — daemon or foreground — carries this machine's id.
     #[test]
-    fn only_a_daemon_hosted_launch_stamps_the_device_id() {
-        let (_dir, ctx) = temp_ctx("launch-host");
-
-        let hosted = coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon, None);
-        assert_eq!(hosted.device_id.as_deref(), Some(ctx.device_id().as_str()));
-
-        let foreground = coding_deps(&ctx, HashMap::new(), LaunchHost::Foreground, None);
-        assert_eq!(foreground.device_id, None);
+    fn every_launch_names_this_machines_device() {
+        let (_dir, ctx) = temp_ctx("launch-device");
+        assert_eq!(
+            coding_deps(&ctx, None).device_id.as_deref(),
+            Some(ctx.device_id().as_str())
+        );
     }
 
     /// EXP-746: a host that could not start a steer runtime has nowhere to
@@ -495,49 +569,86 @@ mod tests {
     fn the_acp_transport_needs_this_hosts_steer_runtime() {
         let (_dir, ctx) = temp_ctx("launch-acp");
 
-        assert!(!coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon, None).acp_available);
+        assert!(!coding_deps(&ctx, None).acp_available);
 
         let Ok(runtime) = steer::SteerRuntime::new() else {
             // No runtime on this machine — the negative half above is still
             // the load-bearing one.
             return;
         };
-        assert!(
-            coding_deps(&ctx, HashMap::new(), LaunchHost::Daemon, Some(&runtime)).acp_available
+        assert!(coding_deps(&ctx, Some(&runtime)).acp_available);
+    }
+
+    /// EXP-1292: the foreground start names this device and pins the
+    /// resolved agent + plan mode; untyped model/effort stay off the wire
+    /// (the device's own defaults).
+    #[test]
+    fn a_foreground_start_names_this_device_and_its_pickers() {
+        let settings = coding::Settings::default();
+        let options = agent_options(
+            &settings,
+            &AgentFlags { agent: Some("codex".into()), ..AgentFlags::default() },
+            false,
+        )
+        .unwrap();
+        let mut input = SessionsSendInput {
+            issue_ids: Some(vec!["i1".into()]),
+            ..SessionsSendInput::default()
+        };
+        fill_foreground_input(&mut input, "cli-dev", &options);
+        assert_eq!(
+            serde_json::to_value(&input).unwrap(),
+            serde_json::json!({
+                "deviceId": "cli-dev",
+                "cli": "codex",
+                "planMode": false,
+                "issueIds": ["i1"],
+            })
         );
     }
 
-    /// FEED-50: `exponential run tidy-up` without a repo pick resolves to the
-    /// Tidy up builtin's scratch run — no network, the board pick carried
-    /// through as an input, the kind named (never the creator fallthrough).
+    /// The pickup reads the server's projection, topped up with the pickers
+    /// this start sent (the projection does not carry them).
     #[test]
-    fn a_repo_less_tidy_up_launch_resolves_to_the_tidy_up_kind() {
-        let (_dir, ctx) = temp_ctx("launch-tidy-up");
-        let board = ActionInputValue {
-            key: "board".to_string(),
-            label: "Board".to_string(),
-            input_type: "board".to_string(),
-            value: "board-1".to_string(),
-            display: None,
+    fn the_queued_row_merges_the_projection_and_the_sent_pickers() {
+        let remote = RemoteSession {
+            id: "s1".into(),
+            team_id: Some("t1".into()),
+            kind: Some("thread".into()),
+            device_id: Some("cli-dev".into()),
+            cli: Some("claude".into()),
+            repository_id: Some("r1".into()),
+            status: "queued".into(),
+            ..RemoteSession::default()
         };
-        let request = resolve_action_request(
-            &ctx,
-            BUILTIN_TIDY_UP_ID,
-            "team-1",
-            ActionRepo::Resolve,
-            vec![board.clone()],
-            LaunchOptions::defaults_for(&ctx.settings, coding::CodingAgent::Claude),
-            LaunchOrigin::Local,
-            None,
-            None,
-            None,
-        )
-        .expect("resolves without the network");
-        assert_eq!(request.kind, ActionRunKind::TidyUp);
-        assert_eq!(request.action_name, "Tidy up");
-        assert_eq!(request.team_id, "team-1");
-        assert!(request.repo.is_none());
-        assert!(request.body.is_empty());
-        assert_eq!(request.inputs, vec![board]);
+        let input = SessionsSendInput {
+            effort: Some("high".into()),
+            plan_mode: Some(true),
+            ..SessionsSendInput::default()
+        };
+        let row = session_row_from_remote(&remote, &input);
+        assert!(row.status_is(coding::session_rows::SESSION_STATUS_QUEUED));
+        assert!(row.on_device("cli-dev"));
+        assert_eq!(row.repository_id.as_deref(), Some("r1"));
+        assert_eq!(row.cli.as_deref(), Some("claude"));
+        assert_eq!(row.effort.as_deref(), Some("high"));
+        assert!(row.plan_mode);
+        assert!(!row.is_agent());
+        assert_eq!(row.root(), "s1");
+    }
+
+    /// Two foreground starts on one machine serialize on the gate the
+    /// daemon also checks.
+    #[test]
+    fn the_foreground_gate_is_exclusive() {
+        let (dir, _ctx) = temp_ctx("launch-gate");
+        let first = wait_for_foreground_gate(&dir.0).expect("first takes it");
+        assert!(ClaimLock::try_acquire(&dir.0, FOREGROUND_START_LOCK)
+            .unwrap()
+            .is_none());
+        drop(first);
+        assert!(ClaimLock::try_acquire(&dir.0, FOREGROUND_START_LOCK)
+            .unwrap()
+            .is_some());
     }
 }

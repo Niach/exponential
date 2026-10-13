@@ -11,9 +11,10 @@
 //! [`workflow_caption`] is the Rust mirror of
 //! `packages/domain-contract/src/workflow-caption.ts`, byte-locked by
 //! `packages/domain-contract/fixtures/work-card.json` `caption.cases` — the
-//! same cases the web, iOS and Android mirrors replay. The caption is what a session row
-//! renders as its second line (`coding_sessions.agent_caption`, §8) and what
-//! the steer view's working strip says while a workflow runs.
+//! same cases the web, iOS and Android mirrors replay. The caption is what a
+//! locally hosted session row renders as its second line (the in-process
+//! [`crate::CaptionSignal`]; EXP-1292 dropped the synced column) and what the
+//! steer view's working strip says while a workflow runs.
 
 use serde::{Deserialize, Serialize};
 

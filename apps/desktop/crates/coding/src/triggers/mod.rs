@@ -1,24 +1,26 @@
-//! Action triggers engine (EXP-530; SLOP-2: the triggers live on their
-//! action, in the synced `actions.triggers` array): local-only schedules +
-//! event triggers. PURE — hosts (the desktop GUI's trigger host, the CLI
-//! daemon's worker) snapshot their inputs (the triggers bound to THIS device,
-//! persisted [`TriggerState`]s, pre-fetched event rows, live-run ids, the
-//! clock) and [`evaluate`] returns [`Decision`]s; every side effect (settings
-//! IO, the launch) is the host's.
+//! Agent triggers engine (EXP-530; EXP-1292 Threads v2: the triggers live
+//! on their team AGENT, in the synced `sessions.triggers` array of a
+//! `kind = agent` root): local-only schedules + event triggers. PURE — hosts
+//! (the desktop GUI's trigger host, the CLI daemon's worker) snapshot their
+//! inputs (the triggers bound to THIS device, persisted [`TriggerState`]s,
+//! pre-fetched event rows, busy agent ids, the clock) and [`evaluate`]
+//! returns [`Decision`]s; every side effect (state IO, the post) is the
+//! host's.
 //!
-//! The device binding and the on/off flag ride each trigger element, so
-//! [`bound_triggers`] filters (`deviceId == mine && enabled`) BEFORE the
-//! engine sees one — everything here is per-trigger bookkeeping, keyed by the
-//! trigger's id. The launch reservation still keys on the ACTION
-//! (`action:{id}`), because that is what a remote start holds.
+//! The runner is the agent row itself: [`bound_agent_triggers`] keeps the
+//! enabled triggers of every live agent root whose `device_id` is THIS
+//! device, BEFORE the engine sees one — everything here is per-trigger
+//! bookkeeping, keyed by the trigger's id.
 //!
-//! Firing protocol (both hosts, in order): claim the `action:{id}`
-//! reservation → persist `new_state` via [`write_states`] FIRST (the
-//! cursor/anchor advances at launch START — a crash mid-launch drops the
-//! run rather than double-firing) → prepare/launch. A FAILED prepare gets
-//! one more state write extending `cooldown_until` by
-//! [`PREPARE_FAILURE_BACKOFF_MS`] — a poison-pill trigger backs off
-//! instead of hot-looping.
+//! Firing protocol (both hosts, in order): persist `new_state` via
+//! [`write_states`] FIRST (the cursor/anchor advances at fire time — a
+//! crash mid-post drops the firing rather than double-posting it) → post
+//! [`firing_text`] into the agent's channel (`sessions.send({sessionId:
+//! agentId, text})`, `api::session_device::post_message`). An agent never
+//! ends: the message wakes it (or queues behind its current turn). A FAILED
+//! post gets one more state write extending `cooldown_until` by
+//! [`SEND_FAILURE_BACKOFF_MS`] — a failing trigger backs off instead of
+//! hot-looping.
 //!
 //! The event cursor is NOT a bare high-water mark (EXP-562). Two issue
 //! events whose transactions overlap can commit out of `created_at` order
@@ -35,6 +37,7 @@
 //! reading strictly off it until their first fire migrates them.
 
 pub mod events;
+pub mod firing;
 pub mod schedule;
 pub mod state;
 pub mod summary;
@@ -42,122 +45,77 @@ pub mod trigger;
 
 use std::collections::{HashMap, HashSet};
 
+use crate::session_rows::{SessionRow, SESSION_STATUS_ENDED};
+
 pub use events::{
     event_matches, matching_events, seen_window, EventCursor, EventRow, EVENT_GRACE_MS,
     SEEN_IDS_CAP,
 };
+pub use firing::{firing_issue_ids, firing_text, EventLookups, FIRING_MAX_LINES};
 pub use schedule::{latest_occurrence, next_occurrence};
-pub use state::{read_states, write_states, TriggerState, TriggerStore, LEGACY_AUTOMATIONS_KEY};
+pub use state::{read_states, write_states, TriggerState, TriggerStore};
 pub use summary::{schedule_phrase, trigger_summary};
 pub use trigger::{
-    parse_action_trigger, parse_action_triggers, parse_trigger, parse_trigger_str,
-    trigger_fingerprint, when_part, ActionTrigger, EventKind, EventSpec, LaunchPins,
-    ParsedTrigger, Schedule, ScheduleInterval, TriggerKind,
+    parse_agent_trigger, parse_agent_triggers, parse_trigger, parse_trigger_str,
+    trigger_fingerprint, when_part, AgentTrigger, EventKind, EventSpec, ParsedTrigger, Schedule,
+    ScheduleInterval, TriggerKind,
 };
 
-/// The launch options a triggered run starts with — the ONE resolution both
-/// hosts use (EXP-583). A trigger may PIN an agent/account/model/effort;
-/// every unpinned field falls back to the device's own launch defaults,
-/// exactly like a dialog start with untouched options. Plan mode is forced
-/// OFF (F7): an unattended run must never park at the plan-approval card
-/// waiting for a human who is not watching.
-///
-/// EXP-995: `account` is the agent PROFILE the run spends
-/// ([`crate::agent_profiles`]); it belongs to the pinned agent, so it only
-/// applies when that agent is one this build knows — a profile id names a
-/// directory under ONE agent's config root. The launcher itself resolves a
-/// profile this machine no longer holds — like NULL, blank or the retired
-/// `system` — as unpinned: the login last used on this device.
-pub fn launch_options(
-    settings: &crate::Settings,
-    agent: Option<&str>,
-    model: Option<&str>,
-    effort: Option<&str>,
-    account: Option<&str>,
-) -> crate::LaunchOptions {
-    // An agent this build does not know (a newer contract value) falls back
-    // to the device default rather than refusing to run.
-    let pinned = agent.and_then(crate::CodingAgent::parse);
-    let agent = pinned.unwrap_or(settings.default_agent);
-    let mut options = crate::LaunchOptions::defaults_for(settings, agent);
-    if let Some(model) = model.filter(|value| !value.is_empty()) {
-        options.model = model.to_string();
-    }
-    if let Some(effort) = effort.filter(|value| !value.is_empty()) {
-        options.effort = effort.to_string();
-    }
-    if pinned.is_some() {
-        if let Some(account) = account.map(str::trim).filter(|value| !value.is_empty()) {
-            options.account = Some(account.to_string());
-        }
-    }
-    options.plan_mode = false;
-    options
-}
+/// Backoff a failed firing post stamps onto `cooldown_until` (a trigger
+/// whose agent the server refuses must not re-post every beat).
+pub const SEND_FAILURE_BACKOFF_MS: i64 = 5 * 60_000;
 
-/// Backoff a failed prepare stamps onto `cooldown_until` (poison-pill).
-pub const PREPARE_FAILURE_BACKOFF_MS: i64 = 5 * 60_000;
-/// Cap on the issue lines an event firing renders into the trigger prompt
-/// section — the overflow becomes one "…and N more." line.
-pub const TRIGGER_PROMPT_MAX_LINES: usize = 50;
-
-/// One trigger bound to THIS device, pre-parsed by [`bound_triggers`], which
-/// has already dropped every trigger that targets another device or is
-/// switched off.
+/// One trigger bound to THIS device, pre-parsed by [`bound_agent_triggers`],
+/// which has already dropped every other device's agent, every ended or
+/// child row and every switched-off trigger.
 #[derive(Clone, Debug)]
 pub struct ArmedTrigger {
-    /// The trigger's id — the state map's key AND the `triggerId` stamped
-    /// on the run it fires.
+    /// The trigger's id — the state map's key.
     pub trigger_id: String,
-    /// The action this fires (the reservation key and the launch target).
-    pub action_id: String,
-    /// The trigger's team — it fences event matching against the shared
+    /// The agent root (`sessions.id`) this fires into — the post target and
+    /// the busy-defer key.
+    pub agent_id: String,
+    /// The agent's team — it fences event matching against the shared
     /// events snapshot (hosts sync every member team's rows into one place).
     pub team_id: String,
     pub trigger: ParsedTrigger,
-    /// [`ActionTrigger::fingerprint`] — the when-part alone.
+    /// [`AgentTrigger::fingerprint`] — the when-part alone.
     pub fingerprint: String,
 }
 
-/// One trigger this device fires: the engine's input plus what the LAUNCH
-/// needs beyond it.
-#[derive(Clone, Debug)]
-pub struct BoundTrigger {
-    pub triggered: ArmedTrigger,
-    /// The target action's display name (a log handle; may be empty).
-    pub action_name: String,
-    pub pins: LaunchPins,
-}
-
-/// The triggers `device_id` evaluates, over every synced action: ENABLED,
-/// bound to this device, on an action that has a team to run in. The ONE
-/// resolution both hosts use, so a GUI↔CLI hand-off reads the same
-/// fingerprints and never re-seeds the shared state.
-pub fn bound_triggers<'a>(
-    actions: impl Iterator<Item = &'a domain::rows::ActionRow>,
+/// The triggers `device_id` evaluates, over every synced `sessions` row:
+/// agent ROOTS bound to this device, not ended, with a team, and ENABLED
+/// triggers (≤ `AGENT_TRIGGER_MAX_PER_AGENT` each — the server's cap,
+/// re-applied so a stale row can never arm more). The ONE resolution both
+/// hosts use, so a GUI↔CLI hand-off reads the same fingerprints and never
+/// re-seeds the shared state.
+pub fn bound_agent_triggers<'a>(
+    rows: impl Iterator<Item = &'a SessionRow>,
     device_id: &str,
-) -> Vec<BoundTrigger> {
+) -> Vec<ArmedTrigger> {
     let mut bound = Vec::new();
-    for action in actions {
-        // A team-less row has nowhere to run — and the team doubles as the
+    for row in rows {
+        if !row.is_agent() || !row.on_device(device_id) || row.status_is(SESSION_STATUS_ENDED) {
+            continue; // a thread, a child, another machine's agent, or gone
+        }
+        // A team-less row has nowhere to post — and the team doubles as the
         // engine's event fence.
-        let Some(team_id) = action.team_id.as_deref() else {
+        let Some(team_id) = row.team_id.as_deref() else {
             continue;
         };
-        for trigger in parse_action_triggers(action.triggers.as_ref()) {
-            if !trigger.enabled || trigger.device_id != device_id {
-                continue; // switched off, or another machine's (or host's)
+        for trigger in parse_agent_triggers(row.triggers.as_ref())
+            .into_iter()
+            .take(domain::contract::AGENT_TRIGGER_MAX_PER_AGENT)
+        {
+            if !trigger.enabled {
+                continue;
             }
-            bound.push(BoundTrigger {
-                triggered: ArmedTrigger {
-                    fingerprint: trigger.fingerprint(),
-                    trigger_id: trigger.id,
-                    action_id: action.id.clone(),
-                    team_id: team_id.to_string(),
-                    trigger: trigger.when,
-                },
-                action_name: action.name.clone().unwrap_or_default(),
-                pins: trigger.pins,
+            bound.push(ArmedTrigger {
+                fingerprint: trigger.fingerprint(),
+                trigger_id: trigger.id,
+                agent_id: row.id.clone(),
+                team_id: team_id.to_string(),
+                trigger: trigger.when,
             });
         }
     }
@@ -172,10 +130,11 @@ pub struct EvalInput<'a, Tz: chrono::TimeZone> {
     /// Candidate event rows (host-fetched, ≤ the catch-up window is fine —
     /// the engine re-applies the cutoff).
     pub events: &'a [EventRow],
-    /// Actions with a LIVE local run — deferred, never double-launched.
-    /// Keyed by ACTION id: two triggers on one action must not both
-    /// launch it while a run is up.
-    pub live_action_ids: &'a HashSet<String>,
+    /// Agents that must not get another firing yet — deferred, never
+    /// piled up: the agent row is `busy` (mid-turn) OR a firing it was sent
+    /// is still unconsumed (`messages.consumed_at` NULL). Keyed by AGENT id:
+    /// two triggers on one agent must not both post while it works.
+    pub busy_agent_ids: &'a HashSet<String>,
     pub now_ms: i64,
     /// The same instant in the device's zone (tests pin `FixedOffset`).
     pub now_local: chrono::DateTime<Tz>,
@@ -190,8 +149,8 @@ pub enum Firing {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Decision {
-    /// Launch the action and persist `new_state` FIRST (see the firing
-    /// protocol above).
+    /// Persist `new_state` FIRST, then post [`firing_text`] into the agent
+    /// (see the firing protocol above).
     Fire {
         trigger_id: String,
         firing: Firing,
@@ -204,7 +163,7 @@ pub enum Decision {
         trigger_id: String,
         new_state: TriggerState,
     },
-    /// Cooling down or already running — re-evaluate next beat.
+    /// Cooling down or the agent is busy — re-evaluate next beat.
     Defer { trigger_id: String },
 }
 
@@ -219,7 +178,7 @@ pub fn needs_events(armed: &[ArmedTrigger]) -> bool {
 
 /// The per-trigger decision cascade: (1) unsupported → inert;
 /// (2) unseen or edited trigger → [`Decision::Reseed`]; (3) cooldown →
-/// defer; (4) live run → defer; (5) schedule fires on a new latest
+/// defer; (4) busy agent → defer; (5) schedule fires on a new latest
 /// occurrence (offline catch-up = exactly one run, anchored at the
 /// occurrence — never `now` — so the anchor can't drift); (6) event fires
 /// ONCE over all matches the cursor admits, then advances the cursor to
@@ -289,7 +248,7 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
         let cooling = state
             .cooldown_until
             .is_some_and(|until| input.now_ms < until);
-        if cooling || input.live_action_ids.contains(&armed.action_id) {
+        if cooling || input.busy_agent_ids.contains(&armed.agent_id) {
             decisions.push(Decision::Defer {
                 trigger_id: armed.trigger_id.clone(),
             });
@@ -390,12 +349,12 @@ mod tests {
     }
 
     /// The ids are deliberately the same here: the state map keys on the
-    /// TRIGGER and the live-run set keys on the ACTION, and one id makes
-    /// both readable in the asserts below.
-    fn daily_action(id: &str, minute: u32) -> ArmedTrigger {
+    /// TRIGGER and the busy set keys on the AGENT, and one id makes both
+    /// readable in the asserts below.
+    fn daily_trigger(id: &str, minute: u32) -> ArmedTrigger {
         ArmedTrigger {
             trigger_id: id.to_string(),
-            action_id: id.to_string(),
+            agent_id: id.to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
                 kind: TriggerKind::Schedule(Schedule {
@@ -409,10 +368,10 @@ mod tests {
         }
     }
 
-    fn event_action(id: &str) -> ArmedTrigger {
+    fn event_trigger(id: &str) -> ArmedTrigger {
         ArmedTrigger {
             trigger_id: id.to_string(),
-            action_id: id.to_string(),
+            agent_id: id.to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
                 kind: TriggerKind::Event(EventSpec {
@@ -472,7 +431,7 @@ mod tests {
         armed: Vec<ArmedTrigger>,
         states: HashMap<String, TriggerState>,
         events: Vec<EventRow>,
-        live: HashSet<String>,
+        busy: HashSet<String>,
         now_local: DateTime<FixedOffset>,
     }
 
@@ -482,7 +441,7 @@ mod tests {
                 armed: Vec::new(),
                 states: HashMap::new(),
                 events: Vec::new(),
-                live: HashSet::new(),
+                busy: HashSet::new(),
                 now_local,
             }
         }
@@ -492,78 +451,11 @@ mod tests {
                 armed: &self.armed,
                 states: &self.states,
                 events: &self.events,
-                live_action_ids: &self.live,
+                busy_agent_ids: &self.busy,
                 now_ms: self.now_local.timestamp_millis(),
                 now_local: self.now_local.clone(),
             })
         }
-    }
-
-    /// A trigger's pins win over the device defaults; everything it
-    /// leaves NULL follows the machine, and plan mode is always off.
-    #[test]
-    fn launch_options_layer_pins_over_the_device_defaults() {
-        let settings = crate::Settings::default();
-        assert!(
-            settings.plan_mode_for(settings.default_agent),
-            "the shipped default parks claude in plan mode"
-        );
-
-        // Nothing pinned = the device's own defaults, plan mode off.
-        let bare = launch_options(&settings, None, None, None, None);
-        let device = crate::LaunchOptions::defaults(&settings);
-        assert_eq!(bare.agent, device.agent);
-        assert_eq!(bare.model, device.model);
-        assert_eq!(bare.effort, device.effort);
-        assert!(!bare.plan_mode);
-
-        // A pinned agent brings ITS defaults, then the explicit overrides.
-        let pinned = launch_options(&settings, Some("codex"), Some("gpt-5.1-codex"), None, None);
-        assert_eq!(pinned.agent, crate::CodingAgent::Codex);
-        assert_eq!(pinned.model, "gpt-5.1-codex");
-        assert_eq!(
-            pinned.effort,
-            crate::LaunchOptions::defaults_for(&settings, crate::CodingAgent::Codex).effort,
-            "an unpinned effort still follows the device"
-        );
-
-        // An agent this build predates degrades to the device default —
-        // never a refused run.
-        assert_eq!(
-            launch_options(&settings, Some("moonshot"), None, None, None).agent,
-            settings.default_agent
-        );
-        // Empty strings are "unset", not a blank model.
-        assert_eq!(
-            launch_options(&settings, None, Some(""), Some(""), None).model,
-            device.model
-        );
-    }
-
-    /// EXP-995: the account pin is a PROFILE of the pinned agent — it rides
-    /// only beside an agent this build knows; the launcher reads NULL, blank
-    /// and the retired `system` as unpinned (the last used login).
-    #[test]
-    fn launch_options_take_the_account_pin_beside_its_agent() {
-        let mut settings = crate::Settings::default();
-        settings.default_agent = crate::CodingAgent::Claude;
-
-        let pinned = launch_options(&settings, Some("codex"), None, None, Some("0a1b2c3d"));
-        assert_eq!(pinned.agent, crate::CodingAgent::Codex);
-        assert_eq!(pinned.account.as_deref(), Some("0a1b2c3d"));
-
-        // No agent pinned = the last used agent, unnamed (its last used
-        // login), whatever the row says (a profile belongs to one agent).
-        let bare = launch_options(&settings, None, None, None, Some("0a1b2c3d"));
-        assert_eq!(bare.agent, crate::CodingAgent::Claude);
-        assert_eq!(bare.account, None);
-
-        // A legacy `system` rides through (the launcher reads it as
-        // unpinned); blank is unpinned.
-        let legacy = launch_options(&settings, Some("claude"), None, None, Some("system"));
-        assert_eq!(legacy.account.as_deref(), Some("system"));
-        let blank = launch_options(&settings, Some("codex"), None, None, Some(" "));
-        assert_eq!(blank.account, None);
     }
 
     /// The evaluation truth table (the reconcile_truth_table idiom): one
@@ -578,7 +470,7 @@ mod tests {
         // Reseed never fires: a NEW event trigger with matching past
         // events seeds lastFiredAt=now + watermark=max event — no Fire.
         let mut fresh = Snapshot::new(now.clone());
-        fresh.armed = vec![event_action("act-e")];
+        fresh.armed = vec![event_trigger("agt-e")];
         fresh.events = vec![
             event_row("evt-1", "created", now_ms - 5_000),
             event_row("evt-2", "created", now_ms - 1_000),
@@ -586,11 +478,11 @@ mod tests {
         assert_eq!(
             fresh.evaluate(),
             vec![Decision::Reseed {
-                trigger_id: "act-e".to_string(),
+                trigger_id: "agt-e".to_string(),
                 // No grace on a reseed: the floor sits AT the snapshot max
                 // and evt-2 (the only row there) is already marked seen.
                 new_state: seeded_seen(
-                    "fp-act-e",
+                    "fp-agt-e",
                     now_ms,
                     (now_ms - 1_000, "evt-2"),
                     now_ms - 1_000,
@@ -602,14 +494,14 @@ mod tests {
 
         // An edited trigger reseeds (fingerprint moved), even mid-steady-state.
         let mut edited = Snapshot::new(now.clone());
-        edited.armed = vec![daily_action("act-s", 420)];
+        edited.armed = vec![daily_trigger("agt-s", 420)];
         edited
             .states
-            .insert("act-s".to_string(), seeded("fp-STALE", yesterday_0700_ms, (0, "")));
+            .insert("agt-s".to_string(), seeded("fp-STALE", yesterday_0700_ms, (0, "")));
         match &edited.evaluate()[..] {
             [Decision::Reseed { trigger_id, new_state }] => {
-                assert_eq!(trigger_id, "act-s", "edited trigger reseeds instead of firing");
-                assert_eq!(new_state.fingerprint, "fp-act-s");
+                assert_eq!(trigger_id, "agt-s", "edited trigger reseeds instead of firing");
+                assert_eq!(new_state.fingerprint, "fp-agt-s");
                 assert_eq!(new_state.last_fired_at, Some(now_ms));
             }
             other => panic!("expected one Reseed, got {other:?}"),
@@ -618,14 +510,14 @@ mod tests {
         // Schedule offline catch-up: 3 missed days collapse into EXACTLY
         // one fire — the latest occurrence.
         let mut catchup = Snapshot::new(now.clone());
-        catchup.armed = vec![daily_action("act-s", 420)];
+        catchup.armed = vec![daily_trigger("agt-s", 420)];
         let three_days_ago = at(2026, 8, 15, 7, 0).timestamp_millis();
         catchup
             .states
-            .insert("act-s".to_string(), seeded("fp-act-s", three_days_ago, (0, "")));
+            .insert("agt-s".to_string(), seeded("fp-agt-s", three_days_ago, (0, "")));
         match &catchup.evaluate()[..] {
             [Decision::Fire { trigger_id, firing, new_state }] => {
-                assert_eq!(trigger_id, "act-s");
+                assert_eq!(trigger_id, "agt-s");
                 assert_eq!(
                     firing,
                     &Firing::Schedule { occurrence_ms: today_0700_ms },
@@ -645,19 +537,19 @@ mod tests {
 
         // Already anchored at today's occurrence → nothing (no Defer spam).
         let mut steady = Snapshot::new(now.clone());
-        steady.armed = vec![daily_action("act-s", 420)];
+        steady.armed = vec![daily_trigger("agt-s", 420)];
         steady
             .states
-            .insert("act-s".to_string(), seeded("fp-act-s", today_0700_ms, (0, "")));
+            .insert("agt-s".to_string(), seeded("fp-agt-s", today_0700_ms, (0, "")));
         assert_eq!(steady.evaluate(), vec![], "an anchored schedule is silent until the next tick");
 
         // Event coalescing: 3 matches → ONE Fire carrying all of them; the
         // watermark advances over a NEWER NON-MATCHING row too.
         let mut coalesce = Snapshot::new(now.clone());
-        coalesce.armed = vec![event_action("act-e")];
+        coalesce.armed = vec![event_trigger("agt-e")];
         coalesce
             .states
-            .insert("act-e".to_string(), seeded("fp-act-e", 0, (now_ms - 10_000, "evt-0")));
+            .insert("agt-e".to_string(), seeded("fp-agt-e", 0, (now_ms - 10_000, "evt-0")));
         coalesce.events = vec![
             event_row("evt-1", "created", now_ms - 5_000),
             event_row("evt-2", "created", now_ms - 4_000),
@@ -695,10 +587,10 @@ mod tests {
         // the watermark (max over the WHOLE snapshot) still advances past
         // them on the next real fire, so no Fire and no Reseed here.
         let mut cross_team = Snapshot::new(now.clone());
-        cross_team.armed = vec![event_action("act-e")];
+        cross_team.armed = vec![event_trigger("agt-e")];
         cross_team
             .states
-            .insert("act-e".to_string(), seeded("fp-act-e", 0, (0, "")));
+            .insert("agt-e".to_string(), seeded("fp-agt-e", 0, (0, "")));
         let mut foreign = event_row("evt-f", "created", now_ms - 1_000);
         foreign.team_id = Some("team-OTHER".to_string());
         cross_team.events = vec![foreign];
@@ -710,37 +602,37 @@ mod tests {
 
         // Cooldown defers.
         let mut cooling = Snapshot::new(now.clone());
-        cooling.armed = vec![event_action("act-e")];
-        let mut cooled = seeded("fp-act-e", 0, (0, ""));
+        cooling.armed = vec![event_trigger("agt-e")];
+        let mut cooled = seeded("fp-agt-e", 0, (0, ""));
         cooled.cooldown_until = Some(now_ms + 30_000);
-        cooling.states.insert("act-e".to_string(), cooled);
+        cooling.states.insert("agt-e".to_string(), cooled);
         cooling.events = vec![event_row("evt-1", "created", now_ms - 1_000)];
         assert_eq!(
             cooling.evaluate(),
-            vec![Decision::Defer { trigger_id: "act-e".to_string() }],
+            vec![Decision::Defer { trigger_id: "agt-e".to_string() }],
             "a cooling trigger defers, keeping the pending events for the next beat"
         );
 
-        // A live run for the action defers.
+        // A busy agent (mid-turn, or an unconsumed firing) defers.
         let mut running = Snapshot::new(now.clone());
-        running.armed = vec![daily_action("act-s", 420)];
+        running.armed = vec![daily_trigger("agt-s", 420)];
         running
             .states
-            .insert("act-s".to_string(), seeded("fp-act-s", yesterday_0700_ms, (0, "")));
-        running.live.insert("act-s".to_string());
+            .insert("agt-s".to_string(), seeded("fp-agt-s", yesterday_0700_ms, (0, "")));
+        running.busy.insert("agt-s".to_string());
         assert_eq!(
             running.evaluate(),
-            vec![Decision::Defer { trigger_id: "act-s".to_string() }],
-            "a live run blocks a second launch of the same action"
+            vec![Decision::Defer { trigger_id: "agt-s".to_string() }],
+            "a busy agent gets no second firing piled on"
         );
 
         // An Unsupported trigger is inert — not even a Reseed. (A DISABLED
-        // trigger never reaches the engine at all: the host filters
-        // `enabled` off the row before snapshotting.)
+        // trigger never reaches the engine at all: bound_agent_triggers
+        // filters `enabled` off the row before snapshotting.)
         let mut inert = Snapshot::new(now.clone());
         inert.armed = vec![ArmedTrigger {
-            trigger_id: "act-u".to_string(),
-            action_id: "act-u".to_string(),
+            trigger_id: "agt-u".to_string(),
+            agent_id: "agt-u".to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
                 kind: TriggerKind::Unsupported,
@@ -758,11 +650,11 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut holes = Snapshot::new(now);
-        holes.armed = vec![event_action("act-e")];
+        holes.armed = vec![event_trigger("agt-e")];
         holes.states.insert(
-            "act-e".to_string(),
+            "agt-e".to_string(),
             TriggerState {
-                fingerprint: "fp-act-e".to_string(),
+                fingerprint: "fp-agt-e".to_string(),
                 last_fired_at: Some(0),
                 watermark_created_at: None,
                 watermark_id: None,
@@ -780,69 +672,76 @@ mod tests {
         }
     }
 
-    /// Only THIS device's ENABLED, readable triggers on a team's action reach
+    /// Only THIS device's live agent roots' ENABLED, readable triggers reach
     /// the engine — everything else belongs to another host (or to none).
     #[test]
-    fn bound_triggers_keep_only_this_devices_enabled_ones() {
+    fn bound_agent_triggers_keep_only_this_devices_live_agents() {
         use serde_json::json;
-        let action = |id: &str, team: Option<&str>, triggers: serde_json::Value| {
-            let mut row = json!({"id": id, "name": format!("Action {id}"), "triggers": triggers});
-            if let Some(team) = team {
-                row["team_id"] = json!(team);
+        let row = |id: &str, extra: serde_json::Value| {
+            let mut row = json!({"id": id, "kind": "agent", "team_id": "team-1",
+                                 "device_id": "dev-gui", "status": "idle"});
+            for (key, value) in extra.as_object().unwrap() {
+                row[key.as_str()] = value.clone();
             }
-            serde_json::from_value::<domain::rows::ActionRow>(row).expect("action row decodes")
+            serde_json::from_value::<SessionRow>(row).expect("session row decodes")
         };
-        let daily = |id: &str, device: &str, enabled: bool| {
-            json!({"id": id, "enabled": enabled, "deviceId": device,
+        let daily = |id: &str, enabled: bool| {
+            json!({"id": id, "enabled": enabled,
                    "kind": "schedule", "interval": "daily", "minuteOfDay": 420})
         };
         let rows = vec![
-            action(
-                "act-1",
-                Some("team-1"),
-                json!([
-                    daily("mine", "dev-gui", true),
-                    daily("theirs", "dev-cli", true),
-                    daily("off", "dev-gui", false),
+            row(
+                "agt-1",
+                json!({"triggers": [
+                    daily("mine", true),
+                    daily("off", false),
                     // A FUTURE kind is unreadable: skipped, never evaluated.
-                    {"id": "future", "deviceId": "dev-gui", "kind": "moon_phase"},
-                    {"id": "pinned", "deviceId": "dev-gui", "agent": "codex",
-                     "model": "gpt-5.1-codex", "source": "exponential",
-                     "kind": "event", "event": "created"},
-                ]),
+                    {"id": "future", "kind": "moon_phase"},
+                    {"id": "event", "source": "exponential", "kind": "event", "event": "created"},
+                ]}),
             ),
-            // A team-less action has nowhere to run.
-            action("act-2", None, json!([daily("teamless", "dev-gui", true)])),
-            // TEXT-stored jsonb (the native stores' form) reads the same.
-            action(
-                "act-3",
-                Some("team-2"),
-                json!(json!([daily("text", "dev-gui", true)]).to_string()),
+            // Another machine's agent.
+            row("agt-2", json!({"device_id": "dev-cli", "triggers": [daily("theirs", true)]})),
+            // An ended agent, a thread root, a child row: never armed.
+            row("agt-3", json!({"status": "ended", "triggers": [daily("ended", true)]})),
+            row("thr-1", json!({"kind": "thread", "triggers": [daily("thread", true)]})),
+            row("chd-1", json!({"parent_id": "agt-1", "triggers": [daily("child", true)]})),
+            // A team-less agent has nowhere to post.
+            row("agt-4", json!({"team_id": null, "triggers": [daily("teamless", true)]})),
+            // TEXT-stored jsonb (the native stores' form) reads the same;
+            // a running agent (mid-turn) still arms — the busy set defers it.
+            row(
+                "agt-5",
+                json!({"team_id": "team-2", "status": "running",
+                       "triggers": json!([daily("text", true)]).to_string()}),
             ),
-            action("act-4", Some("team-1"), json!(null)),
+            row("agt-6", json!({"triggers": null})),
         ];
-        let bound = bound_triggers(rows.iter(), "dev-gui");
+        let bound = bound_agent_triggers(rows.iter(), "dev-gui");
         assert_eq!(
-            bound
-                .iter()
-                .map(|entry| entry.triggered.trigger_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["mine", "pinned", "text"]
+            bound.iter().map(|armed| armed.trigger_id.as_str()).collect::<Vec<_>>(),
+            vec!["mine", "event", "text"]
         );
-        assert_eq!(bound[0].triggered.action_id, "act-1", "the launch target rides along");
-        assert_eq!(bound[0].triggered.team_id, "team-1");
-        assert_eq!(bound[0].action_name, "Action act-1");
-        assert_eq!(bound[2].triggered.team_id, "team-2");
-        assert_eq!(bound[0].pins, LaunchPins::default(), "unpinned = the device's defaults");
-        assert_eq!(bound[1].pins.agent.as_deref(), Some("codex"));
-        assert_eq!(bound[1].pins.model.as_deref(), Some("gpt-5.1-codex"));
-        // The fingerprint is the WHEN-part's — what the old automation row
-        // hashed, whatever the runner half says.
+        assert_eq!(bound[0].agent_id, "agt-1", "the post target rides along");
+        assert_eq!(bound[0].team_id, "team-1");
+        assert_eq!(bound[2].agent_id, "agt-5");
+        assert_eq!(bound[2].team_id, "team-2");
+        // The fingerprint is the WHEN-part's, whatever `id`/`enabled` say.
         assert_eq!(
-            bound[0].triggered.fingerprint,
+            bound[0].fingerprint,
             trigger_fingerprint(&json!({
                 "kind": "schedule", "interval": "daily", "minuteOfDay": 420
             }))
+        );
+
+        // The per-agent cap holds even on a stale over-long array.
+        let many: Vec<serde_json::Value> = (0..domain::contract::AGENT_TRIGGER_MAX_PER_AGENT + 3)
+            .map(|index| daily(&format!("t-{index}"), true))
+            .collect();
+        let crowded = row("agt-7", json!({"triggers": many}));
+        assert_eq!(
+            bound_agent_triggers(std::iter::once(&crowded), "dev-gui").len(),
+            domain::contract::AGENT_TRIGGER_MAX_PER_AGENT
         );
     }
 
@@ -850,12 +749,12 @@ mod tests {
     fn needs_events_only_for_event_triggers() {
         assert!(!needs_events(&[]), "no triggers, no scan");
         assert!(
-            !needs_events(&[daily_action("act-s", 420)]),
+            !needs_events(&[daily_trigger("agt-s", 420)]),
             "a schedule never reads the events snapshot"
         );
         let unsupported = ArmedTrigger {
-            trigger_id: "act-u".to_string(),
-            action_id: "act-u".to_string(),
+            trigger_id: "agt-u".to_string(),
+            agent_id: "agt-u".to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
                 kind: TriggerKind::Unsupported,
@@ -863,7 +762,7 @@ mod tests {
             fingerprint: "fp-u".to_string(),
         };
         assert!(!needs_events(&[unsupported]));
-        assert!(needs_events(&[daily_action("act-s", 420), event_action("act-e")]));
+        assert!(needs_events(&[daily_trigger("agt-s", 420), event_trigger("agt-e")]));
     }
 
     /// EXP-562 the whole point: a row that COMMITTED before the snapshot's
@@ -875,10 +774,10 @@ mod tests {
         let now_ms = now.timestamp_millis();
         let cooldown = chrono::Duration::milliseconds(domain::contract::TRIGGER_COOLDOWN_MS + 1);
         let mut first = Snapshot::new(now.clone());
-        first.armed = vec![event_action("act-e")];
+        first.armed = vec![event_trigger("agt-e")];
         first.states.insert(
-            "act-e".to_string(),
-            seeded_seen("fp-act-e", 0, (now_ms - 10_000, "evt-0"), now_ms - 20_000, &["evt-0"]),
+            "agt-e".to_string(),
+            seeded_seen("fp-agt-e", 0, (now_ms - 10_000, "evt-0"), now_ms - 20_000, &["evt-0"]),
         );
         first.events = vec![event_row("evt-2", "created", now_ms - 5_000)];
         let fired_state = match &first.evaluate()[..] {
@@ -893,8 +792,8 @@ mod tests {
         // the grace. A bare high-water mark would have lost it forever.
         let later = now + cooldown;
         let mut second = Snapshot::new(later.clone());
-        second.armed = vec![event_action("act-e")];
-        second.states.insert("act-e".to_string(), fired_state);
+        second.armed = vec![event_trigger("agt-e")];
+        second.states.insert("agt-e".to_string(), fired_state);
         second.events = vec![
             event_row("evt-1", "created", now_ms - 6_000),
             event_row("evt-2", "created", now_ms - 5_000),
@@ -913,8 +812,8 @@ mod tests {
 
         // Third pass over the SAME snapshot: nothing left to fire.
         let mut third = Snapshot::new(later + cooldown);
-        third.armed = vec![event_action("act-e")];
-        third.states.insert("act-e".to_string(), second_state);
+        third.armed = vec![event_trigger("agt-e")];
+        third.states.insert("agt-e".to_string(), second_state);
         third.events = second.events.clone();
         assert_eq!(third.evaluate(), vec![], "a fired row is never re-litigated");
     }
@@ -927,10 +826,10 @@ mod tests {
         let now_ms = now.timestamp_millis();
         let floor = now_ms - 10_000;
         let mut snapshot = Snapshot::new(now);
-        snapshot.armed = vec![event_action("act-e")];
+        snapshot.armed = vec![event_trigger("agt-e")];
         snapshot.states.insert(
-            "act-e".to_string(),
-            seeded_seen("fp-act-e", 0, (now_ms - 5_000, "evt-2"), floor, &["evt-2"]),
+            "agt-e".to_string(),
+            seeded_seen("fp-agt-e", 0, (now_ms - 5_000, "evt-2"), floor, &["evt-2"]),
         );
         snapshot.events = vec![
             event_row("evt-ancient", "created", floor - 1),
@@ -946,10 +845,10 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut quiet = Snapshot::new(now);
-        quiet.armed = vec![event_action("act-e")];
+        quiet.armed = vec![event_trigger("agt-e")];
         quiet
             .states
-            .insert("act-e".to_string(), seeded("fp-act-e", 0, (now_ms - 5_000, "evt-b")));
+            .insert("agt-e".to_string(), seeded("fp-agt-e", 0, (now_ms - 5_000, "evt-b")));
         // Same ms, LOWER id — strictly below the watermark tuple. Under the
         // grace cursor it would fire; a legacy state must not replay it.
         quiet.events = vec![event_row("evt-a", "created", now_ms - 5_000)];
@@ -977,10 +876,10 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut burst = Snapshot::new(now.clone());
-        burst.armed = vec![event_action("act-e")];
+        burst.armed = vec![event_trigger("agt-e")];
         burst
             .states
-            .insert("act-e".to_string(), seeded_seen("fp-act-e", 0, (0, ""), now_ms - 30_000, &[]));
+            .insert("agt-e".to_string(), seeded_seen("fp-agt-e", 0, (0, ""), now_ms - 30_000, &[]));
         burst.events = (0..130)
             .map(|index| event_row(&format!("evt-{index:03}"), "created", now_ms - 20_000 + index))
             .collect();
@@ -999,8 +898,8 @@ mod tests {
 
         let cooldown = chrono::Duration::milliseconds(domain::contract::TRIGGER_COOLDOWN_MS + 1);
         let mut again = Snapshot::new(now + cooldown);
-        again.armed = vec![event_action("act-e")];
-        again.states.insert("act-e".to_string(), fired_state);
+        again.armed = vec![event_trigger("agt-e")];
+        again.states.insert("agt-e".to_string(), fired_state);
         again.events = burst.events.clone();
         assert_eq!(again.evaluate(), vec![], "the truncated rows fell BELOW the raised floor");
     }
@@ -1010,7 +909,7 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut empty = Snapshot::new(now);
-        empty.armed = vec![event_action("act-e")];
+        empty.armed = vec![event_trigger("agt-e")];
         match &empty.evaluate()[..] {
             [Decision::Reseed { new_state, .. }] => {
                 assert_eq!(
@@ -1033,10 +932,10 @@ mod tests {
         let now_ms = now.timestamp_millis();
         let floor = now_ms - 10_000;
         let mut shrunk = Snapshot::new(now);
-        shrunk.armed = vec![event_action("act-e")];
+        shrunk.armed = vec![event_trigger("agt-e")];
         shrunk.states.insert(
-            "act-e".to_string(),
-            seeded_seen("fp-act-e", 0, (now_ms, "evt-gone"), floor, &[]),
+            "agt-e".to_string(),
+            seeded_seen("fp-agt-e", 0, (now_ms, "evt-gone"), floor, &[]),
         );
         // The only survivor is far below `floor + EVENT_GRACE_MS`, so the
         // naive candidate floor (max − grace) sits below the persisted one.

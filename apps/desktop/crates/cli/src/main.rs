@@ -6,7 +6,8 @@
 //! mode), and the same steer publisher/activity machinery, so a session
 //! started here is steerable from the web exactly like a desktop session.
 //! `daemon` registers this machine as a persistent per-user device
-//! (`devices.register`, kind `server`) and executes remote starts.
+//! (`devices.register`, kind `server`) and runs the sessions queued for it
+//! (EXP-1292: picked up off its `sessions` / `messages` shapes).
 
 mod agent_login_host;
 mod commands;
@@ -86,15 +87,14 @@ Commands:
   whoami                                  Show the signed-in account
   status                                  Account + device + daemon + tooling summary
   doctor                                  Check git and the agent CLIs
-  code <ISSUE> [options]                  Start a coding session for an issue
-  run <action> [options]                  Run a team action (or a builtin: chat,
-                                          create-action, fix-conflicts)
+  code <ISSUE> [options]                  Start a session on an issue
+  run <action> [options]                  Run a team action (a saved prompt)
   devices [--team <team-id>]              Your devices: online, agents, running sessions
   sessions [--device <d>] [--status <s>] [--all]
-                                          Coding sessions, newest first
-  sessions show|log|message|kill <id>     Inspect, tail (--follow), steer or stop one
+                                          Sessions, newest first
+  sessions show|log|message|stop|end <id> Inspect, tail (--follow), message, interrupt or end one
   mcp list|connect|set-secret|disconnect  Team MCP servers + your connection to each
-  daemon [--foreground] [--label <name>]  Run the remote-start daemon
+  daemon [--foreground] [--label <name>]  Run the device daemon (runs the sessions queued here)
   daemon install|uninstall|status         Manage the systemd/launchd service
   update [--auto on|off]                  Self-update now, or switch auto-update
   uninstall [--yes]                       Remove the daemon service and delete this binary
@@ -107,8 +107,8 @@ Options for code/run:
                             with --account <profile> and --follow (tail it)
 Options for run:
   --team <team-id>          --input k=v   (repeatable; the action's pick inputs)
-  --prompt <text>           (additional instructions; the whole request for
-                             chat and create-action)
+  --prompt <text>           (the session's first message: additional
+                             instructions for the action)
 Environment:
   EXP_INSTANCE, EXP_TOKEN (API key expu_… from Settings → Security, or a session
   token; non-interactive login), EXP_INSTALL_TOKEN (one-time expi_… token from

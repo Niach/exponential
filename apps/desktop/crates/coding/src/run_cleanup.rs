@@ -122,7 +122,7 @@ pub enum SkipReason {
 
 /// Remove the run's worktree + branch iff it provably left nothing behind.
 /// The run's registry record stays either way: a resume re-creates a
-/// removed worktree on the recorded branch (`prepare_resume_run`), and the
+/// removed worktree on the recorded branch (`launcher::prepare_resume`), and the
 /// record lives until the session history setting retires it (EXP-886).
 ///
 /// FEED-53: never while another live run (`live`) holds the branch or the

@@ -165,11 +165,10 @@ pub const AGENT_IMPORT_CAP: &str = "agent-import";
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
-/// actions either). EXP-530's trigger caps (this host evaluates the triggers
-/// bound to its device id; SLOP-17: the contract's `triggers` plus the
-/// legacy `automations` name, which clients at the current floor still
-/// check), EXP-615's `chat` (the hidden `builtin:chat` action) and EXP-637's `resume-run` (resume an ended run out of the local
-/// run registry) ride with them. EXP-825's `start-prompt` says this build
+/// actions either). EXP-637's `resume-run` (resume a session out of the
+/// local run registry) rides with them. EXP-1292: the trigger caps, `chat`
+/// and `fix-conflicts` went with the builtins and action triggers (a team
+/// agent's triggers run wherever the agent's row names its device). EXP-825's `start-prompt` says this build
 /// reads the `prompt` field of a `start_session` frame (the composer's free
 /// text): the server REFUSES a Chat or Create-action start to a device
 /// without it, since those two builtins carry their whole program there
@@ -181,13 +180,9 @@ pub const AGENT_IMPORT_CAP: &str = "agent-import";
 /// (`[name](/api/attachments/<id>)` lines) in start prompts and steer
 /// messages: the server refuses a start with such a file to a device
 /// without it (images still pass), and composers offer images only there.
-pub const ACTION_CAPS: [&str; 10] = [
+pub const ACTION_CAPS: [&str; 6] = [
     "actions",
     "action-inputs",
-    "fix-conflicts",
-    domain::contract::TRIGGER_DEVICE_CAP,
-    domain::contract::TRIGGER_LEGACY_DEVICE_CAP,
-    "chat",
     RESUME_RUN_CAP,
     START_PROMPT_CAP,
     COMPUTER_USE_RUN_CAP,
@@ -1827,27 +1822,15 @@ mod tests {
         }
     }
 
-    /// The trigger host must advertise itself or the web pickers hide it.
-    /// (Moved here from `cli::commands::daemon` with the caps themselves.)
+    /// The action caps ride only while an agent is runnable. EXP-1292: the
+    /// trigger caps, `chat` and `fix-conflicts` are gone with what they gated.
     #[test]
-    fn action_caps_advertise_triggers() {
-        // SLOP-17: the new `triggers` cap AND the legacy `automations` name
-        // (clients at the current floor still check the old one).
-        let both = [
-            domain::contract::TRIGGER_DEVICE_CAP,
-            domain::contract::TRIGGER_LEGACY_DEVICE_CAP,
-        ];
-        assert_eq!(both, ["triggers", "automations"]);
+    fn action_caps_ride_only_while_an_agent_is_runnable() {
         let caps = device_caps(&advert(&["claude"]));
-        for cap in both {
-            assert!(ACTION_CAPS.contains(&cap));
-            assert!(caps.contains(&cap.to_string()));
-            // Nothing runnable = nothing to run a trigger with.
-            assert!(!device_caps(&advert(&[])).contains(&cap.to_string()));
+        for gone in ["triggers", "automations", "chat", "fix-conflicts"] {
+            assert!(!ACTION_CAPS.contains(&gone), "{gone}");
+            assert!(!caps.contains(&gone.to_string()), "{gone}");
         }
-        // EXP-615: the same for chat — remote Chat starts gate on this cap,
-        // so an agent-less machine must never advertise it.
-        assert!(ACTION_CAPS.contains(&"chat"));
         // EXP-1249: the per-run computer-use flag rides the action caps.
         assert_eq!(COMPUTER_USE_RUN_CAP, "computer-use-run");
         assert!(ACTION_CAPS.contains(&COMPUTER_USE_RUN_CAP));
@@ -1860,8 +1843,8 @@ mod tests {
         assert!(!DEVICE_CAPS.contains(&STEER_FILES_CAP));
         assert!(caps.contains(&"steer-files".to_string()));
         assert!(!device_caps(&advert(&[])).contains(&"steer-files".to_string()));
-        assert!(caps.contains(&"chat".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
+        assert!(caps.contains(&RESUME_RUN_CAP.to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&RESUME_RUN_CAP.to_string()));
     }
 
     /// EXP-484: signing IN is exactly what a machine with no runnable agent
@@ -2558,7 +2541,7 @@ mod tests {
         assert!(report.unauthed_agents().is_empty());
         let advertised = report.agent_advertisement(&settings);
         assert_eq!(advertised.agents, vec!["claude", "codex"]);
-        assert!(device_caps(&advertised).contains(&"triggers".to_string()));
+        assert!(device_caps(&advertised).contains(&"steer-files".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2590,7 +2573,7 @@ mod tests {
         assert!(report.installed_agents().is_empty());
         assert_eq!(report.unauthed_agents(), CodingAgent::ALL.to_vec());
         assert!(!device_caps(&report.agent_advertisement(&settings))
-            .contains(&"triggers".to_string()));
+            .contains(&"steer-files".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -4579,9 +4579,9 @@ impl ClaudeSession {
     }
 
     /// EXP-1134: an SDK-mode claude (2.1.282 on) never names a conversation
-    /// by itself, so a FRESH chat run asks for its name once, off its first
-    /// real prompt (a slash command names nothing). An issue or action run is
-    /// listed under its issue or action and never asks
+    /// by itself, so a FRESH bare thread asks for its name once, off its
+    /// first real prompt (a slash command names nothing). A session listed
+    /// under an issue, a title or an agent's name never asks
     /// ([`AdapterSpec::name_conversation`]); a resume keeps the name the
     /// transcript already carries. Never awaited: the answer (a small model
     /// call) lands while the turn runs.

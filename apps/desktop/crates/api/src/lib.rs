@@ -31,17 +31,18 @@
 //!   `listPersonalApiKeys` / `revokePersonalApiKey`, plus the hidden
 //!   auto-minted `expu_` personal key (mint silently on first need, file store
 //!   storage, mint-new-then-revoke-old regenerate — never a UI text field).
-//! - [`repositories`] / [`coding_sessions`] / [`actions`] — the launcher's
+//! - [`repositories`] / [`session_device`] / [`actions`] — the launcher's
 //!   typed procs (§7.1): `repositories.forIssue` + `installationToken` (JIT
-//!   GitHub-App token, Debug-redacted, never persisted/logged),
-//!   `codingSessions.start`/`end` (idempotent), and the EXP-253 team action
-//!   prompts (`actions.*` CRUD — EXP-268 removed the trust-gate hash).
+//!   GitHub-App token, Debug-redacted, never persisted/logged), the EXP-1292
+//!   device half of `sessions.*` (brief/claim/report/reply/consume — the
+//!   database is the bus, no relay start, no heartbeat), and the EXP-253
+//!   team action prompts (`actions.*` CRUD — saved prompts since EXP-1292).
 //!
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
 //! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`
 //! query), [`boards`], [`teams`] (+ members + invites), [`labels`]
-//! (+ issueLabels), [`relations`] (EXP-736), [`pins`] (EXP-778), [`threads`]
-//! (EXP-1284), [`comments`], [`notifications`],
+//! (+ issueLabels), [`relations`] (EXP-736), [`pins`] (EXP-778),
+//! [`comments`], [`notifications`],
 //! [`attachments`]
 //! (EXP-297 `attachments.delete`) — plus [`patch`], the
 //! tri-state omit/null/set field for zod `.nullable().optional()` updates.
@@ -62,7 +63,6 @@ pub mod actions;
 pub mod atomic_file;
 pub mod attachments;
 pub mod billing;
-pub mod coding_sessions;
 pub mod comments;
 pub mod error;
 pub mod http;
@@ -83,6 +83,7 @@ pub mod device_identity;
 pub mod device_store;
 pub mod devices;
 pub mod repositories;
+pub mod session_device;
 pub mod settings_lock;
 pub mod statuses;
 pub mod steer;
@@ -90,7 +91,6 @@ pub mod token_store;
 pub mod trpc;
 pub mod users;
 pub mod teams;
-pub mod threads;
 pub mod widgets;
 
 mod encode;

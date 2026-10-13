@@ -1,9 +1,9 @@
-//! EXP-637 — the on-disk record of the runs this install launched
-//! (`<data_dir>/runs.json`), so an ended run can be RESUMED: the row id
-//! alone says nothing about which agent ran, where, on what branch, or with
-//! which options. EXP-662 widened it from action/chat runs to ISSUE and
-//! BATCH sessions, which is what made the cwd-scoped `--continue` machinery
-//! redundant — every resume now relaunches an exact recorded transcript.
+//! EXP-637 — the on-disk record of the sessions this install launched
+//! (`<data_dir>/runs.json`), so a session whose agent process is gone can
+//! be RESUMED: the row id alone says nothing about which agent ran, where,
+//! on what branch, or with which options. EXP-1292: one record per
+//! `sessions` row, keyed by its id — a message waking an idle session
+//! re-spawns the SAME row's agent CLI from it (no new row, no resume chain).
 //!
 //! Deliberately its OWN file, not an extension of
 //! `coding-session-registry.json`: that one has a byte contract shared with
@@ -116,105 +116,36 @@ fn open_lock_file(data_dir: &Path) -> Option<std::fs::File> {
     }
 }
 
-/// Which program the recorded run executed — the resume path re-enters the
-/// same one. The first five mirror `launcher::ActionRunKind` without its
-/// payloads (a fix-conflicts resume keeps its PR context in [`RunFix`]);
-/// `Issue`/`Batch` (EXP-662) are the two SESSION shapes, whose subject rides
-/// in [`RunRecord::issue_id`] / [`RunRecord::issues`] instead of an action.
+/// Which kind of session tree root the recorded session belongs to
+/// (EXP-1292, `sessions.kind`): a thread (children included) or a team
+/// agent's channel, which never ends.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "lowercase")]
 pub enum RunKind {
-    Team,
-    Chat,
-    CreateAction,
-    FixConflicts,
-    /// FEED-50: the "Tidy up" builtin — with a repo it owns an
-    /// `exp/tidy-up-<id8>` worktree like a Team/Chat run, without one it is a
-    /// scratch run. Serialized `tidyUp`; an older build carries such an
-    /// entry through as an unknown one ([`Registry::unknown`]).
-    TidyUp,
-    Issue,
-    Batch,
+    Thread,
+    Agent,
 }
 
-impl RunKind {
-    /// Whether this record is an action/chat RUN (as opposed to an issue or
-    /// batch session). Runs own their branch and worktree end-to-end; issue
-    /// and batch worktrees are the prune's business.
-    pub fn is_action(self) -> bool {
-        !matches!(self, Self::Issue | Self::Batch)
-    }
-
-    /// Whether the recorded run owns the worktree it spawned in — i.e. may
-    /// have it auto-removed when it ends ([`crate::run_cleanup`]). A
-    /// fix-conflicts run works in the PR branch's shared worktree, and
-    /// issue/batch worktrees survive their session by design.
-    pub fn owns_run_worktree(self) -> bool {
-        matches!(self, Self::Team | Self::Chat | Self::TidyUp)
-    }
-}
-
-/// One issue a BATCH run covered — enough to name the run and re-render its
-/// fallback prompt without a sync store.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunIssue {
-    pub issue_id: String,
-    pub identifier: String,
-}
-
-/// The fix-conflicts run's PR context, kept so a resume lands back on the
-/// same branch with the same merge target.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunFix {
-    pub branch: String,
-    pub default_branch: String,
-    pub identifier: String,
-    pub issue_id: String,
-}
-
-/// One recorded input value (the definition-ordered run form), replayed into
-/// a resume's fallback prompt when the native transcript is gone.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunInput {
-    pub key: String,
-    pub value: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display: Option<String>,
-}
-
-/// Everything a resume needs about one finished (or running) run or session.
+/// Everything a resume needs about one session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunRecord {
-    /// The `coding_sessions` row id — the record's primary key.
+    /// The `sessions` row id — the record's primary key.
     pub session_id: String,
     pub account_id: String,
     pub agent: CodingAgent,
     pub kind: RunKind,
-    /// The action row id (or the builtin literal) this run executed; empty
-    /// on issue/batch sessions (EXP-662), which have no action.
-    #[serde(default)]
-    pub action_id: String,
-    #[serde(default)]
-    pub action_name: String,
     #[serde(default)]
     pub team_id: String,
-    /// EXP-662 — the issue this SESSION coded on, and its identifier
-    /// (`EXP-42`). Both `None` on every other kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub issue_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub issue_identifier: Option<String>,
-    /// EXP-662 — the client-minted batch id (`exp/batch-<id8>`'s suffix) and
-    /// the issues the batch covered. `None`/empty on every other kind.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub batch_id: Option<String>,
+    /// The root's linked issue identifiers at launch (`EXP-42`), link order;
+    /// they name the record ([`Self::display_name`]). Empty for a session
+    /// with no issue.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub issues: Vec<RunIssue>,
-    /// The spawn cwd — a run worktree, the trunk clone, or a scratch dir.
+    pub issues: Vec<String>,
+    /// What the session was called at launch (`launcher::session_label`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The spawn cwd — a session worktree or a scratch dir.
     pub cwd: PathBuf,
     /// The clone the worktree hangs off; `None` on repo-less scratch runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -225,15 +156,11 @@ pub struct RunRecord {
     /// The team `repositories` row id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<String>,
-    /// EXP-712: the board this run's branch is based on — replayed on the
-    /// resume mint so the reinstated worktree keeps the board's base branch
-    /// instead of falling back to the repo's default.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board_id: Option<String>,
-    /// The run's own branch (`exp/<slug>-<id8>` / `exp/chat-<id8>`).
+    /// The session's branch (`exp/<IDENTIFIER>` / `exp/session-<id8>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
-    /// What the run branch was cut from (`origin/<base_branch>`).
+    /// What the branch was cut from (`origin/<base_branch>`; a child's is
+    /// its parent's branch).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
     /// EXP-443 identity pins — the strongest resume handles.
@@ -241,22 +168,12 @@ pub struct RunRecord {
     pub claude_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_originator: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub inputs: Vec<RunInput>,
     #[serde(default)]
     pub model: String,
     #[serde(default)]
     pub effort: String,
     #[serde(default)]
     pub ultracode: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fix: Option<RunFix>,
-    /// `schedule`/`event` when a trigger started the run.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub started_reason: Option<String>,
-    /// The ended session THIS run resumed (a resume of a resume chains).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resumed_from_id: Option<String>,
     /// EXP-746: which engine ran it. EXP-773 left ONE
     /// ([`crate::launcher::ACP_TRANSPORT`]) and the field stays on the
     /// record so an older reader still parses it. A pre-773 `"pty"` value
@@ -429,6 +346,58 @@ pub fn context_base_extra(
     extra
 }
 
+/// EXP-1292: the [`RunRecord::extra`] key carrying the person message ids
+/// the run's engine handed to the agent but could not report consumed
+/// before it ended (`engine::outbox`). The next wake consumes them instead
+/// of delivering them a second time.
+pub const PENDING_CONSUMES_KEY: &str = "pendingConsumes";
+
+/// EXP-1292: the [`RunRecord::extra`] key marking a run whose final
+/// `ended` report never resolved — the next start's reconcile re-sends that
+/// END. Without it a host-less run is reported `idle` (a crash, a suspend),
+/// which keeps a thread resumable.
+pub const UNREPORTED_END_KEY: &str = "unreportedEnd";
+
+impl RunRecord {
+    /// EXP-1292: the owed consumes ([`PENDING_CONSUMES_KEY`]).
+    pub fn pending_consumes(&self) -> Vec<String> {
+        self.extra
+            .get(PENDING_CONSUMES_KEY)
+            .and_then(serde_json::Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// EXP-1292: replace the owed consumes (empty clears the key).
+    pub fn set_pending_consumes(&mut self, ids: &[String]) {
+        self.extra.remove(PENDING_CONSUMES_KEY);
+        if !ids.is_empty() {
+            self.extra.insert(PENDING_CONSUMES_KEY.to_string(), serde_json::json!(ids));
+        }
+    }
+
+    /// EXP-1292: whether the run's final `ended` report is still owed
+    /// ([`UNREPORTED_END_KEY`]).
+    pub fn unreported_end(&self) -> bool {
+        self.extra
+            .get(UNREPORTED_END_KEY)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    }
+
+    pub fn set_unreported_end(&mut self, owed: bool) {
+        self.extra.remove(UNREPORTED_END_KEY);
+        if owed {
+            self.extra.insert(UNREPORTED_END_KEY.to_string(), serde_json::Value::Bool(true));
+        }
+    }
+}
+
 /// EXP-792: everything a fresh record's `extra` carries off the launch
 /// options — the team server pick and the account profile.
 pub fn launch_extra(ids: &[String], account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
@@ -453,13 +422,12 @@ impl RunRecord {
     /// reclaims a run worktree the moment its PR lands, and "resume after
     /// the merge" is the most ordinary follow-up there is. A branch-less
     /// repo-backed record (a pre-EXP-637 trunk-clone run) needs its dir,
-    /// `.git` link included. EXP-764: a repo-less run's scratch dir is
-    /// purged with the whole run the moment it ends
-    /// ([`crate::scratch::purge`]), so it is resumable only while that dir
-    /// still stands — in practice, while the run is live.
+    /// `.git` link included. EXP-1292: a repo-less session always can — the
+    /// resume re-makes its scratch dir where it was (a team agent never
+    /// ends, so its channel outlives any purge of the dir).
     pub fn resumable(&self) -> bool {
         if self.clone.is_none() {
-            return self.cwd.is_dir();
+            return true;
         }
         self.branch.is_some() || self.workspace_stands()
     }
@@ -478,24 +446,26 @@ impl RunRecord {
     }
 
     /// What this record is CALLED wherever a resume is offered or narrated
-    /// (tab titles, the fallback prompt, the ended strip): the issue's
-    /// identifier, the batch's `EXP-42 +2` shape, or the action's name.
+    /// (tab titles, the ended strip): the issue's identifier, `EXP-42 +2`
+    /// for several, else the title it launched under, else `Session`.
     pub fn display_name(&self) -> String {
-        match self.kind {
-            RunKind::Issue => self
-                .issue_identifier
+        match self.issues.as_slice() {
+            [] => self
+                .title
                 .clone()
-                .unwrap_or_else(|| self.action_name.clone()),
-            RunKind::Batch => {
-                let first = self
-                    .issues
-                    .first()
-                    .map(|issue| issue.identifier.as_str())
-                    .unwrap_or("batch");
-                format!("{first} +{}", self.issues.len().saturating_sub(1))
-            }
-            _ => self.action_name.clone(),
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| "Session".to_string()),
+            [only] => only.clone(),
+            [first, rest @ ..] => format!("{first} +{}", rest.len()),
         }
+    }
+
+    /// EXP-637: whether the recorded session owns the worktree it spawned in
+    /// — i.e. may have it auto-removed when it ends ([`crate::run_cleanup`]).
+    /// EXP-1292: a session with no issue of its own (`exp/session-<id8>`);
+    /// an issue's worktree survives its session by design (the prune's).
+    pub fn owns_run_worktree(&self) -> bool {
+        self.issues.is_empty()
     }
 }
 
@@ -719,29 +689,6 @@ pub fn get(data_dir: &Path, session_id: &str) -> Option<RunRecord> {
         .find(|record| record.session_id == session_id)
 }
 
-/// EXP-662 — the newest still-resumable ISSUE record for `issue_id` on this
-/// account. The Start-coding dialog's Resume offer and every remote
-/// `resume: true` start resolve through here: a hit becomes a
-/// `PrepareRequest::ResumeRun`, a miss a fresh launch. `record()` appends the
-/// newest last, so a resume-of-a-resume chain resolves to its tail even when
-/// two records share a second.
-pub fn latest_for_issue(
-    data_dir: &Path,
-    account_id: &str,
-    issue_id: &str,
-) -> Option<RunRecord> {
-    let _guard = locked(data_dir);
-    load(data_dir)
-        .into_iter()
-        .filter(|record| {
-            record.kind == RunKind::Issue
-                && record.account_id == account_id
-                && record.issue_id.as_deref() == Some(issue_id)
-                && record.resumable()
-        })
-        .max_by_key(|record| record.recorded_at)
-}
-
 /// EXP-757: the recorded cwds of `session_ids` — the scratch sweep's keep
 /// set. Reads unknown entries too: an older host must never sweep the live
 /// scratch dir of a run a newer build recorded.
@@ -841,6 +788,25 @@ pub fn live_host_runs(data_dir: &Path) -> Vec<(String, PathBuf)> {
     runs
 }
 
+/// EXP-1292: the live session (its host process still alive) other than
+/// `except` recorded on `branch` of `repository_id` on this machine — a
+/// second thread on the same issue must not share its worktree.
+pub fn live_branch_holder(
+    data_dir: &Path,
+    repository_id: &str,
+    branch: &str,
+    except: &str,
+) -> Option<String> {
+    let _guard = locked(data_dir);
+    load(data_dir)
+        .into_iter()
+        .filter(|record| record.session_id != except)
+        .filter(|record| record.repository_id.as_deref() == Some(repository_id))
+        .filter(|record| record.branch.as_deref() == Some(branch))
+        .find(|record| record.host_pid.is_some_and(crate::process::is_alive))
+        .map(|record| record.session_id)
+}
+
 pub fn remove(data_dir: &Path, session_id: &str) {
     remove_many(data_dir, std::slice::from_ref(&session_id.to_string()));
 }
@@ -865,17 +831,18 @@ pub fn remove_many(data_dir: &Path, session_ids: &[String]) {
     }
 }
 
-/// Every recorded run branch on `clone` — the prune's nomination list
-/// (EXP-637: run worktrees are ours to reclaim, but git still has to confirm
-/// the branch landed before anything is removed). EXP-662: ACTION kinds only
-/// — issue and batch worktrees stay governed by the prune's own prefix/keep
-/// policy, which a nomination would bypass.
+/// Every recorded session branch on `clone` that its session OWNS
+/// ([`RunRecord::owns_run_worktree`]) — the prune's nomination list (EXP-637:
+/// those worktrees are ours to reclaim, but git still has to confirm the
+/// branch landed before anything is removed). An issue's worktree stays
+/// governed by the prune's own prefix/keep policy, which a nomination would
+/// bypass.
 pub fn branches_for_clone(data_dir: &Path, clone: &Path) -> Vec<String> {
     let _guard = locked(data_dir);
     let mut branches: Vec<String> = load(data_dir)
         .into_iter()
         .filter(|record| record.clone.as_deref() == Some(clone))
-        .filter(|record| record.kind.is_action())
+        .filter(RunRecord::owns_run_worktree)
         .filter_map(|record| record.branch)
         .collect();
     branches.sort();
@@ -888,44 +855,31 @@ pub fn branches_for_clone(data_dir: &Path, clone: &Path) -> Vec<String> {
 #[cfg(test)]
 pub(crate) fn sample_record(session_id: &str) -> RunRecord {
     RunRecord {
-            session_id: session_id.to_string(),
-            board_id: None,
-            account_id: "acc-1".to_string(),
-            agent: CodingAgent::Claude,
-            kind: RunKind::Team,
-            action_id: "act-1".to_string(),
-            action_name: "Code review".to_string(),
-            team_id: "ws-1".to_string(),
-            issue_id: None,
-            issue_identifier: None,
-            batch_id: None,
-            issues: Vec::new(),
-            cwd: PathBuf::from("/repos/owner/name.worktrees/code-review-1a2b3c4d"),
-            clone: Some(PathBuf::from("/repos/owner/name")),
-            repo: Some("owner/name".to_string()),
-            repository_id: Some("repo-1".to_string()),
-            branch: Some("exp/code-review-1a2b3c4d".to_string()),
-            base_branch: Some("main".to_string()),
-            claude_session_id: Some("cs-1".to_string()),
-            codex_originator: None,
-            inputs: vec![RunInput {
-                key: "scope".to_string(),
-                value: "everything".to_string(),
-                display: None,
-            }],
-            model: "fable".to_string(),
-            effort: "high".to_string(),
-            ultracode: false,
-            fix: None,
-            started_reason: None,
-            resumed_from_id: None,
-            recorded_at: now_secs(),
-            extra: BTreeMap::new(),
-            transport: None,
-            acp_session_id: None,
-            agent_native_session_id: None,
-            acp_child_pid: None,
-            host_pid: None,
+        session_id: session_id.to_string(),
+        account_id: "acc-1".to_string(),
+        agent: CodingAgent::Claude,
+        kind: RunKind::Thread,
+        team_id: "ws-1".to_string(),
+        issues: Vec::new(),
+        title: Some("Code review".to_string()),
+        cwd: PathBuf::from("/repos/owner/name.worktrees/session-1a2b3c4d"),
+        clone: Some(PathBuf::from("/repos/owner/name")),
+        repo: Some("owner/name".to_string()),
+        repository_id: Some("repo-1".to_string()),
+        branch: Some("exp/session-1a2b3c4d".to_string()),
+        base_branch: Some("main".to_string()),
+        claude_session_id: Some("cs-1".to_string()),
+        codex_originator: None,
+        model: "fable".to_string(),
+        effort: "high".to_string(),
+        ultracode: false,
+        recorded_at: now_secs(),
+        extra: BTreeMap::new(),
+        transport: None,
+        acp_session_id: None,
+        agent_native_session_id: None,
+        acp_child_pid: None,
+        host_pid: None,
     }
 }
 
@@ -1059,12 +1013,12 @@ mod tests {
         let now = now_secs();
         let json = format!(
             r#"[{{
-                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"thread",
                 "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d","recordedAt":{now},
                 "transport":"acp","externalAgent":{{"id":"acme","label":"Acme ACP",
                 "command":"acme","args":["--acp"],"env":{{"ACME_TOKEN":"sk-live-1"}}}}
             }},{{
-                "sessionId":"sess-null","accountId":"acc-1","agent":"claude","kind":"team",
+                "sessionId":"sess-null","accountId":"acc-1","agent":"claude","kind":"thread",
                 "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4e","recordedAt":{now},
                 "transport":"acp","externalAgent":null
             }}]"#
@@ -1101,7 +1055,7 @@ mod tests {
         let now = now_secs();
         let json = format!(
             r#"[{{
-                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"issue",
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"thread",
                 "cwd":"/repos/owner/name.worktrees/exp-EXP-42","recordedAt":{now},
                 "transport":"acp","acpSessionId":"acp-42",
                 "agentNativeSessionId":"claude-99","acpProtocolVersion":3
@@ -1138,11 +1092,11 @@ mod tests {
         let dir = temp_dir("upsert");
         record(&dir, sample("sess-1"));
         let mut updated = sample("sess-1");
-        updated.branch = Some("exp/chat-deadbeef".to_string());
+        updated.branch = Some("exp/session-deadbeef".to_string());
         record(&dir, updated);
         assert_eq!(
             get(&dir, "sess-1").unwrap().branch.as_deref(),
-            Some("exp/chat-deadbeef")
+            Some("exp/session-deadbeef")
         );
         assert_eq!(load(&dir).len(), 1, "an upsert must not duplicate");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1222,7 +1176,7 @@ mod tests {
         let dir = temp_dir("branches");
         record(&dir, sample("sess-1"));
         let mut second = sample("sess-2");
-        second.branch = Some("exp/chat-00000001".to_string());
+        second.branch = Some("exp/session-00000001".to_string());
         record(&dir, second);
         let mut foreign = sample("sess-3");
         foreign.clone = Some(PathBuf::from("/repos/other/repo"));
@@ -1236,77 +1190,26 @@ mod tests {
         assert_eq!(
             branches_for_clone(&dir, Path::new("/repos/owner/name")),
             vec![
-                "exp/chat-00000001".to_string(),
-                "exp/code-review-1a2b3c4d".to_string(),
+                "exp/session-00000001".to_string(),
+                "exp/session-1a2b3c4d".to_string(),
             ]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-662: an issue record made from `sample`'s shape — a real worktree
-    /// so `resumable()` passes.
-    fn issue_sample(dir: &Path, session_id: &str, issue_id: &str) -> RunRecord {
+    /// An issue session's record made from `sample`'s shape — a real
+    /// worktree so `resumable()` passes.
+    fn issue_sample(dir: &Path, session_id: &str) -> RunRecord {
         let worktree = dir.join(format!("wt-{session_id}"));
         std::fs::create_dir_all(&worktree).unwrap();
         std::fs::write(worktree.join(".git"), "gitdir: /elsewhere").unwrap();
         RunRecord {
-            kind: RunKind::Issue,
-            action_id: String::new(),
-            action_name: String::new(),
-            issue_id: Some(issue_id.to_string()),
-            issue_identifier: Some("EXP-42".to_string()),
+            issues: vec!["EXP-42".to_string()],
+            title: Some("EXP-42".to_string()),
             cwd: worktree,
             branch: Some("exp/EXP-42".to_string()),
             ..sample(session_id)
         }
-    }
-
-    #[test]
-    fn latest_for_issue_prefers_the_newest_resumable_record() {
-        let dir = temp_dir("latest-for-issue");
-        let mut older = issue_sample(&dir, "sess-1", "issue-1");
-        older.recorded_at = now_secs().saturating_sub(60);
-        record(&dir, older);
-        record(&dir, issue_sample(&dir, "sess-2", "issue-1"));
-        // Another issue, another account, and an ACTION record on the same
-        // account are all invisible to this lookup.
-        record(&dir, issue_sample(&dir, "sess-3", "issue-2"));
-        let mut foreign = issue_sample(&dir, "sess-4", "issue-1");
-        foreign.account_id = "acc-2".to_string();
-        record(&dir, foreign);
-        record(&dir, sample("sess-5"));
-
-        assert_eq!(
-            latest_for_issue(&dir, "acc-1", "issue-1")
-                .map(|record| record.session_id)
-                .as_deref(),
-            Some("sess-2")
-        );
-        // A record whose worktree the prune reclaimed is STILL the newest
-        // resumable one — the resume re-creates the worktree on its branch.
-        let mut reclaimed = issue_sample(&dir, "sess-6", "issue-1");
-        reclaimed.cwd = dir.join("vanished");
-        record(&dir, reclaimed);
-        assert_eq!(
-            latest_for_issue(&dir, "acc-1", "issue-1")
-                .map(|record| record.session_id)
-                .as_deref(),
-            Some("sess-6")
-        );
-        // A branch-less record with no worktree has nothing to re-create
-        // from — it must not shadow the one that resumes.
-        let mut gone = issue_sample(&dir, "sess-7", "issue-1");
-        gone.cwd = dir.join("vanished-too");
-        gone.branch = None;
-        record(&dir, gone);
-        assert_eq!(
-            latest_for_issue(&dir, "acc-1", "issue-1")
-                .map(|record| record.session_id)
-                .as_deref(),
-            Some("sess-6")
-        );
-        assert_eq!(latest_for_issue(&dir, "acc-1", "issue-nope"), None);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// EXP-1051: the measured base round-trips through `extra` and through
@@ -1380,68 +1283,50 @@ mod tests {
     }
 
     #[test]
-    fn issue_and_batch_branches_are_not_prune_nominations() {
-        // EXP-662: session worktrees stay governed by the prune's own
-        // prefix/keep policy — nominating them would hand the prune a
-        // worktree the user still expects to find.
+    fn issue_branches_are_not_prune_nominations() {
+        // EXP-662: an issue's worktree stays governed by the prune's own
+        // prefix/keep policy — nominating it would hand the prune a worktree
+        // the user still expects to find.
         let dir = temp_dir("prune-nominations");
         record(&dir, sample("sess-1"));
-        record(&dir, issue_sample(&dir, "sess-2", "issue-1"));
-        let mut batch = issue_sample(&dir, "sess-3", "issue-1");
-        batch.kind = RunKind::Batch;
-        batch.issue_id = None;
-        batch.issue_identifier = None;
-        batch.batch_id = Some("a1b2c3d4".to_string());
-        batch.branch = Some("exp/batch-a1b2c3d4".to_string());
-        record(&dir, batch);
+        record(&dir, issue_sample(&dir, "sess-2"));
+        let mut several = issue_sample(&dir, "sess-3");
+        several.issues = vec!["EXP-42".to_string(), "EXP-43".to_string()];
+        several.branch = Some("exp/session-a1b2c3d4".to_string());
+        record(&dir, several);
 
         assert_eq!(
             branches_for_clone(&dir, Path::new("/repos/owner/name")),
-            vec!["exp/code-review-1a2b3c4d".to_string()]
+            vec!["exp/session-1a2b3c4d".to_string()]
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn display_name_names_each_kind() {
+    fn display_name_names_the_issues_then_the_title() {
         let dir = temp_dir("display-name");
         assert_eq!(sample("sess-1").display_name(), "Code review");
-        assert_eq!(issue_sample(&dir, "sess-2", "issue-1").display_name(), "EXP-42");
-        let mut batch = sample("sess-3");
-        batch.kind = RunKind::Batch;
-        batch.issues = vec![
-            RunIssue {
-                issue_id: "issue-1".to_string(),
-                identifier: "EXP-42".to_string(),
-            },
-            RunIssue {
-                issue_id: "issue-2".to_string(),
-                identifier: "EXP-43".to_string(),
-            },
-        ];
-        assert_eq!(batch.display_name(), "EXP-42 +1");
+        assert_eq!(issue_sample(&dir, "sess-2").display_name(), "EXP-42");
+        let mut several = sample("sess-3");
+        several.issues = vec!["EXP-42".to_string(), "EXP-43".to_string()];
+        assert_eq!(several.display_name(), "EXP-42 +1");
+        let mut untitled = sample("sess-4");
+        untitled.title = None;
+        assert_eq!(untitled.display_name(), "Session");
+        assert!(sample("sess-1").owns_run_worktree());
+        assert!(!issue_sample(&dir, "sess-5").owns_run_worktree());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// EXP-1292: the two kinds serialize lowercase and round-trip.
     #[test]
-    fn a_pre_exp662_action_record_still_parses() {
-        // The EXP-637 wire, byte-for-byte: no issue/batch fields at all. A
-        // record written by the previous build must keep resuming.
-        let json = r#"[{
-            "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
-            "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
-            "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
-            "clone":"/repos/owner/name","repo":"owner/name","repositoryId":"repo-1",
-            "branch":"exp/code-review-1a2b3c4d","baseBranch":"main",
-            "claudeSessionId":"cs-1","model":"fable","effort":"high",
-            "ultracode":false,"skipPermissions":true,"recordedAt":1
-        }]"#;
-        let records: Vec<RunRecord> = serde_json::from_str(json).unwrap();
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].kind, RunKind::Team);
-        assert_eq!(records[0].issue_id, None);
-        assert!(records[0].issues.is_empty());
-        assert_eq!(records[0].display_name(), "Code review");
+    fn run_kinds_serialize_lowercase() {
+        assert_eq!(serde_json::to_value(RunKind::Thread).unwrap(), "thread");
+        assert_eq!(serde_json::to_value(RunKind::Agent).unwrap(), "agent");
+        assert_eq!(
+            serde_json::from_value::<RunKind>(serde_json::json!("agent")).unwrap(),
+            RunKind::Agent
+        );
     }
 
     #[test]
@@ -1455,8 +1340,8 @@ mod tests {
         let now = now_secs();
         let json = format!(
             r#"[{{
-                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
-                "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"thread",
+                "title":"Code review","teamId":"ws-1",
                 "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
                 "claudeSessionId":"cs-1","model":"fable","effort":"high",
                 "ultracode":false,"skipPermissions":true,"recordedAt":{now}
@@ -1464,8 +1349,8 @@ mod tests {
         );
         std::fs::write(registry_path(&dir), json).unwrap();
 
-        let loaded = get(&dir, "sess-1").expect("a pre-0.15 record still parses");
-        assert_eq!(loaded.action_name, "Code review");
+        let loaded = get(&dir, "sess-1").expect("a record with the dead key still parses");
+        assert_eq!(loaded.title.as_deref(), Some("Code review"));
         assert!(loaded.extra.get("skipPermissions").is_none());
 
         // And the rewrite drops it for good.
@@ -1478,82 +1363,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// SLOP-3: a record an older build wrote for a STACKED issue run or a
-    /// WORKFLOW batch node still loads and resumes as the plain run it was
-    /// (the retired `stack` / workflow membership keys are dropped, never
-    /// carried), and an old workflow-only kind (`reviewNode`) neither breaks
-    /// its siblings nor vanishes on a rewrite.
+    /// EXP-1292: a record an older build wrote (an issue/batch/action run of
+    /// the retired row model) no longer parses — it is carried verbatim as an
+    /// unknown entry, invisible to every read, until the retention prune.
     #[test]
-    fn old_stack_and_workflow_records_decode_as_plain_runs() {
-        let dir = temp_dir("old-workflow-records");
+    fn a_pre_exp1292_record_is_carried_but_never_read() {
+        let dir = temp_dir("pre-1292-records");
         let now = now_secs();
         let json = format!(
             r#"[{{
-                "sessionId":"sess-stacked","accountId":"acc-1","agent":"claude","kind":"issue",
+                "sessionId":"sess-issue","accountId":"acc-1","agent":"claude","kind":"issue",
                 "issueId":"issue-12","issueIdentifier":"EXP-12",
-                "cwd":"/repos/owner/name.worktrees/EXP-12","branch":"exp/EXP-12",
-                "baseBranch":"exp/EXP-11","recordedAt":{now},
-                "stack":{{"lower":{{"issueId":"issue-11","identifier":"EXP-11","branch":"exp/EXP-11","prState":"open"}},"chain":[]}}
+                "cwd":"/repos/owner/name.worktrees/EXP-12","branch":"exp/EXP-12","recordedAt":{now}
             }},{{
-                "sessionId":"sess-node","accountId":"acc-1","agent":"claude","kind":"batch",
-                "batchId":"1a2b3c4d","issues":[{{"issueId":"issue-1","identifier":"EXP-1"}}],
-                "cwd":"/repos/owner/name.worktrees/batch-1a2b3c4d","recordedAt":{now},
-                "startedReason":"workflow",
-                "workflowId":"wf-1","workflowNodeId":"node-1","workflowRole":"author"
-            }},{{
-                "sessionId":"sess-review","accountId":"acc-1","agent":"claude","kind":"reviewNode",
-                "actionId":"builtin:review-node","cwd":"/repos/owner/name.worktrees/review","recordedAt":{now}
+                "sessionId":"sess-chat","accountId":"acc-1","agent":"claude","kind":"chat",
+                "actionId":"builtin:chat","cwd":"/data/actions/builtin-chat/1a2b3c4d","recordedAt":{now}
             }}]"#
         );
         std::fs::write(registry_path(&dir), json).unwrap();
-
-        let stacked = get(&dir, "sess-stacked").expect("a stacked issue record decodes");
-        assert_eq!(stacked.kind, RunKind::Issue);
-        assert_eq!(stacked.issue_identifier.as_deref(), Some("EXP-12"));
-        assert!(stacked.extra.get("stack").is_none());
-        let node = get(&dir, "sess-node").expect("a workflow batch node decodes");
-        assert_eq!(node.kind, RunKind::Batch);
-        assert_eq!(node.issues.len(), 1);
-        for key in ["workflowId", "workflowNodeId", "workflowRole"] {
-            assert!(node.extra.get(key).is_none(), "{key} is dropped");
-        }
-        assert_eq!(get(&dir, "sess-review"), None, "an old workflow kind is no run");
-        assert_eq!(load(&dir).len(), 2);
+        assert_eq!(get(&dir, "sess-issue"), None);
+        assert_eq!(get(&dir, "sess-chat"), None);
+        assert!(load(&dir).is_empty());
 
         record(&dir, sample("sess-2"));
         let entries: Vec<serde_json::Value> =
             serde_json::from_str(&std::fs::read_to_string(registry_path(&dir)).unwrap()).unwrap();
-        assert_eq!(entries.len(), 4, "the old review entry rides the rewrite");
-        assert!(entries.iter().all(|entry| entry.get("stack").is_none()));
-        assert!(entries.iter().all(|entry| entry.get("workflowId").is_none()));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// FEED-50: a Tidy up run records as `tidyUp` and decodes back; it owns
-    /// its run worktree like a Team/Chat run.
-    #[test]
-    fn a_tidy_up_run_round_trips_as_tidy_up() {
-        assert_eq!(serde_json::to_value(RunKind::TidyUp).unwrap(), "tidyUp");
-        assert_eq!(
-            serde_json::from_value::<RunKind>(serde_json::json!("tidyUp")).unwrap(),
-            RunKind::TidyUp
-        );
-        assert!(RunKind::TidyUp.is_action());
-        assert!(RunKind::TidyUp.owns_run_worktree());
-
-        let dir = temp_dir("tidy-up-entry");
-        let now = now_secs();
-        let json = format!(
-            r#"[{{
-                "sessionId":"sess-tidy","accountId":"acc-1","agent":"claude","kind":"tidyUp",
-                "actionId":"builtin:tidy-up","actionName":"Tidy up","teamId":"ws-1",
-                "cwd":"/data/actions/builtin-tidy-up/run-1","recordedAt":{now}
-            }}]"#
-        );
-        std::fs::write(registry_path(&dir), json).unwrap();
-        let record = get(&dir, "sess-tidy").expect("the tidy-up entry decodes");
-        assert_eq!(record.kind, RunKind::TidyUp);
-        assert_eq!(record.action_name, "Tidy up");
+        assert_eq!(entries.len(), 3, "the old entries ride the rewrite");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1568,11 +1403,11 @@ mod tests {
         let now = now_secs();
         let json = format!(
             r#"[{{
-                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
-                "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
-                "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"thread",
+                "title":"Code review","teamId":"ws-1",
+                "cwd":"/repos/owner/name.worktrees/session-1a2b3c4d",
                 "clone":"/repos/owner/name","repo":"owner/name","repositoryId":"repo-1",
-                "branch":"exp/code-review-1a2b3c4d","baseBranch":"main",
+                "branch":"exp/session-1a2b3c4d","baseBranch":"main",
                 "claudeSessionId":"cs-1","model":"fable","effort":"high",
                 "ultracode":false,"skipPermissions":true,"recordedAt":{now}
             }},{{
@@ -1619,11 +1454,11 @@ mod tests {
         let now = now_secs();
         let json = format!(
             r#"[{{
-                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"team",
-                "actionId":"act-1","actionName":"Code review","teamId":"ws-1",
-                "cwd":"/repos/owner/name.worktrees/code-review-1a2b3c4d",
+                "sessionId":"sess-1","accountId":"acc-1","agent":"claude","kind":"thread",
+                "title":"Code review","teamId":"ws-1",
+                "cwd":"/repos/owner/name.worktrees/session-1a2b3c4d",
                 "clone":"/repos/owner/name","repo":"owner/name","repositoryId":"repo-1",
-                "branch":"exp/code-review-1a2b3c4d","baseBranch":"main",
+                "branch":"exp/session-1a2b3c4d","baseBranch":"main",
                 "claudeSessionId":"cs-1","model":"fable","effort":"high",
                 "ultracode":false,"skipPermissions":true,"recordedAt":{now},
                 "worktreeMode":"scratch"
@@ -1633,7 +1468,7 @@ mod tests {
 
         // It loads as an ordinary record, unknown field and all.
         let loaded = get(&dir, "sess-1").expect("a known kind still parses");
-        assert_eq!(loaded.action_name, "Code review");
+        assert_eq!(loaded.title.as_deref(), Some("Code review"));
         assert_eq!(
             loaded.extra.get("worktreeMode"),
             Some(&serde_json::json!("scratch"))
@@ -1649,7 +1484,7 @@ mod tests {
             .find(|entry| entry["sessionId"] == "sess-1")
             .expect("the record survives");
         assert_eq!(kept["worktreeMode"], "scratch");
-        assert_eq!(kept["kind"], "team");
+        assert_eq!(kept["kind"], "thread");
         // A record with nothing extra serializes exactly as before — no
         // empty object, no stray key.
         let plain = entries
@@ -1755,15 +1590,12 @@ mod tests {
         assert!(record.resumable());
         assert!(!record.workspace_reclaimed(), "a standing worktree is reused");
 
-        // EXP-764: a repo-less scratch run is resumable only while its
-        // directory stands — the purge takes it with the run.
+        // EXP-1292: a repo-less session always is — the resume re-makes its
+        // scratch dir where it was.
         record.clone = None;
         record.cwd = dir.join("scratch-gone");
-        assert!(!record.resumable(), "a purged scratch dir is not resumable");
-        let scratch = dir.join("scratch");
-        std::fs::create_dir_all(&scratch).unwrap();
-        record.cwd = scratch;
-        assert!(record.resumable(), "a standing scratch dir (a live run) is");
+        assert!(record.resumable(), "a purged scratch dir is re-made");
+        assert!(!record.workspace_reclaimed(), "nothing to re-cut");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

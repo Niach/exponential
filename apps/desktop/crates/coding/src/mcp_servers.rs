@@ -233,8 +233,8 @@ pub fn env_suffix(name: &str) -> String {
 
 /// Resolve a launch's team MCP servers through
 /// `mcpServers.resolveForLaunch` FOR the run `session_id` (EXP-1140: the
-/// server hands out only that row's own persisted pick, so the row exists
-/// first and the pick rode `codingSessions.start`). `Some(ids)` names the
+/// server hands out only that row's own persisted pick, set by
+/// `sessions.send` — EXP-1292). `Some(ids)` names the
 /// pick; an empty one resolves to nothing without touching the network.
 /// `None` ALWAYS asks the server for the row's whole pick (FEED-73: a real
 /// action run's pick is the action's own list, set server-side, plus the

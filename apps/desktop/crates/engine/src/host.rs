@@ -173,9 +173,10 @@ pub trait EngineHost: Send + Sync + 'static {
     fn on_exit(&self, exit: EngineExit);
 }
 
-/// How a run finished. `end` is the result of `coding::end_session`, carried
-/// here so the CLI can apply `registry::end_outcome_resolves` (EXP-641)
-/// without ending the row a second time itself.
+/// How a run finished. `end` is the result of the row's last status write
+/// (EXP-1292: `coding::end_session` for a thread session, the idle report
+/// for an agent root), carried here so the CLI can apply
+/// `registry::end_outcome_resolves` (EXP-641) without writing it twice.
 #[derive(Debug)]
 pub struct EngineExit {
     pub session_id: String,
@@ -186,7 +187,7 @@ pub struct EngineExit {
     pub child: Option<terminal::pty::ChildExit>,
     /// A handshake or transport failure, for the screen's banner.
     pub error: Option<String>,
-    pub end: Option<Result<api::coding_sessions::CodingSession, api::error::ApiError>>,
+    pub end: Option<Result<(), api::error::ApiError>>,
 }
 
 /// What the client advertises at `initialize`.
@@ -228,6 +229,16 @@ pub(crate) enum EngineCommand {
     Prompt(Vec<ContentBlock>),
     /// Mid-turn steering — the same entry point a relay `input` frame takes.
     Steer(String),
+    /// EXP-1292: a person's `messages` row — a steer that carries its row id,
+    /// which is the queue id while the agent has not read it and is reported
+    /// consumed (`sessions.consume`) the moment it reaches the agent.
+    Deliver { message_id: String, text: String },
+    /// EXP-1292: a question/plan card answered IN the Conversation, mapped
+    /// onto the open ask ([`Mapper::card_answer`]).
+    AnswerCard {
+        question_id: String,
+        card: serde_json::Value,
+    },
     /// The user's Stop (Escape, the relay `cancel`): the turn AND whatever
     /// the agent still holds queued behind it.
     Cancel,
@@ -479,7 +490,7 @@ pub(crate) fn dropped_lines_note(dropped: u64) -> String {
 /// only on `incoming_closed`, and the host's loop waits only on the adapter,
 /// so an agent CLI that crashed (OOM, `kill -9`, the reaper) would leave the
 /// two halves waiting on each other forever: no `on_exit`, no `exit:<code>`,
-/// a heartbeat still marking the row `running` and a desktop tab still Live
+/// a row still reading `running` and a desktop tab still Live
 /// (EXP-746 review E1). On the child's edge the exit code gets
 /// [`CHILD_EXIT_GRACE`] to land so the run ends as `exit:<code>`.
 pub(crate) async fn until_either_closes(
@@ -966,8 +977,6 @@ pub(crate) struct RunFacts {
     /// EXP-447: the clone whose installation token wants refreshing.
     pub(crate) repository_id: Option<String>,
     pub(crate) clone: PathBuf,
-    /// EXP-105: re-sent with every heartbeat. `None` on a replay.
-    pub(crate) heartbeat_scope: Option<api::coding_sessions::HeartbeatScope>,
 }
 
 /// The ids a session learns at handshake time (D8).
@@ -984,7 +993,7 @@ pub(crate) struct SessionCtx {
     pub(crate) session_id: String,
     /// The launch facts the engine itself needs. NOT the whole
     /// `PreparedLaunch`: `open_transcript` replays an ended run that never
-    /// had one (no row, no worktree gate, no heartbeat scope).
+    /// had one (no row, no worktree gate).
     pub(crate) run: RunFacts,
     pub(crate) trpc: Arc<api::TrpcClient>,
     pub(crate) runtime: Arc<steer::SteerRuntime>,
@@ -995,7 +1004,19 @@ pub(crate) struct SessionCtx {
     pub(crate) account_id: String,
     #[allow(dead_code)]
     pub(crate) own_user_id: Option<String>,
-    pub(crate) issue_id: Option<String>,
+    /// EXP-1292: a team agent's root session — its process exiting idles the
+    /// row instead of ending it (agents never end).
+    pub(crate) agent_root: bool,
+    /// EXP-1292: the `messages.id` the seed prompt delivers (a resume's
+    /// waking message), consumed once the seed turn is sent.
+    pub(crate) seed_message_id: Option<String>,
+    /// EXP-1292: the Conversation writers (replies + consumes). Set once by
+    /// the lifecycle; absent on a replay and a bare test context.
+    pub(crate) outbox: OnceLock<crate::outbox::Outbox>,
+    /// EXP-1292: person `messages` ids handed to this engine and not yet
+    /// reported consumed — what tells a row id from the engine's own queue
+    /// ids (a local composer line), which have no row to consume.
+    pub(crate) message_ids: Mutex<std::collections::HashSet<String>>,
     /// EXP-444: a foreign requester on a shared host. The ACP path has no
     /// login affordance to suppress, so nothing reads it yet.
     #[allow(dead_code)]
@@ -1006,9 +1027,8 @@ pub(crate) struct SessionCtx {
     pub(crate) local_sink: Option<LocalSink>,
     pub(crate) turn_signal: Arc<steer::TurnSignal>,
     /// EXP-850 §8: the caption of the newest RUNNING workflow, in process —
-    /// what a session row hosted HERE reads instead of waiting for the
-    /// `agent_caption` column this very process is writing (the `agent_busy`
-    /// precedence rule). Moved by [`SessionCtx::deliver`] off the `workflow`
+    /// what a session row hosted HERE reads (EXP-1292: local only, no column
+    /// carries it). Moved by [`SessionCtx::deliver`] off the `workflow`
     /// events the mapper emits, and cleared at every turn end.
     pub(crate) caption_signal: Arc<steer::CaptionSignal>,
     /// EXP-905: the agent's own conversation name (claude's transcript
@@ -1032,7 +1052,7 @@ pub(crate) struct SessionCtx {
     /// secret set than another. The key itself is deliberately NOT kept
     /// here: a second redactor built from it alone is exactly the leak.
     pub(crate) redactor: Arc<steer::Redactor>,
-    /// Read-only transcript replay: no row, no publisher, no heartbeat.
+    /// Read-only transcript replay: no row, no publisher, no outbox.
     pub(crate) replay: bool,
     pub(crate) resume: Option<ResumeHandle>,
     /// The seed prompt, sent once the session exists.
@@ -1150,6 +1170,9 @@ impl SessionCtx {
         // Stop that cleared it first).
         if !out.consumed.is_empty() {
             self.consume_queued(&out.consumed);
+            // EXP-1292: the agent read these — their rows leave the
+            // Conversation's queue too.
+            self.consumed_messages(out.consumed.iter().cloned());
         }
         if idle_edge {
             let awaited = self.with_mapper(|mapper| mapper.pending_delivery_ids());
@@ -1276,16 +1299,27 @@ impl SessionCtx {
     /// relay's cap the oldest is NOT dropped — the newest is refused instead
     /// (the person can see the bar is full), so nothing typed earlier
     /// vanishes.
-    fn enqueue_prompt(&self, announce: String, prompt: TurnPrompt) -> bool {
+    ///
+    /// EXP-1292: a person's message row is held under its own `messages.id`
+    /// (`message_id`); the engine's own prompts get a fresh id. A message
+    /// ROW is never refused: the pickup already counts it handed and would
+    /// never hand it over again, so it would sit queued forever. The server
+    /// bounds those rows, and the bar only ever shows the first `QUEUE_MAX`.
+    fn enqueue_prompt(
+        &self,
+        announce: String,
+        prompt: TurnPrompt,
+        message_id: Option<String>,
+    ) -> bool {
         let accepted = self
             .prompt_queue
             .lock()
             .map(|mut queue| {
-                if queue.len() >= steer::QUEUE_MAX {
+                if message_id.is_none() && queue.len() >= steer::QUEUE_MAX {
                     return false;
                 }
                 queue.push_back(QueuedPrompt {
-                    id: uuid::Uuid::new_v4().to_string(),
+                    id: message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
                     announce,
                     held: Some(prompt),
                 });
@@ -1311,7 +1345,9 @@ impl SessionCtx {
     /// `sent`, under a fresh id the replay will close. `None` when the bar
     /// is full: the message still goes, announced at once instead of
     /// tracked (a full bar is the one thing that must never lose a line).
-    fn mark_sent(&self, announce: String) -> Option<String> {
+    /// EXP-1292: a person's message row keeps its `messages.id` as the line's
+    /// id, so the replay that closes the line also consumes the row.
+    fn mark_sent(&self, announce: String, message_id: Option<String>) -> Option<String> {
         let id = self
             .prompt_queue
             .lock()
@@ -1320,7 +1356,7 @@ impl SessionCtx {
                 if queue.len() >= steer::QUEUE_MAX {
                     return None;
                 }
-                let id = uuid::Uuid::new_v4().to_string();
+                let id = message_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                 queue.push_back(QueuedPrompt {
                     id: id.clone(),
                     announce,
@@ -1384,6 +1420,37 @@ impl SessionCtx {
         }
     }
 
+    /// EXP-1292: a person's message row was handed to this engine.
+    pub(crate) fn note_message(&self, message_id: &str) {
+        if let Ok(mut ids) = self.message_ids.lock() {
+            ids.insert(message_id.to_string());
+        }
+    }
+
+    /// EXP-1292: these queue ids reached the agent (or left its queue for
+    /// good — a Stop drops them); the ones that are person message rows are
+    /// reported consumed, once each. The engine's own ids pass through.
+    pub(crate) fn consumed_messages(&self, ids: impl IntoIterator<Item = String>) {
+        let rows: Vec<String> = match self.message_ids.lock() {
+            Ok(mut known) => ids.into_iter().filter(|id| known.remove(id)).collect(),
+            Err(_) => Vec::new(),
+        };
+        if rows.is_empty() {
+            return;
+        }
+        if let Some(outbox) = self.outbox.get() {
+            outbox.consume(rows);
+        }
+    }
+
+    /// EXP-1292: a handed message row was unqueued (deleted) before the agent
+    /// read it — nothing to consume any more.
+    pub(crate) fn forget_message(&self, message_id: &str) {
+        if let Ok(mut ids) = self.message_ids.lock() {
+            ids.remove(message_id);
+        }
+    }
+
     /// FEED-25: one engine-authored notice into the transcript — the stall
     /// watchdog announcing the turn it just cancelled. Routed exactly like
     /// mapper output but WITHOUT the activity clock: the session speaking
@@ -1395,7 +1462,18 @@ impl SessionCtx {
         self.deliver(out);
     }
 
-    fn deliver(&self, out: MapOut) {
+    fn deliver(&self, mut out: MapOut) {
+        // EXP-1292: the Conversation's half of the step — the replies in
+        // order, and every card the engine resolved (answered anywhere, or
+        // dismissed) stops reading open. A replay writes nothing.
+        if let Some(outbox) = self.outbox.get() {
+            for event in &out.wire {
+                if let steer::ActivityEvent::QuestionResolved { id: Some(id), .. } = event {
+                    outbox.resolve_question(id);
+                }
+            }
+            outbox.post(std::mem::take(&mut out.replies));
+        }
         // EXP-850 §8: the caption's one input. Read BEFORE the wire vec is
         // consumed by the sink.
         let workflows: Vec<&steer::WorkflowState> = out
@@ -1946,6 +2024,11 @@ where
                     &turns,
                     None,
                 );
+                // EXP-1292: a resume's seed IS the waking message row.
+                if let Some(message_id) = ctx.seed_message_id.clone() {
+                    ctx.note_message(&message_id);
+                    ctx.consumed_messages([message_id]);
+                }
             }
             loop {
                 tokio::select! {
@@ -2039,7 +2122,47 @@ fn handle_command(
                     blocks,
                 })
             };
-            gate_or_start(cx, ctx, session_id, text, prompt, turns)
+            gate_or_start(cx, ctx, session_id, text, prompt, turns, None)
+        }
+        // EXP-1292: a person's message row — a steer under its own id. Image
+        // embeds localize on the spawned turn path like a composer message.
+        EngineCommand::Deliver { message_id, text } => {
+            ctx.note_message(&message_id);
+            let prompt = if ctx.attachments.is_some() && steer::has_attachment_embed(&text) {
+                TurnPrompt::Localize(text.clone())
+            } else {
+                TurnPrompt::Ready(LocalizedPrompt::plain(text.clone()))
+            };
+            gate_or_start(cx, ctx, session_id, text, prompt, turns, Some(message_id))
+        }
+        EngineCommand::AnswerCard { question_id, card } => {
+            let Some(mapped) = ctx.with_mapper(|mapper| mapper.card_answer(&question_id, &card))
+            else {
+                log::info!(
+                    "engine: session {} card answer for {question_id} matches no open ask",
+                    ctx.session_id
+                );
+                return true;
+            };
+            answer_ask(ctx, mapped.answer);
+            // The Conversation never shows a stepper's submit marker: the
+            // card that answered its last step submits the form.
+            if let Some(submit) = ctx.with_mapper(|mapper| mapper.pending_submit(&question_id)) {
+                answer_ask(ctx, submit);
+            }
+            // A rejected plan's feedback is what the person wants instead —
+            // the agent reads it as their next message.
+            if let Some(feedback) = mapped.follow_up {
+                gate_or_start(
+                    cx,
+                    ctx,
+                    session_id,
+                    feedback.clone(),
+                    TurnPrompt::Ready(LocalizedPrompt::plain(feedback)),
+                    turns,
+                    None,
+                );
+            }
         }
         // EXP-873: a message that arrives while a turn is running goes to
         // the agent AT ONCE (claude folds it in at its next tool boundary,
@@ -2054,6 +2177,7 @@ fn handle_command(
             text.clone(),
             TurnPrompt::Ready(LocalizedPrompt::plain(text)),
             turns,
+            None,
         ),
         // EXP-861: a Stop drops what the person queued as well as the turn
         // (the `cancel_queued` semantics, now for the host's own queue); the
@@ -2068,6 +2192,14 @@ fn handle_command(
             // a turn that died on an API error.
             ctx.api_retry.lock().unwrap_or_else(|err| err.into_inner()).disarm();
             ctx.with_mapper(|mapper| mapper.forget_deliveries());
+            // EXP-1292: the person's Stop drops their queued rows with the
+            // turn — handed and gone, so they are consumed, never re-sent.
+            let dropped: Vec<String> = ctx
+                .prompt_queue
+                .lock()
+                .map(|queue| queue.iter().map(|message| message.id.clone()).collect())
+                .unwrap_or_default();
+            ctx.consumed_messages(dropped);
             ctx.clear_prompt_queue();
             // EXP-936: the person said stop; a `/compact` owed from before
             // would read as the run ignoring them.
@@ -2081,15 +2213,21 @@ fn handle_command(
             // A held line goes; a SENT one cannot be taken back from the
             // agent, so the slot is republished as it stands and the line
             // the client dropped optimistically comes back (EXP-873).
-            let known = ctx
+            let (known, revoked) = ctx
                 .prompt_queue
                 .lock()
                 .map(|mut queue| {
                     let known = queue.iter().any(|message| message.id == id);
+                    let before = queue.len();
                     queue.retain(|message| message.id != id || message.held.is_none());
-                    known
+                    (known, queue.len() != before)
                 })
-                .unwrap_or(false);
+                .unwrap_or((false, false));
+            // EXP-1292: a revoked row was deleted server-side; nothing left
+            // to consume.
+            if revoked {
+                ctx.forget_message(&id);
+            }
             if known {
                 ctx.publish_queue();
             }
@@ -2127,6 +2265,7 @@ fn handle_command(
                 text.clone(),
                 TurnPrompt::Ready(LocalizedPrompt::plain(text)),
                 turns,
+                None,
             );
         }
         EngineCommand::SetConfig { id, value } => {
@@ -2179,29 +2318,7 @@ fn handle_command(
                 Ok(())
             });
         }
-        EngineCommand::Answer(answer) => {
-            let mut out = MapOut::default();
-            let (key, decision) = ctx.with_mapper(|mapper| {
-                let key = mapper.ask_key(&answer);
-                let decision = mapper.on_answer(&key, &answer, &mut out);
-                (key, decision)
-            });
-            ctx.dispatch(out);
-            match decision {
-                AnswerDecision::Permission { option_id } => ctx
-                    .asks
-                    .resolve(key.responder_key(), AskOutcome::Permission(option_id)),
-                AnswerDecision::Elicitation {
-                    fields,
-                    submit: true,
-                } => ctx
-                    .asks
-                    .resolve(key.responder_key(), AskOutcome::Elicitation(fields)),
-                // A mid-stepper answer published the next step and resolves
-                // nothing; a re-tap re-acked; an unknown id was dropped.
-                _ => {}
-            }
-        }
+        EngineCommand::Answer(answer) => answer_ask(ctx, answer),
         EngineCommand::Command { name, args } => {
             // An agent-advertised command is prompt text; the contract ones
             // never reach the engine (steer's `CommandLink` owns those).
@@ -2217,6 +2334,7 @@ fn handle_command(
                 text.clone(),
                 TurnPrompt::Ready(LocalizedPrompt::plain(text)),
                 turns,
+                None,
             );
         }
         EngineCommand::LoadHistory => {
@@ -2276,6 +2394,11 @@ fn handle_command(
 /// lines would wait behind it. So the held messages drain HERE, oldest
 /// first, and the new one goes behind them — send order on the transcript
 /// either way; the drain request that follows finds nothing.
+///
+/// EXP-1292: `message_id` names a person's message row; it rides the queue
+/// as the line's id and is consumed when the agent gets it. A full bar never
+/// refuses a row ([`SessionCtx::enqueue_prompt`]); the forget below covers a
+/// poisoned queue lock only.
 fn gate_or_start(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
@@ -2283,13 +2406,45 @@ fn gate_or_start(
     announce: String,
     prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
+    message_id: Option<String>,
 ) {
     if ctx.compaction_open() {
-        ctx.enqueue_prompt(announce, prompt);
+        let accepted = ctx.enqueue_prompt(announce, prompt, message_id.clone());
+        if !accepted {
+            if let Some(id) = &message_id {
+                ctx.forget_message(id);
+            }
+        }
         return;
     }
     drain_queue(cx, ctx, session_id, turns);
-    send_prompt(cx, ctx, session_id, announce, prompt, turns);
+    send_prompt(cx, ctx, session_id, announce, prompt, turns, message_id);
+}
+
+/// One answer for a parked ask — a relay `answer` frame, the local card, or
+/// (EXP-1292) a card answered in the Conversation.
+fn answer_ask(ctx: &Arc<SessionCtx>, answer: steer::RemoteAnswer) {
+    let mut out = MapOut::default();
+    let (key, decision) = ctx.with_mapper(|mapper| {
+        let key = mapper.ask_key(&answer);
+        let decision = mapper.on_answer(&key, &answer, &mut out);
+        (key, decision)
+    });
+    ctx.dispatch(out);
+    match decision {
+        AnswerDecision::Permission { option_id } => ctx
+            .asks
+            .resolve(key.responder_key(), AskOutcome::Permission(option_id)),
+        AnswerDecision::Elicitation {
+            fields,
+            submit: true,
+        } => ctx
+            .asks
+            .resolve(key.responder_key(), AskOutcome::Elicitation(fields)),
+        // A mid-stepper answer published the next step and resolves
+        // nothing; a re-tap re-acked; an unknown id was dropped.
+        _ => {}
+    }
 }
 
 /// EXP-873: hand one message to the agent NOW. Between turns it is the next
@@ -2298,6 +2453,10 @@ fn gate_or_start(
 /// lands when the replay arrives — where the agent actually read it; on an
 /// agent that never echoes (codex `turn/steer`) the row is announced at
 /// once, as before.
+///
+/// EXP-1292: a message row is consumed here when it goes out announced (the
+/// next turn, codex's steer, a full bar) and on its replay when it waits in
+/// the bar as `sent`.
 fn send_prompt(
     cx: &agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
     ctx: &Arc<SessionCtx>,
@@ -2305,13 +2464,17 @@ fn send_prompt(
     announce: String,
     prompt: TurnPrompt,
     turns: &Arc<TurnGate>,
+    message_id: Option<String>,
 ) {
     let pending = if !ctx.turn_signal.is_idle() && ctx.replays_user_messages() {
-        ctx.mark_sent(announce)
+        ctx.mark_sent(announce, message_id.clone())
     } else {
         None
     };
-    start_turn(cx, ctx, session_id, prompt, turns, pending);
+    start_turn(cx, ctx, session_id, prompt, turns, pending.clone());
+    if pending.is_none() {
+        ctx.consumed_messages(message_id);
+    }
 }
 
 /// EXP-861: send every held message, oldest first. Called on the command
@@ -2331,6 +2494,7 @@ fn drain_queue(
     // one is a mid-turn message.
     let mut idle = ctx.turn_signal.is_idle();
     let mut starts: Vec<(TurnPrompt, Option<String>)> = Vec::new();
+    let mut announced: Vec<String> = Vec::new();
     {
         let mut queue = match ctx.prompt_queue.lock() {
             Ok(queue) => queue,
@@ -2353,6 +2517,8 @@ fn drain_queue(
                 }
                 Some(prompt) => {
                     starts.push((prompt, None));
+                    // EXP-1292: this line is the next turn — sent announced.
+                    announced.push(message.id);
                     idle = false;
                 }
             }
@@ -2365,6 +2531,7 @@ fn drain_queue(
     for (prompt, pending) in starts {
         start_turn(cx, ctx, session_id, prompt, turns, pending);
     }
+    ctx.consumed_messages(announced);
 }
 
 /// `session/cancel`, with the EXP-784 queued flag: `cancel_queued` is the

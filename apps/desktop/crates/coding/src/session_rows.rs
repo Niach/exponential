@@ -21,7 +21,7 @@ pub const SESSION_STATUS_ENDED: &str = "ended";
 pub const MESSAGE_AUTHOR_USER: &str = "user";
 
 /// One `sessions` row: a thread root, a team agent root or a sub-session.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct SessionRow {
     pub id: String,
     #[serde(default)]
@@ -97,7 +97,7 @@ impl SessionRow {
 }
 
 /// One `messages` row of the Conversation.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct MessageRow {
     pub id: String,
     #[serde(default)]

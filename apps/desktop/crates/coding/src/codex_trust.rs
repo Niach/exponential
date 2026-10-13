@@ -380,16 +380,16 @@ mod tests {
             &config,
             "# my codex config\nmodel = \"gpt-5.6-terra\"\n\n\
 [projects.\"/keep/repo\"]\ntrust_level = \"trusted\"\n\n\
-[projects.\"/data/actions/builtin_chat\"]\ntrust_level = \"trusted\"\n\n\
-[projects.\"/private/data/actions/builtin_chat\"]\ntrust_level = \"trusted\"\n\n\
+[projects.\"/data/scratch/root-1\"]\ntrust_level = \"trusted\"\n\n\
+[projects.\"/private/data/scratch/root-1\"]\ntrust_level = \"trusted\"\n\n\
 [mcp_servers.other]\nurl = \"http://x\"\n",
         )
         .unwrap();
         let dropped = forget_in_config(
             &config,
             &[
-                PathBuf::from("/data/actions/builtin_chat"),
-                PathBuf::from("/private/data/actions/builtin_chat"),
+                PathBuf::from("/data/scratch/root-1"),
+                PathBuf::from("/private/data/scratch/root-1"),
             ],
         )
         .unwrap();
@@ -398,11 +398,11 @@ mod tests {
         assert_eq!(trusted_paths(&config), vec!["/keep/repo".to_string()]);
         assert!(updated.starts_with("# my codex config\nmodel = \"gpt-5.6-terra\"\n"));
         assert!(updated.contains("[mcp_servers.other]\nurl = \"http://x\"\n"));
-        assert!(!updated.contains("builtin_chat"));
+        assert!(!updated.contains("root-1"));
         // Idempotent: nothing left to drop, nothing rewritten.
         let before = updated;
         assert_eq!(
-            forget_in_config(&config, &[PathBuf::from("/data/actions/builtin_chat")]),
+            forget_in_config(&config, &[PathBuf::from("/data/scratch/root-1")]),
             Ok(0)
         );
         assert_eq!(std::fs::read_to_string(&config).unwrap(), before);

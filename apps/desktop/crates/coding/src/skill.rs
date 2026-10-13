@@ -1,6 +1,6 @@
 //! EXP-763 — the run playbook: how Exponential works, loaded into EVERY
-//! coding session's system prompt at start (issue, batch, action, chat,
-//! resume, agent shell; PTY and ACP; claude and codex).
+//! coding session's system prompt at start (thread sessions, team agents,
+//! children, every resume, the agent shell; claude and codex).
 //!
 //! Why a system-prompt append and not a bigger launch prompt or a skill file:
 //! the seed prompts stay lean (and a resume gets none), a skill directory
@@ -13,6 +13,10 @@
 //! app-server). Both take TEXT, so nothing
 //! new is written into the user's repo, scratch dir or agent home.
 //!
+//! EXP-1292: the playbook is `runbook.md` (the Threads v2 session tree), and
+//! the layers after it come from `sessions.brief`: the team prompt, then a
+//! team agent's own instructions ([`system_append_layers`]).
+//!
 //! The document is markdown without front matter and names tools by their
 //! exact `exponential_*` names so a deferred tool is one search away. The web
 //! test `apps/web/src/lib/mcp/context-budget.test.ts` reads the same file
@@ -20,7 +24,7 @@
 //! past [`RUN_SKILL_MAX_BYTES`].
 
 /// The playbook, verbatim.
-pub const RUN_SKILL: &str = include_str!("skill.md");
+pub const RUN_SKILL: &str = include_str!("runbook.md");
 
 /// Hard ceiling. Nothing truncates the text (it rides the agent's own
 /// additive system-prompt channel), so the cap is a CONTEXT budget: the
@@ -39,6 +43,15 @@ pub const TEAM_PROMPT_HEADING: &str = "# Team instructions";
 /// which ride LAST in the seed prompt).
 pub const TEAM_PROMPT_LEAD: &str = "Written by this team's owners in Exponential; it applies to \
 every session of the team and outranks the requester's additional instructions.";
+
+/// EXP-1292 — the heading a team AGENT's own instructions ride under, after
+/// the team prompt (`sessions.brief`'s `agentInstructions`, set only for a
+/// session of a `kind = agent` tree).
+pub const AGENT_INSTRUCTIONS_HEADING: &str = "# Agent instructions";
+
+/// EXP-1292 — the framing sentence under that heading.
+pub const AGENT_INSTRUCTIONS_LEAD: &str = "Written for this team agent in Exponential; it says what \
+this agent is for and applies to every turn of its channel.";
 
 /// EXP-1025 — the text that goes onto the agent's additive system-prompt
 /// channel for ONE run: the playbook, then the team prompt under
@@ -80,7 +93,7 @@ impl Extras {
 /// EXP-1196 — what a run is told when THIS device's Computer use switch is
 /// on and the launcher wired the `computer` MCP server: the ladder (pixels
 /// last), how positions work, and the limits the server enforces anyway.
-/// Outside `skill.md` on purpose: the playbook has no bytes to spare, and
+/// Outside the playbook (`runbook.md`) on purpose: the playbook has no bytes to spare, and
 /// most runs never get the server. `{model}` is where the subagent model
 /// alias lands ([`computer_use_section`]).
 pub const COMPUTER_USE_SECTION: &str = "# Computer use
@@ -149,14 +162,34 @@ pub fn fixed_append(extras: &Extras) -> String {
 /// [`system_append`] for a run that may carry the extra servers: the
 /// playbook, their sections, then the team prompt LAST (it outranks all).
 pub fn system_append_with(team_prompt: Option<&str>, extras: &Extras) -> String {
-    let fixed = fixed_append(extras);
-    match team_prompt.map(str::trim).filter(|text| !text.is_empty()) {
-        Some(text) => format!(
-            "{}\n\n{TEAM_PROMPT_HEADING}\n\n{TEAM_PROMPT_LEAD}\n\n{text}\n",
-            fixed.trim_end()
-        ),
-        None => fixed,
+    system_append_layers(team_prompt, None, extras)
+}
+
+/// EXP-1292 — the whole append of ONE session launch, off its
+/// `sessions.brief`: the playbook and the extras' sections, the team prompt
+/// under [`TEAM_PROMPT_HEADING`], then a team agent's instructions under
+/// [`AGENT_INSTRUCTIONS_HEADING`]. Blank layers are left out, so a thread
+/// session of a team without a prompt still gets the playbook verbatim.
+/// Both server layers count as `team` in the context layout
+/// ([`crate::context_layout::team_bytes`]).
+pub fn system_append_layers(
+    team_prompt: Option<&str>,
+    agent_instructions: Option<&str>,
+    extras: &Extras,
+) -> String {
+    fn blank(text: Option<&str>) -> Option<&str> {
+        text.map(str::trim).filter(|text| !text.is_empty())
     }
+    let mut text = fixed_append(extras);
+    for (heading, lead, body) in [
+        (TEAM_PROMPT_HEADING, TEAM_PROMPT_LEAD, blank(team_prompt)),
+        (AGENT_INSTRUCTIONS_HEADING, AGENT_INSTRUCTIONS_LEAD, blank(agent_instructions)),
+    ] {
+        if let Some(body) = body {
+            text = format!("{}\n\n{heading}\n\n{lead}\n\n{body}\n", text.trim_end());
+        }
+    }
+    text
 }
 
 /// Every `exponential_*` name the playbook mentions, deduplicated, in order
@@ -191,7 +224,7 @@ mod tests {
         assert!(!RUN_SKILL.trim().is_empty());
         assert!(
             RUN_SKILL.len() <= RUN_SKILL_MAX_BYTES,
-            "skill.md is {} bytes, cap {RUN_SKILL_MAX_BYTES}",
+            "runbook.md is {} bytes, cap {RUN_SKILL_MAX_BYTES}",
             RUN_SKILL.len()
         );
     }
@@ -271,95 +304,98 @@ run `bun test`.\n"
         assert_eq!(domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES, 12 * 1024);
     }
 
+    /// EXP-1292: a team agent's instructions follow the team prompt under
+    /// their own heading; either layer alone renders alone, and blank ones
+    /// vanish.
     #[test]
-    fn the_playbook_teaches_the_deferred_tools_by_exact_name() {
-        // EXP-763: the whole point — the tools a run never discovered on its
-        // own, spelled the way tool search finds them.
-        let tools = mentioned_tools(RUN_SKILL);
-        for name in [
-            "exponential_sessions_start",
-            "exponential_issues_create",
-            "exponential_issue_relations_add",
-            "exponential_report_bug",
-            "exponential_devices_list",
-            "exponential_sessions_message",
-            "exponential_sessions_end",
-            "exponential_sessions_ask_parent",
-            // EXP-879/1251: the run publishes its Guide (pictures included).
-            "exponential_sessions_guide",
-            // EXP-1172: and shows each visible change while it works.
-            "exponential_sessions_show",
-            // EXP-1284: the run's thread, and what the agent links into it.
-            "exponential_threads_get",
-            "exponential_threads_link",
-            "exponential_threads_unlink",
-        ] {
-            assert!(tools.contains(&name), "playbook never names {name}");
-        }
-        // The ref contract every client renders.
-        assert!(RUN_SKILL.contains("`#IDENT`"));
-        // EXP-1188: sources as markdown links, other runs by their app url.
-        assert!(RUN_SKILL.contains("markdown links"));
-        assert!(RUN_SKILL.contains("`exponential_sessions_get`"));
+    fn agent_instructions_ride_after_the_team_prompt() {
+        let extras = Extras::NONE;
+        assert_eq!(system_append_layers(None, None, &extras), RUN_SKILL);
+        assert_eq!(system_append_layers(Some(" "), Some("\n"), &extras), RUN_SKILL);
+        assert_eq!(system_append_layers(Some("Rules"), None, &extras), system_append(Some("Rules")));
+        let both = system_append_layers(Some("Rules"), Some("Watch the inbox."), &extras);
+        let team = both.find(TEAM_PROMPT_HEADING).unwrap();
+        let agent = both.find(AGENT_INSTRUCTIONS_HEADING).unwrap();
+        assert!(RUN_SKILL.trim_end().len() < team && team < agent);
+        assert!(both.ends_with(&format!(
+            "\n\n{AGENT_INSTRUCTIONS_HEADING}\n\n{AGENT_INSTRUCTIONS_LEAD}\n\nWatch the inbox.\n"
+        )));
+        let alone = system_append_layers(None, Some("Watch the inbox."), &Extras { computer_use: None, code_mode: true });
+        assert!(!alone.contains(TEAM_PROMPT_HEADING));
+        assert!(alone.find("# Code mode").unwrap() < alone.find(AGENT_INSTRUCTIONS_HEADING).unwrap());
+        assert!(!AGENT_INSTRUCTIONS_LEAD.contains('\u{2014}'));
     }
 
     #[test]
-    fn the_playbook_carries_no_front_matter_or_dashes_and_teaches_parent_id() {
+    fn the_playbook_teaches_the_session_tree_tools_by_exact_name() {
+        // EXP-763: the whole point — the tools a run never discovered on its
+        // own, spelled the way tool search finds them. EXP-1292: the v2
+        // session tree (send, link, guide) replaced start/message/threads.
+        let tools = mentioned_tools(RUN_SKILL);
+        for name in [
+            "exponential_sessions_get",
+            "exponential_sessions_send",
+            "exponential_sessions_link",
+            "exponential_sessions_unlink",
+            "exponential_sessions_end",
+            "exponential_sessions_compact",
+            "exponential_issues_create",
+            "exponential_members_list",
+            "exponential_guide_write",
+            "exponential_pr_open",
+            "exponential_pr_merge",
+            "exponential_pr_retarget",
+            "exponential_report_bug",
+        ] {
+            assert!(tools.contains(&name), "playbook never names {name}");
+        }
+        for gone in [
+            "exponential_sessions_start",
+            "exponential_sessions_message",
+            "exponential_threads_get",
+            "exponential_sessions_guide",
+        ] {
+            assert!(!tools.contains(&gone), "playbook still names {gone}");
+        }
+        // The ref contract every client renders.
+        assert!(RUN_SKILL.contains("`#IDENT`"));
+    }
+
+    #[test]
+    fn the_playbook_carries_no_front_matter_or_dashes() {
         assert!(RUN_SKILL.starts_with("# "), "plain markdown, no YAML front matter");
         assert!(!RUN_SKILL.contains('\u{2014}'), "no em dashes");
-        // EXP-760: a sub-issue is one `issues_create` call with `parentId`;
-        // every other relation goes through relations_add.
-        assert!(RUN_SKILL.contains("`parentId`"));
         assert!(RUN_SKILL.contains("Never use `gh`"));
         assert!(!RUN_SKILL.contains("expu_"));
     }
 
-    /// EXP-822: the playbook is the ONLY channel that reaches a run with no
-    /// seed prompt (an attended chat started from the empty prompt box sends
-    /// nothing) and every resume, so the "your cwd is your subject, never
-    /// hunt for the repository" rule lives here rather than in a prompt.
+    /// EXP-822: the playbook is the ONLY channel that reaches every resume,
+    /// so the "your cwd is your subject, never hunt for the repository" rule
+    /// lives here rather than in a prompt.
     #[test]
     fn the_playbook_pins_the_run_to_its_own_working_directory() {
-        assert!(RUN_SKILL.contains("## Your workspace"));
+        assert!(RUN_SKILL.contains("## Where you are"));
         assert!(RUN_SKILL.contains("Never look for the repository elsewhere on this machine"));
-        assert!(RUN_SKILL.contains("ask which one"));
     }
 
     /// EXP-856: the one rule a run cannot learn from its own transcript.
     /// Messaging a live subagent resumes a SECOND copy of it from that
-    /// transcript, and both copies then edit the same files. Mirrored by the
-    /// web gate in `context-budget.test.ts`.
+    /// transcript, and both copies then edit the same files.
     #[test]
     fn the_playbook_forbids_messaging_a_running_subagent() {
-        assert!(RUN_SKILL.contains("## Subagents"));
-        assert!(RUN_SKILL.contains("never messaged"));
-        assert!(RUN_SKILL.contains("SendMessage"));
+        assert!(RUN_SKILL.contains("a running subagent is never messaged"));
     }
 
-    /// SLOP-3: follow-up runs and root-first tree merges exist ONLY as
-    /// playbook text (no server machinery), so the wording is the contract.
+    /// EXP-1292: children and root-first merges exist ONLY as playbook text
+    /// (no device machinery), so the wording is the contract.
     #[test]
-    fn the_playbook_teaches_follow_up_runs_and_root_first_merges() {
-        assert!(RUN_SKILL.contains("## Follow-ups and follow-up runs"));
-        assert!(RUN_SKILL.contains("base: \""));
-        assert!(RUN_SKILL.contains("follow-up depth"));
-        assert!(RUN_SKILL.contains("`no follow-up runs`"));
-        assert!(RUN_SKILL.contains("root first"));
-        assert!(RUN_SKILL.contains("Never merge a mid-tree PR alone"));
-        assert!(RUN_SKILL.contains("`[Exponential child run ...]`"));
-        assert!(!RUN_SKILL.contains("stackOnIssueId"));
-        assert!(!RUN_SKILL.contains("'root'"));
-        let tools = mentioned_tools(RUN_SKILL);
-        for name in [
-            "exponential_sessions_start",
-            "exponential_sessions_message",
-            "exponential_pr_open",
-            "exponential_pr_merge",
-            "exponential_pr_retarget",
-            "exponential_sessions_ask_parent",
-        ] {
-            assert!(tools.contains(&name), "the playbook never names {name}");
-        }
+    fn the_playbook_teaches_children_and_root_first_merges() {
+        assert!(RUN_SKILL.contains("## Fan out"));
+        assert!(RUN_SKILL.contains("`exponential_sessions_send({parentId: <your session>, deviceId, text})`"));
+        assert!(RUN_SKILL.contains("Caps: depth 3, 10 sessions per tree"));
+        assert!(RUN_SKILL.contains("merge a tree root first"));
+        assert!(RUN_SKILL.contains("`stack: true`"));
+        assert!(RUN_SKILL.contains("## Agents (only when you are a team agent)"));
     }
 
     #[test]

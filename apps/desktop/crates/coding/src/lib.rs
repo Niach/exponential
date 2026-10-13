@@ -8,17 +8,17 @@
 //! coding settings (repos root / branch prefix / per-agent paths — never
 //! a manual API-key field), and the agent spawn into the embedded
 //! terminal. EXP-201/EXP-849: two agents — `claude` and `codex`
-//! ([`agent::CodingAgent`]). (EXP-259 deleted the one-shot claude-task
-//! primitive — conflict fixing became the builtin "Fix merge conflicts"
-//! ACTION run.)
+//! ([`agent::CodingAgent`]).
 //!
 //! ## The one entry point (§7.1)
 //!
-//! Local button press and relay `start_session` frame run the SAME sequence:
+//! EXP-1292 (Threads v2): every session is a `sessions` row; a `queued` one
+//! naming this device is picked up off the shape ([`pickup`]), claimed, and
+//! run through the SAME sequence:
 //!
 //! ```text
 //! // background executor (blocking network + git I/O, gpui-free):
-//! let prepared = coding::prepare(&req, &deps)?;
+//! let prepared = coding::prepare(&PrepareRequest::Session(req), &deps)?;
 //! // foreground:
 //! match prepared {
 //!     Prepared::Ready(p) => engine::start(p, ..)?,
@@ -38,7 +38,6 @@
 pub mod account_option;
 // EXP-1082: the account-rotation seams EXP-1005 fills.
 pub mod account_rotation;
-pub mod action_prompt;
 pub mod agent;
 pub mod agent_accounts;
 pub mod agent_login;
@@ -48,8 +47,6 @@ pub mod agent_usage;
 pub mod atomic_config;
 pub mod argv;
 pub mod triggers;
-pub mod batch_launcher;
-pub mod batch_prompt;
 pub mod claude_oauth;
 pub mod claude_trust;
 pub mod clone_manager;
@@ -106,17 +103,6 @@ pub use argv::{
     permission_args, shell_args, AgentMcp, LaunchOptions, McpServerWire, McpWireTransport,
     MCP_SESSION_ID_ENV, MCP_TOKEN_ENV,
 };
-pub use batch_launcher::{
-    action_run_branch, action_slug, batch_branch_name, chat_run_branch, new_batch_id, new_run_id,
-    BatchIssueSpec, BatchLaunchRequest, RepoGroup, CHAT_BRANCH_PREFIX, RUN_BRANCH_PREFIX,
-};
-pub use action_prompt::{
-    chat_prompt, create_action_prompt, fix_pr_conflicts_prompt, render_action_prompt,
-    render_action_prompt_full, render_action_prompt_with_trigger, render_run_resume_prompt,
-    tidy_up_prompt, ActionInputValue, TriggerNote, TriggerNoteKind, WorkspaceNote,
-    TIDY_UP_PROGRAM,
-};
-pub use batch_prompt::{render_batch_prompt, BatchPromptArgs};
 pub use clone_manager::{AutoSyncOutcome, CloneEvent};
 pub use context_layout::{CarriedBase, ContextLayers, ProjectMemoryFile};
 pub use codex_sessions::default_codex_sessions_root;
@@ -151,18 +137,15 @@ pub use git_worktree::{
     branch_name, clone_path, shell_cwd, worktree_path, GitError, TokenUrl,
 };
 pub use launch_gate::LaunchHold;
-pub use launcher::{apply_account_env, set_session_end_observer, start_heartbeat, HeartbeatStop};
-pub use launcher::SESSION_HEARTBEAT_INTERVAL;
+pub use launcher::{apply_account_env, set_session_end_observer};
 pub use launcher::{
     claude_projects_root, claude_transcript_exists, context_layers_for, default_device_label,
-    end_session, end_session_best_effort, mark_resuming, unmark_resuming, locate_claude_transcript, prepare, prepare_agent_shell,
-    record_last_used,
-    AcpLaunch, ActionLaunchRequest, ActionRunKind, ACP_TRANSPORT,
-    AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError, DisabledReason,
-    GitWorktrees, IssueSeed, IssueSeedFn, LaunchOrigin, LaunchOutcome, LaunchRequest,
-    ResumeRunRequest, ResumeSeed, SessionEndObserver,
-    Prepared, PreparedAgentShell, PrepareRequest, PreparedLaunch,
-    WorktreeProvider,
+    end_session, end_session_best_effort, idle_session, locate_claude_transcript, prepare,
+    prepare_agent_shell, record_last_used, session_branch, session_label, session_launch_options,
+    AcpLaunch, ACP_TRANSPORT, AgentShellLaunch, AgentShellRequest, CodingDeps, CodingError,
+    DisabledReason, GitWorktrees, LaunchOutcome, Prepared, PreparedAgentShell, PrepareRequest,
+    PreparedLaunch, ResumeRun, ResumeSeed, SessionEndObserver, SessionLaunchRequest,
+    WorktreeProvider, SESSION_BRANCH_PREFIX,
 };
 pub use run_cleanup::{remove_if_clean, CleanupOutcome, RunCleanup};
 pub use wip_save::{save_wip_commit, WipSave};
@@ -181,7 +164,7 @@ pub use remote_admin::{
     apply_defaults_patch, defaults_wire, overlay_launch_defaults, AgentDefaultsPatch,
     DefaultsPatch,
 };
-pub use prompt::{render_prompt, render_resume_prompt};
+pub use prompt::{reclaimed_workspace_note, ACCOUNT_SWITCH_CONTINUE_PROMPT};
 pub use settings::Settings;
 pub use token_refresh::{
     next_refresh_delay, refresh_clone_token, REFRESH_LEAD, TOKEN_REFRESH_RETRY,

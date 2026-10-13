@@ -2,9 +2,9 @@
 //!
 //! Hosts an `agent-client-protocol` client in-process, drives the user's own
 //! agent CLI through one of the four adapters, maps every `SessionUpdate` into
-//! the steer wire vocabulary, and owns the run lifecycle (heartbeat,
-//! publisher, diff snapshots, kill feed, end sequence) that the desktop IDE
-//! and the headless CLI daemon used to duplicate by hand.
+//! the steer wire vocabulary, and owns the run lifecycle (the Conversation
+//! outbox, publisher, diff snapshots, kill feed, end sequence) that the
+//! desktop IDE and the headless CLI daemon used to duplicate by hand.
 //!
 //! ```text
 //! coding::prepare_with_hooks → PreparedLaunch { transport: Acp, acp: Some(..) }
@@ -12,7 +12,7 @@
 //!       ├ thread acp-engine-<sid8>: Client.builder()…connect_with(adapter, main_fn)
 //!       │    adapter = Claude | Codex   (ConnectTo<Client>)
 //!       ├ mapper.rs : SessionUpdate/requests → wire ActivityEvent + LocalFeedEvent
-//!       ├ lifecycle.rs : publisher, heartbeat, diffs, kill feed, end sequence
+//!       ├ lifecycle.rs : outbox, publisher, diffs, kill feed, end sequence
 //!       └ desktop: Screen::Session (FeedSource::Local) · cli: line printer
 //! ```
 //!
@@ -49,6 +49,7 @@ pub mod host;
 pub mod lifecycle;
 pub mod local;
 pub mod mapper;
+pub mod outbox;
 pub mod session;
 pub mod sink;
 // FEED-61: a turn that died on a transient API error is re-prompted by the
@@ -84,11 +85,15 @@ pub use local::{
     SUBAGENT_ID_META_KEY, SUBAGENT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY,
     TURN_META_KEY, TURN_TOKENS_META_KEY, WORKFLOW_META_KEY,
 };
-pub use mapper::{clamp_context_layout, clamp_usage, AnswerDecision, MapOut, Mapper, MapperConfig, PendingAskKey};
+pub use mapper::{
+    clamp_context_layout, clamp_usage, AnswerDecision, CardAnswer, MapOut, Mapper, MapperConfig,
+    PendingAskKey, Reply,
+};
 pub use session::{
     start, start_with, ConfigValue, EngineError, EngineParts, EngineSession, EngineStart,
     HistoryHandle, OpenTranscript, ResumeHandle,
 };
 pub use sink::{EventSink, RecordingSink};
+pub use lifecycle::SUSPEND_OUTCOME;
 pub use stop_save::{save_stopped_run_work, stopped_by_person};
 pub use transport::{spawn_lines, ChildLines, LineWriter, StderrPolicy};

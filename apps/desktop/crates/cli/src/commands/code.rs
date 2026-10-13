@@ -1,11 +1,10 @@
-//! `exponential code <ISSUE>` — the desktop's Start-coding flow, headless:
-//! resolve the issue over tRPC, run the ONE shared launcher
-//! (`coding::prepare_with_hooks`), hand the result to `session_host::launch`.
-//! Detached it runs to completion, steerable from the web; with a tty it
-//! attaches, in one of two shapes (EXP-746) decided by the transport `prepare`
-//! resolved: [`attend`] tees a PTY run's raw bytes and takes raw keystrokes
-//! (use it exactly like the desktop terminal), [`attend_acp`] prints an ACP
-//! run's feed as a line transcript and composes whole lines.
+//! `exponential code <ISSUE>` — the desktop's Start-coding flow, headless.
+//! EXP-1292: the start is a `sessions` row like every other — queued naming
+//! THIS device over `exponential_sessions_send({issueIds})`, then claimed
+//! and run right here through the ONE pickup (`launch::start_foreground`).
+//! Detached it runs to completion, steerable from the web; with a tty
+//! [`attend_acp`] prints the run's feed as a line transcript and composes
+//! whole lines.
 
 use std::collections::HashMap;
 use std::io::BufRead as _;
@@ -14,11 +13,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context as _;
-use coding::{Prepared, PrepareRequest};
 
 use super::{reject_unknown_flags, take_flag, take_value, CommandResult};
-use crate::launch::{self, AgentFlags};
-use crate::session_host::{self, LaunchEnv, RunningSession};
+use crate::launch::{self, AgentFlags, ForegroundStart};
+use crate::session_host::{self, RunningSession};
 use crate::{context, term};
 
 pub fn run(args: &[String]) -> CommandResult {
@@ -40,70 +38,69 @@ pub fn run(args: &[String]) -> CommandResult {
     if remote.device.is_none() {
         remote.reject_local()?;
     }
-    let ctx = context::load()?;
+    let ctx = Arc::new(context::load()?);
+    // `sessions.send` takes issue UUIDs: an identifier resolves here.
+    let fetched = api::issues::issues_get(&ctx.trpc, issue_ref)
+        .with_context(|| format!("resolve issue `{issue_ref}`"))?;
+    // EXP-1292: a plain terminal has no calling session to infer the team
+    // from, so `sessions.send` needs it named — the issue's own.
+    let team_id = fetched.team_id;
+    let issue = fetched.issue;
     if remote.device.is_some() {
-        let issue_ref = issue_ref.clone();
+        let issue_id = issue.id.clone();
         return super::remote::start(&ctx, &flags, &remote, |input| {
-            // Identifiers resolve server-side (`exponential_sessions_start`).
-            input.issue_id = Some(issue_ref);
+            input.team_id = Some(team_id);
+            input.issue_ids = Some(vec![issue_id]);
         });
     }
     let interactive = !detach && term::stdin_is_tty() && term::stdout_is_tty();
     let options = launch::agent_options(&ctx.settings, &flags, interactive)?;
-    // EXP-746: the shared registry decision for every end this process
-    // issues (daemon parity — `registry::install_end_observer`).
-    crate::registry::install_end_observer(ctx.data_dir.clone());
-
-    let fetched = api::issues::issues_get(&ctx.trpc, issue_ref)
-        .with_context(|| format!("resolve issue `{issue_ref}`"))?;
-    let issue = fetched.issue;
     println!("Starting {} — {}", issue.identifier, issue.title);
 
-    let request =
-        launch::issue_launch_request(&issue, options, coding::LaunchOrigin::Local, false, None);
-    let mut seeds = HashMap::new();
-    seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-    // EXP-746: the runtime is resolved BEFORE `prepare` — it decides the
-    // launch's transport (`CodingDeps::acp_available`), and the two
-    // transports compose different argv.
-    let runtime = steer::SteerRuntime::new().ok();
-    let deps = launch::coding_deps(&ctx, seeds, launch::LaunchHost::Foreground, runtime.as_ref());
-
-    let personal_key = context::ensure_personal_key(&ctx).ok();
-
-    let request = PrepareRequest::Issue(request);
-    let prepared = coding::prepare(&request, &deps)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-    let prepared = match prepared {
-        Prepared::Ready(prepared) => prepared,
-        Prepared::Disabled(reason) => {
-            eprintln!("Can't start coding: {}", reason.message());
+    let input = api::mcp_tools::SessionsSendInput {
+        team_id: Some(team_id),
+        issue_ids: Some(vec![issue.id.clone()]),
+        model: flags.model.clone(),
+        effort: flags.effort.clone(),
+        ..Default::default()
+    };
+    let started = match launch::start_foreground(Arc::clone(&ctx), input, options)? {
+        ForegroundStart::Running(started) => started,
+        ForegroundStart::Refused(reason) => {
+            eprintln!("Can't start coding: {reason}");
             return Ok(ExitCode::FAILURE);
         }
     };
-
-    let env = LaunchEnv {
-        ctx: &ctx,
-        runtime: runtime.as_ref(),
-        personal_key,
-        rotation_host: false,
-    };
-    let session = session_host::launch(&env, prepared, Some(issue.id.clone()))?;
-    let session = Arc::new(session);
-    // EXP-758 (EXP-478): this process is the run's only registry: there is
-    // no session list to push into, so the gate ends here.
-    session.release_launch_hold();
+    let session = Arc::clone(&started.session);
     println!(
         "Session {} on branch {} (worktree {})",
         session.session_id,
         session.branch,
         session.worktree.display()
     );
-    if interactive {
+    let outcome = if interactive {
         attend_acp(&session)
     } else {
         println!("Detached — steer it from the web.");
         wait_with_signals(&session)
+    };
+    purge_scratch(&ctx, &session);
+    outcome
+}
+
+/// EXP-764 (daemon parity): a repo-less run is purged whole with the run —
+/// scratch dir, trust entries, record, journal. Shared with `run`.
+pub fn purge_scratch(ctx: &context::Ctx, session: &RunningSession) {
+    if coding::scratch::is_scratch_dir(&ctx.data_dir, &session.worktree) {
+        let purged = coding::scratch::purge(
+            &ctx.data_dir,
+            &session.session_id,
+            &session.worktree,
+            std::time::SystemTime::now(),
+        );
+        if purged {
+            steer::remove_journal(&ctx.data_dir, &session.session_id);
+        }
     }
 }
 

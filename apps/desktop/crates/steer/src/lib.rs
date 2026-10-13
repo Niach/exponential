@@ -5,9 +5,9 @@
 //! runtime (isolated from gpui's executors and the blocking reqwest sync stack):
 //!
 //! - [`control_channel`] — the per-account device-presence socket: `online`
-//!   registration, inbound `start_session` routing to the §7 launcher,
-//!   15-minute disabled recheck, exponential backoff with the >60s-lived
-//!   reset rule.
+//!   registration, the `check_in` nudge and history asks, 15-minute disabled
+//!   recheck, exponential backoff with the >60s-lived reset rule. EXP-1292:
+//!   no starts (those are `queued` `sessions` rows, `coding::pickup`).
 //! - [`publisher`] — the per-coding-session publisher: push the scrubbed
 //!   [`activity`] stream, replay the session [`journal`] on every (re)connect,
 //!   route remote `input`/`answer`/`set_config` into the engine, claim/
@@ -38,13 +38,13 @@
 //!    handle down with the run's outcome.
 //! 2. **Control channel** — once per signed-in account, call
 //!    [`control_channel::spawn_control_channel`] with the persistent
-//!    [`persistent_device_id`], `api::users::hostname()` as the label, and an
-//!    `on_start_session` closure that marshals to the gpui foreground and
-//!    runs the §7 launcher with `LaunchOrigin::Remote`.
-//! 3. **Kill-switch** — the §8.8 own-row Electric watch lives in
-//!    `sync::kill_watch` (steer cannot depend on `sync`); its `on_ended`
-//!    callback kills the engine, which stops the publisher and says a clean
-//!    `bye`.
+//!    [`persistent_device_id`] and `api::users::hostname()` as the label —
+//!    presence, check-in and history only. EXP-1292: starts and messages
+//!    reach the device as `sessions`/`messages` rows (`coding::pickup`),
+//!    never over the relay.
+//! 3. **Kill-switch** — EXP-1292: the synced `sessions` row flipping to
+//!    `ended` is the pickup pass's `Kill` action (`coding::pickup`); it kills
+//!    the engine, which stops the publisher and says a clean `bye`.
 //! 4. **Viewer attach** (EXP-696) — for a session hosted ELSEWHERE, call
 //!    [`viewer::spawn_viewer`] with a [`viewer::TrpcViewerTickets`] and a
 //!    `flume` sender; drain the receiver on the UI side into a
@@ -92,25 +92,24 @@ use serde::Deserialize;
 
 pub use api::steer::{MintTicketResult, MintedTicket, SteerConfig};
 pub use control_channel::{
-    disabled_launch_reason, issue_held_elsewhere_reason, issue_held_here_reason,
-    report_start_failure, spawn_control_channel, ControlApi, ControlChannelHandle,
-    DeviceIdentity, HistoryPageAsk, HistoryPageFn, HistoryPageReply, HistoryRequestFn, RemoteStart,
-    RemoteStartSubject, TrpcControlApi, START_DUPLICATE_REASON,
+    spawn_control_channel, CheckInFn, ControlApi, ControlChannelHandle, DeviceIdentity,
+    HistoryPageAsk, HistoryPageFn, HistoryPageReply, HistoryRequestFn, TrpcControlApi,
 };
 pub use activity::{
     clamp_config_state, normalize_compaction_trigger, stop_now, synthetic_question_id, truncate,
     truncate_marked, worktree_diff, AgentBusyForwarder, AgentBusyHook, AnswerLink,
-    CaptionForwarder, CaptionHook, CaptionSignal, CommandLink,
+    CaptionSignal, CommandLink,
     normalize_agent_title, AgentTitleForwarder, AgentTitleHook, AgentTitleSignal, AGENT_TITLE_MAX,
     AGENT_TITLE_RETRY_INTERVAL,
     ConfigChange, ConfigLink,
     BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
-    RemoteAnswer, SessionAgent, SessionBlocked, blocked_wall_expired, iso_from_unix_millis,
+    RemoteAnswer, SessionAgent, SessionBlocked, StatusForwarder, StatusHook, blocked_wall_expired,
+    iso_from_unix_millis,
     now_unix_millis,
     TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX, CONFIG_COMMANDS_MAX,
     CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX, CONFIG_MODES_MAX,
     CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
-    STOP_GRACE, TRUNCATION_MARKER, CAPTION_WRITE_INTERVAL, RESUMED_IDLE_CAPTION,
+    STOP_GRACE, TRUNCATION_MARKER, RESUMED_IDLE_CAPTION,
 };
 pub use feed::{
     active_question_ids, answer_key, collect_subagents, group_feed_row_specs,
@@ -125,8 +124,8 @@ pub use frames::{
     BackgroundTaskKind, ClientFrame, CompactRefusal, CompactVerdict, ContextSegment,
     ContextSegmentKey, ContextSegmentSource, QueuedMessage, CONTEXT_SEGMENT_DETAIL_MAX, QUEUE_MAX,
     QUEUE_TEXT_MAX,
-    ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame, StartInput,
-    StartRepoGroup, SteerRole, SubagentStatus, ToolKind, ToolPreview,
+    ConfigCommand, ConfigMode, ConfigOption, ConfigValue, QuestionOption, ServerFrame,
+    SteerRole, SubagentStatus, ToolKind, ToolPreview,
     TaskListEntry, TaskListStatus, ToolUpdateStatus, TurnState,
     ViewerFrame, ACTIVITY_CHANNEL, BACKGROUND_TASKS_MAX, TASK_LIST_MAX, CLOSE_REPLACED, CLOSE_SESSION_ENDED,
     CLOSE_SLOW_CONSUMER, CLOSE_UNAUTHORIZED, TOOL_PREVIEW_TEXT_MAX, EntityRef, TOOL_PREVIEW_MAX_REFS,

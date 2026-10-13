@@ -28,7 +28,7 @@ use crate::settings::Settings;
 /// (ps-visible), never on disk.
 pub const MCP_TOKEN_ENV: &str = "EXP_MCP_TOKEN";
 
-/// EXP-637: the `coding_sessions` row id the spawned agent's MCP calls must
+/// EXP-637: the `sessions` row id (EXP-1292) the spawned agent's MCP calls must
 /// identify themselves with (`X-Exp-Session-Id`). Claude gets it from
 /// `.exp-mcp.json` and codex from a `-c mcp_servers.exponential.http_headers`
 /// override. NOT a secret —
@@ -62,7 +62,7 @@ pub const CODEX_ORIGINATOR_ENV: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 pub const CODEX_SHELL_ORIGINATOR: &str = "exponential-shell";
 
 /// The per-session codex originator: `exponential-<sid8>`, keyed by OUR
-/// `coding_sessions` row id (codex's own rollout ids don't exist until it
+/// `sessions` row id (codex's own rollout ids don't exist until it
 /// boots). 8 chars is plenty — the value only has to differ between
 /// concurrent same-cwd spawns on one machine.
 pub fn codex_session_originator(session_id: &str) -> String {
@@ -166,7 +166,7 @@ pub enum AgentMcp {
     },
     CodexOverrides {
         url: String,
-        /// EXP-637: the launched `coding_sessions` row id, sent as the
+        /// EXP-637: the launched `sessions` row id, sent as the
         /// `X-Exp-Session-Id` HTTP header. `None` outside a launched
         /// session (agent shells) keeps the pre-EXP-637 argv byte-identical.
         session_id: Option<String>,
@@ -435,11 +435,11 @@ pub struct LaunchOptions {
     /// model aliases; blank = the CLI's own default. Claude-only.
     pub subagent_model: String,
     /// EXP-792: the team MCP servers (`mcp_servers` row ids) this run
-    /// connects to beside `exponential`. Empty = none. EXP-1140: the pick is
-    /// persisted on the run's row by `codingSessions.start`, then resolved
-    /// server-side FOR that row (`mcpServers.resolveForLaunch`, the member's
-    /// own credentials); an unconnected or unpicked one is skipped with a
-    /// warning, never a launch blocker.
+    /// connects to beside `exponential`. Empty = none. EXP-1292: a session's
+    /// pick lives on its `sessions` row (set by `sessions.send`) and is
+    /// resolved server-side FOR that row (`mcpServers.resolveForLaunch`, the
+    /// member's own credentials), so the launcher never reads this; an agent
+    /// shell carries none.
     pub mcp_server_ids: Vec<String>,
     /// EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE to run on — a
     /// device-local profile id under `{data_dir}/agents/<agent>/<id>/`

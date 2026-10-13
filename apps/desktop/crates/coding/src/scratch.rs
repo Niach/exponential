@@ -1,18 +1,20 @@
 //! EXP-757 / EXP-764 — the scratch dirs of repo-less runs, and the runs
 //! themselves.
 //!
-//! A repo-less run (the "Create action" creator, a repo-less chat or team
-//! action) spawns in `<data_dir>/actions/<action>/<run>/`, a directory meant
-//! to hold nothing but launcher sidecars: the MCP config, the `.exp-agents`
+//! A repo-less session (EXP-1292: any session whose row names no
+//! repository) spawns in `<data_dir>/scratch/<root>/<session>/`, a directory
+//! meant to hold nothing but launcher sidecars: the MCP config, the `.exp-agents`
 //! marker, steered images. Nothing enforces that — an
 //! agent may well write a `report.md` there — which is why EXP-764 settled
 //! the question the blunt way: **scratch means scratch.** When a repo-less
 //! run ends, EVERYTHING local about it goes at once — the directory, its run
 //! record (`run_registry`) and its agent trust entries;
-//! the hosts drop the steer journal beside it. Such a run is never resumed
-//! (`RunRecord::resumable` needs the dir to stand), so no resume can land in
-//! an emptied dir whose transcript names files that are gone, and the prompts
-//! tell the agent to put deliverables on the issue or in a PR, never in cwd.
+//! the hosts drop the steer journal beside it, and the runbook tells the
+//! agent to put deliverables on the issue or in a PR, never in cwd.
+//!
+//! EXP-1292: a team AGENT never ends — its channel idles and wakes on the
+//! next message or trigger firing, re-spawning natively in the SAME dir — so
+//! the sweep keeps every agent's dir and record however long it idles.
 //!
 //! Two entry points, shared by the desktop app and the CLI daemon:
 //!
@@ -29,8 +31,8 @@
 //!
 //! Both also drop the claude trust entries the launcher seeded for the dir
 //! (`claude_trust`), which is the other half of the leak: `~/.claude.json`
-//! grew one `projects` key per click. codex keys its trust on the ACTION dir
-//! (one per action, not per run) and is left alone.
+//! grew one `projects` key per click. codex keys its trust on the ROOT dir
+//! (one per session tree, not per session) and is left alone.
 //!
 //! Best-effort throughout: a failure to remove is logged, never surfaced.
 
@@ -38,40 +40,31 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// Dirs (and legacy sidecar files) younger than this are never swept — the
+/// Dirs younger than this are never swept — the
 /// same floor the worktree prune uses for launches it cannot see.
 pub const GRACE: Duration = crate::prune::LAUNCH_GRACE;
 
-/// Files pre-EXP-637 builds wrote DIRECTLY into `<root>/<action>/` (one
-/// scratch per action, not per run). They keep the action dir non-empty
-/// forever, so the sweep clears them once they are older than [`GRACE`].
-const LEGACY_SIDECARS: &[&str] = &[
-    crate::mcp_json::MCP_JSON_FILE,
-    crate::mcp_json::LEGACY_MCP_JSON_FILE,
-    crate::worktree_agents::AGENTS_FILE,
-];
-
-/// `<data_dir>/actions` — where `launcher::prepare_action` puts every
-/// repo-less run.
+/// `<data_dir>/scratch` — where the launcher puts every repo-less session
+/// (`<root id>/<session id>/` under it).
 pub fn scratch_root(data_dir: &Path) -> PathBuf {
-    data_dir.join("actions")
+    data_dir.join("scratch")
 }
 
-/// Whether `cwd` is a per-RUN scratch dir: exactly `<root>/<action>/<run>`,
-/// never the root, an action dir or anything outside the tree. Guards every
+/// Whether `cwd` is a per-SESSION scratch dir: exactly `<scratch>/<root>/<session>`,
+/// never the scratch root, a tree's root dir or anything outside it. Guards every
 /// removal — a host that hands over a worktree or trunk clone by mistake must
 /// not lose it.
 pub fn is_scratch_dir(data_dir: &Path, cwd: &Path) -> bool {
     let root = scratch_root(data_dir);
-    let Some(action_dir) = cwd.parent() else {
+    let Some(root_dir) = cwd.parent() else {
         return false;
     };
-    let Some(parent_root) = action_dir.parent() else {
+    let Some(parent_root) = root_dir.parent() else {
         return false;
     };
     parent_root == root
         && is_plain_segment(cwd.file_name())
-        && is_plain_segment(action_dir.file_name())
+        && is_plain_segment(root_dir.file_name())
 }
 
 fn is_plain_segment(name: Option<&std::ffi::OsStr>) -> bool {
@@ -81,7 +74,7 @@ fn is_plain_segment(name: Option<&std::ffi::OsStr>) -> bool {
 /// What [`reclaim_dir`] found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DirOutcome {
-    /// Not `<root>/<action>/<run>` — never ours to touch.
+    /// Not `<scratch>/<root>/<session>` — never ours to touch.
     NotScratch,
     /// Written to after `requested_at`: a resume re-entered it; kept.
     ReEntered,
@@ -144,12 +137,12 @@ fn reclaim_dir(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> DirOutc
     }
     // The trust keys, raw AND canonical, resolved BEFORE the dirs go —
     // canonicalize needs the path to exist. EXP-758: claude keys trust by the
-    // spawn cwd (the RUN dir), codex by the stable per-action root one level
-    // up (`launcher::prepare_action`), so the two configs take different keys
+    // spawn cwd (the SESSION dir), codex by the stable per-tree root one level
+    // up (`launcher::prepare_session`), so the two configs take different keys
     // and the codex block only goes when its dir does.
     let trust_keys = trust_keys_for(cwd);
-    let action_dir = cwd.parent().map(Path::to_path_buf);
-    let codex_trust_keys = action_dir.as_deref().map(trust_keys_for).unwrap_or_default();
+    let root_dir = cwd.parent().map(Path::to_path_buf);
+    let codex_trust_keys = root_dir.as_deref().map(trust_keys_for).unwrap_or_default();
     let removed = match std::fs::remove_dir_all(cwd) {
         Ok(()) => DirOutcome::Removed,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => DirOutcome::Gone,
@@ -158,10 +151,10 @@ fn reclaim_dir(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> DirOutc
             DirOutcome::Failed
         }
     };
-    if let Some(action_dir) = &action_dir {
-        // Empty action dirs go too; a non-empty one (a sibling run) stays —
+    if let Some(root_dir) = &root_dir {
+        // Empty root dirs go too; a non-empty one (a sibling session) stays —
         // and so does its codex trust entry, which that run still needs.
-        if std::fs::remove_dir(action_dir).is_ok() {
+        if std::fs::remove_dir(root_dir).is_ok() {
             crate::codex_trust::forget(&codex_trust_keys);
         }
     }
@@ -182,7 +175,7 @@ fn trust_keys_for(cwd: &Path) -> Vec<PathBuf> {
 /// What one [`sweep`] did.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SweepReport {
-    /// Run dirs removed (legacy sidecar files are not listed).
+    /// Session dirs removed.
     pub removed: Vec<PathBuf>,
     /// Run dirs kept because a live session owns them.
     pub kept_live: usize,
@@ -203,7 +196,7 @@ impl SweepReport {
 }
 
 /// The startup pass: every run dir under the root that no live session owns
-/// and that is older than [`GRACE`] is removed, emptied action dirs go with
+/// and that is older than [`GRACE`] is removed, emptied root dirs go with
 /// them, and every claude trust entry under the root whose dir is gone is
 /// dropped. EXP-764: then every run record that names a scratch cwd which no
 /// longer stands (and is not live) goes too — a repo-less run without its dir
@@ -218,15 +211,15 @@ pub fn sweep(data_dir: &Path, live_session_ids: &[String]) -> SweepReport {
     let now = SystemTime::now();
     // No root yet (a fresh data dir) still leaves the record pass below: a
     // record can outlive a root an older build removed whole.
-    let actions: Vec<_> = std::fs::read_dir(&root)
-        .map(|actions| actions.flatten().collect())
+    let roots: Vec<_> = std::fs::read_dir(&root)
+        .map(|roots| roots.flatten().collect())
         .unwrap_or_default();
-    for action in actions {
-        let action_dir = action.path();
-        if !action_dir.is_dir() {
+    for root in roots {
+        let root_dir = root.path();
+        if !root_dir.is_dir() {
             continue;
         }
-        if let Ok(runs) = std::fs::read_dir(&action_dir) {
+        if let Ok(runs) = std::fs::read_dir(&root_dir) {
             for run in runs.flatten() {
                 let run_dir = run.path();
                 if run_dir.is_dir() {
@@ -244,12 +237,10 @@ pub fn sweep(data_dir: &Path, live_session_ids: &[String]) -> SweepReport {
                             log::warn!("scratch sweep: remove {}: {err}", run_dir.display())
                         }
                     }
-                } else if is_legacy_sidecar(&run_dir) && !is_young(&run_dir, now) {
-                    let _ = std::fs::remove_file(&run_dir);
                 }
             }
         }
-        let _ = std::fs::remove_dir(&action_dir);
+        let _ = std::fs::remove_dir(&root_dir);
     }
     report.trust_dropped = crate::claude_trust::forget_missing_under(&root);
     report.purged = purge_dirless_records(data_dir, live_session_ids);
@@ -263,6 +254,7 @@ fn purge_dirless_records(data_dir: &Path, live_session_ids: &[String]) -> Vec<St
         .into_iter()
         .filter(|record| {
             record.clone.is_none()
+                && record.kind != crate::run_registry::RunKind::Agent
                 && is_scratch_dir(data_dir, &record.cwd)
                 && !record.cwd.is_dir()
                 && !live_session_ids.contains(&record.session_id)
@@ -277,7 +269,12 @@ fn purge_dirless_records(data_dir: &Path, live_session_ids: &[String]) -> Vec<St
 /// check never depends on how either side spelled the path.
 fn live_cwds(data_dir: &Path, live_session_ids: &[String]) -> HashSet<PathBuf> {
     let mut live = HashSet::new();
-    for cwd in crate::run_registry::cwds_for(data_dir, live_session_ids) {
+    // EXP-1292: an agent's channel is always live work, running or idle.
+    let agents = crate::run_registry::all(data_dir)
+        .into_iter()
+        .filter(|record| record.kind == crate::run_registry::RunKind::Agent)
+        .map(|record| record.cwd);
+    for cwd in crate::run_registry::cwds_for(data_dir, live_session_ids).into_iter().chain(agents) {
         if let Ok(canonical) = std::fs::canonicalize(&cwd) {
             live.insert(canonical);
         }
@@ -291,12 +288,6 @@ fn is_live(live: &HashSet<PathBuf>, run_dir: &Path) -> bool {
         return true;
     }
     std::fs::canonicalize(run_dir).is_ok_and(|canonical| live.contains(&canonical))
-}
-
-fn is_legacy_sidecar(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| LEGACY_SIDECARS.contains(&name))
 }
 
 /// The newest of the entry's own mtime and (for a directory) its direct
@@ -365,31 +356,31 @@ mod tests {
     #[test]
     fn is_scratch_dir_accepts_exactly_two_segments_under_the_root() {
         let data = PathBuf::from("/data");
-        assert!(is_scratch_dir(&data, Path::new("/data/actions/builtin_chat/1a2b3c4d")));
-        assert!(!is_scratch_dir(&data, Path::new("/data/actions")));
-        assert!(!is_scratch_dir(&data, Path::new("/data/actions/builtin_chat")));
-        assert!(!is_scratch_dir(&data, Path::new("/data/actions/a/b/c")));
+        assert!(is_scratch_dir(&data, Path::new("/data/scratch/root-1/1a2b3c4d")));
+        assert!(!is_scratch_dir(&data, Path::new("/data/scratch")));
+        assert!(!is_scratch_dir(&data, Path::new("/data/scratch/root-1")));
+        assert!(!is_scratch_dir(&data, Path::new("/data/scratch/a/b/c")));
         assert!(!is_scratch_dir(&data, Path::new("/repos/owner/name.worktrees/exp-EXP-1")));
-        assert!(!is_scratch_dir(&data, Path::new("/data/actions/a/..")));
+        assert!(!is_scratch_dir(&data, Path::new("/data/scratch/a/..")));
         assert!(!is_scratch_dir(&data, Path::new("/other/actions/a/b")));
     }
 
     #[test]
-    fn reclaim_removes_the_run_dir_and_its_emptied_action_dir() {
+    fn reclaim_removes_the_run_dir_and_its_emptied_root_dir() {
         let dir = temp_dir("scratch-reclaim");
-        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         assert!(reclaim(&dir.0, &run, SystemTime::now()));
         assert!(!run.exists());
-        assert!(!run.parent().unwrap().exists(), "the empty action dir goes too");
+        assert!(!run.parent().unwrap().exists(), "the empty root dir goes too");
         // Already gone: a no-op, not an error.
         assert!(!reclaim(&dir.0, &run, SystemTime::now()));
     }
 
     #[test]
-    fn reclaim_keeps_an_action_dir_with_a_sibling_run() {
+    fn reclaim_keeps_a_root_dir_with_a_sibling_run() {
         let dir = temp_dir("scratch-reclaim-sibling");
-        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
-        let sibling = scratch(&dir.0, "builtin_chat", "ffffffff");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
+        let sibling = scratch(&dir.0, "root-1", "ffffffff");
         assert!(reclaim(&dir.0, &run, SystemTime::now()));
         assert!(!run.exists());
         assert!(sibling.join(crate::mcp_json::MCP_JSON_FILE).exists());
@@ -402,12 +393,12 @@ mod tests {
         crate::run_registry::record(data_dir, record);
     }
 
-    /// EXP-764: the whole run goes — dir and record — and the action dir
-    /// with it once empty.
+    /// EXP-764: the whole run goes — dir and record — and the root dir with
+    /// it once empty.
     #[test]
     fn purge_removes_dir_and_record() {
         let dir = temp_dir("scratch-purge");
-        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         let mut record = crate::run_registry::sample_record("sess-1");
         record.cwd = run.clone();
         record.clone = None;
@@ -428,7 +419,7 @@ mod tests {
     #[test]
     fn purge_keeps_everything_when_a_resume_re_entered() {
         let dir = temp_dir("scratch-purge-resumed");
-        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         scratch_record(&dir.0, "sess-1", &run);
         let requested_at = SystemTime::now() - Duration::from_secs(5);
         assert!(!purge(&dir.0, "sess-1", &run, requested_at));
@@ -451,16 +442,16 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
 
         let dir = temp_dir("scratch-purge-unremovable");
-        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         scratch_record(&dir.0, "sess-1", &run);
         // A read-only PARENT is what makes the unlink fail: the run dir's own
         // contents can go, the run dir itself cannot.
-        let action_dir = run.parent().unwrap().to_path_buf();
-        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let root_dir = run.parent().unwrap().to_path_buf();
+        std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
 
         let purged = purge(&dir.0, "sess-1", &run, SystemTime::now());
 
-        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(!purged, "an unremovable dir is not a purged run");
         assert!(run.exists(), "the dir is still there, which is the point");
         assert!(
@@ -468,9 +459,9 @@ mod tests {
             "the record has to survive, or nothing ever retries this purge"
         );
         // And `reclaim` says the same thing to its own callers.
-        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
         let reclaimed = reclaim(&dir.0, &run, SystemTime::now());
-        std::fs::set_permissions(&action_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&root_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert!(!reclaimed);
     }
 
@@ -481,7 +472,7 @@ mod tests {
     #[test]
     fn reclaim_keeps_a_dir_a_resume_re_entered() {
         let dir = temp_dir("scratch-reclaim-resumed");
-        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
         let requested_at = SystemTime::now() - Duration::from_secs(5);
         assert!(!reclaim(&dir.0, &run, requested_at));
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
@@ -494,11 +485,11 @@ mod tests {
     #[test]
     fn reclaim_refuses_anything_that_is_not_a_run_dir() {
         let dir = temp_dir("scratch-reclaim-refuse");
-        let run = scratch(&dir.0, "builtin_chat", "1a2b3c4d");
-        let action_dir = run.parent().unwrap().to_path_buf();
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
+        let root_dir = run.parent().unwrap().to_path_buf();
         let foreign = dir.0.join("worktree");
         std::fs::create_dir_all(&foreign).unwrap();
-        assert!(!reclaim(&dir.0, &action_dir, SystemTime::now()));
+        assert!(!reclaim(&dir.0, &root_dir, SystemTime::now()));
         assert!(!reclaim(&dir.0, &scratch_root(&dir.0), SystemTime::now()));
         assert!(!reclaim(&dir.0, &foreign, SystemTime::now()));
         assert!(run.exists());
@@ -508,9 +499,9 @@ mod tests {
     #[test]
     fn sweep_removes_old_orphans_and_keeps_young_ones() {
         let dir = temp_dir("scratch-sweep");
-        let old = scratch(&dir.0, "builtin_chat", "aaaaaaaa");
+        let old = scratch(&dir.0, "root-1", "aaaaaaaa");
         age(&old, OLD);
-        let young = scratch(&dir.0, "builtin_chat", "bbbbbbbb");
+        let young = scratch(&dir.0, "root-1", "bbbbbbbb");
         let report = sweep(&dir.0, &[]);
         assert_eq!(report.removed, vec![old.clone()]);
         assert_eq!(report.kept_young, 1);
@@ -523,7 +514,7 @@ mod tests {
     #[test]
     fn sweep_ages_a_dir_by_its_newest_child() {
         let dir = temp_dir("scratch-sweep-child");
-        let run = scratch(&dir.0, "builtin_chat", "aaaaaaaa");
+        let run = scratch(&dir.0, "root-1", "aaaaaaaa");
         age(&run, OLD);
         std::fs::write(run.join(crate::mcp_json::MCP_JSON_FILE), "fresh").unwrap();
         std::fs::File::open(&run)
@@ -539,9 +530,9 @@ mod tests {
     #[test]
     fn sweep_keeps_the_cwd_of_a_live_session() {
         let dir = temp_dir("scratch-sweep-live");
-        let live = scratch(&dir.0, "builtin_chat", "aaaaaaaa");
+        let live = scratch(&dir.0, "root-1", "aaaaaaaa");
         age(&live, OLD);
-        let ended = scratch(&dir.0, "builtin_chat", "bbbbbbbb");
+        let ended = scratch(&dir.0, "root-1", "bbbbbbbb");
         age(&ended, OLD);
         let mut live_record = crate::run_registry::sample_record("sess-live");
         live_record.cwd = live.clone();
@@ -569,9 +560,9 @@ mod tests {
     #[test]
     fn sweep_purges_records_of_already_gone_scratch_dirs() {
         let dir = temp_dir("scratch-sweep-dirless");
-        let gone = scratch_root(&dir.0).join("builtin_chat").join("aaaaaaaa");
+        let gone = scratch_root(&dir.0).join("root-1").join("aaaaaaaa");
         scratch_record(&dir.0, "sess-gone", &gone);
-        let gone_live = scratch_root(&dir.0).join("builtin_chat").join("bbbbbbbb");
+        let gone_live = scratch_root(&dir.0).join("root-1").join("bbbbbbbb");
         scratch_record(&dir.0, "sess-live", &gone_live);
         let mut worktree = crate::run_registry::sample_record("sess-wt");
         worktree.cwd = dir.0.join("repo.worktrees").join("exp-EXP-1");
@@ -592,7 +583,7 @@ mod tests {
     #[test]
     fn sweep_keeps_a_live_cwd_named_only_by_an_unknown_record() {
         let dir = temp_dir("scratch-sweep-unknown");
-        let live = scratch(&dir.0, "builtin_chat", "aaaaaaaa");
+        let live = scratch(&dir.0, "root-1", "aaaaaaaa");
         age(&live, OLD);
         std::fs::write(
             dir.0.join("runs.json"),
@@ -609,26 +600,30 @@ mod tests {
         assert!(live.exists());
     }
 
+    /// EXP-1292: a team agent never ends, so the sweep keeps its channel's
+    /// dir however long it idles — and its record even when the dir is gone
+    /// (the next wake re-makes it).
     #[test]
-    fn sweep_clears_legacy_sidecars_and_leaves_unknown_files_alone() {
-        let dir = temp_dir("scratch-sweep-legacy");
-        let action_dir = scratch_root(&dir.0).join("act-1");
-        std::fs::create_dir_all(&action_dir).unwrap();
-        let legacy = action_dir.join(crate::mcp_json::MCP_JSON_FILE);
-        std::fs::write(&legacy, "{}").unwrap();
-        age(&legacy, OLD);
-        let other = scratch_root(&dir.0).join("act-2");
-        std::fs::create_dir_all(&other).unwrap();
-        let stranger = other.join("notes.txt");
-        std::fs::write(&stranger, "mine").unwrap();
-        age(&stranger, OLD);
+    fn sweep_keeps_an_idle_agents_dir_and_record() {
+        let dir = temp_dir("scratch-sweep-agent");
+        let channel = scratch(&dir.0, "agent-1", "agent-1");
+        age(&channel, OLD);
+        let mut agent = crate::run_registry::sample_record("agent-1");
+        agent.kind = crate::run_registry::RunKind::Agent;
+        agent.cwd = channel.clone();
+        agent.clone = None;
+        crate::run_registry::record(&dir.0, agent.clone());
+        let gone = scratch_root(&dir.0).join("agent-2").join("agent-2");
+        agent.session_id = "agent-2".to_string();
+        agent.cwd = gone;
+        crate::run_registry::record(&dir.0, agent);
 
         let report = sweep(&dir.0, &[]);
-        assert!(report.removed.is_empty());
-        assert!(!legacy.exists());
-        assert!(!action_dir.exists(), "the emptied action dir goes");
-        assert!(stranger.exists(), "an unknown file is never ours to delete");
-        assert!(other.exists());
+        assert!(report.removed.is_empty(), "{report:?}");
+        assert_eq!(report.kept_live, 1);
+        assert!(report.purged.is_empty(), "{report:?}");
+        assert!(channel.exists());
+        assert!(crate::run_registry::get(&dir.0, "agent-2").is_some());
     }
 
     #[test]

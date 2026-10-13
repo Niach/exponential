@@ -764,8 +764,8 @@ impl SteerFeed {
         self.workflows.iter().find(|workflow| workflow.id == id)
     }
 
-    /// EXP-850 §3/§7: the NEWEST workflow still running — what the session
-    /// caption (`coding_sessions.agent_caption`) and the working strip speak
+    /// EXP-850 §3/§7: the NEWEST workflow still running — what the local
+    /// session caption ([`crate::CaptionSignal`]) and the working strip speak
     /// for.
     pub fn running_workflow(&self) -> Option<&crate::workflow::WorkflowState> {
         self.workflows

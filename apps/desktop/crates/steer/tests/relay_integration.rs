@@ -9,7 +9,7 @@
 //! plus a fake phone-viewer socket through the frozen protocol:
 //!
 //! * control `online` → `POST /devices/:userId/:deviceId/nudge` reaches our
-//!   socket → `POST /start` routes `start_session` down it (§8.3);
+//!   socket as `check_in` (§8.3; EXP-1292: starts never ride the relay);
 //! * publisher `hello` → the EXP-249 history re-publish (`activity_reset` +
 //!   the journal) → a viewer joining `channel:'activity'` gets its own reset +
 //!   the relay-side replay, then the live tail;
@@ -326,16 +326,6 @@ fn edit_tool_call() -> ActivityEvent {
     }
 }
 
-/// The issue id of a single-issue [`steer::RemoteStart`], `None` for a batch.
-fn issue_of(start: &steer::RemoteStart) -> Option<&str> {
-    match &start.subject {
-        steer::RemoteStartSubject::Issue(id) => Some(id.as_str()),
-        steer::RemoteStartSubject::Batch { .. }
-        | steer::RemoteStartSubject::Action { .. }
-        | steer::RemoteStartSubject::Resume { .. } => None,
-    }
-}
-
 // ---------------------------------------------------------------------------
 // A severable TCP proxy (to force a publisher socket drop, §8.6)
 // ---------------------------------------------------------------------------
@@ -478,9 +468,8 @@ fn full_protocol_flow_against_the_real_relay() {
     let relay = start_relay();
     let runtime = SteerRuntime::new().unwrap();
 
-    // ── Control channel: online presence + remote start routing (§8.3) ────
-    let started: Arc<Mutex<Vec<steer::RemoteStart>>> = Arc::new(Mutex::new(Vec::new()));
-    let started_clone = started.clone();
+    // ── Control channel: online presence + the check-in nudge (§8.3) ─────
+    // EXP-1292: no start routing — starts are `queued` `sessions` rows.
     let checked_in = Arc::new(AtomicBool::new(false));
     let checked_in_clone = checked_in.clone();
     let control = spawn_control_channel(
@@ -492,7 +481,6 @@ fn full_protocol_flow_against_the_real_relay() {
         Arc::new(BunControlApi {
             relay_port: relay.port,
         }),
-        Arc::new(move |start| started_clone.lock().unwrap().push(start)),
         Arc::new(move || checked_in_clone.store(true, Ordering::SeqCst)),
         // EXP-773: no stored transcript in this fixture — the relay never
         // asks, and an ask would be a no-op anyway.
@@ -516,109 +504,6 @@ fn full_protocol_flow_against_the_real_relay() {
         .is_some_and(|body| body.contains("\"delivered\":true"))
     });
     wait_for("check_in delivery", || checked_in.load(Ordering::SeqCst));
-
-    // Remote "Start on my desktop" → start_session lands on our socket.
-    // Option-less body (an old client) → every option arrives None.
-    let start_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueId":"issue-remote-1"}"#;
-    let response = http_request(
-        relay.port,
-        "POST",
-        "/start",
-        &[("x-relay-secret", SECRET), ("content-type", "application/json")],
-        Some(start_body),
-    )
-    .expect("POST /start");
-    assert!(response.contains("\"ok\":true"), "start routed: {response}");
-    wait_for("start_session delivery", || {
-        started.lock().unwrap().iter().any(|s| issue_of(s) == Some("issue-remote-1"))
-    });
-    {
-        let starts = started.lock().unwrap();
-        let start = starts.iter().find(|s| issue_of(s) == Some("issue-remote-1")).unwrap();
-        assert_eq!(start.model, None);
-        assert_eq!(start.effort, None);
-        assert_eq!(start.ultracode, None);
-        assert_eq!(start.plan_mode, None);
-    }
-
-    // Start-coding dialog options (EXP-149) ride the same route end-to-end.
-    let options_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueId":"issue-remote-2","model":"opus","effort":"","ultracode":true,"planMode":true}"#;
-    let response = http_request(
-        relay.port,
-        "POST",
-        "/start",
-        &[("x-relay-secret", SECRET), ("content-type", "application/json")],
-        Some(options_body),
-    )
-    .expect("POST /start with options");
-    assert!(response.contains("\"ok\":true"), "options start routed: {response}");
-    wait_for("start_session options delivery", || {
-        started.lock().unwrap().iter().any(|s| issue_of(s) == Some("issue-remote-2"))
-    });
-    {
-        let starts = started.lock().unwrap();
-        let start = starts.iter().find(|s| issue_of(s) == Some("issue-remote-2")).unwrap();
-        assert_eq!(start.model.as_deref(), Some("opus"));
-        assert_eq!(start.effort.as_deref(), Some(""));
-        assert_eq!(start.ultracode, Some(true));
-        assert_eq!(start.plan_mode, Some(true));
-    }
-
-    // Batch start (EXP-106): issueIds + teamId + repo ride the same
-    // /start route → the frame's `RemoteStartSubject::Batch` lands on our
-    // socket. (The relay's batch /start support lands concurrently — this
-    // case exercises the frozen wire contract end-to-end.)
-    let batch_body = r#"{"userId":"user-int","deviceId":"device-int-1","issueIds":["issue-b1","issue-b2"],"teamId":"ws-b","repo":{"repositoryId":"repo-b","fullName":"acme/api","defaultBranch":"main"},"model":"sonnet","effort":"high","ultracode":true,"planMode":false}"#;
-    let response = http_request(
-        relay.port,
-        "POST",
-        "/start",
-        &[("x-relay-secret", SECRET), ("content-type", "application/json")],
-        Some(batch_body),
-    )
-    .expect("POST /start batch");
-    assert!(response.contains("\"ok\":true"), "batch start routed: {response}");
-    wait_for("batch start_session delivery", || {
-        started.lock().unwrap().iter().any(|s| {
-            matches!(
-                &s.subject,
-                steer::RemoteStartSubject::Batch { issue_ids, .. }
-                    if issue_ids.as_slice() == ["issue-b1".to_string(), "issue-b2".to_string()]
-            )
-        })
-    });
-    {
-        let starts = started.lock().unwrap();
-        let start = starts
-            .iter()
-            .find(|s| matches!(s.subject, steer::RemoteStartSubject::Batch { .. }))
-            .unwrap();
-        let steer::RemoteStartSubject::Batch {
-            issue_ids,
-            team_id,
-            repo,
-        } = &start.subject
-        else {
-            unreachable!("filtered to a batch above");
-        };
-        assert_eq!(
-            issue_ids.as_slice(),
-            ["issue-b1".to_string(), "issue-b2".to_string()]
-        );
-        assert_eq!(team_id, "ws-b");
-        assert_eq!(
-            repo,
-            &steer::StartRepoGroup {
-                repository_id: "repo-b".to_string(),
-                full_name: "acme/api".to_string(),
-                default_branch: "main".to_string(),
-            }
-        );
-        assert_eq!(start.model.as_deref(), Some("sonnet"));
-        assert_eq!(start.effort.as_deref(), Some("high"));
-        assert_eq!(start.ultracode, Some(true));
-        assert_eq!(start.plan_mode, Some(false));
-    }
 
     // ── Publisher: hello, room goes live (§8.4) ──────────────────────────
     let recorded = Arc::new(Recorded::default());
@@ -1141,7 +1026,6 @@ fn a_finished_run_replays_from_the_device_and_then_pages_through_its_control_soc
         Arc::new(BunControlApi {
             relay_port: relay.port,
         }),
-        Arc::new(|_start| {}),
         Arc::new(|| {}),
         Arc::new(move |session_id| {
             steer::serve_history_request(
