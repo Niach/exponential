@@ -4,7 +4,7 @@ import {
   parseMcpSessionHeader,
 } from "@/lib/mcp/session-header"
 
-// EXP-637: the launcher-injected header naming the coding_sessions row a tool
+// EXP-637: the launcher-injected header naming the `sessions` row a tool
 // call runs inside. A malformed value must read as ABSENT — the pre-EXP-637
 // behaviour — never as a failed request.
 function request(headers: Record<string, string>): Request {

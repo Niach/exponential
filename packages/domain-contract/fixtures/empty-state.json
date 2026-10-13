@@ -8,7 +8,7 @@
     "inbox": { "size": "page", "icon": "nav-inbox", "title": "All caught up" },
     "my-issues": { "size": "page", "icon": "nav-my-issues", "title": "No issues assigned to you" },
     "drafts": { "size": "page", "icon": "nav-drafts", "title": "No drafts" },
-    "reviews": { "size": "page", "icon": "nav-reviews", "title": "No open pull requests" },
+    "threads": { "size": "page", "icon": "nav-threads", "title": "No sessions yet" },
     "boards": { "size": "page", "icon": "nav-boards", "title": "No boards yet", "description": "Create a board to start tracking work.", "action": "Create a board" },
     "issues": { "size": "page", "icon": "nav-issues", "title": "No issues yet", "description": "Create an issue to start tracking work.", "action": "New issue" },
     "no-team": { "size": "page", "icon": "ui-team", "title": "No team yet", "description": "Create a team, or join one with an invite link." },

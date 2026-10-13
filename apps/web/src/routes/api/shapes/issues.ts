@@ -35,12 +35,6 @@ export const ISSUE_COLUMNS = [
   `sort_order`,
   `completed_at`,
   `duplicate_of_id`,
-  `pr_url`,
-  `pr_number`,
-  `pr_state`,
-  `branch`,
-  `pr_merged_at`,
-  `pr_base_branch`,
   // EXP-630: story points (nullable integer). Appended = one benign
   // shape-identity rotation; old native builds drop it.
   `estimate`,

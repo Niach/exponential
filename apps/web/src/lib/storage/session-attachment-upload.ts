@@ -1,12 +1,10 @@
 import { TRPCError } from "@trpc/server"
-import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { codingSessions, sessionAttachments } from "@/db/schema"
+import { attachments } from "@/db/schema"
 import { resolveSession } from "@/lib/auth/resolve-bearer"
 import {
   buildAttachmentUrl,
   buildPendingSessionAttachmentStorageKey,
-  buildSessionAttachmentStorageKey,
   canonicalizeContentType,
   getMaxUploadBytesForContentType,
   isAcceptedImageContentType,
@@ -18,6 +16,15 @@ import { getImageDimensions } from "@/lib/storage/image-dimensions"
 import { uploadObject, deleteObject } from "@/lib/storage"
 import { assertTeamMember } from "@/lib/team-membership"
 import { assertWithinStorageLimit } from "@/lib/billing"
+import { assertCanSteer, loadSessionForUser } from "@/lib/sessions/access"
+
+// EXP-1291: conversation + Guide uploads. Every file a person (or an agent)
+// attaches to a `sessions.send` message, and every Guide picture, is a
+// team-scoped `attachments` row with NO owner yet (issue, draft and message
+// all NULL): `sessions.send({attachmentIds})` claims a message's onto it
+// (`message_id`), a Guide entry references a picture by id, and the orphan
+// sweep (lib/session-attachment-sweep.ts) reclaims the rest after its grace
+// window. Never synced; bytes via /api/attachments/{id}.
 
 export interface SessionAttachmentUploadContext {
   params: { sessionId: string }
@@ -32,116 +39,45 @@ export interface TeamSessionAttachmentUploadContext {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/**
- * Steer attachment upload (EXP-702, wave D any file). Every steered image or
- * file — issue runs included — lands in the session's own server-only store,
- * keeping steering attachments out of the issue's Files section. Same
- * request/response contract and the same per-type caps as the issue `/files`
- * route (images 10 MB, anything else 50 MB), but only the session's OWNER may
- * upload: steering is owner-only (EXP-312), so nobody else can put the
- * resulting link on the wire anyway.
- */
+/** An upload for a message INTO a session: whoever may post there. */
 export async function handleSessionAttachmentUpload({
   params,
   request,
 }: SessionAttachmentUploadContext) {
-  // Same credential surface as the issue upload route: session cookie,
-  // bearer and expu_ api keys, with auth-plugin throws downgraded to a
-  // clean 401.
   const session = await resolveSession(request)
-
   if (!session?.user) {
-    throw new TRPCError({
-      code: `UNAUTHORIZED`,
-      message: `Unauthorized`,
-    })
+    throw new TRPCError({ code: `UNAUTHORIZED`, message: `Unauthorized` })
   }
-
-  // The id column is uuid — reject garbage before Postgres turns it into a
-  // 22P02-shaped 500.
   if (!UUID_RE.test(params.sessionId)) {
-    throw new TRPCError({
-      code: `NOT_FOUND`,
-      message: `Session not found`,
-    })
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
   }
-
-  const [run] = await db
-    .select({
-      id: codingSessions.id,
-      teamId: codingSessions.teamId,
-      userId: codingSessions.userId,
-    })
-    .from(codingSessions)
-    .where(eq(codingSessions.id, params.sessionId))
-    .limit(1)
-
-  if (!run) {
-    throw new TRPCError({
-      code: `NOT_FOUND`,
-      message: `Session not found`,
-    })
-  }
-
-  await assertTeamMember(session.user.id, run.teamId)
-
-  if (run.userId !== session.user.id) {
-    throw new TRPCError({
-      code: `FORBIDDEN`,
-      message: `Only the session owner can attach files`,
-    })
-  }
-
-  return storeSessionImage(request, session.user.id, {
-    teamId: run.teamId,
-    sessionId: run.id,
-  })
+  const target = await loadSessionForUser(session.user.id, params.sessionId)
+  await assertCanSteer(session.user.id, target)
+  return storeSessionImage(request, session.user.id, { teamId: target.teamId })
 }
 
-/**
- * EXP-825: an image or file attached to a START — the Agent page composer,
- * before any session exists. Same rules as the session route (any type, the
- * same per-type caps, the team's storage budget), scoped to the TEAM: the row
- * carries a NULL session_id until the device that runs the start binds it
- * (`codingSessions.start` `attachmentIds`); a start that never happens
- * leaves an orphan the sweep reclaims after its grace window.
- */
+/** An upload for a START (the composer, before any session exists): any
+ *  team member. */
 export async function handleTeamSessionAttachmentUpload({
   params,
   request,
 }: TeamSessionAttachmentUploadContext) {
   const session = await resolveSession(request)
-
   if (!session?.user) {
-    throw new TRPCError({
-      code: `UNAUTHORIZED`,
-      message: `Unauthorized`,
-    })
+    throw new TRPCError({ code: `UNAUTHORIZED`, message: `Unauthorized` })
   }
-
   if (!UUID_RE.test(params.teamId)) {
-    throw new TRPCError({
-      code: `NOT_FOUND`,
-      message: `Team not found`,
-    })
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Team not found` })
   }
-
   await assertTeamMember(session.user.id, params.teamId)
-
-  return storeSessionImage(request, session.user.id, {
-    teamId: params.teamId,
-    sessionId: null,
-  })
+  return storeSessionImage(request, session.user.id, { teamId: params.teamId })
 }
 
 /**
- * EXP-879: the half of the upload that has no database in it — validate the
- * multipart part, check the team's storage budget, probe the pixels and put
- * the object. Split out of `storeSessionImage` because the session-results
- * route (`/api/session-results/$token`) has to run the DB half inside its own
- * `FOR UPDATE` transaction on the coding_sessions row; the two routes that
- * just insert a row keep using `storeSessionImage`, whose wire contract is
- * unchanged.
+ * The half of the upload with no database in it — validate the multipart
+ * part, check the team's storage budget, probe the pixels and put the
+ * object. The Guide upload route runs the DB half inside its own
+ * `FOR UPDATE` transaction on the thread's root.
  */
 export interface PreparedSessionImage {
   attachmentId: string
@@ -162,7 +98,7 @@ export interface PrepareSessionAttachmentOptions {
 
 export async function prepareSessionImage(
   request: Request,
-  scope: { teamId: string; sessionId: string | null },
+  scope: { teamId: string; sessionId?: string | null },
   /** EXP-1172: a pre-allocated id (a sessions_show grant); else a fresh one. */
   attachmentId?: string,
   options: PrepareSessionAttachmentOptions = {}
@@ -200,7 +136,7 @@ export async function prepareSessionImageBytes(
     /** The part's declared size; the bytes' length without one. */
     size?: number
   },
-  scope: { teamId: string; sessionId: string | null },
+  scope: { teamId: string; sessionId?: string | null },
   attachmentId: string = crypto.randomUUID(),
   options: PrepareSessionAttachmentOptions = {}
 ): Promise<PreparedSessionImage> {
@@ -237,18 +173,11 @@ export async function prepareSessionImageBytes(
     file.filename,
     isImage ? `image` : `file`
   )
-  const storageKey =
-    scope.sessionId === null
-      ? buildPendingSessionAttachmentStorageKey(
-          scope.teamId,
-          attachmentId,
-          filename
-        )
-      : buildSessionAttachmentStorageKey(
-          scope.sessionId,
-          attachmentId,
-          filename
-        )
+  const storageKey = buildPendingSessionAttachmentStorageKey(
+    scope.teamId,
+    attachmentId,
+    filename
+  )
   const url = buildAttachmentUrl(attachmentId)
   const body = file.body
   // Best-effort intrinsic dimensions, images only; never block the upload if
@@ -274,16 +203,15 @@ export async function prepareSessionImageBytes(
   }
 }
 
-/** The `session_attachments` insert values for a prepared upload. */
+/** The owner-less `attachments` insert values for a prepared upload. */
 export function sessionAttachmentValues(
   prepared: PreparedSessionImage,
-  scope: { teamId: string; sessionId: string | null },
+  scope: { teamId: string },
   uploaderId: string
-) {
+): typeof attachments.$inferInsert {
   return {
     id: prepared.attachmentId,
     teamId: scope.teamId,
-    sessionId: scope.sessionId,
     uploaderId,
     filename: prepared.filename,
     contentType: prepared.contentType,
@@ -326,13 +254,13 @@ export function sessionImageResponse(prepared: PreparedSessionImage) {
 async function storeSessionImage(
   request: Request,
   uploaderId: string,
-  scope: { teamId: string; sessionId: string | null }
+  scope: { teamId: string; sessionId?: string | null }
 ) {
   const prepared = await prepareSessionImage(request, scope)
 
   try {
     await db
-      .insert(sessionAttachments)
+      .insert(attachments)
       .values(sessionAttachmentValues(prepared, scope, uploaderId))
   } catch (error) {
     await rollbackSessionImage(prepared.storageKey)

@@ -3,7 +3,7 @@ import { join } from "node:path"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 
 // EXP-1183 — MCP Apps (the stable `io.modelcontextprotocol/ui` extension):
-// five tools name a `ui://` view in `_meta.ui.resourceUri`, and a host that
+// three tools name a `ui://` view in `_meta.ui.resourceUri`, and a host that
 // renders apps (OpenClaw's dashboard, Claude, ChatGPT…) reads the view and
 // mounts it in a sandbox beside the call, fed the call's result. Hosts
 // without the extension ignore the field; the tools answer exactly as before.
@@ -13,14 +13,14 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 // document with its view stamped into the `exp-view` meta tag. The issue
 // detail has no resource of its own: `exponential_issues_get` is always
 // loaded and its budget has no room for the binding, so the issues view
-// opens an issue in place (the host forwards its tools/call).
+// opens an issue in place (the host forwards its tools/call). EXP-1291: the
+// session views (`run`, `runs`) went with the coding_sessions shapes they
+// drew; the session tools answer JSON only.
 
 export const MCP_APP_MIME_TYPE = `text/html;profile=mcp-app`
 
 export const MCP_APP_RESOURCE_URIS = {
   issues: `ui://exponential/issues`,
-  run: `ui://exponential/run`,
-  runs: `ui://exponential/runs`,
   inbox: `ui://exponential/inbox`,
   devices: `ui://exponential/devices`,
 } as const
@@ -29,8 +29,6 @@ export type McpAppView = keyof typeof MCP_APP_RESOURCE_URIS
 
 const VIEW_TITLES: Record<McpAppView, string> = {
   issues: `Exponential issues`,
-  run: `Exponential session`,
-  runs: `Exponential sessions`,
   inbox: `Exponential inbox`,
   devices: `Exponential devices`,
 }

@@ -737,14 +737,14 @@ describe(`mcpServers.resolveForLaunch`, () => {
     mcpServerIds: [SERVER, SERVER_B],
     ...over,
   })
-  const seed = (over: { coding_sessions?: Record<string, unknown>[]; apikeys?: Record<string, unknown>[] } = {}) => {
+  const seed = (over: { sessions?: Record<string, unknown>[]; apikeys?: Record<string, unknown>[] } = {}) => {
     db = createFakeDb({
       mcp_servers: [
         serverRow({ url: MCP_URL }),
         serverRow({ id: SERVER_B, name: `Grafana`, auth: `secret`, headerNames: [`X-Api-Key`] }),
       ],
       mcp_credentials: [cred(`actor`, SERVER, `tok`), cred(`teammate`, SERVER, `their-tok`)],
-      coding_sessions: over.coding_sessions ?? [run()],
+      sessions: over.sessions ?? [run()],
       apikeys: over.apikeys ?? [],
     })
   }
@@ -764,7 +764,7 @@ describe(`mcpServers.resolveForLaunch`, () => {
   })
 
   it(`resolves the row's pick whatever serverIds says`, async () => {
-    seed({ coding_sessions: [run({ mcpServerIds: [SERVER_B] })] })
+    seed({ sessions: [run({ mcpServerIds: [SERVER_B] })] })
     // SERVER is connected for the caller, but this run never picked it.
     for (const input of [{ serverIds: [SERVER, SERVER_B] }, { serverIds: [SERVER] }, {}]) {
       const result = await inRun().resolveForLaunch(input)
@@ -787,15 +787,15 @@ describe(`mcpServers.resolveForLaunch`, () => {
   })
 
   it(`refuses another member's run, an ended run and a vanished row`, async () => {
-    seed({ coding_sessions: [run({ userId: `teammate` })] })
+    seed({ sessions: [run({ userId: `teammate` })] })
     await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
-    seed({ coding_sessions: [run({ status: `ended` })] })
+    seed({ sessions: [run({ status: `ended` })] })
     await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
-    seed({ coding_sessions: [] })
+    seed({ sessions: [] })
     await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
@@ -803,7 +803,7 @@ describe(`mcpServers.resolveForLaunch`, () => {
 
   it(`resolves a shared-device host's OWN credentials for a teammate's run`, async () => {
     // The daemon calls as the device owner; the row belongs to the requester.
-    seed({ coding_sessions: [run({ userId: `teammate`, hostUserId: `actor` })] })
+    seed({ sessions: [run({ userId: `teammate`, hostUserId: `actor` })] })
     const result = await inRun().resolveForLaunch({ serverIds: [SERVER] })
     expect(result.servers).toEqual([
       expect.objectContaining({ id: SERVER, headers: [{ name: `Authorization`, value: `Bearer tok` }] }),
@@ -969,7 +969,7 @@ describe(`mcpServers.resolveForLaunch — action runs spend shared connections (
         cred(`dana`, SERVER, { accessToken: `dana-tok` }, false),
         cred(`chris`, STDIO, { value: `postgres://chris` }),
       ],
-      coding_sessions: [
+      sessions: [
         {
           id: RUN,
           userId: `actor`,

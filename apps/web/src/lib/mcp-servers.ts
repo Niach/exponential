@@ -5,7 +5,6 @@
 // encrypted; nothing here ever sees one) and how many members connected.
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import type { trpc } from "@/lib/trpc-client"
-import { isBuiltinActionId } from "@/lib/builtin-actions"
 
 export type McpServerList = Awaited<
   ReturnType<typeof trpc.mcpServers.list.query>
@@ -54,7 +53,7 @@ export function mcpServerReady(
 
 /** FEED-73: a "team MCP" = one any run of the team can use whoever starts
  * it: nothing to sign in to, or at least one member SHARES their connection
- * (like a shared device). Only these go on an action's MCP list. A stdio
+ * (like a shared device). A stdio
  * server's secret never leaves its owner's machine, so a share on one
  * (a stale row; the server refuses new ones) counts for nothing. */
 export function isTeamMcp(
@@ -73,19 +72,6 @@ export function sharedSummary(
   return server.sharedCount > 0
     ? `${connected} · ${server.sharedCount} shared`
     : connected
-}
-
-/** FEED-73: a REAL action subject brings its own MCP list (the server sets it
- * on start), so the composer neither offers the picker nor sends a pick.
- * Builtins, issues and chats keep the caller's pick. */
-export function subjectOwnsMcpServers(
-  subject: { kind: string; id?: string } | null | undefined
-): boolean {
-  return (
-    subject?.kind === `action` &&
-    typeof subject.id === `string` &&
-    !isBuiltinActionId(subject.id)
-  )
 }
 
 /** The picker's muted second line for a server the caller cannot use yet. */

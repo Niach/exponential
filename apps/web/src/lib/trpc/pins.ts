@@ -1,8 +1,8 @@
 import { z } from "zod"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, or, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { actions, boards, codingSessions, issues, pins } from "@/db/schema"
+import { actions, boards, issues, pins, sessions } from "@/db/schema"
 import { pinKindSchema, type PinKind } from "@exp/db-schema/domain"
 import { assertTeamMember } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
@@ -11,7 +11,7 @@ import { boardVisible } from "@/lib/board-visibility"
 // endpoint: a pin exists or it doesn't, and every client renders the row from
 // the synced `pins` shape, so the mutation only needs to flip the row and
 // hand back the txId. The target must live in `teamId` (an issue on a visible
-// board of the team, a coding session of the team, an action of the team) and
+// board of the team, a session the caller sees, an action of the team) and
 // the caller must be a member; ownership of the pin row itself is the
 // caller's user id, never the input.
 
@@ -32,6 +32,7 @@ function targetColumn(kind: PinKind) {
 
 async function assertTargetInTeam(
   db: Db | Tx,
+  userId: string,
   teamId: string,
   kind: PinKind,
   targetId: string
@@ -48,11 +49,16 @@ async function assertTargetInTeam(
       .limit(1)
     found = !!row
   } else if (kind === `session`) {
+    // EXP-1291: a session the caller can see (shared, or their own).
     const [row] = await db
-      .select({ id: codingSessions.id })
-      .from(codingSessions)
+      .select({ id: sessions.id })
+      .from(sessions)
       .where(
-        and(eq(codingSessions.id, targetId), eq(codingSessions.teamId, teamId))
+        and(
+          eq(sessions.id, targetId),
+          eq(sessions.teamId, teamId),
+          or(eq(sessions.shared, true), eq(sessions.userId, userId))
+        )
       )
       .limit(1)
     found = !!row
@@ -94,7 +100,7 @@ export const pinsRouter = router({
           .where(and(eq(pins.userId, userId), eq(column, input.targetId)))
           .returning({ id: pins.id })
         if (deleted.length > 0) return { txId, pinned: false }
-        await assertTargetInTeam(tx, input.teamId, input.kind, input.targetId)
+        await assertTargetInTeam(tx, userId, input.teamId, input.kind, input.targetId)
         // Append: one past the caller's current tail, so the sidebar keeps
         // pin order (fractional room stays for a later drag reorder).
         const [tail] = await tx

@@ -54,7 +54,6 @@ vi.stubEnv(`CLOUD_INSTANCE`, `true`)
 
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { contract } from "@exp/domain-contract"
 import { customizableStatusCategoryValues } from "@exp/db-schema/domain"
 import { registerExponentialTools } from "@/lib/mcp/tools"
 import { FULL_ACCESS } from "@/lib/mcp/scope"
@@ -120,16 +119,13 @@ function paramSchema(tool: string, param: string): z.ZodType {
 
 // FEED-25: a read without `readOnlyHint` costs a permission card in claude's
 // plan mode — the run behind that issue waited two hours on one for
-// `attachments_get`. Reads are the `*_get`/`*_list` tools plus the two
-// GitHub-backed diffs, the MCP Apps issue list (EXP-1183), a run's transcript
-// (EXP-1216) and an issue's activity log (FEED-87); nothing that writes may
-// claim the hint.
+// `attachments_get`. Reads are the `*_get`/`*_list` tools plus a PR's files,
+// the MCP Apps issue list (EXP-1183) and an issue's activity log (FEED-87);
+// nothing that writes may claim the hint.
 const READ_ONLY_EXTRA = new Set([
   `exponential_issues_activity`,
-  `exponential_issues_pr_files`,
+  `exponential_pr_files`,
   `exponential_issues_show`,
-  `exponential_repositories_branch_diff`,
-  `exponential_sessions_messages`,
 ])
 function isRead(name: string): boolean {
   return /_(get|list)$/.test(name) || READ_ONLY_EXTRA.has(name)
@@ -176,17 +172,13 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
     [`exponential_issue_relations_remove`, `relatedIssueId`],
     [`exponential_issues_subscribe`, `issueId`],
     [`exponential_issues_unsubscribe`, `issueId`],
-    [`exponential_pr_open`, `issueId`],
     [`exponential_pr_merge`, `issueId`],
     [`exponential_pr_retarget`, `issueId`],
     [`exponential_pr_update`, `issueId`],
-    [`exponential_issues_pr_files`, `issueId`],
-    [`exponential_repositories_branch_diff`, `issueId`],
-    [`exponential_sessions_start`, `issueId`],
+    [`exponential_pr_files`, `issueId`],
     [`exponential_attachments_upload`, `issueId`],
-    // EXP-1284
-    [`exponential_threads_link`, `issueId`],
-    [`exponential_threads_unlink`, `issueId`],
+    // EXP-1291
+    [`exponential_sessions_unlink`, `issueId`],
   ]
   it.each(issueParams)(`%s accepts an identifier for %s`, (tool, param) => {
     expect(paramSchema(tool, param).safeParse(`ABC-12`).success).toBe(true)
@@ -195,9 +187,8 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
   it(`issueIds arrays accept identifiers too`, () => {
     for (const tool of [
       `exponential_pr_open`,
-      `exponential_pr_merge`,
-      `exponential_pr_update`,
-      `exponential_sessions_start`,
+      `exponential_sessions_send`,
+      `exponential_sessions_link`,
     ]) {
       expect(
         paramSchema(tool, `issueIds`).safeParse([`ABC-12`]).success,
@@ -215,16 +206,6 @@ describe(`no hand-copied enums (EXP-707 theme H)`, () => {
     }
     expect(category.safeParse(`duplicate`).success).toBe(false)
     expect(category.safeParse(`bogus`).success).toBe(false)
-  })
-
-  it(`agent params share the contract enum`, () => {
-    for (const tool of [`exponential_sessions_start`]) {
-      const agent = paramSchema(tool, `agent`)
-      for (const value of contract.codingAgent.values) {
-        expect(agent.safeParse(value).success, `${tool}:${value}`).toBe(true)
-      }
-      expect(agent.safeParse(`gemini`).success, tool).toBe(false)
-    }
   })
 })
 

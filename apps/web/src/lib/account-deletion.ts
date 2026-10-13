@@ -11,8 +11,10 @@ import {
 } from "drizzle-orm"
 import {
   attachments,
-  codingSessions,
   comments,
+  messages,
+  sessionIssues,
+  sessions,
   emailBounces,
   issueDrafts,
   issues,
@@ -167,84 +169,57 @@ export async function guardAndCleanupTeamsForUserDeletion(
     })
   }
 
-  // EXP-445: coding sessions that span TWO accounts — the requester who
-  // started them and the device owner hosting them on a shared server device
+  // EXP-445/1291: sessions that span TWO accounts — the requester who
+  // started them and the device owner hosting them on a shared device
   // (EXP-432). Both directions are settled here, inside the delete
   // transaction, so the users-row cascade can never race them.
   const endedSessionIds: string[] = []
+  const now = new Date()
 
-  // Live runs this user REQUESTED on somebody else's machine. `user_id`
-  // cascades, so the delete would VAPORIZE these rows — and a vanished row is
-  // deliberately NOT a kill on any client, which would leave the agent running
-  // on the host's hardware forever. Reassigning `user_id` to the host makes
-  // the row survive the cascade as a host-owned `ended` row, so the hosting
-  // daemon's kill-poll fires durably — on old daemons too. Recap attribution
-  // shifts to the host, which is acceptable: the requester no longer exists
-  // (same precedent as issues.creator_id surviving as team data).
+  // Sessions this user STARTED on somebody else's machine. `user_id`
+  // cascades, so the delete would VAPORIZE these rows (a shared thread is
+  // team data, and a vanished row is no kill signal for the host's device).
+  // Re-attributing them to the host keeps them as host-owned rows, ended
+  // when live; the visibility mirrors (`owner_id`) follow, or the messages
+  // and issue links would cascade away with the account.
   const requested = await tx
-    .update(codingSessions)
-    .set({
-      status: `ended`,
-      // EXP-848/850: an ended run is never busy and says nothing.
-      agentBusy: false,
-      agentCaption: null,
-      // An ended run asks nobody anything.
-      pendingQuestion: null,
-      endedAt: new Date(),
-      endedBy: `system`,
-      updatedAt: new Date(),
-      userId: sql`${codingSessions.hostUserId}`,
-    })
-    .where(
-      and(
-        eq(codingSessions.userId, userId),
-        isNotNull(codingSessions.hostUserId),
-        // EXP-888: a stale-swept row still has an agent behind it. The sweep's
-        // `ended_by = 'stale'` is "this row went silent", not "this run is
-        // over" — no client acts on it — so a deleted account's run must be
-        // closed out here too, or the cascade vaporizes the row and the agent
-        // outlives its requester on the host's machine.
-        or(
-          inArray(codingSessions.status, [`running`, `in_review`]),
-          eq(codingSessions.endedBy, `stale`)
-        )
-      )
-    )
-    .returning({ id: codingSessions.id })
-  endedSessionIds.push(...requested.map((s) => s.id))
+    .update(sessions)
+    .set({ userId: sql`${sessions.hostUserId}`, hostUserId: null, updatedAt: now })
+    .where(and(eq(sessions.userId, userId), isNotNull(sessions.hostUserId)))
+    .returning({ id: sessions.id, userId: sessions.userId })
+  if (requested.length > 0) {
+    const ids = requested.map((row) => row.id)
+    await tx
+      .update(messages)
+      .set({ ownerId: sql`(SELECT s.user_id FROM sessions s WHERE s.id = ${messages.sessionId})` })
+      .where(inArray(messages.sessionId, ids))
+    await tx
+      .update(sessionIssues)
+      .set({ ownerId: sql`(SELECT s.user_id FROM sessions s WHERE s.id = ${sessionIssues.sessionId})` })
+      .where(inArray(sessionIssues.sessionId, ids))
+    const ended = await tx
+      .update(sessions)
+      .set({ status: `ended`, endedAt: now, busy: false, needsInput: false })
+      .where(and(inArray(sessions.id, ids), ne(sessions.status, `ended`), eq(sessions.kind, `thread`)))
+      .returning({ id: sessions.id })
+    endedSessionIds.push(...ended.map((row) => row.id))
+  }
 
-  // Live runs this user HOSTS for a teammate. The requester still exists, so
-  // the row stays theirs — but the daemon executing it authenticates as the
-  // account being deleted, so the run is over either way. The flip is badge
-  // hygiene plus the trigger for the caller's best-effort relay kill.
+  // Live sessions this user HOSTS for a teammate: the device executing them
+  // authenticates as the account being deleted, so they are over.
   const hosted = await tx
-    .update(codingSessions)
-    .set({
-      status: `ended`,
-      // EXP-848/850: an ended run is never busy and says nothing.
-      agentBusy: false,
-      agentCaption: null,
-      // An ended run asks nobody anything.
-      pendingQuestion: null,
-      endedAt: new Date(),
-      endedBy: `system`,
-      updatedAt: new Date(),
-    })
+    .update(sessions)
+    .set({ status: `ended`, endedAt: now, busy: false, needsInput: false, updatedAt: now })
     .where(
       and(
-        eq(codingSessions.hostUserId, userId),
-        ne(codingSessions.userId, userId),
-        // EXP-888: same stale exemption as above — the daemon executing these
-        // runs authenticates as the account being deleted, so they are over
-        // whatever the sweep already wrote.
-        or(
-          inArray(codingSessions.status, [`running`, `in_review`]),
-          eq(codingSessions.endedBy, `stale`)
-        )
+        eq(sessions.hostUserId, userId),
+        ne(sessions.userId, userId),
+        ne(sessions.status, `ended`),
+        eq(sessions.kind, `thread`)
       )
     )
-    .returning({ id: codingSessions.id })
-  endedSessionIds.push(...hosted.map((s) => s.id))
+    .returning({ id: sessions.id })
+  endedSessionIds.push(...hosted.map((row) => row.id))
 
   const soloToDelete = solo
 
@@ -279,16 +254,27 @@ export async function guardAndCleanupTeamsForUserDeletion(
     .select({ id: issueDrafts.id })
     .from(issueDrafts)
     .where(eq(issueDrafts.userId, userId))
-  const draftAttachmentRows = await tx
+  // EXP-1291: this user's own sessions cascade away with their messages,
+  // and a message's files cascade with it — collected in the same pass.
+  const myMessageIds = tx
+    .select({ id: messages.id })
+    .from(messages)
+    .where(eq(messages.ownerId, userId))
+  const ownedAttachmentRows = await tx
     .select({
       storageKey: attachments.storageKey,
       posterStorageKey: attachments.posterStorageKey,
     })
     .from(attachments)
-    .where(inArray(attachments.draftId, myDraftIds))
+    .where(
+      or(
+        inArray(attachments.draftId, myDraftIds),
+        inArray(attachments.messageId, myMessageIds)
+      )
+    )
   const storageKeys = collectAttachmentStorageKeys([
     ...teamStorageKeys.map((storageKey) => ({ storageKey })),
-    ...draftAttachmentRows,
+    ...ownedAttachmentRows,
   ])
 
   let deletedTeamIds: string[] = []

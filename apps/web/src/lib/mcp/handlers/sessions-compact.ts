@@ -30,7 +30,7 @@
 // read "refused" into "nobody was there to ask".
 import { eq } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
-import { codingSessions } from "@/db/schema"
+import { sessions } from "@/db/schema"
 import { db } from "@/db/connection"
 import {
   getSteerRelayConfig,
@@ -83,14 +83,15 @@ const defaultDeps: SessionsCompactDeps = {
   loadSession: async (sessionId) => {
     const [row] = await db
       .select({
-        id: codingSessions.id,
-        userId: codingSessions.userId,
-        hostUserId: codingSessions.hostUserId,
-        status: codingSessions.status,
-        agent: codingSessions.agent,
+        id: sessions.id,
+        userId: sessions.userId,
+        hostUserId: sessions.hostUserId,
+        status: sessions.status,
+        // EXP-1291: the agent CLI column is `cli` on the session tree.
+        agent: sessions.cli,
       })
-      .from(codingSessions)
-      .where(eq(codingSessions.id, sessionId))
+      .from(sessions)
+      .where(eq(sessions.id, sessionId))
       .limit(1)
     return row ?? null
   },

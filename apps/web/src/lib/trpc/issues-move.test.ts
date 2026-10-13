@@ -43,9 +43,6 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => false,
   resolveRepoInstallationToken: vi.fn(),
 }))
-vi.mock(`@/lib/integrations/pr-sync`, () => ({
-  applyPrMergeState: vi.fn(),
-}))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   canonicalizeMarkdownImageUrls: vi.fn(),
   extractAttachmentIdsFromDescription: vi.fn(),
@@ -71,7 +68,6 @@ vi.mock(`@/lib/integrations/activity`, () => ({
 import { issuesRouter } from "@/lib/trpc/issues"
 import {
   attachments,
-  codingSessions,
   comments,
   issueEvents,
   issues,
@@ -79,7 +75,8 @@ import {
   issueRelations,
   issueSubscribers,
   notifications,
-  threadItems,
+  pullRequestIssues,
+  sessionIssues,
 } from "@/db/schema"
 
 const WS = `11111111-1111-4111-8111-111111111111`
@@ -302,10 +299,10 @@ describe(`issues.move`, () => {
       issueSubscribers,
       issueLabels,
       issueRelations,
-      codingSessions,
       notifications,
-      // EXP-1284: the issue's thread items carry the board mirrors too.
-      threadItems,
+      // EXP-1291: the issue's thread and PR links carry the board mirrors.
+      sessionIssues,
+      pullRequestIssues,
     ]) {
       const childUpdate = updates.find((u) => u.table === table)
       expect(childUpdate).toBeDefined()

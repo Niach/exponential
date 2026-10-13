@@ -8,11 +8,11 @@ DROP TABLE "thread_items" CASCADE;--> statement-breakpoint
 DROP TABLE "threads" CASCADE;--> statement-breakpoint
 ALTER TABLE "actions" DROP CONSTRAINT "actions_repository_id_repositories_id_fk";
 --> statement-breakpoint
-ALTER TABLE "issue_drafts" DROP CONSTRAINT "issue_drafts_thread_id_threads_id_fk";
+ALTER TABLE "issue_drafts" DROP CONSTRAINT IF EXISTS "issue_drafts_thread_id_threads_id_fk";
 --> statement-breakpoint
-ALTER TABLE "notifications" DROP CONSTRAINT "notifications_session_id_coding_sessions_id_fk";
+ALTER TABLE "notifications" DROP CONSTRAINT IF EXISTS "notifications_session_id_coding_sessions_id_fk";
 --> statement-breakpoint
-ALTER TABLE "pins" DROP CONSTRAINT "pins_session_id_coding_sessions_id_fk";
+ALTER TABLE "pins" DROP CONSTRAINT IF EXISTS "pins_session_id_coding_sessions_id_fk";
 --> statement-breakpoint
 DROP INDEX "idx_issues_pr_url";--> statement-breakpoint
 DROP INDEX "idx_issues_pr_base_branch";--> statement-breakpoint

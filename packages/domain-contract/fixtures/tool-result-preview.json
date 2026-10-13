@@ -419,51 +419,6 @@
       ]
     },
     {
-      "name": "pr_merge: one issue per result row (issueId + identifier, no own id)",
-      "tool": "exponential_pr_merge",
-      "result": {
-        "results": [
-          {
-            "issueId": "i-1",
-            "identifier": "EXP-1",
-            "merged": true
-          },
-          {
-            "issueId": "i-2",
-            "identifier": "EXP-2",
-            "merged": false,
-            "error": "stale base"
-          }
-        ]
-      },
-      "refs": [
-        {
-          "kind": "issue",
-          "id": "i-1",
-          "identifier": "EXP-1"
-        },
-        {
-          "kind": "issue",
-          "id": "i-2",
-          "identifier": "EXP-2"
-        }
-      ]
-    },
-    {
-      "name": "pr_merge: a chore merge names no issue",
-      "tool": "exponential_pr_merge",
-      "result": {
-        "results": [
-          {
-            "repositoryId": "r-1",
-            "prNumber": 9,
-            "merged": true
-          }
-        ]
-      },
-      "refs": []
-    },
-    {
       "name": "issue_relations_add: both issues off the input",
       "tool": "exponential_issue_relations_add",
       "input": {
@@ -506,109 +461,6 @@
         {
           "kind": "label",
           "id": "l-1"
-        }
-      ]
-    },
-    {
-      "name": "sessions_start: the session, its issue (twins), the input deduped by identifier",
-      "tool": "exponential_sessions_start",
-      "input": {
-        "deviceId": "d-1",
-        "issueId": "EXP-5"
-      },
-      "result": {
-        "ok": true,
-        "deviceId": "d-1",
-        "sessionId": "cs-1",
-        "session": {
-          "id": "cs-1",
-          "issueId": "i-5",
-          "issueIdentifier": "EXP-5",
-          "issueTitle": "Five",
-          "teamId": "t-1",
-          "status": "running",
-          "actionName": null
-        }
-      },
-      "refs": [
-        {
-          "kind": "session",
-          "id": "cs-1",
-          "title": "Five"
-        },
-        {
-          "kind": "issue",
-          "id": "i-5",
-          "identifier": "EXP-5",
-          "title": "Five"
-        }
-      ]
-    },
-    {
-      "name": "sessions_start: a null session row leaves the input's issue",
-      "tool": "exponential_sessions_start",
-      "input": {
-        "deviceId": "d-1",
-        "issueId": "EXP-5"
-      },
-      "result": {
-        "ok": true,
-        "deviceId": "d-1",
-        "sessionId": null,
-        "session": null,
-        "note": "not registered within 10s"
-      },
-      "refs": [
-        {
-          "kind": "issue",
-          "id": "EXP-5",
-          "identifier": "EXP-5"
-        }
-      ]
-    },
-    {
-      "name": "sessions_get: the run (titled by its issue) and the issue",
-      "tool": "exponential_sessions_get",
-      "result": {
-        "id": "cs-1",
-        "issueId": "i-5",
-        "issueIdentifier": "EXP-5",
-        "issueTitle": "Five",
-        "status": "running",
-        "actionName": null,
-        "depth": 0
-      },
-      "refs": [
-        {
-          "kind": "session",
-          "id": "cs-1",
-          "title": "Five"
-        },
-        {
-          "kind": "issue",
-          "id": "i-5",
-          "identifier": "EXP-5",
-          "title": "Five"
-        }
-      ]
-    },
-    {
-      "name": "sessions_get: an action run is titled by its action name",
-      "tool": "exponential_sessions_get",
-      "result": {
-        "id": "cs-2",
-        "issueId": null,
-        "issueIdentifier": null,
-        "issueTitle": null,
-        "actionId": "a-1",
-        "actionName": "Release all",
-        "status": "ended"
-      },
-      "refs": [
-        {
-          "kind": "session",
-          "id": "cs-2",
-          "title": "Release all"
         }
       ]
     },
@@ -1060,36 +912,102 @@
       ]
     },
     {
-      "name": "threads_get: the thread, then its issues and its runs as two lists",
-      "tool": "mcp__exponential__exponential_threads_get",
+      "name": "sessions_get: the root session, titled",
+      "tool": "exponential_sessions_get",
       "input": {},
       "result": {
-        "id": "th-1",
-        "teamId": "t-1",
-        "title": "Checkout redesign",
-        "issues": [
-          { "id": "i-1", "identifier": "EXP-7", "title": "Checkout redesign", "status": "in_progress", "prUrl": null, "source": "user", "addedBySessionId": null }
-        ],
-        "runs": [
-          { "id": "s-1", "name": "Redesign checkout", "status": "running", "live": true, "issueId": "i-1", "source": "user", "addedBySessionId": null }
-        ]
+        "root": {
+          "id": "s-1",
+          "kind": "thread",
+          "title": "Checkout redesign",
+          "status": "running"
+        },
+        "issues": [],
+        "pullRequests": [],
+        "children": [],
+        "messages": []
       },
       "refs": [
-        { "kind": "thread", "id": "th-1", "title": "Checkout redesign" },
-        { "kind": "list", "id": "issue", "title": "issues", "count": 1 },
-        { "kind": "issue", "id": "i-1", "identifier": "EXP-7", "title": "Checkout redesign" },
-        { "kind": "list", "id": "session", "title": "sessions", "count": 1 },
-        { "kind": "session", "id": "s-1", "title": "Redesign checkout" }
+        {
+          "kind": "session",
+          "id": "s-1",
+          "title": "Checkout redesign"
+        }
       ]
     },
     {
-      "name": "threads_link: an issue link names the thread and the issue",
-      "tool": "exponential_threads_link",
-      "input": { "issueId": "EXP-7" },
-      "result": { "threadId": "th-1", "issueId": "i-1", "added": true },
+      "name": "sessions_get: an untitled root still names its session",
+      "tool": "exponential_sessions_get",
+      "input": {
+        "id": "s-2"
+      },
+      "result": {
+        "root": {
+          "id": "s-2",
+          "kind": "agent",
+          "title": null,
+          "name": "Triage",
+          "status": "idle"
+        },
+        "issues": [],
+        "pullRequests": [],
+        "children": [],
+        "messages": []
+      },
       "refs": [
-        { "kind": "thread", "id": "th-1" },
-        { "kind": "issue", "id": "i-1" }
+        {
+          "kind": "session",
+          "id": "s-2",
+          "title": "Triage"
+        }
+      ]
+    },
+    {
+      "name": "pr_merge: the issue named in the input",
+      "tool": "exponential_pr_merge",
+      "input": {
+        "issueId": "i-1"
+      },
+      "result": {
+        "merged": true,
+        "mergedIds": [
+          "pr-1"
+        ]
+      },
+      "refs": [
+        {
+          "kind": "issue",
+          "id": "i-1"
+        }
+      ]
+    },
+    {
+      "name": "pr_merge: a merge by pullRequestId names no issue",
+      "tool": "exponential_pr_merge",
+      "input": {
+        "pullRequestId": "pr-1"
+      },
+      "result": {
+        "merged": false,
+        "error": "stale base"
+      },
+      "refs": []
+    },
+    {
+      "name": "sessions_send: the session it started or messaged",
+      "tool": "exponential_sessions_send",
+      "input": {
+        "text": "Fix the login"
+      },
+      "result": {
+        "sessionId": "s-3",
+        "messageId": "m-1"
+      },
+      "refs": [
+        {
+          "kind": "session",
+          "id": "s-3"
+        }
       ]
     }
   ]

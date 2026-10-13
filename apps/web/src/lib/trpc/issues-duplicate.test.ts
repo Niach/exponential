@@ -64,10 +64,6 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => false,
   resolveRepoInstallationTokenInfo: vi.fn(),
 }))
-vi.mock(`@/lib/integrations/pr-sync`, () => ({
-  applyPrMergeState: vi.fn(),
-  applyPrClosedState: vi.fn(),
-}))
 vi.mock(`@/lib/storage/issue-attachments`, () => ({
   canonicalizeMarkdownImageUrls: h.canonicalizeMarkdownImageUrls,
   extractAttachmentIdsFromDescription: h.extractAttachmentIdsFromDescription,
