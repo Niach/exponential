@@ -7,6 +7,9 @@ import { newStartId } from "@/lib/start-intent"
 import type { ThreadReplyTarget } from "@/lib/thread-page"
 import { trpc } from "@/lib/trpc-client"
 
+/** How long a reply waits for a session it had to dial itself. */
+const THREAD_SEND_CONNECT_MS = 10_000
+
 // EXP-1284: `Reply in this thread` — the thread page's composer. Where the
 // text goes is `threadReplyTarget` (lib/thread-page.ts):
 //   send    the latest LIVE run the viewer owns: the existing steer send
@@ -108,7 +111,29 @@ export function ThreadReplyComposer({
       return
     }
     if (target.kind === `send`) {
-      const sent = acquireSteerSession(target.runId).sendMessage(message)
+      const store = acquireSteerSession(target.runId)
+      let sent = store.sendMessage(message)
+      if (!sent) {
+        // A target nothing on this page has dialed yet (a session folded into
+        // the parallel card has no block of its own): dial it here and send
+        // once the socket is open, within the same wait the composer gives
+        // a start.
+        store.connect()
+        sent = await new Promise<boolean>((resolve) => {
+          const deadline = setTimeout(() => {
+            unsubscribe()
+            resolve(false)
+          }, THREAD_SEND_CONNECT_MS)
+          const attempt = () => {
+            if (!store.getSnapshot().connected) return
+            clearTimeout(deadline)
+            unsubscribe()
+            resolve(store.sendMessage(message))
+          }
+          const unsubscribe = store.subscribe(attempt)
+          attempt()
+        })
+      }
       if (!sent) {
         failedAction(`send`, `the message`, undefined, {
           description: `The session is not connected yet. Try again in a moment.`,

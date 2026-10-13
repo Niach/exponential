@@ -137,8 +137,8 @@ struct IssueRefSearchSheet: View {
 }
 
 /// The issue search's ×4 copy (EXP-922: web `lib/issue-search.ts`
-/// `ISSUE_SEARCH_PLACEHOLDER`).
+/// `ISSUE_SEARCH_PLACEHOLDER` + `ISSUE_SEARCH_NO_RESULTS`).
 enum IssueSearchCopy {
     static let placeholder = "Search issues"
-    static let noMatches = "No matching issues"
+    static let noMatches = "No issues match"
 }

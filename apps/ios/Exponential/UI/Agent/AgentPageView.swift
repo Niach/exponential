@@ -262,6 +262,11 @@ struct AgentPageView: View {
             sessions?.activeTeamId = teamId
             rebindComposer(to: teamId)
         }
+        // A start that was in flight through a team change (landed or timed
+        // out) no longer holds the composer: it follows the team now.
+        .onChange(of: composer?.isStartInFlight) { _, inFlight in
+            if inFlight == false { rebindComposer(to: teamState.activeTeam?.id) }
+        }
         .onDisappear {
             visible = false
             sessions?.stopObserving()
@@ -361,20 +366,27 @@ struct AgentPageView: View {
         }
     }
 
-    /// The composer is bound to ONE team (its pools, its builtins' teamId).
-    /// Recheck R3: a team change rebuilds it only when nothing is lost: a
-    /// PRISTINE composer keeps the play button's seed (the team resolving
-    /// AFTER onAppear on a cold launch must not drop the preselection), an
-    /// empty one starts fresh. A draft in progress stays exactly as it is,
-    /// and a start in flight or still followed keeps its watch (the composer
-    /// model owns it), so a late session still lands.
+    /// The composer is bound to ONE team (its pools, its builtins' teamId),
+    /// so a team change ALWAYS rebinds it: a PRISTINE composer keeps the
+    /// play button's seed (the team resolving AFTER onAppear on a cold
+    /// launch must not drop the preselection), any other one is rebuilt for
+    /// the new team with its text and attachments carried over (the subject
+    /// was the old team's). The ONE exception is a start in flight (the
+    /// uploads, the request, the starting wait): it finishes on its team and
+    /// the rebind follows as it ends (`onChange(of: isStartInFlight)`). The
+    /// quiet watch after a timeout never holds the composer: it is cancelled
+    /// with the old model, or a Start pressed under the new team would land
+    /// on the old one.
     private func rebindComposer(to teamId: String?) {
         guard let sessions, let composer, composer.teamId != teamId,
-              !composer.isFollowingStart else { return }
+              !composer.isStartInFlight else { return }
+        composer.release()
         if composer.isPristine {
             self.composer = makeComposer(sessions: sessions, seed: seed)
-        } else if composer.isEmptyDraft {
-            self.composer = makeComposer(sessions: sessions, seed: .empty)
+        } else {
+            let next = makeComposer(sessions: sessions, seed: .empty)
+            next.carryDraft(from: composer)
+            self.composer = next
         }
     }
 

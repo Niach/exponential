@@ -83,7 +83,7 @@ final class AgentComposerModel {
     /// The draft start `startWatcher` is watching for.
     private var watchedStartId: String?
     /// When that watch ends (`StartedRunMatch.watchWindow` after the first
-    /// send): until then a team change keeps this composer (recheck R3).
+    /// send); a team change ends it early (`release`).
     private var watchedUntil: Date?
     /// The session a landing opens (the page pushes it while visible and
     /// consumes it). Nil when the draft changed after its send: the field
@@ -193,11 +193,49 @@ final class AgentComposerModel {
             && pendingImages.isEmpty && pendingFiles.isEmpty && checked.isEmpty && actionId == nil
     }
 
-    /// Recheck R3: a start is on the wire, starting, or still followed by the
-    /// quiet watch; a team change must not drop it (the page keeps this
-    /// composer until it lands or its window closes).
-    var isFollowingStart: Bool {
-        sending || starting != nil || (watchedUntil.map { $0 > Date() } ?? false)
+    /// A start is on the wire or starting (the uploads, the request, the
+    /// `starting.timeoutMs` wait): the page keeps this composer through a
+    /// team change ONLY for that window and rebinds once it ends. The quiet
+    /// watch after a timeout never holds it: an idle composer follows the
+    /// team at once (`release` cancels that watch), or every later Start
+    /// would land on the team the page left.
+    var isStartInFlight: Bool {
+        sending || starting != nil
+    }
+
+    /// The page is letting this composer go for another team's: the quiet
+    /// watch, its start id and the Retry toast end here, so nothing of the
+    /// old team's start lands into (or dedupes against) the new composer.
+    func release() {
+        startWatcher.stop()
+        watchedStartId = nil
+        watchedUntil = nil
+        draftStart = nil
+        draftStartSentAt = nil
+        dismissTimeoutToast()
+    }
+
+    /// The text and the attachments of the composer this one replaces (a
+    /// team change under a draft in progress): what is not bound to a team.
+    /// The subject, the inputs and the repo pick were the old team's and
+    /// stay behind; the uploads are redone under the new team at the send.
+    /// A session that landed on the way over is handed on so the page still
+    /// opens it.
+    func carryDraft(from previous: AgentComposerModel) {
+        draftText = previous.draftText
+        pendingImages = previous.pendingImages.map { image in
+            var copy = image
+            copy.uploadedId = nil
+            return copy
+        }
+        pendingFiles = previous.pendingFiles.map { file in
+            var copy = file
+            copy.uploadedId = nil
+            copy.uploadedName = nil
+            return copy
+        }
+        landedSession = previous.landedSession
+        touched = true
     }
 
     // MARK: - Load
@@ -923,8 +961,8 @@ final class AgentComposerModel {
     private func send(stacked: (plan: BlockedStart.StackPlan, issueId: String)? = nil) {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
-        // A send is a touch: a team change never rebuilds this composer
-        // under a start it may still land (recheck R3).
+        // A send is a touch: a team change never reseeds this composer
+        // under a start in flight (`isStartInFlight`).
         touched = true
         error = nil
         imageError = nil

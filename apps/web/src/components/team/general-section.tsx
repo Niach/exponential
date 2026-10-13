@@ -63,14 +63,17 @@ export function TeamGeneralSection({ team }: { team: Team }) {
     setName(team.name)
   }, [team.id, team.name])
 
-  const dirty = name !== team.name
-
+  // The toast's Retry fires from an older render: read the LIVE draft, so a
+  // name typed after the failure is what gets saved, never the stale one.
+  const nameRef = useRef(name)
+  nameRef.current = name
   const handleSave = async () => {
-    if (!dirty) return
+    const draft = nameRef.current
+    if (draft === team.name) return
     setSaving(true)
     try {
       await trpc.teams.update.mutate(
-        { teamId: team.id, name: name.trim() || team.name },
+        { teamId: team.id, name: draft.trim() || team.name },
         SKIP_ERROR_TOAST
       )
     } catch (e) {

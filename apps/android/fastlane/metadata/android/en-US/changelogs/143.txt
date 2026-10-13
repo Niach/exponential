@@ -1,0 +1,5 @@
+- Threads: a session lives in a thread with its issues and sessions; the agent links the issues it files, a resume continues the conversation, and lists show threads
+- Composer: one place to start a session, with issue chips or an action chip and a plus menu
+- Issue search: type # to find an issue by number or title
+- Getting started: a checklist walks a new team through its first board, device and session
+- Fixes: toasts on failed actions, one Work card, team MCP servers in Settings
