@@ -27,7 +27,11 @@ struct ThreadStyleguideScreen: View {
     private static let boardId = "board-mobile"
 
     var body: some View {
-        let now = Date()
+        // The channel's rows print a time of day: photographed at 09:41
+        // like the status bar (web pins DEMO_AGENT_CHANNEL_TIMES the same way).
+        let now = kind == "agent-channel"
+            ? Calendar.current.date(bySettingHour: 9, minute: 41, second: 0, of: Date()) ?? Date()
+            : Date()
         let rows = kind == "agent-channel" ? Self.agentChannel(now: now) : Self.liveThread(now: now)
         let view = rows.view(now: now)
         ZStack {
@@ -41,7 +45,7 @@ struct ThreadStyleguideScreen: View {
             .safeAreaInset(edge: .bottom) {
                 ThreadComposer(
                     sessionId: view.composer.sessionId,
-                    placeholder: view.composer.placeholder
+                    placeholder: rows.composerPlaceholder(view)
                 )
             }
             .safeAreaInset(edge: .top, spacing: 0) {

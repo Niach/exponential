@@ -16,7 +16,8 @@ import SwiftUI
 ///   `sessions.send({sessionId: root})`.
 /// * An issue tab = the existing issue page (`IssueFaceView`) of that issue.
 /// * Guide = the existing Guide face over the root's `guide` (the PR body),
-///   counting the thread PR's files, with its Merge capsule while it is open.
+///   counting the thread PR's files, with its Merge capsule while it is open
+///   and Open on GitHub in the header's action slot.
 ///
 /// The "+" opens THE Menu's sheet: Link an issue (THE search list →
 /// `sessions.linkIssues`) · New issue (the New issue page filing into this
@@ -33,6 +34,7 @@ struct ThreadScreen: View {
     @Environment(\.toaster) private var toaster
     @Environment(TeamState.self) private var teamState
     @Environment(\.threadLanding) private var threadLanding
+    @Environment(\.openURL) private var openURL
     @State private var page: ThreadPage
     /// A requested issue tab that has not synced into the strip yet (a
     /// just-filed issue): the page shows the Conversation and switches the
@@ -119,6 +121,20 @@ struct ThreadScreen: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            // EXP-916/1300: THE Open on GitHub control rides the header's
+            // action slot on the Guide (web's PR row `PrGithubButton`).
+            ToolbarItem(placement: .topBarTrailing) {
+                if page == .guide, let url = rows?.guidePullRequest.flatMap({ URL(string: $0.url) }) {
+                    Button { openURL(url) } label: {
+                        AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium, weight: .medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
+                    .accessibilityIdentifier("changes-github-action")
+                }
+            }
+        }
         // Each presentation on its OWN node (EXP-240).
         .background {
             Color.clear
@@ -254,7 +270,7 @@ struct ThreadScreen: View {
             .safeAreaInset(edge: .bottom) {
                 ThreadComposer(
                     sessionId: view.composer.sessionId,
-                    placeholder: view.composer.placeholder
+                    placeholder: rows.composerPlaceholder(view)
                 )
             }
         }

@@ -63,6 +63,14 @@ struct ThreadRows: Sendable {
         )
     }
 
+    /// The composer's placeholder: `Message <name>` on an agent channel
+    /// (web `agents/$agentId`, Android `ThreadUiCopy.messageAgent`), else the
+    /// thread's own.
+    func composerPlaceholder(_ view: SessionThreadView) -> String {
+        guard isAgent, let name = root.name, !name.isEmpty else { return view.composer.placeholder }
+        return "Message \(name)"
+    }
+
     /// The PR the Guide counts and merges: the newest open one, else the
     /// newest merged, else none.
     var guidePullRequest: PullRequestEntity? {

@@ -2350,7 +2350,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
-      ios: na(`EXP-1295: the Work screen and its Guide toolbar are gone; no Open on GitHub control yet`),
+      ios: ok(
+        `ThreadScreen toolbar`,
+        `apps/ios/Exponential/UI/Thread/ThreadScreen.swift`,
+        `EXP-1300: the header arm on the thread's Guide page`
+      ),
       android: ok(
         `GithubHeaderAction`,
         `apps/android/app/src/main/java/com/exponential/app/ui/work/WorkTopBar.kt`,
