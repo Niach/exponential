@@ -1,10 +1,10 @@
-//! EXP-1253 — `agent-home` (3 Special components): the Agent page as HOME
-//! (`fixtures/composer-home.json`): the disc mark + the day's greeting, the
-//! composer card with the home placeholder and its options line, nothing
-//! beneath it. Drawn from the page's own pieces
-//! ([`crate::chat_screen::home_headline`], the composer card) over static
-//! data; a second specimen shows the card's STARTING row in place of the
-//! options line (EXP-1271).
+//! EXP-1253/EXP-1294 — `agent-home` (3 Special components): HOME
+//! (`fixtures/composer-home.json`): the DAWN (FEED-100, the faint brand
+//! mark's top half fading toward the card), the composer card with the home
+//! placeholder and its options line, nothing beneath it. Drawn from the
+//! page's own pieces ([`crate::chat_screen::dawn`], the composer card) over
+//! static data; a second specimen shows the card's STARTING row in place of
+//! the options line (EXP-1271).
 
 use std::time::{Duration, Instant};
 
@@ -17,12 +17,6 @@ use crate::icons::registry;
 
 pub(crate) const ID: &str = "agent-home";
 pub(crate) const OWNER: &str = "EXP-1253";
-
-/// The fixture's first case: "Evening, Danny".
-fn greeting() -> String {
-    let date = chrono::NaiveDate::from_ymd_opt(2026, 10, 12).expect("a date");
-    home_greeting::home_greeting(date, 19, Some("Danny Straehhuber"))
-}
 
 /// The card at rest: the home placeholder, the "+" and the send.
 fn card(id: &'static str, cx: &App) -> Div {
@@ -52,9 +46,10 @@ fn options_line(cx: &App) -> Div {
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let home = v_flex()
         .w(px(640.))
-        .child(crate::chat_screen::home_headline(greeting().into(), cx))
-        .child(div().h(px(home_greeting::HEADLINE_TO_CARD_PX)))
-        .child(v_flex().gap_2().child(card("sg-agent-home", cx)).child(options_line(cx)));
+        .items_center()
+        .gap_6()
+        .child(crate::chat_screen::dawn(cx))
+        .child(v_flex().w_full().gap_2().child(card("sg-agent-home", cx)).child(options_line(cx)));
     let starting = v_flex().w(px(640.)).gap_2().child(card("sg-agent-home-starting", cx)).child(
         div().px_1().child(crate::feedback::starting_row(
             "sg-agent-home-starting-row",
@@ -65,14 +60,4 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         )),
     );
     v_flex().gap_8().child(home).child(starting)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_demo_greets_like_the_fixture_first_case() {
-        assert_eq!(greeting(), "Evening, Danny");
-    }
 }

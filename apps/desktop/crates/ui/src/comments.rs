@@ -970,6 +970,83 @@ pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> 
     card.into_any_element()
 }
 
+/// EXP-1294 — what one message row of an agent channel draws.
+pub(crate) struct MessageRowProps {
+    pub id: SharedString,
+    /// The 24px marker in the gutter: the author's avatar, the agent's mark.
+    pub marker: gpui::AnyElement,
+    pub author: String,
+    /// The muted stamp beside the name (`09:14`).
+    pub meta: String,
+    pub body: String,
+    /// Scopes the body's `@email`/`#IDENT` pills.
+    pub team_id: Option<String>,
+}
+
+/// EXP-1294 — a message as a COMMENT ROW, row-agnostic (the agent channel):
+/// the marker in the timeline gutter beside the comment card (bold author,
+/// muted stamp, the markdown body), no rail, no menu, no replies.
+pub(crate) fn message_row(props: MessageRowProps, cx: &gpui::App) -> gpui::AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let mut view = MarkdownView::new(SharedString::from(format!("{}-body", props.id)), props.body)
+        .chat(true)
+        .autolink(true);
+    if let Some(team_id) = props.team_id.as_deref() {
+        let team = team_id.to_string();
+        view = view
+            .resolver(RefResolver::from_store(team_id))
+            .on_open_issue(move |identifier, window, cx| {
+                open_issue_by_identifier(&team, identifier, window, cx);
+            });
+    }
+    let header = h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_baseline()
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(SharedString::from(props.author)),
+        )
+        .when(!props.meta.is_empty(), |this| {
+            this.child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(props.meta)),
+            )
+        });
+    let bubble = crate::surface::glass_card()
+        .id(props.id)
+        .w_full()
+        .min_w_0()
+        .px_3()
+        .pt_2p5()
+        .pb_3()
+        .child(header)
+        .child(
+            div()
+                .w_full()
+                .min_w_0()
+                .text_size(px(theme::tokens::transcript::BODY_SIZE))
+                .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
+                .child(view),
+        );
+    crate::timeline::timeline_row(
+        props.marker,
+        24.,
+        4.,
+        false,
+        false,
+        v_flex().w_full().min_w_0().pt_1().pb_2().child(bubble).into_any_element(),
+    )
+    .into_any_element()
+}
+
 /// EXP-1241: a pending "open the issue AT this comment" — set by the thread's
 /// comment card, consumed by the issue's timeline, which scrolls the comment
 /// into view once and tints it briefly.

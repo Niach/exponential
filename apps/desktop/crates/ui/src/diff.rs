@@ -205,6 +205,8 @@ pub(crate) enum RenderRow {
     /// The file's card header: status letter, dimmed dir + basename, counts,
     /// chevron.
     FileHeader {
+        /// The full path — the tests key header rows by it.
+        #[allow(dead_code)]
         path: SharedString,
         /// The basename, at full weight.
         name: SharedString,
@@ -214,7 +216,6 @@ pub(crate) enum RenderRow {
         status: DiffStatus,
         additions: u32,
         deletions: u32,
-        binary: bool,
     },
     /// What a file with no hunks says instead of rows (web `noHunksNote`),
     /// and the transcript card's trailing "… N more lines".
@@ -501,7 +502,6 @@ pub(crate) fn file_header_only(file: &DiffFile) -> RenderRow {
         status: file.status,
         additions: file.additions,
         deletions: file.deletions,
-        binary: file.binary,
     }
 }
 
@@ -1598,7 +1598,6 @@ mod tests {
                 status: DiffStatus::Modified,
                 additions: 1,
                 deletions: 0,
-                binary: false,
             },
             RenderRow::HunkHeader { header: "@@".into() },
             line(),

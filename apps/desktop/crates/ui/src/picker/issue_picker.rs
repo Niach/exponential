@@ -236,16 +236,18 @@ pub(crate) struct IssueRow {
 /// ANCHOR-based on purpose — every closed-ish CATEGORY writes one of these
 /// three anchors, so a custom completed / cancelled status is classified
 /// correctly with no status-row join (this picker spans boards).
-pub(crate) fn is_closed(status: IssueStatus, pr_state: Option<&str>) -> bool {
+/// EXP-1294: `pr_merged` = the issue's pull requests landed
+/// ([`merged_issue_ids`]).
+pub(crate) fn is_closed(status: IssueStatus, pr_merged: bool) -> bool {
     matches!(
         status,
         IssueStatus::Done | IssueStatus::Cancelled | IssueStatus::Duplicate
-    ) || pr_state == Some("merged")
+    ) || pr_merged
 }
 
 /// The closed-state hint a pre-seeded row shows.
-pub(crate) fn state_hint(status: IssueStatus, pr_state: Option<&str>) -> Option<&'static str> {
-    if pr_state == Some("merged") {
+pub(crate) fn state_hint(status: IssueStatus, pr_merged: bool) -> Option<&'static str> {
+    if pr_merged {
         return Some("PR merged");
     }
     match status {
@@ -254,6 +256,28 @@ pub(crate) fn state_hint(status: IssueStatus, pr_state: Option<&str>) -> Option<
         IssueStatus::Duplicate => Some("duplicate"),
         _ => None,
     }
+}
+
+/// EXP-1294 — the issues whose pull request landed: linked to a MERGED pull
+/// request and to no open one (a fresh PR reopens the work).
+pub(crate) fn merged_issue_ids(cx: &App) -> HashSet<String> {
+    let collections = Store::global(cx).collections();
+    let pulls = collections.pull_requests.read(cx);
+    let mut merged = HashSet::new();
+    let mut open = HashSet::new();
+    for link in collections.pull_request_issues.read(cx).iter() {
+        match pulls.get(&link.pull_request_id) {
+            Some(pull) if pull.is_open() => {
+                open.insert(link.issue_id.clone());
+            }
+            Some(pull) if pull.is_merged() => {
+                merged.insert(link.issue_id.clone());
+            }
+            _ => {}
+        }
+    }
+    merged.retain(|issue_id| !open.contains(issue_id));
+    merged
 }
 
 /// Snapshot the picker's pool for `team_id`: every OPEN team issue, board→
@@ -281,12 +305,13 @@ pub(crate) fn snapshot_rows(cx: &App, team_id: &str, preselected: &HashSet<Strin
         }
     }
     let statuses = crate::queries::team_statuses(cx, team_id);
+    let merged = merged_issue_ids(cx);
     let mut rows: Vec<(&domain::rows::Issue, bool)> = issues
         .into_iter()
         .enumerate()
         .map(|(ix, issue)| (issue, ix < joined))
         .filter(|(issue, _)| {
-            preselected.contains(&issue.id) || !is_closed(issue.status, issue.pr_state.as_deref())
+            preselected.contains(&issue.id) || !is_closed(issue.status, merged.contains(&issue.id))
         })
         .collect();
     rows.sort_by(|(a, _), (b, _)| {
@@ -296,7 +321,7 @@ pub(crate) fn snapshot_rows(cx: &App, team_id: &str, preselected: &HashSet<Strin
     });
     rows.into_iter()
         .map(|(issue, in_team)| IssueRow {
-            state_hint: state_hint(issue.status, issue.pr_state.as_deref()),
+            state_hint: state_hint(issue.status, merged.contains(&issue.id)),
             issue_id: issue.id.clone(),
             board_id: issue.board_id.clone(),
             identifier: issue.identifier.clone(),
@@ -487,14 +512,14 @@ mod tests {
     /// names which.
     #[test]
     fn closed_rows_and_their_hints() {
-        assert!(is_closed(IssueStatus::Done, None));
-        assert!(is_closed(IssueStatus::Cancelled, None));
-        assert!(is_closed(IssueStatus::Duplicate, None));
-        assert!(is_closed(IssueStatus::Backlog, Some("merged")));
-        assert!(!is_closed(IssueStatus::InProgress, Some("open")));
-        assert_eq!(state_hint(IssueStatus::Backlog, Some("merged")), Some("PR merged"));
-        assert_eq!(state_hint(IssueStatus::Done, None), Some("done"));
-        assert_eq!(state_hint(IssueStatus::InReview, Some("open")), None);
+        assert!(is_closed(IssueStatus::Done, false));
+        assert!(is_closed(IssueStatus::Cancelled, false));
+        assert!(is_closed(IssueStatus::Duplicate, false));
+        assert!(is_closed(IssueStatus::Backlog, true));
+        assert!(!is_closed(IssueStatus::InProgress, false));
+        assert_eq!(state_hint(IssueStatus::Backlog, true), Some("PR merged"));
+        assert_eq!(state_hint(IssueStatus::Done, false), Some("done"));
+        assert_eq!(state_hint(IssueStatus::InReview, false), None);
     }
 
     /// Release review R5: the memo ranks once per (pool, query, checked) and

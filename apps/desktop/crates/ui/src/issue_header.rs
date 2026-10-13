@@ -6,11 +6,10 @@
 //! its rows with the title block it owns itself, so this renders through
 //! builders called from the host's render and assembled into the shared
 //! `work_header::WorkHeader` (EXP-877): [`IssueHeader::right_cluster`]
-//! (face toggle · pin · `…`), [`IssueHeader::chip_row`] (Status · Priority ·
-//! Assignee · Labels · Due date · Estimate · Board · Origin, trailing
-//! [`IssueHeader::issue_actions`]: Merge PR + the ONE coding action) and
-//! [`IssueHeader::agent_row`] (the merge-error caption). The host observes
-//! this entity so a builder's `cx.notify()` reaches it.
+//! (EXP-1294: related-work badge · Start · pin · `…`) and
+//! [`IssueHeader::chip_row`] (Status · Priority · Assignee · Labels · Due
+//! date · Estimate · Board · Origin · Threads). The host observes this
+//! entity so a builder's `cx.notify()` reaches it.
 //!
 //! Every control mutates immediately through tRPC (`issues.update` /
 //! `issueLabels.add|remove`) in the §4.1 un-gated form — the Electric echo
@@ -43,7 +42,7 @@ use domain::issue_estimate::estimate_short_label;
 use domain::options::get_issue_priority_config;
 use domain::rows::{Issue, Label, Board, User};
 
-use crate::coding_flow::{LocalSessions, StartCodingControl};
+use crate::coding_flow::StartCodingControl;
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH};
 use crate::issue_detail::{issue_web_url, set_duplicate_of};
@@ -58,15 +57,9 @@ pub struct IssueHeader {
     // hold their query fields and their keyboard cursors. The shared picker
     // primitive owns both now, so the header holds no picker state at all —
     // only the due-date calendar, which is not one of the ten.
-    /// The detail view's Start-coding control, rendered here as the "Agent"
-    /// group (EXP-256, web parity — the entity stays owned by the detail
-    /// view, which also reads its `resolved_repo` for the actions menu).
+    /// EXP-1294: the detail view's ONE Start button, rendered in the right
+    /// cluster (the entity stays owned by the detail view).
     start_coding: Entity<StartCodingControl>,
-    /// EXP-895: the Changes face's bar OWNS the merge control while it is up
-    /// — the tray must not offer a second Merge PR beside it. Set by the
-    /// session screen before it builds the tray; the issue detail leaves it
-    /// false.
-    merge_suppressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -101,31 +94,22 @@ impl IssueHeader {
                 cx.notify();
             },
         ));
-        // The Agent group's coding-now card follows the synced sessions; its
-        // skip-while-local guard follows the local registry.
-        let local_sessions = LocalSessions::global(cx);
-        let merge_state = crate::pr_merge::MergeState::global(cx);
         for subscription in [
             cx.observe(&collections.labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.issue_labels, |_, _, cx| cx.notify()),
             cx.observe(&collections.users, |_, _, cx| cx.notify()),
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
-            cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
-            // EXP-1284: the tray's `Threads` row.
-            cx.observe(&collections.threads, |_, _, cx| cx.notify()),
-            cx.observe(&collections.thread_items, |_, _, cx| cx.notify()),
-            // EXP-549/550: the card's machine name + paused state come from
-            // the devices rows — heartbeats and renames re-render it.
-            cx.observe(&collections.devices, |_, _, cx| cx.notify()),
+            // EXP-1294: the tray's Threads row (roots linked through
+            // `session_issues`) and the Close PR / related-work reads.
+            cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.session_issues, |_, _, cx| cx.notify()),
+            cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
+            cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()),
             // EXP-314: a status rename/recolor re-renders the status control.
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify()),
             // EXP-778: the pin toggle's glyph reads the per-user pins rows.
             cx.observe(&collections.pins, |_, _, cx| cx.notify()),
-            cx.observe(&local_sessions, |_, _, cx| cx.notify()),
-            // EXP-325: the Merge button's arm/spinner/error live in the
-            // shared app-global merge state (any surface can drive them).
-            cx.observe(&merge_state, |_, _, cx| cx.notify()),
         ] {
             subscriptions.push(subscription);
         }
@@ -133,15 +117,8 @@ impl IssueHeader {
             issue_id: None,
             due_calendar,
             start_coding,
-            merge_suppressed: false,
             _subscriptions: subscriptions,
         }
-    }
-
-    /// EXP-895: hide the tray's Merge PR while another surface owns the merge
-    /// control (the run's Changes bar).
-    pub(crate) fn set_merge_suppressed(&mut self, suppressed: bool) {
-        self.merge_suppressed = suppressed;
     }
 
     /// Point the header at another issue.
@@ -583,30 +560,6 @@ impl IssueHeader {
         )
     }
 
-    /// The header Merge button (EXP-268): the shared merge pill
-    /// (`work_header::merge_pill`, EXP-917) — two-click arm ("Merge PR" →
-    /// "Confirm merge", auto-disarm ~5s), `issues.mergePr` on the background
-    /// executor, the spinner held until the Electric echo flips `pr_state`
-    /// away from `open` (which also drops the whole button). Merge always
-    /// closes (EXP-498). EXP-1233: a REAL conflict opens the fix-conflicts
-    /// composer — the pill does that itself, like every other Merge PR
-    /// surface. Primary: with a PR open, merging is
-    /// what the reader came to do, and Start coding stands down to the glass
-    /// paint beside it (`header_action_styles`).
-    fn merge_button(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        crate::work_header::merge_pill(
-            "header-merge-pr",
-            &crate::changes_bar::MergeTarget::Issue {
-                issue_id: issue.id.clone(),
-            },
-            true,
-            // EXP-926: this one lives IN the property card's chip row, so it
-            // is chip-sized like the chips beside it.
-            crate::work_header::header_action_size(true),
-            cx,
-        )
-    }
-
     // -- EXP-277: the former issue-detail header cluster ---------------------
     // (EXP-791 retired the EXP-48 prev/next switcher that opened it: the
     // issue's tab is the one place it lives, and the rail's lists step it.)
@@ -617,8 +570,8 @@ impl IssueHeader {
     /// so the menu is always rendered, not just for a duplicate.
     ///
     /// Items, in web order and with NO dividers (EXP-697): Copy link · Add
-    /// relation ▸ · Unmark duplicate (only when it IS one) · Close PR
-    /// (EXP-1154: only while the PR is open) · Delete issue.
+    /// relation ▸ · Unmark duplicate (only when it IS one) · Close PR per
+    /// OPEN pull request (EXP-1154/EXP-1294) · Delete issue.
     fn render_actions_menu(
         &mut self,
         issue: &Issue,
@@ -628,22 +581,11 @@ impl IssueHeader {
         let issue_id = issue.id.clone();
         let identifier = issue.identifier.clone();
         let is_duplicate = issue.duplicate_of_id.is_some();
-        // EXP-1154: closing the PR without merging lives here now (the review
-        // screen and its reject glyph are gone). Every viewer of an issue is
-        // a member (nothing is anonymously readable), so the open PR is the
-        // whole gate. A batch PR names how many other issues it closes for.
-        let close_pr = (issue.pr_state.as_deref() == Some("open")).then(|| {
-            let others = issue.pr_url.as_deref().map_or(0, |pr_url| {
-                Store::global(cx)
-                    .collections()
-                    .issues
-                    .read(cx)
-                    .iter()
-                    .filter(|other| other.id != issue.id && other.pr_url.as_deref() == Some(pr_url))
-                    .count()
-            });
-            close_pr_description(others)
-        });
+        // EXP-1154: closing a PR without merging lives here. Every viewer of
+        // an issue is a member (nothing is anonymously readable), so an open
+        // PR is the whole gate. A PR closing several issues names how many
+        // others it closes for (`pull_request_issues`).
+        let close_prs = close_pr_items(&issue.id, cx);
         // EXP-862: the "..." is a GHOST glyph, never a circle.
         crate::controls::PointerMenu::for_button(crate::controls::ghost_icon_button("issue-actions", Icon::new(registry::UI_MORE), cx)
             .tooltip("Issue actions"),
@@ -682,17 +624,17 @@ impl IssueHeader {
                             }),
                     );
                 }
-                if let Some(description) = close_pr.clone() {
-                    let issue_id = issue_id.clone();
+                for item in close_prs.iter().cloned() {
                     menu = menu.item(
-                        crate::controls::danger_menu_item(
-                            domain::contract::DIFF_UI_CLOSE_PR,
-                            Icon::new(registry::PR_CLOSED),
-                            cx,
-                        )
-                        .on_click(move |_, window, cx| {
-                            prompt_close_pr(issue_id.clone(), description.clone(), window, cx);
-                        }),
+                        crate::controls::danger_menu_item(item.label.clone(), Icon::new(registry::PR_CLOSED), cx)
+                            .on_click(move |_, window, cx| {
+                                prompt_close_pr(
+                                    item.pull_request_id.clone(),
+                                    item.description.clone(),
+                                    window,
+                                    cx,
+                                );
+                            }),
                     );
                 }
                 let issue_id = issue_id.clone();
@@ -720,42 +662,19 @@ impl IssueHeader {
             })
     }
 
-    /// EXP-877: the work header's row-1 right cluster — `[leading?] [pin]
-    /// [… menu]`, where `leading` is the tab's face toggle
-    /// (`work_header::face_toggle`), just left of the pin — the web header's
-    /// order. (EXP-723 retired the Subscribe toggle on every client; EXP-760
-    /// folded copy-link and delete into the menu; EXP-791 retired the
-    /// prev/next switcher.) `changes_open` = the Changes face is the one on
-    /// show (the detail's PR files pane or a run's diff face), the ONE face
-    /// that carries the GitHub link (EXP-949).
-    ///
-    /// EXP-1162: `actions` = extra buttons placed BEFORE the toggle (the
-    /// collapsed issue face's Merge / Stop / Resume copies rode here; both
-    /// callers pass none today).
+    /// EXP-877/EXP-1294: the work header's right cluster — `[related-work
+    /// badge?] [Start] [pin] [… menu]`. The Start button is the detail
+    /// view's ONE `StartCodingControl` (it hides itself on a repo-less
+    /// board).
     pub(crate) fn right_cluster(
         &mut self,
         issue: &Issue,
-        actions: Vec<gpui::AnyElement>,
-        leading: Option<gpui::AnyElement>,
-        changes_open: bool,
         cx: &mut gpui::Context<Self>,
     ) -> Vec<gpui::AnyElement> {
-        let mut cluster = Vec::with_capacity(5 + actions.len());
-        // EXP-897 §4: the ONE related-work badge, shared by all three faces.
+        let mut cluster = Vec::with_capacity(4);
+        // EXP-897 §4: the ONE related-work badge.
         cluster.extend(self.pr_graph_badge(issue, cx));
-        cluster.extend(actions);
-        cluster.extend(leading);
-        // EXP-916: the way out to GitHub for a subject with a pull request —
-        // the diff surfaces no longer carry one of their own. EXP-949: on
-        // the Changes face ALONE (never Issue, Run or Results), beside the
-        // diff it opens.
-        if changes_open {
-            cluster.extend(crate::work_header::github_button(
-                "work-github",
-                issue.pr_url.as_deref(),
-                cx,
-            ));
-        }
+        cluster.push(self.start_coding.clone().into_any_element());
         // EXP-778: the personal pin toggle — a pinned issue lands in the
         // rail's Pinned section. Needs the team (the board's) to address
         // the toggle; a not-yet-synced board hides it for a repaint.
@@ -783,50 +702,11 @@ impl IssueHeader {
 
     /// EXP-897 §4 / SLOP-16: the related-work badge, an icon button
     /// (`pr-stack` / `pr-batch` / `relation-blocked-by`, `+N`) opening the
-    /// "Related work" dialog, the same on every face. Absent when there is
-    /// nothing around this issue at all.
+    /// "Related work" dialog. Absent when there is nothing around this issue
+    /// at all.
     fn pr_graph_badge(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
         let spec = crate::pr_graph::issue_spec(issue, cx);
         crate::pr_graph::badge("issue-pr-graph", spec, cx)
-    }
-
-    /// EXP-877: the tray's trailing action cluster — `[Merge PR while the PR
-    /// is open] [the ONE coding action]`. The coding action comes from the
-    /// run STATE (`work_header::coding_action`): an own live run → Stop, an
-    /// own ended resumable run → Resume, otherwise the launcher (primary
-    /// unless the PR is open, then glass — `header_action_styles`). The
-    /// launcher is the entity this header owns; it hides itself on a
-    /// repo-less board (`is_visible`).
-    pub(crate) fn issue_actions(
-        &mut self,
-        issue: &Issue,
-        action: crate::work_header::CodingAction,
-        cx: &mut gpui::Context<Self>,
-    ) -> Vec<gpui::AnyElement> {
-        let pr_open = issue.pr_state.as_deref() == Some("open");
-        let start_visible = matches!(action, crate::work_header::CodingAction::Start)
-            && self.start_coding.read(cx).is_visible(cx);
-        let styles = header_action_styles(start_visible, pr_open);
-        self.start_coding
-            .update(cx, |control, cx| control.set_demoted(styles.demote_start, cx));
-        let mut actions = Vec::with_capacity(2);
-        if styles.merge && !self.merge_suppressed {
-            actions.push(self.merge_button(issue, cx).into_any_element());
-        }
-        match action {
-            crate::work_header::CodingAction::Start => {
-                if styles.start_coding {
-                    actions.push(self.start_coding.clone().into_any_element());
-                }
-            }
-            other => actions.extend(crate::work_header::coding_action_button(
-                other,
-                None,
-                crate::work_header::header_action_size(true),
-                cx,
-            )),
-        }
-        actions
     }
 
     /// EXP-417: the mobile-style chip row under the title — Status ·
@@ -835,13 +715,10 @@ impl IssueHeader {
     /// detail view's `centered_column`, which supplies the definite width
     /// `flex_wrap` needs.
     ///
-    /// EXP-877: `actions` is the trailing cluster at the tray's right edge
-    /// (`ml_auto`; actions, so they keep their visual distance from the
-    /// chips even after wrapping) — [`Self::issue_actions`] on every host.
+    /// EXP-1294: the tray trails no actions (Start rides the bar).
     pub(crate) fn chip_row(
         &mut self,
         issue: &Issue,
-        actions: Vec<gpui::AnyElement>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         // EXP-50: a team with exactly one human member has no assignment
@@ -850,10 +727,8 @@ impl IssueHeader {
         // synced 0-member snapshot) keeps the picker.
         let solo_team = self.member_users(issue, cx).len() == 1;
 
-        // EXP-568/EXP-601: everything lives in ONE glass tray — the property
-        // chips grow from the left, the actions float on the right edge of
-        // the same card (EXP-1170: `work_header::property_tray`, shared with
-        // the New issue page).
+        // EXP-568/EXP-601: everything lives in ONE tray (EXP-1170:
+        // `work_header::property_tray`, shared with the New issue page).
         let mut chips = vec![
             self.status_control(issue, cx).into_any_element(),
             self.priority_control(issue, cx).into_any_element(),
@@ -868,7 +743,7 @@ impl IssueHeader {
         chips.extend(self.origin_chip(issue, cx).map(IntoElement::into_any_element));
         // EXP-1284: the issue names its threads (draft 3).
         chips.extend(crate::thread_screen::issue_threads_row(&issue.id, cx));
-        crate::work_header::property_tray(chips, actions)
+        crate::work_header::property_tray(chips, Vec::new())
     }
 
     /// The Board chip (EXP-282): the board's own glyph tinted with its color
@@ -1056,27 +931,6 @@ pub(crate) fn parse_hex_color(hex: &str) -> Option<gpui::Hsla> {
     )
 }
 
-/// EXP-760: which trailing actions the header's property tray shows, and
-/// which of them wears the emphasised (white) paint.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct HeaderActionStyles {
-    pub(crate) start_coding: bool,
-    pub(crate) merge: bool,
-    /// Start coding drops to the glass pill — an open PR means Merge is the
-    /// action, and two white pills side by side name neither.
-    pub(crate) demote_start: bool,
-}
-
-/// The pure rule behind [`IssueHeader::chip_row`]'s trailing cluster.
-pub(crate) fn header_action_styles(start_visible: bool, pr_open: bool) -> HeaderActionStyles {
-    HeaderActionStyles {
-        start_coding: start_visible,
-        merge: pr_open,
-        demote_start: start_visible && pr_open,
-    }
-}
-
-
 /// EXP-1154 — the Close PR confirm's copy (fixture `close-pr.json`, ×4).
 pub(crate) const CLOSE_PR_TITLE: &str = "Close pull request?";
 pub(crate) const CLOSE_PR_BODY: &str = "Closes the pull request on GitHub without merging. Use this when the issue was dropped even though the work exists. The branch is kept and the PR can be reopened on GitHub.";
@@ -1095,18 +949,58 @@ pub(crate) fn close_pr_description(others: usize) -> String {
     )
 }
 
-/// EXP-1154 — confirm, then close `issue_id`'s PR without merging through
-/// the shared [`crate::pr_merge`] machinery (a refusal captions under the
-/// header's merge slot, like a failed merge).
-fn prompt_close_pr(issue_id: String, description: String, window: &mut Window, cx: &mut App) {
+/// One Close PR item of the `…` menu: an OPEN pull request of the issue.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClosePrItem {
+    pub(crate) pull_request_id: String,
+    pub(crate) label: SharedString,
+    pub(crate) description: String,
+}
+
+/// EXP-1294 — the issue's OPEN pull requests as Close PR items: the plain
+/// contract label for one, `Close PR #N` once there are several; each
+/// description names the other issues the PR also closes.
+pub(crate) fn close_pr_items(issue_id: &str, cx: &App) -> Vec<ClosePrItem> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let links = store.collections().pull_request_issues.read(cx);
+    let open: Vec<_> = crate::session_data::pull_requests_of_issue(issue_id, cx)
+        .into_iter()
+        .filter(|pull| pull.is_open())
+        .collect();
+    let several = open.len() > 1;
+    open.into_iter()
+        .map(|pull| {
+            let others = links
+                .iter()
+                .filter(|link| link.pull_request_id == pull.id && link.issue_id != issue_id)
+                .count();
+            let label = match pull.number {
+                Some(number) if several => format!("{} #{number}", domain::contract::DIFF_UI_CLOSE_PR),
+                _ => domain::contract::DIFF_UI_CLOSE_PR.to_string(),
+            };
+            ClosePrItem {
+                pull_request_id: pull.id,
+                label: label.into(),
+                description: close_pr_description(others),
+            }
+        })
+        .collect()
+}
+
+/// EXP-1154 — confirm, then close the pull request without merging through
+/// the shared [`crate::pr_merge`] machinery (a refusal toasts, like a failed
+/// merge).
+fn prompt_close_pr(pull_request_id: String, description: String, window: &mut Window, cx: &mut App) {
     let tall = description.len() > CLOSE_PR_BODY.len();
     let spec = crate::native_dialog::AlertSpec::new(CLOSE_PR_TITLE, description, CLOSE_PR_CONFIRM)
         .ok_variant(gpui_component::button::ButtonVariant::Danger)
         .height(gpui::px(if tall { 280. } else { 250. }))
         .on_ok(move |_, cx| {
             crate::pr_merge::fire_confirmed(
-                crate::pr_merge::MergeOp::CloseIssuePr {
-                    issue_id: issue_id.clone(),
+                crate::pr_merge::MergeOp::Close {
+                    pull_request_id: pull_request_id.clone(),
                 },
                 cx,
             );
@@ -1139,29 +1033,6 @@ mod tests {
             format!("{CLOSE_PR_BODY} It also closes the pull request for 2 linked issues.")
         );
     }
-
-    /// EXP-760: exactly ONE emphasised pill in the tray. An open PR makes it
-    /// Merge and demotes Start coding; without one, Start coding keeps it.
-    #[test]
-    fn only_one_header_action_is_emphasised() {
-        // The ordinary issue: Start coding, white, no Merge.
-        let plain = header_action_styles(true, false);
-        assert!(plain.start_coding && !plain.merge && !plain.demote_start);
-
-        // PR open with a startable issue: both show, Merge takes the white.
-        let both = header_action_styles(true, true);
-        assert!(both.start_coding && both.merge && both.demote_start);
-
-        // PR open on a repo-less/live-session issue: Merge alone, and there
-        // is nothing to demote.
-        let merge_only = header_action_styles(false, true);
-        assert!(!merge_only.start_coding && merge_only.merge && !merge_only.demote_start);
-
-        // Neither: the tray trails nothing at all.
-        let neither = header_action_styles(false, false);
-        assert!(!neither.demote_start);
-    }
-
 
     #[test]
     fn mutation_date_is_iso_ymd() {

@@ -17,7 +17,7 @@ use sync::Store;
 use domain::board::build_status_groups;
 use domain::issue_graph::{block_counts, BlockCounts, GraphIssue, GraphRelation};
 use domain::issue_nesting::{nest_issue_rows, NestingRelation};
-use domain::rows::{Issue, IssueStatusRow, Label};
+use domain::rows::{Issue, IssueStatusRow, Label, SessionIssueRow, SessionRow};
 use domain::statuses::{resolve_status_sorted, sort_team_statuses, ResolvedStatus};
 
 use crate::session::AuthContext;
@@ -452,23 +452,6 @@ pub(crate) fn issue_team_id(cx: &App, issue_id: &str) -> Option<String> {
         .map(|board| board.team_id.clone())
 }
 
-/// EXP-1248: the issue's board's `default_branch` — the Stack card's base row
-/// fallback (web `useIssueStack().defaultBranch`), before the literal
-/// `default branch`.
-pub(crate) fn issue_board_default_branch(cx: &App, issue_id: &str) -> Option<String> {
-    let collections = Store::global(cx).collections();
-    let board_id = collections
-        .issues
-        .read(cx)
-        .get(issue_id)
-        .map(|issue| issue.board_id.clone())?;
-    collections
-        .boards
-        .read(cx)
-        .get(&board_id)
-        .and_then(|board| board.default_branch.clone())
-}
-
 /// `use-team-data.ts` `useTeamUsers`: `team_members` ⨝ `users`
 /// (name-sorted for deterministic pickers), matching the web's `people`
 /// filter (EXP-50 alignment: this query and the properties panel's member
@@ -498,12 +481,11 @@ pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
     out
 }
 
-/// A team's actions from the synced `actions` shape (EXP-268): the local
-/// builtins ("Create action", then "Fix merge conflicts" — EXP-259; neither is
-/// a DB row, so the shape can't carry them) prepended, real rows sorted
+/// A team's actions from the synced `actions` shape (EXP-268), sorted
 /// `sortOrder` then `name` (collections hydrate unordered — the old server
-/// ordering must be re-applied client-side). Second value = the shape reached
-/// readiness (for the loading-vs-empty split).
+/// ordering must be re-applied client-side). EXP-1294: actions are saved
+/// prompts only; the virtual builtins are gone. Second value = the shape
+/// reached readiness (for the loading-vs-empty split).
 pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool) {
     let collections = Store::global(cx).collections();
     let collection = collections.actions.read(cx);
@@ -517,14 +499,6 @@ pub fn team_actions(cx: &App, team_id: &str) -> (Vec<api::actions::Action>, bool
             .total_cmp(&b.sort_order)
             .then_with(|| a.name.cmp(&b.name))
     });
-    // FEED-50: Create action → Fix conflicts → Tidy up, then the team's rows.
-    // SLOP-2: a team that owns a REAL `Tidy up` row (it carries the triggers
-    // a builtin cannot) lists that one — the virtual builtin steps aside.
-    if !api::actions::has_own_tidy_up_action(out.iter().map(|action| action.name.as_str())) {
-        out.insert(0, api::actions::builtin_tidy_up_action(team_id));
-    }
-    out.insert(0, api::actions::builtin_fix_conflicts_action(team_id));
-    out.insert(0, api::actions::builtin_create_action(team_id));
     (out, collection.is_ready())
 }
 
@@ -636,14 +610,6 @@ pub struct InboxGroup {
 }
 
 impl InboxGroup {
-    /// EXP-933: an issue entry whose LATEST notification is an agent's
-    /// message (`agent_message` now may carry the target issue) opens that
-    /// issue on its RESULTS — the report the agent is pointing at — rather
-    /// than on the issue face.
-    pub fn opens_results(&self) -> bool {
-        self.items.first().and_then(|n| n.kind.as_deref())
-            == Some(domain::contract::NOTIFICATION_TYPE_AGENT_MESSAGE)
-    }
 }
 
 /// One agent message (EXP-801): an issue-less `agent_message` row is its own
@@ -876,352 +842,16 @@ fn build_inbox_entries(
         .collect()
 }
 
-/// Open pull requests: synced issues in this team with an open PR — a
-/// query over `issues`, independent of notifications (the stack merge's
-/// lookup).
-pub fn review_issues(cx: &App, team_id: &str) -> Vec<domain::rows::Issue> {
-    let collections = Store::global(cx).collections();
-    let boards = collections.boards.read(cx);
-    collections
-        .issues
-        .read(cx)
-        .iter()
-        .filter(|issue| {
-            is_reviewable(issue)
-                && boards
-                    .get(&issue.board_id)
-                    .is_some_and(|board| board.team_id == team_id)
-        })
-        .cloned()
-        .collect()
-}
+// ---------------------------------------------------------------------------
+// Session hosts (EXP-1294: ONE `sessions` tree; reads of the tree itself live
+// in `session_data`)
+// ---------------------------------------------------------------------------
 
-/// The per-issue Reviews predicate: an OPEN pull request. A batch PR entry
-/// groups every issue that shares the `pr_url` (mobile parity).
-pub(crate) fn is_reviewable(issue: &domain::rows::Issue) -> bool {
-    issue.pr_state.as_deref() == Some("open")
-}
-
-/// One Reviews entry: the issue(s) behind a single open PR. A plain
-/// single-issue PR has one issue; a batch run (EXP-131) lands N issues on ONE
-/// branch under ONE `pr_url`, so they collapse into a single entry. Issues are
-/// in `domain::reviews_queue::representative_order` (newest first, id
-/// ascending); [`representative`](Self::representative) (the first) carries
-/// the shared `pr_number`/`branch` and is the merge/dismiss target.
-#[derive(Clone)]
-pub struct ReviewEntry {
-    pub issues: Vec<domain::rows::Issue>,
-}
-
-impl ReviewEntry {
-    /// The representative issue — the one whose id drives row-click, merge and
-    /// dismiss (the server acts on the ONE linked PR either way).
-    pub fn representative(&self) -> &domain::rows::Issue {
-        &self.issues[0]
-    }
-
-    /// A batch PR groups more than one issue.
-    pub fn is_batch(&self) -> bool {
-        self.issues.len() > 1
-    }
-}
-
-/// EXP-1248: one display item of a board band (`domain::reviews_queue`
-/// rule 9, web `ReviewItem`).
-#[derive(Clone)]
-pub enum ReviewItem {
-    /// A lone PR (depth 0) or a PR TREE member, pre-order under its root.
-    Pr { entry: ReviewEntry, depth: usize },
-    /// A linear STACK: entries TOP first, then the base-branch row.
-    Stack {
-        entries: Vec<ReviewEntry>,
-        base_branch: Option<String>,
-    },
-}
-
-/// One Reviews page section: a board and its open-PR entries (the
-/// desktop mirror of the web `use-reviews-data.ts` `ReviewGroup`).
-pub struct ReviewGroup {
-    pub board: domain::rows::Board,
-    /// Every entry, flat, newest first.
-    pub entries: Vec<ReviewEntry>,
-    /// EXP-1248: the same entries as the band draws them (trees nested,
-    /// stacks railed).
-    pub items: Vec<ReviewItem>,
-}
-
-/// EXP-1244: the Reviews page read, the shared `domain::reviews_queue` (×4,
-/// fixture-locked) over the active team: board groups, the "Agent runs"
-/// block (EXP-734) and the repo bands of pulls no synced row links.
-pub struct ReviewsQueue {
-    pub groups: Vec<ReviewGroup>,
-    pub runs: Vec<domain::rows::CodingSession>,
-    pub pull_repos: Vec<api::repositories::OpenPullsRepo>,
-    pub count: usize,
-}
-
-/// Pure core of [`reviews_queue`]: the desktop scope is ONE team, and
-/// `pulls` = that team's `repositories.openPulls` result (`[]` until fetched).
-pub(crate) fn reviews_queue_from<'a>(
-    team_id: &'a str,
-    boards: impl IntoIterator<Item = &'a domain::rows::Board>,
-    issues: impl IntoIterator<Item = &'a domain::rows::Issue>,
-    sessions: impl IntoIterator<Item = &'a domain::rows::CodingSession>,
-    pulls: &'a [api::repositories::OpenPullsRepo],
-) -> ReviewsQueue {
-    use domain::reviews_queue::{reviews_queue, PullRepo};
-    let inputs: Vec<PullRepo<'_, api::repositories::OpenPull>> = pulls
-        .iter()
-        .map(|repo| PullRepo {
-            team_id,
-            repository_id: &repo.repository_id,
-            pulls: &repo.pulls,
-        })
-        .collect();
-    let queue = reviews_queue(&[team_id], boards, issues, sessions, &inputs, |pull| {
-        pull.url.as_str()
-    });
-    ReviewsQueue {
-        groups: queue
-            .board_groups
-            .into_iter()
-            .map(|group| {
-                let own = |entry: domain::reviews_queue::QueueEntry<'_>| ReviewEntry {
-                    issues: entry.issues.into_iter().cloned().collect(),
-                };
-                ReviewGroup {
-                    board: group.board.clone(),
-                    items: group
-                        .items
-                        .into_iter()
-                        .map(|item| match item {
-                            domain::reviews_queue::QueueItem::Pr { entry, depth } => {
-                                ReviewItem::Pr {
-                                    entry: own(entry),
-                                    depth,
-                                }
-                            }
-                            domain::reviews_queue::QueueItem::Stack {
-                                entries,
-                                base_branch,
-                            } => ReviewItem::Stack {
-                                entries: entries.into_iter().map(own).collect(),
-                                base_branch,
-                            },
-                        })
-                        .collect(),
-                    entries: group.entries.into_iter().map(own).collect(),
-                }
-            })
-            .collect(),
-        runs: queue
-            .run_groups
-            .into_iter()
-            .flat_map(|group| group.sessions.into_iter().cloned())
-            .collect(),
-        pull_repos: queue
-            .repo_groups
-            .into_iter()
-            .map(|group| api::repositories::OpenPullsRepo {
-                repository_id: group.repository_id,
-                full_name: pulls[group.index].full_name.clone(),
-                pulls: group.pulls.into_iter().cloned().collect(),
-            })
-            .collect(),
-        count: queue.count,
-    }
-}
-
-/// The Reviews queue of `team_id` over the synced boards, issues and runs
-/// plus `pulls` (the team's fetched `repositories.openPulls`).
-pub fn reviews_queue(
-    cx: &App,
-    team_id: &str,
-    pulls: &[api::repositories::OpenPullsRepo],
-) -> ReviewsQueue {
-    let collections = Store::global(cx).collections();
-    reviews_queue_from(
-        team_id,
-        collections.boards.read(cx).iter(),
-        collections.issues.read(cx).iter(),
-        collections.coding_sessions.read(cx).iter(),
-        pulls,
-    )
-}
-
-/// The queue's `count` alone — the rail's Reviews dot (EXP-1244: the SAME
-/// shared function as the page, minus the row clones; memoized on
-/// [`reviews_count_key`]).
-pub fn reviews_count(
-    cx: &App,
-    team_id: &str,
-    pulls: &[api::repositories::OpenPullsRepo],
-) -> usize {
-    use domain::reviews_queue::{reviews_queue, PullRepo};
-    let collections = Store::global(cx).collections();
-    let inputs: Vec<PullRepo<'_, api::repositories::OpenPull>> = pulls
-        .iter()
-        .map(|repo| PullRepo {
-            team_id,
-            repository_id: &repo.repository_id,
-            pulls: &repo.pulls,
-        })
-        .collect();
-    reviews_queue(
-        &[team_id],
-        collections.boards.read(cx).iter(),
-        collections.issues.read(cx).iter(),
-        collections.coding_sessions.read(cx).iter(),
-        &inputs,
-        |pull| pull.url.as_str(),
-    )
-    .count
-}
-
-/// Every input [`reviews_count`] reads: the team, the three synced
-/// collections and the openPulls store's revision.
-#[derive(PartialEq, Eq)]
-pub(crate) struct ReviewsCountKey {
-    team_id: String,
-    issues: u64,
-    boards: u64,
-    sessions: u64,
-    pulls: u64,
-}
-
-pub(crate) fn reviews_count_key(cx: &App, team_id: &str, pulls_revision: u64) -> ReviewsCountKey {
-    let collections = Store::global(cx).collections();
-    ReviewsCountKey {
-        team_id: team_id.to_string(),
-        issues: collections.issues.read(cx).revision(),
-        boards: collections.boards.read(cx).revision(),
-        sessions: collections.coding_sessions.read(cx).revision(),
-        pulls: pulls_revision,
-    }
-}
-
-/// The board groups alone (the `pr` pick). Reads only boards + issues.
-pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
-    let collections = Store::global(cx).collections();
-    reviews_queue_from(
-        team_id,
-        collections.boards.read(cx).iter(),
-        collections.issues.read(cx).iter(),
-        std::iter::empty(),
-        &[],
-    )
-    .groups
-}
-
-/// EXP-153: a `running` (or `in_review` — EXP-194: PR open, terminal still
-/// alive) coding_sessions row renders as live only while its `updated_at`
-/// (heartbeat-advanced) is inside the contract stale window — stale rows are
-/// treated as ABSENT, mirroring the server sweep's DELETE (never as `ended`,
-/// which is the kill-switch signal). Missing/unparseable `updated_at` → live
-/// (fail-open: never hide a session the server still considers alive; the
-/// sweep is the backstop). No re-render timer: gpui re-evaluates on every
-/// notify, and this process is the heartbeat writer for its own sessions — a
-/// phantom row from a crashed prior instance re-evaluates on the next render
-/// regardless.
-pub(crate) fn coding_session_is_live(
-    session: &domain::rows::CodingSession,
-    now_epoch: i64,
-) -> bool {
-    // EXP-888: a sweep end (`ended_by = stale`) is NOT an end — the host
-    // ignores the flip and heartbeats the row back to `running` within the
-    // heartbeat interval, so the run stays live here.
-    let live_status = matches!(
-        session.status.as_deref(),
-        Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
-            | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-    ) || crate::run_rows::run_is_stale_end(session);
-    if !live_status {
-        return false;
-    }
-    match session
-        .updated_at
-        .as_deref()
-        .and_then(crate::comments::parse_epoch)
-    {
-        Some(seen) => now_epoch - seen < domain::contract::CODING_SESSION_STALE_MS / 1000,
-        None => true,
-    }
-}
-
-/// EXP-870: the clock-derived facts a live tab's chip paints from — the
-/// strip repaints on the tick only when one of these MOVES, because a usage
-/// wall expiring produces no collection delta of its own.
-///
-/// EXP-877: the agent's busy edge is not one of them. It flips every turn,
-/// and the strip wears a steady liveness dot now (the spinner is the session
-/// LIST's signal, EXP-848), so a turn boundary is not a repaint.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct LiveSig {
-    /// Needs input, or walled by a usage limit.
-    pub attention: bool,
-    /// Its PR is open (`in_review`).
-    pub review: bool,
-}
-
-/// EXP-870: one of MY live runs — every one of them owns a top tab. EXP-877
-/// dropped its `sig`: a live tab cannot be closed, so nothing about the run
-/// decides whether it gets a tab any more.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct LiveTabRun {
-    pub session_id: String,
-    pub issue_id: Option<String>,
-}
-
-pub(crate) fn live_sig(session: &domain::rows::CodingSession, now_epoch: i64) -> LiveSig {
-    let blocked = crate::usage_bar::parse_blocked(session.blocked.as_ref());
-    LiveSig {
-        attention: session.needs_input.unwrap_or(false)
-            || crate::usage_bar::blocked_badge_label(blocked.as_ref(), now_epoch).is_some(),
-        review: session.status.as_deref()
-            == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW),
-    }
-}
-
-/// EXP-870: the runs that own a top tab in `team_id` — ALL of the caller's
-/// live runs (person-started, triggers, other machines alike), oldest
-/// start first so a new run's tab lands after the ones already up.
-pub(crate) fn live_tab_runs(cx: &App, team_id: &str) -> Vec<LiveTabRun> {
-    let Some(me) = active_account(cx).map(|account| account.user_id) else {
-        return Vec::new();
-    };
-    let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
-    };
-    let now = chrono::Utc::now().timestamp();
-    let sessions = store.collections().coding_sessions.read(cx);
-    let devices = store.collections().devices.read(cx);
-    // A run whose host went offline (lid closed, crash) is paused, not
-    // something this strip should pin open: until its row goes stale it would
-    // hold an unclosable tab. It gets its tab back when the host returns.
-    let mut rows: Vec<&domain::rows::CodingSession> = sessions
-        .iter()
-        .filter(|session| {
-            session.user_id.as_deref() == Some(me.as_str())
-                && session.team_id.as_deref() == Some(team_id)
-                && coding_session_is_live(session, now)
-                && !session_device_presentation(session, devices.iter(), now * 1000).offline
-        })
-        .collect();
-    rows.sort_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)));
-    rows.into_iter()
-        .map(|session| LiveTabRun {
-            session_id: session.id.clone(),
-            issue_id: session.issue_id.clone(),
-        })
-        .collect()
-}
-
-/// REV2-24: the device already coding `issue_id` according to the live SYNCED
-/// rows, or `None` when the issue is free. The cross-device half of the
-/// EXP-202 one-session-per-issue rule — `coding_flow::LocalSessions` knows
-/// only this process, so every launch entry point (the dialog's blocker, the
-/// relay's remote starts) must consult sync as well, or two agents end up
-/// pushing to the same `exp/<ID>` branch from two machines.
+/// REV2-24 / EXP-1294: the device already WORKING on `issue_id` according to
+/// the synced rows, or `None` when the issue is free. A session works on an
+/// issue when its tree's root links it (`session_issues`) and it is queued or
+/// running; an idle session waits on a person and blocks nothing, and an
+/// ended one is history.
 pub(crate) fn live_session_device_for_issue(
     cx: &App,
     issue_id: &str,
@@ -1230,13 +860,9 @@ pub(crate) fn live_session_device_for_issue(
     live_session_device_for_issue_except(cx, issue_id, now_epoch, None)
 }
 
-/// [`live_session_device_for_issue`] with the CONTINUATION of one run exempt
-/// (EXP-849).
-///
-/// A run being resumed onto another account is the same piece of work, not a
-/// second session on the issue: its own live row (and any row already chained
-/// off it) must not block it, or a switch could never start while the thing it
-/// continues is still on screen. Every OTHER machine's live row still does.
+/// [`live_session_device_for_issue`] with ONE session exempt (the one a
+/// message is about to resume: it is the same piece of work, not a second
+/// one).
 pub(crate) fn live_session_device_for_issue_except(
     cx: &App,
     issue_id: &str,
@@ -1244,33 +870,46 @@ pub(crate) fn live_session_device_for_issue_except(
     except: Option<&str>,
 ) -> Option<String> {
     let collections = Store::global(cx).collections();
-    let sessions = collections.coding_sessions.read(cx);
+    let sessions = collections.sessions.read(cx);
+    let links = collections.session_issues.read(cx);
     let devices = collections.devices.read(cx);
-    let chain = match except {
-        Some(session_id) => resume_chain(sessions.iter(), session_id),
-        None => std::collections::HashSet::new(),
-    };
     live_session_device(
-        sessions.iter().filter(|session| !chain.contains(&session.id)),
+        sessions.iter(),
+        links.iter(),
         devices.iter(),
         issue_id,
-        now_epoch,
+        except,
         now_epoch * 1_000,
     )
 }
 
-/// EXP-849 — one machine's CURRENT name off the synced `devices` rows, for a
-/// message about it ("Studio will run claude as this account"). `None` when
-/// this client holds no row for the id.
-pub(crate) fn device_label_for_id(cx: &App, device_id: &str) -> Option<String> {
-    Store::global(cx)
-        .collections()
-        .devices
-        .read(cx)
-        .iter()
-        .find(|row| row.device_id.as_deref() == Some(device_id))
-        .and_then(|row| row.label.clone())
-        .filter(|label| !label.trim().is_empty())
+/// Pure core of [`live_session_device_for_issue`]. A working session with no
+/// resolvable device name still blocks; the label is only for the message.
+pub(crate) fn live_session_device<'a>(
+    sessions: impl Iterator<Item = &'a SessionRow>,
+    links: impl Iterator<Item = &'a SessionIssueRow>,
+    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
+    issue_id: &str,
+    except: Option<&str>,
+    now_ms: i64,
+) -> Option<String> {
+    let roots: HashSet<&str> = links
+        .filter(|link| link.issue_id == issue_id)
+        .map(|link| link.session_id.as_str())
+        .collect();
+    if roots.is_empty() {
+        return None;
+    }
+    let session = sessions
+        .filter(|session| Some(session.id.as_str()) != except)
+        .filter(|session| roots.contains(session.root_id_or_self()))
+        .find(|session| crate::session_data::session_is_working(session))?;
+    let presentation = session_device_presentation(session, devices, now_ms);
+    Some(
+        presentation
+            .label
+            .unwrap_or_else(|| "another device".to_string()),
+    )
 }
 
 /// EXP-849 — one machine's advertised capabilities off the synced `devices`
@@ -1287,68 +926,11 @@ pub(crate) fn device_caps(cx: &App, device_id: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// EXP-849 — `session_id` plus every row that CONTINUES it, transitively
-/// (`resumed_from_id`). The resume chain is one run's history, so a guard that
-/// asks "is something else already working on this?" has to treat the whole
-/// chain as the asker.
-///
-/// Bounded: a `resumed_from_id` cycle (which no writer can produce, but a
-/// hand-edited row could) terminates instead of spinning.
-pub(crate) fn resume_chain<'a>(
-    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    session_id: &str,
-) -> std::collections::HashSet<String> {
-    let links: Vec<(&str, Option<&str>)> = sessions
-        .map(|session| (session.id.as_str(), session.resumed_from_id.as_deref()))
-        .collect();
-    let mut chain = std::collections::HashSet::new();
-    chain.insert(session_id.to_string());
-    // Each pass adds the rows whose parent is already in the chain; at most
-    // one row joins per pass, so the row count bounds the passes.
-    for _ in 0..links.len() {
-        let mut grew = false;
-        for (id, parent) in &links {
-            if let Some(parent) = parent {
-                if chain.contains(*parent) && chain.insert((*id).to_string()) {
-                    grew = true;
-                }
-            }
-        }
-        if !grew {
-            break;
-        }
-    }
-    chain
-}
-
-/// Pure core of [`live_session_device_for_issue`]. A live row with no
-/// resolvable device name still blocks — the label is only for the message.
-/// EXP-549: the name is the machine's CURRENT `devices.label` (the user's
-/// rename) whenever the row resolves, not the start-time snapshot.
-pub(crate) fn live_session_device<'a>(
-    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
-    issue_id: &str,
-    now_epoch: i64,
-    now_ms: i64,
-) -> Option<String> {
-    let session = sessions
-        .filter(|session| session.issue_id.as_deref() == Some(issue_id))
-        .find(|session| coding_session_is_live(session, now_epoch))?;
-    let presentation = session_device_presentation(session, devices, now_ms);
-    Some(
-        presentation
-            .label
-            .unwrap_or_else(|| "another device".to_string()),
-    )
-}
-
-/// EXP-549/550: how a session names its host machine and whether that machine
-/// is offline. Resolved against the synced `devices` rows, so a rename shows
-/// up everywhere and a lid-closed host stops reading as live.
+/// EXP-549/550: how a session names its host machine and whether that
+/// machine is offline, resolved against the synced `devices` rows so a
+/// rename shows up everywhere and a lid-closed host stops reading as live.
 pub(crate) struct SessionDevicePresentation {
-    /// The machine's name — the resolved `devices.label`, else the session's
-    /// start-time `device_label` snapshot, else `None`.
+    /// The resolved `devices.label`; `None` when no row resolves.
     pub label: Option<String>,
     /// The resolved machine has not heartbeat inside the contract's online
     /// window. Always `false` when no `devices` row resolves — an unknown
@@ -1356,46 +938,34 @@ pub(crate) struct SessionDevicePresentation {
     pub offline: bool,
 }
 
-/// Resolve `session`'s host machine against the synced `devices` rows.
-///
-/// The ONE match is on the session's steer `device_id` (EXP-549's stamp),
-/// preferring the session owner's own row when a shared device produced
-/// several. EXP-589: a row with NO `device_id` resolves no machine at all —
-/// it falls straight through to the session's own `device_label` snapshot,
-/// never offline. The old label-equality fallback (unique-label match) is
-/// gone: matching machines by NAME could only ever rename the right one or
-/// mislabel the wrong one, and the presentation reads the same either way.
+/// Resolve `session`'s host machine against the synced `devices` rows
+/// ([`session_device_row`]).
 pub(crate) fn session_device_presentation<'a>(
-    session: &domain::rows::CodingSession,
+    session: &SessionRow,
     devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
     now_ms: i64,
 ) -> SessionDevicePresentation {
     match session_device_row(session, devices) {
         Some(row) => SessionDevicePresentation {
-            label: row
-                .label
-                .clone()
-                .filter(|label| !label.is_empty())
-                .or_else(|| session.device_label.clone()),
+            label: row.label.clone().filter(|label| !label.trim().is_empty()),
             offline: !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
         },
         None => SessionDevicePresentation {
-            label: session.device_label.clone(),
+            label: None,
             offline: false,
         },
     }
 }
 
 /// The synced `devices` row hosting `session`: the exact `device_id` match,
-/// the session owner's own row when a shared device produced several, and
-/// `None` for a session with no `device_id` stamp or an unknown machine —
-/// never a label match (see [`session_device_presentation`]). EXP-800 reads
-/// the same row for the resume decision, so both agree on WHICH machine.
+/// the starter's own row when a shared device produced several, and `None`
+/// for a session not placed on a device yet or an unknown machine. Never a
+/// label match.
 pub(crate) fn session_device_row<'a>(
-    session: &domain::rows::CodingSession,
+    session: &SessionRow,
     devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
 ) -> Option<&'a domain::rows::DeviceRow> {
-    let device_id = session.device_id.as_deref()?;
+    let device_id = session.device_id.as_deref().filter(|id| !id.is_empty())?;
     let matches = devices
         .filter(|row| row.device_id.as_deref() == Some(device_id))
         .collect::<Vec<_>>();
@@ -1406,582 +976,6 @@ pub(crate) fn session_device_row<'a>(
         })
         .copied()
         .or_else(|| matches.first().copied())
-}
-
-/// EXP-550: a session whose host machine is offline (lid closed) is PAUSED,
-/// not live — the caller's decision, made BEFORE the display rule
-/// (EXP-1184). A PR in review or past it is an outcome the offline host
-/// cannot un-say, so it is never overridden; working, waiting and an idle
-/// still-`running` run (done with no PR) read as paused. Same rule ×4 (web
-/// `sessionIsPaused`, iOS/Android `isPaused`).
-pub(crate) fn session_is_paused(
-    display: CodingSessionDisplay,
-    status: Option<&str>,
-    presentation: &SessionDevicePresentation,
-) -> bool {
-    presentation.offline
-        && match display {
-            CodingSessionDisplay::Working | CodingSessionDisplay::NeedsInput => true,
-            CodingSessionDisplay::Done => {
-                status == Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
-            }
-            CodingSessionDisplay::Review => false,
-        }
-}
-
-/// EXP-1184 (EXP-214/531/848 before it): how a LIVE run renders — ONE rule
-/// ×4, locked by `packages/domain-contract/fixtures/session-display.json`
-/// (web `lib/coding-session-display.ts`, iOS CodingSessionDisplay.swift,
-/// Android CodingSessionDisplay.kt). First match wins:
-///
-/// - `NeedsInput`: the run waits on a person — on EVERY live status, an open
-///   PR included (the EXP-531 "in_review masks needs_input" rule is gone: the
-///   server clears the flag on every turn start and every PR park);
-/// - `Working`: the agent is mid-turn ([`session_agent_busy`]) — a follow-up
-///   turn on an `in_review` run included;
-/// - `Review`: idle, `in_review`, the PR neither merged nor closed;
-/// - `Done`: idle with no open PR (none, closed, or merged).
-///
-/// The session row's status never changes for this. A paused (offline) run
-/// and an ended row are the caller's to decide ([`session_is_paused`],
-/// [`session_row_is_working`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum CodingSessionDisplay {
-    Working,
-    NeedsInput,
-    Review,
-    Done,
-}
-
-/// [`CodingSessionDisplay`]'s rule. `agent_busy` is [`session_agent_busy`]'s
-/// answer (the local engine's signal for a run hosted here, else the synced
-/// column); `pr_state` the run's PR outcome (the issue's, else the row's own,
-/// EXP-734).
-pub(crate) fn coding_session_display(
-    session: &domain::rows::CodingSession,
-    agent_busy: bool,
-    pr_state: Option<&str>,
-) -> CodingSessionDisplay {
-    if session.needs_input.unwrap_or(false) {
-        return CodingSessionDisplay::NeedsInput;
-    }
-    if agent_busy {
-        return CodingSessionDisplay::Working;
-    }
-    let pr_open = pr_state != Some(domain::contract::PR_STATE_MERGED)
-        && pr_state != Some(domain::contract::PR_STATE_CLOSED);
-    if session.status.as_deref() == Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-        && pr_open
-    {
-        CodingSessionDisplay::Review
-    } else {
-        CodingSessionDisplay::Done
-    }
-}
-
-/// EXP-848/EXP-1184: whether a row ANIMATES — the agent works right now on a
-/// row that is still live (an ended row never does, whatever the flag says).
-/// Same fixture as [`coding_session_display`].
-pub(crate) fn session_row_is_working(
-    session: &domain::rows::CodingSession,
-    display: CodingSessionDisplay,
-) -> bool {
-    session.status.as_deref() != Some(domain::contract::CODING_SESSION_STATUS_ENDED)
-        && display == CodingSessionDisplay::Working
-}
-
-/// The in-process engine's turn signal for `session_id` when THIS process
-/// hosts the run, else `None` ([`session_agent_busy`]'s `local`).
-pub(crate) fn local_agent_busy(session_id: &str, cx: &App) -> Option<bool> {
-    let sessions = crate::coding_flow::LocalSessions::global_ref(cx)?;
-    let sessions = sessions.read(cx);
-    let local = sessions.session_by_id(session_id)?;
-    Some(local.host.session.agent_busy())
-}
-
-/// EXP-848: is the agent executing a turn RIGHT NOW? The ONE input every
-/// desktop session list spins its working indicator on — `status = running`
-/// never was one: a run between turns, parked on a question or walled by a
-/// rate limit is running and NOT working.
-///
-/// `local` is the in-process engine's turn signal when THIS machine hosts the
-/// run (a fact this process reads directly, with no round trip); every other
-/// row falls back to the device-written `agent_busy` column. A row that is not
-/// live is never working, whatever either source says.
-///
-/// EXP-877: the tab STRIP stopped reading it — a chip wears the steady
-/// liveness dot now, and a strip that re-rendered on every turn edge was
-/// motion without information. The rule stays because it IS the ×4 contract
-/// (web `agentBusy`, iOS, Android) and the session LIST is its home.
-pub(crate) fn session_agent_busy(
-    session: &domain::rows::CodingSession,
-    local: Option<bool>,
-    now_epoch: i64,
-) -> bool {
-    if !coding_session_is_live(session, now_epoch) {
-        return false;
-    }
-    match local {
-        Some(busy) => busy,
-        None => session.agent_busy.unwrap_or(false),
-    }
-}
-
-/// EXP-850 §8: the session row's SECOND line — the caption of the newest
-/// running claude workflow (`steer::workflow_caption`), or `None` when there
-/// is nothing to say.
-///
-/// Same precedence as [`session_agent_busy`]: a run hosted HERE reads the
-/// engine's in-process caption signal (this process wrote the column, so
-/// waiting for it to sync back would only add latency), every other row reads
-/// the device-written `agent_caption` column. A row that is not live never
-/// carries a caption, whatever either source says — a finished run's last
-/// workflow is history, not a status line.
-pub(crate) fn session_agent_caption(
-    session: &domain::rows::CodingSession,
-    local: Option<String>,
-    now_epoch: i64,
-) -> Option<String> {
-    if !coding_session_is_live(session, now_epoch) {
-        return None;
-    }
-    let caption = match local {
-        Some(caption) => Some(caption),
-        None => session.agent_caption.clone(),
-    };
-    caption
-        .map(|caption| caption.trim().to_string())
-        .filter(|caption| !caption.is_empty())
-}
-
-// ---------------------------------------------------------------------------
-// The ONE session dot (EXP-862)
-// ---------------------------------------------------------------------------
-
-/// Everything a status DOT is allowed to know about a run (EXP-862).
-///
-/// Four surfaces painted this dot from four different derivations —
-/// `sessions_section`, the rail's rows, the screen tabs and
-/// the steer viewer's `phase_tone` — and they disagreed about the two cases
-/// that matter: a run whose feed has gone quiet, and a finished run. The facts
-/// are a plain struct so each caller keeps its own sources (a synced row here,
-/// a live viewer phase there) and the MAPPING is shared.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct SessionDotFacts {
-    /// The run is over (synced `ended`, or the viewer's Ended/Unauthorized).
-    pub(crate) ended: bool,
-    /// EXP-550: live, but its host machine is offline.
-    pub(crate) paused: bool,
-    /// The device-written attention flag: a plan approval / a question.
-    pub(crate) needs_input: bool,
-    /// The viewer's own "waiting on you" edge (a pending ask in the feed).
-    pub(crate) awaiting: bool,
-    /// FEED-26: a live run whose feed has gone quiet.
-    pub(crate) stale: bool,
-    /// The PR is merged — the run is done.
-    pub(crate) done: bool,
-    /// The PR is open and waiting on review.
-    pub(crate) review: bool,
-    /// The agent is working.
-    pub(crate) running: bool,
-    /// The viewer has not joined its room yet (no fact to show).
-    pub(crate) connecting: bool,
-}
-
-impl SessionDotFacts {
-    /// The facts a SYNCED row carries: its [`CodingSessionDisplay`] plus the
-    /// two states the row alone cannot say.
-    pub(crate) fn from_display(
-        display: CodingSessionDisplay,
-        ended: bool,
-        paused: bool,
-    ) -> Self {
-        Self {
-            ended,
-            paused,
-            needs_input: display == CodingSessionDisplay::NeedsInput,
-            done: display == CodingSessionDisplay::Done,
-            review: display == CodingSessionDisplay::Review,
-            running: display == CodingSessionDisplay::Working,
-            ..Self::default()
-        }
-    }
-}
-
-/// EXP-862 — the ONE session dot tone, byte-equal to the web's `PhaseDot` and
-/// the mobile `sessionStateColor`:
-///
-/// - ended or paused → the muted foreground at 40% (nothing is happening);
-/// - needs input, awaiting an answer or gone quiet → YELLOW. A stalled run
-///   reads the same as one asking a question on purpose: both mean "this is
-///   not progressing on its own", and a green dot over a stalled agent is the
-///   lie this mapping exists to kill;
-/// - done (the PR merged) → BLUE, review or running → GREEN, matching the
-///   issue-status palette;
-/// - connecting, or a row with nothing to say → NEUTRAL.
-pub(crate) fn session_dot_tone(facts: SessionDotFacts, muted: gpui::Hsla) -> gpui::Hsla {
-    if facts.ended || facts.paused {
-        return muted.opacity(0.4);
-    }
-    if facts.needs_input || facts.awaiting || facts.stale {
-        return theme::tokens::YELLOW.to_hsla();
-    }
-    if facts.done {
-        return theme::tokens::BLUE.to_hsla();
-    }
-    if facts.review || facts.running {
-        return theme::tokens::GREEN.to_hsla();
-    }
-    // `connecting` and the empty facts land here: a tone that claims nothing.
-    theme::tokens::NEUTRAL.to_hsla()
-}
-
-// ---------------------------------------------------------------------------
-// Live and past run projections (EXP-696 / EXP-746)
-// ---------------------------------------------------------------------------
-
-/// SLOP-2 — every run of ONE action, newest first: the action page's Runs
-/// section. Person-started and triggered runs alike (`action_id` is the
-/// discriminator); a triggered one stays excluded from the regular
-/// Running/Recent lists, so this is where it is found.
-pub(crate) fn action_runs(cx: &App, action_id: &str) -> Vec<domain::rows::CodingSession> {
-    let Some(store) = Store::try_global(cx) else {
-        return Vec::new();
-    };
-    let collection = store.collections().coding_sessions.clone();
-    let mut runs: Vec<domain::rows::CodingSession> = collection
-        .read(cx)
-        .iter()
-        .filter(|session| session.action_id.as_deref() == Some(action_id))
-        .cloned()
-        .collect();
-    // ISO-8601 sorts lexicographically — newest first.
-    runs.sort_by(|a, b| {
-        crate::run_rows::run_started_at(b)
-            .cmp(&crate::run_rows::run_started_at(a))
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    runs
-}
-
-/// The user's live sessions hosted ELSEWHERE, newest start first.
-///
-/// The device filter is what makes this correct for the CLI daemon: the
-/// daemon registers its own `device_id` even when it runs on this very
-/// machine, so its runs are remote to the IDE — which is exactly right, the
-/// IDE hosts no session of its own for them. Pure (unit-tested).
-///
-/// EXP-746 moved it out of `terminal_dock` — the Devices screen's Running
-/// list is the same projection, and two copies of it is how they drift.
-pub(crate) fn remote_session_rows<'a>(
-    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    user_id: &str,
-    own_device_id: &str,
-    local_session_ids: &HashSet<String>,
-    now_epoch: i64,
-) -> Vec<&'a domain::rows::CodingSession> {
-    let mut rows: Vec<&domain::rows::CodingSession> = sessions
-        .filter(|session| session.user_id.as_deref() == Some(user_id))
-        .filter(|session| {
-            session
-                .device_id
-                .as_deref()
-                .is_some_and(|device_id| device_id != own_device_id)
-        })
-        .filter(|session| !local_session_ids.contains(&session.id))
-        .filter(|session| coding_session_is_live(session, now_epoch))
-        .collect();
-    // Newest first (web `useAgentsData`); the id is the tiebreak so the strip
-    // order is stable across renders.
-    rows.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.id.cmp(&a.id)));
-    rows
-}
-
-/// EXP-746 — how many Recent runs the Agent page lists (×4 parity: web
-/// `PAST_RUN_CAP`, iOS/Android the same). The section is a recent-history
-/// glance, not an archive.
-// EXP-1284: Recent lists THREADS now (`threads::team_thread_lists`); the
-// run rule stays, locked by its tests, for the run-level reads.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const PAST_RUNS_CAP: usize = 20;
-
-/// EXP-746 — "Recent" (EXP-886; formerly "Past"): the caller's own
-/// FINISHED, person-started runs in the active team, newest end first,
-/// capped at [`PAST_RUNS_CAP`].
-///
-/// Four predicates, all deliberate:
-/// - `ended` only — a live row belongs to Running, and a stale live row is
-///   treated as absent everywhere else (`coding_session_is_live`), so it must
-///   not resurface here either;
-/// - `started_reason` unset — a TRIGGERED run's home is its action page's
-///   Runs section (SLOP-2; EXP-676 split it out of here), and listing it
-///   twice was the duplication that split;
-/// - the caller's own rows — a live session is owner-only (EXP-312) and its
-///   transcript stays that way once it ends;
-/// - the ACTIVE team, strictly: a row without a `team_id` cannot be proven to
-///   belong here (the column is NOT NULL server-side, so `None` means a
-///   decode gap, never "any team").
-///
-/// Sorted by `ended_at`, falling back to `updated_at` for a row the server
-/// swept without stamping one; ISO-8601 sorts lexicographically. The id is
-/// the tiebreak so the order never flickers between renders. Pure.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn own_ended_runs<'a>(
-    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    me: &str,
-    team_id: &str,
-) -> Vec<&'a domain::rows::CodingSession> {
-    let mut out: Vec<&domain::rows::CodingSession> = rows
-        // EXP-888: a sweep end is not an end — such a row belongs to Running.
-        .filter(|session| crate::run_rows::run_has_ended(session))
-        .filter(|session| session.started_reason.is_none())
-        .filter(|session| session.user_id.as_deref() == Some(me))
-        .filter(|session| session.team_id.as_deref() == Some(team_id))
-        .collect();
-    out.sort_by(|a, b| {
-        past_run_ended_key(b)
-            .cmp(&past_run_ended_key(a))
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    out.truncate(PAST_RUNS_CAP);
-    out
-}
-
-/// EXP-1075 — how many of the caller's own LIVE runs each team has, and
-/// whether any of them wants a person.
-///
-/// The rail's Running section lists only the ACTIVE team's runs now (one
-/// team's board, one team's runs), so this is how the other teams stay
-/// visible: the team switcher wears a dot for them. It is therefore
-/// deliberately BYTE-EQUAL with what the rail's Running section (EXP-923, threads since EXP-1284)
-/// would draw after switching to that team — the same remote ∪ local union,
-/// the same relay gate, the same liveness rule — only folded by `team_id`
-/// instead of nested into a tree.
-///
-/// A row whose `team_id` is `None` is never counted: the column is NOT NULL
-/// server-side, so `None` is a decode gap, never "any team"
-/// ([`own_ended_runs`]'s rule).
-///
-/// `pr_state` resolves the PR state the display rule reads (the run's issue
-/// first, then the run's own column — EXP-734); since EXP-1184 `needs_input`
-/// wins on every PR state ([`coding_session_display`]). Pure (unit-tested);
-/// [`own_live_runs_by_team_now`] is the `cx` wrapper.
-pub(crate) fn own_live_runs_by_team<'a>(
-    sessions: impl Iterator<Item = &'a domain::rows::CodingSession> + Clone,
-    me: &str,
-    own_device_id: &str,
-    local_session_ids: &HashSet<String>,
-    remote_enabled: bool,
-    now_epoch: i64,
-    pr_state: impl Fn(&domain::rows::CodingSession) -> Option<String>,
-) -> BTreeMap<String, TeamLiveRuns> {
-    // The remote half needs a relay to be reachable at all (the rail's own
-    // gate); the LOCAL half needs none.
-    let mut rows: Vec<&domain::rows::CodingSession> = if remote_enabled {
-        remote_session_rows(
-            sessions.clone(),
-            me,
-            own_device_id,
-            local_session_ids,
-            now_epoch,
-        )
-    } else {
-        Vec::new()
-    };
-    rows.extend(
-        sessions
-            .filter(|session| local_session_ids.contains(&session.id))
-            .filter(|session| coding_session_is_live(session, now_epoch)),
-    );
-    let mut by_team: BTreeMap<String, TeamLiveRuns> = BTreeMap::new();
-    for row in rows {
-        let Some(team_id) = row.team_id.as_deref() else {
-            continue;
-        };
-        let entry = by_team.entry(team_id.to_string()).or_default();
-        entry.count += 1;
-        // The busy signal cannot beat `needs_input` (EXP-1184's first rule),
-        // so the tally never needs it.
-        entry.needs_input |= coding_session_display(row, false, pr_state(row).as_deref())
-            == CodingSessionDisplay::NeedsInput;
-    }
-    by_team
-}
-
-/// EXP-1075 — one team's live-run tally: how many of my runs are going there,
-/// and whether any of them is parked on a question (which is what turns the
-/// switcher's dot amber).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct TeamLiveRuns {
-    pub(crate) count: usize,
-    pub(crate) needs_input: bool,
-}
-
-/// [`own_live_runs_by_team`] over the live app state — the same preamble the
-/// rail's tree derives from (account, own device, relay switch, the sessions
-/// THIS process hosts). Anything missing yields an empty map: no account, no
-/// store, nothing to tally.
-pub(crate) fn own_live_runs_by_team_now(cx: &mut App) -> BTreeMap<String, TeamLiveRuns> {
-    let Some(me) = active_account(cx).map(|account| account.user_id) else {
-        return BTreeMap::new();
-    };
-    let own_device_id = own_device_id(cx);
-    let remote_enabled = remote_start_enabled(cx);
-    let local_sessions = crate::coding_flow::LocalSessions::global_ref(cx);
-    let Some(store) = Store::try_global(cx) else {
-        return BTreeMap::new();
-    };
-    let collections = store.collections().clone();
-    let now = chrono::Utc::now().timestamp();
-    let local_ids: HashSet<String> = local_sessions
-        .as_ref()
-        .map(|sessions| sessions.read(cx).session_ids().into_iter().collect())
-        .unwrap_or_default();
-    let issues = collections.issues.read(cx);
-    let sessions = collections.coding_sessions.read(cx);
-    // The collection's `iter()` is opaque (not `Clone`); the union below
-    // walks the rows twice, so materialise the references once.
-    let rows: Vec<&domain::rows::CodingSession> = sessions.iter().collect();
-    own_live_runs_by_team(
-        rows.iter().copied(),
-        &me,
-        &own_device_id,
-        &local_ids,
-        remote_enabled,
-        now,
-        |session| {
-            session
-                .issue_id
-                .as_deref()
-                .and_then(|id| issues.get(id))
-                .and_then(|issue| issue.pr_state.clone())
-                .or_else(|| session.pr_state.clone())
-        },
-    )
-}
-
-/// A run that is alive by STATUS — running or in review. Staleness is not
-/// consulted (that is [`coding_session_is_live`]): a run whose machine went
-/// quiet is still one of the issue's runs, it only sorts by its heartbeat.
-pub(crate) fn is_live_run_status(session: &domain::rows::CodingSession) -> bool {
-    matches!(
-        session.status.as_deref(),
-        Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
-            | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-    ) || crate::run_rows::run_is_stale_end(session)
-}
-
-/// EXP-886 — an issue's RUNS (×4): the caller's own runs of THAT issue,
-/// whatever their status and `started_reason` (a live run, an ended one, an
-/// automated one), UNCAPPED. Live runs first, then by the Recent ordering key
-/// (the end, else the heartbeat). Backs the work header's `Run`/`Runs` face
-/// label and the session screen's run switcher.
-///
-/// Unlike [`own_ended_runs`] this keeps trigger runs (the issue is the
-/// subject either way) and needs no team filter — the issue id already pins
-/// it. Batch runs (`issue_id` NULL) never match. Pure.
-pub(crate) fn issue_runs<'a>(
-    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    me: &str,
-    issue_id: &str,
-) -> Vec<&'a domain::rows::CodingSession> {
-    let mut out: Vec<&domain::rows::CodingSession> = rows
-        .filter(|session| session.user_id.as_deref() == Some(me))
-        .filter(|session| session.issue_id.as_deref() == Some(issue_id))
-        .collect();
-    out.sort_by(|a, b| {
-        is_live_run_status(b)
-            .cmp(&is_live_run_status(a))
-            .then_with(|| past_run_ended_key(b).cmp(&past_run_ended_key(a)))
-            .then_with(|| b.id.cmp(&a.id))
-    });
-    out
-}
-
-/// EXP-974 — the RESUME CHAIN of `session_id` (×4: web `runChain`, iOS
-/// `RunChain.chain`, Android `runChain`). A resume is the SAME run under a
-/// new row (`resumed_from_id` → predecessor, EXP-637/EXP-906), so every
-/// member of the succession wears ONE toggle and the `Runs` segment's menu is
-/// where the reader picks between them. Walks `resumed_from_id` BACKWARDS to
-/// the first row and FORWARDS to the latest, and returns the chain
-/// oldest-first, the named session included. An unknown id yields nothing.
-/// A fork (two rows resuming the same predecessor) follows the NEWEST
-/// successor by `created_at` (ties by id, so every client picks the same
-/// row); seen from an older sibling the chain is its own past plus itself. A
-/// predecessor the sweep deleted (a dangling `resumed_from_id`) simply ends
-/// the backward walk, and a cycle (which no writer produces, but a synced
-/// row is a synced row) never loops. Pure.
-///
-/// Who reads it: the session screen's run menu for an ISSUE-LESS run
-/// ([`crate::run_rows::chain_run_entries`]); an issue-bound run's menu is
-/// [`issue_runs`], whose rows already include the issue's resumes.
-/// [`resume_chain`] is the SET flavour (every continuation, forks included)
-/// the busy guard uses.
-pub(crate) fn run_chain<'a>(
-    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    session_id: &str,
-) -> Vec<&'a domain::rows::CodingSession> {
-    let rows: Vec<&domain::rows::CodingSession> = rows.collect();
-    let by_id = |id: &str| rows.iter().copied().find(|row| row.id == id);
-    let Some(start) = by_id(session_id) else {
-        return Vec::new();
-    };
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    seen.insert(start.id.as_str());
-
-    // Backwards to the first row. A missing predecessor (swept) ends the
-    // walk; a cycle ends it too.
-    let mut before: Vec<&domain::rows::CodingSession> = Vec::new();
-    let mut cursor = start;
-    while let Some(previous_id) = cursor.resumed_from_id.as_deref() {
-        let Some(previous) = by_id(previous_id) else {
-            break;
-        };
-        if !seen.insert(previous.id.as_str()) {
-            break;
-        }
-        before.push(previous);
-        cursor = previous;
-    }
-    before.reverse();
-
-    // Forwards to the latest, the newest successor at every fork:
-    // `created_at` descending, then id descending. ISO-8601 stamps sort
-    // lexicographically (the `past_run_ended_key` convention); a row with
-    // none sorts oldest, as the web's `stamp` of 0 does.
-    let mut after: Vec<&domain::rows::CodingSession> = Vec::new();
-    let mut cursor = start;
-    loop {
-        let next = rows
-            .iter()
-            .copied()
-            .filter(|row| row.resumed_from_id.as_deref() == Some(cursor.id.as_str()))
-            .filter(|row| !seen.contains(row.id.as_str()))
-            .max_by(|a, b| {
-                a.created_at
-                    .as_deref()
-                    .unwrap_or("")
-                    .cmp(b.created_at.as_deref().unwrap_or(""))
-                    .then_with(|| a.id.cmp(&b.id))
-            });
-        let Some(next) = next else {
-            break;
-        };
-        seen.insert(next.id.as_str());
-        after.push(next);
-        cursor = next;
-    }
-
-    before.into_iter().chain(std::iter::once(start)).chain(after).collect()
-}
-
-/// When a past run finished, for ordering: its `ended_at`, else the last
-/// `updated_at` (a row the server swept never got an `ended_at`).
-fn past_run_ended_key(session: &domain::rows::CodingSession) -> Option<&str> {
-    session
-        .ended_at
-        .as_deref()
-        .or(session.updated_at.as_deref())
 }
 
 // ---------------------------------------------------------------------------
@@ -2484,29 +1478,6 @@ pub(crate) fn requested_device_note<'a>(
     None
 }
 
-/// EXP-696/EXP-481 (web `resumeWorktree`): the synced worktree row that makes
-/// "Resume previous session" offerable on a REMOTE machine for
-/// `(device row, issue identifier, agent)` — same device row, matching
-/// identifier (case-insensitive), and either no recorded `.exp-agents`
-/// marker (any agent may resume) or the chosen agent among them.
-pub(crate) fn resume_worktree<'a>(
-    worktrees: impl Iterator<Item = &'a domain::rows::DeviceWorktreeRow>,
-    device_row_id: &str,
-    issue_identifier: &str,
-    agent: &str,
-) -> Option<&'a domain::rows::DeviceWorktreeRow> {
-    if device_row_id.is_empty() {
-        return None;
-    }
-    let wanted = issue_identifier.to_lowercase();
-    worktrees.filter(|row| row.device_row_id.as_deref() == Some(device_row_id)).find(|row| {
-        row.issue_identifier
-            .as_deref()
-            .is_some_and(|identifier| identifier.to_lowercase() == wanted)
-            && row.offers_agent(agent)
-    })
-}
-
 // ---------------------------------------------------------------------------
 // Create-flow sync gate (§4.1 "awaitTxId" analog)
 // ---------------------------------------------------------------------------
@@ -2544,525 +1515,6 @@ pub(crate) async fn await_row_visible<T: 'static>(
 mod tests {
     use super::*;
     use serde_json::json;
-
-    fn pull(number: u64) -> api::repositories::OpenPull {
-        serde_json::from_value(json!({
-            "number": number,
-            "url": format!("https://github.com/acme/web/pull/{number}"),
-            "title": "t",
-            "branch": "b",
-            "baseBranch": "main",
-            "draft": false,
-            "createdAt": "2026-07-10T08:00:00Z",
-        }))
-        .unwrap()
-    }
-
-    fn pull_repo(repository_id: &str, numbers: &[u64]) -> api::repositories::OpenPullsRepo {
-        serde_json::from_value(json!({
-            "repositoryId": repository_id,
-            "fullName": format!("acme/{repository_id}"),
-            "pulls": [],
-        }))
-        .map(|mut repo: api::repositories::OpenPullsRepo| {
-            repo.pulls = numbers.iter().map(|n| pull(*n)).collect();
-            repo
-        })
-        .unwrap()
-    }
-
-    fn session(status: Option<&str>, updated_at: Option<&str>) -> domain::rows::CodingSession {
-        serde_json::from_value(json!({
-            "id": "sess-1",
-            "issue_id": "issue-1",
-            "status": status,
-            "updated_at": updated_at,
-        }))
-        .unwrap()
-    }
-
-    #[test]
-    fn coding_session_live_within_stale_window() {
-        // 2026-07-17T12:00:00Z; heartbeat 30 minutes ago.
-        let now = 1784289600_i64;
-        let s = session(Some("running"), Some("2026-07-17T11:30:00Z"));
-        assert!(coding_session_is_live(&s, now));
-    }
-
-    #[test]
-    fn coding_session_stale_past_window() {
-        let now = 1784289600_i64;
-        // Last heartbeat 3h ago — past the 2h contract window.
-        let s = session(Some("running"), Some("2026-07-17T09:00:00Z"));
-        assert!(!coding_session_is_live(&s, now));
-        // Sanity: the generated contract constant stays the 2h the server sweeps by.
-        assert_eq!(domain::contract::CODING_SESSION_STALE_MS, 7_200_000);
-    }
-
-    #[test]
-    fn coding_session_non_running_is_never_live() {
-        let now = 1784289600_i64;
-        let s = session(Some("ended"), Some("2026-07-17T11:59:00Z"));
-        assert!(!coding_session_is_live(&s, now));
-        let s = session(None, Some("2026-07-17T11:59:00Z"));
-        assert!(!coding_session_is_live(&s, now));
-        // EXP-540: the retired `merged` status is not a live status either —
-        // a merged PR ends the session (EXP-498).
-        let s = session(Some("merged"), Some("2026-07-17T11:59:00Z"));
-        assert!(!coding_session_is_live(&s, now));
-    }
-
-    /// EXP-194: an `in_review` row (PR open, terminal alive) is live while
-    /// fresh and absent when stale — exactly like `running`.
-    #[test]
-    fn coding_session_in_review_is_live_until_stale() {
-        let now = 1784289600_i64;
-        let fresh = session(Some("in_review"), Some("2026-07-17T11:30:00Z"));
-        assert!(coding_session_is_live(&fresh, now));
-        let stale = session(Some("in_review"), Some("2026-07-17T09:00:00Z"));
-        assert!(!coding_session_is_live(&stale, now));
-    }
-
-    /// EXP-1184 — the display rule replays `session-display.json`, the ONE
-    /// fixture the web, iOS and Android suites replay too.
-    #[test]
-    fn coding_session_display_matches_the_fixture() {
-        #[derive(serde::Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Case {
-            name: String,
-            status: String,
-            needs_input: bool,
-            agent_busy: bool,
-            pr_state: Option<String>,
-            state: String,
-            working: bool,
-            status_tone: String,
-        }
-        #[derive(serde::Deserialize)]
-        struct Fixture {
-            cases: Vec<Case>,
-        }
-        let fixture: Fixture = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/session-display.json"
-        ))
-        .expect("session-display.json parses");
-        assert!(!fixture.cases.is_empty());
-        for case in fixture.cases {
-            let row: domain::rows::CodingSession = serde_json::from_value(json!({
-                "id": "sess-1",
-                "issue_id": "issue-1",
-                "status": case.status,
-                "updated_at": "2026-07-17T11:30:00Z",
-                "needs_input": case.needs_input,
-                "agent_busy": case.agent_busy,
-            }))
-            .unwrap();
-            let display = coding_session_display(&row, case.agent_busy, case.pr_state.as_deref());
-            let state = match display {
-                CodingSessionDisplay::Working => "working",
-                CodingSessionDisplay::NeedsInput => "needs_input",
-                CodingSessionDisplay::Review => "review",
-                CodingSessionDisplay::Done => "done",
-            };
-            assert_eq!(state, case.state, "{}: state", case.name);
-            assert_eq!(session_row_is_working(&row, display), case.working, "{}: working", case.name);
-            let (_, tone) = crate::run_rows::running_status_line(display, false, Some("mbp"), "");
-            let tone = match tone {
-                crate::run_rows::StatusTone::Muted => "muted",
-                crate::run_rows::StatusTone::Amber => "amber",
-                crate::run_rows::StatusTone::Green => "emerald",
-                crate::run_rows::StatusTone::Blue => "sky",
-            };
-            assert_eq!(tone, case.status_tone, "{}: statusTone", case.name);
-        }
-    }
-
-    #[test]
-    fn coding_session_unparseable_updated_at_fails_open() {
-        // Missing/garbled liveness signal ⇒ live — never hide a session the
-        // server still considers alive; the sweep is the backstop.
-        let now = 1784289600_i64;
-        assert!(coding_session_is_live(&session(Some("running"), None), now));
-        assert!(coding_session_is_live(
-            &session(Some("running"), Some("not-a-timestamp")),
-            now
-        ));
-    }
-
-    fn session_on(
-        id: &str,
-        issue_id: Option<&str>,
-        status: &str,
-        updated_at: &str,
-        device_label: Option<&str>,
-    ) -> domain::rows::CodingSession {
-        serde_json::from_value(json!({
-            "id": id,
-            "issue_id": issue_id,
-            "status": status,
-            "updated_at": updated_at,
-            "device_label": device_label,
-        }))
-        .unwrap()
-    }
-
-    /// REV2-24: a live row on ANOTHER device blocks (and names it); a batch
-    /// row (no `issue_id`) never claims an issue.
-    #[test]
-    fn live_session_device_reports_the_owning_device() {
-        let now = 1784289600_i64;
-        let rows = vec![
-            session_on("s-batch", None, "running", "2026-07-17T11:59:00Z", None),
-            session_on(
-                "s-1",
-                Some("issue-1"),
-                "running",
-                "2026-07-17T11:59:00Z",
-                Some("mac-studio"),
-            ),
-        ];
-        assert_eq!(
-            live_session_device(rows.iter(), [].iter(), "issue-1", now, now * 1_000).as_deref(),
-            Some("mac-studio")
-        );
-        assert_eq!(
-            live_session_device(rows.iter(), [].iter(), "issue-2", now, now * 1_000),
-            None
-        );
-        // A live row with no label still blocks.
-        let unlabeled = vec![session_on(
-            "s-2",
-            Some("issue-2"),
-            "in_review",
-            "2026-07-17T11:59:00Z",
-            None,
-        )];
-        assert_eq!(
-            live_session_device(unlabeled.iter(), [].iter(), "issue-2", now, now * 1_000)
-                .as_deref(),
-            Some("another device")
-        );
-    }
-
-    /// Ended and stale rows are absent — a remote start must not be blocked
-    /// forever by a crashed session's leftover row.
-    #[test]
-    fn live_session_device_ignores_dead_rows() {
-        let now = 1784289600_i64;
-        let rows = vec![
-            session_on(
-                "s-1",
-                Some("issue-1"),
-                "ended",
-                "2026-07-17T11:59:00Z",
-                Some("m"),
-            ),
-            session_on(
-                "s-2",
-                Some("issue-1"),
-                "running",
-                "2026-07-17T09:00:00Z",
-                Some("m"),
-            ),
-        ];
-        assert_eq!(
-            live_session_device(rows.iter(), [].iter(), "issue-1", now, now * 1_000),
-            None
-        );
-    }
-
-    // ---- EXP-549/550: host-machine resolution + the paused state --------
-
-    fn device_row(
-        id: &str,
-        device_id: Option<&str>,
-        user_id: Option<&str>,
-        label: Option<&str>,
-        last_seen_at: Option<&str>,
-    ) -> domain::rows::DeviceRow {
-        serde_json::from_value(json!({
-            "id": id,
-            "device_id": device_id,
-            "user_id": user_id,
-            "label": label,
-            "last_seen_at": last_seen_at,
-        }))
-        .unwrap()
-    }
-
-    fn hosted_session(
-        device_id: Option<&str>,
-        device_label: Option<&str>,
-        user_id: Option<&str>,
-    ) -> domain::rows::CodingSession {
-        serde_json::from_value(json!({
-            "id": "sess-1",
-            "issue_id": "issue-1",
-            "status": "running",
-            "updated_at": "2026-07-17T11:59:00Z",
-            "device_id": device_id,
-            "device_label": device_label,
-            "user_id": user_id,
-        }))
-        .unwrap()
-    }
-
-    /// The `device_id` stamp wins over the stale label snapshot AND over a
-    /// label-equal row — a rename must show up on the running session.
-    #[test]
-    fn session_device_presentation_prefers_the_device_id_match() {
-        let now_ms = 1784289600_000_i64;
-        let devices = vec![
-            device_row(
-                "d-1",
-                Some("dev-1"),
-                Some("user-1"),
-                Some("Danny's MacBook"),
-                Some("2026-07-17T11:59:30Z"),
-            ),
-            device_row(
-                "d-2",
-                Some("dev-2"),
-                Some("user-1"),
-                Some("mac-studio"),
-                Some("2026-07-17T11:59:30Z"),
-            ),
-        ];
-        let session = hosted_session(Some("dev-1"), Some("mac-studio"), Some("user-1"));
-        let presentation = session_device_presentation(&session, devices.iter(), now_ms);
-        assert_eq!(presentation.label.as_deref(), Some("Danny's MacBook"));
-        assert!(!presentation.offline);
-    }
-
-    /// A shared device produces one row per member — the session owner's own
-    /// row wins so the label is the one that user renamed.
-    #[test]
-    fn session_device_presentation_prefers_the_owner_row_on_a_shared_device() {
-        let now_ms = 1784289600_000_i64;
-        let devices = vec![
-            device_row(
-                "d-teammate",
-                Some("dev-1"),
-                Some("user-2"),
-                Some("Shared box"),
-                Some("2026-07-17T11:59:30Z"),
-            ),
-            device_row(
-                "d-mine",
-                Some("dev-1"),
-                Some("user-1"),
-                Some("Build server"),
-                Some("2026-07-17T11:59:30Z"),
-            ),
-        ];
-        let session = hosted_session(Some("dev-1"), Some("old-host"), Some("user-1"));
-        let presentation = session_device_presentation(&session, devices.iter(), now_ms);
-        assert_eq!(presentation.label.as_deref(), Some("Build server"));
-    }
-
-    /// EXP-589: a row with no `device_id` resolves NO machine — it shows its
-    /// own label snapshot and is never accused of being offline, even when a
-    /// same-named machine happens to be synced (that label match was the
-    /// removed fallback). A session that DOES carry a device_id likewise never
-    /// falls back to the label: an unknown machine stays unresolved.
-    #[test]
-    fn session_device_presentation_never_matches_by_label() {
-        let now_ms = 1784289600_000_i64;
-        let unique = vec![device_row(
-            "d-1",
-            Some("dev-1"),
-            Some("user-1"),
-            Some("mac-studio"),
-            // Long stale: would have read "offline" through the old fallback.
-            Some("2026-07-17T09:00:00Z"),
-        )];
-        let legacy = hosted_session(None, Some("mac-studio"), Some("user-1"));
-        let presentation = session_device_presentation(&legacy, unique.iter(), now_ms);
-        assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
-        assert!(!presentation.offline, "an unresolved machine is never offline");
-
-        let stamped = hosted_session(Some("dev-unknown"), Some("mac-studio"), Some("user-1"));
-        let presentation = session_device_presentation(&stamped, unique.iter(), now_ms);
-        assert_eq!(presentation.label.as_deref(), Some("mac-studio"));
-        assert!(!presentation.offline);
-    }
-
-    /// EXP-550: offline flips every display but the outcomes (a PR in review
-    /// or past it) to paused.
-    #[test]
-    fn session_is_paused_only_while_in_flight() {
-        let running = domain::contract::CODING_SESSION_STATUS_RUNNING;
-        let in_review = domain::contract::CODING_SESSION_STATUS_IN_REVIEW;
-        let offline = SessionDevicePresentation {
-            label: Some("mac-studio".to_string()),
-            offline: true,
-        };
-        let online = SessionDevicePresentation {
-            label: Some("mac-studio".to_string()),
-            offline: false,
-        };
-        for display in [
-            CodingSessionDisplay::Working,
-            CodingSessionDisplay::NeedsInput,
-            CodingSessionDisplay::Done,
-        ] {
-            assert!(session_is_paused(display, Some(running), &offline));
-            assert!(!session_is_paused(display, Some(running), &online));
-        }
-        assert!(!session_is_paused(
-            CodingSessionDisplay::Review,
-            Some(in_review),
-            &offline
-        ));
-        assert!(!session_is_paused(
-            CodingSessionDisplay::Done,
-            Some(in_review),
-            &offline
-        ));
-    }
-
-    /// The blocker message names the RENAMED machine (EXP-549), not the
-    /// start-time snapshot.
-    #[test]
-    fn live_session_device_reports_the_renamed_label() {
-        let now = 1784289600_i64;
-        let sessions = vec![hosted_session(
-            Some("dev-1"),
-            Some("old-host"),
-            Some("user-1"),
-        )];
-        let devices = vec![device_row(
-            "d-1",
-            Some("dev-1"),
-            Some("user-1"),
-            Some("Danny's MacBook"),
-            Some("2026-07-17T11:59:30Z"),
-        )];
-        assert_eq!(
-            live_session_device(
-                sessions.iter(),
-                devices.iter(),
-                "issue-1",
-                now,
-                now * 1_000
-            )
-            .as_deref(),
-            Some("Danny's MacBook")
-        );
-    }
-
-    fn queue_board(id: &str, team: &str) -> domain::rows::Board {
-        serde_json::from_value(json!({
-            "id": id, "team_id": team, "name": id, "sort_order": 1,
-        }))
-        .unwrap()
-    }
-
-    fn queue_issue(
-        id: &str,
-        board: &str,
-        pr_url: Option<&str>,
-        pr_state: Option<&str>,
-        created_at: &str,
-    ) -> domain::rows::Issue {
-        serde_json::from_value(json!({
-            "id": id, "board_id": board, "number": 1, "identifier": id,
-            "title": id, "status": "in_review", "pr_url": pr_url,
-            "pr_state": pr_state, "created_at": created_at,
-        }))
-        .unwrap()
-    }
-
-    fn queue_run(
-        id: &str,
-        team: &str,
-        issue_id: Option<&str>,
-        pr_url: Option<&str>,
-        pr_state: Option<&str>,
-        created_at: &str,
-    ) -> domain::rows::CodingSession {
-        serde_json::from_value(json!({
-            "id": id, "team_id": team, "issue_id": issue_id,
-            "status": "in_review", "action_id": "act-1",
-            "pr_url": pr_url, "pr_number": "12", "pr_state": pr_state,
-            "created_at": created_at,
-        }))
-        .unwrap()
-    }
-
-    /// EXP-1244: the desktop adapter over the shared queue (the fixture test
-    /// in `domain::reviews_queue` locks the rules): the board groups own their
-    /// rows, runs flatten to the one team, repo bands keep `full_name`, linked
-    /// and empty repos drop, and `count` adds the three up.
-    #[test]
-    fn reviews_queue_from_adapts_the_shared_queue_to_one_team() {
-        let boards = vec![queue_board("b-1", "t-1"), queue_board("b-x", "t-2")];
-        let pr = |n: u64| format!("https://github.com/acme/web/pull/{n}");
-        let issues = vec![
-            // A batch PR: newest first, id ascending on a tie.
-            queue_issue("i-2", "b-1", Some(&pr(1)), Some("open"), "2026-09-02T10:00:00Z"),
-            queue_issue("i-1", "b-1", Some(&pr(1)), Some("open"), "2026-09-02T10:00:00Z"),
-            queue_issue("i-0", "b-1", Some(&pr(1)), Some("open"), "2026-09-01T10:00:00Z"),
-            // A closed issue PR is no entry, but still LINKS its pull.
-            queue_issue("i-3", "b-1", Some(&pr(2)), Some("closed"), "2026-09-03T10:00:00Z"),
-            // Another team's board is out of scope.
-            queue_issue("i-x", "b-x", Some(&pr(9)), Some("open"), "2026-09-03T10:00:00Z"),
-        ];
-        let runs = vec![
-            queue_run("cs-new", "t-1", None, Some("pr/5"), Some("open"), "2026-09-04T10:00:00Z"),
-            // Same PR, older row (a resumed run): deduped away.
-            queue_run("cs-old", "t-1", None, Some("pr/5"), Some("open"), "2026-09-01T10:00:00Z"),
-            // Excluded: another team, an issue run, a merged PR, an issue's PR.
-            queue_run("cs-x", "t-2", None, Some("pr/6"), Some("open"), "2026-09-03T10:00:00Z"),
-            queue_run("cs-i", "t-1", Some("i-1"), Some("pr/7"), Some("open"), "2026-09-03T10:00:00Z"),
-            queue_run("cs-m", "t-1", None, Some(&pr(3)), Some("merged"), "2026-09-03T10:00:00Z"),
-            queue_run("cs-b", "t-1", None, Some(&pr(1)), Some("open"), "2026-09-05T10:00:00Z"),
-        ];
-        let pulls = vec![
-            pull_repo("repo-1", &[1, 2, 3, 4]),
-            pull_repo("repo-2", &[]),
-            pull_repo("repo-3", &[2]),
-        ];
-        let queue = reviews_queue_from("t-1", &boards, &issues, &runs, &pulls);
-
-        assert_eq!(queue.groups.len(), 1);
-        assert_eq!(queue.groups[0].board.id, "b-1");
-        let entry = &queue.groups[0].entries[0];
-        assert_eq!(
-            entry.issues.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
-            ["i-1", "i-2", "i-0"]
-        );
-        assert_eq!(entry.representative().id, "i-1");
-        assert!(entry.is_batch());
-        assert_eq!(
-            queue.runs.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
-            ["cs-new"]
-        );
-        // #1 = the batch PR, #2 = the closed issue's, #3 = the merged run's:
-        // all linked. repo-2 is empty, repo-3 left empty.
-        assert_eq!(queue.pull_repos.len(), 1);
-        assert_eq!(queue.pull_repos[0].repository_id, "repo-1");
-        assert_eq!(queue.pull_repos[0].full_name, "acme/repo-1");
-        assert_eq!(
-            queue.pull_repos[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
-            [4]
-        );
-        assert_eq!(queue.count, 3);
-    }
-
-    fn issue(pr_state: Option<&str>) -> domain::rows::Issue {
-        serde_json::from_value(json!({
-            "id": "i-1",
-            "board_id": "p-1",
-            "number": 1,
-            "identifier": "EXP-1",
-            "title": "t",
-            "status": "in_review",
-            "pr_state": pr_state,
-        }))
-        .unwrap()
-    }
 
     fn notification(
         id: &str,
@@ -3141,7 +1593,6 @@ mod tests {
         assert_eq!(group.items.len(), 2);
         assert_eq!(group.items[0].id, "r-1");
         assert_eq!(group.unread, 1);
-        assert!(!group.opens_results());
     }
 
     /// EXP-801: an agent's message is one entry per row, never bundled,
@@ -3172,39 +1623,6 @@ mod tests {
         assert_eq!(second.team_name, None);
         assert_eq!(second.unread(), 0);
         assert_eq!(entries.iter().map(InboxEntry::unread).sum::<usize>(), 2);
-    }
-
-    /// EXP-933: an `agent_message` WITH an issue groups under that issue,
-    /// and the group opens on Results only while that message is the latest.
-    #[test]
-    fn inbox_issue_group_opens_results_when_its_latest_is_an_agent_message() {
-        let issue = inbox_issue("i-1");
-        let resolve = |id: &str| (id == "i-1").then(|| issue.clone());
-        let entries = build_inbox_entries(
-            vec![
-                notification("c-1", Some("i-1"), Some("w-1"), "issue_comment", "2026-07-18T09:00:00Z", true),
-                notification("m-1", Some("i-1"), Some("w-1"), "agent_message", "2026-07-18T10:00:00Z", false),
-            ],
-            resolve,
-            |_| None,
-        );
-        assert_eq!(entries.len(), 1);
-        let InboxEntry::Issue(group) = &entries[0] else {
-            panic!("expected an Issue entry");
-        };
-        assert!(group.opens_results());
-        let entries = build_inbox_entries(
-            vec![
-                notification("m-1", Some("i-1"), Some("w-1"), "agent_message", "2026-07-18T09:00:00Z", true),
-                notification("c-1", Some("i-1"), Some("w-1"), "issue_comment", "2026-07-18T10:00:00Z", false),
-            ],
-            resolve,
-            |_| None,
-        );
-        let InboxEntry::Issue(group) = &entries[0] else {
-            panic!("expected an Issue entry");
-        };
-        assert!(!group.opens_results());
     }
 
     /// EXP-980: a blocked run's row is issue-less and names its run — one
@@ -3256,15 +1674,6 @@ mod tests {
             |_| None,
         );
         assert!(entries.is_empty());
-    }
-
-    #[test]
-    fn reviews_only_include_open_prs() {
-        // Open PR → in the queue.
-        assert!(is_reviewable(&issue(Some("open"))));
-        // Non-open PR states never review.
-        assert!(!is_reviewable(&issue(Some("merged"))));
-        assert!(!is_reviewable(&issue(None)));
     }
 
     // -- EXP-696 launch device candidates -------------------------------------
@@ -3411,42 +1820,6 @@ mod tests {
             device_launch_settings(Some(&json!("not json"))).default_agent,
             coding::Settings::default().default_agent
         );
-    }
-
-    #[test]
-    fn remote_resume_matches_device_issue_and_agent() {
-        let worktree = |id: &str, device: &str, identifier: &str, agents: serde_json::Value| {
-            serde_json::from_value::<domain::rows::DeviceWorktreeRow>(json!({
-                "id": id,
-                "device_row_id": device,
-                "issue_identifier": identifier,
-                "branch": format!("exp/{identifier}"),
-                "agents": agents,
-            }))
-            .unwrap()
-        };
-        let rows = vec![
-            worktree("w-1", "r-other", "EXP-1", json!(["claude"])),
-            worktree("w-2", "r-1", "exp-1", json!(["claude"])),
-            worktree("w-3", "r-1", "EXP-2", json!(["codex"])),
-            // Pre-marker worktree: any agent may resume it.
-            worktree("w-4", "r-1", "EXP-3", serde_json::Value::Null),
-        ];
-        // Case-insensitive identifier match, scoped to the device row.
-        assert_eq!(
-            resume_worktree(rows.iter(), "r-1", "EXP-1", "claude")
-                .map(|row| row.id.as_str()),
-            Some("w-2")
-        );
-        // Another device's worktree never offers.
-        assert!(resume_worktree(rows.iter(), "r-1", "EXP-9", "claude").is_none());
-        // The marker gates the agent…
-        assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "claude").is_none());
-        assert!(resume_worktree(rows.iter(), "r-1", "EXP-2", "codex").is_some());
-        // …and no marker means any agent.
-        assert!(resume_worktree(rows.iter(), "r-1", "EXP-3", "codex").is_some());
-        // A device whose row has not synced has no join key at all.
-        assert!(resume_worktree(rows.iter(), "", "EXP-1", "claude").is_none());
     }
 
     fn candidate(device_id: &str, is_own: bool, is_default: bool) -> LaunchDevice {
@@ -3654,635 +2027,97 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ── EXP-696 / EXP-746: live and past run projections ───────────────────
 
-    /// Rows are heartbeat-dated so `coding_session_is_live` keeps them:
-    /// 2026-07-17T12:00:00Z, beating a minute ago.
-    const NOW: i64 = 1784289600;
+    // ── EXP-1294: session hosts ────────────────────────────────────────────
 
-    fn remote_row(
-        id: &str,
-        user_id: &str,
-        device_id: Option<&str>,
-        started_at: &str,
-    ) -> domain::rows::CodingSession {
+    fn host_session(id: &str, root_id: &str, status: &str, device_id: Option<&str>) -> SessionRow {
         serde_json::from_value(json!({
             "id": id,
-            "issue_id": "issue-1",
-            "user_id": user_id,
+            "root_id": root_id,
+            "parent_id": (id != root_id).then_some(root_id),
+            "kind": "thread",
+            "user_id": "user-1",
+            "status": status,
             "device_id": device_id,
-            "status": "running",
-            "started_at": started_at,
-            "updated_at": "2026-07-17T11:59:00Z",
         }))
         .unwrap()
     }
 
-    /// Only the caller's own live rows, hosted somewhere that is not this
-    /// install, newest run first.
-    #[test]
-    fn remote_chips_keep_only_other_devices_own_live_rows() {
-        let rows = vec![
-            remote_row("mine-old", "me", Some("laptop"), "2026-07-17T10:00:00Z"),
-            remote_row("mine-new", "me", Some("server"), "2026-07-17T11:00:00Z"),
-            remote_row("here", "me", Some("this-ide"), "2026-07-17T11:30:00Z"),
-            remote_row("theirs", "someone", Some("laptop"), "2026-07-17T11:45:00Z"),
-        ];
-        let picked = remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW);
-        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, vec!["mine-new", "mine-old"]);
-    }
-
-    /// A row this process HOSTS already has a session tab — it must never
-    /// also grow a steer chip (belt-and-braces next to the device filter).
-    #[test]
-    fn remote_chips_skip_sessions_this_process_hosts() {
-        let rows = vec![remote_row(
-            "sess-1",
-            "me",
-            Some("laptop"),
-            "2026-07-17T11:00:00Z",
-        )];
-        let local: HashSet<String> = ["sess-1".to_string()].into_iter().collect();
-        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &local, NOW).is_empty());
-    }
-
-    /// An ENDED or stale row drops off the strip entirely (web parity: a
-    /// stale run renders as absent, never as a dead tab).
-    #[test]
-    fn remote_chips_drop_ended_and_stale_rows() {
-        let ended: domain::rows::CodingSession = serde_json::from_value(json!({
-            "id": "ended",
-            "user_id": "me",
-            "device_id": "laptop",
-            "status": "ended",
-            "updated_at": "2026-07-17T11:59:00Z",
-        }))
-        .unwrap();
-        let stale: domain::rows::CodingSession = serde_json::from_value(json!({
-            "id": "stale",
-            "user_id": "me",
-            "device_id": "laptop",
-            "status": "running",
-            // 3h old — past the 2h contract window.
-            "updated_at": "2026-07-17T09:00:00Z",
-        }))
-        .unwrap();
-        let rows = vec![ended, stale];
-        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
-    }
-
-    /// A pre-EXP-549 row with no `device_id` cannot be proven to live
-    /// elsewhere — it stays off the strip rather than claiming to be remote.
-    #[test]
-    fn remote_chips_ignore_rows_without_a_device() {
-        let rows = vec![remote_row("sess-1", "me", None, "2026-07-17T11:00:00Z")];
-        assert!(remote_session_rows(rows.iter(), "me", "this-ide", &HashSet::new(), NOW).is_empty());
-    }
-
-    /// A finished run, as the Recent section sees it. `ended_at`/`updated_at`
-    /// are passed straight through so the ordering rules are testable.
-    fn past_row(
-        id: &str,
-        user_id: &str,
-        team_id: Option<&str>,
-        ended_at: Option<&str>,
-        updated_at: Option<&str>,
-    ) -> domain::rows::CodingSession {
+    fn issue_link(root_id: &str, issue_id: &str) -> SessionIssueRow {
         serde_json::from_value(json!({
-            "id": id,
-            "issue_id": "issue-1",
-            "user_id": user_id,
-            "team_id": team_id,
-            "status": "ended",
-            "ended_at": ended_at,
-            "updated_at": updated_at,
+            "id": format!("{root_id}-{issue_id}"),
+            "session_id": root_id,
+            "issue_id": issue_id,
         }))
         .unwrap()
     }
 
-    /// Recent lists ENDED, PERSON-started runs of the caller's own — a live
-    /// row, a trigger run and a teammate's run all stay out.
-    #[test]
-    fn only_own_person_started_ended_rows() {
-        let mut live = past_row("live", "me", Some("t-1"), None, Some("2026-07-17T11:00:00Z"));
-        live.status = Some("running".to_string());
-        let theirs = past_row(
-            "theirs",
-            "someone",
-            Some("t-1"),
-            Some("2026-07-17T11:00:00Z"),
-            None,
-        );
-        let mine = past_row(
-            "mine",
-            "me",
-            Some("t-1"),
-            Some("2026-07-17T11:00:00Z"),
-            None,
-        );
-        let rows = vec![live, theirs, mine];
-        let picked = own_ended_runs(rows.iter(), "me", "t-1");
-        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, vec!["mine"]);
-    }
-
-    /// Newest END first, and a row the server swept without an `ended_at`
-    /// still sorts — on its last `updated_at`.
-    #[test]
-    fn newest_first_by_ended_at_then_updated_at() {
-        let rows = vec![
-            past_row("old", "me", Some("t-1"), Some("2026-07-17T09:00:00Z"), None),
-            past_row("new", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None),
-            // No `ended_at` — ordered on `updated_at`, between the two.
-            past_row("swept", "me", Some("t-1"), None, Some("2026-07-17T10:00:00Z")),
-        ];
-        let picked = own_ended_runs(rows.iter(), "me", "t-1");
-        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, vec!["new", "swept", "old"]);
-    }
-
-    /// The section is a recent-history glance: at most [`PAST_RUNS_CAP`]
-    /// rows, and it is the NEWEST ones that survive the truncation.
-    #[test]
-    fn caps_at_twenty() {
-        let rows: Vec<domain::rows::CodingSession> = (0..30)
-            .map(|n| {
-                past_row(
-                    &format!("run-{n:02}"),
-                    "me",
-                    Some("t-1"),
-                    Some(&format!("2026-07-17T{:02}:00:00Z", n % 24)),
-                    None,
-                )
-            })
-            .collect();
-        let picked = own_ended_runs(rows.iter(), "me", "t-1");
-        assert_eq!(picked.len(), PAST_RUNS_CAP);
-        assert_eq!(
-            picked[0].ended_at.as_deref(),
-            Some("2026-07-17T23:00:00Z"),
-            "the newest run heads the list"
-        );
-    }
-
-    /// EXP-886: an issue's runs are only the caller's OWN runs of THAT issue
-    /// — a teammate's, another issue's and a batch run stay out, while a live
-    /// run (any live status) and a trigger run of the issue are kept,
-    /// the live ones first.
-    #[test]
-    fn issue_runs_list_only_the_callers_own_runs_of_that_issue() {
-        let mine = past_row("mine", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
-        let mut live = past_row("live", "me", Some("t-1"), None, Some("2026-07-17T12:00:00Z"));
-        live.status = Some("running".to_string());
-        let mut review =
-            past_row("review", "me", Some("t-1"), None, Some("2026-07-17T11:30:00Z"));
-        review.status = Some("in_review".to_string());
-        let theirs = past_row("theirs", "someone", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
-        let mut other_issue =
-            past_row("other", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
-        other_issue.issue_id = Some("issue-2".to_string());
-        let mut batch = past_row("batch", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None);
-        batch.issue_id = None;
-        let mut automated =
-            past_row("auto", "me", Some("t-1"), Some("2026-07-17T10:00:00Z"), None);
-        automated.started_reason = Some("schedule".to_string());
-        let rows = vec![mine, live, review, theirs, other_issue, batch, automated];
-        let picked = issue_runs(rows.iter(), "me", "issue-1");
-        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, vec!["live", "review", "mine", "auto"]);
-        assert!(is_live_run_status(&rows[1]));
-        assert!(is_live_run_status(&rows[2]));
-        assert!(!is_live_run_status(&rows[0]));
-    }
-
-    /// EXP-886: live runs first (by STATUS — a stale heartbeat does not demote
-    /// one), then newest END first (`updated_at` standing in for a swept row),
-    /// and — unlike Recent — no [`PAST_RUNS_CAP`] truncation.
-    #[test]
-    fn issue_runs_put_live_first_then_newest_end_first_uncapped() {
-        let mut rows: Vec<domain::rows::CodingSession> = (0..30)
-            .map(|n| {
-                past_row(
-                    &format!("run-{n:02}"),
-                    "me",
-                    Some("t-1"),
-                    Some(&format!("2026-07-{:02}T09:00:00Z", n + 1)),
-                    None,
-                )
-            })
-            .collect();
-        rows.push(past_row("swept", "me", Some("t-1"), None, Some("2026-08-01T00:00:00Z")));
-        let mut stale_live = past_row("stale-live", "me", Some("t-1"), None, Some("2026-06-01T00:00:00Z"));
-        stale_live.status = Some("running".to_string());
-        rows.push(stale_live);
-        let picked = issue_runs(rows.iter(), "me", "issue-1");
-        assert_eq!(picked.len(), 32);
-        assert_eq!(picked[0].id, "stale-live");
-        assert_eq!(picked[1].id, "swept");
-        assert_eq!(picked[2].id, "run-29");
-        assert_eq!(picked[31].id, "run-00");
-    }
-
-    // EXP-974: the resume chain (`run_chain`). The six cases the web
-    // `run-chain.test.ts` names, by name — iOS `RunChainTests` and Android
-    // `RunChainTest` mirror them too.
-    fn chain_row(id: &str, resumed_from_id: Option<&str>, created_at: &str) -> domain::rows::CodingSession {
+    fn host_device(device_id: &str, label: &str, last_seen_at: &str) -> domain::rows::DeviceRow {
         serde_json::from_value(json!({
-            "id": id,
-            "user_id": "me",
-            "status": "ended",
-            "resumed_from_id": resumed_from_id,
-            "created_at": created_at,
-        }))
-        .unwrap()
-    }
-
-    fn chain_ids(rows: &[domain::rows::CodingSession], session_id: &str) -> Vec<String> {
-        run_chain(rows.iter(), session_id)
-            .into_iter()
-            .map(|row| row.id.clone())
-            .collect()
-    }
-
-    fn chain_fixture() -> [domain::rows::CodingSession; 4] {
-        [
-            chain_row("a", None, "2026-09-01T10:00:00Z"),
-            chain_row("b", Some("a"), "2026-09-01T11:00:00Z"),
-            chain_row("c", Some("b"), "2026-09-01T12:00:00Z"),
-            // An unrelated run of the same person, interleaved in time.
-            chain_row("x", None, "2026-09-01T11:30:00Z"),
-        ]
-    }
-
-    #[test]
-    fn returns_just_the_session_when_nothing_resumed_it_and_it_resumed_nothing() {
-        let [a, _, _, x] = chain_fixture();
-        assert_eq!(chain_ids(&[a, x], "x"), vec!["x"]);
-    }
-
-    #[test]
-    fn walks_resumed_from_id_backwards_to_the_first_row() {
-        let [a, b, c, x] = chain_fixture();
-        assert_eq!(chain_ids(&[c, x, a, b], "c"), vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn walks_forwards_to_the_latest_resume_from_a_middle_or_first_row() {
-        let [a, b, c, x] = chain_fixture();
-        let rows = [c, x, a, b];
-        assert_eq!(chain_ids(&rows, "a"), vec!["a", "b", "c"]);
-        assert_eq!(chain_ids(&rows, "b"), vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn follows_the_newest_successor_at_a_fork() {
-        let [a, b, _, _] = chain_fixture();
-        let c1 = chain_row("c1", Some("b"), "2026-09-01T12:00:00Z");
-        let c2 = chain_row("c2", Some("b"), "2026-09-01T13:00:00Z");
-        let d2 = chain_row("d2", Some("c2"), "2026-09-01T14:00:00Z");
-        let rows = [a.clone(), b.clone(), c1, c2.clone(), d2];
-        // From the root or the fork point: the newest branch, to its end.
-        assert_eq!(chain_ids(&rows, "a"), vec!["a", "b", "c2", "d2"]);
-        assert_eq!(chain_ids(&rows, "b"), vec!["a", "b", "c2", "d2"]);
-        // From the older sibling: its own past plus itself — never the
-        // other branch.
-        assert_eq!(chain_ids(&rows, "c1"), vec!["a", "b", "c1"]);
-        // Same stamp: the id breaks the tie, so every client picks the same
-        // row.
-        let c3 = chain_row("c3", Some("b"), "2026-09-01T13:00:00Z");
-        assert_eq!(chain_ids(&[a, b, c2, c3], "b"), vec!["a", "b", "c3"]);
-    }
-
-    #[test]
-    fn yields_nothing_for_an_unknown_id() {
-        let [a, b, c, _] = chain_fixture();
-        assert!(chain_ids(&[a, b, c], "nope").is_empty());
-        assert!(chain_ids(&[], "a").is_empty());
-    }
-
-    #[test]
-    fn tolerates_a_predecessor_the_sweep_deleted_dangling_resumed_from_id() {
-        let [_, b, c, _] = chain_fixture();
-        // `b` resumed `a`, but `a` is gone: the chain starts at `b`.
-        let rows = [b, c];
-        assert_eq!(chain_ids(&rows, "c"), vec!["b", "c"]);
-        assert_eq!(chain_ids(&rows, "b"), vec!["b", "c"]);
-    }
-
-    #[test]
-    fn never_loops_on_a_cyclic_resumed_from_id() {
-        let p = chain_row("p", Some("q"), "2026-09-01T10:00:00Z");
-        let q = chain_row("q", Some("p"), "2026-09-01T11:00:00Z");
-        let rows = [p, q];
-        assert_eq!(chain_ids(&rows, "p"), vec!["q", "p"]);
-        assert_eq!(chain_ids(&rows, "q"), vec!["p", "q"]);
-    }
-
-    /// EXP-676: a triggered run lives in its action page's Runs section and
-    /// nowhere else.
-    #[test]
-    fn a_trigger_run_never_appears() {
-        let mut scheduled = past_row(
-            "auto",
-            "me",
-            Some("t-1"),
-            Some("2026-07-17T11:00:00Z"),
-            None,
-        );
-        scheduled.started_reason = Some("schedule".to_string());
-        let mut evented = scheduled.clone();
-        evented.id = "auto-2".to_string();
-        evented.started_reason = Some("event".to_string());
-        let rows = vec![scheduled, evented];
-        assert!(own_ended_runs(rows.iter(), "me", "t-1").is_empty());
-    }
-
-    /// The team filter is STRICT: another team's run stays out, and so does a
-    /// row whose `team_id` failed to decode — the column is NOT NULL
-    /// server-side, so `None` is a gap, never a wildcard.
-    #[test]
-    fn a_team_filter_is_strict() {
-        let rows = vec![
-            past_row("here", "me", Some("t-1"), Some("2026-07-17T11:00:00Z"), None),
-            past_row(
-                "elsewhere",
-                "me",
-                Some("t-2"),
-                Some("2026-07-17T11:00:00Z"),
-                None,
-            ),
-            past_row("teamless", "me", None, Some("2026-07-17T11:00:00Z"), None),
-        ];
-        let picked = own_ended_runs(rows.iter(), "me", "t-1");
-        let ids: Vec<&str> = picked.iter().map(|row| row.id.as_str()).collect();
-        assert_eq!(ids, vec!["here"]);
-    }
-
-    // ── EXP-1075: the team switcher's live-run dot ────────────────────────
-
-    /// A LIVE run, as the switcher's tally sees it: heartbeat-dated inside the
-    /// stale window (`NOW`), owned, on a machine and a team.
-    fn live_row(
-        id: &str,
-        user_id: &str,
-        device_id: Option<&str>,
-        team_id: Option<&str>,
-    ) -> domain::rows::CodingSession {
-        serde_json::from_value(json!({
-            "id": id,
-            "issue_id": "issue-1",
-            "user_id": user_id,
+            "id": format!("row-{device_id}"),
             "device_id": device_id,
-            "team_id": team_id,
-            "status": "running",
-            "started_at": "2026-07-17T11:00:00Z",
-            "updated_at": "2026-07-17T11:59:00Z",
+            "user_id": "user-1",
+            "label": label,
+            "last_seen_at": last_seen_at,
         }))
         .unwrap()
     }
 
-    /// No PR anywhere — the plain case every tally below uses.
-    fn no_pr(_: &domain::rows::CodingSession) -> Option<String> {
-        None
-    }
-
-    /// The tally folds by `team_id`: each team gets its own count, and a team
-    /// with no live run of mine is absent rather than zero.
+    /// A WORKING session (queued or running) anywhere in a tree whose root
+    /// links the issue blocks it and names its machine; idle and ended
+    /// sessions, other issues and the exempt session never do.
     #[test]
-    fn live_runs_group_by_their_team() {
-        let rows = vec![
-            live_row("a", "me", Some("laptop"), Some("t-1")),
-            live_row("b", "me", Some("laptop"), Some("t-1")),
-            live_row("c", "me", Some("server"), Some("t-2")),
-        ];
-        let by_team = own_live_runs_by_team(
-            rows.iter(),
-            "me",
-            "this-ide",
-            &HashSet::new(),
-            true,
-            NOW,
-            no_pr,
-        );
-        assert_eq!(by_team.get("t-1").map(|runs| runs.count), Some(2));
-        assert_eq!(by_team.get("t-2").map(|runs| runs.count), Some(1));
-        assert_eq!(by_team.get("t-3"), None);
-    }
-
-    /// A row whose `team_id` did not decode belongs to no team's dot — the
-    /// `own_ended_runs` rule, because the column is NOT NULL server-side.
-    #[test]
-    fn a_live_run_without_a_team_is_never_counted() {
-        let rows = vec![live_row("teamless", "me", Some("laptop"), None)];
-        let by_team = own_live_runs_by_team(
-            rows.iter(),
-            "me",
-            "this-ide",
-            &HashSet::new(),
-            true,
-            NOW,
-            no_pr,
-        );
-        assert!(by_team.is_empty());
-    }
-
-    /// `needs_input` lifts the dot of ITS team only — the amber never bleeds
-    /// into a team whose runs are all quiet.
-    #[test]
-    fn needs_input_lifts_only_its_own_teams_badge() {
-        let mut asking = live_row("asking", "me", Some("laptop"), Some("t-1"));
-        asking.needs_input = Some(true);
-        let rows = vec![asking, live_row("quiet", "me", Some("server"), Some("t-2"))];
-        let by_team = own_live_runs_by_team(
-            rows.iter(),
-            "me",
-            "this-ide",
-            &HashSet::new(),
-            true,
-            NOW,
-            no_pr,
-        );
-        assert!(by_team["t-1"].needs_input);
-        assert!(!by_team["t-2"].needs_input);
-    }
-
-    /// Without a relay a run on ANOTHER machine cannot be opened at all (the
-    /// rail's own gate), so it raises no dot either.
-    #[test]
-    fn the_relay_switch_hides_other_machines_live_runs() {
-        let rows = vec![live_row("remote", "me", Some("laptop"), Some("t-1"))];
-        assert!(own_live_runs_by_team(
-            rows.iter(),
-            "me",
-            "this-ide",
-            &HashSet::new(),
-            false,
-            NOW,
-            no_pr,
-        )
-        .is_empty());
-    }
-
-    /// A run THIS process hosts needs no relay — it is reachable in-process,
-    /// so it counts with the switch off.
-    #[test]
-    fn a_locally_hosted_run_counts_without_the_relay() {
-        let rows = vec![live_row("here", "me", Some("this-ide"), Some("t-1"))];
-        let local: HashSet<String> = ["here".to_string()].into_iter().collect();
-        let by_team =
-            own_live_runs_by_team(rows.iter(), "me", "this-ide", &local, false, NOW, no_pr);
-        assert_eq!(by_team.get("t-1").map(|runs| runs.count), Some(1));
-    }
-
-    /// Ended and stale rows are absent everywhere else; they raise no dot
-    /// either, on either half of the union.
-    #[test]
-    fn an_ended_or_stale_run_never_counts() {
-        let mut ended = live_row("ended", "me", Some("this-ide"), Some("t-1"));
-        ended.status = Some("ended".to_string());
-        let mut stale = live_row("stale", "me", Some("laptop"), Some("t-1"));
-        // 3h old — past the 2h contract window.
-        stale.updated_at = Some("2026-07-17T09:00:00Z".to_string());
-        let local: HashSet<String> = ["ended".to_string()].into_iter().collect();
-        assert!(
-            own_live_runs_by_team(
-                vec![ended, stale].iter(),
-                "me",
-                "this-ide",
-                &local,
-                true,
-                NOW,
-                no_pr,
+    fn live_session_device_names_the_machine_working_on_the_issue() {
+        let now_ms = 1_784_289_600_000_i64;
+        let devices = vec![host_device("dev-1", "Studio", "2026-07-17T11:59:30Z")];
+        let links = vec![issue_link("r1", "issue-1"), issue_link("r2", "issue-2")];
+        let check = |sessions: &[SessionRow], except: Option<&str>| {
+            live_session_device(
+                sessions.iter(),
+                links.iter(),
+                devices.iter(),
+                "issue-1",
+                except,
+                now_ms,
             )
-            .is_empty()
-        );
-    }
-
-    /// A live session is owner-only (EXP-312): a teammate's run is not mine to
-    /// be told about.
-    #[test]
-    fn another_persons_run_never_counts() {
-        let rows = vec![live_row("theirs", "someone", Some("laptop"), Some("t-1"))];
-        assert!(own_live_runs_by_team(
-            rows.iter(),
-            "me",
-            "this-ide",
-            &HashSet::new(),
-            true,
-            NOW,
-            no_pr,
-        )
-        .is_empty());
-    }
-
-    /// EXP-1184: `needs_input` wins on every PR state — a merged PR no
-    /// longer demotes it, so the switcher's dot goes amber.
-    #[test]
-    fn a_merged_pr_state_keeps_needs_input() {
-        let mut asking = live_row("asking", "me", Some("laptop"), Some("t-1"));
-        asking.needs_input = Some(true);
-        let rows = vec![asking];
-        let by_team = own_live_runs_by_team(
-            rows.iter(),
-            "me",
-            "this-ide",
-            &HashSet::new(),
-            true,
-            NOW,
-            |_| Some(domain::contract::PR_STATE_MERGED.to_string()),
-        );
-        assert_eq!(by_team["t-1"].count, 1);
-        assert!(by_team["t-1"].needs_input);
-    }
-
-    /// EXP-862 — the ONE dot mapping, as a table. Four surfaces used to derive
-    /// this tone independently and disagreed about the quiet cases; the table
-    /// is what "byte-equal to web and mobile" means here.
-    #[test]
-    fn the_session_dot_tone_is_one_table() {
-        let muted = gpui::hsla(0., 0., 0.6, 1.);
-        let ended = muted.opacity(0.4);
-        let yellow = theme::tokens::YELLOW.to_hsla();
-        let blue = theme::tokens::BLUE.to_hsla();
-        let green = theme::tokens::GREEN.to_hsla();
-        let neutral = theme::tokens::NEUTRAL.to_hsla();
-
-        let running = SessionDotFacts { running: true, ..Default::default() };
-        let cases: Vec<(&str, SessionDotFacts, gpui::Hsla)> = vec![
-            ("ended", SessionDotFacts { ended: true, ..Default::default() }, ended),
-            ("paused", SessionDotFacts { paused: true, ..Default::default() }, ended),
-            ("needs input", SessionDotFacts { needs_input: true, ..running }, yellow),
-            ("awaiting", SessionDotFacts { awaiting: true, ..running }, yellow),
-            // FEED-26: a quiet feed reads like a question, never like progress.
-            ("stale", SessionDotFacts { stale: true, ..running }, yellow),
-            ("done", SessionDotFacts { done: true, ..Default::default() }, blue),
-            ("review", SessionDotFacts { review: true, ..Default::default() }, green),
-            ("running", running, green),
-            ("connecting", SessionDotFacts { connecting: true, ..Default::default() }, neutral),
-            ("nothing known", SessionDotFacts::default(), neutral),
+        };
+        let working = vec![
+            host_session("r1", "r1", "idle", Some("dev-1")),
+            host_session("c1", "r1", "running", Some("dev-1")),
         ];
-        for (name, facts, want) in cases {
-            assert_eq!(session_dot_tone(facts, muted), want, "{name}");
-        }
-
-        // Precedence: an ended run is grey whatever else it says, and a paused
-        // one does not go yellow because its feed stopped (of course it did).
-        assert_eq!(
-            session_dot_tone(
-                SessionDotFacts { ended: true, needs_input: true, running: true, ..Default::default() },
-                muted,
-            ),
-            ended,
-        );
-        assert_eq!(
-            session_dot_tone(SessionDotFacts { paused: true, stale: true, ..running }, muted),
-            ended,
-        );
-        // Yellow beats the outcome colours while the run is live.
-        assert_eq!(
-            session_dot_tone(SessionDotFacts { needs_input: true, review: true, ..Default::default() }, muted),
-            yellow,
-        );
-        // Done beats review — a merged PR is not waiting on anyone.
-        assert_eq!(
-            session_dot_tone(SessionDotFacts { done: true, review: true, ..Default::default() }, muted),
-            blue,
-        );
+        assert_eq!(check(&working, None).as_deref(), Some("Studio"));
+        assert_eq!(check(&working, Some("c1")), None);
+        let quiet = vec![
+            host_session("r1", "r1", "idle", Some("dev-1")),
+            host_session("c1", "r1", "ended", Some("dev-1")),
+            host_session("r2", "r2", "running", Some("dev-1")),
+        ];
+        assert_eq!(check(&quiet, None), None);
+        let unplaced = vec![host_session("r1", "r1", "queued", None)];
+        assert_eq!(check(&unplaced, None).as_deref(), Some("another device"));
     }
 
-    /// The synced-row shorthand every list uses: a display plus the two states
-    /// the row alone cannot say.
+    /// The host resolves by `device_id` only; a lapsed heartbeat reads
+    /// offline, an unknown machine never does.
     #[test]
-    fn dot_facts_read_a_synced_display() {
-        let muted = gpui::hsla(0., 0., 0.6, 1.);
-        assert_eq!(
-            session_dot_tone(
-                SessionDotFacts::from_display(CodingSessionDisplay::NeedsInput, false, false),
-                muted,
-            ),
-            theme::tokens::YELLOW.to_hsla(),
-        );
-        assert_eq!(
-            session_dot_tone(
-                SessionDotFacts::from_display(CodingSessionDisplay::Done, false, false),
-                muted,
-            ),
-            theme::tokens::BLUE.to_hsla(),
-        );
-        assert_eq!(
-            session_dot_tone(
-                SessionDotFacts::from_display(CodingSessionDisplay::Working, false, false),
-                muted,
-            ),
-            theme::tokens::GREEN.to_hsla(),
-        );
-        // EXP-550/EXP-746: an offline host or a finished row grey out.
-        for facts in [
-            SessionDotFacts::from_display(CodingSessionDisplay::Working, false, true),
-            SessionDotFacts::from_display(CodingSessionDisplay::Working, true, false),
-        ] {
-            assert_eq!(session_dot_tone(facts, muted), muted.opacity(0.4));
-        }
+    fn session_device_presentation_resolves_by_device_id() {
+        let now_ms = 1_784_289_600_000_i64;
+        let devices = vec![
+            host_device("dev-1", "Studio", "2026-07-17T11:59:30Z"),
+            host_device("dev-2", "Laptop", "2026-07-10T00:00:00Z"),
+        ];
+        let on = |device: Option<&str>| {
+            session_device_presentation(&host_session("r1", "r1", "running", device), devices.iter(), now_ms)
+        };
+        let studio = on(Some("dev-1"));
+        assert_eq!(studio.label.as_deref(), Some("Studio"));
+        assert!(!studio.offline);
+        let laptop = on(Some("dev-2"));
+        assert_eq!(laptop.label.as_deref(), Some("Laptop"));
+        assert!(laptop.offline);
+        let unknown = on(Some("dev-9"));
+        assert_eq!(unknown.label, None);
+        assert!(!unknown.offline);
+        assert!(on(None).label.is_none());
     }
 }

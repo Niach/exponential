@@ -1,5 +1,6 @@
-//! Settings → Agents (EXP-288 — split out of the old Coding pane; the
-//! remaining this-device knobs live in [`super::tools`]).
+//! Settings → Coding CLIs (EXP-288 — split out of the old Coding pane, the
+//! remaining this-device knobs live in [`super::tools`]; EXP-1294 renamed
+//! the entry from "Agents", which are the team's agents now).
 //!
 //! The JetBrains-SDK-settings-style pane for the Start-coding launcher,
 //! grouped HARD by agent (EXP-206):

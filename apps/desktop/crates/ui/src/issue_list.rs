@@ -1187,8 +1187,7 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
     };
 
     // SLOP-3: the play control starts directly (web parity). It hands the
-    // picked set to the composer: one issue is a plain start, two or more a
-    // batch.
+    // picked set to the composer: ONE session linking every picked issue.
     let start_coding = {
         let ids = ids.clone();
         let list = list.clone();

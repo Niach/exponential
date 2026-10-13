@@ -170,15 +170,29 @@ fn lane_row(
     }
 }
 
-/// The header: kind icon, name, kind word, then trailing the progress and
-/// the elapsed time (a spinner in front while running).
-fn header(card: &WorkCard, cx: &App) -> AnyElement {
+/// EXP-1294: what ONE header row paints — the Work card's header and THE
+/// session card share it.
+pub(crate) struct HeaderRow {
+    /// The kind / state glyph.
+    pub(crate) icon: crate::icons::ExpIcon,
+    /// The glyph's tint; `None` = muted.
+    pub(crate) icon_tint: Option<gpui::Hsla>,
+    pub(crate) name: SharedString,
+    /// The muted word after the name (`Workflow`, `Working`).
+    pub(crate) kind_word: Option<SharedString>,
+    /// A 12px spinner in front of the trailing meta.
+    pub(crate) running: bool,
+    /// The muted trailing text (`progress · elapsed`, `2m 04s`).
+    pub(crate) meta: Option<SharedString>,
+    /// A trailing glyph after everything (the session card's chevron).
+    pub(crate) trailing: Option<AnyElement>,
+}
+
+/// The header row: icon, name (medium, truncates), the muted kind word, then
+/// trailing the spinner (while running), the meta and the trailing glyph, at
+/// `geometry::HEADER`.
+pub(crate) fn header_row(row: HeaderRow, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
-    let meta: Vec<&str> = [card.progress.as_deref(), card.elapsed.as_deref()]
-        .into_iter()
-        .flatten()
-        .collect();
-    let icon = registry::concept_by_name(&card.icon).unwrap_or(registry::CODING_SUBAGENT);
     tool_text(h_flex())
         .w_full()
         .min_w_0()
@@ -186,34 +200,47 @@ fn header(card: &WorkCard, cx: &App) -> AnyElement {
         .px_3()
         .gap_2()
         .items_center()
-        .child(Icon::new(icon).xsmall().text_color(muted))
+        .child(Icon::new(row.icon).xsmall().text_color(row.icon_tint.unwrap_or(muted)))
         .child(
             div()
                 .min_w_0()
                 .truncate()
                 .font_weight(gpui::FontWeight::MEDIUM)
                 .text_color(cx.theme().foreground)
-                .child(SharedString::from(card.name.clone())),
+                .child(row.name),
         )
-        .when_some(card.kind_word.clone(), |this, word| {
-            this.child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(muted)
-                    .child(SharedString::from(word)),
-            )
+        .when_some(row.kind_word, |this, word| {
+            this.child(div().flex_shrink_0().text_color(muted).child(word))
         })
         .child(div().flex_1())
-        .when(card.running, |this| this.child(Spinner::new().xsmall()))
-        .when(!meta.is_empty(), |this| {
-            this.child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(muted)
-                    .child(SharedString::from(meta.join(steer::work_card::WORK_CARD_SEPARATOR))),
-            )
+        .when(row.running, |this| this.child(Spinner::new().xsmall()))
+        .when_some(row.meta, |this, meta| {
+            this.child(div().flex_shrink_0().text_color(muted).child(meta))
         })
+        .children(row.trailing)
         .into_any_element()
+}
+
+/// The Work card's header: kind icon, name, kind word, then trailing the
+/// progress and the elapsed time (a spinner in front while running).
+fn header(card: &WorkCard, cx: &App) -> AnyElement {
+    let meta: Vec<&str> = [card.progress.as_deref(), card.elapsed.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect();
+    header_row(
+        HeaderRow {
+            icon: registry::concept_by_name(&card.icon).unwrap_or(registry::CODING_SUBAGENT),
+            icon_tint: None,
+            name: SharedString::from(card.name.clone()),
+            kind_word: card.kind_word.clone().map(SharedString::from),
+            running: card.running,
+            meta: (!meta.is_empty())
+                .then(|| SharedString::from(meta.join(steer::work_card::WORK_CARD_SEPARATOR))),
+            trailing: None,
+        },
+        cx,
+    )
 }
 
 /// The segment bar: equal capsules over the muted track, each filled in the
@@ -391,4 +418,63 @@ pub(crate) fn work_card(props: WorkCardProps<'_>, cx: &App) -> AnyElement {
             .into_any_element(),
         None => column.into_any_element(),
     }
+}
+
+/// EXP-1294: a session card tone (`fixtures/session-card.json` `tones`) →
+/// the glyph tint: `foreground`, `amber` (needs you), `rose` (usage limit),
+/// anything else muted.
+pub(crate) fn session_tone_color(tone: &str, cx: &App) -> gpui::Hsla {
+    match tone {
+        "foreground" => cx.theme().foreground,
+        "amber" => theme::tokens::YELLOW.to_hsla(),
+        "rose" => cx.theme().danger,
+        _ => cx.theme().muted_foreground,
+    }
+}
+
+/// EXP-1294 — THE session card (`fixtures/session-card.json`): the Work
+/// card's header row in the glass card frame — the state glyph (tinted by
+/// its tone), the name, the muted state word, trailing the spinner while
+/// working, the elapsed time and a chevron. The WHOLE card opens the session
+/// (`on_click`); its element id is the fixture's test id plus the session id.
+pub(crate) fn session_card(
+    card: &domain::session_tree::SessionCard,
+    on_click: impl Fn(&mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let header = header_row(
+        HeaderRow {
+            icon: registry::concept_by_name(&card.icon).unwrap_or(registry::CODING_SUBAGENT),
+            icon_tint: Some(session_tone_color(&card.tone, cx)),
+            name: SharedString::from(card.name.clone()),
+            kind_word: Some(SharedString::from(card.kind_word.clone())),
+            running: card.running,
+            meta: card.elapsed.clone().map(SharedString::from),
+            trailing: Some(
+                Icon::new(registry::UI_CHEVRON_RIGHT)
+                    .xsmall()
+                    .text_color(muted.opacity(0.7))
+                    .into_any_element(),
+            ),
+        },
+        cx,
+    );
+    v_flex()
+        .id(ElementId::from(SharedString::from(format!(
+            "{}-{}",
+            card.test_id, card.session_id
+        ))))
+        .w_full()
+        .min_w_0()
+        .overflow_hidden()
+        .rounded(px(theme::tokens::radius::LG))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+        .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+        .cursor_pointer()
+        .hover(|this| this.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
+        .on_click(move |_: &ClickEvent, window, cx| on_click(window, cx))
+        .child(header)
+        .into_any_element()
 }

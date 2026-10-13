@@ -1,33 +1,31 @@
-//! EXP-530: the desktop GUI's action-trigger host — the CLI daemon
-//! worker's twin, per signed-in account and shaped exactly like
-//! [`crate::device_sync`].
+//! EXP-530: the desktop GUI's trigger host — the CLI daemon worker's twin,
+//! per signed-in account and shaped exactly like [`crate::device_sync`].
 //!
-//! The engine ([`coding::triggers`]) is PURE: this host snapshots its
-//! inputs on the foreground (the parsed triggers bound to THIS device, the
-//! candidate `issue_events` rows with `board_id` joined from the synced
-//! issues, the actions with a live local run, the clock) and runs
-//! `read_states` → `evaluate` → `write_states` on the background executor,
-//! because every one of those touches settings.json.
+//! EXP-1294 (Threads v2): triggers live on AGENTS — an agent root (`sessions`
+//! kind `agent`) hosted on THIS device carries its `triggers` jsonb, and a
+//! firing posts ONE message into that agent's channel
+//! (`api::session_device::post_message`); the pickup delivers it like any
+//! other message. Nothing here launches a run.
+//!
+//! The engine ([`coding::triggers`]) is PURE: this host snapshots its inputs
+//! on the foreground (the triggers of this device's agents, the candidate
+//! `issue_events` rows with `board_id` joined from the synced issues, the
+//! clock) and runs `read_states` → `evaluate` → `write_states` on the
+//! background executor, because every one of those touches the state file.
 //!
 //! Cadence mirrors the device-sync beat: a 1s tick gated to a 30s
-//! evaluation, plus `cx.observe` watches on the `issue_events` and `actions`
+//! evaluation, plus `cx.observe` watches on the `issue_events` and `sessions`
 //! collections that flip `eval_soon` so a freshly synced event (or an edited
-//! trigger — SLOP-2: they ride `actions.triggers`) is acted on within a tick
-//! instead of waiting out the beat.
+//! trigger) is acted on within a tick instead of waiting out the beat.
 //!
 //! EXP-562: the foreground half is the part that must stay cheap, so it is
 //! gated twice — a device with no ENABLED event trigger never looks at the
 //! `issue_events` collection at all, and one that does reuses its last
 //! [`EventCache`] until the collection's revision moves.
 //!
-//! Firing protocol (the module doc of [`coding::triggers`] is the
-//! authority, both hosts obey it): claim the `action:{id}` reservation →
-//! persist the new state FIRST → launch. A failed claim skips WITHOUT a
-//! state write (the run that holds it is the one that advances the
-//! watermark); a failed prepare extends `cooldown_until` by
-//! [`coding::triggers::PREPARE_FAILURE_BACKOFF_MS`] through the
-//! `on_settled` hook, so a poison-pill trigger backs off instead of
-//! re-firing every beat.
+//! Firing protocol: persist the new state FIRST → post. A failed post
+//! extends `cooldown_until` by [`coding::triggers::PREPARE_FAILURE_BACKOFF_MS`],
+//! so a poison-pill trigger backs off instead of re-firing every beat.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -38,17 +36,10 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 use gpui::{App, AppContext as _, Global};
 
-use coding::triggers::{
-    self, TriggerState, Decision, EvalInput, EventRow, Firing, LaunchPins, TriggerKind,
-    ArmedTrigger,
-};
-use coding::{LaunchOptions, LaunchOrigin, TriggerNote, TriggerNoteKind};
-use domain::rows::ActionRow;
+use coding::triggers::{self, ArmedTrigger, Decision, EvalInput, EventRow, Firing, TriggerState};
+use domain::rows::SessionRow;
 
-use crate::action_run::{self, ActionRepo, StartActionArgs};
-use crate::coding_flow::{CodingHub, LocalSessions};
 use crate::queries;
-use crate::steer_wiring::ReservationGuard;
 
 /// The evaluation cadence — a schedule's finest granularity is one minute,
 /// so a half-minute beat can never miss an occurrence, and the collection
@@ -61,7 +52,7 @@ const TICK: Duration = Duration::from_secs(1);
 struct TriggerHostState {
     /// Stop flag per account (sign-out flips it; the loop retires itself).
     by_account: HashMap<String, Arc<AtomicBool>>,
-    /// The issue_events + actions shape watches per account.
+    /// The issue_events + sessions shape watches per account.
     watch_by_account: HashMap<String, Vec<gpui::Subscription>>,
     /// A synced-row change asked for an off-cadence evaluation.
     eval_soon: Arc<AtomicBool>,
@@ -155,42 +146,15 @@ pub fn start_trigger_host(account: &api::Account, cx: &mut App) {
                 continue;
             }
 
-            // Claim first: a remote start (or a duplicate relay frame) already
-            // preparing this action owns the launch, and a firing that loses
-            // the claim writes NO state — the watermark stays put so the next
-            // beat re-decides once the holder is done.
-            let claimed: Vec<(FireOrder, ReservationGuard)> = outcome
-                .fires
-                .into_iter()
-                .filter_map(|fire| {
-                    match crate::steer_wiring::action_start_reservations()
-                        .claim(format!("action:{}", fire.action_id))
-                    {
-                        Some(guard) => Some((fire, guard)),
-                        None => {
-                            log::info!(
-                                "[triggers] {} skipped — a start holding {} is already in flight",
-                                fire.trigger_id,
-                                fire.action_id
-                            );
-                            None
-                        }
-                    }
-                })
-                .collect();
-            if claimed.is_empty() {
-                continue;
-            }
-
-            // Persist BEFORE launching (the firing protocol): a crash between
-            // here and the spawn drops the run instead of double-firing it.
-            // A FAILED write skips the launch too (the daemon's rule):
-            // without a durable watermark the same occurrence would re-fire
-            // every beat for as long as settings.json stays unwritable.
+            // Persist BEFORE posting (the firing protocol): a crash between
+            // here and the post drops the firing instead of double-firing it.
+            // A FAILED write skips the post too: without a durable watermark
+            // the same occurrence would re-fire every beat.
             let mut states = outcome.states;
-            let advanced: Vec<(String, TriggerState)> = claimed
+            let advanced: Vec<(String, TriggerState)> = outcome
+                .fires
                 .iter()
-                .map(|(fire, _)| (fire.trigger_id.clone(), fire.new_state.clone()))
+                .map(|fire| (fire.trigger_id.clone(), fire.new_state.clone()))
                 .collect();
             let persisted = {
                 let settings_path = settings_path.clone();
@@ -207,18 +171,17 @@ pub fn start_trigger_host(account: &api::Account, cx: &mut App) {
             if !persisted {
                 continue;
             }
-
-            cx.update(|cx| {
-                for (fire, reservation) in claimed {
-                    launch(
-                        fire,
-                        reservation,
-                        settings_path.clone(),
-                        device_id.clone(),
-                        cx,
-                    );
-                }
-            });
+            let Some(trpc) = cx.update(|cx| queries::trpc_client(cx).map(Arc::new)) else {
+                continue;
+            };
+            for fire in outcome.fires {
+                let trpc = Arc::clone(&trpc);
+                let settings_path = settings_path.clone();
+                let device_id = device_id.clone();
+                cx.background_executor()
+                    .spawn(async move { fire_trigger(&trpc, fire, &settings_path, &device_id) })
+                    .detach();
+            }
         }
     })
     .detach();
@@ -239,7 +202,7 @@ pub fn stop_trigger_host(account_id: &str, cx: &mut App) {
 }
 
 /// Watch the two collections an evaluation reads: a new `issue_events` row is
-/// the whole point of an event trigger, and an action whose `triggers`
+/// the whole point of an event trigger, and an agent whose `triggers`
 /// changed must re-seed within a tick instead of a beat. Unlike the device-sync
 /// stamp latch there is nothing to de-bounce — evaluation is idempotent, and
 /// firing is gated by the cooldown + the watermark, so an eager pass costs
@@ -255,7 +218,7 @@ fn watch_collections(
     };
     vec![
         watch_flag(&collections.issue_events, &stop, &eval_soon, cx),
-        watch_flag(&collections.actions, &stop, &eval_soon, cx),
+        watch_flag(&collections.sessions, &stop, &eval_soon, cx),
     ]
 }
 
@@ -313,21 +276,17 @@ struct EvalSnapshot {
     /// The GUI's steer device id — triggers bound to the CLI daemon's
     /// sibling row (or another machine) belong to that host, never this one.
     device_id: String,
-    /// This device's enabled, readable triggers, each carrying its team
-    /// (the event fence AND the runner's up-front team).
+    /// This device's enabled, readable agent triggers, each carrying its
+    /// team (the event fence). `action_id` names the AGENT session.
     armed: Vec<ArmedTrigger>,
-    /// Per-trigger launch pins (`trigger id → (agent, account, model,
-    /// effort)`) — every `None` falls back to this machine's launch defaults.
-    pins: HashMap<String, LaunchPins>,
+    /// trigger id → the trigger element as synced (what the firing message
+    /// renders).
+    raw: HashMap<String, serde_json::Value>,
     /// Shared with [`EventCache`] — the pass only reads it.
     events: Arc<Vec<EventRow>>,
-    live_action_ids: HashSet<String>,
     issue_display: HashMap<String, IssueDisplay>,
     label_names: HashMap<String, String>,
     now_local: DateTime<Local>,
-    /// This machine's saved settings — the fallback every unpinned launch
-    /// field resolves against.
-    settings: coding::Settings,
 }
 
 fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Option<EvalSnapshot> {
@@ -339,14 +298,7 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
     let device_id = steer::persistent_device_id(&auth.data_dir);
     let settings_path = coding::Settings::default_path(&auth.data_dir);
     let collections = sync::Store::try_global(cx)?.collections().clone();
-    // The `&mut App` borrows first — everything below only reads.
-    let sessions = LocalSessions::global(cx);
-    let hub = CodingHub::global(cx);
-
-    let settings = hub.read(cx).settings.clone();
-    let live_action_ids = sessions.read(cx).live_action_ids();
-    let (triggers_bound, pins) =
-        armed_triggers(collections.actions.read(cx).iter(), &device_id);
+    let (triggers_bound, raw) = armed_triggers(collections.sessions.read(cx).iter(), &device_id);
     if triggers_bound.is_empty() || !triggers::needs_events(&triggers_bound) {
         // Nothing bound to this device, or nothing that READS events (a
         // schedule-only device never scans) — skip the potentially large
@@ -356,13 +308,11 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
             settings_path,
             device_id,
             armed: triggers_bound,
-            pins,
+            raw,
             events: Arc::default(),
-            live_action_ids,
             issue_display: HashMap::new(),
             label_names: HashMap::new(),
             now_local: Local::now(),
-            settings,
         });
     }
 
@@ -450,13 +400,11 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
         settings_path,
         device_id,
         armed: triggers_bound,
-        pins,
+        raw,
         events,
-        live_action_ids,
         issue_display,
         label_names,
         now_local,
-        settings,
     })
 }
 
@@ -486,37 +434,66 @@ fn patch_missing_boards(
     true
 }
 
-/// The triggers this device evaluates, over every synced action
-/// ([`triggers::bound_triggers`] — the ONE resolution both hosts share, so
-/// a GUI/CLI hand-off never re-seeds the shared state). Returns the engine
-/// input plus the per-trigger launch pins the fire needs.
+/// EXP-1294 — the triggers this device evaluates: every ENABLED, readable
+/// trigger on an agent root hosted HERE (its `device_id`) that has a team to
+/// fence events by. Returns the engine input (`action_id` = the agent's
+/// session id) plus each trigger's raw element. The fingerprint is the
+/// WHEN-part's, so toggling a trigger never re-seeds its state.
 fn armed_triggers<'a>(
-    rows: impl Iterator<Item = &'a ActionRow>,
+    rows: impl Iterator<Item = &'a SessionRow>,
     device_id: &str,
-) -> (Vec<ArmedTrigger>, HashMap<String, LaunchPins>) {
+) -> (Vec<ArmedTrigger>, HashMap<String, serde_json::Value>) {
     let mut bound = Vec::new();
-    let mut pins = HashMap::new();
-    for trigger in triggers::bound_triggers(rows, device_id) {
-        pins.insert(trigger.triggered.trigger_id.clone(), trigger.pins);
-        bound.push(trigger.triggered);
+    let mut raw = HashMap::new();
+    for agent in rows.filter(|row| row.is_agent() && row.is_root()) {
+        if agent.device_id.as_deref() != Some(device_id) {
+            continue;
+        }
+        let Some(team_id) = agent.team_id.clone() else {
+            continue;
+        };
+        for element in agent.trigger_list() {
+            let Some(trigger_id) = element
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            // Only an explicit `false` pauses.
+            if element.get("enabled").and_then(serde_json::Value::as_bool) == Some(false) {
+                continue;
+            }
+            let Some(when) = triggers::parse_trigger(&element)
+                .filter(|when| when.kind != triggers::TriggerKind::Unsupported)
+            else {
+                continue;
+            };
+            bound.push(ArmedTrigger {
+                fingerprint: triggers::trigger_fingerprint(&triggers::when_part(&element)),
+                trigger_id: trigger_id.clone(),
+                action_id: agent.id.clone(),
+                team_id: team_id.clone(),
+                trigger: when,
+            });
+            raw.insert(trigger_id, element);
+        }
     }
-    (bound, pins)
+    (bound, raw)
 }
 
 // ---------------------------------------------------------------------------
 // The evaluation pass (background executor)
 // ---------------------------------------------------------------------------
 
-/// One action the engine decided to fire, with its prompt note pre-rendered
-/// (the display lookups live in the snapshot, not the launcher).
+/// One trigger the engine decided to fire, with its message pre-rendered
+/// (the display lookups live in the snapshot, not the post).
 struct FireOrder {
     trigger_id: String,
-    action_id: String,
-    team_id: String,
-    note: TriggerNote,
-    /// Resolved on the background pass: the trigger's pins layered over
-    /// this machine's launch defaults.
-    options: LaunchOptions,
+    /// The agent session the message goes to.
+    agent_id: String,
+    text: String,
     new_state: TriggerState,
 }
 
@@ -530,11 +507,14 @@ struct PassOutcome {
 fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     let now_ms = snapshot.now_local.timestamp_millis();
     let mut states = triggers::read_states(&store(&snapshot.settings_path, &snapshot.device_id));
+    // A firing only posts a message (the channel queues it), so nothing is
+    // ever deferred for a live run.
+    let live = HashSet::new();
     let decisions = triggers::evaluate(&EvalInput {
         armed: &snapshot.armed,
         states: &states,
         events: &snapshot.events[..],
-        live_action_ids: &snapshot.live_action_ids,
+        live_action_ids: &live,
         now_ms,
         now_local: snapshot.now_local.clone(),
     });
@@ -542,7 +522,7 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     let mut fires = Vec::new();
     for decision in decisions {
         match decision {
-            // Cooling down or already running — nothing to persist.
+            // Cooling down — nothing to persist.
             Decision::Defer { .. } => {}
             Decision::Reseed {
                 trigger_id,
@@ -563,22 +543,12 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
                 else {
                     continue;
                 };
-                let pins = snapshot.pins.get(&trigger_id).cloned().unwrap_or_default();
+                let Some(raw) = snapshot.raw.get(&trigger_id) else {
+                    continue;
+                };
                 fires.push(FireOrder {
-                    action_id: armed.action_id.clone(),
-                    team_id: armed.team_id.clone(),
-                    note: trigger_note(armed, &firing, &snapshot),
-                    // EXP-583: the trigger's own pins win; everything it
-                    // leaves unset follows this machine's defaults, and plan
-                    // mode is forced off (an unattended run must never park
-                    // at the plan-approval card).
-                    options: triggers::launch_options(
-                        &snapshot.settings,
-                        pins.agent.as_deref(),
-                        pins.model.as_deref(),
-                        pins.effort.as_deref(),
-                        pins.account.as_deref(),
-                    ),
+                    agent_id: armed.action_id.clone(),
+                    text: firing_message(raw, &firing, &snapshot),
                     trigger_id,
                     new_state,
                 });
@@ -612,41 +582,27 @@ fn write_states(
     }
 }
 
-/// The prompt's `## Trigger` note: a schedule renders the shared phrase, an
-/// event the per-issue lines (capped — the overflow becomes the note's
-/// `omitted` count).
-fn trigger_note(
-    armed: &ArmedTrigger,
-    firing: &Firing,
-    snapshot: &EvalSnapshot,
-) -> TriggerNote {
-    match firing {
-        Firing::Schedule { .. } => {
-            let phrase = match &armed.trigger.kind {
-                TriggerKind::Schedule(schedule) => triggers::schedule_phrase(schedule),
-                // Unreachable — the engine only schedules a Schedule trigger.
-                _ => String::new(),
-            };
-            TriggerNote {
-                kind: TriggerNoteKind::Schedule { phrase },
-            }
+/// EXP-1294: the message a firing posts into its agent's channel — the
+/// trigger's own text (`coding::pickup::firing_text`) and, for an event
+/// firing, one line per matched event (capped; the overflow is counted).
+fn firing_message(raw: &serde_json::Value, firing: &Firing, snapshot: &EvalSnapshot) -> String {
+    let mut text = coding::pickup::firing_text(raw);
+    if let Firing::Event { matches } = firing {
+        let mut lines: Vec<String> = matches
+            .iter()
+            .take(triggers::TRIGGER_PROMPT_MAX_LINES)
+            .map(|row| format!("- {}", event_line(row, &snapshot.issue_display, &snapshot.label_names)))
+            .collect();
+        let omitted = matches.len().saturating_sub(triggers::TRIGGER_PROMPT_MAX_LINES);
+        if omitted > 0 {
+            lines.push(format!("- …and {omitted} more."));
         }
-        Firing::Event { matches } => {
-            let lines = matches
-                .iter()
-                .take(triggers::TRIGGER_PROMPT_MAX_LINES)
-                .map(|row| event_line(row, &snapshot.issue_display, &snapshot.label_names))
-                .collect();
-            TriggerNote {
-                kind: TriggerNoteKind::Event {
-                    lines,
-                    omitted: matches
-                        .len()
-                        .saturating_sub(triggers::TRIGGER_PROMPT_MAX_LINES),
-                },
-            }
+        if !text.is_empty() && !lines.is_empty() {
+            text.push_str("\n\n");
         }
+        text.push_str(&lines.join("\n"));
     }
+    text
 }
 
 /// One event's prompt line: `EXP-142 "Ship it" status Backlog → In Progress`.
@@ -734,73 +690,20 @@ fn status_label(wire: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// The launch (foreground)
+// The post (background executor)
 // ---------------------------------------------------------------------------
 
-fn launch(
-    fire: FireOrder,
-    reservation: ReservationGuard,
-    settings_path: PathBuf,
-    device_id: String,
-    cx: &mut App,
-) {
-    let FireOrder {
-        trigger_id,
-        action_id,
-        team_id,
-        note,
-        options,
-        ..
-    } = fire;
-    log::info!(
-        "[triggers] {trigger_id} starting {action_id} ({})",
-        note.started_reason()
-    );
-    // The poison-pill hook: a run that never reaches the agent (disabled
-    // launcher, prepare failure, no window) has already advanced its
-    // watermark — without a backoff its trigger would re-fire every beat.
-    let failed_trigger = trigger_id.clone();
-    // EXP-739: the hook settles either way now — back off ONLY when the start
-    // never reached the agent.
-    let on_settled: action_run::ActionSettledHook = Box::new(move |cx: &mut App, started: bool| {
-        if started {
-            return;
-        }
-        cx.background_executor()
-            .spawn(async move {
-                back_off(&settings_path, &device_id, &failed_trigger);
-            })
-            .detach();
-    });
-    action_run::start_action_run(
-        StartActionArgs {
-            action_id,
-            team_id,
-            trigger_id: Some(trigger_id),
-            // Local start: the action's own `repository_id` resolves through
-            // `repositories.list` exactly like a dialog run.
-            repo: ActionRepo::Resolve,
-            options,
-            // The run belongs to this machine's signed-in user, not a relay
-            // requester — a trigger is the device acting for its owner.
-            origin: LaunchOrigin::Local,
-            // A triggered run carries no run-time inputs (nobody to prompt).
-            inputs: Vec::new(),
-            target: None,
-            // Never takes the window: the whole point is an unattended run.
-            landing: crate::coding_flow::RunLanding::Background,
-            reservation: Some(reservation),
-            trigger: Some(note),
-            on_settled: Some(on_settled),
-            // A trigger fires with no composer text.
-            prompt: None,
-            report: crate::steer_wiring::StartReport::none(),
-        },
-        cx,
-    );
+/// Post one firing into its agent's channel; a failed post backs the trigger
+/// off ([`back_off`]).
+fn fire_trigger(trpc: &api::TrpcClient, fire: FireOrder, settings_path: &Path, device_id: &str) {
+    log::info!("[triggers] {} → agent {}", fire.trigger_id, fire.agent_id);
+    if let Err(err) = api::session_device::post_message(trpc, &fire.agent_id, &fire.text) {
+        log::warn!("[triggers] {} could not post: {err}", fire.trigger_id);
+        back_off(settings_path, device_id, &fire.trigger_id);
+    }
 }
 
-/// Extend the action's cooldown by the prepare-failure backoff. Read-modify-
+/// Extend the trigger's cooldown by the failure backoff. Read-modify-
 /// write on the CURRENT map so a concurrent pass's reseeds survive; a state
 /// that vanished meanwhile (trigger deleted) is left alone.
 fn back_off(settings_path: &Path, device_id: &str, trigger_id: &str) {
@@ -811,7 +714,7 @@ fn back_off(settings_path: &Path, device_id: &str, trigger_id: &str) {
     let now_ms = Local::now().timestamp_millis();
     let base = state.cooldown_until.unwrap_or(now_ms).max(now_ms);
     state.cooldown_until = Some(base + triggers::PREPARE_FAILURE_BACKOFF_MS);
-    log::info!("[triggers] {trigger_id} backed off after a failed start");
+    log::info!("[triggers] {trigger_id} backed off after a failed post");
     write_states(settings_path, device_id, &states);
 }
 
@@ -820,25 +723,26 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// One synced `actions` row carrying `triggers`, in the tolerant wire
-    /// form the store hands us (jsonb columns arrive TEXT-stored).
-    fn action_row(id: &str, team_id: Option<&str>, triggers: serde_json::Value) -> ActionRow {
-        let mut row = json!({"id": id, "triggers": triggers.to_string()});
+    /// One synced agent root carrying `triggers`, hosted on `device_id`.
+    fn agent_row(id: &str, team_id: Option<&str>, device_id: &str, triggers: serde_json::Value) -> SessionRow {
+        let mut row = json!({
+            "id": id, "kind": "agent", "root_id": id, "device_id": device_id,
+            "name": id, "triggers": triggers,
+        });
         if let Some(team_id) = team_id {
             row["team_id"] = json!(team_id);
         }
-        serde_json::from_value(row).expect("action row decodes")
+        serde_json::from_value(row).expect("session row decodes")
     }
 
     fn schedule_trigger() -> serde_json::Value {
         json!({"kind": "schedule", "interval": "daily", "minuteOfDay": 420})
     }
 
-    /// One trigger element: the runner beside [`schedule_trigger`].
-    fn trigger(id: &str, device_id: &str, enabled: bool) -> serde_json::Value {
+    /// One trigger element beside [`schedule_trigger`].
+    fn trigger(id: &str, enabled: bool) -> serde_json::Value {
         let mut element = schedule_trigger();
         element["id"] = json!(id);
-        element["deviceId"] = json!(device_id);
         element["enabled"] = json!(enabled);
         element
     }
@@ -865,87 +769,46 @@ mod tests {
         )])
     }
 
-    /// Only THIS device's ENABLED, readable triggers on a team's action are
-    /// evaluated — every other one belongs to another host (or to none).
+    /// EXP-1294: only the ENABLED, readable triggers of agents hosted on
+    /// THIS device are evaluated — and the firing targets the agent.
     #[test]
-    fn armed_triggers_keep_only_this_devices_triggers() {
+    fn armed_triggers_keep_only_this_devices_agents() {
         let rows = vec![
-            action_row(
-                "act-1",
+            agent_row(
+                "agent-1",
                 Some("team-1"),
+                "dev-gui",
                 json!([
-                    trigger("mine", "dev-gui", true),
-                    trigger("theirs", "dev-cli", true),
+                    trigger("mine", true),
                     // Switched off — inert before the engine ever sees it.
-                    trigger("off", "dev-gui", false),
+                    trigger("off", false),
                     // A FUTURE kind is unreadable here: skipped.
-                    {"id": "future", "deviceId": "dev-gui", "kind": "moon_phase"},
+                    {"id": "future", "kind": "moon_phase"},
                 ]),
             ),
-            // A team-less action has nowhere to run.
-            action_row("act-2", None, json!([trigger("teamless", "dev-gui", true)])),
-            action_row("act-3", Some("team-2"), json!([trigger("second", "dev-gui", true)])),
-            // No triggers at all: nothing to evaluate.
-            action_row("act-4", Some("team-1"), json!([])),
+            // Another machine's agent.
+            agent_row("agent-2", Some("team-1"), "dev-cli", json!([trigger("theirs", true)])),
+            // A team-less agent has no event fence.
+            agent_row("agent-3", None, "dev-gui", json!([trigger("teamless", true)])),
+            agent_row("agent-4", Some("team-2"), "dev-gui", json!([trigger("second", true)])),
         ];
-        let (bound, pins) = armed_triggers(rows.iter(), "dev-gui");
+        let (bound, raw) = armed_triggers(rows.iter(), "dev-gui");
         assert_eq!(
             bound
                 .iter()
                 .map(|armed| armed.trigger_id.as_str())
                 .collect::<Vec<_>>(),
             vec!["mine", "second"],
-            "other devices', disabled, unreadable and team-less triggers are skipped"
         );
-        assert_eq!(bound[0].action_id, "act-1", "the launch target rides along");
+        assert_eq!(bound[0].action_id, "agent-1", "the firing targets the agent");
         assert_eq!(bound[0].team_id, "team-1");
-        assert_eq!(bound[1].action_id, "act-3");
-        assert_eq!(bound[1].team_id, "team-2");
-        // Only the evaluated triggers get pins — the map is keyed by trigger.
-        assert_eq!(pins.len(), 2);
-        assert!(pins["mine"].agent.is_none(), "unpinned = the device's defaults");
-
-        // The fingerprint is the WHEN-part's — exactly what the pre-SLOP-2
-        // automations row hashed, so the persisted state carries over and a
-        // GUI↔CLI hand-off never re-seeds.
+        assert_eq!(bound[1].action_id, "agent-4");
+        assert_eq!(raw.len(), 2);
+        // The fingerprint is the WHEN-part's — toggling never re-seeds.
         assert_eq!(
             bound[0].fingerprint,
             triggers::trigger_fingerprint(&schedule_trigger()),
         );
-    }
-
-    /// EXP-583: a trigger's pins ride to the launch; everything it leaves
-    /// unset follows the machine, and plan mode is forced off either way (the
-    /// shipped default IS plan mode for claude, and an unattended run
-    /// would park at the plan-approval card forever).
-    #[test]
-    fn launch_pins_layer_over_the_device_defaults() {
-        let settings = coding::Settings::default();
-        let mut pinned = trigger("pinned", "dev-gui", true);
-        pinned["agent"] = json!("codex");
-        pinned["model"] = json!("gpt-5.1-codex");
-        let row = action_row("act-1", Some("team-1"), json!([pinned]));
-        let (_, pins) = armed_triggers([row].iter(), "dev-gui");
-        let pin = &pins["pinned"];
-        let options = triggers::launch_options(
-            &settings,
-            pin.agent.as_deref(),
-            pin.model.as_deref(),
-            pin.effort.as_deref(),
-            pin.account.as_deref(),
-        );
-        assert_eq!(options.agent, coding::CodingAgent::Codex);
-        assert_eq!(options.model, "gpt-5.1-codex");
-        assert!(!options.plan_mode);
-
-        // Unpinned: this machine's own defaults, exactly like a dialog start
-        // with untouched options.
-        let bare = triggers::launch_options(&settings, None, None, None, None);
-        let dialog = LaunchOptions::defaults(&settings);
-        assert_eq!(bare.agent, dialog.agent);
-        assert_eq!(bare.model, dialog.model);
-        assert_eq!(bare.ultracode, dialog.ultracode);
-        assert!(!bare.plan_mode);
     }
 
     /// EXP-562: the foreground pass walks the whole `issue_events`
@@ -1060,63 +923,28 @@ mod tests {
         assert_eq!(line(&orphan), "issue issue-unknown created");
     }
 
-    /// The prompt cap: the note keeps the first N lines and counts the rest,
-    /// so a 24h catch-up burst can't blow the seed prompt open.
+    /// The message cap: an event firing lists the first N lines and counts
+    /// the rest, so a 24h catch-up burst can't blow the message open.
     #[test]
-    fn event_note_caps_its_lines() {
+    fn event_message_caps_its_lines() {
         let snapshot = EvalSnapshot {
             settings_path: PathBuf::new(),
             device_id: "dev-gui".to_string(),
             armed: Vec::new(),
-            pins: HashMap::new(),
+            raw: HashMap::new(),
             events: Arc::default(),
-            live_action_ids: HashSet::new(),
             issue_display: displays(),
             label_names: HashMap::new(),
             now_local: Local::now(),
-            settings: coding::Settings::default(),
-        };
-        let action = ArmedTrigger {
-            trigger_id: "auto".to_string(),
-            action_id: "act".to_string(),
-            team_id: "team-1".to_string(),
-            trigger: triggers::parse_trigger(&json!({
-                "kind": "event",
-                "event": "created",
-            }))
-            .expect("parses"),
-            fingerprint: "fp".to_string(),
         };
         let overflow = triggers::TRIGGER_PROMPT_MAX_LINES + 7;
         let matches: Vec<EventRow> = (0..overflow)
             .map(|index| event_row(&format!("e{index}"), "created", None))
             .collect();
-        match trigger_note(&action, &Firing::Event { matches }, &snapshot).kind {
-            TriggerNoteKind::Event { lines, omitted } => {
-                assert_eq!(lines.len(), triggers::TRIGGER_PROMPT_MAX_LINES);
-                assert_eq!(omitted, 7, "the overflow is counted, never dropped silently");
-            }
-            other => panic!("expected an event note, got {other:?}"),
-        }
-
-        // A schedule firing renders the SHARED phrase (identical copy on the
-        // CLI host and in the UI's summary rows).
-        let scheduled = ArmedTrigger {
-            trigger_id: "auto".to_string(),
-            action_id: "act".to_string(),
-            team_id: "team-1".to_string(),
-            trigger: triggers::parse_trigger(&schedule_trigger()).expect("parses"),
-            fingerprint: "fp".to_string(),
-        };
-        match trigger_note(
-            &scheduled,
-            &Firing::Schedule { occurrence_ms: 0 },
-            &snapshot,
-        )
-        .kind
-        {
-            TriggerNoteKind::Schedule { phrase } => assert_eq!(phrase, "daily at 07:00"),
-            other => panic!("expected a schedule note, got {other:?}"),
-        }
+        let text = firing_message(&json!({"kind": "event", "event": "created"}), &Firing::Event { matches }, &snapshot);
+        let lines: Vec<&str> = text.lines().filter(|line| line.starts_with("- ")).collect();
+        assert_eq!(lines.len(), triggers::TRIGGER_PROMPT_MAX_LINES + 1);
+        assert_eq!(lines.last().copied(), Some("- …and 7 more."));
+        assert_eq!(lines[0], "- EXP-142 \"Ship it\" created");
     }
 }

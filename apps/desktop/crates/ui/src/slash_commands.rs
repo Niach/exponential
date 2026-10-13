@@ -38,11 +38,11 @@ const MENU_LIMIT: usize = 8;
 /// arm survives solely so those old rows keep an empty curated catalog
 /// instead of claude's. Mirrored ×4 (`steerAgentId` on web,
 /// `SlashCommands.agentId` on iOS and Android).
-pub(crate) fn agent_of(row: &domain::rows::CodingSession, acp: bool) -> SessionAgent {
-    agent_from_id(row.agent.as_deref(), acp)
+pub(crate) fn agent_of(row: &domain::rows::SessionRow, acp: bool) -> SessionAgent {
+    agent_from_id(row.cli.as_deref(), acp)
 }
 
-/// The pure half of [`agent_of`] — `coding_sessions.agent` is a raw wire
+/// The pure half of [`agent_of`] — `sessions.cli` is a raw wire
 /// string, and an unknown one is claude like an absent one.
 fn agent_from_id(agent: Option<&str>, acp: bool) -> SessionAgent {
     match agent.map(str::trim) {

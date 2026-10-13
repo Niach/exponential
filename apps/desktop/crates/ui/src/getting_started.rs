@@ -313,7 +313,7 @@ pub(crate) struct Signals {
     pub has_desktop_device: bool,
     /// The synced `devices` shape (own rows) has a server-kind device.
     pub has_server_device: bool,
-    /// Any coding_sessions row in the team (running or ended).
+    /// Any session in the team (running or ended; agent roots excluded).
     pub has_coding_session: bool,
     /// members ≥ 2 or any invite row — proof the team was shared.
     pub has_invited_team: bool,
@@ -670,10 +670,10 @@ impl GettingStartedProgress {
         let boards = collections.boards_in_team(team_id, cx);
         let has_board = !boards.is_empty();
         let has_coding_session = collections
-            .coding_sessions
+            .sessions
             .read(cx)
             .iter()
-            .any(|session| session.team_id.as_deref() == Some(team_id));
+            .any(|session| session.team_id.as_deref() == Some(team_id) && session.is_thread());
         let members = collections
             .team_members
             .read(cx)
@@ -778,7 +778,7 @@ fn run_target_here(target: Target, team_id: String, window: &mut Window, cx: &mu
         Target::AddDevice | Target::AddServer => {
             crate::machines::open_add_server_dialog(window, cx)
         }
-        // The Agent page, no subject: the composer is the page.
+        // Home, no subject: the composer is the page.
         Target::Agent => crate::navigation::navigate_to_chat(
             window,
             cx,

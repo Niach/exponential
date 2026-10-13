@@ -30,6 +30,7 @@ mod agent_login_outcome;
 mod action_run;
 mod actions;
 mod actions_view;
+mod agent_screen;
 mod trigger_host;
 mod app_title_bar;
 mod attachment_markdown_preview;
@@ -41,7 +42,6 @@ mod board_form;
 mod changelog;
 // EXP-746: the ONE "Changes" surface — every session surface renders
 // through it.
-mod changes_bar;
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
 mod chat_launch;
 mod chat_screen;
@@ -58,6 +58,7 @@ mod composer_images;
 mod commit_graph;
 mod context_layout;
 mod controls;
+mod create_agent_dialog;
 mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;
@@ -131,7 +132,6 @@ mod pickers;
 mod picker;
 mod pins;
 mod pr_diff;
-mod open_pulls;
 mod pr_graph;
 mod pr_merge;
 // EXP-1248: THE pull-request row + the stack rail (web pr-row.tsx).
@@ -140,11 +140,9 @@ mod queries;
 mod repo_resolver;
 mod repo_scope;
 mod resize_edge;
-mod reviews_view;
 // EXP-746: the ONE agent-run row (an action's Runs, Devices' Running and
 // Past) and the two Devices sections that render it.
 mod run_rows;
-mod sessions_section;
 mod scope_picker;
 mod screens;
 mod scroll_pane;
@@ -152,6 +150,8 @@ mod search_sheet;
 mod session;
 mod session_extras;
 mod session_bar;
+mod session_data;
+mod session_pickup;
 mod session_registry;
 mod session_results;
 mod session_rows;
@@ -169,8 +169,8 @@ mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
 // EXP-1284: threads — the read side and the thread screen.
-mod threads;
 mod thread_screen;
+mod threads_view;
 mod work_card;
 mod script_card;
 // EXP-1005: the account-rotation wall beat.
@@ -227,7 +227,7 @@ pub fn init(cx: &mut App) {
     // VAPP-90: the SDK's generic controls read the IDE's token values.
     exponential_ui_gpui::chrome::install(cx, controls::ide_chrome().clone());
     navigation::init(cx);
-    // EXP-105: quit-time sweep ending every coding_sessions row this process
+    // EXP-105: quit-time sweep ending every `sessions` row this process
     // launched — without it a closed IDE ghosts the "coding now" badge on
     // every client until the server staleness sweep catches it.
     coding_flow::install_quit_hook(cx);

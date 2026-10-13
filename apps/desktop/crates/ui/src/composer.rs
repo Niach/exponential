@@ -29,8 +29,16 @@
 //!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.
+//!
+//! EXP-1294: [`session_composer_box`] is THE session composer box — the
+//! steer composer's card, footer and work column lifted out of
+//! `steer_viewer::render_composer`, so the session view, the thread reply and
+//! the agent channel paint one box.
 
-use gpui::{div, px, AnyElement, App, Div, ParentElement as _, Styled};
+use gpui::{
+    div, px, AnyElement, App, AppContext as _, ClickEvent, Div, ElementId, Entity,
+    IntoElement as _, ParentElement as _, SharedString, Styled, Window,
+};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 use theme::tokens as t;
@@ -236,4 +244,204 @@ fn composer_round(
         .cursor_pointer()
         .icon(Icon::new(icon).text_color(tint))
         .disabled(disabled)
+}
+
+/// EXP-1294: the round button of [`session_composer_box`] — Send or Stop
+/// ([`SubmitKind`]), its own disabled and loading state, the click handler.
+pub(crate) struct SessionComposerSubmit {
+    pub(crate) id: ElementId,
+    pub(crate) kind: SubmitKind,
+    /// The caller's reason to dim it (an empty draft); Stop passes `false`.
+    pub(crate) disabled: bool,
+    /// A send in flight (the steer view's `sending`).
+    pub(crate) loading: bool,
+    pub(crate) on_click: Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>,
+}
+
+impl SessionComposerSubmit {
+    /// A Send button.
+    pub(crate) fn send(
+        id: impl Into<ElementId>,
+        disabled: bool,
+        on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            kind: SubmitKind::Send,
+            disabled,
+            loading: false,
+            on_click: Box::new(on_click),
+        }
+    }
+
+    pub(crate) fn kind(mut self, kind: SubmitKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    pub(crate) fn loading(mut self, loading: bool) -> Self {
+        self.loading = loading;
+        self
+    }
+}
+
+/// A decoration hook on one of the box's divs — a key context, captured
+/// actions (the steer view's slash keys and paste), a tint.
+pub(crate) type DivHook = Box<dyn FnOnce(Div) -> Div>;
+
+/// EXP-1294 — THE session composer box's slots. Only the field and the
+/// submit are required; the session view fills every slot (the `/` menu, its
+/// key captures, the pending images, the paste capture and the model /
+/// context footer), the thread reply and the agent channel the field, the
+/// pending images and the button.
+pub(crate) struct SessionComposerBox {
+    /// The mention-capable field ([`session_composer_field`]); its
+    /// placeholder lives on the textarea state.
+    pub(crate) mention: Entity<crate::mention_input::MentionInput>,
+    /// Inside the card, above the field (the steer view's `/` menu).
+    pub(crate) above_field: Option<AnyElement>,
+    /// Applied to the field's wrapper div (key context + captured actions).
+    pub(crate) field_hook: Option<DivHook>,
+    /// The pending attachment strip.
+    pub(crate) strip: Option<AnyElement>,
+    pub(crate) submit: SessionComposerSubmit,
+    /// The row UNDER the card (attach, model pin, context ring).
+    pub(crate) footer: Option<AnyElement>,
+    /// Applied to the card (the paste capture).
+    pub(crate) card_hook: Option<DivHook>,
+}
+
+impl SessionComposerBox {
+    pub(crate) fn new(
+        mention: Entity<crate::mention_input::MentionInput>,
+        submit: SessionComposerSubmit,
+    ) -> Self {
+        Self {
+            mention,
+            above_field: None,
+            field_hook: None,
+            strip: None,
+            submit,
+            footer: None,
+            card_hook: None,
+        }
+    }
+
+    pub(crate) fn above_field(mut self, element: Option<AnyElement>) -> Self {
+        self.above_field = element;
+        self
+    }
+
+    pub(crate) fn field_hook(mut self, hook: impl FnOnce(Div) -> Div + 'static) -> Self {
+        self.field_hook = Some(Box::new(hook));
+        self
+    }
+
+    pub(crate) fn strip(mut self, strip: Option<AnyElement>) -> Self {
+        self.strip = strip;
+        self
+    }
+
+    pub(crate) fn footer(mut self, footer: Option<AnyElement>) -> Self {
+        self.footer = footer;
+        self
+    }
+
+    pub(crate) fn card_hook(mut self, hook: impl FnOnce(Div) -> Div + 'static) -> Self {
+        self.card_hook = Some(Box::new(hook));
+        self
+    }
+}
+
+/// EXP-1294 — the field THE session composer box types into: a 1–6 line
+/// textarea (Enter sends, Shift+Enter breaks a line) with the §4.6
+/// completions, chrome off (the card draws it). Returns the textarea state
+/// (read and clear the draft through it) and the mention field the box
+/// mounts; point the completions at a team with `MentionInput::set_source`.
+pub(crate) fn session_composer_field(
+    placeholder: impl Into<SharedString>,
+    window: &mut Window,
+    cx: &mut App,
+) -> (
+    Entity<gpui_component::input::TextareaState>,
+    Entity<crate::mention_input::MentionInput>,
+) {
+    let placeholder = placeholder.into();
+    let input = cx.new(|cx| {
+        crate::controls::web_textarea(1, 6, window, cx)
+            .submit_on_enter(true)
+            .placeholder(placeholder)
+    });
+    let mention = cx.new(|cx| {
+        let mut mention = crate::mention_input::MentionInput::new(input.clone(), cx);
+        mention.set_appearance(false);
+        mention
+    });
+    (input, mention)
+}
+
+/// EXP-1294 — THE session composer box (EXP-877's steer composer): the card
+/// is the field and the ONE round button (tools inline, nothing wraps), the
+/// optional footer sits under it, and both ride the centred work column
+/// (EXP-1191: `WORK_COLUMN_W` with the `WORK_GUTTER` padding) over a
+/// pane-wide band, like the transcript above it.
+pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyElement {
+    let SessionComposerBox {
+        mention,
+        above_field,
+        field_hook,
+        strip,
+        submit,
+        footer,
+        card_hook,
+    } = props;
+    let field_wrap = div().w_full().min_w_0();
+    let field_wrap = match field_hook {
+        Some(hook) => hook(field_wrap),
+        None => field_wrap,
+    };
+    let composer = GlassComposer::new(
+        gpui_component::v_flex()
+            .w_full()
+            .min_w_0()
+            .children(above_field)
+            .child(field_wrap.child(mention))
+            .into_any_element(),
+    )
+    .inline_tools(true)
+    .strip(strip);
+    let SessionComposerSubmit {
+        id,
+        kind,
+        disabled,
+        loading,
+        on_click,
+    } = submit;
+    let composer = composer.submit(
+        composer_submit_kind(id, kind, disabled, cx)
+            .loading(loading)
+            .on_click(move |event, window, cx| on_click(event, window, cx)),
+    );
+    let card = glass_composer(composer);
+    let card = match card_hook {
+        Some(hook) => hook(card),
+        None => card,
+    };
+    div()
+        .w_full()
+        .flex_shrink_0()
+        .flex()
+        .flex_col()
+        .items_center()
+        .py_2()
+        .child(
+            gpui_component::v_flex()
+                .w_full()
+                .min_w_0()
+                .max_w(px(crate::work_header::WORK_COLUMN_W))
+                .px(px(crate::work_header::WORK_GUTTER))
+                .child(card)
+                .children(footer),
+        )
+        .into_any_element()
 }

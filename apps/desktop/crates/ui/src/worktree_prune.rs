@@ -10,22 +10,24 @@
 //! * an issue that is NOT finished and has no merged PR protects its branch
 //!   outright (`keep`) — a crashed session's uncommitted work must survive
 //!   whatever git thinks about the branch;
-//! * `pr_state == merged` lands in `merged` — a prune candidate whatever
+//! * a merged pull request lands in `merged` — a prune candidate whatever
 //!   its prefix, though the engine still demands git-confirmed containment
 //!   before deleting (EXP-358: merged sessions stay live, and their
 //!   post-merge follow-up commits must survive);
 //! * finished issues (done/cancelled/duplicate) land in `finished` — pruned
 //!   only when git confirms the work landed;
-//! * live sessions protect: synced rows via their issue mapping
-//!   (heartbeat-stale rows count as absent, EXP-153; `merged` sessions are
-//!   still LIVE, EXP-358), local batch/action runs via
-//!   [`LocalSessions::held_branches`], busy shell tabs via their cwd.
+//! * live sessions protect: synced rows via their root's linked issues and
+//!   their own branch (EXP-358: merging never ends a session), local runs
+//!   via [`LocalSessions::held_branches`], busy shell tabs via their cwd.
 //!
-//! Branches no synced issue maps to (deleted issues, trashed boards, stale
-//! batch branches) end up in NO set — the engine falls back to pure git
-//! truth for prefix-matched names.
+//! EXP-1294: PR and branch state live on `pull_requests` (linked through
+//! `pull_request_issues`), never on the issue.
+//!
+//! Branches no synced issue maps to (deleted issues, trashed boards) end up
+//! in NO set — the engine falls back to pure git truth for prefix-matched
+//! names.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use gpui::{App, Window};
@@ -35,22 +37,18 @@ use coding::branch_name;
 use coding::prune::PrunePolicy;
 
 use crate::coding_flow::{self, CodingHub, LocalSessions};
-use crate::queries;
-
-/// The hardcoded batch-branch namespace (`batch_launcher` ignores the user's
-/// branch prefix), always swept alongside it.
-const BATCH_PREFIX: &str = "exp/batch-";
 
 /// What the derivation needs to know about one issue — plain data so the
 /// classification is unit-testable without gpui.
 #[derive(Clone, Debug)]
 pub(crate) struct IssueFacts {
-    /// `issues.branch` — set by `open_pr`, shared across a batch's issues.
+    /// The head branch of the issue's newest pull request (one PR may link
+    /// several issues).
     pub branch: Option<String>,
     pub identifier: String,
     /// Status category is completed/cancelled/duplicate.
     pub finished: bool,
-    /// `issues.pr_state == merged`.
+    /// A pull request linked to the issue is merged.
     pub pr_merged: bool,
     /// A live coding session (any device) is bound to this issue.
     pub session_live: bool,
@@ -60,7 +58,7 @@ pub(crate) struct IssueFacts {
 /// `(keep, merged, finished)`. Each issue contributes BOTH its recorded
 /// `branch` and the locally-composed `<prefix><IDENTIFIER>` — a PR opened
 /// from another device (or never opened) must still resolve. `keep` wins
-/// collisions: a batch branch shared by one open and one merged issue stays.
+/// collisions: a branch shared by one open and one merged issue stays.
 pub(crate) fn policy_sets_from_facts(
     facts: &[IssueFacts],
     prefix: &str,
@@ -109,7 +107,8 @@ pub(crate) fn prune_policy_for_repo(
         .map(|board| board.id.clone())
         .collect();
     let facts = issue_facts(cx, Some(&board_ids));
-    let (keep, merged, finished) = policy_sets_from_facts(&facts, &prefix);
+    let (mut keep, merged, finished) = policy_sets_from_facts(&facts, &prefix);
+    keep.extend(live_session_branches(cx));
     assemble(prefix, default_branch, keep, merged, finished, window, cx)
 }
 
@@ -122,7 +121,8 @@ pub(crate) fn prune_policy_for_repo(
 pub(crate) fn prune_policy_unscoped(window: &Window, cx: &App) -> PrunePolicy {
     let prefix = branch_prefix(cx);
     let facts = issue_facts(cx, None);
-    let (keep, merged, mut finished) = policy_sets_from_facts(&facts, &prefix);
+    let (mut keep, merged, mut finished) = policy_sets_from_facts(&facts, &prefix);
+    keep.extend(live_session_branches(cx));
     finished.extend(merged);
     assemble(prefix, None, keep, HashSet::new(), finished, window, cx)
 }
@@ -135,19 +135,54 @@ fn branch_prefix(cx: &App) -> String {
         .unwrap_or_else(|| coding::Settings::default().branch_prefix)
 }
 
+/// The branches of every working session (any device): a live run's tree is
+/// never a prune candidate.
+fn live_session_branches(cx: &App) -> Vec<String> {
+    Store::global(cx)
+        .collections()
+        .sessions
+        .read(cx)
+        .iter()
+        .filter(|session| crate::session_data::session_is_working(session))
+        .filter_map(|session| session.branch.clone())
+        .filter(|branch| !branch.is_empty())
+        .collect()
+}
+
 /// Snapshot the synced issues (optionally board-scoped) as [`IssueFacts`].
 fn issue_facts(cx: &App, board_ids: Option<&HashSet<String>>) -> Vec<IssueFacts> {
     let collections = Store::global(cx).collections().clone();
-    // Heartbeat-stale rows count as absent (EXP-153) — a phantom row must not
-    // park a landed branch forever.
-    let now = chrono::Utc::now().timestamp();
-    let live_issue_ids: HashSet<String> = collections
-        .coding_sessions
+    // The issues a working session's root links.
+    let working_roots: HashSet<String> = collections
+        .sessions
         .read(cx)
         .iter()
-        .filter(|session| queries::coding_session_is_live(session, now))
-        .filter_map(|session| session.issue_id.clone())
+        .filter(|session| crate::session_data::session_is_working(session))
+        .map(|session| session.root_id_or_self().to_string())
         .collect();
+    let live_issue_ids: HashSet<String> = collections
+        .session_issues
+        .read(cx)
+        .iter()
+        .filter(|link| working_roots.contains(&link.session_id))
+        .map(|link| link.issue_id.clone())
+        .collect();
+    // issue id → (newest PR head branch, any linked PR merged).
+    let pulls = collections.pull_requests.read(cx);
+    let mut pr_facts: HashMap<String, (Option<(String, String)>, bool)> = HashMap::new();
+    for link in collections.pull_request_issues.read(cx).iter() {
+        let Some(pr) = pulls.get(&link.pull_request_id) else {
+            continue;
+        };
+        let entry = pr_facts.entry(link.issue_id.clone()).or_default();
+        entry.1 |= pr.is_merged();
+        if let Some(head) = pr.head.clone().filter(|head| !head.is_empty()) {
+            let at = pr.created_at.clone().unwrap_or_default();
+            if entry.0.as_ref().is_none_or(|(newest, _)| at > *newest) {
+                entry.0 = Some((at, head));
+            }
+        }
+    }
     collections
         .issues
         .read(cx)
@@ -155,26 +190,32 @@ fn issue_facts(cx: &App, board_ids: Option<&HashSet<String>>) -> Vec<IssueFacts>
         .filter(|issue| {
             board_ids.is_none_or(|board_ids| board_ids.contains(issue.board_id.as_str()))
         })
-        .map(|issue| IssueFacts {
-            branch: issue.branch.clone(),
-            identifier: issue.identifier.clone(),
-            // The dual-written enum ANCHOR (EXP-314): a custom completed/
-            // cancelled status anchors to done/cancelled, so this stays a
-            // cheap enum test instead of a per-issue team-status resolution.
-            finished: matches!(
-                issue.status,
-                domain::enums::IssueStatus::Done
-                    | domain::enums::IssueStatus::Cancelled
-                    | domain::enums::IssueStatus::Duplicate
-            ),
-            pr_merged: issue.pr_state.as_deref() == Some(domain::contract::PR_STATE_MERGED),
-            session_live: live_issue_ids.contains(issue.id.as_str()),
+        .map(|issue| {
+            let (branch, pr_merged) = pr_facts
+                .get(&issue.id)
+                .map(|(head, merged)| (head.as_ref().map(|(_, head)| head.clone()), *merged))
+                .unwrap_or((None, false));
+            IssueFacts {
+                branch,
+                identifier: issue.identifier.clone(),
+                // The dual-written enum ANCHOR (EXP-314): a custom completed/
+                // cancelled status anchors to done/cancelled, so this stays a
+                // cheap enum test instead of a per-issue team-status resolution.
+                finished: matches!(
+                    issue.status,
+                    domain::enums::IssueStatus::Done
+                        | domain::enums::IssueStatus::Cancelled
+                        | domain::enums::IssueStatus::Duplicate
+                ),
+                pr_merged,
+                session_live: live_issue_ids.contains(issue.id.as_str()),
+            }
         })
         .collect()
 }
 
-/// Fold in the process-local protections (batch/action runs, busy terminal
-/// tabs) and finish the policy.
+/// Fold in the process-local protections (local runs, busy terminal tabs)
+/// and finish the policy.
 fn assemble(
     prefix: String,
     default_branch: Option<String>,
@@ -201,7 +242,7 @@ fn assemble(
         })
         .unwrap_or_default();
     let mut prefixes = vec![prefix];
-    for hardcoded in [BATCH_PREFIX, coding::CHAT_BRANCH_PREFIX] {
+    for hardcoded in [coding::CHAT_BRANCH_PREFIX] {
         if !prefixes.iter().any(|p| p == hardcoded) {
             prefixes.push(hardcoded.to_string());
         }
@@ -272,19 +313,19 @@ mod tests {
     }
 
     #[test]
-    fn batch_branch_shared_by_open_and_merged_issue_stays_kept() {
-        // One batch PR links several issues onto one branch; any open issue
-        // on it protects the branch for all of them.
+    fn a_branch_shared_by_open_and_merged_issue_stays_kept() {
+        // One PR links several issues onto one branch; any open issue on it
+        // protects the branch for all of them.
         let mut merged_issue = fact("EXP-5");
         merged_issue.pr_merged = true;
         merged_issue.finished = true;
-        merged_issue.branch = Some("exp/batch-1b81d4c7".to_string());
+        merged_issue.branch = Some("exp/shared-1b81d4c7".to_string());
         let mut open_issue = fact("EXP-6");
-        open_issue.branch = Some("exp/batch-1b81d4c7".to_string());
+        open_issue.branch = Some("exp/shared-1b81d4c7".to_string());
         let (keep, merged, _) =
             policy_sets_from_facts(&[merged_issue, open_issue], "exp/");
-        assert!(keep.contains("exp/batch-1b81d4c7"));
-        assert!(!merged.contains("exp/batch-1b81d4c7"));
+        assert!(keep.contains("exp/shared-1b81d4c7"));
+        assert!(!merged.contains("exp/shared-1b81d4c7"));
         // The merged issue's own composed name still prunes.
         assert!(merged.contains("exp/EXP-5"));
     }

@@ -1,5 +1,6 @@
 //! EXP-879 — a coding run's PUBLISHED RESULTS: the pictures an agent files
-//! while it works, read off `coding_sessions.results`.
+//! while it works. EXP-1294: read off a thread root's `sessions.guide` (the
+//! same entry shape, `GuideEntry` = the old results entry): the Guide reader.
 //!
 //! The column is a flat, ORDERED jsonb array of
 //! `{topic, label, attachmentId, width, height}` — camelCase INSIDE the blob
@@ -251,238 +252,6 @@ pub fn has_session_results(raw: Option<&Value>) -> bool {
     !parse_session_result_groups(raw).is_empty()
 }
 
-/// EXP-1175 — one item of the Run face's THREAD: a topic's report text or a
-/// picture, where the agent published it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ThreadItem {
-    Text { topic: String, text: String },
-    Picture(SessionResultEntry),
-}
-
-/// EXP-1175 — the Run face's thread: the items in publish order and the
-/// Summary topic's text as the agent's reply, drawn LAST.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SessionThread {
-    pub items: Vec<ThreadItem>,
-    pub reply: Option<String>,
-}
-
-/// EXP-1175 — array (publish) order with the group reader's tolerance and
-/// picture cap: a picture is an item where it sits, a topic's FIRST
-/// non-blank text is an item where it sits, the Summary text is `reply`
-/// (pictures under Summary stay in the stream). The twin of `@exp/ui`
-/// `sessionThread`, fixture `session-results.json` `thread` (×4).
-pub fn session_thread(raw: Option<&Value>) -> SessionThread {
-    let mut thread = SessionThread::default();
-    for piece in thread_pieces(raw) {
-        match piece.kind {
-            ThreadPieceKind::Item(item) => thread.items.push(item),
-            ThreadPieceKind::Reply(text) => thread.reply = Some(text),
-        }
-    }
-    thread
-}
-
-/// One thread piece with the server's write stamp (`at`, ms; `None` on an
-/// entry filed before EXP-1251).
-struct ThreadPiece {
-    kind: ThreadPieceKind,
-    at: Option<i64>,
-}
-
-enum ThreadPieceKind {
-    Item(ThreadItem),
-    Reply(String),
-}
-
-/// A positive finite `at`, else `None`.
-fn stamp_ms(value: Option<&Value>) -> Option<i64> {
-    let number = value?.as_f64()?;
-    (number.is_finite() && number > 0.0).then_some(number as i64)
-}
-
-/// The [`session_thread`] walk, each piece stamped: a picture where it sits,
-/// a topic's FIRST non-blank text where it sits, the Summary's first text as
-/// the reply.
-fn thread_pieces(raw: Option<&Value>) -> Vec<ThreadPiece> {
-    let mut pieces = Vec::new();
-    let mut seen_text: Vec<String> = Vec::new();
-    let mut replied = false;
-    let mut pictures = 0usize;
-    for item in blob_items(raw) {
-        let at = stamp_ms(item.get("at"));
-        if let Some(entry) = entry_from(&item) {
-            if pictures >= MAX_SESSION_RESULTS {
-                continue;
-            }
-            pictures += 1;
-            pieces.push(ThreadPiece { kind: ThreadPieceKind::Item(ThreadItem::Picture(entry)), at });
-            continue;
-        }
-        let Some(object) = item.as_object() else {
-            continue;
-        };
-        let field = |key: &str| -> Option<String> {
-            let value = object.get(key)?.as_str()?.trim();
-            (!value.is_empty()).then(|| value.to_string())
-        };
-        let (Some(topic), Some(text)) = (field("topic"), field("text")) else {
-            continue;
-        };
-        if is_summary_topic(&topic) {
-            if !replied {
-                pieces.push(ThreadPiece { kind: ThreadPieceKind::Reply(text), at });
-            }
-            replied = true;
-            continue;
-        }
-        if seen_text.contains(&topic) {
-            continue;
-        }
-        seen_text.push(topic.clone());
-        pieces.push(ThreadPiece { kind: ThreadPieceKind::Item(ThreadItem::Text { topic, text }), at });
-    }
-    pieces
-}
-
-// ---------------------------------------------------------------------------
-// EXP-1245 — the thread as TURNS (the run's owner only: the relay feed is
-// theirs). The twin of `@exp/ui` `sessionTurns`, fixture
-// `session-results.json` `turns` (×4).
-// ---------------------------------------------------------------------------
-
-/// One relay feed fact the turns read: a person's message or a turn edge.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionTurnEvent {
-    UserMessage { at: i64, text: String, images: Vec<String> },
-    TurnStarted { at: i64 },
-    TurnEnded { at: i64 },
-}
-
-impl SessionTurnEvent {
-    fn at(&self) -> i64 {
-        match self {
-            Self::UserMessage { at, .. } | Self::TurnStarted { at } | Self::TurnEnded { at } => *at,
-        }
-    }
-}
-
-/// The person's message that opened a turn (the bubble).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionTurnMessage {
-    pub text: String,
-    pub at: i64,
-    /// The message's image urls, in order (the bubble shows a thumb).
-    pub images: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SessionTurn {
-    /// `None` for the first turn of an issue run or a turn the agent began.
-    pub message: Option<SessionTurnMessage>,
-    /// The turn's `started` edge; `None` while a sent message waits.
-    pub started_at: Option<i64>,
-    /// The turn's `ended` edge (or the next message that cut in); `None`
-    /// while live.
-    pub ended_at: Option<i64>,
-    pub items: Vec<ThreadItem>,
-    pub reply: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionTurns {
-    /// `false` = no feed: ONE turn holding today's thread under the one
-    /// run-wide status row.
-    pub per_turn: bool,
-    pub turns: Vec<SessionTurn>,
-}
-
-fn turn_boundary(turn: &SessionTurn) -> i64 {
-    turn.message
-        .as_ref()
-        .map(|message| message.at)
-        .or(turn.started_at)
-        .unwrap_or(0)
-}
-
-/// Walks the feed in time order (ties keep feed order): a message opens a
-/// new turn (closing a still-open one at its time, the new turn starting
-/// there too); a `started` edge starts the newest turn when it has not
-/// started yet, else opens a message-less turn unless one runs; an `ended`
-/// edge ends the running turn. Every result lands in the LAST turn whose
-/// boundary (message time, else start) is at or before its `at`; one without
-/// `at`, or older than every boundary, lands in the first. No feed event =
-/// one turn, `per_turn` false.
-pub fn session_turns(raw: Option<&Value>, feed: &[SessionTurnEvent]) -> SessionTurns {
-    let mut events: Vec<(usize, &SessionTurnEvent)> = feed.iter().enumerate().collect();
-    events.sort_by(|(a_order, a), (b_order, b)| a.at().cmp(&b.at()).then(a_order.cmp(b_order)));
-    let mut turns: Vec<SessionTurn> = Vec::new();
-    fn running(turns: &mut [SessionTurn]) -> Option<&mut SessionTurn> {
-        turns
-            .last_mut()
-            .filter(|turn| turn.started_at.is_some() && turn.ended_at.is_none())
-    }
-    for (_, event) in events {
-        match event {
-            SessionTurnEvent::UserMessage { at, text, images } => {
-                let cut = match running(&mut turns) {
-                    Some(turn) => {
-                        turn.ended_at = Some(*at);
-                        true
-                    }
-                    None => false,
-                };
-                turns.push(SessionTurn {
-                    message: Some(SessionTurnMessage {
-                        text: text.clone(),
-                        at: *at,
-                        images: images.iter().filter(|src| !src.is_empty()).cloned().collect(),
-                    }),
-                    started_at: cut.then_some(*at),
-                    ..SessionTurn::default()
-                });
-            }
-            SessionTurnEvent::TurnStarted { at } => {
-                if let Some(last) = turns
-                    .last_mut()
-                    .filter(|turn| turn.started_at.is_none() && turn.ended_at.is_none())
-                {
-                    last.started_at = Some(*at);
-                } else if running(&mut turns).is_none() {
-                    turns.push(SessionTurn { started_at: Some(*at), ..SessionTurn::default() });
-                }
-            }
-            SessionTurnEvent::TurnEnded { at } => {
-                if let Some(turn) = running(&mut turns) {
-                    turn.ended_at = Some(*at);
-                }
-            }
-        }
-    }
-    if turns.is_empty() {
-        let thread = session_thread(raw);
-        return SessionTurns {
-            per_turn: false,
-            turns: vec![SessionTurn { items: thread.items, reply: thread.reply, ..SessionTurn::default() }],
-        };
-    }
-    for piece in thread_pieces(raw) {
-        let mut target = 0usize;
-        if let Some(at) = piece.at {
-            for (index, turn) in turns.iter().enumerate() {
-                if turn_boundary(turn) <= at {
-                    target = index;
-                }
-            }
-        }
-        match piece.kind {
-            ThreadPieceKind::Item(item) => turns[target].items.push(item),
-            ThreadPieceKind::Reply(text) => turns[target].reply = Some(text),
-        }
-    }
-    SessionTurns { per_turn: true, turns }
-}
-
 // ---------------------------------------------------------------------------
 // EXP-1251 — Guide COVERAGE: each section's diff files (a listed path names a
 // file by its path OR its rename source), a trailing automatic section for
@@ -697,7 +466,7 @@ pub fn session_result_pr_urls(raw: Option<&Value>) -> Vec<String> {
     urls
 }
 
-/// Read `coding_sessions.results` — see the module docs for the tolerance
+/// Read a root's `sessions.guide` — see the module docs for the tolerance
 /// rules. Anything that is not an array (or a JSON string holding one)
 /// yields an empty list.
 pub fn parse_session_results(raw: Option<&Value>) -> Vec<SessionResultEntry> {
@@ -878,46 +647,6 @@ fn dimension(value: Option<&Value>) -> Option<u32> {
     Some(number as u32)
 }
 
-/// Wave D (web `turnEventsOf`, M6 ×4): the events [`session_turns`] walks
-/// open with the run's OWN start as a synthetic `started` edge — but only
-/// when something was observed beyond it (no events = the single-row
-/// thread).
-pub fn with_run_start(events: Vec<SessionTurnEvent>, run_started_ms: Option<i64>) -> Vec<SessionTurnEvent> {
-    match run_started_ms {
-        Some(at) if !events.is_empty() => {
-            let mut out = Vec::with_capacity(events.len() + 1);
-            out.push(SessionTurnEvent::TurnStarted { at });
-            out.extend(events);
-            out
-        }
-        _ => events,
-    }
-}
-
-/// Wave D (web `firstTurnEndKnown`, M6 ×4): whether the FIRST turn's end is
-/// a real observation. Its start is the run's own (synthetic), so its end is
-/// known only when the view watched it run: the first event after the run's
-/// start is an observed `started` edge. Mounting after it ended leaves only
-/// the next message to close it, and that time includes the idle gap — the
-/// row then reads `Done on <device>` with no duration.
-pub fn first_turn_end_known(events: &[SessionTurnEvent], run_started_ms: Option<i64>) -> bool {
-    let Some(start) = run_started_ms else {
-        return true;
-    };
-    let Some((first, rest)) = events.split_first() else {
-        return true;
-    };
-    if *first != (SessionTurnEvent::TurnStarted { at: start }) {
-        return true;
-    }
-    let mut ordered: Vec<(usize, &SessionTurnEvent)> = rest.iter().enumerate().collect();
-    ordered.sort_by(|(a_order, a), (b_order, b)| a.at().cmp(&b.at()).then(a_order.cmp(b_order)));
-    match ordered.first() {
-        None => true,
-        Some((_, next)) => matches!(next, SessionTurnEvent::TurnStarted { .. }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1041,36 +770,6 @@ mod tests {
             );
         }
         assert!(!has_session_results(None));
-    }
-
-    /// EXP-1175 — the fixture's `thread` block ×4.
-    #[test]
-    fn session_thread_matches_the_shared_fixture() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/session-results.json"
-        ))
-        .unwrap();
-        let cases = fixture["thread"]["cases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let thread = session_thread(Some(&case["raw"]));
-            let items: Vec<Value> = thread
-                .items
-                .iter()
-                .map(|item| match item {
-                    ThreadItem::Text { topic, text } => {
-                        serde_json::json!({"kind": "text", "topic": topic, "text": text})
-                    }
-                    ThreadItem::Picture(entry) => {
-                        serde_json::json!({"kind": "picture", "attachmentId": entry.attachment_id})
-                    }
-                })
-                .collect();
-            let actual = serde_json::json!({"items": items, "reply": thread.reply});
-            assert_eq!(actual, case["expected"], "fixture case: {name}");
-        }
-        assert_eq!(session_thread(None), SessionThread::default());
     }
 
     /// EXP-1154 — the fixture's `files` block: a group's files ride the
@@ -1231,89 +930,6 @@ mod tests {
             panic!("one group");
         };
         assert_eq!(group.pr_url.as_deref(), Some("https://github.com/o/r/pull/1"));
-    }
-
-    /// Wave D (web `firstTurnEndKnown` cases): the synthetic run start
-    /// rides in front only when something was observed, and the first
-    /// turn's end is known only when an observed `started` edge follows it.
-    #[test]
-    fn the_first_turn_end_is_known_only_when_watched() {
-        use SessionTurnEvent::*;
-        let message = |at| UserMessage { at, text: "next".into(), images: Vec::new() };
-        assert!(with_run_start(Vec::new(), Some(1_000)).is_empty());
-        assert_eq!(
-            with_run_start(vec![message(5_000)], Some(1_000)),
-            vec![TurnStarted { at: 1_000 }, message(5_000)]
-        );
-        assert_eq!(with_run_start(vec![message(5_000)], None), vec![message(5_000)]);
-        // Mounted after the first turn ended: only the next message closes it.
-        let unwatched = with_run_start(vec![message(5_000)], Some(1_000));
-        assert!(!first_turn_end_known(&unwatched, Some(1_000)));
-        // Watched: an observed `started` edge comes first.
-        let watched = with_run_start(
-            vec![TurnStarted { at: 1_010 }, TurnEnded { at: 2_000 }, message(5_000)],
-            Some(1_000),
-        );
-        assert!(first_turn_end_known(&watched, Some(1_000)));
-        // No synthetic start in front (no run start, or none observed).
-        assert!(first_turn_end_known(&[message(5_000)], Some(1_000)));
-        assert!(first_turn_end_known(&unwatched, None));
-        assert!(first_turn_end_known(&with_run_start(Vec::new(), Some(1_000)), Some(1_000)));
-    }
-
-    /// EXP-1245 — the fixture's `turns.cases` ×4 (the web's case names).
-    #[test]
-    fn session_turns_matches_the_shared_fixture() {
-        let fixture = results_fixture();
-        let cases = fixture["turns"]["cases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let feed: Vec<SessionTurnEvent> = case["feed"]
-                .as_array()
-                .map(|events| {
-                    events
-                        .iter()
-                        .map(|event| {
-                            let at = event["at"].as_i64().unwrap();
-                            match (event["kind"].as_str().unwrap(), event["state"].as_str()) {
-                                ("user_message", _) => SessionTurnEvent::UserMessage {
-                                    at,
-                                    text: event["text"].as_str().unwrap().to_string(),
-                                    images: event["images"]
-                                        .as_array()
-                                        .map(|images| {
-                                            images.iter().filter_map(|i| i.as_str().map(str::to_string)).collect()
-                                        })
-                                        .unwrap_or_default(),
-                                },
-                                ("turn", Some("started")) => SessionTurnEvent::TurnStarted { at },
-                                _ => SessionTurnEvent::TurnEnded { at },
-                            }
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            let turns = session_turns(Some(&case["raw"]), &feed);
-            let actual = serde_json::json!({
-                "perTurn": turns.per_turn,
-                "turns": turns.turns.iter().map(|turn| serde_json::json!({
-                    "message": turn.message.as_ref().map(|message| serde_json::json!({
-                        "text": message.text,
-                        "at": message.at,
-                        "images": message.images,
-                    })),
-                    "startedAt": turn.started_at,
-                    "endedAt": turn.ended_at,
-                    "items": turn.items.iter().map(|item| match item {
-                        ThreadItem::Text { topic, text } => serde_json::json!({"kind": "text", "topic": topic, "text": text}),
-                        ThreadItem::Picture(entry) => serde_json::json!({"kind": "picture", "attachmentId": entry.attachment_id}),
-                    }).collect::<Vec<_>>(),
-                    "reply": turn.reply,
-                })).collect::<Vec<_>>(),
-            });
-            assert_eq!(actual, case["expected"], "{name}");
-        }
     }
 
     /// EXP-1154 — the over-cap rule: the 41st distinct path is dropped.

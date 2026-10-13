@@ -8,53 +8,36 @@
 //! (`native_dialog::alert_specimen`) over the SAME spec the product opens
 //! (`pr_merge::stack_confirm_alert`).
 //!
-//! Nothing is retyped: static synced-shape rows (never live ones) go
+//! Nothing is retyped: static synced-shape `pull_requests` rows (never live ones) go
 //! through `domain::pr_stack::stack_merge_confirm`, the control's own call,
 //! on the fixture's three-stack (`stack-merge-choice.json` `confirm`).
 
 use gpui::{div, App, Div, ParentElement as _, Styled as _, Window};
 
 use domain::pr_stack::{stack_merge_confirm, StackConfirmMode, StackMergeConfirm};
-use domain::rows::Issue;
+
+use super::fixture_rows::PrDemo;
 
 pub(crate) const ID: &str = "stack-merge-choice-dialog";
 pub(crate) const OWNER: &str = "EXP-1145";
 
 /// The pull request the control was pressed on: the middle of the stack.
-const PRESSED: &str = "sg-EXP-1144";
-
-/// A synced-shape issue row with an open pull request on `exp/<identifier>`,
-/// based on `base`.
-fn issue(identifier: &str, base: &str) -> Issue {
-    serde_json::from_value(serde_json::json!({
-        "id": format!("sg-{identifier}"),
-        "board_id": "sg-board",
-        "number": 1,
-        "identifier": identifier,
-        "title": identifier,
-        "status": "in_review",
-        "branch": format!("exp/{identifier}"),
-        "pr_base_branch": base,
-        "pr_url": format!("https://github.com/o/r/pull/{identifier}"),
-        "pr_state": "open",
-    }))
-    .expect("a styleguide issue row deserializes")
-}
+const PRESSED: &str = "sg-pr-EXP-1144";
 
 /// A stack of three: EXP-1105 on master, EXP-1144 on it, EXP-1150 on top.
-fn stack() -> Vec<Issue> {
-    vec![
-        issue("EXP-1150", "exp/EXP-1144"),
-        issue("EXP-1105", "master"),
-        issue("EXP-1144", "exp/EXP-1105"),
-    ]
+fn stack() -> PrDemo {
+    PrDemo::open(&[
+        ("EXP-1150", "EXP-1150", 1150, "exp/EXP-1144"),
+        ("EXP-1105", "EXP-1105", 1105, "master"),
+        ("EXP-1144", "EXP-1144", 1144, "exp/EXP-1105"),
+    ])
 }
 
 /// What the confirm says for `mode` pressed mid-stack.
 fn confirm(mode: StackConfirmMode) -> Option<StackMergeConfirm> {
-    let issues = stack();
-    let pressed = issues.iter().find(|issue| issue.id == PRESSED)?;
-    stack_merge_confirm(pressed, &issues, mode)
+    let demo = stack();
+    let pressed = demo.pull("EXP-1144")?;
+    demo.with_set(|set| stack_merge_confirm(pressed, set, mode))
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
@@ -86,6 +69,6 @@ mod tests {
         let through = confirm(StackConfirmMode::Through).expect("a stack member asks");
         assert_eq!(through.title, "Merge through here");
         assert_eq!(through.body, "Lands 2 pull requests, bottom-up: EXP-1105, EXP-1144. EXP-1150 stays open.");
-        assert_eq!(through.issue_id, PRESSED);
+        assert_eq!(through.pull_request_id, PRESSED);
     }
 }

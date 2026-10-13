@@ -207,16 +207,16 @@ pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) 
     }
 }
 
-/// EXP-1184 — a run state's corner badge (web `RUN_MARK_BADGE_CLASS`), in
-/// the ONE session-dot palette: amber waits on you, green PR open, blue done;
-/// working wears none (the mark itself moves).
-pub(crate) fn run_badge_color(state: crate::queries::CodingSessionDisplay) -> Option<gpui::Hsla> {
-    use crate::queries::CodingSessionDisplay;
+/// EXP-1184 — a session state's corner badge (web `RUN_MARK_BADGE_CLASS`),
+/// in the ONE session-dot palette: amber needs you, red blocked, blue ended;
+/// working, queued and waiting wear none (EXP-1294: the session-card states).
+pub(crate) fn run_badge_color(state: domain::session_tree::SessionState) -> Option<gpui::Hsla> {
+    use domain::session_tree::SessionState;
     match state {
-        CodingSessionDisplay::Working => None,
-        CodingSessionDisplay::NeedsInput => Some(theme::tokens::YELLOW.to_hsla()),
-        CodingSessionDisplay::Review => Some(theme::tokens::GREEN.to_hsla()),
-        CodingSessionDisplay::Done => Some(theme::tokens::BLUE.to_hsla()),
+        SessionState::Queued | SessionState::Working | SessionState::Waiting => None,
+        SessionState::NeedsYou => Some(theme::tokens::YELLOW.to_hsla()),
+        SessionState::Blocked => Some(theme::tokens::RED.to_hsla()),
+        SessionState::Ended => Some(theme::tokens::BLUE.to_hsla()),
     }
 }
 
@@ -230,9 +230,9 @@ pub(crate) fn run_lead(
     agent: Option<coding::CodingAgent>,
     size: f32,
     badge: f32,
-    state: Option<crate::queries::CodingSessionDisplay>,
+    state: Option<domain::session_tree::SessionState>,
 ) -> gpui::Div {
-    if state == Some(crate::queries::CodingSessionDisplay::Working) {
+    if state == Some(domain::session_tree::SessionState::Working) {
         return div().relative().flex_shrink_0().child(agent_working_mark(agent, size));
     }
     let mark = match agent {
@@ -258,25 +258,6 @@ pub(crate) fn run_lead(
                     .border_color(theme::tokens::BACKGROUND.to_hsla()),
             )
         })
-}
-
-/// EXP-1208 — an ENDED run's mark ×4 (web `AgentRunMark state="ended"`):
-/// the agent's brand mark at this opacity, no badge.
-pub(crate) const RUN_MARK_ENDED_OPACITY: f32 = 0.5;
-
-/// EXP-1208 — a FINISHED run's lead (the session lists' past rows): the
-/// brand mark [`run_lead`] would draw, dimmed to [`RUN_MARK_ENDED_OPACITY`],
-/// with no state badge.
-pub(crate) fn ended_run_lead(agent: Option<coding::CodingAgent>, size: f32) -> gpui::Div {
-    let mark = match agent {
-        Some(agent) => agent_mark(agent),
-        None => Icon::new(registry::SETTINGS_AGENTS),
-    };
-    div()
-        .relative()
-        .flex_shrink_0()
-        .opacity(RUN_MARK_ENDED_OPACITY)
-        .child(mark.with_size(px(size)))
 }
 
 /// EXP-862 — THE agent picker, one component per client (web
@@ -618,18 +599,19 @@ mod tests {
         assert_eq!(super::claude_writing_frame(1.), 7);
         assert_eq!(super::claude_writing_frame(-0.1), 0);
 
-        use crate::queries::CodingSessionDisplay;
-        assert_eq!(super::run_badge_color(CodingSessionDisplay::Working), None);
+        use domain::session_tree::SessionState;
+        assert_eq!(super::run_badge_color(SessionState::Working), None);
+        assert_eq!(super::run_badge_color(SessionState::Waiting), None);
         assert_eq!(
-            super::run_badge_color(CodingSessionDisplay::NeedsInput),
+            super::run_badge_color(SessionState::NeedsYou),
             Some(theme::tokens::YELLOW.to_hsla())
         );
         assert_eq!(
-            super::run_badge_color(CodingSessionDisplay::Review),
-            Some(theme::tokens::GREEN.to_hsla())
+            super::run_badge_color(SessionState::Blocked),
+            Some(theme::tokens::RED.to_hsla())
         );
         assert_eq!(
-            super::run_badge_color(CodingSessionDisplay::Done),
+            super::run_badge_color(SessionState::Ended),
             Some(theme::tokens::BLUE.to_hsla())
         );
     }

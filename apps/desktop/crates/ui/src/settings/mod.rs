@@ -7,9 +7,10 @@
 //! left nav with the groups — **Team** (General, Members, Issues ⟩ Labels, Statuses,
 //! Storage — the EXP-297 owner-only attachment manager), **Boards**
 //! (one entry PER board + New board + Repositories — EXP-288 flattened the
-//! old flat Boards list into per-board detail pages), **Features**
-//! (Widget — EXP-771, MCP servers — EXP-792), the desktop-only
-//! **This device** group (Tools, Agents, Worktrees, Runs), and
+//! old flat Boards list into per-board detail pages; EXP-1294 put the team's
+//! **Agents** above it the same way, one entry per agent + New agent),
+//! **Features** (Widget — EXP-771, MCP servers — EXP-792), the desktop-only
+//! **This device** group (Tools, Coding CLIs, Worktrees, Sessions), and
 //! **Personal** (Account, Notifications, Security, About — EXP-238); the
 //! detail column shows ONE selected pane with the web's `isOwner &&` gating;
 //! each pane mirrors its web card field-for-field — and since EXP-771 sits
@@ -35,6 +36,9 @@
 mod about;
 mod account;
 mod add_repository_dialog;
+// EXP-1294: one team agent's page (the board page's twin); its device
+// candidates + picker are shared with the New agent dialog.
+pub(crate) mod agent_detail;
 mod agents;
 mod api_keys;
 pub(crate) mod doctor_section;
@@ -142,6 +146,7 @@ use widget::WidgetPane;
 use statuses::StatusesPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
+use agent_detail::AgentDetailPane;
 use agents::AgentsPane;
 use archived_boards::ArchivedBoardsPane;
 use board_detail::BoardDetailPane;
@@ -196,9 +201,15 @@ pub(crate) enum SettingsSection {
     /// This-device tools (EXP-288: renamed from "Coding" — repos root,
     /// branch prefix, terminal shell).
     Tools,
-    /// The per-agent launcher settings + doctor (EXP-288: split out of the
-    /// old Coding pane).
-    Agents,
+    /// The per-agent-CLI launcher settings + doctor (EXP-288: split out of
+    /// the old Coding pane; EXP-1294 renamed it from `Agents` — "Agents" are
+    /// the team's agents now).
+    AgentClis,
+    /// EXP-1294: one team agent's settings page (the Agents group lists every
+    /// agent root as its own nav entry; the payload is the agent's session
+    /// id). Member-visible: every member manages agents, only Delete is the
+    /// owner's (`agent-settings.json`).
+    Agent(String),
     LocalRepos,
     /// EXP-886: how long this machine keeps finished runs' transcripts and
     /// resume records (`sessionRetentionDays`). Never gated.
@@ -255,6 +266,8 @@ struct NavGroup {
 
 /// The STATIC nav skeleton — the web's `SETTINGS_NAV` groups minus the
 /// web-only Billing item, plus the desktop-only "This device" group.
+/// EXP-1294: the Agents group (above Boards) has no static items — its
+/// per-agent rows + "New agent" are injected at render like the boards'.
 /// EXP-238 appended the Personal group (Account, Notifications, Security,
 /// About) as ordinary items — web parity again, and last so the fallback
 /// scan below never lands on a personal pane. The Boards group's per-board
@@ -280,6 +293,10 @@ const NAV_GROUPS: &[NavGroup] = &[
         ],
     },
     NavGroup {
+        label: AGENTS_GROUP,
+        items: &[],
+    },
+    NavGroup {
         label: "Boards",
         items: &[NavItem::leaf("Repositories", SettingsSection::Repositories)],
     },
@@ -299,7 +316,7 @@ const NAV_GROUPS: &[NavGroup] = &[
         label: "This device",
         items: &[
             NavItem::leaf("Tools", SettingsSection::Tools),
-            NavItem::leaf("Agents", SettingsSection::Agents),
+            NavItem::leaf("Coding CLIs", SettingsSection::AgentClis),
             NavItem::leaf("Worktrees", SettingsSection::LocalRepos),
             // SLOP-5: "Runs" — the one word for a coding run in UI copy.
             NavItem::leaf("Sessions", SettingsSection::Sessions),
@@ -330,6 +347,10 @@ const NAV_GROUPS: &[NavGroup] = &[
     },
 ];
 
+/// EXP-1294: the team Agents group's label — `agent-settings.json`
+/// `copy.title` (a test locks the two together).
+const AGENTS_GROUP: &str = "Agents";
+
 /// EXP-288: every nav entry carries an icon. Board rows use the tinted board
 /// glyph instead (`icons::board_icon`), so they don't route through here.
 ///
@@ -351,7 +372,9 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
         SettingsSection::McpServers => Icon::from(registry::SETTINGS_MCP),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
-        SettingsSection::Agents => Icon::from(registry::SETTINGS_AGENTS),
+        SettingsSection::AgentClis | SettingsSection::Agent(_) => {
+            Icon::from(registry::SETTINGS_AGENTS)
+        }
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
         SettingsSection::Sessions => Icon::from(registry::SETTINGS_SESSIONS),
         SettingsSection::Account => Icon::from(registry::SETTINGS_ACCOUNT),
@@ -401,19 +424,43 @@ fn valid_board_ids(
     )
 }
 
+/// EXP-1294: [`valid_board_ids`]' twin for a selected `Agent(id)`: the
+/// synced agent roots of the active team, `None` while the sessions
+/// collection is still loading.
+fn valid_agent_ids(
+    cx: &App,
+    nav: &Entity<Navigation>,
+) -> Option<std::collections::HashSet<String>> {
+    if !Store::global(cx).collections().sessions.read(cx).is_ready() {
+        return None;
+    }
+    let Some(team_id) = active_team_id(nav, cx) else {
+        return Some(Default::default());
+    };
+    Some(
+        crate::session_data::agents_in_team(&team_id, cx)
+            .into_iter()
+            .map(|agent| agent.session_id)
+            .collect(),
+    )
+}
+
 /// The selected section, clamped to what's visible. Clamped at render time —
 /// never mutated — so a membership change that hides the selection falls back
 /// (to Members, the first never-gated item) and restores it if ownership
 /// returns. A selected `Board(id)` additionally requires the board to still
-/// exist in the active team (`board_ok`) — a trashed board falls back.
+/// exist in the active team (`board_ok`) — a trashed board falls back; a
+/// selected `Agent(id)` likewise its agent (`agent_ok`, EXP-1294).
 fn effective_selection(
     selected: SettingsSection,
     owner: bool,
     board_ok: impl Fn(&str) -> bool,
+    agent_ok: impl Fn(&str) -> bool,
 ) -> SettingsSection {
     let visible = section_visible(&selected, owner)
         && match &selected {
             SettingsSection::Board(id) => board_ok(id),
+            SettingsSection::Agent(id) => agent_ok(id),
             _ => true,
         };
     if visible {
@@ -449,6 +496,8 @@ pub struct SettingsView {
     /// EXP-288: ONE per-board detail pane — it reads the selected `Board(id)`
     /// from the shared selection itself and re-points at board switches.
     board_detail: Entity<BoardDetailPane>,
+    /// EXP-1294: ONE per-agent detail pane, the board pane's twin.
+    agent_detail: Entity<AgentDetailPane>,
     repositories: Entity<RepositoriesPane>,
     /// EXP-771 owner-only widget list (fetch-on-open server read —
     /// `widget_configs` is never synced).
@@ -459,8 +508,8 @@ pub struct SettingsView {
     /// This-device tools (EXP-288: repos root, branch prefix, terminal
     /// shell) — local per-install state, so NOT owner-gated.
     tools: Entity<ToolsPane>,
-    /// Per-agent launcher settings + doctor (EXP-288: split out of Tools).
-    agents: Entity<AgentsPane>,
+    /// Per-agent-CLI launcher settings + doctor (EXP-288: split out of Tools).
+    agent_clis: Entity<AgentsPane>,
     /// §4.7 desktop-only Worktrees section (clone disk usage +
     /// prune/remove) — local per-install state, un-gated.
     local_repos: Entity<LocalReposPane>,
@@ -504,11 +553,13 @@ impl SettingsView {
         let archived_boards = cx.new(|cx| ArchivedBoardsPane::new(nav.clone(), cx));
         let board_detail =
             cx.new(|cx| BoardDetailPane::new(nav.clone(), shared.clone(), window, cx));
+        let agent_detail =
+            cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let mcp_servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
         let tools = cx.new(|cx| ToolsPane::new(window, cx));
-        let agents = cx.new(|cx| AgentsPane::new(window, cx));
+        let agent_clis = cx.new(|cx| AgentsPane::new(window, cx));
         let local_repos = cx.new(LocalReposPane::new);
         let sessions = cx.new(SessionsPane::new);
         let account = cx.new(|cx| AccountPane::new(nav.clone(), window, cx));
@@ -527,6 +578,8 @@ impl SettingsView {
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             // EXP-288: a trashed board clamps a selected `Board(id)` back.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // EXP-1294: … and a deleted agent a selected `Agent(id)`.
+            cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -539,11 +592,12 @@ impl SettingsView {
             storage,
             archived_boards,
             board_detail,
+            agent_detail,
             repositories,
             widget,
             mcp_servers,
             tools,
-            agents,
+            agent_clis,
             local_repos,
             sessions,
             account,
@@ -578,10 +632,12 @@ impl Render for SettingsView {
         // the window's left column now ([`SettingsNavPanel`]) — this view is
         // the detail column alone.
         let board_ids = valid_board_ids(cx, &self.nav);
+        let agent_ids = valid_agent_ids(cx, &self.nav);
         let effective = effective_selection(
             self.shared.read(cx).settings_section(),
             owner,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+            |id| agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
 
         // A switch INTO a server-read pane refetches it (the screen-level
@@ -631,11 +687,12 @@ impl Render for SettingsView {
             // The pane reads the selected board id from the shared selection
             // itself (it needs to flush a pending rename on board switches).
             SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
+            SettingsSection::Agent(_) => self.agent_detail.clone().into_any_element(),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Widget => self.widget.clone().into_any_element(),
             SettingsSection::McpServers => self.mcp_servers.clone().into_any_element(),
             SettingsSection::Tools => self.tools.clone().into_any_element(),
-            SettingsSection::Agents => self.agents.clone().into_any_element(),
+            SettingsSection::AgentClis => self.agent_clis.clone().into_any_element(),
             SettingsSection::LocalRepos => self.local_repos.clone().into_any_element(),
             SettingsSection::Sessions => self.sessions.clone().into_any_element(),
             SettingsSection::Account => self.account.clone().into_any_element(),
@@ -752,6 +809,8 @@ impl SettingsNavPanel {
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             // EXP-288: the Boards group lists the live synced boards.
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // EXP-1294: the Agents group lists the live agent roots.
+            cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
         ];
         Self {
             nav,
@@ -825,15 +884,21 @@ impl Render for SettingsNavPanel {
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
         let board_ids = valid_board_ids(cx, &self.nav);
+        let agent_ids = valid_agent_ids(cx, &self.nav);
         let effective = effective_selection(
             self.shared.read(cx).settings_section(),
             owner,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+            |id| agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
         let team_id = active_team_id(&self.nav, cx);
         let boards = team_id
             .as_deref()
             .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
+            .unwrap_or_default();
+        let agents = team_id
+            .as_deref()
+            .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
             .unwrap_or_default();
 
         let mut list = v_flex().p_2().gap_0p5();
@@ -847,7 +912,10 @@ impl Render for SettingsNavPanel {
             // EXP-288: the Boards group's per-board rows are injected ahead
             // of its static items (owner-only, like the pages themselves).
             let board_group = group.label == "Boards" && owner;
-            if visible.is_empty() && !board_group {
+            // EXP-1294: the Agents group is every member's (only an agent's
+            // Delete is owner-only), so it shows whenever a team is active.
+            let agent_group = group.label == AGENTS_GROUP && team_id.is_some();
+            if visible.is_empty() && !board_group && !agent_group {
                 continue;
             }
             if !first_group {
@@ -855,6 +923,39 @@ impl Render for SettingsNavPanel {
             }
             first_group = false;
             list = list.child(Self::group_label(group.label, cx));
+            if agent_group {
+                for agent in &agents {
+                    let section = SettingsSection::Agent(agent.session_id.clone());
+                    let selected = section == effective;
+                    list = list.child(
+                        Self::row(
+                            SharedString::from(format!("settings-nav-agent-{}", agent.session_id)),
+                            agent.name.clone(),
+                            Some(crate::icons::agent_row_icon(agent)),
+                            selected,
+                            cx,
+                        )
+                        .on_click(cx.listener(move |_, _, window, cx| {
+                            select_settings_section(window, cx, section.clone());
+                            navigate(window, cx, Screen::Settings);
+                        })),
+                    );
+                }
+                if let Some(team_id) = team_id.clone() {
+                    let new_agent = Self::row(
+                        "settings-nav-new-agent",
+                        domain::agent_settings::AGENT_SETTINGS.copy.new_agent.clone(),
+                        Some(Icon::new(registry::UI_ADD)),
+                        false,
+                        cx,
+                    )
+                    .text_color(cx.theme().muted_foreground)
+                    .on_click(cx.listener(move |_, _, window, cx| {
+                        crate::create_agent_dialog::open(window, cx, team_id.clone());
+                    }));
+                    list = list.child(new_agent);
+                }
+            }
             if board_group {
                 for board in &boards {
                     let section = SettingsSection::Board(board.id.clone());
@@ -1347,7 +1448,7 @@ mod tests {
     #[test]
     fn owner_defaults_to_general() {
         assert_eq!(
-            effective_selection(SettingsSection::General, true, any_board),
+            effective_selection(SettingsSection::General, true, any_board, any_board),
             SettingsSection::General
         );
     }
@@ -1364,14 +1465,14 @@ mod tests {
             SettingsSection::Widget,
         ] {
             assert_eq!(
-                effective_selection(gated, false, any_board),
+                effective_selection(gated, false, any_board, any_board),
                 SettingsSection::Members
             );
         }
         // EXP-557: Repositories is member-visible — the selection sticks
         // instead of falling back.
         assert_eq!(
-            effective_selection(SettingsSection::Repositories, false, any_board),
+            effective_selection(SettingsSection::Repositories, false, any_board, any_board),
             SettingsSection::Repositories
         );
     }
@@ -1380,13 +1481,13 @@ mod tests {
     fn device_sections_never_gated() {
         for section in [
             SettingsSection::Tools,
-            SettingsSection::Agents,
+            SettingsSection::AgentClis,
             SettingsSection::LocalRepos,
             SettingsSection::Sessions,
         ] {
             assert!(section_visible(&section, false));
             assert_eq!(
-                effective_selection(section.clone(), false, any_board),
+                effective_selection(section.clone(), false, any_board, any_board),
                 section
             );
         }
@@ -1397,7 +1498,9 @@ mod tests {
             .find(|group| group.label == "This device")
             .expect("This device group");
         let labels: Vec<&str> = device.items.iter().map(|item| item.label).collect();
-        assert_eq!(labels, vec!["Tools", "Agents", "Worktrees", "Sessions"]);
+        // EXP-1294: the per-device CLI pane is "Coding CLIs" — "Agents" are
+        // the team's agents.
+        assert_eq!(labels, vec!["Tools", "Coding CLIs", "Worktrees", "Sessions"]);
     }
 
     /// EXP-262/EXP-238: the Personal sections are never gated and never fall
@@ -1415,7 +1518,7 @@ mod tests {
             for owner in [false, true] {
                 assert!(section_visible(&section, owner));
                 assert_eq!(
-                    effective_selection(section.clone(), owner, any_board),
+                    effective_selection(section.clone(), owner, any_board, any_board),
                     section
                 );
             }
@@ -1425,7 +1528,7 @@ mod tests {
     #[test]
     fn ungated_selection_is_kept() {
         assert_eq!(
-            effective_selection(SettingsSection::Labels, false, any_board),
+            effective_selection(SettingsSection::Labels, false, any_board, any_board),
             SettingsSection::Labels
         );
     }
@@ -1508,13 +1611,35 @@ mod tests {
     fn stale_board_selection_falls_back() {
         let selected = SettingsSection::Board("b-1".to_string());
         assert_eq!(
-            effective_selection(selected.clone(), true, |id| id == "b-1"),
+            effective_selection(selected.clone(), true, |id| id == "b-1", any_board),
             selected
         );
         assert_eq!(
-            effective_selection(selected, true, |_| false),
+            effective_selection(selected, true, |_| false, any_board),
             SettingsSection::General
         );
+    }
+
+    /// EXP-1294: a selected agent page survives while the agent exists, falls
+    /// back once it's gone (deleted / team switch), and — unlike a board page
+    /// — is member-visible.
+    #[test]
+    fn stale_agent_selection_falls_back_and_members_see_agents() {
+        let selected = SettingsSection::Agent("a-1".to_string());
+        assert!(section_visible(&selected, false));
+        assert_eq!(
+            effective_selection(selected.clone(), false, any_board, |id| id == "a-1"),
+            selected
+        );
+        assert_eq!(
+            effective_selection(selected.clone(), false, any_board, |_| false),
+            SettingsSection::Members
+        );
+        assert_eq!(
+            effective_selection(selected, true, any_board, |_| false),
+            SettingsSection::General
+        );
+        assert_eq!(AGENTS_GROUP, domain::agent_settings::AGENT_SETTINGS.copy.title);
     }
 
     /// EXP-771/EXP-792: the Features group sits between Boards and This
@@ -1530,7 +1655,7 @@ mod tests {
         // closes the nav AFTER Personal, so the fallback scan is unchanged.
         assert_eq!(
             groups,
-            vec!["Team", "Boards", "Features", "This device", "Personal", "Advanced"]
+            vec!["Team", "Agents", "Boards", "Features", "This device", "Personal", "Advanced"]
         );
         let features = NAV_GROUPS
             .iter()
@@ -1594,7 +1719,7 @@ mod tests {
         assert!(section_visible(&SettingsSection::ArchivedBoards, true));
         assert!(!section_visible(&SettingsSection::ArchivedBoards, false));
         assert_eq!(
-            effective_selection(SettingsSection::ArchivedBoards, true, |_| false),
+            effective_selection(SettingsSection::ArchivedBoards, true, |_| false, |_| false),
             SettingsSection::ArchivedBoards
         );
     }

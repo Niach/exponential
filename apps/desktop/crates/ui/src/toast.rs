@@ -217,10 +217,6 @@ pub(crate) fn success(title: impl Into<SharedString>, window: &mut Window, cx: &
     show(Toast::success(title), window, cx);
 }
 
-pub(crate) fn error(title: impl Into<SharedString>, window: &mut Window, cx: &mut App) {
-    show(Toast::error(title), window, cx);
-}
-
 #[allow(dead_code)] // the shared toast API: no IDE caller raises an info toast today
 pub(crate) fn info(title: impl Into<SharedString>, window: &mut Window, cx: &mut App) {
     show(Toast::info(title), window, cx);
@@ -853,7 +849,7 @@ mod tests {
         let (host, cx) = host(cx);
         let layer = host.read_with(cx, |host, _| host.layer.clone());
         cx.update(|window, cx| {
-            error("Could not merge the pull request", window, cx);
+            show(Toast::error("Could not merge the pull request"), window, cx);
             let toast = Toast::success("Issue created")
                 .description("EXP-1031 is on the board")
                 .action("Open", |_, _| {});

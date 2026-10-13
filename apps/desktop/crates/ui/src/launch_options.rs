@@ -96,21 +96,6 @@ pub(crate) fn mcp_picker_servers(
         .collect()
 }
 
-/// The multiselect's trailing value — web `mcpPickSummary`, string for
-/// string: `None`, one or two names joined, else `"A, B +2"`.
-pub(crate) fn mcp_pick_summary(servers: &[McpServerOption], selected: &[String]) -> String {
-    let names: Vec<&str> = servers
-        .iter()
-        .filter(|server| selected.iter().any(|id| id == &server.id))
-        .map(|server| server.name.as_str())
-        .collect();
-    match names.len() {
-        0 => "None".to_string(),
-        1 | 2 => names.join(", "),
-        n => format!("{}, {} +{}", names[0], names[1], n - 2),
-    }
-}
-
 /// The seed of a fresh multiselect: the READY servers flagged
 /// `enabledByDefault` (web `preselectMcpServerIds` with no saved pick) — a
 /// server you have not connected is never preselected.
@@ -313,93 +298,6 @@ fn pin_label(choices: &'static [(&'static str, &'static str)], picked: Option<&s
                 .map(|(label, _)| (*label).to_string())
         })
         .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string())
-}
-
-/// One trigger choice pin as a GROUPED picker row (EXP-694,
-/// S2): the label leading, the pinned value trailing at 70% behind a caret,
-/// no field chrome, and the "CLI default" sentinel while nothing is pinned.
-/// Writes through the `pick` accessor on the host's state `S`.
-#[allow(clippy::too_many_arguments)] // one per pin, same shape as `choice_pin`
-pub(crate) fn choice_pin_row<V: Render, S: 'static>(
-    label: impl Into<SharedString>,
-    prefix: &'static str,
-    key: &'static str,
-    choices: &'static [(&'static str, &'static str)],
-    picked: Option<&str>,
-    pick: fn(&mut S) -> &mut Option<String>,
-    access: fn(&mut V) -> &mut S,
-    cx: &mut Context<V>,
-) -> Div {
-    let foreground = cx.theme().foreground;
-    let trigger = Button::new(SharedString::from(format!("{prefix}-pin-{key}")))
-        .ghost()
-        .cursor_pointer()
-        .h_auto()
-        .px_0()
-        .py_0()
-        .text_color(foreground.opacity(0.7))
-        // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
-        // so a long model name wraps onto a second line.
-        .child(surface::picker_value_label(SharedString::from(pin_label(
-            choices, picked,
-        ))))
-        // A grouped picker row ends in chevron-right ×4, not a caret.
-        .child(surface::picker_row_chevron(cx));
-    let control = pin_menu(trigger, choices, picked, pick, access, cx).into_any_element();
-    surface::glass_picker_row(label, None, control, cx)
-}
-
-/// Hangs a pin's choice menu off an already-dressed `trigger`.
-fn pin_menu<V: Render, S: 'static>(
-    trigger: Button,
-    choices: &'static [(&'static str, &'static str)],
-    picked: Option<&str>,
-    pick: fn(&mut S) -> &mut Option<String>,
-    access: fn(&mut V) -> &mut S,
-    cx: &mut Context<V>,
-) -> impl IntoElement {
-    let current = picked.map(str::to_string);
-    let view = cx.entity().downgrade();
-    crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, _cx| {
-            let default_view = view.clone();
-            let current = current.clone();
-            menu = menu.item(crate::controls::pointer_check_item(
-                CLI_DEFAULT_LABEL,
-                current.is_none(),
-                move |_, cx| {
-                    if let Some(view) = default_view.upgrade() {
-                        view.update(cx, |view, cx| {
-                            *pick(access(view)) = None;
-                            cx.notify();
-                        });
-                    }
-                },
-            ));
-            for (label, value) in choices {
-                // A blank value IS "leave it to the CLI" — the same thing
-                // "Device default" already says.
-                if value.is_empty() {
-                    continue;
-                }
-                let view = view.clone();
-                let value = (*value).to_string();
-                let checked = current.as_deref() == Some(value.as_str());
-                menu = menu.item(crate::controls::pointer_check_item(
-                    *label,
-                    checked,
-                    move |_, cx| {
-                        if let Some(view) = view.upgrade() {
-                            let value = value.clone();
-                            view.update(cx, |view, cx| {
-                                *pick(access(view)) = Some(value);
-                                cx.notify();
-                            });
-                        }
-                    },
-                ));
-            }
-            menu
-        })
 }
 
 /// EXP-825: the composer options row's pin — the chat page's muted `text_xs`
@@ -1131,12 +1029,8 @@ impl LaunchOptionsSection {
         }
     }
 
-    /// The cluster's choices as launch options. `resume_active` clamps plan
-    /// mode off (EXP-202: the plan already happened in the conversation being
-    /// continued) — pass `false` on surfaces that cannot resume. EXP-662: a
-    /// resume also keeps the RECORDED agent, so only `model`/`effort` from
-    /// here reach it, and only while the picker sits on that same agent.
-    pub(crate) fn options(&self, resume_active: bool, cx: &App) -> LaunchOptions {
+    /// The cluster's choices as launch options.
+    pub(crate) fn options(&self, cx: &App) -> LaunchOptions {
         LaunchOptions {
             agent: self.agent,
             model: selected(&self.model, cx),
@@ -1146,7 +1040,7 @@ impl LaunchOptionsSection {
             // Capability-clamped so a stale toggle can never leak onto an
             // agent that doesn't support it.
             ultracode: self.ultracode && self.agent.supports_ultracode(),
-            plan_mode: self.plan_mode && self.agent.supports_plan_mode() && !resume_active,
+            plan_mode: self.plan_mode && self.agent.supports_plan_mode(),
             // EXP-981: claude-only, clamped like the toggles above.
             subagent_model: if self.agent.supports_subagent_model() {
                 selected(&self.subagent_model, cx)
@@ -1484,40 +1378,6 @@ mod tests {
         assert_eq!(rows[1].command.as_deref(), Some("npx acme"));
         assert_eq!(rows[1].description.as_deref(), Some(MCP_CONNECT_FIRST));
         assert!(rows.iter().all(|row| !row.disabled));
-    }
-
-    /// EXP-792: web `mcpPickSummary`, string for string — two names spell
-    /// themselves out, three or more overflow into `+n`.
-    #[test]
-    fn mcp_summary_matches_the_web() {
-        let servers = vec![
-            server("a", "Linear", false),
-            server("b", "Notion", false),
-            server("c", "Sentry", false),
-            server("d", "Figma", false),
-        ];
-        assert_eq!(mcp_pick_summary(&servers, &[]), "None");
-        assert_eq!(mcp_pick_summary(&servers, &["a".into()]), "Linear");
-        assert_eq!(
-            mcp_pick_summary(&servers, &["a".into(), "b".into()]),
-            "Linear, Notion"
-        );
-        assert_eq!(
-            mcp_pick_summary(&servers, &["a".into(), "b".into(), "c".into()]),
-            "Linear, Notion +1"
-        );
-        assert_eq!(
-            mcp_pick_summary(&servers, &["a".into(), "b".into(), "c".into(), "d".into()]),
-            "Linear, Notion +2"
-        );
-        // The summary follows the REGISTRY order, not the click order — the
-        // launcher's env positions do too.
-        assert_eq!(
-            mcp_pick_summary(&servers, &["c".into(), "a".into()]),
-            "Linear, Sentry"
-        );
-        // An id whose row has gone contributes nothing.
-        assert_eq!(mcp_pick_summary(&servers, &["gone".into()]), "None");
     }
 
     /// The seed is `enabledByDefault` (web `preselectMcpServerIds` with no

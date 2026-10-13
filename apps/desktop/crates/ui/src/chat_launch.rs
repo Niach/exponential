@@ -1,96 +1,66 @@
-//! EXP-825 — the Agent page composer's launch logic, kept free of gpui so
-//! the rules the deleted start-coding dialog enforced by hand stay testable:
-//! what the submit pill says, when free text is required, the
-//! `steer.startSession` payload for a remote target, and the batch request
-//! for a local one. `chat_screen.rs` owns the state and calls in here.
+//! EXP-825 — the Home composer's launch logic, kept free of gpui so the
+//! rules stay testable: what the submit says, when free text is required,
+//! and the one `sessions.send` payload a start posts (EXP-1294).
+//! `chat_screen.rs` owns the state and calls in here.
 //!
-//! The contract (shared ×4): no subject → "Start chat", 1 issue → "Start
-//! coding", 2+ → "Start batch · N", an action → "Run action" (EXP-1233: the
-//! Fix merge conflicts builtin with a picked PR → "Fix conflicts"); free text is
-//! the CHAT PROMPT with no subject, the creator REQUEST for the Create-action
-//! builtin (both required), and optional additional instructions otherwise.
+//! The contract (shared ×4): no subject → a plain session, 1..N issues → one
+//! session linking them all, an action → "Run action"; free text is the
+//! prompt with no subject (required) and optional additional instructions
+//! otherwise.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, HashSet};
 
-use coding::{
-    ActionInputValue, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, RepoGroup,
-};
+use coding::LaunchOptions;
 
 use crate::picker::issue_picker::{IssueRow, MAX_ISSUES_PER_RUN};
 
 /// What the composer is about to start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SubjectKind {
-    /// No issue, no action: a chat run (`builtin:chat`).
+    /// No issue, no action: a plain session on the prompt.
     Chat,
-    /// `count` checked issues (1 = single, 2+ = batch).
+    /// `count` checked issues — ONE session linking them all.
     Issues { count: usize },
-    /// One picked action (`id` — a row id or a builtin literal).
-    Action { id: String },
-    /// EXP-1233: the Fix merge conflicts builtin WITH a pull request picked —
-    /// its own verb and send (web `launchHeadlineVerb`/`submitLabelFor` with
-    /// `fixConflictsPicked`). Unpicked it is a plain [`Self::Action`].
-    FixConflicts,
+    /// One picked action.
+    Action,
 }
 
-/// FEED-73 — a REAL action subject brings its own MCP list (the server sets
-/// the run's pick from it), so the composer neither offers the picker nor
-/// sends a pick (web `subjectOwnsMcpServers`). Builtins, issues and chats
-/// keep the caller's pick.
+/// FEED-73 — an action brings its own MCP list (the server sets the run's
+/// pick from it), so the composer neither offers the picker nor sends a pick
+/// (web `subjectOwnsMcpServers`).
 pub(crate) fn subject_owns_mcp_servers(subject: &SubjectKind) -> bool {
-    matches!(subject, SubjectKind::Action { id } if !api::actions::is_builtin_action_id(id))
+    matches!(subject, SubjectKind::Action)
 }
 
 /// EXP-1019/EXP-1037 — the composer's HEADLINE verb, the launcher's main
-/// element above the (now secondary) text field: `Run` beside an action's
-/// chip, `Implement` beside the issue chips, `Ask the agent` with no subject
-/// at all. The three strings are the shared contract's
+/// element above the text field: `Run` beside an action's chip, `Implement`
+/// beside the issue chips. The strings are the shared contract's
 /// (`domain::contract::COMPOSER_UI_*_HEADLINE`, ×4), never local literals.
 pub(crate) fn headline(subject: &SubjectKind) -> &'static str {
     match subject {
         SubjectKind::Chat => domain::contract::COMPOSER_UI_CHAT_HEADLINE,
         SubjectKind::Issues { .. } => domain::contract::COMPOSER_UI_IMPLEMENT_HEADLINE,
-        SubjectKind::Action { .. } => domain::contract::COMPOSER_UI_RUN_HEADLINE,
-        SubjectKind::FixConflicts => domain::contract::COMPOSER_UI_FIX_CONFLICTS_HEADLINE,
+        SubjectKind::Action => domain::contract::COMPOSER_UI_RUN_HEADLINE,
     }
 }
 
-/// The submit pill's label (the web `submitLabel`, byte-identical).
+/// The submit's tooltip.
 pub(crate) fn submit_label(subject: &SubjectKind) -> String {
     match subject {
-        SubjectKind::Chat => "Start chat".to_string(),
+        SubjectKind::Chat => "Start session".to_string(),
         SubjectKind::Issues { count: 1 } => "Start coding".to_string(),
-        SubjectKind::Issues { count } => format!("Start batch · {count}"),
-        SubjectKind::Action { .. } => "Run action".to_string(),
-        SubjectKind::FixConflicts => domain::contract::COMPOSER_UI_FIX_CONFLICTS_SUBMIT.to_string(),
+        SubjectKind::Issues { count } => format!("Start coding · {count}"),
+        SubjectKind::Action => "Run action".to_string(),
     }
 }
 
-/// Whether the free text is REQUIRED for `subject`: a chat has nothing else
-/// to send (an image alone counts), and the Create-action builtin authors
-/// from the request. Every other subject takes it as optional additional
-/// instructions.
-pub(crate) fn text_required(subject: &SubjectKind) -> bool {
-    match subject {
-        SubjectKind::Chat => true,
-        SubjectKind::Action { id } => id == api::actions::BUILTIN_CREATE_ACTION_ID,
-        SubjectKind::Issues { .. } | SubjectKind::FixConflicts => false,
-    }
-}
-
-/// The "Type a message." blocker, when the text is required and the draft
-/// (text or images) is empty.
+/// The "Type a message." blocker: a plain session has nothing else to send
+/// (an image alone counts); every subject takes the text as optional
+/// additional instructions.
 pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize) -> Option<&'static str> {
-    if !text_required(subject) {
-        return None;
-    }
-    let has_text = !text.trim().is_empty();
     match subject {
-        // An image-only chat message is a message (the steer composer's rule).
-        SubjectKind::Chat if has_text || image_count > 0 => None,
-        SubjectKind::Chat => Some(TYPE_A_MESSAGE),
-        _ if has_text => None,
-        _ => Some(DESCRIBE_THE_ACTION),
+        SubjectKind::Chat if text.trim().is_empty() && image_count == 0 => Some(TYPE_A_MESSAGE),
+        _ => None,
     }
 }
 
@@ -98,11 +68,10 @@ pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize
 ///
 /// "Type a message." is the empty composer telling the reader to use the
 /// composer they are looking at. It still BLOCKS (the send stays disabled),
-/// it just stops being printed: an instruction that is only ever true of an
-/// untouched field is noise on every page load. Every other blocker says
-/// something the reader cannot see for themselves and is rendered as before.
+/// it just stops being printed. Every other blocker says something the reader
+/// cannot see for themselves.
 pub(crate) fn note_for_blocker(blocker: Option<&str>) -> Option<&str> {
-    blocker.filter(|reason| *reason != TYPE_A_MESSAGE && *reason != DESCRIBE_THE_ACTION)
+    blocker.filter(|reason| *reason != TYPE_A_MESSAGE)
 }
 
 /// D8: the blocker while the team's actions have not loaded. The note
@@ -110,12 +79,8 @@ pub(crate) fn note_for_blocker(blocker: Option<&str>) -> Option<&str> {
 /// "Loading…" sentence.
 pub(crate) const ACTIONS_LOADING: &str = crate::feedback::WORD_LOADING;
 
-/// The chat composer's empty-draft blocker (see [`note_for_blocker`]).
+/// The empty-draft blocker (see [`note_for_blocker`]).
 const TYPE_A_MESSAGE: &str = "Type a message.";
-
-/// The Create action composer's empty-request blocker: like
-/// [`TYPE_A_MESSAGE`], the placeholder already says it, so it only blocks.
-const DESCRIBE_THE_ACTION: &str = "Describe the action to create.";
 
 /// The issue-count gates: at least one, at most [`MAX_ISSUES_PER_RUN`].
 pub(crate) fn issue_count_blocker(count: usize) -> Option<String> {
@@ -123,241 +88,69 @@ pub(crate) fn issue_count_blocker(count: usize) -> Option<String> {
         return Some("Select at least one issue.".to_string());
     }
     if count > MAX_ISSUES_PER_RUN {
-        return Some(format!(
-            "At most {MAX_ISSUES_PER_RUN} issues per session. Split the batch."
-        ));
+        return Some(format!("At most {MAX_ISSUES_PER_RUN} issues per session."));
     }
     None
 }
 
-/// The composer text as the launcher's `prompt`: trimmed, `None` when
-/// blank. Image embeds ride inside it (the steer message shape).
-pub(crate) fn prompt_of(message: &str) -> Option<String> {
-    let trimmed = message.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+/// What a start sends besides the run's options.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct StartSubject {
+    pub(crate) issue_ids: Vec<String>,
+    pub(crate) action_id: Option<String>,
+    /// The action's filled picks, key → value.
+    pub(crate) inputs: BTreeMap<String, String>,
+    pub(crate) repository_id: Option<String>,
 }
 
-/// The picked repository as the chat builtin's ONE input (web
-/// `chatStartInputs`): `None` when no repo was picked, so a repo-less chat
-/// reaches the launcher with no `repo` key at all (EXP-739).
-pub(crate) fn chat_repo_input(
-    team_id: &str,
-    repo: Option<(&str, &str)>,
-) -> Vec<ActionInputValue> {
-    let Some((repository_id, full_name)) = repo else {
-        return Vec::new();
-    };
-    api::actions::builtin_chat_action(team_id)
-        .inputs
-        .iter()
-        .filter(|input| input.key == "repo")
-        .map(|input| ActionInputValue {
-            key: input.key.clone(),
-            label: input.label.clone(),
-            input_type: input.input_type.clone(),
-            value: repository_id.to_string(),
-            display: Some(full_name.to_string()),
-        })
-        .collect()
-}
-
-/// The remote subject half of a [`api::steer::StartSessionInput`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RemoteSubject<'a> {
-    Chat {
-        team_id: &'a str,
-        repository_id: Option<&'a str>,
-    },
-    Issue {
-        issue_id: &'a str,
-        resume: bool,
-    },
-    Batch {
-        issue_ids: Vec<String>,
-    },
-    Action {
-        action_id: &'a str,
-        team_id: &'a str,
-        inputs: &'a [ActionInputValue],
-    },
-}
-
-/// EXP-696/EXP-825: the `steer.startSession` payload — the SAME subject the
-/// local paths launch, addressed at another machine, with the composer text
-/// as `prompt` (LAST on the wire). Blank model/effort are the "CLI default"
-/// sentinel and are omitted; the server's per-agent vocabulary has no empty
-/// member.
+/// EXP-1294 — THE start: one `sessions.send` for a new root in the ACTIVE
+/// team on `device_id`, the composer text (trimmed, omitted when blank) and
+/// the uploaded attachments, plus the run's options as picked. Blank
+/// model/effort are the "CLI default" sentinel and are omitted.
 ///
-/// EXP-849: the account pick rides too. It names a profile on the TARGET
-/// machine (the picker only ever offers that device's own logins), so
-/// `None` — the device's last used login — is the only safe default.
-pub(crate) fn remote_start_input(
+/// EXP-849: the account pick names a profile on the TARGET machine (the
+/// picker only offers that device's own logins), so `None` — the device's
+/// last used login — is the only safe default.
+pub(crate) fn send_input(
+    team_id: &str,
     device_id: &str,
     options: &LaunchOptions,
-    subject: RemoteSubject<'_>,
-    prompt: Option<String>,
-) -> api::steer::StartSessionInput {
-    let mut input = api::steer::StartSessionInput {
-        device_id: device_id.to_string(),
-        prompt,
-        ..options_input(options)
-    };
-    match subject {
-        RemoteSubject::Chat {
-            team_id,
-            repository_id,
-        } => {
-            input.action_id = Some(api::actions::BUILTIN_CHAT_ID.to_string());
-            // A builtin has no DB row to derive the team from.
-            input.team_id = Some(team_id.to_string());
-            // EXP-739: no repo picked = no `repo` key on the frame.
-            input.inputs = repository_id.map(|id| {
-                let mut inputs = BTreeMap::new();
-                inputs.insert("repo".to_string(), id.to_string());
-                inputs
-            });
-        }
-        RemoteSubject::Issue { issue_id, resume } => {
-            input.issue_id = Some(issue_id.to_string());
-            // EXP-481: `resume` is a single-issue flag — it continues the
-            // machine's existing worktree.
-            if resume {
-                input.resume = Some(true);
-            }
-        }
-        RemoteSubject::Batch { issue_ids } => input.issue_ids = Some(issue_ids),
-        RemoteSubject::Action {
-            action_id,
-            team_id,
-            inputs,
-        } => {
-            let inputs: BTreeMap<String, String> = inputs
-                .iter()
-                .map(|filled| (filled.key.clone(), filled.value.clone()))
-                .collect();
-            input.team_id =
-                api::actions::is_builtin_action_id(action_id).then(|| team_id.to_string());
-            input.inputs = (!inputs.is_empty()).then_some(inputs);
-            input.action_id = Some(action_id.to_string());
-        }
-    }
-    input
-}
-
-/// The launch options half of a start, exactly as `steer.startSession`
-/// sends them (shared by [`remote_start_input`] and [`draft_fingerprint`]).
-fn options_input(options: &LaunchOptions) -> api::steer::StartSessionInput {
-    api::steer::StartSessionInput {
-        agent: Some(options.agent.id().to_string()),
+    subject: StartSubject,
+    text: &str,
+    attachment_ids: Vec<String>,
+) -> api::sessions::SendInput {
+    let text = text.trim();
+    api::sessions::SendInput {
+        team_id: Some(team_id.to_string()),
+        device_id: Some(device_id.to_string()),
+        cli: Some(options.agent.id().to_string()),
+        account: options.account.clone(),
         model: Some(options.model.clone()).filter(|model| !model.is_empty()),
         effort: Some(options.effort.clone()).filter(|effort| !effort.is_empty()),
-        ultracode: Some(options.ultracode),
         plan_mode: Some(options.plan_mode),
-        // EXP-981: claude-only; blank = the CLI's own default, which is what
-        // an omitted field would leave the target machine's default at, so
-        // it rides only when picked.
-        subagent_model: Some(options.subagent_model.clone())
-            .filter(|model| !model.is_empty()),
-        account: options.account.clone(),
-        // EXP-1249: the "+" menu's toggle; `None` = the target's own switch
-        // (the composer only offers it for a `computer-use-run` machine).
+        // EXP-1249: `None` = the target's own switch.
         computer_use: options.computer_use,
+        ultracode: options.ultracode.then_some(true),
+        mcp_server_ids: Some(options.mcp_server_ids.clone()).filter(|ids| !ids.is_empty()),
+        text: (!text.is_empty()).then(|| text.to_string()),
+        attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
+        issue_ids: Some(subject.issue_ids).filter(|ids| !ids.is_empty()),
+        inputs: subject
+            .action_id
+            .as_ref()
+            .and(Some(subject.inputs))
+            .filter(|inputs| !inputs.is_empty()),
+        action_id: subject.action_id,
+        repository_id: subject.repository_id,
         ..Default::default()
     }
-}
-
-/// Recheck R2 (feedback-states.json `starting.fingerprint`): the draft a
-/// composer `startId` is bound to. Two drafts are the SAME start (one
-/// startId, the device dedupes a repeat) when every field is equal: lists
-/// are sets, absent and null are one (`None`), text is verbatim. The launch
-/// options are the ones the start SENDS ([`options_input`]: blank model /
-/// effort / subagent model are absent), so an option the start would not
-/// change never mints a new id. A Stacked PR answer only rewrites the
-/// message, so it is the same draft.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct DraftFingerprint {
-    /// The target machine (`None` before the device pick settles).
-    pub(crate) device_id: Option<String>,
-    pub(crate) text: String,
-    pub(crate) issue_ids: BTreeSet<String>,
-    pub(crate) action_id: Option<String>,
-    /// The action's filled input picks, key → value.
-    pub(crate) action_inputs: BTreeMap<String, String>,
-    /// The chat's repo (`None` for any other subject).
-    pub(crate) repository_id: Option<String>,
-    /// The staged attachments' local pick ids.
-    pub(crate) attachments: BTreeSet<String>,
-    pub(crate) agent: Option<String>,
-    pub(crate) model: Option<String>,
-    pub(crate) effort: Option<String>,
-    pub(crate) plan_mode: Option<bool>,
-    pub(crate) account: Option<String>,
-    pub(crate) mcp_server_ids: BTreeSet<String>,
-    pub(crate) computer_use: Option<bool>,
-    pub(crate) ultracode: Option<bool>,
-    pub(crate) subagent_model: Option<String>,
-    /// The composer's Resume toggle as the start uses it.
-    pub(crate) resume: bool,
-}
-
-/// The subject half of a [`DraftFingerprint`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum DraftSubject {
-    Chat { repository_id: Option<String> },
-    Issues(Vec<String>),
-    Action {
-        action_id: String,
-        inputs: Vec<ActionInputValue>,
-    },
-}
-
-/// [`DraftFingerprint`] of the composer's draft as it is now: `options` =
-/// the composer's options as the start takes them (a resume never plans, an
-/// action's own MCP list wins), `resume` = whether the start resumes.
-pub(crate) fn draft_fingerprint(
-    device_id: Option<&str>,
-    text: &str,
-    subject: DraftSubject,
-    attachments: &[u64],
-    options: &LaunchOptions,
-    resume: bool,
-) -> DraftFingerprint {
-    let sent = options_input(options);
-    let mut fingerprint = DraftFingerprint {
-        device_id: device_id.map(str::to_string),
-        text: text.to_string(),
-        attachments: attachments.iter().map(u64::to_string).collect(),
-        agent: sent.agent,
-        model: sent.model,
-        effort: sent.effort,
-        plan_mode: sent.plan_mode,
-        account: sent.account,
-        mcp_server_ids: options.mcp_server_ids.iter().cloned().collect(),
-        computer_use: sent.computer_use,
-        ultracode: sent.ultracode,
-        subagent_model: sent.subagent_model,
-        resume,
-        ..Default::default()
-    };
-    match subject {
-        DraftSubject::Chat { repository_id } => fingerprint.repository_id = repository_id,
-        DraftSubject::Issues(issue_ids) => fingerprint.issue_ids = issue_ids.into_iter().collect(),
-        DraftSubject::Action { action_id, inputs } => {
-            fingerprint.action_id = Some(action_id);
-            fingerprint.action_inputs = inputs
-                .into_iter()
-                .map(|filled| (filled.key, filled.value))
-                .collect();
-        }
-    }
-    fingerprint
 }
 
 /// One issue's `repositories.forIssue` probe state.
 #[derive(Clone, Debug)]
 pub(crate) enum RepoState {
     Loading,
-    /// `Ready(None)` = no repository linked (excluded from the run).
+    /// `Ready(None)` = no repository linked (excluded from the session).
     Ready(Option<api::repositories::IssueRepository>),
     /// Transport failure — the issue can't resolve a repo, so it is
     /// excluded like a repo-less one (the message says why).
@@ -365,7 +158,7 @@ pub(crate) enum RepoState {
 }
 
 /// The one-repository / one-base-branch gate over the checked issues
-/// (EXP-712: a batch cuts ONE branch, so every issue must resolve to the
+/// (EXP-712: a session cuts ONE branch, so every issue must resolve to the
 /// same repository AND the same base). `None` = fine; a checked issue whose
 /// probe has not answered blocks with "Checking linked repositories…".
 pub(crate) fn repo_blocker(
@@ -396,61 +189,21 @@ pub(crate) fn repo_blocker(
     }
     if let Some((first, second)) = crate::repo_resolver::batch_branch_conflict(&bases) {
         return Some(format!(
-            "All issues in a batch must share one base branch ({first} vs {second})."
+            "All issues in a session must share one base branch ({first} vs {second})."
         ));
     }
     None
 }
 
-/// Snapshot the checked set into a [`BatchLaunchRequest`] (2+ checked).
-/// `None` on a racing probe (the blocker just re-checked) — bail quietly.
-pub(crate) fn batch_request(
-    team_id: &str,
-    rows: &[IssueRow],
+/// The repository the checked issues resolved to (the gate above already
+/// made it ONE), so the start names it.
+pub(crate) fn issues_repository(
     checked: &HashSet<String>,
     repos: &std::collections::HashMap<String, RepoState>,
-    options: LaunchOptions,
-    prompt: Option<String>,
-) -> Option<BatchLaunchRequest> {
-    let mut repo: Option<RepoGroup> = None;
-    let mut issues: Vec<BatchIssueSpec> = Vec::new();
-    // EXP-712: the board whose branch the batch cuts from. The blocker
-    // already refused a set whose boards resolve to different branches, so
-    // the FIRST board's branch is every checked issue's branch.
-    let mut board_id: Option<String> = None;
-    for row in rows {
-        if !checked.contains(&row.issue_id) {
-            continue;
-        }
-        board_id.get_or_insert_with(|| row.board_id.clone());
-        let Some(RepoState::Ready(Some(resolved))) = repos.get(&row.issue_id) else {
-            return None;
-        };
-        if repo.is_none() {
-            repo = Some(RepoGroup {
-                repository_id: resolved.repository_id.clone(),
-                full_name: resolved.full_name.clone(),
-                default_branch: resolved.default_branch.clone(),
-            });
-        }
-        issues.push(BatchIssueSpec {
-            issue_id: row.issue_id.clone(),
-            issue_identifier: row.identifier.clone(),
-            title: row.title.clone(),
-            description: row.description.clone(),
-            status: row.status,
-        });
-    }
-    Some(BatchLaunchRequest {
-        batch_id: coding::new_batch_id(),
-        team_id: team_id.to_string(),
-        board_id,
-        repo: repo?,
-        issues,
-        device_label: coding::default_device_label(),
-        origin: LaunchOrigin::Local,
-        options,
-        prompt,
+) -> Option<String> {
+    checked.iter().find_map(|issue_id| match repos.get(issue_id) {
+        Some(RepoState::Ready(Some(resolved))) => Some(resolved.repository_id.clone()),
+        _ => None,
     })
 }
 
@@ -458,19 +211,6 @@ pub(crate) fn batch_request(
 mod tests {
     use super::*;
     use coding::CodingAgent;
-
-    /// FEED-73 — web `subjectOwnsMcpServers`: only a REAL action owns it.
-    #[test]
-    fn only_a_real_action_subject_owns_its_mcp_servers() {
-        let action = |id: &str| SubjectKind::Action { id: id.to_string() };
-        assert!(subject_owns_mcp_servers(&action("4f1c0f5e-action-row")));
-        assert!(!subject_owns_mcp_servers(&action(api::actions::BUILTIN_CHAT_ID)));
-        assert!(!subject_owns_mcp_servers(&action(api::actions::BUILTIN_CREATE_ACTION_ID)));
-        assert!(!subject_owns_mcp_servers(&action(api::actions::BUILTIN_FIX_CONFLICTS_ID)));
-        assert!(!subject_owns_mcp_servers(&SubjectKind::Chat));
-        assert!(!subject_owns_mcp_servers(&SubjectKind::Issues { count: 2 }));
-        assert!(!subject_owns_mcp_servers(&SubjectKind::FixConflicts));
-    }
 
     fn options() -> LaunchOptions {
         LaunchOptions {
@@ -486,63 +226,45 @@ mod tests {
         }
     }
 
-    /// EXP-1019: the headline verb per subject kind — the contract's three
-    /// strings, byte for byte.
+    /// FEED-73 — web `subjectOwnsMcpServers`: only an action owns it.
+    #[test]
+    fn only_an_action_subject_owns_its_mcp_servers() {
+        assert!(subject_owns_mcp_servers(&SubjectKind::Action));
+        assert!(!subject_owns_mcp_servers(&SubjectKind::Chat));
+        assert!(!subject_owns_mcp_servers(&SubjectKind::Issues { count: 2 }));
+    }
+
+    /// EXP-1019: the headline verb per subject kind — the contract's strings.
     #[test]
     fn headlines_follow_the_subject_kind() {
         assert_eq!(headline(&SubjectKind::Chat), "Ask the agent");
         assert_eq!(headline(&SubjectKind::Issues { count: 1 }), "Implement");
         assert_eq!(headline(&SubjectKind::Issues { count: 4 }), "Implement");
-        assert_eq!(
-            headline(&SubjectKind::Action {
-                id: "act-1".into()
-            }),
-            "Run"
-        );
-        // EXP-1233: the builtin with a picked PR wears its own verb.
-        assert_eq!(headline(&SubjectKind::FixConflicts), "Fix merge conflicts");
+        assert_eq!(headline(&SubjectKind::Action), "Run");
     }
 
-    /// The four labels of the shared contract, byte for byte.
+    /// EXP-1294: N issues are ONE session — never a "batch".
     #[test]
     fn submit_labels_follow_the_subject() {
-        assert_eq!(submit_label(&SubjectKind::Chat), "Start chat");
+        assert_eq!(submit_label(&SubjectKind::Chat), "Start session");
         assert_eq!(submit_label(&SubjectKind::Issues { count: 1 }), "Start coding");
-        assert_eq!(submit_label(&SubjectKind::Issues { count: 2 }), "Start batch · 2");
-        assert_eq!(submit_label(&SubjectKind::Issues { count: 30 }), "Start batch · 30");
-        assert_eq!(
-            submit_label(&SubjectKind::Action {
-                id: "act-1".into()
-            }),
-            "Run action"
-        );
-        assert_eq!(submit_label(&SubjectKind::FixConflicts), "Fix conflicts");
+        assert_eq!(submit_label(&SubjectKind::Issues { count: 3 }), "Start coding · 3");
+        assert_eq!(submit_label(&SubjectKind::Action), "Run action");
     }
 
-    /// Free text is required for a chat (an image alone counts) and the
-    /// creator builtin, optional additional instructions everywhere else.
+    /// Free text is required with no subject (an image alone counts),
+    /// optional additional instructions everywhere else.
     #[test]
-    fn text_is_required_only_for_chat_and_create_action() {
+    fn text_is_required_only_without_a_subject() {
         assert_eq!(text_blocker(&SubjectKind::Chat, "  ", 0), Some(TYPE_A_MESSAGE));
         assert_eq!(text_blocker(&SubjectKind::Chat, "", 1), None);
         assert_eq!(text_blocker(&SubjectKind::Chat, "hi", 0), None);
-        let create = SubjectKind::Action {
-            id: api::actions::BUILTIN_CREATE_ACTION_ID.into(),
-        };
-        assert_eq!(text_blocker(&create, "", 2), Some("Describe the action to create."));
-        assert_eq!(text_blocker(&create, "triage", 0), None);
-        let fix = SubjectKind::Action {
-            id: api::actions::BUILTIN_FIX_CONFLICTS_ID.into(),
-        };
-        assert_eq!(text_blocker(&fix, "", 0), None);
-        assert_eq!(text_blocker(&SubjectKind::FixConflicts, "", 0), None);
+        assert_eq!(text_blocker(&SubjectKind::Action, "", 0), None);
         assert_eq!(text_blocker(&SubjectKind::Issues { count: 2 }, "", 0), None);
         assert_eq!(issue_count_blocker(0).as_deref(), Some("Select at least one issue."));
         assert!(issue_count_blocker(1).is_none());
         assert!(issue_count_blocker(MAX_ISSUES_PER_RUN).is_none());
         assert!(issue_count_blocker(MAX_ISSUES_PER_RUN + 1).is_some());
-        assert_eq!(prompt_of("  x \n"), Some("x".into()));
-        assert_eq!(prompt_of(" \n"), None);
     }
 
     /// EXP-862: the empty composer's own blocker is never printed under the
@@ -550,243 +272,72 @@ mod tests {
     #[test]
     fn the_empty_draft_blocker_earns_no_note() {
         assert_eq!(note_for_blocker(None), None);
-        assert_eq!(
-            note_for_blocker(text_blocker(&SubjectKind::Chat, "", 0)),
-            None,
-            "the field itself is the instruction"
-        );
-        // …and it is still a blocker: the submit stays disabled.
+        assert_eq!(note_for_blocker(text_blocker(&SubjectKind::Chat, "", 0)), None);
         assert!(text_blocker(&SubjectKind::Chat, "", 0).is_some());
-        let create = SubjectKind::Action {
-            id: api::actions::BUILTIN_CREATE_ACTION_ID.into(),
-        };
-        assert_eq!(
-            note_for_blocker(text_blocker(&create, "", 0)),
-            None,
-            "the Create action placeholder is the instruction too"
-        );
-        assert!(text_blocker(&create, "", 0).is_some());
         assert_eq!(
             note_for_blocker(Some("Select at least one issue.")),
             Some("Select at least one issue.")
         );
     }
 
-    /// EXP-739: the chat's repo input exists only when a repo was picked,
-    /// and it is the builtin's own definition (label/type byte-locked ×4).
+    /// EXP-1294: ONE send per start — the active team, the device, the
+    /// options as picked (blank model/effort omitted), the trimmed text, and
+    /// N issues on ONE root.
     #[test]
-    fn chat_repo_input_is_omitted_without_a_pick() {
-        assert!(chat_repo_input("team-1", None).is_empty());
-        let inputs = chat_repo_input("team-1", Some(("repo-1", "acme/web")));
-        assert_eq!(inputs.len(), 1);
-        assert_eq!(inputs[0].key, "repo");
-        assert_eq!(inputs[0].input_type, "repo");
-        assert_eq!(inputs[0].value, "repo-1");
-        assert_eq!(inputs[0].display.as_deref(), Some("acme/web"));
-    }
-
-    /// EXP-825: the remote payload per subject — exactly one subject, the
-    /// composer text as `prompt`, a builtin's `teamId`, blank picks omitted.
-    #[test]
-    fn remote_start_input_carries_one_subject_and_the_prompt() {
-        let chat = remote_start_input(
+    fn the_send_input_carries_the_start() {
+        let issues = send_input(
+            "team-1",
             "dev-1",
             &options(),
-            RemoteSubject::Chat {
-                team_id: "team-1",
-                repository_id: Some("repo-1"),
+            StartSubject {
+                issue_ids: vec!["i-1".into(), "i-2".into()],
+                repository_id: Some("repo-1".into()),
+                ..Default::default()
             },
-            Some("hello".into()),
+            "  mind the retry \n",
+            vec!["att-1".into()],
         );
-        assert_eq!(chat.action_id.as_deref(), Some("builtin:chat"));
-        assert_eq!(chat.team_id.as_deref(), Some("team-1"));
-        assert_eq!(chat.inputs.as_ref().unwrap().get("repo").map(String::as_str), Some("repo-1"));
-        assert_eq!(chat.prompt.as_deref(), Some("hello"));
-        assert_eq!(chat.effort, None, "blank effort is omitted");
-        assert_eq!(chat.model.as_deref(), Some("opus"));
-        assert_eq!(chat.plan_mode, Some(true));
-        assert!(chat.issue_id.is_none() && chat.issue_ids.is_none());
-        // EXP-849: no account picked = the target's last used login.
-        assert_eq!(chat.account, None);
-        let picked = remote_start_input(
+        assert_eq!(issues.team_id.as_deref(), Some("team-1"));
+        assert_eq!(issues.device_id.as_deref(), Some("dev-1"));
+        assert_eq!(issues.cli.as_deref(), Some("claude"));
+        assert_eq!(issues.model.as_deref(), Some("opus"));
+        assert_eq!(issues.effort, None, "blank effort is omitted");
+        assert_eq!(issues.plan_mode, Some(true));
+        assert_eq!(issues.text.as_deref(), Some("mind the retry"));
+        assert_eq!(issues.attachment_ids, Some(vec!["att-1".to_string()]));
+        assert_eq!(issues.issue_ids, Some(vec!["i-1".to_string(), "i-2".to_string()]));
+        assert_eq!(issues.repository_id.as_deref(), Some("repo-1"));
+        assert!(issues.action_id.is_none() && issues.inputs.is_none());
+        // EXP-849: no account picked = the target's last used login; no
+        // computer-use pick leaves it to the target.
+        assert_eq!(issues.account, None);
+        assert_eq!(issues.computer_use, None);
+        assert!(issues.session_id.is_none() && issues.parent_id.is_none());
+
+        let mut inputs = BTreeMap::new();
+        inputs.insert("board".to_string(), "board-1".to_string());
+        let action = send_input(
+            "team-1",
             "dev-1",
             &LaunchOptions {
                 account: Some("0a1b2c3d".into()),
-                ..options()
-            },
-            RemoteSubject::Issue {
-                issue_id: "i-1",
-                resume: false,
-            },
-            None,
-        );
-        assert_eq!(picked.account.as_deref(), Some("0a1b2c3d"));
-        // EXP-1249: no pick leaves computer use to the target machine; a
-        // pick rides as-is, either way.
-        assert_eq!(picked.computer_use, None);
-        let with_computer = remote_start_input(
-            "dev-1",
-            &LaunchOptions {
                 computer_use: Some(false),
                 ..options()
             },
-            RemoteSubject::Issue {
-                issue_id: "i-1",
-                resume: false,
+            StartSubject {
+                action_id: Some("act-1".into()),
+                inputs,
+                ..Default::default()
             },
-            None,
+            " ",
+            Vec::new(),
         );
-        assert_eq!(with_computer.computer_use, Some(false));
-
-        let repo_less = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Chat {
-                team_id: "team-1",
-                repository_id: None,
-            },
-            None,
-        );
-        assert_eq!(repo_less.inputs, None);
-
-        let issue = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Issue {
-                issue_id: "i-1",
-                resume: true,
-            },
-            Some("mind the retry".into()),
-        );
-        assert_eq!(issue.issue_id.as_deref(), Some("i-1"));
-        assert_eq!(issue.resume, Some(true));
-        assert_eq!(issue.prompt.as_deref(), Some("mind the retry"));
-        let fresh = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Issue {
-                issue_id: "i-1",
-                resume: false,
-            },
-            None,
-        );
-        assert_eq!(fresh.resume, None);
-
-        let batch = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Batch {
-                issue_ids: vec!["a".into(), "b".into()],
-            },
-            None,
-        );
-        assert_eq!(batch.issue_ids, Some(vec!["a".to_string(), "b".to_string()]));
-
-        let filled = vec![ActionInputValue {
-            key: "pr".into(),
-            label: "Pull request".into(),
-            input_type: "pr".into(),
-            value: "i-9".into(),
-            display: Some("#4".into()),
-        }];
-        let builtin = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Action {
-                action_id: api::actions::BUILTIN_FIX_CONFLICTS_ID,
-                team_id: "team-1",
-                inputs: &filled,
-            },
-            None,
-        );
-        assert_eq!(builtin.team_id.as_deref(), Some("team-1"));
-        assert_eq!(builtin.inputs.as_ref().unwrap().get("pr").map(String::as_str), Some("i-9"));
-        let team_action = remote_start_input(
-            "dev-1",
-            &options(),
-            RemoteSubject::Action {
-                action_id: "act-1",
-                team_id: "team-1",
-                inputs: &[],
-            },
-            None,
-        );
-        assert_eq!(team_action.team_id, None, "a row action never sends teamId");
-        assert_eq!(team_action.inputs, None);
-    }
-
-    /// Recheck R2: the draft fingerprint replays feedback-states.json
-    /// `starting.fingerprint.cases` (sets order-free, absent = null).
-    #[test]
-    fn the_draft_fingerprint_replays_the_fixture() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/feedback-states.json"
-        ))
-        .expect("feedback-states.json parses");
-        let text = |value: &serde_json::Value, key: &str| {
-            value.get(key).and_then(|v| v.as_str()).map(str::to_string)
-        };
-        let flag = |value: &serde_json::Value, key: &str| value.get(key).and_then(|v| v.as_bool());
-        let set = |value: &serde_json::Value, key: &str| -> BTreeSet<String> {
-            value
-                .get(key)
-                .and_then(|v| v.as_array())
-                .map(|items| items.iter().filter_map(|v| v.as_str()).map(str::to_string).collect())
-                .unwrap_or_default()
-        };
-        let parse = |value: &serde_json::Value| DraftFingerprint {
-            device_id: text(value, "deviceId"),
-            text: text(value, "text").unwrap_or_default(),
-            issue_ids: set(value, "issueIds"),
-            action_id: text(value, "actionId"),
-            action_inputs: value
-                .get("actionInputs")
-                .and_then(|v| v.as_object())
-                .map(|map| {
-                    map.iter()
-                        .filter_map(|(key, v)| v.as_str().map(|v| (key.clone(), v.to_string())))
-                        .collect()
-                })
-                .unwrap_or_default(),
-            repository_id: text(value, "repositoryId"),
-            attachments: set(value, "attachments"),
-            agent: text(value, "agent"),
-            model: text(value, "model"),
-            effort: text(value, "effort"),
-            plan_mode: flag(value, "planMode"),
-            account: text(value, "account"),
-            mcp_server_ids: set(value, "mcpServerIds"),
-            computer_use: flag(value, "computerUse"),
-            ultracode: flag(value, "ultracode"),
-            subagent_model: text(value, "subagentModel"),
-            resume: flag(value, "resume").unwrap_or(false),
-        };
-        let cases = fixture["starting"]["fingerprint"]["cases"]
-            .as_array()
-            .expect("fingerprint cases");
-        assert!(cases.len() >= 10);
-        for case in cases {
-            let name = case["name"].as_str().unwrap_or_default();
-            let same = case["same"].as_bool().expect("same");
-            assert_eq!(parse(&case["a"]) == parse(&case["b"]), same, "{name}");
-        }
-    }
-
-    /// The fingerprint drops what the start would not send: a blank model
-    /// equals no model, and a resume flag is part of it.
-    #[test]
-    fn the_draft_fingerprint_reads_the_options_as_sent() {
-        let mut blank = options();
-        blank.model = String::new();
-        let a = draft_fingerprint(Some("d1"), "Fix it", DraftSubject::Chat { repository_id: None }, &[2, 1], &blank, false);
-        assert_eq!(a.model, None);
-        assert_eq!(a.attachments, ["1", "2"].iter().map(|v| v.to_string()).collect());
-        let b = draft_fingerprint(Some("d1"), "Fix it", DraftSubject::Chat { repository_id: None }, &[1, 2], &blank, true);
-        assert_ne!(a, b, "the Resume toggle is part of the draft");
-        let issues = |ids: &[&str]| DraftSubject::Issues(ids.iter().map(|v| v.to_string()).collect());
-        assert_eq!(
-            draft_fingerprint(None, "", issues(&["i2", "i1"]), &[], &blank, false),
-            draft_fingerprint(None, "", issues(&["i1", "i2"]), &[], &blank, false),
-        );
+        assert_eq!(action.action_id.as_deref(), Some("act-1"));
+        assert_eq!(action.inputs.as_ref().and_then(|map| map.get("board")).map(String::as_str), Some("board-1"));
+        assert_eq!(action.text, None);
+        assert_eq!(action.attachment_ids, None);
+        assert_eq!(action.issue_ids, None);
+        assert_eq!(action.account.as_deref(), Some("0a1b2c3d"));
+        assert_eq!(action.computer_use, Some(false));
     }
 }

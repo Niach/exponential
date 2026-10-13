@@ -1,4 +1,4 @@
-//! Typed row structs for the 16 synced shapes (masterplan-v3 §5.1/§5.5) —
+//! Typed row structs for the 25 synced shapes (masterplan-v3 §5.1/§5.5) —
 //! hand-written mirrors of `packages/db-schema`, one per Electric shape,
 //! hydrated from the sync store's snake_case JSON objects.
 //!
@@ -17,13 +17,18 @@
 //! Column sets intentionally mirror `sync::shapes::SHAPES` (the §5.4
 //! known-column allowlists): no `email` on [`IssueSubscriber`] (PII stays
 //! server-side).
+//!
+//! EXP-1294 (Threads v2): the session tree is [`SessionRow`] (+
+//! [`SessionIssueRow`], [`MessageRow`]) and every pull request is a
+//! [`PullRequestRow`] (+ [`PullRequestIssueRow`]); [`Issue`] carries no PR or
+//! branch column any more.
 
 use serde::Deserialize;
 
 use crate::enums::{IssuePriority, IssueStatus};
 use crate::hydrate::{
-    tolerant_i64, tolerant_id_list, tolerant_opt_bool, tolerant_opt_f64, tolerant_opt_i64,
-    tolerant_opt_json,
+    tolerant_bool_or_false, tolerant_i64, tolerant_id_list, tolerant_opt_bool, tolerant_opt_f64,
+    tolerant_opt_i64, tolerant_opt_json,
 };
 
 /// `teams` shape row. Teams are always private — the shape carries
@@ -221,23 +226,6 @@ pub struct Issue {
     pub completed_at: Option<String>,
     #[serde(default)]
     pub duplicate_of_id: Option<String>,
-    #[serde(default)]
-    pub pr_url: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_i64")]
-    pub pr_number: Option<i64>,
-    #[serde(default)]
-    pub pr_state: Option<String>,
-    #[serde(default)]
-    pub branch: Option<String>,
-    #[serde(default)]
-    pub pr_merged_at: Option<String>,
-    /// `issues.pr_base_branch`: the branch this issue's pull request
-    /// TARGETS. `None` (or the repo default) = an ordinary PR; another
-    /// issue's `branch` = a STACK edge, the one fact [`crate::pr_stack`]
-    /// chains. `None` on rows synced before the column existed;
-    /// `heal_missing_columns` ALTERs it in and the refetch backfills.
-    #[serde(default)]
-    pub pr_base_branch: Option<String>,
     /// EXP-630 `issues.estimate` — story points, always a point NUMBER;
     /// the team's `estimation_type` decides how it reads
     /// ([`crate::issue_estimate`]). `None` = unset (and on rows synced
@@ -387,110 +375,6 @@ pub struct IssueDraftRow {
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
-}
-
-/// `threads` shape row (EXP-1284) — one unit of work: the issues and runs a
-/// person (or an agent) gathered together, plus THE Guide for all of them.
-/// Team-scoped (`team_id IN (member teams)`), no board/trash predicate: the
-/// shell is member-visible even when every issue item is hidden.
-///
-/// `title` NULL = derived for display (the first issue's title, else the
-/// first run's name). `results` is the thread's Guide — the SAME
-/// `CodingSessionResult[]` jsonb a run row carries ([`CodingSession::results`]),
-/// read only through [`crate::session_results::parse_session_results`];
-/// `updated_at` is bumped on every link/unlink, so it is the activity sort.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct ThreadRow {
-    pub id: String,
-    #[serde(default)]
-    pub team_id: Option<String>,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub created_by: Option<String>,
-    /// Same tolerant jsonb handling as [`CodingSession::results`]: the wire
-    /// may hand it over as a JSON STRING.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub results: Option<serde_json::Value>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-}
-
-impl ThreadRow {
-    /// The stored title, trimmed; `None` when unset or blank (the caller
-    /// then derives one from the thread's first issue / run).
-    pub fn explicit_title(&self) -> Option<&str> {
-        self.title
-            .as_deref()
-            .map(str::trim)
-            .filter(|title| !title.is_empty())
-    }
-}
-
-/// `thread_items` shape row (EXP-1284) — one member of a thread: an ISSUE
-/// (`kind = issue`, `issue_id` set) or a RUN (`kind = run`, `session_id`
-/// set), exactly one by kind (contract `threadItemKind`). An issue may sit
-/// in several threads; a run sits in exactly one. Board-scoped like every
-/// issue child (`board_deleted_at`/`board_archived_at IS NULL`, mirrors that
-/// stay server-side); run items carry NULL `board_id` and always sync.
-///
-/// `source` = contract `threadItemSource` (`user` | `agent`, the latter with
-/// `added_by_session_id` naming the run whose agent linked it). Every
-/// non-key field is `Option` like [`Pin`]: an unknown kind or an absent
-/// target degrades to a hidden item, never a wedged hydration.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct ThreadItemRow {
-    pub id: String,
-    pub thread_id: String,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub issue_id: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub team_id: Option<String>,
-    #[serde(default)]
-    pub board_id: Option<String>,
-    #[serde(default)]
-    pub added_by: Option<String>,
-    #[serde(default)]
-    pub added_by_session_id: Option<String>,
-    #[serde(default)]
-    pub source: Option<String>,
-    /// Ascending = display order within the thread.
-    #[serde(default, deserialize_with = "tolerant_opt_f64")]
-    pub sort_order: Option<f64>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-}
-
-impl ThreadItemRow {
-    /// The linked issue's id when this is an ISSUE item (kind + target
-    /// agree), else `None`.
-    pub fn issue(&self) -> Option<&str> {
-        match self.kind.as_deref() {
-            Some(crate::contract::THREAD_ITEM_KIND_ISSUE) => self.issue_id.as_deref(),
-            _ => None,
-        }
-    }
-
-    /// The linked run's session id when this is a RUN item, else `None`.
-    pub fn run(&self) -> Option<&str> {
-        match self.kind.as_deref() {
-            Some(crate::contract::THREAD_ITEM_KIND_RUN) => self.session_id.as_deref(),
-            _ => None,
-        }
-    }
-
-    /// Whether an agent (not a person) linked this item.
-    pub fn added_by_agent(&self) -> bool {
-        self.source.as_deref() == Some(crate::contract::THREAD_ITEM_SOURCE_AGENT)
-    }
 }
 
 /// `users` shape row (co-member-scoped; the server pins the 6-column
@@ -767,161 +651,317 @@ pub struct IssueSubscriber {
     pub updated_at: Option<String>,
 }
 
-/// `coding_sessions` shape row (the cross-client "coding now" badge).
-/// `issue_id` is NULL on batch-scoped (multi-issue) session rows — those
-/// carry only `team_id` (enforced by the tRPC writer).
+/// EXP-1294 `sessions` shape row — ONE table = the session TREE (Threads v2).
+/// Roots (`parent_id` NULL, `root_id = id`, depth 0) are `kind` `thread` or
+/// `agent`; children are `thread` sessions under a root. The runner columns
+/// (`device_id`, `cli`, `account`, `model`, …) say where and how it runs;
+/// `status` = contract `sessionStatus` (`queued`/`running`/`idle`/`ended`),
+/// with `busy`/`needs_input`/`blocked` device-written beside it. Thread
+/// facets (`title`, `guide`, `action_*`) live on roots; agent facets
+/// (`name`, `icon`, `color`, `triggers`, `sort_order`) on agent roots.
+/// Server-only (never synced): `host_user_id`, `mcp_server_ids`,
+/// `instructions` (`sessions.getAgent`).
+///
+/// Only `id` is required; the bools the UI branches on read `false` when
+/// absent or unparsable, jsonb arrives tolerant (a TEXT cell re-parses).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct CodingSession {
+pub struct SessionRow {
     pub id: String,
     #[serde(default)]
-    pub issue_id: Option<String>,
-    #[serde(default)]
     pub team_id: Option<String>,
+    /// `None` on a root.
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// The tree's root (`= id` on a root). `None` only on a partial row:
+    /// read through [`SessionRow::root_id_or_self`].
+    #[serde(default)]
+    pub root_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub depth: Option<i64>,
+    /// Contract `sessionKind`: `thread` | `agent`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// The person who STARTED it (not necessarily the host's owner).
     #[serde(default)]
     pub user_id: Option<String>,
-    #[serde(default)]
-    pub device_label: Option<String>,
-    /// EXP-549/550: the host machine's steer deviceId — join the synced
-    /// `devices` row for the machine's LIVE label (the user's rename) and
-    /// its online-ness (an offline host means the session is paused, not
-    /// live). `None` on rows written by pre-EXP-549 clients.
+    /// The device that hosts it (steer device id).
     #[serde(default)]
     pub device_id: Option<String>,
-    /// `running` / `in_review` / `ended` — raw wire value (contract-locked).
     #[serde(default)]
-    pub status: Option<String>,
-    /// EXP-484: the agent CLI running it (`claude`/`codex`) — raw wire
-    /// value; `None` on rows written before the column existed.
+    pub cli: Option<String>,
     #[serde(default)]
-    pub agent: Option<String>,
-    /// EXP-909: which LOGIN of that agent the run spends (`system` = the
-    /// ambient one, else a device-local profile id, matching the devices
-    /// row's `agentAccounts[agent].profiles[].id`). `None` on rows written
-    /// before the desktop stamped it — which reads as "unknown", never as
-    /// the ambient login: guessing it would point the usage readout at the
-    /// wrong account's numbers, the very thing EXP-909 fixed.
+    pub account: Option<String>,
     #[serde(default)]
-    pub agent_account: Option<String>,
-    /// Desktop-written attention flag (EXP-214): the agent is parked on a
-    /// plan-approval / AskUserQuestion picker and waits for a human.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub needs_input: Option<bool>,
-    /// EXP-848: device-written like `needs_input` — the agent is executing a
-    /// turn RIGHT NOW (the engine's `turn` edges mirror onto it). Orthogonal
-    /// to `status`: a `running` row between turns, parked on a question or
-    /// walled by a rate limit is NOT busy, and every session list keys its
-    /// working spinner on this rather than on the status. Absent on rows
-    /// written before the column existed, which reads as not busy.
-    #[serde(default, deserialize_with = "tolerant_opt_bool")]
-    pub agent_busy: Option<bool>,
-    /// EXP-850 §8: device-written like `agent_busy` — the caption of the
-    /// newest RUNNING claude workflow (`steer::workflow_caption`, ≤160 chars),
-    /// rendered as the session row's SECOND line on every client. `None` =
-    /// nothing to say (no workflow runs, or the row predates the column).
+    pub model: Option<String>,
     #[serde(default)]
-    pub agent_caption: Option<String>,
-    /// EXP-908: device-written like `agent_caption` — the title the agent
-    /// CLI auto-named the run with (≤255 chars). Only a CHAT run reads it: its
-    /// subject is `agent_title.trim()` when non-empty, else `Chat`
-    /// ([`crate::batch_run::action_run_subject`]). `None` = not named yet, or
-    /// the row predates the column.
+    pub effort: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub plan_mode: bool,
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub computer_use: bool,
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub ultracode: bool,
     #[serde(default)]
-    pub agent_title: Option<String>,
-    /// EXP-804 jsonb `{kind, agent, window, resetsAt, since}` — the agent's
-    /// usage wall as row state; `None` = not blocked. Orthogonal to `status`
-    /// exactly like `needs_input` above: a blocked run still reads `running`
-    /// and stays live, steerable and killable, so a client that ignores this
-    /// renders a silently stalled run as healthy. Same tolerant jsonb
-    /// handling as the devices row's usage blobs (the wire may hand it over
-    /// as a JSON string).
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub blocked: Option<serde_json::Value>,
-    /// EXP-879 jsonb — the run's PUBLISHED RESULTS: a flat ORDERED list of
-    /// `{topic, label, attachmentId, width, height}` (camelCase INSIDE the
-    /// blob, unlike every column name), `None`/`[]` = nothing published.
-    /// Never read raw — [`crate::session_results::parse_session_results`] is
-    /// the ONE reader (tolerant, capped, drops malformed entries). Same
-    /// tolerant jsonb handling as `blocked` above: the wire may hand it over
-    /// as a JSON STRING.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub results: Option<serde_json::Value>,
-    /// EXP-876 jsonb — the issues a BATCH run covers, in the order the
-    /// composer listed them, and the only thing that can NAME such a row.
-    /// `None`/`[]` on every other subject and on batch rows started by a
-    /// client too old to send it (those name themselves off the branch
-    /// instead). Read through [`crate::batch_run::parse_batch_issue_ids`];
-    /// same tolerant jsonb handling as `results` above.
-    #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub batch_issue_ids: Option<serde_json::Value>,
-    /// Action-run scoping (EXP-253/EXP-530): the `actions` row id plus its
-    /// name SNAPSHOT (survives the action's deletion); `None` = issue/batch.
-    #[serde(default)]
-    pub action_id: Option<String>,
-    #[serde(default)]
-    pub action_name: Option<String>,
-    /// EXP-545: the head branch of the run's pull request, stamped by the
-    /// server's `pr_open` flip. On a BATCH run (no `issue_id` at all) it is
-    /// the ONLY link back to the PR — the Merge affordance resolves the
-    /// representative open-PR issue through it.
+    pub repository_id: Option<String>,
     #[serde(default)]
     pub branch: Option<String>,
-    /// EXP-734: the run's OWN pull request — populated only when the PR links
-    /// no issue at all (an action or chat run that opened a chore PR through
-    /// MCP `exponential_pr_open({repositoryId, head})`). Issue and batch runs
-    /// keep their PR on the issue row(s), so these stay `None` there.
-    /// `pr_number` arrives TEXT-stored on the wire like every integer column.
+    /// Contract `sessionStatus`: `queued` | `running` | `idle` | `ended`.
     #[serde(default)]
-    pub pr_url: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_i64")]
-    pub pr_number: Option<i64>,
-    /// `open` / `merged` / `closed` — raw wire value (contract `pr_state`).
-    #[serde(default)]
-    pub pr_state: Option<String>,
-    /// EXP-583/SLOP-2: the id of the action TRIGGER that fired this run
-    /// (SLOP-17: `trigger_id`, ex `automation_id`); `None` on manual runs.
-    #[serde(default)]
-    pub trigger_id: Option<String>,
-    /// `schedule` / `event` on trigger-started runs (EXP-530) — raw wire
-    /// value; `None` = a person started it.
-    #[serde(default)]
-    pub started_reason: Option<String>,
-    /// EXP-637: who ended the run — `agent` / `user` / `client` / `merge` /
-    /// `system` (`CODING_SESSION_ENDED_BY_VALUES`).
-    #[serde(default)]
-    pub ended_by: Option<String>,
-    /// EXP-637: the ended session this run was resumed from; `None` on a
-    /// fresh run.
-    #[serde(default)]
-    pub resumed_from_id: Option<String>,
-    /// EXP-818: the run that spawned this one through
-    /// `exponential_sessions_start` (FK SET NULL); `None` on a top-level run.
-    /// The session lists nest a child under its parent.
-    #[serde(default)]
-    pub parent_session_id: Option<String>,
-    /// EXP-1082 jsonb `{question, askedAt}` — the question the run is parked
-    /// on (`exponential_sessions_ask_parent`); `None` = none open. Same
-    /// tolerant jsonb handling as `blocked` above.
+    pub status: Option<String>,
+    /// The agent is executing a turn RIGHT NOW (the spinner's one input).
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub busy: bool,
+    /// Parked on a question/plan for a person.
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub needs_input: bool,
+    /// EXP-804 jsonb usage wall `{kind, agent, window, resetsAt, since}`;
+    /// `None` = not blocked.
     #[serde(default, deserialize_with = "tolerant_opt_json")]
-    pub pending_question: Option<serde_json::Value>,
+    pub blocked: Option<serde_json::Value>,
     #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]
+    pub last_turn_at: Option<String>,
+    #[serde(default)]
     pub ended_at: Option<String>,
+    /// `false` = private (a lock glyph): only its starter sees it.
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub shared: bool,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// THE Guide (`GuideEntry[]`, the old results entries = the PR body);
+    /// read through [`crate::session_results`].
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub guide: Option<serde_json::Value>,
+    #[serde(default)]
+    pub action_id: Option<String>,
+    /// The action's name SNAPSHOT (outlives the action row).
+    #[serde(default)]
+    pub action_name: Option<String>,
+    /// jsonb `Record<string, string>`: the action's picked inputs.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub action_inputs: Option<serde_json::Value>,
+    /// The session whose agent started this root (an agent channel's
+    /// `thread_started`), `None` = a person did.
+    #[serde(default)]
+    pub spawned_by_session_id: Option<String>,
+    /// Agent roots: the agent's name, icon concept and `#rrggbb` color.
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    /// Agent roots: jsonb `AgentTrigger[]` (schedule | event).
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub triggers: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
 }
 
-impl CodingSession {
-    /// EXP-734: does this run carry an OPEN pull request of its OWN (a chore
-    /// PR that links no issue)? The Merge affordance on an action/chat run
-    /// gates on exactly this — `pr_state` leaving `open` is what settles the
-    /// merge, so a merged/closed row must never look mergeable again.
-    pub fn has_open_pr(&self) -> bool {
-        self.pr_state.as_deref() == Some("open")
-            && self.pr_url.as_deref().is_some_and(|url| !url.is_empty())
+impl SessionRow {
+    /// A tree root (no parent).
+    pub fn is_root(&self) -> bool {
+        self.parent_id.as_deref().is_none_or(str::is_empty)
     }
+
+    /// An agent root (`kind = agent`).
+    pub fn is_agent(&self) -> bool {
+        self.kind.as_deref() == Some(crate::contract::SESSION_KIND_AGENT)
+    }
+
+    /// A thread session (root or child): every kind that is not `agent`.
+    pub fn is_thread(&self) -> bool {
+        !self.is_agent()
+    }
+
+    pub fn is_ended(&self) -> bool {
+        self.status.as_deref() == Some(crate::contract::SESSION_STATUS_ENDED)
+    }
+
+    pub fn is_queued(&self) -> bool {
+        self.status.as_deref() == Some(crate::contract::SESSION_STATUS_QUEUED)
+    }
+
+    /// Not ended (queued, running or idle).
+    pub fn is_live(&self) -> bool {
+        !self.is_ended()
+    }
+
+    /// The tree's root id: `root_id`, else the row itself.
+    pub fn root_id_or_self(&self) -> &str {
+        self.root_id
+            .as_deref()
+            .filter(|root| !root.is_empty())
+            .unwrap_or(&self.id)
+    }
+
+    /// The stored title, trimmed; `None` when unset or blank.
+    pub fn explicit_title(&self) -> Option<&str> {
+        self.title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+    }
+
+    /// The agent's triggers (`[]` when absent or not an array).
+    pub fn trigger_list(&self) -> Vec<serde_json::Value> {
+        match &self.triggers {
+            Some(serde_json::Value::Array(items)) => items.clone(),
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// EXP-1294 `session_issues` shape row — a ROOT session ↔ issue link
+/// (contract `sessionIssueSource` `user` | `agent`, the latter naming the
+/// session whose agent linked it). Board-scoped like every issue child (the
+/// board mirrors stay server-side).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SessionIssueRow {
+    pub id: String,
+    pub session_id: String,
+    pub issue_id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub added_by: Option<String>,
+    #[serde(default)]
+    pub added_by_session_id: Option<String>,
+    /// Ascending = the thread's issue-chip order.
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// EXP-1294 `messages` shape row — one entry of a session's conversation.
+/// `author_kind` = contract `messageAuthorKind` (`user` | `agent` |
+/// `system`); `card` = jsonb `{kind, …}` (contract `messageCardKind`; an
+/// unknown kind renders nothing). A person's message with `consumed_at`
+/// NULL is QUEUED (the device has not picked it up yet).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct MessageRow {
+    pub id: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub root_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub author_kind: Option<String>,
+    #[serde(default)]
+    pub author_id: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub card: Option<serde_json::Value>,
+    #[serde(default)]
+    pub answered_at: Option<String>,
+    #[serde(default)]
+    pub consumed_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl MessageRow {
+    /// The card's `kind` (`question`, `plan`, `session`, …); `None` for a
+    /// plain message (or a card without a string kind).
+    pub fn card_kind(&self) -> Option<&str> {
+        self.card.as_ref()?.get("kind")?.as_str()
+    }
+
+    pub fn body_text(&self) -> &str {
+        self.body.as_deref().unwrap_or_default()
+    }
+
+    pub fn is_from_user(&self) -> bool {
+        self.author_kind.as_deref() == Some(crate::contract::MESSAGE_AUTHOR_KIND_USER)
+    }
+
+    /// A person's message the device has not consumed yet.
+    pub fn is_queued(&self) -> bool {
+        self.is_from_user() && self.consumed_at.as_deref().is_none_or(str::is_empty)
+    }
+}
+
+/// EXP-1294 `pull_requests` shape row — ALL PR state left `issues`. One row
+/// per GitHub PR (`repository_id` + `number`); `root_session_id` = the
+/// thread it belongs to, `session_id` = the session that opened it.
+/// `base_pull_request_id` = the explicit STACK edge (the PR this one is
+/// based on, [`crate::pr_stack`]); `state` = contract `prState`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PullRequestRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub root_session_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub number: Option<i64>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The head branch.
+    #[serde(default)]
+    pub head: Option<String>,
+    /// The branch it targets.
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub base_pull_request_id: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub merged_at: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl PullRequestRow {
+    pub fn is_open(&self) -> bool {
+        self.state.as_deref() == Some(crate::contract::PR_STATE_OPEN)
+    }
+
+    pub fn is_merged(&self) -> bool {
+        self.state.as_deref() == Some(crate::contract::PR_STATE_MERGED)
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.state.as_deref() == Some(crate::contract::PR_STATE_CLOSED)
+    }
+}
+
+/// EXP-1294 `pull_request_issues` shape row — a PR ↔ issue link (a PR that
+/// closes several issues carries several rows).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct PullRequestIssueRow {
+    pub id: String,
+    pub pull_request_id: String,
+    pub issue_id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }
 
 /// `actions` shape row (EXP-268) — the body-less list projection: the ≤64KB
@@ -1290,96 +1330,6 @@ mod tests {
         assert!(!narrow.is_shared());
     }
 
-    /// EXP-1284: a thread row hydrates bare, its Guide arrives as a JSON
-    /// array OR the store's TEXT cell, and a column this build does not
-    /// model (a server ahead of the desktop) is ignored, never a dropped row.
-    #[test]
-    fn thread_row_hydrates_sparsely_and_reads_its_guide() {
-        let bare: ThreadRow =
-            serde_json::from_value(json!({ "id": "th-1" })).expect("bare thread hydrates");
-        assert_eq!(bare.title, None);
-        assert_eq!(bare.results, None);
-        assert_eq!(bare.explicit_title(), None);
-
-        let entry = json!({ "topic": "Summary", "text": "Did it." });
-        let full: ThreadRow = serde_json::from_value(json!({
-            "id": "th-1",
-            "team_id": "t-1",
-            "title": "  Ship threads ",
-            "created_by": "u-1",
-            "results": [entry.clone()],
-            "created_at": "2026-10-12T10:00:00.000Z",
-            "updated_at": "2026-10-12T11:00:00.000Z",
-            "some_future_column": 42,
-        }))
-        .expect("full thread hydrates");
-        assert_eq!(full.team_id.as_deref(), Some("t-1"));
-        assert_eq!(full.explicit_title(), Some("Ship threads"));
-        assert_eq!(full.results, Some(json!([entry.clone()])));
-
-        // The sync store's TEXT cell form decodes to the same list.
-        let text_cell: ThreadRow = serde_json::from_value(json!({
-            "id": "th-2",
-            "title": "   ",
-            "results": serde_json::to_string(&json!([entry.clone()])).unwrap(),
-        }))
-        .expect("text cell hydrates");
-        assert_eq!(text_cell.results, Some(json!([entry])));
-        assert_eq!(text_cell.explicit_title(), None, "blank = derived");
-    }
-
-    /// EXP-1284: issue and run items resolve their target by kind; an
-    /// unknown kind, a kind/target mismatch and extra columns degrade to a
-    /// hidden target, never a dropped row.
-    #[test]
-    fn thread_item_row_resolves_its_target_by_kind() {
-        let issue: ThreadItemRow = serde_json::from_value(json!({
-            "id": "ti-1",
-            "thread_id": "th-1",
-            "kind": "issue",
-            "issue_id": "i-1",
-            "session_id": null,
-            "team_id": "t-1",
-            "board_id": "b-1",
-            "added_by": "u-1",
-            "added_by_session_id": null,
-            "source": "user",
-            "sort_order": "2.5",
-            "board_deleted_at": null,
-            "some_future_column": true,
-        }))
-        .expect("issue item hydrates");
-        assert_eq!(issue.issue(), Some("i-1"));
-        assert_eq!(issue.run(), None);
-        assert_eq!(issue.sort_order, Some(2.5));
-        assert!(!issue.added_by_agent());
-
-        let run: ThreadItemRow = serde_json::from_value(json!({
-            "id": "ti-2",
-            "thread_id": "th-1",
-            "kind": "run",
-            "session_id": "s-1",
-            "added_by_session_id": "s-0",
-            "source": "agent",
-            "sort_order": 3,
-        }))
-        .expect("run item hydrates");
-        assert_eq!(run.run(), Some("s-1"));
-        assert_eq!(run.issue(), None);
-        assert_eq!(run.board_id, None, "run items are board-less");
-        assert!(run.added_by_agent());
-
-        let odd: ThreadItemRow = serde_json::from_value(json!({
-            "id": "ti-3",
-            "thread_id": "th-1",
-            "kind": "folder",
-            "issue_id": "i-9",
-        }))
-        .expect("an unknown kind still hydrates");
-        assert_eq!(odd.issue(), None);
-        assert_eq!(odd.run(), None);
-    }
-
     /// EXP-878: a draft row hydrates from the wire with every optional
     /// absent, and `label_ids` takes the same `uuid[]` cell forms
     /// `shared_team_ids` does.
@@ -1574,97 +1524,6 @@ mod tests {
             serde_json::from_value(json!({"id": "wt-2"})).unwrap();
         assert!(unmarked.offers_agent("claude"));
         assert_eq!(unmarked.agent_ids(), None);
-    }
-
-    #[test]
-    fn coding_session_hydrates_action_attribution() {
-        // EXP-530: TEXT-stored wire forms; pre-column rows degrade to None
-        // (a manual run), never a dropped row.
-        let session: CodingSession = serde_json::from_value(json!({
-            "id": "cs-1",
-            "team_id": "t-1",
-            "status": "running",
-            "action_id": "act-1",
-            "action_name": "Daily standup digest",
-            "started_reason": "schedule",
-        }))
-        .unwrap();
-        assert_eq!(session.action_id.as_deref(), Some("act-1"));
-        assert_eq!(session.action_name.as_deref(), Some("Daily standup digest"));
-        assert_eq!(session.started_reason.as_deref(), Some("schedule"));
-        // EXP-583: the firing trigger rides along too.
-        let automated: CodingSession = serde_json::from_value(json!({
-            "id": "cs-3",
-            "status": "running",
-            "action_id": "act-1",
-            "trigger_id": "auto-1",
-            "started_reason": "event",
-        }))
-        .unwrap();
-        assert_eq!(automated.trigger_id.as_deref(), Some("auto-1"));
-
-        let manual: CodingSession = serde_json::from_value(json!({
-            "id": "cs-2",
-            "status": "running",
-        }))
-        .unwrap();
-        assert_eq!(manual.action_id, None);
-        assert_eq!(manual.action_name, None);
-        assert_eq!(manual.started_reason, None);
-        assert_eq!(manual.trigger_id, None);
-    }
-
-    #[test]
-    fn coding_session_hydrates_its_own_chore_pr() {
-        // EXP-734: an action/chat run's own PR rides the SESSION row (no
-        // issue links it). `pr_number` arrives TEXT-stored like every int.
-        let session: CodingSession = serde_json::from_value(json!({
-            "id": "cs-1",
-            "team_id": "t-1",
-            "status": "in_review",
-            "action_id": "act-1",
-            "branch": "exp/chat-a1b2c3d4",
-            "pr_url": "https://github.com/o/r/pull/12",
-            "pr_number": "12",
-            "pr_state": "open",
-        }))
-        .unwrap();
-        assert_eq!(session.pr_number, Some(12));
-        assert_eq!(session.pr_state.as_deref(), Some("open"));
-        assert!(session.has_open_pr());
-
-        // A merged run is NOT mergeable any more — the flip off `open` is
-        // exactly what settles the Merge affordance.
-        let merged: CodingSession = serde_json::from_value(json!({
-            "id": "cs-2",
-            "status": "ended",
-            "pr_url": "https://github.com/o/r/pull/12",
-            "pr_number": 12,
-            "pr_state": "merged",
-        }))
-        .unwrap();
-        assert_eq!(merged.pr_number, Some(12));
-        assert!(!merged.has_open_pr());
-
-        // Pre-column rows (and every issue/batch run) degrade to None.
-        let issue_run: CodingSession = serde_json::from_value(json!({
-            "id": "cs-3",
-            "status": "running",
-        }))
-        .unwrap();
-        assert_eq!(issue_run.pr_url, None);
-        assert_eq!(issue_run.pr_number, None);
-        assert_eq!(issue_run.pr_state, None);
-        assert!(!issue_run.has_open_pr());
-
-        // A state with no url is not a PR anyone can merge.
-        let urlless: CodingSession = serde_json::from_value(json!({
-            "id": "cs-4",
-            "status": "running",
-            "pr_state": "open",
-        }))
-        .unwrap();
-        assert!(!urlless.has_open_pr());
     }
 
     #[test]
@@ -2029,4 +1888,115 @@ mod tests {
         // Compile-time guarantee: no `email` field exists to read.
     }
 
+    /// EXP-1294: a session row hydrates from TEXT cells (the store's form):
+    /// bools in every tolerant form, absent/null bools read false, jsonb
+    /// re-parses, numbers coerce.
+    #[test]
+    fn session_row_hydrates_tolerantly() {
+        let row: SessionRow = serde_json::from_value(json!({
+            "id": "s-1",
+            "team_id": "t-1",
+            "parent_id": null,
+            "root_id": "s-1",
+            "depth": "0",
+            "kind": "thread",
+            "status": "running",
+            "busy": "t",
+            "needs_input": "f",
+            "shared": "true",
+            "plan_mode": null,
+            "blocked": "{\"window\":\"weekly\"}",
+            "guide": "[{\"topic\":\"Summary\",\"text\":\"Done.\"}]",
+            "sort_order": "2.5",
+            "some_future_column": "x"
+        }))
+        .unwrap();
+        assert!(row.is_root());
+        assert!(!row.is_agent());
+        assert!(row.busy && row.shared && !row.needs_input && !row.plan_mode);
+        assert!(!row.computer_use, "absent reads false");
+        assert_eq!(row.depth, Some(0));
+        assert_eq!(row.sort_order, Some(2.5));
+        assert_eq!(row.blocked.as_ref().unwrap()["window"], "weekly");
+        assert!(row.guide.as_ref().unwrap().is_array());
+        assert_eq!(row.root_id_or_self(), "s-1");
+
+        let child: SessionRow = serde_json::from_value(json!({
+            "id": "c-1",
+            "parent_id": "s-1",
+            "root_id": "s-1",
+            "kind": "thread",
+            "status": "ended",
+            "busy": "garbage"
+        }))
+        .unwrap();
+        assert!(!child.is_root());
+        assert!(child.is_ended());
+        assert!(!child.busy, "unparsable reads false");
+        assert_eq!(child.root_id_or_self(), "s-1");
+
+        let agent: SessionRow = serde_json::from_value(json!({
+            "id": "a-1",
+            "kind": "agent",
+            "name": "Triage",
+            "triggers": "[{\"kind\":\"schedule\"}]"
+        }))
+        .unwrap();
+        assert!(agent.is_agent());
+        assert_eq!(agent.trigger_list().len(), 1);
+        assert_eq!(agent.root_id_or_self(), "a-1", "a partial row is its own root");
+    }
+
+    /// EXP-1294: messages read their card kind and queued state; PR rows
+    /// their state.
+    #[test]
+    fn message_and_pull_request_rows_hydrate() {
+        let queued: MessageRow = serde_json::from_value(json!({
+            "id": "m-1",
+            "session_id": "s-1",
+            "author_kind": "user",
+            "body": "Fix it",
+            "consumed_at": null
+        }))
+        .unwrap();
+        assert!(queued.is_queued());
+        assert_eq!(queued.card_kind(), None);
+        let card: MessageRow = serde_json::from_value(json!({
+            "id": "m-2",
+            "session_id": "s-1",
+            "author_kind": "agent",
+            "card": "{\"kind\":\"question\",\"question\":\"Ship?\"}"
+        }))
+        .unwrap();
+        assert_eq!(card.card_kind(), Some("question"));
+        assert!(!card.is_queued());
+        assert_eq!(card.body_text(), "");
+
+        let pr: PullRequestRow = serde_json::from_value(json!({
+            "id": "pr-1",
+            "number": "45",
+            "state": "merged",
+            "head": "exp/EXP-1",
+            "base": "master"
+        }))
+        .unwrap();
+        assert_eq!(pr.number, Some(45));
+        assert!(pr.is_merged() && !pr.is_open());
+
+        let link: SessionIssueRow = serde_json::from_value(json!({
+            "id": "si-1",
+            "session_id": "s-1",
+            "issue_id": "i-1",
+            "sort_order": 1
+        }))
+        .unwrap();
+        assert_eq!(link.sort_order, Some(1.0));
+        let pr_link: PullRequestIssueRow = serde_json::from_value(json!({
+            "id": "pi-1",
+            "pull_request_id": "pr-1",
+            "issue_id": "i-1"
+        }))
+        .unwrap();
+        assert_eq!(pr_link.issue_id, "i-1");
+    }
 }

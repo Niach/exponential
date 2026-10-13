@@ -1,4 +1,4 @@
-//! The 23 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 25 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 23 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 25 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 23] = [
+pub const SHAPES: [ShapeSpec; 25] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -183,15 +183,6 @@ pub const SHAPES: [ShapeSpec; 23] = [
             "sort_order",
             "completed_at",
             "duplicate_of_id",
-            "pr_url",
-            "pr_number",
-            "pr_state",
-            "branch",
-            "pr_merged_at",
-            // SLOP-3: the SYNCED stack edge, the branch this issue's pull
-            // request targets (the related-work badge's stack band).
-            // `heal_missing_columns` ALTERs it onto existing store tables.
-            "pr_base_branch",
             // EXP-630: story points (always a point number; the team's
             // `estimation_type` decides how it reads). `heal_missing_columns`
             // ALTERs it onto existing store tables.
@@ -392,101 +383,131 @@ pub const SHAPES: [ShapeSpec; 23] = [
         pk: PkKind::Id,
     },
     ShapeSpec {
-        name: "coding_sessions",
-        path: "/api/shapes/coding-sessions",
-        // `issue_id` is nullable — batch-scoped (multi-issue) sessions carry
-        // only `team_id`. `needs_input` (EXP-214) is the attention flag the
-        // desktop itself writes while the agent is parked on a picker —
-        // heal_missing_columns ALTERs it onto existing store tables and
-        // stamps a refetch so old rows get real values, not NULLs.
+        name: "sessions",
+        path: "/api/shapes/sessions",
+        // EXP-1294 (Threads v2): THE session tree (roots `thread` | `agent`,
+        // children under a root). Byte-matches the proxy's allowlist; the
+        // server-only `host_user_id`, `mcp_server_ids` and `instructions`
+        // never sync (agent instructions come from `sessions.getAgent`).
         columns: &[
             "id",
-            "issue_id",
             "team_id",
+            "parent_id",
+            "root_id",
+            "depth",
+            "kind",
             "user_id",
-            "device_label",
-            // EXP-549/550: the host machine's steer deviceId — joins the
-            // synced `devices` row for its live label and online-ness
-            // (heal_missing_columns ALTERs it onto existing stores).
             "device_id",
-            "status",
-            // EXP-484: which agent CLI runs it — the session views caption
-            // the usage bar with it (heals onto existing store tables).
-            "agent",
-            // EXP-909: which login of that agent the run spends.
-            "agent_account",
-            "needs_input",
-            // EXP-848: the device-written turn flag. Every session list keys
-            // its working spinner on it (a `running` row between turns is not
-            // working), so dropping it silently spins every live row again.
-            // Heals onto existing store tables like the rest.
-            "agent_busy",
-            // EXP-850 §8: the device-written workflow caption — every session
-            // list's second line. Heals onto existing store tables like the
-            // rest; dropping it silently blanks the line on this client only.
-            "agent_caption",
-            // EXP-908: the device-written agent title — a CHAT run's subject
-            // on every client (tabs, lists, the run header). Heals onto
-            // existing store tables like the rest; dropping it silently
-            // renames every chat back to "Chat" on this client only.
-            "agent_title",
-            // EXP-804: the agent's usage wall as row state (jsonb, NULL =
-            // not blocked). A blocked run still reads `running`, so without
-            // this the IDE shows a silently stalled run as healthy. Heals
-            // onto existing store tables like the rest.
-            "blocked",
-            // EXP-879: the run's published RESULTS (jsonb, NULL/[] = none) —
-            // the ONLY input to the Results face, so dropping it silently
-            // removes a face every other client still shows. Heals onto
-            // existing store tables like the rest.
-            "results",
-            // EXP-876: the issues a BATCH run covers — the only thing that
-            // tells two batch rows apart (without it every one of them is
-            // titled "Batch run" here while the other clients name them).
-            // Heals onto existing store tables like the rest.
-            "batch_issue_ids",
-            // EXP-545/EXP-698: the head branch `pr_open` stamped on the row.
-            // It is what ties a BATCH run (no issue linkage at all) to its
-            // OWN pull request, which is how the steer viewer's Merge pill
-            // finds a target. Heals onto existing store tables like the rest.
+            "cli",
+            "account",
+            "model",
+            "effort",
+            "plan_mode",
+            "computer_use",
+            "ultracode",
+            "repository_id",
             "branch",
-            // EXP-734: the run's OWN chore pull request (action/chat runs
-            // whose PR links no issue). Nothing else on any client can find
-            // that PR — no issue row carries it — so dropping these silently
-            // kills Merge and the Reviews "Agent runs" block for every one of
-            // them. Heals onto existing store tables like the rest.
-            "pr_url",
-            "pr_number",
-            "pr_state",
-            // EXP-530 trigger attribution: `action_id`/`action_name` scope
-            // a run to its action (name snapshotted — outlives a deleted
-            // row), `started_reason` (`schedule`/`event`, NULL = manual)
-            // marks self-started runs. `heal_missing_columns` ALTERs them
-            // onto existing store tables and stamps a refetch so old rows get
-            // real values, not NULLs.
+            "status",
+            "busy",
+            "needs_input",
+            "blocked",
+            "started_at",
+            "last_turn_at",
+            "ended_at",
+            "shared",
+            "title",
+            "guide",
             "action_id",
             "action_name",
-            // EXP-583/SLOP-2/SLOP-17: the TRIGGER that fired the run (NULL
-            // on manual starts). `ShapeStore::open` renames a pre-SLOP-17
-            // local `automation_id` column onto it.
-            "trigger_id",
-            "started_reason",
-            // EXP-637 close-out: the agent's own `summary`, who ended the
-            // run (`ended_by`) and the ended run a resume came from. The
-            // server-only `merged_own_pr` flag is deliberately NOT here
-            // (never in the shape allowlist), and EXP-686 dropped `outcome`
-            // with the column itself.
-            "summary",
-            "ended_by",
-            "resumed_from_id",
-            // EXP-818: the run that spawned this one (`sessions_start`) —
-            // the session lists nest a child under its parent.
-            "parent_session_id",
-            // EXP-1082: the question the run is parked on (jsonb). Heal onto
-            // existing store tables like the rest.
-            "pending_question",
-            "started_at",
-            "ended_at",
+            "action_inputs",
+            "spawned_by_session_id",
+            "name",
+            "icon",
+            "color",
+            "triggers",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "session_issues",
+        path: "/api/shapes/session-issues",
+        // EXP-1294: root session ↔ issue links. Board-scoped like every
+        // issue child; the board mirrors / `shared` / `owner_id` scoping
+        // columns stay server-side.
+        columns: &[
+            "id",
+            "session_id",
+            "issue_id",
+            "team_id",
+            "source",
+            "added_by",
+            "added_by_session_id",
+            "sort_order",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "messages",
+        path: "/api/shapes/messages",
+        // EXP-1294: every session's conversation (person, agent and system
+        // rows; `card` jsonb). `consumed_at` NULL on a person's row = queued
+        // (the device's pickup reads this shape). Scoping columns
+        // (`shared`, `owner_id`) stay server-side.
+        columns: &[
+            "id",
+            "session_id",
+            "root_id",
+            "team_id",
+            "author_kind",
+            "author_id",
+            "body",
+            "card",
+            "answered_at",
+            "consumed_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "pull_requests",
+        path: "/api/shapes/pull-requests",
+        // EXP-1294: ALL pull request state (it left `issues`).
+        // `base_pull_request_id` = the explicit stack edge.
+        columns: &[
+            "id",
+            "team_id",
+            "root_session_id",
+            "session_id",
+            "repository_id",
+            "number",
+            "url",
+            "title",
+            "head",
+            "base",
+            "base_pull_request_id",
+            "state",
+            "merged_at",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "pull_request_issues",
+        path: "/api/shapes/pull-request-issues",
+        // EXP-1294: PR ↔ issue links (a PR closing several issues carries
+        // several rows). Board mirrors stay server-side.
+        columns: &[
+            "id",
+            "pull_request_id",
+            "issue_id",
+            "team_id",
             "created_at",
             "updated_at",
         ],
@@ -695,53 +716,6 @@ pub const SHAPES: [ShapeSpec; 23] = [
         ],
         pk: PkKind::Id,
     },
-    ShapeSpec {
-        name: "threads",
-        path: "/api/shapes/threads",
-        // EXP-1284: the thread shells (one unit of work: issues + runs +
-        // THE Guide). Team-scoped (`team_id IN (member teams)`), with NO
-        // board/trash predicate — a thread outlives any one board. `results`
-        // is the thread's Guide jsonb (the `coding_sessions.results` form).
-        // Byte-matches the proxy's allowlist (apps/web routes/api/shapes/
-        // threads.ts).
-        columns: &[
-            "id",
-            "team_id",
-            "title",
-            "created_by",
-            "results",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
-    ShapeSpec {
-        name: "thread_items",
-        path: "/api/shapes/thread-items",
-        // EXP-1284: a thread's members (`kind` issue | run, exactly one of
-        // `issue_id`/`session_id`). Team-scoped with the static board-hide
-        // suffix like every issue child; the `board_deleted_at` /
-        // `board_archived_at` mirrors are scoping columns and stay
-        // server-side (run items carry NULL `board_id` and always sync).
-        // Byte-matches the proxy's allowlist (apps/web routes/api/shapes/
-        // thread-items.ts).
-        columns: &[
-            "id",
-            "thread_id",
-            "kind",
-            "issue_id",
-            "session_id",
-            "team_id",
-            "board_id",
-            "added_by",
-            "added_by_session_id",
-            "source",
-            "sort_order",
-            "created_at",
-            "updated_at",
-        ],
-        pk: PkKind::Id,
-    },
 ];
 
 /// Look a shape up by its table name.
@@ -754,8 +728,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_23_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 23);
+    fn registry_has_25_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 25);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -878,16 +852,6 @@ mod tests {
     }
 
     #[test]
-    fn issues_sync_the_pr_stack_edge() {
-        // SLOP-3: `pr_base_branch` is the related-work badge's stack band;
-        // `pr_stack_number` is gone server-side and must never be requested.
-        let spec = shape_by_name("issues").unwrap();
-        assert!(spec.columns.contains(&"pr_base_branch"));
-        assert!(spec.columns.contains(&"branch"), "the other half of the edge");
-        assert!(!spec.columns.contains(&"pr_stack_number"));
-    }
-
-    #[test]
     fn issues_sync_the_estimate_and_teams_the_scale() {
         // EXP-630: the estimate chip reads `issues.estimate` on the team's
         // `estimation_type` — dropping either silently hides every estimate.
@@ -906,140 +870,6 @@ mod tests {
     }
 
     #[test]
-    fn coding_sessions_syncs_the_needs_input_flag() {
-        // EXP-214/REV2-9: the amber "Needs input" badge reads this column —
-        // dropping it from the allowlist silently kills the badge on desktop.
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"needs_input"));
-    }
-
-    /// EXP-848: the working spinner's ONE input on every list.
-    #[test]
-    fn coding_sessions_syncs_the_agent_busy_flag() {
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"agent_busy"));
-    }
-
-    /// EXP-850 §8: the workflow caption every session row renders as its
-    /// second line. Dropping it silently blanks that line on this client
-    /// while every other one still shows it.
-    #[test]
-    fn coding_sessions_syncs_the_agent_caption() {
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"agent_caption"));
-    }
-
-    /// EXP-908: the agent's auto-named title — a chat run's subject. Dropping
-    /// it silently names every chat "Chat" here while other clients name it.
-    #[test]
-    fn coding_sessions_syncs_the_agent_title() {
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"agent_title"));
-    }
-
-    /// EXP-1082: the run's open question rides the shape.
-    #[test]
-    fn coding_sessions_syncs_the_pending_question() {
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"pending_question"));
-        for gone in ["workflow_id", "workflow_node_id", "workflow_role"] {
-            assert!(!spec.columns.contains(&gone), "{gone} is gone");
-        }
-    }
-
-    #[test]
-    fn coding_sessions_syncs_the_usage_wall() {
-        // EXP-804: a rate-limited run keeps status `running` and a moving
-        // updated_at, so this column is the ONLY thing that distinguishes a
-        // silently walled run from a healthy one.
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"blocked"));
-    }
-
-    /// EXP-879: the Results face's ONE input. Dropping it silently hides a
-    /// face on this client alone — the run still has pictures, the desktop
-    /// just cannot see them.
-    #[test]
-    fn coding_sessions_syncs_the_results() {
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"results"));
-    }
-
-    /// EXP-909: which login a run spends. Dropping it makes the usage readout
-    /// silently answer for the machine's last used login instead of the run's.
-    #[test]
-    fn coding_sessions_syncs_the_agent_account() {
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"agent_account"));
-    }
-
-    /// EXP-876: what NAMES a batch row. Dropping it leaves this client
-    /// calling every batch "Batch run" while the others name their issues.
-    #[test]
-    fn coding_sessions_syncs_the_batch_issue_ids() {
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"batch_issue_ids"));
-    }
-
-    #[test]
-    fn coding_sessions_syncs_action_attribution() {
-        // EXP-530: an action's Runs reads these — dropping any silently
-        // shows every triggered run as a manual one.
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"action_id"));
-        assert!(spec.columns.contains(&"action_name"));
-        assert!(spec.columns.contains(&"started_reason"));
-    }
-
-    #[test]
-    fn coding_sessions_sync_the_batch_pr_branch() {
-        // EXP-545/EXP-698: a batch run carries no issue linkage, so the
-        // steer viewer's Merge pill resolves its PR through the head branch
-        // `pr_open` stamped here — dropping it silently kills Merge on every
-        // batch session.
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"branch"));
-    }
-
-    #[test]
-    fn coding_sessions_sync_the_runs_own_chore_pr() {
-        // EXP-734: an action/chat run's PR links NO issue, so the session row
-        // is the only place it lives — dropping any of these silently kills
-        // the run's Merge pill and its Reviews "Agent runs" row.
-        let spec = shape_by_name("coding_sessions").unwrap();
-        for column in ["pr_url", "pr_number", "pr_state"] {
-            assert!(spec.columns.contains(&column), "coding_sessions needs {column}");
-        }
-    }
-
-    #[test]
-    fn coding_sessions_sync_the_host_device_id() {
-        // EXP-549/550: the coding-now pill joins this to the `devices` row
-        // for the machine's renamed label and its online-ness — dropping it
-        // silently reverts every session to the stale hostname snapshot and
-        // shows lid-closed hosts as live.
-        let spec = shape_by_name("coding_sessions").unwrap();
-        assert!(spec.columns.contains(&"device_id"));
-        assert!(spec.columns.contains(&"device_label"), "the snapshot stays");
-    }
-
-    #[test]
-    fn coding_sessions_sync_the_run_close_out() {
-        // EXP-637: the ended strip, the trigger run rows and Resume all
-        // read these — dropping any silently turns every finished run back
-        // into a bare "Ended" with no summary and no resume target.
-        // `merged_own_pr` is SERVER-ONLY and must never appear here; EXP-686
-        // dropped `outcome` from the table, so requesting it would break the
-        // whole shape.
-        let spec = shape_by_name("coding_sessions").unwrap();
-        for column in ["summary", "ended_by", "resumed_from_id", "parent_session_id"] {
-            assert!(spec.columns.contains(&column), "coding_sessions needs {column}");
-        }
-        assert!(!spec.columns.contains(&"merged_own_pr"), "server-only");
-        assert!(!spec.columns.contains(&"outcome"), "dropped by EXP-686");
-    }
-
-    #[test]
     fn actions_sync_their_triggers() {
         // SLOP-2: the bound device fires off `actions.triggers` — dropping
         // the column silently disables every trigger. The legacy
@@ -1048,10 +878,6 @@ mod tests {
         assert!(actions.columns.contains(&"triggers"));
         assert!(!actions.columns.contains(&"body"), "the prompt never syncs");
         assert!(shape_by_name("automations").is_none());
-        // And the run rows point back at the trigger that fired them.
-        let sessions = shape_by_name("coding_sessions").unwrap();
-        assert!(sessions.columns.contains(&"trigger_id"));
-        assert!(!sessions.columns.contains(&"automation_id"));
     }
 
     #[test]
@@ -1110,9 +936,9 @@ mod tests {
         // EXP-924: the owner-picked glyph. Dropping it silently sends every
         // machine back to its kind default on this client alone.
         assert!(spec.columns.contains(&"icon"));
-        // And the session row names the agent whose windows those are.
-        let sessions = shape_by_name("coding_sessions").unwrap();
-        assert!(sessions.columns.contains(&"agent"));
+        // And the session row names the CLI whose windows those are.
+        let sessions = shape_by_name("sessions").unwrap();
+        assert!(sessions.columns.contains(&"cli"));
     }
 
     #[test]
@@ -1217,41 +1043,47 @@ mod tests {
         assert!(!spec.columns.contains(&"board_deleted_at"));
     }
 
+    /// EXP-1294: the session tree's five shapes byte-match the proxies'
+    /// allowlists; the server-only columns never sync.
     #[test]
-    fn threads_sync_the_guide_but_no_scoping_columns() {
-        // EXP-1284: the thread Guide is `threads.results` — dropping it
-        // silently blanks every thread's Guide on this client alone.
-        let spec = shape_by_name("threads").unwrap();
-        assert_eq!(spec.path, "/api/shapes/threads");
+    fn the_session_tree_shapes_match_the_proxies() {
+        let sessions = shape_by_name("sessions").unwrap();
+        assert_eq!(sessions.path, "/api/shapes/sessions");
+        assert_eq!(sessions.columns.len(), 38);
+        for column in ["parent_id", "root_id", "kind", "status", "busy", "needs_input", "shared", "guide", "triggers"] {
+            assert!(sessions.columns.contains(&column), "sessions needs {column}");
+        }
+        for server_only in ["host_user_id", "mcp_server_ids", "instructions"] {
+            assert!(!sessions.columns.contains(&server_only), "{server_only} is server-only");
+        }
         assert_eq!(
-            spec.columns,
-            &["id", "team_id", "title", "created_by", "results", "created_at", "updated_at"]
+            shape_by_name("session_issues").unwrap().columns,
+            &["id", "session_id", "issue_id", "team_id", "source", "added_by", "added_by_session_id", "sort_order", "created_at", "updated_at"]
+        );
+        let messages = shape_by_name("messages").unwrap();
+        assert_eq!(messages.path, "/api/shapes/messages");
+        assert!(messages.columns.contains(&"consumed_at"));
+        assert!(!messages.columns.contains(&"owner_id"));
+        let pulls = shape_by_name("pull_requests").unwrap();
+        assert_eq!(pulls.path, "/api/shapes/pull-requests");
+        assert!(pulls.columns.contains(&"base_pull_request_id"));
+        assert_eq!(
+            shape_by_name("pull_request_issues").unwrap().path,
+            "/api/shapes/pull-request-issues"
         );
     }
 
+    /// EXP-1294: the old run/thread shapes are gone, and PR state left
+    /// `issues`.
     #[test]
-    fn thread_items_model_both_targets_but_never_the_board_mirrors() {
-        // EXP-1284: exactly one of `issue_id`/`session_id` per row, by
-        // `kind`; dropping one silently hides that item kind.
-        let spec = shape_by_name("thread_items").unwrap();
-        assert_eq!(spec.path, "/api/shapes/thread-items");
-        for column in [
-            "thread_id",
-            "kind",
-            "issue_id",
-            "session_id",
-            "team_id",
-            "board_id",
-            "added_by",
-            "added_by_session_id",
-            "source",
-            "sort_order",
-        ] {
-            assert!(spec.columns.contains(&column), "thread_items needs {column}");
+    fn no_coding_session_or_thread_shapes() {
+        for gone in ["coding_sessions", "threads", "thread_items"] {
+            assert!(shape_by_name(gone).is_none(), "{gone} is gone");
         }
-        // The board-hide mirrors are server-side scoping columns.
-        assert!(!spec.columns.contains(&"board_deleted_at"));
-        assert!(!spec.columns.contains(&"board_archived_at"));
+        let issues = shape_by_name("issues").unwrap();
+        for gone in ["pr_url", "pr_number", "pr_state", "branch", "pr_merged_at", "pr_base_branch", "pr_stack_number"] {
+            assert!(!issues.columns.contains(&gone), "issues.{gone} is gone");
+        }
     }
 
     /// SLOP-3: the workflow shapes are gone from the registry.

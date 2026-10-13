@@ -1,6 +1,6 @@
-//! EXP-1029 contract — the action picker: the team's actions (and the two
-//! listed builtins) by curated icon + name. The composer's action chip
-//! picks one.
+//! EXP-1029 contract — the action picker: the team's actions by curated
+//! icon + name (EXP-1294: no builtin rows). The composer's action chip picks
+//! one.
 
 use gpui::AnyElement;
 
@@ -8,8 +8,7 @@ use crate::icons::action_icon;
 
 use super::{OnPickerChange, Picker, PickerItem};
 
-/// An action row as the picker reads it (a synced `actions` row or a
-/// client-constructed builtin, `api::actions::builtin_*`).
+/// An action row as the picker reads it (a synced `actions` row).
 pub(crate) struct ActionPickerAction {
     pub id: String,
     pub name: String,

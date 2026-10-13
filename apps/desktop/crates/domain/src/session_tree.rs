@@ -1,731 +1,1144 @@
-//! EXP-818: the session TREE — a run started by another run through
-//! `exponential_sessions_start` carries `parent_session_id`, and every
-//! session list (the rail, the Agent page, Devices on the phones) nests it
-//! under its parent instead of listing it as a stranger.
+//! EXP-1294 (Threads v2): the session tree's view models — the Rust twin of
+//! `packages/domain-contract/src/session-tree.ts` (iOS ExpCore
+//! `SessionTree.swift`, Android `domain/SessionTree.kt`), byte-locked by the
+//! fixtures every mirror replays:
 //!
-//! ONE pure rule, mirrored ×4 (web `lib/session-tree.ts`, iOS
-//! `SessionTree.swift`, Android `SessionTree.kt`) with the same four tests:
+//! * `fixtures/session-card.json`   → [`session_card`] (THE session card);
+//! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
+//!   screen: tabs, conversation rows, composer target);
+//! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
+//!   Needs you · Running · Recent) + [`list_agents`] (the rail's Agents).
 //!
-//! 1. The caller's order is the ROOT order — the tree never re-sorts roots.
-//! 2. A row is a child iff its parent names ANOTHER row of the input; a
-//!    parent that is not listed leaves the child a root at depth 0.
-//! 3. Children follow their parent directly, oldest start first (then id),
-//!    recursively — depth grows by one per level.
-//! 4. A cycle (defensive) breaks at the first repeat.
-//!
-//! EXP-996/EXP-1049 layer the TREE proper on top ([`session_tree`], the web
-//! `lib/sessions/session-tree.ts` twin, same rules and same test names):
-//! resume successions COLLAPSE into one node, children nest under their
-//! parent's succession, and [`visible_session_tree_rows`] is the flattening
-//! every client paints its connector over.
+//! The copy, icon concepts, tones and test ids come FROM the fixtures
+//! ([`SESSION_CARD`], [`THREAD`], [`THREADS_LIST`]), never re-typed. Inputs
+//! are the synced domain rows themselves ([`SessionRow`], [`SessionIssueRow`],
+//! [`MessageRow`], [`PullRequestRow`]) plus a small [`TreeIssue`], so the UI
+//! converts nothing. Timestamps stay ISO strings (parsed with the crate's one
+//! ISO reader); `now_ms` = epoch milliseconds. Pure; the view types serialize
+//! to the fixtures' camelCase shape so the replay compares whole values.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
+use std::sync::LazyLock;
 
-/// One row of the flattened tree.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TreeRow<T> {
-    pub session: T,
-    /// 0 for a root, +1 per nesting level.
-    pub depth: usize,
-    /// Whether at least one child is nested right below.
-    pub has_children: bool,
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::activity_fold::parse_instant;
+use crate::contract::{
+    MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_EVENT,
+    MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
+    MESSAGE_CARD_KIND_SESSION, MESSAGE_CARD_KIND_SUBAGENT, MESSAGE_CARD_KIND_THREAD_STARTED,
+    SESSION_KIND_AGENT, SESSION_KIND_THREAD, SESSION_STATUS_ENDED, SESSION_STATUS_QUEUED,
+    SESSION_STATUS_RUNNING,
+};
+use crate::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
+
+// ---------------------------------------------------------------------------
+// Fixture-sourced copy
+// ---------------------------------------------------------------------------
+
+/// One string per [`SessionState`] (the fixtures key them snake_case).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct StateStrings {
+    pub queued: String,
+    pub working: String,
+    pub waiting: String,
+    pub needs_you: String,
+    pub blocked: String,
+    pub ended: String,
 }
 
-/// Flatten `sessions` into nested order. `id`/`parent`/`started_at` read the
-/// three columns off whatever row type the caller holds (ISO-8601 UTC
-/// strings compare lexicographically in time order).
-pub fn nest_sessions<T, I, P, S>(sessions: Vec<T>, id: I, parent: P, started_at: S) -> Vec<TreeRow<T>>
-where
-    I: Fn(&T) -> &str,
-    P: Fn(&T) -> Option<&str>,
-    S: Fn(&T) -> Option<&str>,
-{
-    let ids: HashSet<String> = sessions.iter().map(|s| id(s).to_string()).collect();
-    let is_child = |s: &T| -> bool {
-        parent(s).is_some_and(|p| p != id(s) && ids.contains(p))
-    };
-    let mut children_of: HashMap<String, Vec<usize>> = HashMap::new();
-    for (index, session) in sessions.iter().enumerate() {
-        if is_child(session) {
-            let key = parent(session).unwrap_or_default().to_string();
-            children_of.entry(key).or_default().push(index);
+impl StateStrings {
+    pub fn get(&self, state: SessionState) -> &str {
+        match state {
+            SessionState::Queued => &self.queued,
+            SessionState::Working => &self.working,
+            SessionState::Waiting => &self.waiting,
+            SessionState::NeedsYou => &self.needs_you,
+            SessionState::Blocked => &self.blocked,
+            SessionState::Ended => &self.ended,
         }
     }
-    for list in children_of.values_mut() {
-        list.sort_by(|a, b| {
-            let (sa, sb) = (&sessions[*a], &sessions[*b]);
-            started_at(sa)
-                .unwrap_or_default()
-                .cmp(started_at(sb).unwrap_or_default())
-                .then_with(|| id(sa).cmp(id(sb)))
-        });
-    }
-    let mut order: Vec<(usize, usize, bool)> = Vec::with_capacity(sessions.len());
-    let mut placed = vec![false; sessions.len()];
-    fn visit(
-        index: usize,
-        depth: usize,
-        sessions_ids: &[String],
-        children_of: &HashMap<String, Vec<usize>>,
-        placed: &mut [bool],
-        order: &mut Vec<(usize, usize, bool)>,
-    ) {
-        if placed[index] {
-            return;
-        }
-        placed[index] = true;
-        let children: Vec<usize> = children_of
-            .get(&sessions_ids[index])
-            .map(|c| c.iter().copied().filter(|child| !placed[*child]).collect())
-            .unwrap_or_default();
-        order.push((index, depth, !children.is_empty()));
-        for child in children {
-            visit(child, depth + 1, sessions_ids, children_of, placed, order);
-        }
-    }
-    let session_ids: Vec<String> = sessions.iter().map(|s| id(s).to_string()).collect();
-    for (index, session) in sessions.iter().enumerate() {
-        if !is_child(session) {
-            visit(index, 0, &session_ids, &children_of, &mut placed, &mut order);
-        }
-    }
-    // A child whose ancestry cycled without a root — keep it, at depth 0.
-    for index in 0..sessions.len() {
-        visit(index, 0, &session_ids, &children_of, &mut placed, &mut order);
-    }
-    let mut slots: Vec<Option<T>> = sessions.into_iter().map(Some).collect();
-    order
-        .into_iter()
-        .map(|(index, depth, has_children)| TreeRow {
-            session: slots[index].take().expect("each index placed once"),
-            depth,
-            has_children,
-        })
-        .collect()
 }
 
-/// The ids of every row nested (at any depth) under `id`.
-pub fn descendant_ids<T, I>(rows: &[TreeRow<T>], id: &str, row_id: I) -> Vec<String>
-where
-    I: Fn(&T) -> &str,
-{
-    let Some(start) = rows.iter().position(|row| row_id(&row.session) == id) else {
-        return Vec::new();
-    };
-    let depth = rows[start].depth;
-    rows[start + 1..]
-        .iter()
-        .take_while(|row| row.depth > depth)
-        .map(|row| row_id(&row.session).to_string())
-        .collect()
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SessionCardCopy {
+    /// `Session` (an untitled session reads `Session N`).
+    pub session: String,
+    /// The muted state word per state.
+    pub states: StateStrings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SessionCardTestIds {
+    pub card: String,
+}
+
+/// `fixtures/session-card.json` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCardSpec {
+    pub copy: SessionCardCopy,
+    /// Icon CONCEPT per state (`coding-running`, `ui-clock`, …).
+    pub icons: StateStrings,
+    /// Tone per state (`muted`, `foreground`, `amber`, `rose`).
+    pub tones: StateStrings,
+    pub test_ids: SessionCardTestIds,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ThreadCopy {
+    /// `Untitled`.
+    pub untitled: String,
+    /// The reply composer's placeholder (`Reply…`).
+    pub placeholder: String,
+    /// The first tab (`Conversation`).
+    pub conversation: String,
+    /// The last tab (`Guide`).
+    pub guide: String,
+    /// Event templates by `messageEventKind` (`{issue}` / `{pr}` slots).
+    pub events: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ThreadTestIds {
+    pub tabs: String,
+    pub conversation: String,
+    pub composer: String,
+}
+
+/// `fixtures/session-thread.json` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadSpec {
+    pub copy: ThreadCopy,
+    /// A title derived from a person's first line is capped at this many
+    /// characters (with `…`).
+    pub title_max: usize,
+    pub test_ids: ThreadTestIds,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ThreadsListGroupTitles {
+    pub needs_you: String,
+    pub running: String,
+    pub recent: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ThreadsListCopy {
+    /// The page / rail entry name (`Threads`).
+    pub title: String,
+    /// The rail section header (`Agents`).
+    pub agents: String,
+    pub groups: ThreadsListGroupTitles,
+    /// The empty page (`No sessions yet`).
+    pub empty: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentDefaults {
+    pub icon: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadsListTestIds {
+    pub list: String,
+    pub row: String,
+    pub agent_row: String,
+}
+
+/// `fixtures/threads-list.json` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadsListSpec {
+    pub copy: ThreadsListCopy,
+    /// An agent row without its own icon/color.
+    pub agent_defaults: AgentDefaults,
+    pub test_ids: ThreadsListTestIds,
+}
+
+const SESSION_CARD_JSON: &str =
+    include_str!("../../../../../packages/domain-contract/fixtures/session-card.json");
+const SESSION_THREAD_JSON: &str =
+    include_str!("../../../../../packages/domain-contract/fixtures/session-thread.json");
+const THREADS_LIST_JSON: &str =
+    include_str!("../../../../../packages/domain-contract/fixtures/threads-list.json");
+
+/// THE session card's copy, icons, tones and test id.
+pub static SESSION_CARD: LazyLock<SessionCardSpec> = LazyLock::new(|| {
+    serde_json::from_str(SESSION_CARD_JSON).expect("session-card.json parses")
+});
+/// The thread screen's copy, title cap and test ids.
+pub static THREAD: LazyLock<ThreadSpec> = LazyLock::new(|| {
+    serde_json::from_str(SESSION_THREAD_JSON).expect("session-thread.json parses")
+});
+/// The Threads page / rail Agents copy, agent defaults and test ids.
+pub static THREADS_LIST: LazyLock<ThreadsListSpec> = LazyLock::new(|| {
+    serde_json::from_str(THREADS_LIST_JSON).expect("threads-list.json parses")
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// ISO → epoch ms; `None` for absent/unparsable (TS `ms`).
+fn ms(iso: Option<&str>) -> Option<i64> {
+    iso.filter(|value| !value.is_empty()).and_then(parse_instant)
+}
+
+fn ms_or_zero(iso: Option<&str>) -> i64 {
+    ms(iso).unwrap_or(0)
+}
+
+/// JS `String(value ?? '')`.
+fn js_string(value: Option<&Value>) -> String {
+    match value {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Bool(flag)) => flag.to_string(),
+        Some(Value::Number(number)) => number.to_string(),
+        Some(other) => other.to_string(),
+    }
+}
+
+fn card_str<'a>(card: &'a Value, key: &str) -> Option<&'a str> {
+    card.get(key)?.as_str()
+}
+
+fn is_root(session: &SessionRow) -> bool {
+    session.is_root()
+}
+
+fn kind_is(session: &SessionRow, kind: &str) -> bool {
+    session.kind.as_deref() == Some(kind)
+}
+
+fn status_is(session: &SessionRow, status: &str) -> bool {
+    session.status.as_deref() == Some(status)
+}
+
+/// The work card's elapsed ladder: `37s`, `2m 04s`, `1h 03m`.
+pub fn format_elapsed(duration_ms: i64) -> String {
+    let total = duration_ms.max(0) / 1000;
+    let hours = total / 3600;
+    let minutes = (total % 3600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours}h {minutes:02}m")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds:02}s")
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 // ---------------------------------------------------------------------------
-// EXP-996 — the session TREE proper (web `lib/sessions/session-tree.ts`)
+// The session card
 // ---------------------------------------------------------------------------
 
-/// EXP-996 — the row fields the tree reads, lifted off whatever row type the
-/// caller holds.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SessionFacts {
-    pub id: String,
-    pub resumed_from_id: Option<String>,
-    pub parent_session_id: Option<String>,
-    /// ISO-8601 UTC, compared lexicographically (this file's convention);
-    /// `""` = unknown, which sorts OLDEST — the web's `stamp` of 0.
-    pub created_at: String,
-    pub updated_at: String,
+/// One state word per session: the card's kind word, icon and tone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionState {
+    Queued,
+    Working,
+    Waiting,
+    NeedsYou,
+    Blocked,
+    Ended,
 }
 
-/// The facts of a synced `coding_sessions` row — every desktop caller's
-/// mapper, so no two surfaces can read the columns differently.
-pub fn coding_session_facts(session: &crate::rows::CodingSession) -> SessionFacts {
-    SessionFacts {
-        id: session.id.clone(),
-        resumed_from_id: session.resumed_from_id.clone(),
-        parent_session_id: session.parent_session_id.clone(),
-        created_at: session.created_at.clone().unwrap_or_default(),
-        updated_at: session.updated_at.clone().unwrap_or_default(),
+impl SessionState {
+    /// The fixture's wire word.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Working => "working",
+            Self::Waiting => "waiting",
+            Self::NeedsYou => "needs_you",
+            Self::Blocked => "blocked",
+            Self::Ended => "ended",
+        }
+    }
+
+    /// The muted state word (`Working`, `Needs you`, …).
+    pub fn word(self) -> &'static str {
+        SESSION_CARD.copy.states.get(self)
+    }
+
+    /// The icon concept.
+    pub fn icon(self) -> &'static str {
+        SESSION_CARD.icons.get(self)
+    }
+
+    /// The tone token (`muted` | `foreground` | `amber` | `rose`).
+    pub fn tone(self) -> &'static str {
+        SESSION_CARD.tones.get(self)
     }
 }
 
-/// ONE run — every row of its resume succession (EXP-974) folded together,
-/// with the runs it started nested below.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionNode<T> {
-    /// The NEWEST row of the succession: the node's identity and its key.
-    pub id: String,
-    /// The succession oldest-first (`run_chain`'s order), the newest last; one
-    /// entry when the run was never resumed.
-    pub chain: Vec<T>,
-    pub children: Vec<SessionNode<T>>,
-    /// The newest `updated_at` across the chain AND the whole subtree, so
-    /// folding a parent never moves it.
-    pub last_activity_at: String,
-}
-
-impl<T> SessionNode<T> {
-    /// The row the node DRAWS — the newest of its resume succession.
-    pub fn session(&self) -> &T {
-        self.chain.last().expect("a chain always holds its own row")
+/// ended → needs you → blocked → queued → working (busy) → waiting.
+pub fn session_state(session: &SessionRow) -> SessionState {
+    if status_is(session, SESSION_STATUS_ENDED) {
+        SessionState::Ended
+    } else if session.needs_input {
+        SessionState::NeedsYou
+    } else if session.blocked.is_some() {
+        SessionState::Blocked
+    } else if status_is(session, SESSION_STATUS_QUEUED) {
+        SessionState::Queued
+    } else if session.busy {
+        SessionState::Working
+    } else {
+        SessionState::Waiting
     }
 }
 
-/// A node's stable identity — the key a collapsed set and a list row use
-/// (web `sessionTreeNodeKey`): the id of its newest row.
-pub fn session_tree_node_key<T>(node: &SessionNode<T>) -> String {
-    node.id.clone()
-}
-
-/// A row is LIVE until the server ends it (`running` and `in_review` both
-/// are; `needs_input`/`blocked` are flags on a live row).
-pub fn session_row_is_live(status: &str) -> bool {
-    status != "ended"
-}
-
-/// EXP-996 — the sessions list as a TREE, the web `sessionTree`'s twin: the
-/// ONE selector every session list draws from (the rail's Running section, the
-/// IDE's Recent list, the phones' session screens). Rules, in this order:
-///
-/// 1. Resume successions COLLAPSE into one node keyed by their newest row.
-/// 2. Children nest under their `parent_session_id`, following the parent's
-///    whole succession (EXP-906).
-/// 3. Top-level nodes sort by last activity, newest first; children keep
-///    creation order.
-/// 4. An orphan child (parent swept, another team, not synced) sits at top
-///    level; so does a row naming itself, and a cycle breaks where it closes.
-///
-/// Pure: no clock, no IO; every tie breaks on the node key, so two clients
-/// agree row for row.
-pub fn session_tree<T, F>(sessions: Vec<T>, facts: F) -> Vec<SessionNode<T>>
-where
-    F: Fn(&T) -> SessionFacts,
-{
-    let facts: Vec<SessionFacts> = sessions.iter().map(&facts).collect();
-    let index_of: HashMap<&str, usize> = facts
-        .iter()
-        .enumerate()
-        .map(|(index, row)| (row.id.as_str(), index))
-        .collect();
-
-    // 1. Resume successions collapse. OLDEST row first, so the primary
-    //    succession (the newest-successor walk) claims its members before an
-    //    older fork sibling does; whatever is left becomes its own node.
-    let mut ordered: Vec<usize> = (0..facts.len()).collect();
+/// Sessions of one tree in creation order (ties by id): `Session N` names.
+pub fn tree_order<'a>(sessions: &[&'a SessionRow]) -> Vec<&'a SessionRow> {
+    let mut ordered = sessions.to_vec();
     ordered.sort_by(|a, b| {
-        facts[*a]
-            .created_at
-            .cmp(&facts[*b].created_at)
-            .then_with(|| facts[*a].id.cmp(&facts[*b].id))
-    });
-    let mut canonical_of: HashMap<usize, usize> = HashMap::new();
-    // (canonical, chain oldest-first), in discovery order.
-    let mut chains: Vec<(usize, Vec<usize>)> = Vec::new();
-    for &start in &ordered {
-        if canonical_of.contains_key(&start) {
-            continue;
-        }
-        let mut chain: Vec<usize> = resume_chain(&facts, &index_of, start)
-            .into_iter()
-            .filter(|member| !canonical_of.contains_key(member))
-            .collect();
-        if chain.is_empty() {
-            chain.push(start);
-        }
-        let canonical = *chain.last().expect("non-empty");
-        for &member in &chain {
-            canonical_of.insert(member, canonical);
-        }
-        chains.push((canonical, chain));
-    }
-
-    // 2. Children nest under their parent's SUCCESSION — the whole chain
-    //    answers for the newest `parent_session_id` it names.
-    let mut parent_of: HashMap<usize, usize> = HashMap::new();
-    for (canonical, chain) in &chains {
-        let named = chain
-            .iter()
-            .rev()
-            .find_map(|member| facts[*member].parent_session_id.as_deref());
-        let parent = named
-            .and_then(|id| index_of.get(id))
-            .and_then(|index| canonical_of.get(index))
-            .copied();
-        // Rule 4: a parent that is gone leaves the child at top level, and so
-        // does a row naming its own succession.
-        let Some(parent) = parent.filter(|parent| parent != canonical) else {
-            continue;
-        };
-        parent_of.insert(*canonical, parent);
-    }
-
-    let mut children_of: HashMap<usize, Vec<usize>> = HashMap::new();
-    let mut roots: Vec<usize> = Vec::new();
-    for (canonical, _) in &chains {
-        match ancestor(*canonical, &parent_of) {
-            Some(parent) => children_of.entry(parent).or_default().push(*canonical),
-            None => roots.push(*canonical),
-        }
-    }
-    // Rule 3: children keep CREATION order, ties on their id.
-    for list in children_of.values_mut() {
-        list.sort_by(|a, b| {
-            facts[*a]
-                .created_at
-                .cmp(&facts[*b].created_at)
-                .then_with(|| facts[*a].id.cmp(&facts[*b].id))
-        });
-    }
-
-    let chain_of: HashMap<usize, Vec<usize>> = chains.into_iter().collect();
-    let mut slots: Vec<Option<T>> = sessions.into_iter().map(Some).collect();
-    let mut out: Vec<SessionNode<T>> = roots
-        .iter()
-        .map(|canonical| build_node(*canonical, &chain_of, &children_of, &facts, &mut slots))
-        .collect();
-
-    // 3. Top-level nodes sort by last activity, newest FIRST.
-    out.sort_by(|a, b| {
-        b.last_activity_at
-            .cmp(&a.last_activity_at)
+        ms_or_zero(a.created_at.as_deref())
+            .cmp(&ms_or_zero(b.created_at.as_deref()))
             .then_with(|| a.id.cmp(&b.id))
     });
-    out
+    ordered
 }
 
-/// The resume succession `start` belongs to, oldest first — `queries::run_chain`
-/// / the web `runChain`, over indices: BACKWARDS through `resumed_from_id` to
-/// the first row, FORWARDS to the newest successor at every fork (`created_at`
-/// then id, descending). Cycle-safe both ways. It lives here rather than in
-/// the ui crate's copy because the tree must collapse successions on every
-/// client, not just the one with a query layer.
-fn resume_chain(
-    facts: &[SessionFacts],
-    index_of: &HashMap<&str, usize>,
-    start: usize,
-) -> Vec<usize> {
-    let mut seen: HashSet<usize> = HashSet::new();
-    seen.insert(start);
-    let mut before: Vec<usize> = Vec::new();
-    let mut cursor = start;
-    while let Some(previous_id) = facts[cursor].resumed_from_id.as_deref() {
-        let Some(&previous) = index_of.get(previous_id) else {
-            break;
-        };
-        if !seen.insert(previous) {
-            break;
+/// The 1-based place of `session_id` in its tree's creation order (1 when
+/// it is not in `tree`): the `ordinal` [`session_card`] takes.
+pub fn tree_ordinal(session_id: &str, tree: &[&SessionRow]) -> usize {
+    tree_order(tree)
+        .iter()
+        .position(|session| session.id == session_id)
+        .map_or(1, |index| index + 1)
+}
+
+/// THE session card = the Work card's header row: icon, name, the muted
+/// state word, trailing elapsed, a spinner while `running`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCard {
+    pub session_id: String,
+    /// Icon concept.
+    pub icon: String,
+    pub name: String,
+    pub kind_word: String,
+    pub state: SessionState,
+    pub tone: String,
+    pub elapsed: Option<String>,
+    pub running: bool,
+    pub test_id: String,
+}
+
+/// The card for `session`; `ordinal` = its 1-based place in the tree's
+/// creation order (names an untitled session `Session N`).
+pub fn session_card(session: &SessionRow, ordinal: usize, now_ms: i64) -> SessionCard {
+    let state = session_state(session);
+    let start = ms(session.started_at.as_deref());
+    let end = if state == SessionState::Ended {
+        ms(session.ended_at.as_deref()).or_else(|| ms(session.updated_at.as_deref()))
+    } else {
+        Some(now_ms)
+    };
+    let elapsed = match (start, end) {
+        (Some(start), Some(end)) if state != SessionState::Queued => {
+            Some(format_elapsed(end - start))
         }
-        before.push(previous);
-        cursor = previous;
+        _ => None,
+    };
+    let name = match session.explicit_title() {
+        Some(title) => title.to_string(),
+        None => format!("{} {ordinal}", SESSION_CARD.copy.session),
+    };
+    SessionCard {
+        session_id: session.id.clone(),
+        icon: state.icon().to_string(),
+        name,
+        kind_word: state.word().to_string(),
+        state,
+        tone: state.tone().to_string(),
+        elapsed,
+        running: state == SessionState::Working,
+        test_id: SESSION_CARD.test_ids.card.clone(),
     }
-    before.reverse();
+}
 
-    let mut after: Vec<usize> = Vec::new();
-    let mut cursor = start;
-    loop {
-        let next = (0..facts.len())
-            .filter(|index| {
-                facts[*index].resumed_from_id.as_deref() == Some(facts[cursor].id.as_str())
-            })
-            .filter(|index| !seen.contains(index))
-            .max_by(|a, b| {
-                facts[*a]
-                    .created_at
-                    .cmp(&facts[*b].created_at)
-                    .then_with(|| facts[*a].id.cmp(&facts[*b].id))
-            });
-        let Some(next) = next else {
-            break;
+// ---------------------------------------------------------------------------
+// The thread title
+// ---------------------------------------------------------------------------
+
+/// An issue as the tree views need it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TreeIssue {
+    pub id: String,
+    pub identifier: String,
+    pub title: String,
+}
+
+impl TreeIssue {
+    pub fn from_issue(issue: &Issue) -> Self {
+        Self {
+            id: issue.id.clone(),
+            identifier: issue.identifier.clone(),
+            title: issue.title.clone(),
+        }
+    }
+}
+
+/// A thread's title and whether it was derived (not stored).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadTitle {
+    pub title: String,
+    pub derived: bool,
+}
+
+/// First line of a person's text, capped (a thread named by its request).
+fn first_line(body: &str, max: usize) -> Option<String> {
+    let line = body
+        .split('\n')
+        .map(str::trim)
+        .find(|part| !part.is_empty() && !part.starts_with("!["))?;
+    if line.chars().count() > max {
+        let head: String = line.chars().take(max.saturating_sub(1)).collect();
+        Some(format!("{}…", head.trim_end()))
+    } else {
+        Some(line.to_string())
+    }
+}
+
+/// The stored title, else the action it ran, else its first issue's title
+/// (`issues` = the root's issues in sort order), else the first line of the
+/// root's first person message, else `Untitled`.
+pub fn thread_title(root: &SessionRow, issues: &[TreeIssue], messages: &[&MessageRow]) -> ThreadTitle {
+    if let Some(stored) = root.explicit_title() {
+        return ThreadTitle {
+            title: stored.to_string(),
+            derived: false,
         };
-        seen.insert(next);
-        after.push(next);
-        cursor = next;
     }
+    if let Some(action) = root.action_name.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
+        return ThreadTitle {
+            title: action.to_string(),
+            derived: true,
+        };
+    }
+    if let Some(first) = issues.first() {
+        return ThreadTitle {
+            title: first.title.clone(),
+            derived: true,
+        };
+    }
+    let mut own: Vec<&MessageRow> = messages
+        .iter()
+        .copied()
+        .filter(|message| {
+            message.session_id == root.id
+                && message.author_kind.as_deref() == Some(MESSAGE_AUTHOR_KIND_USER)
+        })
+        .collect();
+    own.sort_by_key(|message| ms_or_zero(message.created_at.as_deref()));
+    if let Some(line) = own
+        .first()
+        .and_then(|message| first_line(message.body_text(), THREAD.title_max))
+    {
+        return ThreadTitle {
+            title: line,
+            derived: true,
+        };
+    }
+    ThreadTitle {
+        title: THREAD.copy.untitled.clone(),
+        derived: true,
+    }
+}
 
-    before
+/// The issues linked to `root_id`, by link sort order; unsynced issues drop
+/// out.
+pub fn root_issues(
+    root_id: &str,
+    session_issues: &[&SessionIssueRow],
+    issues: &[TreeIssue],
+) -> Vec<TreeIssue> {
+    let by_id: HashMap<&str, &TreeIssue> = issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
+    let mut links: Vec<&SessionIssueRow> = session_issues
+        .iter()
+        .copied()
+        .filter(|link| link.session_id == root_id)
+        .collect();
+    links.sort_by(|a, b| {
+        a.sort_order
+            .unwrap_or(0.0)
+            .partial_cmp(&b.sort_order.unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    links
         .into_iter()
-        .chain(std::iter::once(start))
-        .chain(after)
+        .filter_map(|link| by_id.get(link.issue_id.as_str()).map(|issue| (*issue).clone()))
         .collect()
 }
 
-/// The top of `index`' parent walk, or `None` when it is already a root.
-/// Breaks a cycle by returning `None`, so the row stays where it is.
-fn ancestor(index: usize, parent_of: &HashMap<usize, usize>) -> Option<usize> {
-    let parent = *parent_of.get(&index)?;
-    let mut seen: HashSet<usize> = HashSet::new();
-    seen.insert(index);
-    let mut cursor = Some(parent);
-    while let Some(current) = cursor {
-        if !seen.insert(current) {
-            return None;
-        }
-        cursor = parent_of.get(&current).copied();
-    }
-    Some(parent)
+// ---------------------------------------------------------------------------
+// The thread screen
+// ---------------------------------------------------------------------------
+
+/// One tab of the thread header strip.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum ThreadTab {
+    Conversation,
+    Issue { issue_id: String, identifier: String },
+    /// The `+` (link / file an issue).
+    Add,
+    /// `dot` = the root's guide holds any text or picture.
+    Guide { dot: bool },
 }
 
-/// One session node and its subtree, rows moved out of `slots`. A node's
-/// activity counts its whole subtree's.
-fn build_node<T>(
-    canonical: usize,
-    chain_of: &HashMap<usize, Vec<usize>>,
-    children_of: &HashMap<usize, Vec<usize>>,
-    facts: &[SessionFacts],
-    slots: &mut Vec<Option<T>>,
-) -> SessionNode<T> {
-    let chain = chain_of.get(&canonical).cloned().unwrap_or_default();
-    let mut last_activity_at = chain
+/// One row of the thread's Conversation (the TS `ThreadRow`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum SessionThreadRow {
+    /// A card-less message: `author` = `user` | `agent` | `system`; a
+    /// person's row is `queued` until the device consumed it.
+    Message {
+        id: String,
+        author: String,
+        author_id: Option<String>,
+        body: String,
+        queued: bool,
+    },
+    /// A session's card (`id` = the message id, or the root's id for its
+    /// own leading card); opens that session.
+    Session { id: String, card: SessionCard },
+    Question {
+        id: String,
+        question: String,
+        options: Vec<String>,
+        answer: Option<String>,
+        answered: bool,
+    },
+    Plan {
+        id: String,
+        plan: String,
+        decision: Option<String>,
+    },
+    Subagent { id: String, title: String, status: String },
+    Picture {
+        id: String,
+        attachment_id: String,
+        width: Option<f64>,
+        height: Option<f64>,
+        caption: Option<String>,
+    },
+    /// One muted line (`Linked EXP-12`, `Merged PR #45`).
+    Event { id: String, event: String, text: String },
+}
+
+impl SessionThreadRow {
+    /// The row's id (the message id; the root id for its own card).
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Message { id, .. }
+            | Self::Session { id, .. }
+            | Self::Question { id, .. }
+            | Self::Plan { id, .. }
+            | Self::Subagent { id, .. }
+            | Self::Picture { id, .. }
+            | Self::Event { id, .. } => id,
+        }
+    }
+}
+
+/// Where the thread's composer sends (`sessions.send({sessionId})`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadComposer {
+    pub session_id: String,
+    pub placeholder: String,
+}
+
+/// The thread screen's model.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionThreadView {
+    pub root_id: String,
+    pub title: String,
+    pub title_derived: bool,
+    /// `!root.shared`: a lock glyph beside the title.
+    pub private: bool,
+    pub tabs: Vec<ThreadTab>,
+    pub rows: Vec<SessionThreadRow>,
+    pub composer: ThreadComposer,
+    /// Any non-ended session in the tree.
+    pub live: bool,
+    pub busy: bool,
+    pub needs_you: bool,
+}
+
+/// [`build_session_thread`]'s input: what the caller synced.
+#[derive(Debug, Clone, Copy)]
+pub struct SessionThreadInput<'a> {
+    pub root: &'a SessionRow,
+    /// The tree's sessions (others are ignored).
+    pub sessions: &'a [&'a SessionRow],
+    pub session_issues: &'a [&'a SessionIssueRow],
+    pub issues: &'a [TreeIssue],
+    pub messages: &'a [&'a MessageRow],
+    pub pull_requests: &'a [&'a PullRequestRow],
+    pub now_ms: i64,
+}
+
+fn event_text(
+    card: &Value,
+    issues: &HashMap<&str, &TreeIssue>,
+    prs: &HashMap<&str, &PullRequestRow>,
+) -> Option<String> {
+    let event = js_string(card.get("event"));
+    let template = THREAD.copy.events.get(&event)?;
+    if template.contains("{issue}") {
+        let issue = card_str(card, "issueId").and_then(|id| issues.get(id))?;
+        return Some(template.replacen("{issue}", &issue.identifier, 1));
+    }
+    if template.contains("{pr}") {
+        let pr = card_str(card, "pullRequestId").and_then(|id| prs.get(id))?;
+        let number = pr.number?;
+        return Some(template.replacen("{pr}", &format!("#{number}"), 1));
+    }
+    Some(template.clone())
+}
+
+fn guide_dot(guide: Option<&Value>) -> bool {
+    let Some(Value::Array(entries)) = guide else {
+        return false;
+    };
+    entries.iter().any(|entry| {
+        let text = entry.get("text").and_then(Value::as_str).unwrap_or_default();
+        let label = entry.get("label").is_some_and(|label| !label.is_null());
+        !text.trim().is_empty() || label
+    })
+}
+
+/// The thread screen: the header tabs (Conversation · one chip per issue ·
+/// + · Guide), the root's conversation as rows (its own session card
+/// first, then its messages oldest first; a `session`/`thread_started` card
+/// becomes that session's card) and the composer target (the root).
+pub fn build_session_thread(input: SessionThreadInput<'_>) -> SessionThreadView {
+    let root = input.root;
+    let now = input.now_ms;
+    let members: Vec<&SessionRow> = input
+        .sessions
         .iter()
-        .map(|member| facts[*member].updated_at.clone())
-        .max()
-        .unwrap_or_default();
-    let children: Vec<SessionNode<T>> = children_of
-        .get(&canonical)
-        .map(|kids| {
-            kids.iter()
-                .map(|kid| build_node(*kid, chain_of, children_of, facts, slots))
-                .collect()
-        })
-        .unwrap_or_default();
-    for child in &children {
-        if child.last_activity_at > last_activity_at {
-            last_activity_at = child.last_activity_at.clone();
-        }
+        .copied()
+        .filter(|session| session.root_id_or_self() == root.id || session.id == root.id)
+        .collect();
+    let mut tree = tree_order(&members);
+    if !tree.iter().any(|session| session.id == root.id) {
+        tree.insert(0, root);
     }
-    SessionNode {
-        id: facts[canonical].id.clone(),
-        chain: chain
-            .iter()
-            .map(|member| slots[*member].take().expect("each row placed once"))
-            .collect(),
-        children,
-        last_activity_at,
-    }
-}
+    let ordinals: HashMap<&str, usize> = tree
+        .iter()
+        .enumerate()
+        .map(|(index, session)| (session.id.as_str(), index + 1))
+        .collect();
+    let mut by_id: HashMap<&str, &SessionRow> =
+        input.sessions.iter().map(|session| (session.id.as_str(), *session)).collect();
+    by_id.insert(root.id.as_str(), root);
+    let issues = root_issues(&root.id, input.session_issues, input.issues);
+    let issue_map: HashMap<&str, &TreeIssue> =
+        input.issues.iter().map(|issue| (issue.id.as_str(), issue)).collect();
+    let pr_map: HashMap<&str, &PullRequestRow> =
+        input.pull_requests.iter().map(|pr| (pr.id.as_str(), *pr)).collect();
+    let mut own: Vec<&MessageRow> = input
+        .messages
+        .iter()
+        .copied()
+        .filter(|message| message.session_id == root.id)
+        .collect();
+    own.sort_by(|a, b| {
+        ms_or_zero(a.created_at.as_deref())
+            .cmp(&ms_or_zero(b.created_at.as_deref()))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let title = thread_title(root, &issues, &own);
 
-/// One row of a DRAWN session tree: the node, how deep it sits and whether it
-/// can fold — what [`crate::tree_guides::guides_for`] paints its connector
-/// over.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SessionTreeFlatRow<'a, T> {
-    pub node: &'a SessionNode<T>,
-    pub key: String,
-    pub depth: usize,
-    pub has_children: bool,
-}
-
-/// Every node of the tree, depth-first (web `flattenSessionTree`, iOS
-/// `flatten`, Android `flattenSessionTree`). What a caller wants when it
-/// needs the runs a tree holds and not its structure — counting them, or
-/// finding the one it should reveal.
-pub fn flatten_session_tree<T>(nodes: &[SessionNode<T>]) -> Vec<&SessionNode<T>> {
-    fn walk<'a, T>(nodes: &'a [SessionNode<T>], out: &mut Vec<&'a SessionNode<T>>) {
-        for node in nodes {
-            out.push(node);
-            walk(&node.children, out);
-        }
-    }
-    let mut out = Vec::new();
-    walk(nodes, &mut out);
-    out
-}
-
-/// The tree flattened top to bottom, skipping everything under a COLLAPSED
-/// node (keyed by [`session_tree_node_key`]). Mirrored ×4 with
-/// [`session_tree`] itself — every client flattens before it paints.
-pub fn visible_session_tree_rows<'a, T>(
-    nodes: &'a [SessionNode<T>],
-    collapsed: &HashSet<String>,
-) -> Vec<SessionTreeFlatRow<'a, T>> {
-    fn walk<'a, T>(
-        nodes: &'a [SessionNode<T>],
-        depth: usize,
-        collapsed: &HashSet<String>,
-        out: &mut Vec<SessionTreeFlatRow<'a, T>>,
-    ) {
-        for node in nodes {
-            let key = session_tree_node_key(node);
-            let hidden = collapsed.contains(&key);
-            out.push(SessionTreeFlatRow {
-                node,
-                key,
-                depth,
-                has_children: !node.children.is_empty(),
+    let mut rows = vec![SessionThreadRow::Session {
+        id: root.id.clone(),
+        card: session_card(root, 1, now),
+    }];
+    for message in own {
+        let Some(card) = message.card.as_ref() else {
+            let author = match message.author_kind.as_deref() {
+                Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
+                Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
+                _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
+            };
+            if message.body_text().trim().is_empty() {
+                continue;
+            }
+            rows.push(SessionThreadRow::Message {
+                id: message.id.clone(),
+                author: author.to_string(),
+                author_id: message.author_id.clone(),
+                body: message.body_text().to_string(),
+                queued: author == MESSAGE_AUTHOR_KIND_USER
+                    && message.consumed_at.as_deref().is_none_or(str::is_empty),
             });
-            if !hidden {
-                walk(&node.children, depth + 1, collapsed, out);
+            continue;
+        };
+        match card_str(card, "kind") {
+            Some(MESSAGE_CARD_KIND_SESSION) | Some(MESSAGE_CARD_KIND_THREAD_STARTED) => {
+                let Some(target) = card_str(card, "sessionId").and_then(|id| by_id.get(id)) else {
+                    continue;
+                };
+                rows.push(SessionThreadRow::Session {
+                    id: message.id.clone(),
+                    card: session_card(
+                        target,
+                        ordinals.get(target.id.as_str()).copied().unwrap_or(1),
+                        now,
+                    ),
+                });
+            }
+            Some(MESSAGE_CARD_KIND_QUESTION) => rows.push(SessionThreadRow::Question {
+                id: message.id.clone(),
+                question: js_string(card.get("question")),
+                options: match card.get("options") {
+                    Some(Value::Array(options)) => {
+                        options.iter().map(|option| js_string(Some(option))).collect()
+                    }
+                    _ => Vec::new(),
+                },
+                answer: card_str(card, "answer").map(str::to_string),
+                answered: message.answered_at.is_some(),
+            }),
+            Some(MESSAGE_CARD_KIND_PLAN) => rows.push(SessionThreadRow::Plan {
+                id: message.id.clone(),
+                plan: js_string(card.get("plan")),
+                decision: card_str(card, "decision").map(str::to_string),
+            }),
+            Some(MESSAGE_CARD_KIND_SUBAGENT) => rows.push(SessionThreadRow::Subagent {
+                id: message.id.clone(),
+                title: js_string(card.get("title")),
+                status: js_string(card.get("status")),
+            }),
+            Some(MESSAGE_CARD_KIND_PICTURE) => {
+                let Some(attachment_id) = card_str(card, "attachmentId") else {
+                    continue;
+                };
+                rows.push(SessionThreadRow::Picture {
+                    id: message.id.clone(),
+                    attachment_id: attachment_id.to_string(),
+                    width: card.get("width").and_then(Value::as_f64),
+                    height: card.get("height").and_then(Value::as_f64),
+                    caption: card_str(card, "caption").map(str::to_string),
+                });
+            }
+            Some(MESSAGE_CARD_KIND_EVENT) => {
+                if let Some(text) = event_text(card, &issue_map, &pr_map) {
+                    rows.push(SessionThreadRow::Event {
+                        id: message.id.clone(),
+                        event: js_string(card.get("event")),
+                        text,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
+    let mut tabs = vec![ThreadTab::Conversation];
+    tabs.extend(issues.iter().map(|issue| ThreadTab::Issue {
+        issue_id: issue.id.clone(),
+        identifier: issue.identifier.clone(),
+    }));
+    tabs.push(ThreadTab::Add);
+    tabs.push(ThreadTab::Guide {
+        dot: guide_dot(root.guide.as_ref()),
+    });
+    SessionThreadView {
+        root_id: root.id.clone(),
+        title: title.title,
+        title_derived: title.derived,
+        private: !root.shared,
+        tabs,
+        rows,
+        composer: ThreadComposer {
+            session_id: root.id.clone(),
+            placeholder: THREAD.copy.placeholder.clone(),
+        },
+        live: !live.is_empty(),
+        busy: live.iter().any(|session| session.busy),
+        needs_you: live.iter().any(|session| session.needs_input),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The Threads page + the rail's Agents
+// ---------------------------------------------------------------------------
+
+/// One row of the Threads page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadsListRow {
+    pub session_id: String,
+    pub team_id: String,
+    pub title: String,
+    pub private: bool,
+    pub busy: bool,
+    pub needs_you: bool,
+    /// The tree's newest `updated_at` (the sort key), verbatim.
+    pub activity_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadsListKey {
+    NeedsYou,
+    Running,
+    Recent,
+}
+
+impl ThreadsListKey {
+    pub const ALL: [ThreadsListKey; 3] = [Self::NeedsYou, Self::Running, Self::Recent];
+
+    /// The band title (`Needs you`, `Running`, `Recent`).
+    pub fn title(self) -> &'static str {
+        let groups = &THREADS_LIST.copy.groups;
+        match self {
+            Self::NeedsYou => &groups.needs_you,
+            Self::Running => &groups.running,
+            Self::Recent => &groups.recent,
+        }
+    }
+}
+
+/// One band of the Threads page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadsListGroup {
+    pub key: ThreadsListKey,
+    pub title: String,
+    pub rows: Vec<ThreadsListRow>,
+}
+
+/// [`partition_threads`]'s input.
+#[derive(Debug, Clone, Copy)]
+pub struct ThreadsListInput<'a> {
+    pub sessions: &'a [&'a SessionRow],
+    pub session_issues: &'a [&'a SessionIssueRow],
+    pub issues: &'a [TreeIssue],
+    pub messages: &'a [&'a MessageRow],
+    /// The ACTIVE team; `None` = every team.
+    pub team_id: Option<&'a str>,
+}
+
+/// The Threads page: roots of kind `thread` in scope grouped Needs you (a
+/// live session of the tree waits on a person) · Running (any session
+/// queued or running) · Recent (the rest), each by the tree's newest
+/// `updated_at` desc (ties by id). Empty groups are omitted.
+pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
+    let mut by_root: HashMap<&str, Vec<&SessionRow>> = HashMap::new();
+    for session in input.sessions {
+        by_root.entry(session.root_id_or_self()).or_default().push(session);
+    }
+    let mut buckets: HashMap<ThreadsListKey, Vec<ThreadsListRow>> = HashMap::new();
+    for root in input.sessions.iter().copied().filter(|session| {
+        is_root(session)
+            && kind_is(session, SESSION_KIND_THREAD)
+            && input
+                .team_id
+                .is_none_or(|team| session.team_id.as_deref() == Some(team))
+    }) {
+        let alone = [root];
+        let tree: &[&SessionRow] = by_root.get(root.id.as_str()).map_or(&alone[..], Vec::as_slice);
+        let live: Vec<&SessionRow> = tree.iter().copied().filter(|session| !session.is_ended()).collect();
+        let needs_you = live.iter().any(|session| session.needs_input);
+        let running = live.iter().any(|session| {
+            status_is(session, SESSION_STATUS_QUEUED) || status_is(session, SESSION_STATUS_RUNNING)
+        });
+        let mut activity = root.updated_at.clone().unwrap_or_default();
+        for session in tree {
+            if ms_or_zero(session.updated_at.as_deref()) > ms_or_zero(Some(&activity)) {
+                activity = session.updated_at.clone().unwrap_or_default();
             }
         }
+        let title = thread_title(
+            root,
+            &root_issues(&root.id, input.session_issues, input.issues),
+            input.messages,
+        );
+        let key = if needs_you {
+            ThreadsListKey::NeedsYou
+        } else if running {
+            ThreadsListKey::Running
+        } else {
+            ThreadsListKey::Recent
+        };
+        buckets.entry(key).or_default().push(ThreadsListRow {
+            session_id: root.id.clone(),
+            team_id: root.team_id.clone().unwrap_or_default(),
+            title: title.title,
+            private: !root.shared,
+            busy: live.iter().any(|session| session.busy),
+            needs_you,
+            activity_at: activity,
+        });
     }
-    let mut out = Vec::new();
-    walk(nodes, 0, collapsed, &mut out);
-    out
+    ThreadsListKey::ALL
+        .into_iter()
+        .filter_map(|key| {
+            let mut rows = buckets.remove(&key)?;
+            rows.sort_by(|a, b| {
+                ms_or_zero(Some(&b.activity_at))
+                    .cmp(&ms_or_zero(Some(&a.activity_at)))
+                    .then_with(|| a.session_id.cmp(&b.session_id))
+            });
+            Some(ThreadsListGroup {
+                key,
+                title: key.title().to_string(),
+                rows,
+            })
+        })
+        .filter(|group| !group.rows.is_empty())
+        .collect()
+}
+
+/// One row of the rail's Agents section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRow {
+    pub session_id: String,
+    pub team_id: String,
+    pub name: String,
+    /// Icon concept (default `agentDefaults.icon`).
+    pub icon: String,
+    /// `#rrggbb` (default `agentDefaults.color`).
+    pub color: String,
+    pub busy: bool,
+    pub needs_you: bool,
+}
+
+/// `localeCompare`-ish: case-insensitive first, then exact.
+fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))
+}
+
+/// The agent roots of the team (`None` = every team) by `sort_order`, then
+/// name, then id; missing icon/color fall back to the fixture defaults.
+pub fn list_agents(sessions: &[&SessionRow], team_id: Option<&str>) -> Vec<AgentRow> {
+    let mut agents: Vec<&SessionRow> = sessions
+        .iter()
+        .copied()
+        .filter(|session| {
+            is_root(session)
+                && kind_is(session, SESSION_KIND_AGENT)
+                && team_id.is_none_or(|team| session.team_id.as_deref() == Some(team))
+        })
+        .collect();
+    agents.sort_by(|a, b| {
+        a.sort_order
+            .unwrap_or(0.0)
+            .partial_cmp(&b.sort_order.unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                locale_cmp(a.name.as_deref().unwrap_or_default(), b.name.as_deref().unwrap_or_default())
+            })
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let defaults = &THREADS_LIST.agent_defaults;
+    agents
+        .into_iter()
+        .map(|session| AgentRow {
+            session_id: session.id.clone(),
+            team_id: session.team_id.clone().unwrap_or_default(),
+            name: session.name.clone().unwrap_or_default(),
+            icon: session.icon.clone().unwrap_or_else(|| defaults.icon.clone()),
+            color: session.color.clone().unwrap_or_else(|| defaults.color.clone()),
+            busy: session.busy,
+            needs_you: session.needs_input,
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::de::DeserializeOwned;
+    use serde_json::{json, Map};
 
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    struct Row {
-        id: &'static str,
-        parent: Option<&'static str>,
-        started_at: &'static str,
-    }
-
-    fn row(id: &'static str, parent: Option<&'static str>) -> Row {
-        Row { id, parent, started_at: "2026-09-10T10:00:00Z" }
-    }
-
-    fn row_at(id: &'static str, parent: Option<&'static str>, started_at: &'static str) -> Row {
-        Row { id, parent, started_at }
-    }
-
-    fn nest(rows: Vec<Row>) -> Vec<TreeRow<Row>> {
-        nest_sessions(rows, |r| r.id, |r| r.parent, |r| Some(r.started_at))
-    }
-
-    fn shape(rows: &[TreeRow<Row>]) -> Vec<String> {
-        rows.iter()
-            .map(|r| format!("{}@{}{}", r.session.id, r.depth, if r.has_children { "+" } else { "" }))
-            .collect()
-    }
-
-    #[test]
-    fn nest_sessions_keeps_the_callers_root_order() {
-        let rows = nest(vec![row("b", None), row("a", None), row("c", None)]);
-        assert_eq!(shape(&rows), ["b@0", "a@0", "c@0"]);
-    }
-
-    #[test]
-    fn nest_sessions_nests_a_child_only_under_a_parent_that_is_listed() {
-        let rows = nest(vec![row("p", None), row("c", Some("p")), row("orphan", Some("gone"))]);
-        assert_eq!(shape(&rows), ["p@0+", "c@1", "orphan@0"]);
-    }
-
-    #[test]
-    fn nest_sessions_lists_children_right_after_their_parent_oldest_first_recursively() {
-        let rows = nest(vec![
-            row_at("late", Some("p"), "2026-09-10T12:00:00Z"),
-            row("p", None),
-            row_at("grand", Some("early"), "2026-09-10T13:00:00Z"),
-            row_at("early", Some("p"), "2026-09-10T11:00:00Z"),
-            row("z", None),
-        ]);
-        assert_eq!(shape(&rows), ["p@0+", "early@1+", "grand@2", "late@1", "z@0"]);
-        assert_eq!(descendant_ids(&rows, "p", |r| r.id), ["early", "grand", "late"]);
-        assert_eq!(descendant_ids(&rows, "early", |r| r.id), ["grand"]);
-        assert!(descendant_ids(&rows, "z", |r| r.id).is_empty());
-    }
-
-    #[test]
-    fn nest_sessions_breaks_a_cycle_where_it_first_appears() {
-        let rows = nest(vec![row("a", Some("b")), row("b", Some("a")), row("self", Some("self"))]);
-        assert_eq!(shape(&rows), ["self@0", "a@0+", "b@1"]);
-    }
-}
-
-/// EXP-996 — the web `session-tree.test.ts` table, case for case (the same
-/// names, snake_cased), plus the cases only a second implementation can catch.
-#[cfg(test)]
-mod tree_tests {
-    use super::*;
-
-    /// The web test's `row()`: the columns the tree reads, nothing else.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    struct Run {
-        id: &'static str,
-        resumed_from_id: Option<&'static str>,
-        parent_session_id: Option<&'static str>,
-        /// `created_at` == `updated_at`, like the web fixture's `at()`.
-        at: &'static str,
-    }
-
-    fn run(id: &'static str) -> Run {
-        Run {
-            id,
-            resumed_from_id: None,
-            parent_session_id: None,
-            at: "2026-09-01T10:00:00Z",
-        }
-    }
-
-    impl Run {
-        fn at(mut self, at: &'static str) -> Self {
-            self.at = at;
-            self
-        }
-        fn resuming(mut self, id: &'static str) -> Self {
-            self.resumed_from_id = Some(id);
-            self
-        }
-        fn under(mut self, id: &'static str) -> Self {
-            self.parent_session_id = Some(id);
-            self
-        }
-    }
-
-    fn facts(run: &Run) -> SessionFacts {
-        SessionFacts {
-            id: run.id.to_string(),
-            resumed_from_id: run.resumed_from_id.map(str::to_string),
-            parent_session_id: run.parent_session_id.map(str::to_string),
-            created_at: run.at.to_string(),
-            updated_at: run.at.to_string(),
-        }
-    }
-
-    fn tree(runs: Vec<Run>) -> Vec<SessionNode<Run>> {
-        session_tree(runs, facts)
-    }
-
-    /// The web test's `ids()`, as one line: keys in order, children in
-    /// parentheses (`p(c1 c2)`).
-    fn shape(nodes: &[SessionNode<Run>]) -> String {
-        nodes
-            .iter()
-            .map(|node| {
-                let children = shape(&node.children);
-                let key = session_tree_node_key(node);
-                if children.is_empty() {
-                    key
+    /// A camelCase TS row → the snake_case domain row (top-level keys only:
+    /// jsonb cells keep their own camelCase). `id` is synthesized when the
+    /// fixture row has none (session-issue links).
+    fn row<T: DeserializeOwned>(value: &Value, fallback_id: &str) -> T {
+        let mut out = Map::new();
+        for (key, cell) in value.as_object().expect("row object") {
+            let mut snake = String::new();
+            for ch in key.chars() {
+                if ch.is_ascii_uppercase() {
+                    snake.push('_');
+                    snake.push(ch.to_ascii_lowercase());
                 } else {
-                    format!("{key}({children})")
+                    snake.push(ch);
                 }
+            }
+            out.insert(snake, cell.clone());
+        }
+        out.entry("id").or_insert_with(|| json!(fallback_id));
+        serde_json::from_value(Value::Object(out)).expect("fixture row hydrates")
+    }
+
+    fn rows<T: DeserializeOwned>(value: &Value) -> Vec<T> {
+        value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| row(item, &format!("row-{index}")))
+                    .collect()
             })
-            .collect::<Vec<_>>()
-            .join(" ")
+            .unwrap_or_default()
+    }
+
+    fn now(value: &Value) -> i64 {
+        parse_instant(value.as_str().expect("now")).expect("now parses")
+    }
+
+    /// Numbers compare by value (`1440` == `1440.0`).
+    fn normalize(value: Value) -> Value {
+        match value {
+            Value::Number(number) => json!(number.as_f64().unwrap_or_default()),
+            Value::Array(items) => Value::Array(items.into_iter().map(normalize).collect()),
+            Value::Object(map) => {
+                Value::Object(map.into_iter().map(|(key, cell)| (key, normalize(cell))).collect())
+            }
+            other => other,
+        }
+    }
+
+    fn assert_whole(actual: impl Serialize, expected: &Value, name: &str) {
+        let actual = normalize(serde_json::to_value(actual).unwrap());
+        assert_eq!(actual, normalize(expected.clone()), "{name}");
+    }
+
+    fn fixture(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
     }
 
     #[test]
-    fn lists_unrelated_sessions_at_top_level_newest_activity_first() {
-        let nodes = tree(
-            vec![
-                run("a").at("2026-09-01T10:00:00Z"),
-                run("b").at("2026-09-01T11:00:00Z"),
-            ],
-        );
-        assert_eq!(shape(&nodes), "b a");
+    fn the_copy_comes_from_the_fixtures() {
+        assert_eq!(SESSION_CARD.copy.session, "Session");
+        assert_eq!(SessionState::NeedsYou.word(), "Needs you");
+        assert_eq!(SessionState::Working.icon(), "coding-running");
+        assert_eq!(SessionState::Blocked.tone(), "rose");
+        assert_eq!(THREAD.copy.placeholder, "Reply…");
+        assert_eq!(THREAD.title_max, 80);
+        assert_eq!(THREADS_LIST.copy.title, "Threads");
+        assert_eq!(ThreadsListKey::Recent.title(), "Recent");
+        assert_eq!(THREADS_LIST.agent_defaults.icon, "bot");
     }
 
     #[test]
-    fn nests_a_child_under_its_parent_session_id() {
-        let nodes = tree(
-            vec![run("c").under("p").at("2026-09-01T10:30:00Z"), run("p")],
-        );
-        assert_eq!(shape(&nodes), "p(c)");
+    fn format_elapsed_walks_the_ladder() {
+        assert_eq!(format_elapsed(37_000), "37s");
+        assert_eq!(format_elapsed(124_000), "2m 04s");
+        assert_eq!(format_elapsed(3_780_000), "1h 03m");
+        assert_eq!(format_elapsed(-5), "0s");
+    }
+
+    /// `session-card.json` `cases`, whole objects.
+    #[test]
+    fn session_card_matches_the_fixture() {
+        let fixture = fixture(SESSION_CARD_JSON);
+        let cases = fixture["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let session: SessionRow = row(&input["session"], "s");
+            let ordinal = input["ordinal"].as_u64().unwrap() as usize;
+            assert_whole(session_card(&session, ordinal, now(&input["now"])), &case["expected"], name);
+        }
+    }
+
+    /// `session-thread.json` `cases`, whole objects.
+    #[test]
+    fn build_session_thread_matches_the_fixture() {
+        let fixture = fixture(SESSION_THREAD_JSON);
+        let cases = fixture["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let root: SessionRow = row(&input["root"], "root");
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
+            let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap();
+            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let prs: Vec<PullRequestRow> = rows(&input["pullRequests"]);
+            let sessions: Vec<&SessionRow> = sessions.iter().collect();
+            let links: Vec<&SessionIssueRow> = links.iter().collect();
+            let messages: Vec<&MessageRow> = messages.iter().collect();
+            let prs: Vec<&PullRequestRow> = prs.iter().collect();
+            let view = build_session_thread(SessionThreadInput {
+                root: &root,
+                sessions: &sessions,
+                session_issues: &links,
+                issues: &issues,
+                messages: &messages,
+                pull_requests: &prs,
+                now_ms: now(&input["now"]),
+            });
+            assert_whole(&view, &case["expected"], name);
+        }
+    }
+
+    /// `threads-list.json` `cases` (partitionThreads) and `agentCases`
+    /// (listAgents), whole values.
+    #[test]
+    fn threads_list_matches_the_fixture() {
+        let fixture = fixture(THREADS_LIST_JSON);
+        let cases = fixture["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let links: Vec<SessionIssueRow> = rows(&input["sessionIssues"]);
+            let issues: Vec<TreeIssue> = serde_json::from_value(input["issues"].clone()).unwrap();
+            let messages: Vec<MessageRow> = rows(&input["messages"]);
+            let sessions: Vec<&SessionRow> = sessions.iter().collect();
+            let links: Vec<&SessionIssueRow> = links.iter().collect();
+            let messages: Vec<&MessageRow> = messages.iter().collect();
+            let groups = partition_threads(ThreadsListInput {
+                sessions: &sessions,
+                session_issues: &links,
+                issues: &issues,
+                messages: &messages,
+                team_id: input["teamId"].as_str(),
+            });
+            assert_whole(&groups, &case["expected"], name);
+        }
+        let agent_cases = fixture["agentCases"].as_array().unwrap();
+        assert!(!agent_cases.is_empty());
+        for case in agent_cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let sessions: Vec<SessionRow> = rows(&input["sessions"]);
+            let sessions: Vec<&SessionRow> = sessions.iter().collect();
+            assert_whole(list_agents(&sessions, input["teamId"].as_str()), &case["expected"], name);
+        }
     }
 
     #[test]
-    fn collapses_a_resume_succession_into_one_node_keyed_by_its_newest_row() {
-        let nodes = tree(
-            vec![
-                run("r1").at("2026-09-01T10:00:00Z"),
-                run("r2").resuming("r1").at("2026-09-01T12:00:00Z"),
-            ],
-        );
-        assert_eq!(shape(&nodes), "r2");
-        let node = &nodes[0];
-        assert_eq!(
-            node.chain.iter().map(|run| run.id).collect::<Vec<_>>(),
-            ["r1", "r2"]
-        );
-        assert_eq!(node.session().id, "r2");
-    }
-
-    #[test]
-    fn follows_a_child_to_its_parents_resume_succession() {
-        let nodes = tree(
-            vec![
-                run("p1"),
-                run("p2").resuming("p1").at("2026-09-01T11:00:00Z"),
-                run("c").under("p1"),
-            ],
-        );
-        assert_eq!(shape(&nodes), "p2(c)");
-    }
-
-    #[test]
-    fn puts_an_orphan_child_whose_parent_is_gone_at_top_level() {
-        let nodes = tree(vec![run("o").under("gone")]);
-        assert_eq!(shape(&nodes), "o");
-    }
-
-    #[test]
-    fn keeps_children_in_creation_order_under_their_parent() {
-        let nodes = tree(
-            vec![
-                run("c2").under("p").at("2026-09-01T10:20:00Z"),
-                run("p"),
-                run("c1").under("p").at("2026-09-01T10:10:00Z"),
-            ],
-        );
-        assert_eq!(shape(&nodes), "p(c1 c2)");
-    }
-
-    /// A fork: the primary succession claims its members oldest-first, so the
-    /// OLDER sibling is left over as a node of its own.
-    #[test]
-    fn an_older_fork_sibling_becomes_its_own_node() {
-        let nodes = tree(
-            vec![
-                run("r1").at("2026-09-01T10:00:00Z"),
-                run("r2").resuming("r1").at("2026-09-01T11:00:00Z"),
-                run("r3").resuming("r1").at("2026-09-01T12:00:00Z"),
-            ],
-        );
-        assert_eq!(shape(&nodes), "r3 r2");
-    }
-
-    /// A parent with one child and a lone run.
-    fn sample() -> Vec<Run> {
-        vec![
-            run("p").at("2026-09-01T11:00:00Z"),
-            run("c").under("p").at("2026-09-01T10:30:00Z"),
-            run("n2").at("2026-09-01T10:00:00Z"),
-        ]
-    }
-
-    fn flattened(collapsed: &[&str]) -> Vec<(String, usize, bool)> {
-        let nodes = tree(sample());
-        let collapsed: HashSet<String> = collapsed.iter().map(|key| key.to_string()).collect();
-        visible_session_tree_rows(&nodes, &collapsed)
-            .into_iter()
-            .map(|row| (row.key, row.depth, row.has_children))
-            .collect()
-    }
-
-    #[test]
-    fn walks_children_depth_first() {
-        let nodes = tree(sample());
-        assert_eq!(
-            flatten_session_tree(&nodes)
-                .into_iter()
-                .map(|node| node.id.clone())
-                .collect::<Vec<_>>(),
-            vec!["p".to_string(), "c".to_string(), "n2".to_string()]
-        );
-    }
-
-    #[test]
-    fn flattens_children_with_their_depths() {
-        assert_eq!(
-            flattened(&[])
-                .into_iter()
-                .map(|(key, depth, _)| (key, depth))
-                .collect::<Vec<_>>(),
-            vec![("p".to_string(), 0), ("c".to_string(), 1), ("n2".to_string(), 0)]
-        );
-    }
-
-    #[test]
-    fn hides_everything_under_a_collapsed_node() {
-        let rows = flattened(&["p"]);
-        assert_eq!(
-            rows.iter().map(|(key, _, _)| key.as_str()).collect::<Vec<_>>(),
-            ["p", "n2"]
-        );
-        assert!(rows.iter().find(|(key, _, _)| key == "p").unwrap().2);
+    fn tree_ordinal_counts_from_the_oldest() {
+        let a: SessionRow = row(&json!({"id": "a", "createdAt": "2026-10-13T10:00:00Z"}), "a");
+        let b: SessionRow = row(&json!({"id": "b", "createdAt": "2026-10-13T11:00:00Z"}), "b");
+        assert_eq!(tree_ordinal("b", &[&b, &a]), 2);
+        assert_eq!(tree_ordinal("zz", &[&b, &a]), 1);
     }
 }

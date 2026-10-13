@@ -19,32 +19,26 @@ import { entry as scopePicker } from "./scope-picker.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
-import { entry as composerFixConflicts } from "./composer-fix-conflicts.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionRow } from "./session-row.tsx"
 import { entry as prRow } from "./pr-row.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
-import { entry as blockedStartDialog } from "./blocked-start-dialog.tsx"
 import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
 import { entry as draftLeaveDialog } from "./draft-leave-dialog.tsx"
 import { entry as readinessChecklist } from "./readiness-checklist.tsx"
 import { entry as deviceReadiness } from "./device-readiness.tsx"
 import { entry as resultsGuide } from "./results-guide.tsx"
 import { entry as mcpAppViews } from "./mcp-app-views.tsx"
-import { entry as runStatusRow } from "./run-status-row.tsx"
-import { entry as sessionThread } from "./session-thread.tsx"
 import { entry as composerOptions } from "./composer-options.tsx"
 import { entry as workCard } from "./work-card.tsx"
 import { entry as threadParts } from "./thread-parts.tsx"
 import { entry as scriptCard } from "./script-card.tsx"
 import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
-import { entry as yourAgentSettings } from "./your-agent-settings.tsx"
 import { entry as voiceCallOverlay } from "./voice-call-overlay.tsx"
 import { entry as feedbackStates } from "./feedback-states.tsx"
 import { entry as agentHome } from "./agent-home.tsx"
-import { entry as workTabsStrip } from "./work-tabs-strip.tsx"
 import { entry as searchList } from "./search-list.tsx"
 import { entry as menuSubmenu } from "./menu-submenu.tsx"
 import { entry as gettingStarted } from "./getting-started.tsx"
@@ -72,31 +66,25 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   jumpToBottom,
   feedbackStates,
   composerDialog,
-  composerFixConflicts,
   issueContextMenu,
   sessionRow,
   prRow,
   prGraphBadge,
   deviceSettings,
-  blockedStartDialog,
   stackMergeChoiceDialog,
   draftLeaveDialog,
   readinessChecklist,
   deviceReadiness,
   resultsGuide,
   mcpAppViews,
-  runStatusRow,
-  sessionThread,
   composerOptions,
   workCard,
   threadParts,
   scriptCard,
   commentCallCard,
   teamAgentsSettings,
-  yourAgentSettings,
   voiceCallOverlay,
   agentHome,
-  workTabsStrip,
   gettingStarted,
 ]
 

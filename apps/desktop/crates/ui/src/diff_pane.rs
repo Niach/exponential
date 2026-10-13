@@ -44,7 +44,6 @@ use gpui::{
 };
 use gpui_component::{h_flex, input::InputState, v_flex, ActiveTheme as _, ElementExt as _, Icon, Sizable as _};
 
-use coding::scm::DiffFile;
 use domain::diff::{additions_label, deletions_label, summary_label, DiffStatus, Totals};
 use domain::diff_tree::{diff_file_tree, DiffTreeKind, DiffTreeNode};
 
@@ -84,11 +83,6 @@ pub(crate) struct PaneFile {
 }
 
 impl PaneFile {
-    /// Split one [`DiffFile`] into the row's parts.
-    pub(crate) fn new(file: &DiffFile) -> Self {
-        Self::from_parts(&file.path, file.status, file.additions, file.deletions)
-            .with_previous_path(file.previous_path.as_deref())
-    }
 
     /// EXP-1251: carry a rename's source path (blank = none).
     pub(crate) fn with_previous_path(mut self, previous: Option<&str>) -> Self {

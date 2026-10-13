@@ -734,7 +734,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `packages/ui/src/work-face-strip.tsx`,
         `apps/web/src/components/work-faces.tsx plugs in the session menu and the phone pager`
       ),
-      desktop: ok(`work_header::FaceToggle`, `apps/desktop/crates/ui/src/work_header.rs`),
+      desktop: na(`EXP-1294: no face toggle; an issue, a thread and a session are separate screens`),
       ios: ok(`WorkFaceTabs`, `apps/ios/Exponential/UI/Work/WorkFaceTabs.swift`),
       android: ok(
         `WorkFaceTabs`,
@@ -2294,7 +2294,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `detail-chrome.tsx holds CollapsedTitle and the DETAIL_EDGE_* layers the phone header and bar also draw`
       ),
       desktop: ok(
-        `work_header::render_work_header`,
+        `work_header::scrolling_title_rows`,
         `apps/desktop/crates/ui/src/work_header.rs`,
         `gpui cannot blur in-window content: the edges are the scrim fade alone (surface.rs)`
       ),

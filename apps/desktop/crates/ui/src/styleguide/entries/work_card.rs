@@ -1,5 +1,5 @@
 //! EXP-1240 (EXP-1259 D12): `work-card` (Special components): THE Work card
-//! the run thread draws for a claude workflow, the run's task list and a
+//! the session view draws for a claude workflow, the run's task list and a
 //! subagent — the REAL painter (`crate::work_card::work_card`) over the
 //! contract model, fed the fixture's own cases (`fixtures/work-card.json`):
 //! a workflow mid-review (its folded row open), a task list in progress, a

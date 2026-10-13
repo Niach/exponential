@@ -1,5 +1,6 @@
 //! EXP-879 — the RESULTS face: the pictures a coding run published while it
-//! worked, read off `coding_sessions.results`.
+//! worked. EXP-1294: read off the thread root's `sessions.guide`, the
+//! thread's Guide tab.
 //!
 //! ONE scrolling page, byte-for-byte the web/iOS/Android shape: per topic a
 //! group band ([`crate::surface::glass_section_band`], the EXP-818 list
@@ -31,11 +32,7 @@
 //! ONE face): the Stack card, the `Summary` lead, numbered sections with ONE
 //! Changes row each (the shared coverage rule), the automatic `Other
 //! changes` section and `Show complete diff`; a row opens the diff page
-//! filtered to its files ([`GuidePage`], [`guide_page_view`]). An issue with
-//! an open PR and no report leads with the PR body ([`pr_body_block`]).
-//!
-//! EXP-1245: the Run face's per-turn status caption ([`turn_row_caption`])
-//! lives here too, beside the thread it heads.
+//! filtered to its files ([`GuidePage`], [`guide_page_view`]).
 
 use gpui::{
     div, hsla, img, linear_color_stop, linear_gradient, prelude::FluentBuilder as _, px,
@@ -83,51 +80,15 @@ pub(crate) struct GuideSpec {
     pub(crate) on_open: Option<OnOpenGuidePage>,
     /// The Stack card ([`stack_card`]) over everything.
     pub(crate) stack: Option<AnyElement>,
-    /// The lead drawn when the run filed NO report (an open PR's GitHub
-    /// body, [`pr_body_block`]).
+    /// The lead drawn when the run filed NO report.
     pub(crate) fallback_lead: Option<AnyElement>,
     /// Wave D (web `numbered={false}`): bands without the `01 / 04`
-    /// caption — the PR-body fallback's single group
-    /// ([`pr_description_group`]).
+    /// caption (a single unnumbered group).
     pub(crate) unnumbered: bool,
     /// EXP-1261: the page's scroll, for a host that reads its offset (the
     /// work body's top fade shows only once it left the top). `None` = an
     /// untracked scroll.
     pub(crate) scroll: Option<gpui::ScrollHandle>,
-}
-
-/// Wave D (web `prDescriptionGroups`, M8 ×4): an open PR's GitHub body as
-/// the Guide's ONE group when the run filed no report — band = the PR title
-/// (else `Pull request`), text = the body (else `No description.`), and it
-/// CLAIMS every diff path, so its band carries the single Changes row and
-/// nothing is left for `Other changes`.
-pub(crate) fn pr_description_group(
-    title: Option<&str>,
-    body: Option<&str>,
-    diff: Option<&[crate::diff_pane::PaneFile]>,
-) -> SessionResultGroup {
-    let topic = title
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or(PR_BODY_FALLBACK_LABEL)
-        .to_string();
-    let text = body
-        .map(str::trim)
-        .filter(|body| !body.is_empty())
-        .unwrap_or(PR_BODY_EMPTY)
-        .to_string();
-    SessionResultGroup {
-        topic,
-        text: Some(text),
-        entries: Vec::new(),
-        earlier: Vec::new(),
-        files: diff
-            .unwrap_or_default()
-            .iter()
-            .map(|file| file.path.to_string())
-            .collect(),
-        pr_url: None,
-    }
 }
 
 /// The coverage rule's view of a pane file.
@@ -162,7 +123,7 @@ pub(crate) fn guide_page_view(
     groups: &[SessionResultGroup],
     diff: &[GuideDiffFile],
     page: GuidePage,
-    // The PR-body fallback (an unnumbered Guide): its page carries no
+    // An unnumbered Guide: its page carries no
     // `01 / 01` caption, as its band carries no number.
     unnumbered: bool,
 ) -> Option<GuidePageView> {
@@ -576,10 +537,11 @@ pub(crate) fn guide_page_header(
         .into_any_element()
 }
 
-/// A stack row was picked (its issue id).
+/// A stack row was picked (its pull request id, EXP-1294).
 pub(crate) type OnPickStackRow = std::rc::Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
-/// The pointer entered a stack row (`Some(issue id)`) or left it (`None`).
+/// The pointer entered a stack row (`Some(pull request id)`) or left it
+/// (`None`).
 pub(crate) type OnHoverStackRow = std::rc::Rc<dyn Fn(Option<String>, &mut Window, &mut App)>;
 
 /// EXP-1248 — the Guide's Stack card (web `GuideBody`'s Stack card): a
@@ -595,7 +557,7 @@ pub(crate) const STACK_BASE_FALLBACK: &str = "default branch";
 pub(crate) fn stack_card(
     view: &domain::pr_stack::StackView,
     // The board's default branch: the base row's label when the bottom
-    // member's `pr_base_branch` is not synced (then `default branch`).
+    // pull request's `base` is not synced (then `default branch`).
     default_branch: Option<String>,
     on_pick: Option<OnPickStackRow>,
     on_merge_through: Option<OnPickStackRow>,
@@ -608,14 +570,14 @@ pub(crate) fn stack_card(
         .rows
         .iter()
         .map(|row| crate::pr_rows::StackRailMember {
-            key: row.issue_id.clone(),
+            key: row.pull_request_id.clone(),
             identifier: SharedString::from(row.identifier.clone()),
             title: SharedString::from(row.title.clone()),
             current: row.is_current,
             on_open: on_pick.clone().filter(|_| !row.is_current).map(|on_pick| {
-                let issue_id = row.issue_id.clone();
+                let pull_request_id = row.pull_request_id.clone();
                 Box::new(move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut App| {
-                    on_pick(&issue_id, window, cx)
+                    on_pick(&pull_request_id, window, cx)
                 }) as crate::run_rows::RunRowAction
             }),
             trailing: None,
@@ -656,89 +618,6 @@ pub(crate) fn stack_card(
         .child(rail)
         .into_any_element()
 }
-
-/// EXP-1245 — one turn's status-row caption (web `turnRowCaption`, fixture
-/// `run-row.json` `turnCaptions` ×4): a turn without a start (a sent message
-/// waiting) has NO row; a settled turn reads `Done on <device> · <turn
-/// time>` muted; the open turn reads the run's caption with the TURN's
-/// start, so a working turn counts from its own start. Wave D (web
-/// `endKnown`, M6): a settled turn whose end was NOT observed reads
-/// `Done on <device>` with no duration rather than count the idle gap.
-pub(crate) fn turn_row_caption(
-    started_ms: Option<i64>,
-    ended_ms: Option<i64>,
-    state: crate::run_rows::RunRowState,
-    device: &str,
-    run_ended_ms: Option<i64>,
-    now_ms: i64,
-    end_known: bool,
-) -> Option<(String, crate::run_rows::StatusTone)> {
-    let start = started_ms?;
-    if let Some(end) = ended_ms {
-        if !end_known {
-            return Some((format!("Done on {device}"), crate::run_rows::StatusTone::Muted));
-        }
-        return Some((
-            format!("Done on {device} · {}", crate::session_rows::format_duration(end - start)),
-            crate::run_rows::StatusTone::Muted,
-        ));
-    }
-    Some(crate::run_rows::run_row_caption(state, device, Some(start), run_ended_ms, now_ms))
-}
-
-/// EXP-1154 — what the PR-body fallback shows under its band.
-pub(crate) enum PrBodyContent<'a> {
-    Loading,
-    Ready(&'a str),
-}
-
-/// EXP-1154/EXP-1251 — the Guide's lead for an issue with an OPEN pull
-/// request and no run report: the GitHub PR body (`issues.prDescription`)
-/// under a band labelled by the PR title (`Pull request` without one),
-/// `No description.` when the body is blank.
-pub(crate) fn pr_body_block(
-    title: Option<&str>,
-    body: PrBodyContent<'_>,
-    team_id: Option<&str>,
-    cx: &App,
-) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let label = title
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or(PR_BODY_FALLBACK_LABEL)
-        .to_string();
-    let content: AnyElement = match body {
-        // EXP-1259 D8: the body's lines as placeholders.
-        PrBodyContent::Loading => crate::feedback::skeleton_rows(
-            "session-results-pr-body-skeleton",
-            crate::feedback::SKELETON_ROWS,
-            28.,
-            cx,
-        ),
-        PrBodyContent::Ready(text) if text.trim().is_empty() => div()
-            .text_sm()
-            .text_color(muted)
-            .child(PR_BODY_EMPTY)
-            .into_any_element(),
-        PrBodyContent::Ready(text) => {
-            report_text(SharedString::from("session-results-pr-body"), text, None, team_id).into_any_element()
-        }
-    };
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .gap_2()
-        .child(crate::surface::glass_section_band(None, SharedString::from(label), None, cx))
-        .child(content)
-        .into_any_element()
-}
-
-/// The PR-body fallback's band label when the PR has no title (×4).
-pub(crate) const PR_BODY_FALLBACK_LABEL: &str = "Pull request";
-
-/// The PR-body fallback's line for a blank body (×4).
-pub(crate) const PR_BODY_EMPTY: &str = "No description.";
 
 /// EXP-1172 — a group's folded INLINE pictures: a muted one-line
 /// `Earlier · N` disclosure (the shared [`disclosure_header`]), collapsed by
@@ -937,93 +816,4 @@ fn tall_pill() -> impl IntoElement {
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
         .child("Tall")
-}
-
-#[cfg(test)]
-mod turn_caption_tests {
-    use super::*;
-    use crate::run_rows::{RunRowState, StatusTone};
-
-    /// EXP-1245 — fixture `run-row.json` `turnCaptions` ×4.
-    #[test]
-    fn turn_row_caption_matches_the_shared_fixture() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/run-row.json"
-        ))
-        .unwrap();
-        let ms = |value: &serde_json::Value| {
-            value
-                .as_str()
-                .map(|text| chrono::DateTime::parse_from_rfc3339(text).unwrap().timestamp_millis())
-        };
-        let cases = fixture["turnCaptions"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let state = match case["state"].as_str().unwrap() {
-                "working" => RunRowState::Working,
-                "needs_input" => RunRowState::NeedsInput,
-                "paused" => RunRowState::Paused,
-                "review" => RunRowState::Review,
-                "done" => RunRowState::Done,
-                "ended" => RunRowState::Ended,
-                other => panic!("unknown state {other}"),
-            };
-            let caption = turn_row_caption(
-                ms(&case["turn"]["startedAt"]),
-                ms(&case["turn"]["endedAt"]),
-                state,
-                case["device"].as_str().unwrap(),
-                ms(&case["runEndedAt"]),
-                ms(&case["now"]).unwrap(),
-                case["endKnown"].as_bool().unwrap_or(true),
-            );
-            let actual = caption.map(|(text, tone)| {
-                let tone = match tone {
-                    StatusTone::Muted => "muted",
-                    StatusTone::Amber => "amber",
-                    StatusTone::Green => "green",
-                    StatusTone::Blue => "blue",
-                };
-                serde_json::json!({"text": text, "tone": tone})
-            });
-            assert_eq!(actual.unwrap_or(serde_json::Value::Null), case["expected"], "{name}");
-        }
-    }
-
-    /// Wave D (web M8): the PR-body group claims every diff path, so the
-    /// coverage leaves nothing for `Other changes`; blank title/body fall
-    /// back to the shared copy.
-    #[test]
-    fn the_pr_body_group_claims_every_diff_path() {
-        use crate::diff_pane::PaneFile;
-        let files = vec![
-            PaneFile::from_parts("src/a.rs", domain::diff::DiffStatus::Modified, 3, 1),
-            PaneFile::from_parts("src/b.rs", domain::diff::DiffStatus::Added, 5, 0),
-        ];
-        let group = pr_description_group(Some(" Fix login "), Some("  "), Some(&files));
-        assert_eq!(group.topic, "Fix login");
-        assert_eq!(group.text.as_deref(), Some(PR_BODY_EMPTY));
-        assert_eq!(group.files, vec!["src/a.rs".to_string(), "src/b.rs".to_string()]);
-        let groups = vec![group];
-        let diff = guide_diff_files(&files);
-        let coverage = guide_coverage(&groups, |g| g.topic.as_str(), |g| g.files.as_slice(), Some(&diff));
-        assert!(coverage.other.is_none(), "nothing is left for Other changes");
-        assert_eq!(coverage.sections.len(), 1);
-        assert_eq!(coverage.sections[0].changes.as_ref().unwrap().file_count(), 2);
-        let untitled = pr_description_group(None, Some("body"), None);
-        assert_eq!(untitled.topic, PR_BODY_FALLBACK_LABEL);
-        assert!(untitled.files.is_empty());
-    }
-
-    /// Wave D (web M6): an unobserved end drops the duration.
-    #[test]
-    fn an_unobserved_turn_end_reads_done_without_a_duration() {
-        use crate::run_rows::{RunRowState, StatusTone};
-        let settled = |end_known| {
-            turn_row_caption(Some(1_000), Some(61_000), RunRowState::Done, "macbook", None, 90_000, end_known)
-        };
-        assert_eq!(settled(false), Some(("Done on macbook".to_string(), StatusTone::Muted)));
-        assert!(settled(true).unwrap().0.starts_with("Done on macbook · "));
-    }
 }

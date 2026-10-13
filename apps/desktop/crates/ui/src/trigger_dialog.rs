@@ -1,10 +1,9 @@
-//! The "New trigger" / "Edit trigger" dialog (EXP-583; SLOP-2: a trigger
-//! lives on its action, so there is no action to pick) — the web trigger form
-//! 1:1: pick WHEN it fires, pick the machine that runs it, optionally pin
-//! account/model/effort. Saving is ONE `actions.update({id, triggers})`, a
-//! whole-array replace ([`crate::trigger_editor`]'s write shapes); no run is
-//! started — the bound device watches its own synced rows and fires by
-//! itself.
+//! The "New trigger" / "Edit trigger" dialog (EXP-583; SLOP-2; EXP-1294: a
+//! trigger lives on its AGENT, so there is nothing to pick but the WHEN) —
+//! opened from the agent settings page's Schedule rows. Saving is ONE
+//! `sessions.updateAgent({sessionId, triggers})`, a whole-array replace
+//! ([`crate::trigger_editor`]'s write shapes); no session is started — the
+//! agent's device watches its own synced rows and fires by itself.
 //!
 //! The whole form is [`TriggerEditorState`]; this file is its window, its
 //! footer and the write.
@@ -18,64 +17,53 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex, v_flex, ActiveTheme as _, Disableable as _, ElementExt as _,
 };
+use serde_json::Value;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use coding::triggers::ActionTrigger;
-
 use crate::controls::WebControl as _;
-use crate::native_dialog::{self, DialogContent, DialogSpec};
+use crate::native_dialog::{self, AlertSpec, DialogContent, DialogSpec};
 use crate::queries;
 use crate::trigger_editor::{self, TriggerEditorState};
 
-/// Open the dialog for a NEW trigger on `action_id` (the Triggers section's
-/// owner-only "Add trigger"). A no-op when the action isn't synced.
-pub(crate) fn open_new(window: &mut Window, cx: &mut App, action_id: String) {
-    open_inner(window, cx, action_id, None)
+/// Open the dialog for a NEW trigger on the agent `agent_id`. A no-op when
+/// the agent isn't synced.
+pub(crate) fn open_new(window: &mut Window, cx: &mut App, agent_id: String) {
+    open_inner(window, cx, agent_id, None)
 }
 
-/// Open the dialog on an EXISTING trigger (its row, or the row's ⋯ → Edit).
-/// A no-op when the action or the trigger isn't synced (racing a delete).
-pub(crate) fn open_edit(window: &mut Window, cx: &mut App, action_id: String, trigger_id: String) {
-    let Some(trigger) = trigger_editor::action_triggers(&action_id, cx)
+/// Open the dialog on an EXISTING trigger of the agent. A no-op when the
+/// agent or the trigger isn't synced (racing a delete).
+pub(crate) fn open_edit(window: &mut Window, cx: &mut App, agent_id: String, trigger_id: String) {
+    let Some(trigger) = trigger_editor::agent_triggers(&agent_id, cx)
         .into_iter()
-        .find(|trigger| trigger.id == trigger_id)
+        .find(|trigger| trigger_editor::trigger_id(trigger) == Some(trigger_id.as_str()))
     else {
         return;
     };
-    open_inner(window, cx, action_id, Some(trigger))
+    open_inner(window, cx, agent_id, Some(trigger))
 }
 
-fn open_inner(
-    window: &mut Window,
-    cx: &mut App,
-    action_id: String,
-    existing: Option<ActionTrigger>,
-) {
-    let Some(team_id) = sync::Store::try_global(cx).and_then(|store| {
-        store
-            .collections()
-            .actions
-            .read(cx)
-            .get(&action_id)
-            .and_then(|row| row.team_id.clone())
-    }) else {
+fn open_inner(window: &mut Window, cx: &mut App, agent_id: String, existing: Option<Value>) {
+    let Some(team_id) = crate::session_data::session(&agent_id, cx)
+        .filter(|row| row.is_agent())
+        .and_then(|row| row.team_id)
+    else {
         return;
     };
     let editing = existing.is_some();
     // The window opens at the cap and then FITS its form (P66): no slack
     // under a short schedule form, the form's own scroll past the cap.
     let max_height = window.viewport_size().height * 0.85;
-    let height = max_height.min(px(480.));
+    let height = max_height.min(px(400.));
     let spec = DialogSpec::new(
         if editing { "Edit trigger" } else { "New trigger" },
         size(px(520.), height),
     )
-    .resizable(size(px(420.), px(360.)));
-    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| {
-            let mut view =
-                TriggerDialogView::new(team_id.clone(), action_id.clone(), existing.clone(), window, cx);
+    .resizable(size(px(420.), px(320.)));
+    native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
+        let view = cx.new(|_| {
+            let mut view = TriggerDialogView::new(team_id.clone(), agent_id.clone(), existing.clone());
             view.max_height = max_height;
             view
         });
@@ -88,16 +76,22 @@ fn open_inner(
     });
 }
 
+/// What a save writes.
+#[derive(Clone)]
+enum Write {
+    /// The form's trigger, added or in place of the edited one.
+    Save,
+    /// The edited trigger, removed.
+    Delete(String),
+}
+
 struct TriggerDialogView {
-    action_id: String,
-    /// `Some` = editing that trigger (its id and its on/off flag are kept);
-    /// `None` = adding one.
-    existing: Option<ActionTrigger>,
+    agent_id: String,
+    /// `Some` = editing that stored element (its id and its on/off flag are
+    /// kept); `None` = adding one.
+    existing: Option<Value>,
     editor: TriggerEditorState,
     submitting: bool,
-    /// The form's own validation message (INVALID INPUT, FEED-79); a failed
-    /// save is a toast.
-    error: Option<SharedString>,
     scroll: ScrollHandle,
     /// The window-height cap (85% of the opener's viewport).
     max_height: gpui::Pixels,
@@ -107,137 +101,121 @@ struct TriggerDialogView {
     body_h: Rc<Cell<gpui::Pixels>>,
     /// The content height the window was last fitted to.
     fitted: Option<gpui::Pixels>,
-    /// EXP-721: the `devices` shape can land AFTER the dialog opened — the
-    /// seeds re-run on every delta so the runner and the account row are
-    /// never left empty by a race.
-    _subscriptions: Vec<gpui::Subscription>,
 }
 
 impl TriggerDialogView {
-    fn new(
-        team_id: String,
-        action_id: String,
-        existing: Option<ActionTrigger>,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Self {
-        let mut editor = TriggerEditorState::new(team_id, window, cx);
-        match &existing {
-            Some(trigger) => {
-                editor.seed_trigger(Some(&trigger.raw), window, cx);
-                editor.seed_runner(
-                    Some(&trigger.device_id),
-                    trigger.pins.agent.as_deref(),
-                    trigger.pins.account.as_deref(),
-                    trigger.pins.model.as_deref(),
-                    trigger.pins.effort.as_deref(),
-                );
-                // A trigger saved before EXP-615 may carry no agent — the
-                // row has no "Device default" pick anymore, so seed it.
-                editor.ensure_agent_seeded(cx);
-            }
-            // One capable machine = no pick to make.
-            None => editor.seed_default_device(cx),
+    fn new(team_id: String, agent_id: String, existing: Option<Value>) -> Self {
+        let mut editor = TriggerEditorState::new(team_id);
+        if let Some(trigger) = &existing {
+            editor.seed_trigger(trigger);
         }
-        // EXP-721: opening the dialog before the `devices` shape has landed
-        // left the runner unbound AND the account row unlit forever — the
-        // seeds are idempotent (a pick the user already made is never
-        // disturbed), so re-running them on every delta is safe.
-        let editing = existing.is_some();
-        let subscriptions = match sync::Store::try_global(cx) {
-            Some(store) => {
-                let devices = store.collections().devices.clone();
-                vec![cx.observe(&devices, move |this: &mut Self, _, cx| {
-                    if editing {
-                        this.editor.ensure_agent_seeded(cx);
-                    } else {
-                        this.editor.seed_default_device(cx);
-                    }
-                    cx.notify();
-                })]
-            }
-            None => Vec::new(),
-        };
         Self {
-            action_id,
+            agent_id,
             existing,
             editor,
             submitting: false,
-            error: None,
             scroll: ScrollHandle::new(),
-            max_height: px(480.),
+            max_height: px(400.),
             content_h: Rc::default(),
             body_h: Rc::default(),
             fitted: None,
-            _subscriptions: subscriptions,
         }
     }
 
-    fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    fn existing_id(&self) -> Option<String> {
+        self.existing
+            .as_ref()
+            .and_then(trigger_editor::trigger_id)
+            .map(str::to_string)
+    }
+
+    /// The prompts fixture's `delete-trigger` confirm, then the write.
+    fn confirm_delete(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(id) = self.existing_id() else {
+            return;
+        };
+        let dialog = cx.entity().downgrade();
+        let handle = window.window_handle();
+        let spec = AlertSpec::from_prompt("Delete trigger", &domain::prompts::delete_trigger())
+            .on_ok(move |_, cx| {
+                let id = id.clone();
+                let dialog = dialog.clone();
+                let _ = handle.update(cx, move |_, window, cx| {
+                    let _ = dialog.update(cx, |view, cx| view.write(Write::Delete(id), window, cx));
+                });
+                true
+            });
+        native_dialog::open_alert(window, cx, spec);
+    }
+
+    fn write(&mut self, write: Write, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if self.submitting {
             return;
         }
-        let spec = match self.editor.to_spec(cx) {
-            Ok(spec) => spec,
-            Err(message) => {
-                self.error = Some(message);
-                cx.notify();
-                return;
-            }
-        };
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
-        // The array a save replaces is the action's CURRENT one, read at
+        // The array a save replaces is the agent's CURRENT one, read at
         // submit time — a teammate's edit synced while this dialog was open
         // must ride along, not be overwritten by a stale snapshot (nor a
         // write of our own whose echo is still on the way).
-        let current = trigger_editor::action_triggers(&self.action_id, cx);
-        let triggers = match &self.existing {
-            Some(existing) => {
+        let current = trigger_editor::agent_triggers(&self.agent_id, cx);
+        let when = self.editor.to_trigger();
+        let triggers = match (&write, self.existing_id()) {
+            (Write::Delete(id), _) => trigger_editor::triggers_without(&current, id),
+            (Write::Save, Some(id)) => {
                 // The on/off flag is the row switch's — an edit never flips it.
                 let enabled = current
                     .iter()
-                    .find(|trigger| trigger.id == existing.id)
-                    .map_or(existing.enabled, |trigger| trigger.enabled);
-                let element = trigger_editor::trigger_element(&spec, Some(&existing.id), enabled);
-                trigger_editor::triggers_with_replaced(&current, &existing.id, element)
+                    .find(|trigger| trigger_editor::trigger_id(trigger) == Some(id.as_str()))
+                    .or(self.existing.as_ref())
+                    .is_none_or(trigger_editor::trigger_enabled);
+                let element = trigger_editor::agent_trigger_element(&when, Some(&id), enabled);
+                trigger_editor::triggers_with_replaced(&current, &id, element)
             }
             // A new trigger is born ON — it only exists to fire.
-            None => trigger_editor::triggers_with_added(
+            (Write::Save, None) => trigger_editor::triggers_with_added(
                 &current,
-                trigger_editor::trigger_element(&spec, None, true),
+                trigger_editor::agent_trigger_element(&when, None, true),
             ),
         };
         self.submitting = true;
-        self.error = None;
         cx.notify();
 
-        let mut input = api::actions::ActionUpdate::new(self.action_id.clone());
-        input.triggers = Some(triggers);
+        let agent_id = self.agent_id.clone();
+        let input = api::sessions::UpdateAgentInput {
+            session_id: agent_id.clone(),
+            triggers: Some(triggers.clone()),
+            ..Default::default()
+        };
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
-                .spawn(async move { api::actions::update(&trpc, &input) })
+                .spawn(async move { api::sessions::update_agent(&trpc, &input) })
                 .await;
             let _ = this.update_in(window, |view, window, cx| match result {
-                // The synced echo repaints the Triggers rows; until it lands
-                // the returned array is the next write's base.
-                Ok(action) => {
-                    trigger_editor::note_triggers_written(&action);
+                // The synced echo repaints the Schedule rows; until it lands
+                // the sent array is the next write's base.
+                Ok(_) => {
+                    trigger_editor::note_triggers_written(&agent_id, triggers);
                     native_dialog::close_dialog_window(window, cx)
                 }
-                // FEED-79: a failed save is the error toast; Retry saves the
+                // FEED-79: a failed save is the error toast; Retry writes the
                 // same form again.
                 Err(err) => {
                     view.submitting = false;
                     let dialog = cx.entity().downgrade();
+                    let (verb, thing) = match write {
+                        Write::Save => ("save", "the trigger"),
+                        Write::Delete(_) => ("delete", "the trigger"),
+                    };
                     crate::action_error::failed_action_with_retry(
-                        "save",
-                        "the trigger",
+                        verb,
+                        thing,
                         crate::action_error::action_error_description(&err),
                         move |window, cx| {
-                            let _ = dialog.update(cx, |view, cx| view.submit(window, cx));
+                            let write = write.clone();
+                            let _ = dialog.update(cx, |view, cx| view.write(write, window, cx));
                         },
                         cx,
                     );
@@ -247,9 +225,7 @@ impl TriggerDialogView {
         })
         .detach();
     }
-}
 
-impl TriggerDialogView {
     /// Size the WINDOW to the form (the chat dialog's EXP-1155 fit): its
     /// measured content plus the chrome around the scroll body, capped at
     /// [`Self::max_height`]. Refits only when the content height moved, so a
@@ -266,7 +242,7 @@ impl TriggerDialogView {
         self.fitted = Some(content);
         let current = window.viewport_size();
         let chrome = (current.height - body).max(px(0.));
-        let target = (content + chrome).min(self.max_height.max(px(360.)));
+        let target = (content + chrome).min(self.max_height.max(px(320.)));
         if (target - current.height).abs() <= px(1.) {
             return;
         }
@@ -281,12 +257,27 @@ impl Render for TriggerDialogView {
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let form = self
             .editor
-            .render("trigger-dialog", |this: &mut Self| &mut this.editor, window, cx);
+            .render("trigger-dialog", |this: &mut Self| &mut this.editor, cx);
+        let editing = self.existing.is_some();
 
         let footer = h_flex()
             .flex_shrink_0()
-            .justify_end()
             .gap_2()
+            // An edit's Delete sits apart on the leading edge (the prompts
+            // contract's quiet destructive answer), Cancel + Save trailing.
+            .when(editing, |footer| {
+                footer.child(
+                    Button::new("trigger-delete")
+                        .ghost()
+                        .cursor_pointer()
+                        .web_sm()
+                        .text_color(cx.theme().danger)
+                        .label("Delete")
+                        .disabled(self.submitting)
+                        .on_click(cx.listener(|this, _, window, cx| this.confirm_delete(window, cx))),
+                )
+            })
+            .child(gpui::div().flex_1())
             .child(
                 Button::new("trigger-cancel")
                     .ghost()
@@ -301,16 +292,16 @@ impl Render for TriggerDialogView {
                     .primary()
                     .cursor_pointer()
                     .web_sm()
-                    .label(if self.submitting {
+                    .label(SharedString::from(if self.submitting {
                         "Saving…"
-                    } else if self.existing.is_some() {
+                    } else if editing {
                         "Save changes"
                     } else {
                         "Add trigger"
-                    })
+                    }))
                     .disabled(self.submitting)
                     .loading(self.submitting)
-                    .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
+                    .on_click(cx.listener(|this, _, window, cx| this.write(Write::Save, window, cx))),
             );
 
         v_flex()
@@ -344,10 +335,6 @@ impl Render for TriggerDialogView {
                     }
                 }),
             )
-            // The form's own validation (INVALID INPUT) stays inline.
-            .when_some(self.error.clone(), |this, error| {
-                this.child(crate::action_error::field_error(error, cx))
-            })
             .child(footer.pt_3().border_t_1().border_color(cx.theme().border))
     }
 }
