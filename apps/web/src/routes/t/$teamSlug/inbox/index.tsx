@@ -8,7 +8,7 @@ import {
   TAB_BODY_TOUCH_CLASS,
   primeTabEnter,
   useFaceSwipe,
-} from "@/components/work-faces"
+} from "@/hooks/use-face-swipe"
 import {
   Button,
   SEGMENTED_ROW,

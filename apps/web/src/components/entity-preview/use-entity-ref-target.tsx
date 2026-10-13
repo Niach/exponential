@@ -8,8 +8,10 @@ import {
   boardCollection,
   commentCollection,
   notificationCollection,
+  sessionCollection,
   teamCollection,
 } from "@/lib/collections"
+import type { SessionRow } from "@/lib/session-tree"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import type { EntityRef } from "@/lib/mcp/preview"
 import {
@@ -23,7 +25,7 @@ import {
 // come from `IssueRefProvider` (already in context under the team layout),
 // the boards/comments/attachments/notifications/teams from one `inArray`
 // live query each over just the ids the refs name — so a card with eight
-// member rows costs five queries, not forty. `entityRefRoute` is the pure
+// member rows costs six queries, not forty. `entityRefRoute` is the pure
 // mapping; this file only gathers its context.
 
 export interface EntityRefTarget {
@@ -44,7 +46,7 @@ function idsOf(refs: readonly EntityRef[], kind: EntityRef[`kind`]): string[] {
 }
 
 function useRowsByIds<T extends { id: string }>(
-  collection: typeof boardCollection | typeof commentCollection | typeof attachmentCollection | typeof notificationCollection | typeof teamCollection,
+  collection: typeof boardCollection | typeof commentCollection | typeof attachmentCollection | typeof notificationCollection | typeof teamCollection | typeof sessionCollection,
   ids: readonly string[]
 ): Map<string, T> {
   const key = ids.join(`,`)
@@ -83,6 +85,7 @@ export function useEntityRefTargets(
     idsOf(refs, `notification`)
   )
   const teams = useRowsByIds<Team>(teamCollection, idsOf(refs, `team`))
+  const sessions = useRowsByIds<SessionRow>(sessionCollection, idsOf(refs, `session`))
 
   const ctx = useMemo<EntityRefRouteContext>(
     () => ({
@@ -94,8 +97,12 @@ export function useEntityRefTargets(
       attachmentIssueId: (id) => attachments.get(id)?.issueId ?? null,
       notificationIssueId: (id) => notifications.get(id)?.issueId ?? null,
       teamSlugById: (id) => teams.get(id)?.slug ?? null,
+      sessionRootId: (id) => {
+        const row = sessions.get(id)
+        return row ? (row.rootId ?? row.id) : null
+      },
     }),
-    [teamSlug, issueRefs, boards, comments, attachments, notifications, teams]
+    [teamSlug, issueRefs, boards, comments, attachments, notifications, teams, sessions]
   )
 
   return useCallback(

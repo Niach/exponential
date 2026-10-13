@@ -5,7 +5,7 @@ import {
   issueMemoryOwner,
   readTabMemory,
   resetTabMemory,
-  runMemoryOwner,
+  sessionMemoryOwner,
   tabMemoryOwners,
   tabMemoryOwnersForTest,
   writeTabMemory,
@@ -15,19 +15,20 @@ import type { WorkTab } from "@/lib/work-tabs"
 // EXP-894: what a work tab remembers across a switch — the store is pure, so
 // its rules are pinned here rather than through a mounted route.
 
-const issueTab = (issueId: string, runId: string | null = null): WorkTab => ({
+const issueTab = (issueId: string): WorkTab => ({
   kind: `issue`,
   issueId,
-  face: `issue`,
-  runId,
   from: null,
-  live: false,
 })
-const runTab = (runId: string): WorkTab => ({
-  kind: `run`,
-  runId,
+const threadTab = (threadId: string): WorkTab => ({
+  kind: `thread`,
+  threadId,
   from: null,
-  live: false,
+})
+const sessionTab = (sessionId: string): WorkTab => ({
+  kind: `session`,
+  sessionId,
+  from: null,
 })
 
 beforeEach(() => resetTabMemory())
@@ -74,13 +75,11 @@ describe(`tab memory slots`, () => {
 })
 
 describe(`tabMemoryOwners`, () => {
-  it(`names an issue tab's issue and its bound run`, () => {
-    expect(tabMemoryOwners(issueTab(`i1`))).toEqual([`issue:i1`])
-    expect(tabMemoryOwners(issueTab(`i1`, `r1`))).toEqual([
-      issueMemoryOwner(`i1`),
-      runMemoryOwner(`r1`),
-    ])
-    expect(tabMemoryOwners(runTab(`r2`))).toEqual([`run:r2`])
+  it(`names an issue tab's issue and a session tab's row`, () => {
+    expect(tabMemoryOwners(issueTab(`i1`))).toEqual([issueMemoryOwner(`i1`)])
+    expect(tabMemoryOwners(threadTab(`t1`))).toEqual([sessionMemoryOwner(`t1`)])
+    expect(tabMemoryOwners(sessionTab(`s1`))).toEqual([`session:s1`])
+    expect(tabMemoryOwners({ kind: `new`, from: null })).toEqual([])
   })
 })
 
@@ -88,23 +87,23 @@ describe(`forgetClosedTabs`, () => {
   it(`forgets a closed tab's drafts and keeps the open ones`, () => {
     writeTabMemory(`issue:i1`, `comment`, `keep`)
     writeTabMemory(`issue:i2`, `comment`, `drop`)
-    writeTabMemory(`run:r1`, `scroll`, 40)
+    writeTabMemory(`session:t1`, `scroll`, 40)
 
     forgetClosedTabs(
-      [issueTab(`i1`), issueTab(`i2`, `r1`)],
+      [issueTab(`i1`), issueTab(`i2`), threadTab(`t1`)],
       [issueTab(`i1`)]
     )
 
     expect(readTabMemory(`issue:i1`, `comment`)).toBe(`keep`)
     expect(readTabMemory(`issue:i2`, `comment`)).toBeUndefined()
-    expect(readTabMemory(`run:r1`, `scroll`)).toBeUndefined()
+    expect(readTabMemory(`session:t1`, `scroll`)).toBeUndefined()
   })
 
-  it(`keeps an owner another surviving tab still names`, () => {
-    writeTabMemory(`run:r1`, `scroll`, 40)
+  it(`keeps an owner a surviving tab still names`, () => {
+    writeTabMemory(`session:t1`, `scroll`, 40)
 
-    forgetClosedTabs([runTab(`r1`), issueTab(`i1`, `r1`)], [issueTab(`i1`, `r1`)])
+    forgetClosedTabs([threadTab(`t1`), issueTab(`i1`)], [threadTab(`t1`)])
 
-    expect(readTabMemory(`run:r1`, `scroll`)).toBe(40)
+    expect(readTabMemory(`session:t1`, `scroll`)).toBe(40)
   })
 })

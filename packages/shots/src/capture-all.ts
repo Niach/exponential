@@ -137,9 +137,6 @@ const FLEET_VIEWS = new Set([
   `script-card`,
   `comment-call-card`,
   `action-page`,
-  `action-triggers`,
-  `trigger-editor`,
-  `action-runs`,
   `settings-agents`,
   // EXP-1293: a team agent's settings page names its runner machine.
   `settings-team-agent`,

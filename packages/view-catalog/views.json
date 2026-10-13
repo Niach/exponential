@@ -1182,10 +1182,10 @@
       "id": "review-diff",
       "group": "reviews",
       "title": "Complete diff",
-      "blurb": "A PR's whole diff as the Guide's Show complete diff page (`?view=guide&section=all`; the legacy `?view=diff` lands here): the file TREE beside the file cards, every card open. APP-14 fetches a genuine patch from GitHub.",
+      "blurb": "A PR's whole diff as the thread Guide's Show complete diff page (`?tab=guide&section=all`): the file TREE beside the file cards, every card open.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=all",
+        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide&section=all",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1250,10 +1250,10 @@
       "id": "guide-section",
       "group": "reviews",
       "title": "Guide section",
-      "blurb": "A Guide section's diff as a page under the Guide (`?view=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree in the column beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
+      "blurb": "A Guide section's diff as a page under the thread's Guide (`?tab=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=1",
+        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide&section=1",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1308,97 +1308,6 @@
         "web-mobile": "The phone shows the same three as tabs; this is the default Prompt tab. `action-triggers` and `action-runs` are the other two.",
         "ios": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page.",
         "android": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page."
-      }
-    },
-    {
-      "id": "trigger-editor",
-      "group": "actions",
-      "title": "Trigger editor",
-      "blurb": "Adding a trigger to an action: a schedule or an event, the device that runs it and the account, model and effort it runs with.",
-      "order": 4,
-      "web": {
-        "route": "/t/$teamSlug/actions/$actionId?tab=triggers",
-        "anchor": {
-          "text": "New trigger",
-          "timeoutMs": 20000
-        },
-        "recipe": "openTriggerEditor",
-        "settleMs": 600
-      },
-      "desktop": {
-        "drive": {
-          "kind": "dialog",
-          "value": "trigger-new:$action"
-        },
-        "anchorDelayMs": 600,
-        "env": {
-          "EXP_DEV_SCREEN": "action:$action"
-        }
-      },
-      "ios": {
-        "shot": "sg_trigger-editor",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_trigger-editor",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web-mobile": "The same form as a bottom sheet over the Triggers tab; the paired native shots cover it."
-      }
-    },
-    {
-      "id": "action-triggers",
-      "group": "actions",
-      "title": "Action triggers",
-      "blurb": "The Triggers tab of an action on a phone: each schedule and event watcher with its device and its switch.",
-      "order": 2,
-      "webMobile": {
-        "route": "/t/$teamSlug/actions/$actionId?tab=triggers",
-        "anchor": {
-          "text": "Daily at 03:00 (device time)",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
-      },
-      "ios": {
-        "shot": "sg_action-triggers",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_action-triggers",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web": "A desktop viewport has no tabs: Triggers is a section of `action-page`.",
-        "desktop": "The desktop app has no tabs: Triggers is a section of `action-page`."
-      }
-    },
-    {
-      "id": "action-runs",
-      "group": "actions",
-      "title": "Action sessions",
-      "blurb": "The Sessions tab of an action on a phone: every session of it, the triggered ones marked with their trigger's glyph.",
-      "order": 3,
-      "webMobile": {
-        "route": "/t/$teamSlug/actions/$actionId?tab=runs",
-        "anchor": {
-          "text": "Nightly test triage",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
-      },
-      "ios": {
-        "shot": "sg_action-runs",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_action-runs",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web": "A desktop viewport has no tabs: Sessions is a section of `action-page`.",
-        "desktop": "The desktop app has no tabs: Sessions is a section of `action-page`."
       }
     },
     {

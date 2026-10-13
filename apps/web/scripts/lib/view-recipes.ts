@@ -579,24 +579,6 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
 }
 
 // ---------------------------------------------------------------- actions
-
-/**
- * Open the new-trigger form on the seeded action's page (`actions/$actionId`;
- * the phone route lands on its Triggers tab). Owner-only, and it needs a
- * steer relay: without either the "Add trigger" pill is not mounted.
- */
-async function recipeOpenTriggerEditor(page: Page): Promise<void> {
-  const add = page.getByRole(`button`, { name: `Add trigger` })
-  if (!(await appears(add, 15_000))) {
-    throw new Error(
-      `no "Add trigger" button — adding needs STEER_RELAY_URL and an owner session`
-    )
-  }
-  await add.first().click()
-  // The pill and the submit button share the label; the heading does not.
-  await page.getByRole(`heading`, { name: `New trigger` }).waitFor({ timeout: 15_000 })
-}
-
 // --------------------------------------------------------------- settings
 
 /**
@@ -672,7 +654,6 @@ export const RECIPES: Record<string, Recipe> = {
   openMachineSettings: recipeOpenMachineSettings,
   expandFirstDevice: recipeExpandFirstDevice,
   openAddServer: recipeOpenAddServer,
-  openTriggerEditor: recipeOpenTriggerEditor,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
   typeIssueRef: recipeTypeIssueRef,

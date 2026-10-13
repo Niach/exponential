@@ -1,5 +1,5 @@
 import type { Issue } from "@/db/schema"
-import type { TeamAction } from "@/components/action-prompt-form"
+import type { ComposerAction } from "@/hooks/use-launch-composer"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { ChipRemoveButton, Pill, Spinner, conceptIcon, getActionIcon } from "@exp/ui"
@@ -34,7 +34,7 @@ export function SubjectChips({
   /** Checked ids whose rows have not synced yet (a fresh deep link). */
   pendingIssueCount: number
   /** The subject action's row, when the subject is an action. */
-  action: TeamAction | null
+  action: ComposerAction | null
   /** The subject is an action whose row is not synced (or gone). */
   actionPending: boolean
   onRemoveIssue: (issueId: string) => void

@@ -12,71 +12,34 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
-import { parseDiff, type DiffFile } from "@exp/domain-contract/diff"
-import type { ReviewFilesState } from "@/hooks/use-review-files"
 import { editCard } from "@exp/domain-contract/edit-card"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
 import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { Check, X } from "lucide-react"
-import type { PastRunRow } from "@/hooks/use-agents-data"
-import {
-  FACE_BODY_TOUCH_CLASS,
-  GUIDE_FACE_LABEL,
-  ISSUE_FACE_LABEL,
-  MobileFaceTabs,
-  runFaceLabel,
-  useFaceSwipe,
-  WorkFaceToggle,
-  type WorkFaceItem,
-} from "@/components/work-faces"
-import { GuideBody } from "@/components/guide-face"
-import { GuideSectionDiff } from "@/components/guide-section-diff"
-import { COMPOSER_PLACEHOLDER } from "@/components/steer-composer"
 import {
   conceptIcon,
   EditedFilesCard,
-  FAB_CHROME_CLASS,
-  FabButton,
   JumpToBottomButton,
   GlassCard,
+  Composer,
+  ComposerSubmit,
   useIsMobile,
   Button,
   Pill,
   Textarea,
   Meter,
-  MobilePopover,
-  MobilePopoverContent,
-  MobilePopoverTrigger,
   IssueChip as IssueChipView,
-  MOBILE_WORK_BAR_CLEARANCE,
-  MOBILE_WORK_CIRCLE_CLASS,
-  MobileWorkBar,
-  MobileWorkCapsule,
-  PrGithubButton,
-  ChangesFileSheet,
-  AgentMark,
   AgentWorkingMark,
-  ContextRing,
   SessionInlineResultTile,
-  SessionThreadView,
-  sessionThread,
-  sessionTurns,
-  userMessageCaption,
   RunStatusRow,
-  type GuideChangesTarget,
-  type SessionTurn,
   type RunMarkState,
-  parseSessionResultGroups,
+  type RunStatusRowTone,
   sessionResultPicture,
   WORK_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
-  WorkHeader,
-  CollapsedTitle,
   DETAIL_FADE_BOTTOM_CLASS,
-  Composer,
-  ComposerSubmit,
   ExponentialLogo,
   ImagePreviewDialog,
   AttachmentFileLink,
@@ -90,67 +53,14 @@ import {
   type WorkCardLaneTarget,
 } from "@exp/ui"
 import { Empty } from "@/components/empty"
-import {
-  availableFaces,
-  guideSectionPage,
-  OPEN_RESULTS_LABEL,
-  phaseDotTone,
-  faceDots,
-  START_CODING_LABEL,
-  runRowCaption,
-  runRowState as resolveRunRowState,
-  showWorkLabel,
-  turnRowCaption,
-  type GuideSectionKey,
-  type RunRowState,
-  type WorkFaceKind,
-} from "@/lib/work-faces"
-import { setShowWork, useShowWork } from "@/lib/show-work-pref"
-import {
-  firstTurnEndKnown,
-  useSessionTurnEvents,
-} from "@/lib/session-turn-events"
-import { runHasEnded } from "@/lib/past-runs"
-import type { CodingSession } from "@/db/schema"
-import {
-  mergeTargetProps,
-  type SessionMergeTarget,
-} from "@/hooks/use-agents-data"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
-import { useSessionAgentUsage } from "@/hooks/use-session-agent-usage"
-import { useSessionUsageRefreshOnOpen } from "@/hooks/use-session-usage-refresh"
-import { useKillSession } from "@/hooks/use-kill-session"
-import { AgentUsageWindows } from "@/components/agent-usage-windows"
-import { ContextWindowBlock } from "@/components/context-window-block"
-import {
-  ACCOUNTS_SECTION_TITLE,
-  activeAccountIndex,
-  SessionAccountRows,
-  useSessionAccountSwitch,
-  WALL_SWITCH_LABEL,
-  type SessionAccountSwitch,
-} from "@/components/session-account-switch"
-import {
-  accountCaption,
-  agentHealth,
-  blockedBadgeLabel,
-  contextPercent,
-  formatContextCompact,
-  formatUsageCost,
-  healthBadgeLabel,
-  severity,
-  usageState,
-} from "@/lib/agent-usage"
-import type { SessionIdentity } from "@/lib/session-identity"
-import {
-  staleActivityMinutes,
-} from "@/lib/stale-activity"
+import { blockedBadgeLabel } from "@/lib/agent-usage"
+import { staleActivityMinutes } from "@/lib/stale-activity"
 import {
   activeQuestionIds,
   backgroundStripLines,
-  hasPendingCard,
   answerKey,
   askStepperView,
   collectSubagents,
@@ -180,7 +90,6 @@ import {
   rateLimitBanner,
   rateLimitDetail,
   rowClass,
-  rowIsPendingCard,
   sessionIsWorking,
   subagentLabel,
   subagentIdOf,
@@ -198,12 +107,10 @@ import {
   scriptCardInput,
   type AnswerState,
   type AnswerStates,
-  type ContextSegment,
   type ExpToolDisplay,
   type ExpToolPreview,
   type RowClass,
   type SessionRateLimitState,
-  type SessionUsageState,
   type BackgroundStripLine,
   type TaskListEntry,
   taskListSummary,
@@ -212,21 +119,12 @@ import {
   type WorkflowState,
 } from "@/lib/agent-feed"
 import { workingCaption } from "@/lib/working-caption"
-import { SteerComposer } from "@/components/steer-composer"
-import { ResumeRunPill, StopRunPill } from "@/components/run-action-pills"
-import {
-  MergeCapsule,
-  MergePrPill,
-  MobileMergeCircle,
-} from "@/components/session-merge-button"
-import { useCanResumeOn } from "@/hooks/use-resume-run"
 import {
   COMMENT_CALL_TOOL,
   CommentCallRow,
   RunCardsContext,
 } from "@/components/agent-comment-card"
 import { scriptCard } from "@exp/domain-contract/script-card"
-import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
   mergeAgentCommands,
   parseSteerCommand,
@@ -247,17 +145,17 @@ import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
-import { cn } from "@/lib/utils"
 import {
-  sessionDisplayState,
-} from "@/lib/coding-session-display"
+  SESSION_CARD_COPY,
+  sessionState,
+  toTreeSession,
+  type SessionRow,
+} from "@/lib/session-tree"
+import { cn } from "@/lib/utils"
 
 // EXP-317: the session glyphs the native clients also draw resolve through
 // the shared registry (packages/icons/icons.json).
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
-const OpenResultsIcon = conceptIcon(`work-results`)
-/** EXP-1150: the Run face bar's Start coding circle. */
-const StartIcon = conceptIcon(`action-run`)
 const CodingCompactIcon = conceptIcon(`coding-compact`)
 const CodingCommandIcon = conceptIcon(`coding-command`)
 const CodingPlanIcon = conceptIcon(`coding-plan`)
@@ -273,7 +171,6 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
-const UiSwapIcon = conceptIcon(`ui-swap`)
 const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
 // EXP-529: multi-select options carry an explicit checkbox state (Android
@@ -281,24 +178,18 @@ const UiCloseIcon = conceptIcon(`ui-close`)
 const UiSelectedIcon = conceptIcon(`ui-selected`)
 const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 
-// The custom-rendered agent-session viewer (EXP-63 — the web port of the
-// mobile "Agent session" chat view, EXP-32). NO terminal rendering: the
-// viewer joins the steer relay's scrubbed ACTIVITY channel
+// The custom-rendered agent-session viewer (EXP-63). NO terminal rendering:
+// the viewer joins the steer relay's scrubbed ACTIVITY channel
 // ({"t":"join","channel":"activity"}, apps/steer-relay/src/protocol.ts) and
-// renders structured events — narration bubbles + compact tool rows, a
-// pinned "Latest changes" diff above the composer — never raw PTY bytes.
-// Steering is message-shaped like mobile — chunked input + a SEPARATE `\r`
-// frame (EXP-312: no operator claim, no view/steer perm split — the mint is
-// owner-only, so a live connection just steers); question answers ride the
-// semantic `answer` frame (steer protocol v2, EXP-249) — the ONLY answer
-// path since EXP-672; a card from a desktop that publishes no question id
-// renders read-only.
-// EXP-740: this view is mounted by the two SESSION ROUTES —
-// `/t/$teamSlug/sessions/$sessionId` and the team's `/t/$teamSlug/agent` —
-// filling the content panel on every breakpoint. It always auto-connects; the
-// route owns the membership + config.enabled gating (the relay enforces both
-// regardless) and supplies `identity` + `onBack`. The "coding now" rows +
-// remote-start affordances live in issue-coding-rows.tsx.
+// renders structured events — narration, compact tool rows, edit cards, the
+// Work / Script / Tasks cards — never raw PTY bytes. Question and plan
+// answers ride the semantic `answer` frame (steer protocol v2, EXP-249).
+//
+// EXP-1293 Threads v2: this is the RAW WORK of one session, opened from its
+// session card (`/t/$teamSlug/sessions/$sessionId`). It ALWAYS shows the work
+// (no Show work, no faces, no Guide, no merge, no issue header, no run
+// switching): the route owns the header (back to the thread, the title,
+// Stop) and the reply box (`SessionComposer`), handed in as slots.
 
 // ── Transcript rhythm (EXP-787) ──────────────────────────────────────────────
 // The measure and the gap ladder are shared tokens (packages/design-tokens
@@ -307,9 +198,7 @@ const UiUnselectedIcon = conceptIcon(`ui-unselected`)
 // onto its custom property, so no number is restated here.
 
 /** The centred reading column every transcript row sits in. EXP-1191: on
- *  md+ its gutter is the work column's (`WORK_GUTTER_CLASS`), so the run's
- *  rows, strips and composer share the issue face's edges; a phone keeps
- *  its 12. */
+ *  md+ its gutter is the work column's, a phone keeps its 12. */
 const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 md:px-5`
 
 /** Prose scale — agent narration and the sender's own bubbles. Markdown
@@ -321,12 +210,9 @@ const TRANSCRIPT_BODY_TEXT = `text-[length:var(--transcript-body-size)] leading-
  *  compaction hairline and the "Working…" indicator. */
 const TRANSCRIPT_TOOL_TEXT = `text-[length:var(--transcript-tool-size)] leading-[var(--transcript-tool-line-height)]`
 
-/** EXP-1256 (EXP-1259 D15): the edge fades over the thread and the Guide are
- *  MASKS on the scroller's own content, never a painted layer: the rows
- *  dissolve into the card's own ground, inside the card's own box (no tint,
- *  no blur over its hairline). The top one only once the body scrolled
- *  (nothing sits above the first row at rest); the bottom one is
- *  `DETAIL_FADE_BOTTOM_CLASS`'s, restated here when both apply. */
+/** EXP-1256: the top edge fade is a MASK on the scroller's own content,
+ *  only once the body scrolled; the bottom one is `DETAIL_FADE_BOTTOM_CLASS`'s,
+ *  restated here when both apply. */
 function edgeFadeStyle({
   top,
   bottom,
@@ -356,163 +242,54 @@ function transcriptGapClass(prev: RowClass | null, cur: RowClass): string {
   return token === null ? `` : TRANSCRIPT_GAP_CLASS[token]
 }
 
+/** The status row's mark + tone per session state (the session card's
+ *  state, `sessionState`, so the row and the card never disagree). */
+const STATE_MARK: Record<ReturnType<typeof sessionState>, RunMarkState | undefined> = {
+  queued: undefined,
+  working: `working`,
+  waiting: undefined,
+  needs_you: `needs_input`,
+  blocked: undefined,
+  ended: `ended`,
+}
+const STATE_TONE: Record<ReturnType<typeof sessionState>, RunStatusRowTone> = {
+  queued: `muted`,
+  working: `muted`,
+  waiting: `muted`,
+  needs_you: `amber`,
+  blocked: `amber`,
+  ended: `muted`,
+}
+
 // ── Wire protocol ────────────────────────────────────────────────────────────
 // EXP-621: the relay protocol handling, the connection lifecycle and the feed
-// reducer all moved to lib/steer-session-store.ts — a module-level per-session
-// store that OUTLIVES this view, so leaving the session page or navigating
-// away keeps the socket, the feed and the composer draft. This file only
-// renders.
+// reducer all live in lib/steer-session-store.ts — a module-level per-session
+// store that OUTLIVES this view. This file only renders.
 
+// ── The raw session view: structured activity feed over the relay ──────────
 
-// ── steer.config, fetched once per app lifetime (env-derived, static) ─────────
-
-import { useSteerConfig } from "@/hooks/use-steer-config"
-
-// ── The agent-session view: structured activity feed over the relay ─────────
-
-// Mounted by the session routes (EXP-740), keyed by session id. Always
-// auto-connects; the caller owns the membership + config.enabled gating (the
-// relay enforces both regardless) and supplies `identity` + `onBack`.
-// Session-scoped — the "coding now" rows live in issue-coding-rows.tsx.
 export function AgentSessionView({
   session,
-  currentUserId,
-  identity,
-  mergeTarget,
-  banner,
-  face,
-  guideSection,
-  diffFile: requestedDiffFile = null,
-  guideStack,
-  onFace,
-  onIssueFace,
-  issueHeader,
-  issueRuns,
-  onOpenRun,
-  onStart,
-  prFiles,
-  prFilesState,
-  onRetryPrFiles,
-  prUrl,
-  graphBadge,
-  renderMobileHeader,
-  onBack,
-  guideResults,
-  embedded = false,
-  initialShowWork = false,
-  blockResults,
+  header,
+  composer,
 }: {
-  session: CodingSession
-  currentUserId: string
-  /** EXP-688: what this run IS — the mono identifier (absent for action,
-   *  chat and batch runs) and its human subject. The ONE header names it on
-   *  every breakpoint (EXP-740: the dock tab no longer sits under a panel). */
-  identity: SessionIdentity
-  /** EXP-678: what this session's Merge pill acts on — the linked issue, a
-   *  batch run's resolved representative (EXP-535), or the run's own chore PR
-   *  row (EXP-734). Absent (no open PR, still syncing) = no Merge pill. */
-  mergeTarget?: SessionMergeTarget
-  /** EXP-773: a strip between the header and the feed — the session route's
-   *  ended-run close-out (byline, Resume). */
-  banner?: React.ReactNode
-  /** EXP-1251: which face of the work tab this page shows — `run` (the
-   *  transcript) or `guide` (the run's Guide). `issue` is a navigation the
-   *  route performs (`onIssueFace`). */
-  face: `run` | `guide`
-  /** EXP-1251: the Guide's section page on show (`?section=`). */
-  guideSection?: GuideSectionKey
-  /** EXP-1154: the file a section page opens on (`?file=`). */
-  diffFile?: string | null
-  /** EXP-1248: the Guide's Stack card (`GuideStackCard`), the route's. */
-  guideStack?: ReactNode
-  /** A face, or (on `guide`) one of its section pages. */
-  onFace: (face: `run` | `guide`, section?: GuideSectionKey) => void
-  /** EXP-870: the run's linked issue is the same work tab's other face — its
-   *  canonical URL. Absent on issue-less runs (no `Issue` face). */
-  onIssueFace?: () => void
-  /** EXP-877: an issue-bound run wears the ISSUE's header — the editable
-   *  title, the pin + `…` cluster and the properties tray (with the ONE
-   *  coding action inside it). Absent = a run header: the run title, Merge
-   *  and Stop/Resume on the right. */
-  issueHeader?: {
-    title: ReactNode
-    trailing?: ReactNode
-    tray?: ReactNode
-  }
-  /** EXP-886: the runs behind the `Runs` segment, switcher order — the
-   *  Run/Runs label, the md+ toggle's run menu (EXP-950) and the phone
-   *  switcher's run rows all read it. An issue-bound run's are the issue's
-   *  runs of mine (`useIssueRuns`); EXP-974: an issue-less run's are its
-   *  RESUME CHAIN (`useRunChain`), so a resumed run and its successor share
-   *  one toggle and pick each other from the menu. */
-  issueRuns?: readonly PastRunRow[]
-  /** EXP-886: open another of those runs (the view swaps in place). */
-  onOpenRun?: (session: CodingSession) => void
-  /** EXP-893: start a NEW run on the issue — the phone switcher's `Start
-   *  coding` row once this run ended for good. */
-  onStart?: () => void
-  /** EXP-893: the issue's PR files, the Guide's diff when the run
-   *  published no live diff (`useReviewFiles`). */
-  prFiles?: DiffFile[] | null
-  /** The PR files fetch behind `prFiles` — the Guide's loading / none /
-   *  error states with no report to stand on. */
-  prFilesState?: ReviewFilesState | null
-  /** Retries that fetch (the Guide's error state). */
-  onRetryPrFiles?: () => void
-  /** EXP-893: the PR page — the GitHub button, which EXP-949 confines to
-   *  the Guide on every width. */
-  prUrl?: string | null
-  /** EXP-897: the "Related work" badge (`PrGraphBadge`): blockers, batch
-   *  partners, the PR stack. The route builds it so this file stays free of
-   *  routing. It rides the ONE work header. */
-  graphBadge?: ReactNode
-  /** EXP-893: an issue subject's phone header (`IssueMobileHeader`) — the
-   *  route wraps it so the same bar shows on every face; `shownFace` is the
-   *  face actually SHOWING (a `?view=` that fell back reads as `run`), which
-   *  decides its action slot: Stop / Resume on Run, GitHub on the Guide
-   *  (EXP-949). */
-  renderMobileHeader?: (input: {
-    shownFace: `run` | `guide`
-    /** EXP-1150: the face strip the header carries under itself. */
-    tabs: ReactNode
-  }) => ReactNode
-  /** Leave the session page (the socket outlives the unmount, EXP-621). */
-  onBack: () => void
-  /** EXP-1284: the Guide this run shows — its THREAD's (`threads.results`)
-   *  once the thread has one; absent = the run's own results. */
-  guideResults?: unknown
-  /** EXP-1284: EMBEDDED in a thread's conversation (a session block): the
-   *  Run face's body alone — the status row over the run's turns / thread,
-   *  the pending plan or question card answered IN its card, and Show work
-   *  swapping in the transcript IN PLACE — at its natural height, with no
-   *  header, scroller, strips or composer (the thread's reply box steers). */
-  embedded?: boolean
-  /** EXP-1284: an embedded view opened by a folded block's Show work starts
-   *  on the transcript. */
-  initialShowWork?: boolean
-  /** EXP-1284 (review): the published results this session's thread / turns
-   *  draw — a session block passes ONLY its own Guide entries
-   *  (`sessionGuideEntries`); absent = the session's own results. */
-  blockResults?: unknown
+  /** The synced `sessions` row (any node of a tree). */
+  session: SessionRow
+  /** The route's header (back to the thread, the title, Stop). */
+  header?: ReactNode
+  /** The reply box under the feed (`SessionComposer`). */
+  composer?: ReactNode
 }) {
-  /** EXP-886: more than one run of mine on the issue — "Runs". */
-  const multipleRuns = (issueRuns?.length ?? 0) > 1
   // EXP-621: the connection lives in a module-level per-session store that
-  // outlives this view — mounting subscribes to the retained state (feed,
-  // phase, answers) and dials only when nothing is connected yet, so
-  // reopening a session renders instantly with no reconnect phase.
+  // outlives this view — mounting subscribes to the retained state and dials
+  // only when nothing is connected yet.
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
-  // EXP-698: the steer composer is the mention field, so it needs the run's
-  // team roster for `@` autocomplete.
   const { users: teamUsers } = useTeamUsers(session.teamId)
   const {
     phase,
     feed,
-    latestDiff,
     compacting,
     config,
-    usage: sessionUsage,
-    contextLayout,
     rateLimit,
     turnState,
     turnStartedAt,
@@ -523,11 +300,9 @@ export function AgentSessionView({
     workflows,
     runningWorkflow,
     answerStates,
-    connected,
     canLoadEarlier: snapshotCanLoadEarlier,
   } = useSyncExternalStore(store.subscribe, store.getSnapshot)
-  /** EXP-724: the agent is folding its context — the strip above the composer
-   *  says so, and the generic "Working…" footer stands down while it does. */
+  /** EXP-724: the agent is folding its context. */
   const compactingNow = compacting !== null
   useEffect(() => store.connect(), [store])
   // The synced row is the truth for "still running" inside the redial loops.
@@ -536,43 +311,10 @@ export function AgentSessionView({
     [store, session.status]
   )
 
-  /** EXP-893: the phone's composer is a capsule until tapped. */
-  const [composerOpen, setComposerOpen] = useState(false)
-  /** EXP-877: the file the diff FACE is scrolled to (null = the top).
-   *  EXP-1154: seeded by the route's `?file=` (a Guide file row on the issue
-   *  hands its path over with the live-diff redirect). */
-  const [diffFile, setDiffFile] = useState<string | null>(requestedDiffFile)
-  useEffect(() => {
-    if (requestedDiffFile) setDiffFile(requestedDiffFile)
-  }, [requestedDiffFile])
-  const [usageOpen, setUsageOpen] = useState(false)
-  /** EXP-866: an account switch has been requested for THIS run — the live
-   *  rate-limit notice stands down for good (the slot is cleared too, but a
-   *  late frame from the ending run must not bring the wall back over a run
-   *  that is being left). Reset when the view moves to another session. */
-  const [switchRequested, setSwitchRequested] = useState(false)
-  useEffect(() => setSwitchRequested(false), [session.id])
   const [atBottom, setAtBottom] = useState(true)
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
-   *  subagent id focuses that agent's stream. Falls back to Main whenever the
-   *  id vanishes from the feed (an `activity_reset` replay). */
+   *  subagent id focuses that agent's stream. */
   const [agentTab, setAgentTab] = useState<string | null>(null)
-  /** EXP-1175: the Run face opens as the THREAD (status row + published
-   *  results); Show work swaps in the full transcript in place. Per user. */
-  // EXP-1284: an embedded block keeps its OWN Show work (the per-user pref
-  // belongs to the run's page), so one block never flips every other.
-  const prefShowWork = useShowWork(currentUserId)
-  const [blockShowWork, setBlockShowWork] = useState(initialShowWork)
-  const showWork = embedded ? blockShowWork : prefShowWork
-  const toggleShowWork = () => {
-    if (embedded) setBlockShowWork((current) => !current)
-    else setShowWork(currentUserId, !showWork)
-  }
-  // The thread has ONE conversation: hiding the work drops a subagent tab.
-  useEffect(() => {
-    if (!showWork) setAgentTab(null)
-  }, [showWork])
-
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const sendMessage = (text: string): boolean => store.sendMessage(text)
@@ -585,9 +327,7 @@ export function AgentSessionView({
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
 
-  /** EXP-1256: the body scrolled off its top — the top edge fade shows. */
   const [feedScrolled, setFeedScrolled] = useState(false)
-  const [guideScrolled, setGuideScrolled] = useState(false)
   const handleFeedScroll = () => {
     const el = scrollRef.current
     if (!el) return
@@ -601,12 +341,8 @@ export function AgentSessionView({
     setAtBottom(true)
   }
 
-  // EXP-440: rows now finish laying out AFTER the pin effect below has run —
-  // a markdown bubble mounts its editor deferred (immediatelyRender: false)
-  // and its images size only once decoded, so the feed grows under a scroll
-  // position that was already at the bottom. Watch the content column and
-  // re-pin on every such growth. Ref-mirrored `atBottom` because the observer
-  // is installed once per mounted column, not per render.
+  // EXP-440: rows finish laying out AFTER the pin effect (deferred markdown,
+  // decoded images) — re-pin on every growth of the content column.
   const atBottomRef = useRef(atBottom)
   atBottomRef.current = atBottom
   const contentObserverRef = useRef<ResizeObserver | null>(null)
@@ -629,72 +365,23 @@ export function AgentSessionView({
     if (!atBottom) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-    // needsInput re-pins when the EXP-389 "Working…" footer toggles (its
-    // other inputs — phase, the feed-derived question set — are covered);
-    // the compaction strip (EXP-724) takes height the same way.
-    // EXP-1175: the thread grows as results publish.
-  }, [
-    feed,
-    atBottom,
-    phase.kind,
-    session.needsInput,
-    compactingNow,
-    session.results,
-  ])
+  }, [feed, atBottom, phase.kind, session.needsInput, compactingNow])
 
-  // Switching conversation tabs re-pins to the newest event (EXP-356); so
-  // does swapping the thread and the transcript (EXP-1175).
+  // Switching conversation tabs re-pins to the newest event (EXP-356).
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
     setAtBottom(true)
-  }, [agentTab, showWork])
-
-  /** EXP-895: the run's live `git diff` through the ONE parser — the same
-   *  `DiffFile[]` the review page and the tool cards render. */
-  const diffFiles = useMemo(
-    () => (latestDiff ? parseDiff(latestDiff).files : []),
-    [latestDiff]
-  )
+  }, [agentTab])
 
   const live = phase.kind === `live`
-  // EXP-888: a sweep end (`ended_by = stale`) is not an end — the host
-  // ignores the flip and heartbeats the row back to `running`, so the
-  // composer stays open and the header keeps Stop instead of Resume.
-  const sessionEnded = runHasEnded(session)
-  // EXP-312: live implies ownership — the mint refuses everyone else.
-  // EXP-621: the composer stays MOUNTED through connection flaps (only send
-  // is disabled) — unmounting it on a phase change was how a slow-consumer
-  // eviction ate a typed draft. It only leaves with the session itself.
-  // EXP-820: while a plan or question waits on THIS viewer, the card is the
-  // input — its free-text row opens an inline field — so the composer steps
-  // aside instead of doubling as the answer path (EXP-788 is retired). The
-  // draft survives in the store for when it comes back. (`composerVisible`
-  // is derived below, once the feed's active set is.)
-  const sessionOpen = !sessionEnded && phase.kind !== `ended`
-  // EXP-678: an open PR on a still-live run is mergeable right here. The
-  // server ends the session on merge (EXP-498) and the prState echo hides
-  // the pill again — no local state to unwind. A pending card never hides
-  // the Merge (only the composer steps aside for it).
-  const mergeProps = mergeTarget ? mergeTargetProps(mergeTarget) : null
-  const canMerge = sessionOpen && mergeProps?.prState === `open`
-  // EXP-706: a conflicted merge swaps the pill for the "Fix conflicts" run,
-  // which needs the relay. The session routes only mount this view for a
-  // member with steering on, but the config is the honest gate.
-  const steerConfig = useSteerConfig()
-  const steerEnabled = Boolean(steerConfig?.enabled)
+  const sessionEnded = session.status === `ended`
 
-  /** Identity-scoped questions stay answerable until they resolve. A card
-   *  from a desktop too old to publish ids is never in here — it renders
-   *  read-only (EXP-672). */
+  /** Identity-scoped questions stay answerable until they resolve. */
   const questionIds = useMemo(() => activeQuestionIds(feed), [feed])
   const canAnswer = live && !sessionEnded
-  // EXP-783: the transcript keeps the WHOLE run, and this view paints a
-  // WINDOW over it. `windowFrom` is the id of the oldest rendered row —
-  // `null` means the newest FEED_WINDOW rows, WINDOW_FROM_START the feed's
-  // own first row whatever it is. An id rather than an index, so a
-  // byte-budget eviction or a replay swap cannot slide the window somewhere
-  // else under the reader.
+  // EXP-783: the transcript keeps the WHOLE session, this view paints a
+  // WINDOW over it (`windowFrom` = the oldest rendered row's id).
   const [windowFrom, setWindowFrom] = useState<number | null>(null)
   const windowStart = useMemo(() => {
     const tail = Math.max(0, feed.length - FEED_WINDOW)
@@ -702,30 +389,19 @@ export function AgentSessionView({
     const at = feed.findIndex((item) => item.id >= windowFrom)
     return Math.min(at === -1 ? tail : at, tail)
   }, [feed, windowFrom])
-  /** Render rows: consecutive tool calls collapse into "N tool calls" runs
-   *  (EXP-97), one ask's questions into a stepper and a subagent's work into
-   *  its own group — a projection only, the flat feed stays the state. */
+  /** Render rows: tool runs collapse, one ask's questions become a stepper,
+   *  a subagent's work its own group — a projection only. */
   const rows = useMemo(
     () => groupFeedRows(feed, windowStart),
     [feed, windowStart]
   )
-  /** EXP-895: the ONE row still RUNNING — the last item while it is an
-   *  unsettled tool call, and only in a live run (an ended run's trailing
-   *  unsettled row is history, not a tail). EXP-1206: it is the headline
-   *  alone, nothing streams under it; the shared rule is `liveToolRowId` ×4. */
+  /** EXP-895/1206: the ONE row still RUNNING (`liveToolRowId` ×4). */
   const liveRowId = useMemo(
     () => (live ? liveToolRowId(feed) : undefined),
     [live, feed]
   )
-  /** There is more of this run above the window: either rows the feed already
-   *  holds, or (EXP-783) a page only the device has. */
   const canLoadEarlier = windowStart > 0 || snapshotCanLoadEarlier
-  /** Pull the next page in. Anchored by capturing the distance from the
-   *  BOTTOM of the scroll content before the rows change and restoring it
-   *  after: a front insertion otherwise moves the reader by exactly the
-   *  height of what was inserted. Past the feed's own first row the window
-   *  is pinned to the FRONT before the device is asked, so the page lands
-   *  inside it when it arrives (EXP-795). */
+  /** Pull the next page in, anchored to the distance from the bottom. */
   const anchorRef = useRef<number | null>(null)
   const loadEarlier = useCallback(() => {
     const el = scrollRef.current
@@ -744,15 +420,12 @@ export function AgentSessionView({
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight - anchor
   }, [rows])
-  // While the reader is at the newest rows the window may SLIDE with the
-  // stream (invisible, and it keeps the projection bounded). The moment they
-  // scroll up it is PINNED: rows vanishing above a reader is exactly the jump
-  // this change exists to avoid.
+  // At the newest rows the window SLIDES with the stream; scrolled up, it
+  // is PINNED.
   useEffect(() => {
     if (atBottom) setWindowFrom(null)
   }, [atBottom])
-  /** EXP-356: the subagents seen so far — one conversation tab each. EXP-387:
-   *  the strip only shows the still-running ones (plus the focused tab). */
+  /** EXP-356/387: one conversation tab per still-running subagent. */
   const agents = useMemo(() => collectSubagents(feed), [feed])
   const visibleTabs = useMemo(
     () => visibleSubagentTabs(agents, agentTab),
@@ -762,9 +435,6 @@ export function AgentSessionView({
     agentTab !== null && visibleTabs.some((a) => a.subagentId === agentTab)
       ? agentTab
       : null
-  /** The focused agent's stream, in feed order: its lifecycle markers, tool
-   *  calls and — since EXP-773 — the prose and user turns the mapper scoped
-   *  to it (they are hidden from Main for exactly that reason). */
   const agentItems = useMemo(
     () =>
       activeAgent === null
@@ -772,19 +442,9 @@ export function AgentSessionView({
         : feed.filter((item) => subagentIdOf(item) === activeAgent),
     [feed, activeAgent]
   )
-  /** A trailing question/plan means the session is blocked on a human — the
-   *  header flips to "Needs your input" so it never looks silently stuck. */
+  /** A trailing question/plan means the session waits on a person. */
   const awaitingInput = live && questionIds.size > 0
-  /** The composer steps aside only for a card this viewer can answer on the
-   *  tab it is looking at, and never past a timed-out answer
-   *  (`hasPendingCard`) — an id-less, off-tab or timed-out card must not
-   *  hide the only other input for good. */
-  const cardPending =
-    canAnswer && hasPendingCard(feed, questionIds, answerStates, activeAgent)
-  const composerVisible = sessionOpen && !cardPending
-  /** EXP-788/820: the card the keyboard answers — the newest active plan or
-   *  question whose answer is not in flight. Its number chips are live on
-   *  that card alone. */
+  /** EXP-788/820: the card the keyboard answers. */
   const pendingCard = useMemo(
     () =>
       live && canAnswer
@@ -792,16 +452,9 @@ export function AgentSessionView({
         : null,
     [live, canAnswer, feed, questionIds, answerStates]
   )
-  /** EXP-724: the slash commands THIS session's agent can run (an agent-less
-   *  row is a claude run). Empty catalog = no menu, no hint, no "…" entry.
-   *  EXP-746: an ACP run's agent advertises commands of its own, so the
-   *  catalog is the same MERGE the composer's `/` menu offers — otherwise a
-   *  steered `/<agent command>` came back as a prose bubble here while the
-   *  menu that sent it listed the row (Android and iOS merge on both sides
-   *  too). The "…" Compact entry follows: a run whose agent advertises
-   *  `/compact` can run it. An agent-less run that published a `config_state`
-   *  is an EXTERNAL agent, not a claude one (`steerAgentId`). */
-  const catalogAgent = steerAgentId(session.agent, config !== null)
+  /** EXP-724/746: the slash commands this session's agent can run, so a
+   *  steered `/<command>` renders as a command row, not prose. */
+  const catalogAgent = steerAgentId(session.cli, config !== null)
   const agentCommands = useMemo(
     () =>
       mergeAgentCommands(
@@ -811,9 +464,7 @@ export function AgentSessionView({
       ),
     [catalogAgent, config?.commands]
   )
-  /** EXP-389/EXP-848: the agent is actively EXECUTING a turn — the shared
-   *  predicate (`sessionIsWorking`), keyed on the turn slot rather than on
-   *  "live", so an idle run between turns no longer pulses. Mobile parity. */
+  /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({
     live,
     sessionEnded,
@@ -823,32 +474,16 @@ export function AgentSessionView({
     blocked: session.blocked != null,
     compacting: compactingNow,
   })
-  /** EXP-549/550: the host machine per the synced devices row — its RENAMED
-   *  label, and whether it is offline right now. */
-  const device = useSessionDevice(session)
-  /** EXP-484: the host machine's fresh rate-limit report for THIS run's
-   *  agent, or null (finished run, other agent, stale or absent numbers). */
-  const agentUsage = useSessionAgentUsage(session)
-  /** EXP-849 (phase 3): the accounts this run's machine holds, and the
-   *  between-turns switch onto one of them (claude only, own machine, idle).
-   *  The Usage sheet and the rate-limit notice both open these rows. */
-  const accountSwitch = useSessionAccountSwitch(session, currentUserId, {
-    turnEnded: turnState === `ended`,
-    // EXP-866: the wall this switch is the way out of goes NOW, not when the
-    // continuation's page replaces this one.
-    onBeforeSwitch: () => {
-      store.clearRateLimit()
-      setSwitchRequested(true)
-    },
+  /** EXP-549/550: the host machine per the synced devices row. */
+  const device = useSessionDevice({
+    deviceId: session.deviceId,
+    deviceLabel: null,
+    userId: session.userId,
   })
   const usageNow = useNow(30_000)
   const isMobile = useIsMobile()
-  /** EXP-550: no live stream AND the host machine is offline (lid closed,
-   *  usage-limit pause…) — the agent is PAUSED on that machine, not starting
-   *  and not gone. The synced row stays `running`, so it resumes when the
-   *  device returns; the redial loop below keeps trying and picks the stream
-   *  back up on its own. Renders grey with honest copy instead of an endless
-   *  "Agent starting…" spinner. */
+  /** EXP-550: no live stream AND the host machine is offline — PAUSED on
+   *  that machine, not starting and not gone. */
   const paused =
     device.online === false &&
     !sessionEnded &&
@@ -856,60 +491,27 @@ export function AgentSessionView({
       phase.kind === `connecting` ||
       phase.kind === `idle` ||
       phase.kind === `closed`)
-  /** FEED-26: when the feed last changed while live — the viewer's own clock
-   *  for "this run has gone quiet". A compaction edge counts as activity too.
-   *  State (not a ref) so the render that appends the item already sees the
-   *  reset instead of one stale 30 s tick. */
+  /** FEED-26: when the feed last changed while live. */
   const [lastActivityAt, setLastActivityAt] = useState(() => Date.now())
   useEffect(() => {
     setLastActivityAt(Date.now())
   }, [feed, compacting, live])
-  /** Minutes of silence past the threshold, or null while the agent is
-   *  working, waiting on a human, compacting or paused — each of those has
-   *  its own caption. */
   const staleMinutes =
     live && !paused && !awaitingInput && !compactingNow
       ? staleActivityMinutes(usageNow.getTime(), lastActivityAt)
       : null
-  // EXP-804: the agent's usage wall as the ROW records it — null unless the
-  // run's device reported one. `usageNow` already ticks for the stale check,
-  // so the countdown rides it rather than opening a second timer.
+  // EXP-804: the usage wall as the ROW records it.
   const blockedLabel = blockedBadgeLabel(session.blocked, usageNow)
-  /** EXP-688: the kill confirmation is shared with the dock tab's X. Live
-   *  implies ownership (EXP-312), and only a live stream can be killed. */
-  const {
-    canKill: ownsLiveRow,
-    requestKill,
-    dialog: killDialog,
-  } = useKillSession(session, currentUserId, paused)
-  const canKill = live && ownsLiveRow
-  /** EXP-877: Resume in the run header (issue-less runs) — an issue-bound
-   *  run's tray decides for itself (`issue-coding-action.tsx`). */
-  const canResumeAny = useCanResumeOn(sessionEnded ? session : null)
-  const canResumeRun = canResumeAny && !issueHeader
-  /** EXP-849: the Usage sheet is a CONTROL now — it opens the account rows
-   *  (with their bars) and switches between them — so it exists whenever the
-   *  machine reported an account for this run, not only when numbers are
-   *  fresh. */
-  const hasAccountRows = accountSwitch.options.length > 0
-  // EXP-850 §10: the `…` overflow is GONE from this header. Usage moved into
-  // the Context pill and "Compact context" is no longer a menu entry —
-  // `/compact` stays a slash command in the composer, which is where every
-  // other command is typed.
+  const deviceName = device.label || `Desktop`
   const pausedTitle = `${device.label ?? `The device`} is offline`
   const pausedBody = `The agent is paused on that machine and continues when it comes back online.`
-  // The `closed` phase (relay `bye publisher_lost`) does not redial on its
-  // own — a viewer that watched the lid close would sit on "Disconnected"
-  // after the machine woke. Nudge the store once the device flips back
-  // online so the stream resumes without a click. EXP-625: the nudge is
-  // `kick`, which decides for itself whether this store is actually stuck
-  // (it also shortcuts a `starting` backoff step); the phase test that used
-  // to live here moved inside it.
   // EXP-773: the history phases name the machine the transcript lives on.
   useEffect(
     () => store.noteDeviceLabel(device.label),
     [store, device.label]
   )
+  // A `closed` phase does not redial on its own: nudge the store once the
+  // device flips back online (EXP-625 `kick`).
   const deviceOnline = device.online
   const wasOfflineRef = useRef(false)
   useEffect(() => {
@@ -923,28 +525,14 @@ export function AgentSessionView({
     }
   }, [deviceOnline, store])
 
-  /** EXP-850 §10 / EXP-877: the usage overlay opens off the context ring —
-   *  in the composer footer on md+, the phone bar's left circle on a phone.
-   *  Hidden once the run is over (a finished run's context is not a live
-   *  number), unless the machine reported accounts or rate limits worth
-   *  opening. */
-  const contextLabel = formatContextCompact(sessionUsage)
-  const usageAvailable =
-    !sessionEnded && Boolean(contextLabel || agentUsage || hasAccountRows)
-
-  /** EXP-850 §3/§4: the subagents that belong to a workflow card — their rows
-   *  nest inside it instead of standing in the transcript. */
+  /** EXP-850 §3: the subagents that belong to a workflow card. */
   const workflowAgents = useMemo(() => workflowSubagentIds(feed), [feed])
-
-  /** §1/§2: what the CLI is running in the background, plus every OPEN wait
-   *  row — the compact strip directly above the composer. */
+  /** §1/§2: background tasks + every OPEN wait row, above the composer. */
   const stripLines = useMemo(
     () => backgroundStripLines({ backgroundTasks, feed }),
     [backgroundTasks, feed]
   )
-
-  /** §4: the duplicate warnings a workflow card carries, by workflow id. A
-   *  duplicate edge WITHOUT one renders inline in its subagent group row. */
+  /** §4: the duplicate warnings a workflow card carries, by workflow id. */
   const workflowDuplicates = useMemo(() => {
     const byWorkflow = new Map<string, string[]>()
     for (const item of feed) {
@@ -956,11 +544,8 @@ export function AgentSessionView({
     }
     return byWorkflow
   }, [feed])
-
-  /** EXP-850 §3: cards whose `Workflow` tool row this window does not hold —
-   *  evicted, or above the rendered rows. They land at the TAIL of the
-   *  transcript, because a card is the ONLY place a running workflow's agents
-   *  and its duplicate warnings are shown (Android parity). */
+  /** EXP-850 §3: cards whose `Workflow` tool row this window does not hold
+   *  land at the TAIL of the transcript. */
   const orphanWorkflows = useMemo(
     () =>
       orphanWorkflowIds(rows, workflows)
@@ -969,456 +554,40 @@ export function AgentSessionView({
     [rows, workflows]
   )
 
-  /** EXP-879: the screenshots this run published (`coding_sessions.results`,
-   *  a synced jsonb blob) — EXP-933: and each topic's report text, grouped:
-   *  the Guide's sections (EXP-1251). */
-  const guideSource = guideResults !== undefined ? guideResults : session.results
-  const resultGroups = useMemo(
-    () => parseSessionResultGroups(guideSource),
-    [guideSource]
-  )
-  /** EXP-1175: the Run face's default body — the same results in publish
-   *  order, the Summary text last as the reply. */
-  const threadSource = blockResults !== undefined ? blockResults : session.results
-  const thread = useMemo(() => sessionThread(threadSource), [threadSource])
-  /** EXP-1245: the OWNER's thread as TURNS — their messages and the turn
-   *  edges of the relay feed they already hold (`useSessionTurnEvents`);
-   *  without any (an offline host, a fresh join) the single-row thread. */
-  const turnEvents = useSessionTurnEvents(
-    session.id,
-    feed,
-    turnState,
-    turnStartedAt,
-    session.startedAt
-  )
-  const turns = useMemo(
-    () => sessionTurns(threadSource, turnEvents),
-    [threadSource, turnEvents]
-  )
-  const firstEndKnown = useMemo(
-    () => firstTurnEndKnown(turnEvents, session.startedAt),
-    [turnEvents, session.startedAt]
-  )
-  const threadEmpty = thread.items.length === 0 && thread.reply === null
-  /** EXP-1175: the status row over the thread / transcript — fixture
-   *  `run-row.json` ×4. */
-  const runRowState: RunRowState = resolveRunRowState({
-    paused,
-    ended: sessionEnded,
-    awaitingInput,
-    working,
-    display: sessionDisplayState(session, mergeProps?.prState ?? null),
-  })
-  // The mark follows the SAME state: a paused run wears the bare mark.
-  const runRowMarkState: RunMarkState | undefined =
-    runRowState === `paused` ? undefined : runRowState
-  const runRowNow = useNow(runRowState === `working` ? 1000 : 30_000)
-  const runRow = runRowCaption({
-    state: runRowState,
-    device: device.label || session.deviceLabel || `Desktop`,
-    startedAt: session.startedAt,
-    endedAt: session.endedAt ?? session.updatedAt,
-    now: runRowNow,
-  })
-  const runToolLine = live ? lastToolLine(feed) : null
-  /** EXP-1271 (EXP-1259 D8): before the run's first turn the owner's status
-   *  row is the mark over "Starting on <device>" — nothing streamed, nothing
-   *  published, no turn begun. */
-  const startingRun =
-    session.userId === currentUserId &&
-    sessionOpen &&
-    !paused &&
-    feed.length === 0 &&
-    threadEmpty &&
-    turnState !== `started` &&
-    phase.kind !== `history_pending` &&
-    phase.kind !== `closed`
-  const startingCaption = STARTING_COPY.label.replace(
-    `{device}`,
-    device.label || session.deviceLabel || `Desktop`
-  )
+  /** The status row over the feed: the session card's state (the synced
+   *  row), sharpened by what the live feed already knows. */
+  const state = useMemo(() => {
+    const base = sessionState(toTreeSession(session))
+    if (base === `ended` || base === `blocked`) return base
+    if (awaitingInput) return `needs_you` as const
+    if (working) return `working` as const
+    return base
+  }, [session, awaitingInput, working])
+  const starting = state === `queued` && !paused
+  const statusCaption = starting
+    ? STARTING_COPY.label.replace(`{device}`, deviceName)
+    : paused
+      ? pausedTitle
+      : staleMinutes !== null && state === `working`
+        ? `No activity for ${staleMinutes} min`
+        : SESSION_CARD_COPY.states[state]
+  const statusToolLine = live && !sessionEnded ? lastToolLine(feed) : null
+
   const ownerName =
     teamUsers.find((user) => user.id === session.userId)?.name ?? null
   const runCards = useMemo(
-    () => ({ agent: session.agent ?? null, owner: ownerName, users: teamUsers }),
-    [session.agent, ownerName, teamUsers]
-  )
-  const lastTurn = turns.turns.length - 1
-  const renderTurnRow = (turn: SessionTurn, index: number): ReactNode => {
-    const caption = turnRowCaption({
-      turn,
-      state: runRowState,
-      device: device.label || session.deviceLabel || `Desktop`,
-      runEndedAt: session.endedAt ?? session.updatedAt,
-      now: runRowNow,
-      endKnown: index > 0 || firstEndKnown,
-    })
-    if (!caption) return null
-    const open = turn.endedAt === null
-    return (
-      <RunStatusRow
-        agent={session.agent}
-        markState={open ? runRowMarkState : undefined}
-        caption={caption.text}
-        tone={caption.tone}
-        toolLine={open && index === lastTurn ? runToolLine : null}
-        showWork={showWork}
-        toggleLabel={showWorkLabel(showWork)}
-        onToggle={toggleShowWork}
-      />
-    )
-  }
-  /** EXP-1175: while the thread shows, only the pending plan/question cards
-   *  of the transcript render — through the SAME rows. */
-  /** The empty-feed placeholders (connecting / paused / waiting): the
-   *  transcript's while it has no rows; the thread's only while it is empty
-   *  too and no card waits. */
-  const feedPlaceholder =
-    feed.length === 0 && (showWork || (threadEmpty && !cardPending))
-  /** EXP-1245: the thread draws its turns (one status row each) once the
-   *  feed told us about any; the transcript keeps the one run-wide row, and
-   *  so does a placeholder (no thread mounted to draw the turn rows). */
-  const perTurnThread = !showWork && turns.perTurn && !feedPlaceholder
-  const pendingCardRows = useMemo(
-    () => (cardPending ? rows.filter(rowIsPendingCard) : []),
-    [cardPending, rows]
+    () => ({ agent: session.cli ?? null, owner: ownerName, users: teamUsers }),
+    [session.cli, ownerName, teamUsers]
   )
 
-  /** EXP-1251: the diff the Guide counts — the run's live diff, else the
-   *  PR files the route fetched; null while neither is known. */
-  const guideFiles = useMemo(
-    () => (diffFiles.length > 0 ? diffFiles : (prFiles ?? null)),
-    [diffFiles, prFiles]
-  )
-  /** EXP-1251: the subject HAS a Guide — a report, a diff, or an open PR
-   *  whose files are one fetch away. */
-  const hasGuide =
-    resultGroups.length > 0 ||
-    (guideFiles?.length ?? 0) > 0 ||
-    mergeProps?.prState === `open`
-  /** A stale `?view=guide` (nothing to guide through) falls back to the run. */
-  const showGuideFace = face === `guide` && hasGuide
-  const sectionPage = useMemo(
-    () =>
-      showGuideFace && guideSection !== undefined
-        ? guideSectionPage(resultGroups, guideFiles, guideSection)
-        : null,
-    [showGuideFace, guideSection, resultGroups, guideFiles]
-  )
-  /** EXP-877/1251: the faces this work tab offers — `Issue` when the run
-   *  links one, `Run` always (this IS the run), `Guide` once there is a
-   *  report or a diff. Under two faces the toggle renders nothing. */
-  const faceKinds = availableFaces({
-    hasIssue: Boolean(onIssueFace),
-    hasRun: true,
-    hasResults: resultGroups.length > 0,
-    hasDiff: hasGuide,
-  })
-  const selectFace = useCallback(
-    (next: WorkFaceKind) => {
-      if (next === `issue`) onIssueFace?.()
-      else onFace(next)
-    },
-    [onIssueFace, onFace]
-  )
-  const faceItems: WorkFaceItem[] = faceKinds.map((kind) => ({
-    face: kind,
-    label:
-      kind === `issue`
-        ? ISSUE_FACE_LABEL
-        : kind === `run`
-          ? runFaceLabel(multipleRuns)
-          : GUIDE_FACE_LABEL,
-    onSelect: () => selectFace(kind),
-  }))
-  /** EXP-933: the transcript's `Open Guide` card switches THIS run to its
-   *  Guide — offered once there is a Guide to switch to. */
-  const openResults = useMemo(
-    () => (hasGuide ? () => onFace(`guide`) : null),
-    [hasGuide, onFace]
-  )
-  const openSection = useCallback(
-    (target: GuideChangesTarget) => {
-      setDiffFile(null)
-      onFace(`guide`, target.section)
-    },
-    [onFace]
-  )
-
-  /** The run header's own right cluster (issue-less runs): Merge, then
-   *  Stop while live or Resume once ended and resumable on its machine. An
-   *  issue-bound run's cluster is the issue's (pin + `…`), and its coding
-   *  action sits in the tray.
-   *
-   *  EXP-926 / FEED-45: these stand BESIDE the face toggle with no properties
-   *  card to belong to, so they wear the toggle's own height
-   *  (`placement="header"`) — a 24px Stop next to a 36px `Run +8870 −4` read
-   *  as a stray. Inside the tray they stay chips (`placement="tray"`). */
-  /** EXP-949/1251: the way out to GitHub belongs to the GUIDE alone —
-   *  never beside the transcript. Same rule on the issue route, the IDE and
-   *  the phones. */
-  const githubButton =
-    showGuideFace && prUrl ? <PrGithubButton prUrl={prUrl} /> : null
-  const runTrailing = issueHeader ? (
-    <>
-      {githubButton}
-      {issueHeader.trailing}
-    </>
-  ) : (
-    <>
-      {/* EXP-916: the header carries the merge control on every face —
-          exactly ONE. */}
-      {canMerge && mergeProps && (
-        <MergePrPill
-          {...mergeProps}
-          steerEnabled={steerEnabled}
-          placement="header"
-        />
-      )}
-      {githubButton}
-      {canKill ? (
-        <StopRunPill onStop={requestKill} placement="header" />
-      ) : sessionEnded && canResumeRun ? (
-        <ResumeRunPill session={session} placement="header" />
-      ) : null}
-    </>
-  )
-
-  /** EXP-877: the context meter, INSIDE the composer's tool row now (the
-   *  `usageSlot`), anchoring the same usage popover the header pill used to.
-   *  Gone once the run is over — a finished run's context is not a live
-   *  number any more. */
-  const showEmptyRing = Boolean(agentUsage) || hasAccountRows
-  /** EXP-909 §1: the login this run SPENDS — the same resolution the overlay's
-   *  header draws (`activeAccountIndex`), hoisted so the open-refresh can name
-   *  it in its command. */
-  const runAccount =
-    accountSwitch.options[
-      activeAccountIndex(accountSwitch.options, agentUsage?.account?.email)
-    ] ?? null
-  // EXP-881: opening the overlay asks that login's machine for fresh numbers,
-  // once per open, inside the device's own floor.
-  useSessionUsageRefreshOnOpen(
-    usageOpen,
-    session,
-    runAccount?.row ?? null,
-    currentUserId
-  )
-  /* EXP-909: ONE overlay, not two — `MobilePopover` IS the popover on md+ and
-     the bottom sheet on a phone, so the sections cannot drift between the two
-     shells the way the hand-rolled `Popover` + `Sheet` pair did. The composer's
-     ring anchors it here; the phone's work bar anchors the same overlay around
-     its own circle (the two rings never render at once). */
-  const usageOverlay = (trigger: React.ReactElement) => (
-    <MobilePopover open={usageOpen} onOpenChange={setUsageOpen}>
-      <MobilePopoverTrigger asChild>{trigger}</MobilePopoverTrigger>
-      <MobilePopoverContent
-        align="end"
-        collisionPadding={8}
-        className="w-80 p-0"
-        aria-label="Usage"
-        mobileTitle="Usage"
-        data-testid="session-usage-popover"
-      >
-        <SessionUsageSections
-          sessionUsage={sessionUsage}
-          contextLayout={contextLayout}
-          teamId={session.teamId}
-          agentUsage={agentUsage}
-          agent={session.agent}
-          accountSwitch={accountSwitch}
-          now={usageNow}
-        />
-      </MobilePopoverContent>
-    </MobilePopover>
-  )
-  const usageSlot = !usageAvailable
-    ? null
-    : usageOverlay(
-        <ContextRing
-          percent={contextPercent(sessionUsage)}
-          tone={severity(contextPercent(sessionUsage) ?? 0)}
-          showEmpty={showEmptyRing}
-        />
-      )
-
-  /** The run's state tone — EXP-1162: it feeds the face TABS' dots
-   *  (`faceDots`), the header title carries none. */
-  const dot = phaseDotTone({
-    live,
-    connecting:
-      phase.kind === `connecting` ||
-      phase.kind === `starting` ||
-      phase.kind === `history_pending`,
-    awaitingInput,
-    paused,
-    stale: staleMinutes !== null,
-  })
-  const showingRun = !showGuideFace
-  /** The face actually showing, for the phone header's action slot. */
-  const shownFace: `run` | `guide` = showGuideFace ? `guide` : `run`
-  /** EXP-893 / EXP-1150: the phone's faces are TABS under the header and
-   *  the body swipes between them. */
-  const swipe = useFaceSwipe(faceKinds, shownFace, selectFace)
-  /** EXP-1162: the state lives on the face TABS — the Run tab while this
-   *  run is live (amber while it waits on a person or went quiet), the
-   *  Guide tab while the pull request is open. */
-  const dotState = {
-    runLive: dot.tone !== `muted`,
-    needsInput: dot.tone === `needs_input`,
-    prOpen: mergeProps?.prState === `open`,
-  }
-  /** EXP-1184: what the Run tab's mark says — the ×4 rule fed with this
-   *  viewer's own signals (the live feed's turn state, the pending ask). */
-  const runMark = {
-    agent: session.agent,
-    state: dotState.runLive
-      ? sessionDisplayState(
-          {
-            status: session.status,
-            needsInput: dotState.needsInput,
-            agentBusy: working,
-          },
-          mergeProps?.prState
-        )
-      : undefined,
-  }
-  const mobileTabs = isMobile ? (
-    <MobileFaceTabs
-      faces={faceKinds}
-      face={shownFace}
-      dots={faceDots({ faces: faceKinds, ...dotState })}
-      run={runMark}
-      runs={issueRuns}
-      viewedRunId={session.id}
-      onFace={selectFace}
-      onOpenRun={onOpenRun}
-    />
-  ) : null
-  /** EXP-1154: the ONE merge of the phone Work screen is the white capsule
-   *  on the Guide's floating bar (EXP-1191: a circle beside the composer on
-   *  Run). */
-  const phoneMerge =
-    isMobile && canMerge && mergeProps ? (
-      <MergeCapsule {...mergeProps} steerEnabled={steerEnabled} />
-    ) : undefined
-
-  /** EXP-1150: the Run face's bar keeps ONE circle on its right — Start
-   *  coding once the run ended for good, else nothing. */
-  const phoneTrailingNode =
-    Boolean(onStart) && sessionEnded && !canResumeAny ? (
-      <FabButton
-        emphasis="primary"
-        aria-label={START_CODING_LABEL}
-        title={START_CODING_LABEL}
-        data-testid="run-start-circle"
-        onClick={onStart}
-      >
-        <StartIcon className="size-5" />
-      </FabButton>
-    ) : undefined
-
-  /** EXP-1191: the Merge circle right of the composer capsule while the PR
-   *  is open (no longer the white capsule floating above the bar). */
-  const phoneMergeCircle =
-    isMobile && canMerge && mergeProps ? (
-      <MobileMergeCircle {...mergeProps} steerEnabled={steerEnabled} />
-    ) : undefined
-
-  /** EXP-893: the phone bar by face. Run + open session: the usage ring, the
-   *  composer capsule (expanding into the composer), the Start circle once
-   *  the run ended for good, and (EXP-1191) the Merge circle right of the
-   *  capsule. Run over: that circle alone, else Merge alone, or no bar.
-   *  EXP-1251 Guide: the white Merge capsule, and on a section page the
-   *  file sheet (its files only) leading it — only the Run face owns Stop /
-   *  Resume. */
-  const sectionSheet =
-    sectionPage && sectionPage.files.length > 0 ? (
-      <ChangesFileSheet
-        files={sectionPage.files}
-        selected={diffFile}
-        onSelect={setDiffFile}
-      />
-    ) : undefined
-  const mobileBar = !isMobile ? null : showGuideFace ? (
-    phoneMerge || sectionSheet ? (
-      <MobileWorkBar cluster leading={sectionSheet} capsule={phoneMerge} />
-    ) : null
-  ) : !(composerVisible || phoneTrailingNode) ? (
-    phoneMerge ? <MobileWorkBar cluster capsule={phoneMerge} /> : null
-  ) : (
-    <>
-      <MobileWorkBar
-        /* EXP-916: the ring belongs to the composer band — while a card holds
-           the keyboard, or once the session is over, the bar is the trailing circle
-           alone (Android's `FloatingBottomBar(right = …)`, iOS's
-           `bandRetired`). */
-        leading={
-          composerVisible && usageAvailable
-            ? usageOverlay(
-                <ContextRing
-                  percent={contextPercent(sessionUsage)}
-                  tone={severity(contextPercent(sessionUsage) ?? 0)}
-                  showEmpty={showEmptyRing}
-                  className={cn(
-                    MOBILE_WORK_CIRCLE_CLASS,
-                    `[&>svg]:size-6 [&>svg]:shrink-0`
-                  )}
-                />
-              )
-            : undefined
-        }
-        capsule={
-          composerVisible ? (
-            <MobileWorkCapsule
-              onClick={() => setComposerOpen(true)}
-              data-testid="steer-composer-capsule"
-            >
-              <span className="truncate text-muted-foreground">
-                {COMPOSER_PLACEHOLDER}
-              </span>
-            </MobileWorkCapsule>
-          ) : undefined
-        }
-        afterCapsule={phoneMergeCircle}
-        expanded={
-          composerVisible && composerOpen ? (
-            <div className={cn(`rounded-2xl p-1.5`, FAB_CHROME_CLASS)}>
-              <SteerComposer
-                store={store}
-                live={live && connected}
-                onSend={sendMessage}
-                working={working}
-                sessionId={session.id}
-                users={teamUsers}
-                agent={session.agent}
-                config={config}
-                usageSlot={usageSlot}
-                autoFocus
-                onEmptyBlur={() => setComposerOpen(false)}
-              />
-            </div>
-          ) : null
-        }
-        /* The expanded composer covers the bar; its circle waits behind it. */
-        trailing={composerVisible && composerOpen ? undefined : phoneTrailingNode}
-      />
-    </>
-  )
-
-  /** One transcript row — the full transcript maps every row through it,
-   *  the thread (EXP-1175) only its pending plan/question cards, so a card
-   *  keeps its autofocus, hotkeys and anchor text in both. `list` is the
-   *  sequence the row sits in (its gap reads the row before it). */
+  /** One transcript row; `list` is the sequence it sits in (its gap reads
+   *  the row before it). */
   const renderTranscriptRow = (
     row: (typeof rows)[number],
     index: number,
     list: readonly (typeof rows)[number][]
   ): ReactNode => {
-    // EXP-787: the rhythm is the ladder, not a uniform gap —
-    // each row carries the space ABOVE it, chosen from the row
-    // before it. The key stays the row id; the wrapper only
-    // holds that padding.
+    // EXP-787: each row carries the space ABOVE it, from the row before it.
     const gap = transcriptGapClass(
       index === 0 ? null : rowClass(list[index - 1]),
       rowClass(row)
@@ -1431,37 +600,27 @@ export function AgentSessionView({
         {content}
       </div>
     )
-    // EXP-916: a run of consecutive edits IS the transcript's
-    // edited-files card — the same `FileDiffCard` stack every
-    // Changes surface draws, inline, never a jump away.
+    // EXP-916: a run of consecutive edits IS the edited-files card.
     if (row.kind === `edits`) {
       return wrap(
         <EditsCardRow
-          items={
-            row.items as Extract<FeedItem, { kind: `tool` }>[]
-          }
+          items={row.items as Extract<FeedItem, { kind: `tool` }>[]}
           liveRowId={liveRowId ?? null}
         />
       )
     }
-    // EXP-948: a run of the SAME Exponential tool is its own
-    // captioned row — ours are never folded away as "N other
-    // tools".
+    // EXP-948: a run of the SAME Exponential tool is its own captioned row.
     if (row.kind === `expRun`) {
       return wrap(
         <ExpToolGroupRow
-          items={
-            row.items as Extract<FeedItem, { kind: `tool` }>[]
-          }
+          items={row.items as Extract<FeedItem, { kind: `tool` }>[]}
         />
       )
     }
     if (row.kind === `toolRun`) {
       return wrap(
         <ToolGroupRow
-          items={
-            row.items as Extract<FeedItem, { kind: `tool` }>[]
-          }
+          items={row.items as Extract<FeedItem, { kind: `tool` }>[]}
           liveTail={
             liveRowId !== undefined &&
             row.items[row.items.length - 1]?.id === liveRowId
@@ -1470,13 +629,8 @@ export function AgentSessionView({
       )
     }
     if (row.kind === `subagent`) {
-      // EXP-850 §3: a workflow's agents live INSIDE its card,
-      // never as a loose group row in the transcript — but
-      // ONLY when this client HOLDS that card (EXP-856): an
-      // edge tagged with a workflow whose frame never arrived
-      // keeps its ordinary row, warning and all. A file card
-      // anchored here still renders (§12): the turn it closes
-      // happened whether or not its row is drawn.
+      // EXP-850 §3/EXP-856: a workflow's agents live INSIDE its card, but
+      // only when this client HOLDS that card.
       if (
         nestedWorkflowId(
           { subagentId: row.subagentId },
@@ -1511,10 +665,7 @@ export function AgentSessionView({
       case `narration`:
         return wrap(<NarrationBubble text={item.text} />)
       case `tool`: {
-        // EXP-850 §3: the `Workflow` call renders as its CARD
-        // (same id), so the call's own settle folds in and no
-        // second row is ever drawn. A card this client has not
-        // received yet falls back to the plain tool row.
+        // EXP-850 §3: the `Workflow` call renders as its CARD.
         const workflow = item.workflowId
           ? workflows.get(item.workflowId)
           : undefined
@@ -1527,39 +678,20 @@ export function AgentSessionView({
             />
           )
         }
-        // EXP-916: such a call may still CARRY a patch (an
-        // edit tagged with a workflow). The card is the only
-        // place a patch renders now, so a one-member card
-        // draws it rather than a row that drops it.
+        // EXP-916: a call that CARRIES a patch draws a one-member card.
         if (item.diff) {
           return wrap(
-            <EditsCardRow
-              items={[item]}
-              liveRowId={liveRowId ?? null}
-            />
+            <EditsCardRow items={[item]} liveRowId={liveRowId ?? null} />
           )
         }
-        return wrap(
-          <ToolRow
-            item={item}
-            flush
-            live={item.id === liveRowId}
-          />
-        )
+        return wrap(<ToolRow item={item} flush live={item.id === liveRowId} />)
       }
       case `user_message`: {
-        // EXP-724: a steered slash command renders as a
-        // compact pill, not as a chat bubble of prose.
-        const command = parseSteerCommand(
-          item.text,
-          agentCommands
-        )
+        // EXP-724: a steered slash command renders as a compact pill.
+        const command = parseSteerCommand(item.text, agentCommands)
         return wrap(
           command ? (
-            <CommandRow
-              name={command.command.name}
-              args={command.args}
-            />
+            <CommandRow name={command.command.name} args={command.args} />
           ) : (
             <UserMessageBubble text={item.text} />
           )
@@ -1569,29 +701,18 @@ export function AgentSessionView({
         return wrap(<CompactionRow />)
       case `api_error`:
         return wrap(
-          <ApiErrorRow
-            message={item.message}
-            errorType={item.errorType}
-          />
+          <ApiErrorRow message={item.message} errorType={item.errorType} />
         )
       case `permission`:
         return wrap(
           <PermissionRow
             tool={item.tool}
             detail={item.detail}
-            active={
-              live && item.id === feed[feed.length - 1]?.id
-            }
+            active={live && item.id === feed[feed.length - 1]?.id}
           />
         )
       case `subagent`:
-        // Same rule as the group row above: nested only when
-        // the card that would hold it exists.
-        if (
-          nestedWorkflowId(item, workflowAgents, workflows)
-        ) {
-          return null
-        }
+        if (nestedWorkflowId(item, workflowAgents, workflows)) return null
         return wrap(
           <SubagentCardRow
             items={[item]}
@@ -1614,259 +735,17 @@ export function AgentSessionView({
     return null
   }
 
-  // EXP-1284: the session block of a thread's conversation — the Run face's
-  // body at its natural height (the thread page scrolls).
-  if (embedded) {
-    return (
-      <OpenResultsContext.Provider value={openResults}>
-      <SessionResultsRawContext.Provider value={session.results}>
-      <RunCardsContext.Provider value={runCards}>
-      <div className="agent-feed flex flex-col" data-testid="embedded-run" data-show-work={showWork}>
-        {!perTurnThread && (
-          <RunStatusRow
-            agent={session.agent}
-            markState={runRowMarkState}
-            starting={startingRun}
-            caption={startingRun ? startingCaption : runRow.text}
-            tone={startingRun ? `muted` : runRow.tone}
-            toolLine={runToolLine}
-            showWork={showWork}
-            toggleLabel={showWorkLabel(showWork)}
-            onToggle={toggleShowWork}
-          />
-        )}
-        {!showWork ? (
-          <SessionThreadView
-            className={perTurnThread ? `pt-1` : `pt-0`}
-            thread={thread}
-            turns={perTurnThread ? turns.turns : undefined}
-            renderStatusRow={renderTurnRow}
-            messageCaption={(message) =>
-              userMessageCaption({ name: ownerName, at: message.at })
-            }
-            attachmentSrc={(id) => `/api/attachments/${id}`}
-            renderText={renderResultText}
-            renderReply={(text) => <NarrationBubble text={text} />}
-          >
-            {pendingCardRows.length > 0 ? (
-              <div>
-                {pendingCardRows.map((row, index) =>
-                  renderTranscriptRow(row, index, pendingCardRows)
-                )}
-              </div>
-            ) : null}
-          </SessionThreadView>
-        ) : feed.length === 0 ? (
-          <div className="flex flex-col gap-2 py-2" data-testid="transcript-placeholder">
-            <SkeletonRows rowHeight={36} className="-mx-3" />
-            <span className="text-xs text-muted-foreground">
-              {phase.kind === `history_pending`
-                ? (phase.detail ?? `Fetching the transcript…`)
-                : `Connecting…`}
-            </span>
-          </div>
-        ) : (
-          <div className="flex flex-col py-2" data-testid="embedded-transcript">
-            {canLoadEarlier ? (
-              <div className="flex justify-center pb-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs text-muted-foreground"
-                  onClick={loadEarlier}
-                >
-                  Load earlier
-                </Button>
-              </div>
-            ) : null}
-            {rows.map((row, index) => renderTranscriptRow(row, index, rows))}
-            {working && (
-              <div className={transcriptGapClass(rows.length === 0 ? null : rowClass(rows[rows.length - 1]), `tool`)}>
-                <WorkingIndicatorRow
-                  agent={session.agent}
-                  startedAt={turnStartedAt}
-                  tokens={turnTokens}
-                  workflow={runningWorkflow}
-                />
-              </div>
-            )}
-          </div>
-        )}
-        {killDialog}
-      </div>
-      </RunCardsContext.Provider>
-      </SessionResultsRawContext.Provider>
-      </OpenResultsContext.Provider>
-    )
-  }
+  const feedPlaceholder = feed.length === 0
 
   return (
-    <OpenResultsContext.Provider value={openResults}>
-    <SessionResultsRawContext.Provider value={session.results}>
+    <SessionResultsRawContext.Provider value={session.guide}>
     <RunCardsContext.Provider value={runCards}>
-    <div className="flex h-full min-h-0 flex-col" {...(isMobile ? swipe : {})}>
-      {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
-          byte-identical to the issue, review and session-issue
-          screens — with the Context pill as its one trailing control; the
-          session's own controls follow in a compact second row, because a native
-          bar carries exactly one. On md+ the single header row names the session
-          over its phase caption and carries every control on the right. */}
-      {isMobile ? (
-        /* EXP-893: the phone header never jumps between faces — an issue
-           subject wears the issue's header (the route renders it, with Stop
-           / Resume in its trailing slot on the Run face only); a session subject
-           the shared detail header with its title, and the
-           same Stop / Resume on the right. No caption row, no plan chip:
-           the strips under the transcript say what the session is doing. */
-        renderMobileHeader ? (
-          renderMobileHeader({ shownFace, tabs: mobileTabs })
-        ) : (
-          <MobileDetailHeader
-            below={mobileTabs}
-            /* EXP-1162: no state dot on the title — the tabs carry it. */
-            title={identity.subject}
-            onBack={onBack}
-            menu={
-              /* The cluster keeps the back button's width whether or not it
-                 holds anything, so the title stays optically centred. */
-              <div className="flex min-w-9 shrink-0 items-center justify-end gap-1">
-                {/* EXP-897: an issue-less run (a BATCH run above all) says
-                    what it is part of here, the same badge, the same sheet. */}
-                {graphBadge}
-                {/* EXP-949: GitHub on the Changes face, in the slot Stop /
-                    Resume hold on the Run face. */}
-                {githubButton}
-                {showingRun &&
-                  (canKill ? (
-                    <StopRunPill onStop={requestKill} />
-                  ) : sessionEnded && canResumeAny ? (
-                    <ResumeRunPill session={session} />
-                  ) : null)}
-              </div>
-            }
-          />
-        )
-      ) : (
-        /* EXP-877: the ONE work header — the same node the issue route
-           renders, so nothing moves when the face flips. No back control on
-           md+ (EXP-870): the compact rail and the list nav's back row are the
-           way out. No identity block, no phase caption: the title says what
-           the session is, the transcript's footer says what it is doing. */
-        <WorkHeader
-          /* EXP-1256: nothing scrolls UNDER this bar (the body starts below
-             it), so it paints no edge layer: the body's own masked fade is
-             the edge, in the card's ground. */
-          edge={false}
-          /* EXP-1162: a run face has no title row of its own, so the bar is
-             always collapsed — the issue's identifier over its title, or
-             the session's own subject. */
-          title={
-            issueHeader ? (
-              issueHeader.title
-            ) : (
-              <CollapsedTitle title={identity.subject} animate={false} />
-            )
-          }
-          trailing={
-            <>
-              {/* The toggle names the face actually SHOWING: a `?view=guide`
-                  deep link with nothing to guide through falls back to the
-                  transcript, and must not leave no segment selected. */}
-              {/* EXP-897: the related-work badge leads the cluster: it names
-                  what this work is PART of, before the controls that act on
-                  it. */}
-              {graphBadge}
-              {/* EXP-950: with several runs the "Runs" segment carries the
-                  caret to the issue's other sessions — and shows alone when the
-                  issue face is out of reach. */}
-              <WorkFaceToggle
-                face={shownFace}
-                items={faceItems}
-                run={runMark}
-                dots={faceDots({ faces: faceKinds, ...dotState })}
-                runMenu={
-                  issueRuns && onOpenRun
-                    ? {
-                        runs: issueRuns,
-                        checkedRunId: session.id,
-                        // The run on show never re-opens.
-                        onOpen: (target) => {
-                          if (target.id !== session.id) onOpenRun(target)
-                        },
-                      }
-                    : undefined
-                }
-              />
-              {runTrailing}
-            </>
-          }
-          tray={issueHeader?.tray}
-        />
-      )}
-
-      {banner}
-
-      {showGuideFace ? (
-        /* EXP-1251: the GUIDE face — the run's report over its diff in the
-           same 896 column under the same header, in place of the
-           transcript; a Changes row opens that section's diff as a page
-           here (`?section=`). */
-        <div
-          className={cn(
-            `min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40`,
-            isMobile && MOBILE_WORK_BAR_CLEARANCE,
-            isMobile && FACE_BODY_TOUCH_CLASS
-          )}
-          /* EXP-1152: the phone pager's body — it follows the finger. */
-          data-face-body={isMobile ? `` : undefined}
-          onScroll={(event) =>
-            setGuideScrolled(event.currentTarget.scrollTop > 0)
-          }
-          style={edgeFadeStyle({ top: guideScrolled, bottom: false })}
-        >
-          <div className={cn(WORK_COLUMN_CLASS)}>
-            {sectionPage ? (
-              <GuideSectionDiff
-                page={sectionPage}
-                selected={diffFile}
-                onSelect={setDiffFile}
-                onBack={() => onFace(`guide`)}
-                isMobile={isMobile}
-              />
-            ) : (
-              <GuideBody
-                groups={resultGroups}
-                files={guideFiles}
-                filesState={prFilesState}
-                onRetry={onRetryPrFiles}
-                stack={guideStack}
-                onOpenChanges={openSection}
-                renderText={renderResultText}
-              />
-            )}
-          </div>
-        </div>
-      ) : (
-      <div
-        className="flex min-h-0 flex-1 overflow-hidden"
-        /* EXP-1152: the phone pager's body — the transcript and its strips
-           follow the finger; the header band and the bar stay put. */
-        data-face-body={isMobile ? `` : undefined}
-      >
-      <div
-        className={cn(
-          `flex min-w-0 flex-1 flex-col overflow-hidden bg-card/40`,
-          // EXP-893: the phone's floating bar owns the bottom edge — the
-          // strips and the last row stop above it.
-          isMobile && MOBILE_WORK_BAR_CLEARANCE
-        )}
-      >
-          {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent
-              (ended tabs are dropped, EXP-387). */}
-          {showWork && visibleTabs.length > 0 && (
-            // EXP-927: in the transcript's reading column, like the strips
-            // below — never the panel's full width.
-            <div className="shrink-0 py-1" data-testid="session-agent-tabs">
+    <div className="flex h-full min-h-0 flex-col" data-testid="agent-session-view">
+      {header}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card/40">
+        {/* EXP-356: conversation tabs — Main plus one per RUNNING subagent. */}
+        {visibleTabs.length > 0 && (
+          <div className="shrink-0 py-1" data-testid="session-agent-tabs">
             <div
               className={cn(
                 TRANSCRIPT_COLUMN,
@@ -1888,544 +767,261 @@ export function AgentSessionView({
                 />
               ))}
             </div>
-            </div>
-          )}
-          {/* EXP-1175: the ONE status row — the run mark, the caption, the
-              last tool line and the Show work toggle — over the thread or
-              the transcript, in the reading column. EXP-1245: the owner's
-              thread of turns draws one row PER TURN instead. */}
-          {!perTurnThread && (
-          <div className="shrink-0 pt-6">
-            <RunStatusRow
-              className={TRANSCRIPT_COLUMN}
-              agent={session.agent}
-              markState={runRowMarkState}
-              starting={startingRun}
-              caption={startingRun ? startingCaption : runRow.text}
-              tone={startingRun ? `muted` : runRow.tone}
-              toolLine={runToolLine}
-              showWork={showWork}
-              toggleLabel={showWorkLabel(showWork)}
-              onToggle={toggleShowWork}
-            />
           </div>
-          )}
-          {/* The activity feed (bottom-anchored, follow-scroll) */}
-          <div className="relative min-h-0 flex-1">
-            <div
-              ref={scrollRef}
-              onScroll={handleFeedScroll}
-              // EXP-619: the feed rides its own bottom edge, and
-              // `overscroll-contain` keeps a downward wheel tick past the
-              // last row from chaining out to the page behind it.
-              // `agent-feed`: the hook the inline-code tint keys on
-              // (EXP-698, styles.css) — chat-sized markdown alone is not it,
-              // comment bodies render that way too.
-              className={cn(
-                `agent-feed h-full overflow-y-auto overscroll-contain`,
-                // EXP-1162/1191: the bottom edge on md+ — the last rows fade
-                // out over the composer (a phone's floating bar carries its
-                // own edge).
-                !isMobile && DETAIL_FADE_BOTTOM_CLASS,
-                // EXP-1152: `touch-action` stops at a scroller, so the
-                // feed itself leaves the sideways pan to the pager.
-                isMobile && FACE_BODY_TOUCH_CLASS
-              )}
-              style={edgeFadeStyle({ top: feedScrolled, bottom: !isMobile })}
-            >
-              {feedPlaceholder && paused ? (
-                <CenteredState>
-                  <EmptyState
-                    icon={UiDeviceOfflineIcon}
-                    title={pausedTitle}
-                    description={pausedBody}
-                  />
-                </CenteredState>
-              ) : feedPlaceholder && startingRun ? (
-                /* EXP-1271: the status row above says "Starting on …". */
-                null
-              ) : feedPlaceholder &&
-                (phase.kind === `connecting` ||
-                  phase.kind === `starting` ||
-                  phase.kind === `history_pending`) ? (
-                /* EXP-1259 D8.3: the transcript's first load = placeholder
-                   rows in its own column, the phase as a muted caption. */
-                <div
-                  className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
-                  data-testid="transcript-placeholder"
-                >
-                  <SkeletonRows rowHeight={36} className="-mx-3" />
-                  <span className="text-xs text-muted-foreground">
-                    {/* EXP-773: a finished run's transcript is a file on the
-                        device — the relay is asking it to republish. */}
-                    {phase.kind === `history_pending`
-                      ? (phase.detail ?? `Fetching the transcript…`)
-                      : phase.kind === `starting`
-                        ? `The agent is starting. Waiting for the live stream…`
-                        : `Connecting…`}
-                  </span>
-                </div>
-              ) : feedPlaceholder && live && !latestDiff ? (
-                <CenteredState>
-                  <EmptyState
-                    title="Waiting for activity"
-                    description="This session isn't publishing an activity feed. It may be marked private on the desktop, or the desktop app needs an update."
-                  />
-                </CenteredState>
-              ) : !showWork ? (
-                /* EXP-1175: the THREAD — the run's published results in
-                   publish order, the Summary as the reply, then any
-                   pending plan/question card through the transcript's own
-                   rows. No Load earlier, no Working… footer: the status row
-                   above is the indicator. */
-                <div
-                  ref={setContentRef}
-                  className={cn(
-                    `flex min-h-full flex-col py-2`,
-                    !isMobile && `pb-10`,
-                    TRANSCRIPT_COLUMN
-                  )}
-                >
-                  <SessionThreadView
-                    className={perTurnThread ? `pt-4` : `pt-0`}
-                    thread={thread}
-                    turns={perTurnThread ? turns.turns : undefined}
-                    renderStatusRow={renderTurnRow}
-                    messageCaption={(message) =>
-                      userMessageCaption({ name: ownerName, at: message.at })
-                    }
-                    attachmentSrc={(id) => `/api/attachments/${id}`}
-                    renderText={renderResultText}
-                    renderReply={(text) => <NarrationBubble text={text} />}
-                  >
-                    {pendingCardRows.length > 0 ? (
-                      <div>
-                        {pendingCardRows.map((row, index) =>
-                          renderTranscriptRow(row, index, pendingCardRows)
-                        )}
-                      </div>
-                    ) : null}
-                  </SessionThreadView>
-                </div>
-              ) : activeAgent !== null ? (
-                <div
-                  ref={setContentRef}
-                  className={cn(
-                    `flex min-h-full flex-col justify-end py-2`,
-                    // The md+ fade masks the scroller's last 48px: the
-                    // newest row rests above it (the desktop's list `pb`).
-                    !isMobile && `pb-10`,
-                    TRANSCRIPT_COLUMN
-                  )}
-                >
-                  <AgentConversation
-                    summary={agents.find((a) => a.subagentId === activeAgent)}
-                    items={agentItems}
-                  />
-                </div>
-              ) : (
-                <div
-                  ref={setContentRef}
-                  className={cn(
-                    `flex min-h-full flex-col justify-end py-2`,
-                    !isMobile && `pb-10`,
-                    TRANSCRIPT_COLUMN
-                  )}
-                >
-                  {canLoadEarlier ? (
-                    <div className="flex justify-center pb-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs text-muted-foreground"
-                        onClick={loadEarlier}
-                      >
-                        Load earlier
-                      </Button>
-                    </div>
-                  ) : null}
-                  {rows.map((row, index) =>
-                    renderTranscriptRow(row, index, rows)
-                  )}
-                  {/* EXP-850 §3: a card whose `Workflow` tool row is not in
-                      the rendered window still has to be seen — it lands at
-                      the tail as a row of its own rather than taking its
-                      agents and its warnings down with it (×4). */}
-                  {orphanWorkflows.map((workflow, index) => (
-                    <div
-                      key={`workflow-${workflow.id}`}
-                      className={transcriptGapClass(
-                        index > 0
-                          ? `tool`
-                          : rows.length === 0
-                            ? null
-                            : rowClass(rows[rows.length - 1]),
-                        `tool`
-                      )}
-                    >
-                      <WorkflowCardRow
-                        workflow={workflow}
-                        duplicates={workflowDuplicates.get(workflow.id)}
-                        onOpenAgent={setAgentTab}
-                      />
-                    </div>
-                  ))}
-                  {/* EXP-389: the agent-is-busy footer under the newest
-                      event (mobile parity) — main conversation only. */}
-                  {working && (
-                    <div
-                      className={transcriptGapClass(
-                        orphanWorkflows.length > 0
-                          ? `tool`
-                          : rows.length === 0
-                            ? null
-                            : rowClass(rows[rows.length - 1]),
-                        `tool`
-                      )}
-                    >
-                      <WorkingIndicatorRow
-                        agent={session.agent}
-                        startedAt={turnStartedAt}
-                        tokens={turnTokens}
-                        workflow={runningWorkflow}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
-            <JumpToBottomButton
-              visible={!atBottom && feed.length > 0}
-              className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
-              onClick={jumpToBottom}
-            />
-          </div>
-
-          {/* Status banners (feed retained above). EXP-877: no "ended" strip
-              — the hidden composer and the header's Resume say it. */}
-          {paused && feed.length > 0 && (
-            <div className="py-2">
-              <div
-                className={cn(
-                  TRANSCRIPT_COLUMN,
-                  `flex items-center gap-1.5 text-xs text-muted-foreground`
-                )}
-              >
-                <UiDeviceOfflineIcon className="size-3 shrink-0" />
-                <span>
-                  {`Paused — ${pausedTitle}. ${pausedBody}`}
-                </span>
-              </div>
-            </div>
-          )}
-          {phase.kind === `closed` && !paused && (
-            <div className="py-2">
-              <div
-                className={cn(
-                  TRANSCRIPT_COLUMN,
-                  `flex items-center gap-2 text-xs text-muted-foreground`
-                )}
-              >
-                <span className="min-w-0 flex-1">
-                  {phase.detail ?? `Connection lost.`}
-                </span>
-                {/* EXP-877: a dropped stream redials from its own strip. */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 shrink-0"
-                  onClick={() => store.reconnect()}
-                >
-                  <UiRefreshIcon />
-                  Reconnect
-                </Button>
-              </div>
-            </div>
-          )}
-          {/* EXP-804: the PERSISTED usage wall off the session row — a walled
-              run is still running. Deliberately not the same thing as
-              `RateLimitBanner` below, which is the LIVE stream's own report:
-              this one is already there when you open a session whose stream has
-              not connected yet, which is exactly the moment a silently walled
-              run looks healthy. */}
-          {blockedLabel && (
-            <div
-              className="py-1.5"
-              data-testid="session-blocked-strip"
-            >
-              <div
-                className={cn(
-                  TRANSCRIPT_COLUMN,
-                  `text-[11px] font-medium text-amber-400`
-                )}
-              >
-                {blockedLabel}
-              </div>
-            </div>
-          )}
-          {/* EXP-724: the compaction strip. Indeterminate on purpose — the
-              fold takes 10-170s with nothing measurable to report; the
-              persistent marker row lands in the feed when it finishes. */}
-          {compactingNow && (
-            <div className="py-1">
-              <div className={TRANSCRIPT_COLUMN}>
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground/80">
-                  <CodingCompactIcon className="size-3 shrink-0 opacity-75" />
-                  <span>{COMPACTING_LABEL}</span>
-                  {compacting?.trigger === `manual` && (
-                    <span className="text-muted-foreground/60">requested</span>
-                  )}
-                  {/* EXP-1157: a short hairline track beside the label, not
-                      a full-width bar. */}
-                  <Meter value={null} className="ml-1 h-0.5 w-[72px] shrink-0" />
-                </div>
-              </div>
-            </div>
-          )}
-          {/* EXP-784: the agent's rate-limit window, while it reports one —
-              the slot clears on an empty/`ok` status and the banner goes. */}
-          {rateLimit && !switchRequested && (
-            <RateLimitBanner
-              state={rateLimit}
-              // EXP-849: a spent window is a WALL, and the one thing that
-              // clears it right now is another account — so that is the
-              // notice's PRIMARY button (it opens the account rows; the
-              // continuation's own slot is empty, so the notice goes with the
-              // old run). Hidden only when this run could never switch — or
-              // has no pill to anchor the overlay to (EXP-863).
-              onSwitchAccount={
-                hasAccountRows && usageSlot !== null
-                  ? () => setUsageOpen(true)
-                  : undefined
-              }
-            />
-          )}
-          {phase.kind === `starting` && !paused && feed.length > 0 && (
-            <div className="py-2">
-              <div
-                className={cn(
-                  TRANSCRIPT_COLUMN,
-                  `flex items-center gap-1.5 text-xs text-muted-foreground`
-                )}
-              >
-                <UiLoadingIcon className="size-3 animate-spin" />
-                The agent is starting. Waiting for the live stream…
-              </div>
-            </div>
-          )}
-
-          {/* EXP-850 §11: the desktop's bottom "Changes" bar is GONE — the
-              diff is the pane beside the transcript. The phone's floating
-              version renders inside the scroll wrapper above. */}
-
-          {/* EXP-861: the messages the agent has not read yet — held behind a
-              compaction (an X revokes one and hands the text back to an
-              empty draft, the CLI's "edit queued message") or sent mid-turn
-              and awaiting the agent's replay (EXP-873: no X; Stop takes it
-              back). */}
-          <QueueStrip
-            messages={queue}
-            onRemove={(entry) => {
-              store.unqueue(entry.id)
-              if (store.getDraftSnapshot().text.trim() === ``) {
-                store.setDraftText(entry.text)
-              }
-            }}
+        )}
+        {/* The session's state over its work: the mark, the state word and
+            the newest tool line while live. */}
+        <div className="shrink-0 pt-4">
+          <RunStatusRow
+            className={TRANSCRIPT_COLUMN}
+            agent={session.cli}
+            markState={paused ? undefined : STATE_MARK[state]}
+            starting={starting}
+            caption={statusCaption}
+            tone={paused ? `muted` : STATE_TONE[state]}
+            toolLine={statusToolLine}
           />
-
-          {/* EXP-850 §1/§2: monitors and background shell commands, right
-              above the composer, then (EXP-927) the agent's own task list —
-              EXP-1191: the LAST block, directly on the composer, under the
-              queued steer messages. Background AGENTS are the tabs above,
-              never lines here. */}
-          <BackgroundStrip lines={stripLines} taskList={taskList} />
-          {/* Steering composer. Steering is fully seamless (EXP-312) — no
-              captions, no operator state; live implies ownership. */}
-          {composerVisible && !isMobile && (
-            <div className="py-2">
-              <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
-                <SteerComposer
-                  store={store}
-                  // `connected` matters beyond the phase: a silent
-                  // slow-consumer redial keeps `live` while the socket is
-                  // briefly down, and the send button should dim honestly
-                  // for that gap.
-                  live={live && connected}
-                  onSend={sendMessage}
-                  // EXP-790: the send glyph is Stop while the agent works
-                  // and nothing is typed.
-                  working={working}
-                  sessionId={session.id}
-                  users={teamUsers}
-                  agent={session.agent}
-                  // EXP-746: the live config rides down as a PROP. The
-                  // composer deliberately subscribes to the draft snapshot
-                  // only (a keystroke must not re-render the feed), and this
-                  // view already holds the full one.
-                  config={config}
-                  // EXP-877: the context meter lives in the composer's tool
-                  // row.
-                  usageSlot={usageSlot}
-                  // EXP-1175: a run that waits on you with no card to answer
-                  // takes the keyboard straight to the composer, except on a
-                  // phone, where the keyboard never pops on open (EXP-1152).
-                  autoFocus={session.needsInput && !isMobile}
+        </div>
+        {/* The activity feed (bottom-anchored, follow-scroll) */}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={scrollRef}
+            onScroll={handleFeedScroll}
+            // `agent-feed`: the hook the inline-code tint keys on (EXP-698).
+            className={cn(
+              `agent-feed h-full overflow-y-auto overscroll-contain`,
+              !isMobile && DETAIL_FADE_BOTTOM_CLASS
+            )}
+            style={edgeFadeStyle({ top: feedScrolled, bottom: !isMobile })}
+          >
+            {feedPlaceholder && paused ? (
+              <CenteredState>
+                <EmptyState
+                  icon={UiDeviceOfflineIcon}
+                  title={pausedTitle}
+                  description={pausedBody}
+                />
+              </CenteredState>
+            ) : feedPlaceholder && starting ? (
+              /* EXP-1271: the status row above says "Starting on …". */
+              null
+            ) : feedPlaceholder &&
+              (phase.kind === `connecting` ||
+                phase.kind === `starting` ||
+                phase.kind === `history_pending`) ? (
+              /* EXP-1259 D8.3: placeholder rows in the column, the phase as
+                 a muted caption. */
+              <div
+                className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                data-testid="transcript-placeholder"
+              >
+                <SkeletonRows rowHeight={36} className="-mx-3" />
+                <span className="text-xs text-muted-foreground">
+                  {phase.kind === `history_pending`
+                    ? (phase.detail ?? `Fetching the transcript…`)
+                    : phase.kind === `starting`
+                      ? `The agent is starting. Waiting for the live stream…`
+                      : `Connecting…`}
+                </span>
+              </div>
+            ) : feedPlaceholder && live ? (
+              <CenteredState>
+                <EmptyState
+                  title="Waiting for activity"
+                  description="This session isn't publishing an activity feed yet."
+                />
+              </CenteredState>
+            ) : activeAgent !== null ? (
+              <div
+                ref={setContentRef}
+                className={cn(
+                  `flex min-h-full flex-col justify-end py-2`,
+                  !isMobile && `pb-10`,
+                  TRANSCRIPT_COLUMN
+                )}
+              >
+                <AgentConversation
+                  summary={agents.find((a) => a.subagentId === activeAgent)}
+                  items={agentItems}
                 />
               </div>
+            ) : (
+              <div
+                ref={setContentRef}
+                className={cn(
+                  `flex min-h-full flex-col justify-end py-2`,
+                  !isMobile && `pb-10`,
+                  TRANSCRIPT_COLUMN
+                )}
+              >
+                {canLoadEarlier ? (
+                  <div className="flex justify-center pb-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground"
+                      onClick={loadEarlier}
+                    >
+                      Load earlier
+                    </Button>
+                  </div>
+                ) : null}
+                {rows.map((row, index) => renderTranscriptRow(row, index, rows))}
+                {/* EXP-850 §3: a card whose `Workflow` row is outside the
+                    window lands at the tail (×4). */}
+                {orphanWorkflows.map((workflow, index) => (
+                  <div
+                    key={`workflow-${workflow.id}`}
+                    className={transcriptGapClass(
+                      index > 0
+                        ? `tool`
+                        : rows.length === 0
+                          ? null
+                          : rowClass(rows[rows.length - 1]),
+                      `tool`
+                    )}
+                  >
+                    <WorkflowCardRow
+                      workflow={workflow}
+                      duplicates={workflowDuplicates.get(workflow.id)}
+                      onOpenAgent={setAgentTab}
+                    />
+                  </div>
+                ))}
+                {/* EXP-389: the agent-is-busy footer under the newest event. */}
+                {working && (
+                  <div
+                    className={transcriptGapClass(
+                      orphanWorkflows.length > 0
+                        ? `tool`
+                        : rows.length === 0
+                          ? null
+                          : rowClass(rows[rows.length - 1]),
+                      `tool`
+                    )}
+                  >
+                    <WorkingIndicatorRow
+                      agent={session.cli}
+                      startedAt={turnStartedAt}
+                      tokens={turnTokens}
+                      workflow={runningWorkflow}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
+          <JumpToBottomButton
+            visible={!atBottom && feed.length > 0}
+            className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+            onClick={jumpToBottom}
+          />
+        </div>
+
+        {/* Status strips (feed retained above). */}
+        {paused && feed.length > 0 && (
+          <div className="py-2">
+            <div
+              className={cn(
+                TRANSCRIPT_COLUMN,
+                `flex items-center gap-1.5 text-xs text-muted-foreground`
+              )}
+            >
+              <UiDeviceOfflineIcon className="size-3 shrink-0" />
+              <span>{`Paused — ${pausedTitle}. ${pausedBody}`}</span>
             </div>
-          )}
+          </div>
+        )}
+        {phase.kind === `closed` && !paused && (
+          <div className="py-2">
+            <div
+              className={cn(
+                TRANSCRIPT_COLUMN,
+                `flex items-center gap-2 text-xs text-muted-foreground`
+              )}
+            >
+              <span className="min-w-0 flex-1">
+                {phase.detail ?? `Connection lost.`}
+              </span>
+              {/* EXP-877: a dropped stream redials from its own strip. */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 shrink-0"
+                onClick={() => store.reconnect()}
+              >
+                <UiRefreshIcon />
+                Reconnect
+              </Button>
+            </div>
+          </div>
+        )}
+        {/* EXP-804: the PERSISTED usage wall off the session row. */}
+        {blockedLabel && (
+          <div className="py-1.5" data-testid="session-blocked-strip">
+            <div
+              className={cn(
+                TRANSCRIPT_COLUMN,
+                `text-[11px] font-medium text-amber-400`
+              )}
+            >
+              {blockedLabel}
+            </div>
+          </div>
+        )}
+        {/* EXP-724: the compaction strip (indeterminate on purpose). */}
+        {compactingNow && (
+          <div className="py-1">
+            <div className={TRANSCRIPT_COLUMN}>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground/80">
+                <CodingCompactIcon className="size-3 shrink-0 opacity-75" />
+                <span>{COMPACTING_LABEL}</span>
+                {compacting?.trigger === `manual` && (
+                  <span className="text-muted-foreground/60">requested</span>
+                )}
+                <Meter value={null} className="ml-1 h-0.5 w-[72px] shrink-0" />
+              </div>
+            </div>
+          </div>
+        )}
+        {/* EXP-784: the agent's live rate-limit window. */}
+        {rateLimit && <RateLimitBanner state={rateLimit} />}
+        {phase.kind === `starting` && !paused && feed.length > 0 && (
+          <div className="py-2">
+            <div
+              className={cn(
+                TRANSCRIPT_COLUMN,
+                `flex items-center gap-1.5 text-xs text-muted-foreground`
+              )}
+            >
+              <UiLoadingIcon className="size-3 animate-spin" />
+              The agent is starting. Waiting for the live stream…
+            </div>
+          </div>
+        )}
+        {/* EXP-861: the messages the agent has not read yet (an X revokes a
+            held one). */}
+        <QueueStrip
+          messages={queue}
+          onRemove={(entry) => {
+            store.unqueue(entry.id)
+          }}
+        />
+        {/* EXP-850 §1/§2 + EXP-927: background work, then the agent's own
+            task list, directly on the composer. */}
+        <BackgroundStrip lines={stripLines} taskList={taskList} />
+        {composer ? (
+          <div className="py-2">
+            <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
+              {composer}
+            </div>
+          </div>
+        ) : null}
       </div>
-      </div>
-      )}
-
-      {mobileBar}
-
-      {killDialog}
     </div>
     </RunCardsContext.Provider>
     </SessionResultsRawContext.Provider>
-    </OpenResultsContext.Provider>
-  )
-}
-
-/** EXP-863/EXP-909/EXP-1051: the usage overlay — the SAME layout on all four
- *  clients (desktop `usage_sheet.rs`, iOS `AgentUsageSheet`, Android's Usage
- *  sheet), sections separated by hairlines and every window meter the same
- *  `Meter`:
- *
- *  1. "Context window" — the headline (`147k / 1000k (14%)`), the run's cost
- *     and the segmented bar, with the LAYOUT legend behind the chevron
- *     (`ContextWindowBlock`). It leads the overlay because it is the run's
- *     own number; EXP-746's rule still holds — a token count has no percent
- *     window of its own, so it never folds into `usageGroups`;
- *  2. header — the RUN's account: brand mark, its caption (email, else plan,
- *     else signed in/out), and trailing either the health badge or the plan.
- *     The plan string appears HERE and nowhere else in the overlay;
- *  3. its windows — two lines each (title + countdown, then meter + `NN%`),
- *     dimmed and captioned `as of …` when the report is not current
- *     (`usageAge`), `Checking…` while that login has no windows yet. Never
- *     hidden for staleness: aged numbers still beat no numbers;
- *  4. "Accounts" — ONLY the other accounts, each with its icon-only switch and
- *     its `UsageMini` line; hidden when none.
- *
- *  EXP-1051 dropped the footer note: a refusal and the switch's cost both live
- *  in the switch button's OWN tooltip now, where the control is. */
-function SessionUsageSections({
-  sessionUsage,
-  contextLayout,
-  teamId,
-  agentUsage,
-  agent,
-  accountSwitch,
-  now,
-}: {
-  sessionUsage: SessionUsageState | null
-  /** EXP-1051: the device's context accounting, or null before it sent one. */
-  contextLayout: ContextSegment[] | null
-  /** The run's team — the legend's team-prompt row links into its settings. */
-  teamId: string | null | undefined
-  agentUsage: ReturnType<typeof useSessionAgentUsage>
-  /** The run's own agent — the header's brand mark. */
-  agent: string | null
-  accountSwitch: SessionAccountSwitch
-  now: Date
-}) {
-  const { options } = accountSwitch
-  // The desktop's `SwitchTarget.current` rule (EXP-909 §1): the run's own
-  // `agent_account` when it names a listed profile, else the login the
-  // machine's report names by email, else the machine's active login.
-  // Unknown = every row is another account.
-  const activeIx = activeAccountIndex(options, agentUsage?.account?.email)
-  const active = activeIx >= 0 ? options[activeIx] : null
-  const others = options.filter((_, ix) => ix !== activeIx)
-  // The run's account, as one caption. A machine that reported no profiles at
-  // all still names its ambient login through the usage report.
-  const header = active?.label ?? (agentUsage?.account ? accountCaption(agentUsage.account) : null)
-  const headerHealth = active
-    ? healthBadgeLabel(active.row.health)
-    : agentUsage?.account
-      ? healthBadgeLabel(agentHealth(agentUsage.account))
-      : null
-  const headerPlan = active?.plan ?? agentUsage?.account?.plan ?? null
-  // The plan only when the caption is the EMAIL — a plan-only caption would
-  // otherwise print it twice.
-  const showPlan =
-    !headerHealth && headerPlan !== null && headerPlan !== header && header !== null
-  // EXP-909: the windows are the RUN's login's, not the machine's active one.
-  // `deviceLoginRows` already falls the ACTIVE profile back to the top-level
-  // `agentUsage[agent]` slot (the only login a device ever puts there), so
-  // this reads the resolved row first and the hook's report only for a machine
-  // that reported no accounts at all.
-  const activeUsage = active?.row.usage ?? agentUsage?.usage ?? null
-  const windowsPending =
-    active !== null &&
-    usageState({
-      signedIn: active.row.signedIn,
-      unmonitored: active.row.unmonitored,
-      usage: active.row.usage,
-    }) === `checking`
-  const cost = sessionUsage ? formatUsageCost(sessionUsage) : null
-  const section = `border-t border-border/60 px-3 py-2.5`
-  const title = `text-[11px] uppercase tracking-wide text-muted-foreground`
-  return (
-    <>
-      {/* EXP-1051: the run's OWN window leads — headline, cost, the stacked
-          bar, and the layout legend one chevron away. */}
-      {/* Its own BOTTOM hairline, not the next section's top one: the block
-          renders nothing at all before the engine reports a window, and a
-          stray rule over the account header would be the only thing left. */}
-      <ContextWindowBlock
-        sessionUsage={sessionUsage}
-        contextLayout={contextLayout}
-        teamId={teamId}
-        cost={cost}
-        className="border-b border-border/60"
-      />
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5">
-        {agent && <AgentMark agent={agent} className="size-3.5" />}
-        <span className="min-w-0 flex-1 truncate text-xs" title={header ?? undefined}>
-          {header ?? `Usage`}
-        </span>
-        {headerHealth && (
-          <span className="shrink-0 text-[10px] font-medium text-amber-500">
-            {headerHealth}
-          </span>
-        )}
-        {showPlan && (
-          <span className="shrink-0 text-[10px] text-muted-foreground">
-            {headerPlan}
-          </span>
-        )}
-      </div>
-      {activeUsage && !windowsPending ? (
-        <div className={section}>
-          <AgentUsageWindows usage={activeUsage} now={now} />
-        </div>
-      ) : windowsPending ? (
-        // The login is signed in and this machine simply has not read it yet
-        // (a beat or two) — `No usage reported` would read as broken.
-        <div className={section}>
-          <p className="text-[11px] text-muted-foreground">Checking…</p>
-        </div>
-      ) : null}
-      {/* EXP-849: the OTHER accounts on this run's machine — their own mini
-          bars and the icon-only switch (claude, own machine, between turns).
-          EXP-1051: the refusal and the switch's cost are the button's own
-          tooltip now, so a row carries no sentence. A switch opens the
-          continuation session's page by itself. */}
-      {others.length > 0 && (
-        <div className={cn(section, `space-y-1.5`)}>
-          <p className={title}>{ACCOUNTS_SECTION_TITLE}</p>
-          <SessionAccountRows
-            options={others}
-            switchingTo={accountSwitch.switchingTo}
-            onSwitch={accountSwitch.switchTo}
-            now={now}
-          />
-        </div>
-      )}
-    </>
   )
 }
 
@@ -2441,7 +1037,6 @@ function CenteredState({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** Assistant prose — a chat bubble with a small glyph, selectable text. */
 /** The trailing "agent is busy" row (EXP-389, rewritten by EXP-850 §5): the
  *  turn's verb, its clock and the tokens it has produced —
  *  `Pondering… (2m 04s · ↓ 12.4k tokens)` — beside the RUNNING AGENT's
@@ -2718,12 +1313,6 @@ function FeedMarkdown({
       />
     </div>
   )
-}
-
-/** EXP-933: a Results topic's report text — the steering feed's read-only
- *  chat markdown (links, bare issue refs), shared by every Results face. */
-export function renderResultText(text: string) {
-  return <FeedMarkdown text={text} ariaLabel={`Results report`} />
 }
 
 /** Feed text: markdown when it carries any (EXP-440), else the plain
@@ -3437,15 +2026,7 @@ function InlineAnswerField({
  *  reset time when it named one. Hand-mirrored copy ×4 (`rateLimitBanner`).
  *  EXP-831: ticks so the countdown moves and the banner drops itself once
  *  the reset is behind us, without waiting on a slot update. */
-function RateLimitBanner({
-  state,
-  onSwitchAccount,
-}: {
-  state: SessionRateLimitState
-  /** EXP-849: open the account rows — the PRIMARY way out of a wall. Absent
-   *  when this run has no other account to move to. */
-  onSwitchAccount?: () => void
-}) {
+function RateLimitBanner({ state }: { state: SessionRateLimitState }) {
   const now = useNow(30_000)
   const banner = rateLimitBanner(state, now)
   if (!banner) return null
@@ -3463,18 +2044,6 @@ function RateLimitBanner({
         <span className="shrink-0 text-muted-foreground">
           {rateLimitDetail(resets)}
         </span>
-        {onSwitchAccount && (
-          <Pill
-            size="sm"
-            mode="action"
-            primary
-            className="ml-auto shrink-0"
-            onClick={onSwitchAccount}
-          >
-            <UiSwapIcon className="size-3" />
-            {WALL_SWITCH_LABEL}
-          </Pill>
-        )}
       </div>
     </div>
   )
@@ -4223,11 +2792,7 @@ const ToolOutput = memo(function ToolOutput({ output }: { output: string }) {
   )
 })
 
-/** EXP-933: how a transcript row switches the run it sits in to its Results
- *  face; null outside a run view, or while the run has published nothing. */
-const OpenResultsContext = createContext<(() => void) | null>(null)
-
-/** EXP-1172: the run's synced `coding_sessions.results` blob, so a settled
+/** EXP-1172: the session's synced Guide (`sessions.guide`), so a settled
  *  `sessions_show` row can draw the picture its answer named. */
 const SessionResultsRawContext = createContext<unknown>(null)
 
@@ -4248,27 +2813,6 @@ function ShownPicture({ item }: { item: ToolItem }) {
       attachmentSrc={(id) => `/api/attachments/${id}`}
       className="ml-5 pt-1.5"
     />
-  )
-}
-
-/** EXP-933: a settled `sessions_results` call (contract result kind
- *  `results`) — the one-tap way from the transcript to what it published. */
-function OpenResultsCard() {
-  const openResults = useContext(OpenResultsContext)
-  if (!openResults) return null
-  return (
-    <div className="ml-5 pt-1">
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 gap-1.5 text-xs"
-        onClick={openResults}
-        data-testid="open-results-card"
-      >
-        <OpenResultsIcon className="size-3.5" />
-        {OPEN_RESULTS_LABEL}
-      </Button>
-    </div>
   )
 }
 
@@ -4337,9 +2881,7 @@ function ExpToolRow({
         )}
         {failed && <span className="shrink-0 text-[0.6875rem]">failed</span>}
       </div>
-      {!failed && display.result === `results` && item.settled === true ? (
-        <OpenResultsCard />
-      ) : !failed && display.result === `picture` && item.settled === true ? (
+      {!failed && display.result === `picture` && item.settled === true ? (
         <ShownPicture item={item} />
       ) : (
         !failed &&

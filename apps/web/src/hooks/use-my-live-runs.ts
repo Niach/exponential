@@ -1,68 +1,46 @@
 import { useMemo } from "react"
-import { and, eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
-import { isCodingSessionStale } from "@exp/db-schema/domain"
-import { codingSessionCollection } from "@/lib/collections"
-import type { CodingSession } from "@/db/schema"
-import { useNow } from "@/hooks/use-now"
-import { isLiveRun } from "@/lib/past-runs"
+import { and, eq, inArray, not, useLiveQuery } from "@tanstack/react-db"
+import { sessionCollection } from "@/lib/collections"
+import type { SessionRow } from "@/lib/session-tree"
 import { teamScopeIds } from "@/lib/team-scope"
 
-// EXP-870: the signed-in user's OWN live runs in the team — running and
-// in_review (EXP-194), heartbeat-dead rows dropped (EXP-153). Every run
-// counts: person-started, triggered, remote devices. ONE definition behind
-// the Agent entry's count badge (`useAgentsRunningCount`) and the work tabs'
-// auto-added live tabs, so the badge and the strip never disagree. Own-only
-// to match the owner-only session views (EXP-312).
+// EXP-870 / EXP-1293: the signed-in user's OWN live sessions in the team(s)
+// — every `sessions` row they started that has not ended (queued, running or
+// idle; roots and children alike). Behind the phone chat arm's dot
+// (`useAgentsRunningCount`). Own-only to match the owner-only live views
+// (EXP-312).
 export function useMyLiveRuns(
   teamId: string | readonly string[] | undefined,
-  currentUserId: string | undefined,
-  nowIntervalMs = 60_000
-): { runs: CodingSession[]; isReady: boolean; now: Date } {
+  currentUserId: string | undefined
+): { runs: SessionRow[]; isReady: boolean } {
   const teamIds = teamScopeIds(teamId)
   const teamKey = teamIds.join(`,`)
   const { data, isReady } = useLiveQuery(
     (query) =>
       teamIds.length > 0 && currentUserId
         ? query
-            .from({ sessions: codingSessionCollection })
+            .from({ sessions: sessionCollection })
             .where(({ sessions }) =>
               and(
                 inArray(sessions.teamId, teamIds),
                 eq(sessions.userId, currentUserId),
-                // EXP-888: a SWEPT row (`ended` + `ended_by = 'stale'`) is
-                // still live — the device ignores the flip and its next
-                // heartbeat revives it — so it stays in the strip.
-                or(
-                  inArray(sessions.status, [`running`, `in_review`]),
-                  and(
-                    eq(sessions.status, `ended`),
-                    eq(sessions.endedBy, `stale`)
-                  )
-                )
+                not(eq(sessions.status, `ended`))
               )
             )
         : undefined,
     [teamKey, currentUserId]
   )
-  const now = useNow(nowIntervalMs)
   const runs = useMemo(
     () =>
-      ((data ?? []) as CodingSession[])
-        .filter(
-          (session) =>
-            isLiveRun(session) && !isCodingSessionStale(session.updatedAt, now)
-        )
-        .sort(
-          (left, right) =>
-            new Date(left.startedAt).getTime() -
-              new Date(right.startedAt).getTime() ||
-            left.id.localeCompare(right.id)
-        ),
-    [data, now]
+      ((data ?? []) as SessionRow[]).sort(
+        (left, right) =>
+          new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime() ||
+          left.id.localeCompare(right.id)
+      ),
+    [data]
   )
   return {
     runs,
     isReady: Boolean(teamIds.length > 0 && currentUserId) && isReady,
-    now,
   }
 }

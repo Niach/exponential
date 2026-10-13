@@ -1,125 +1,122 @@
-// EXP-1154/1251: a teammate's run. The live view stays the owner's
-// (EXP-312), but `?view=guide` (where a run without an issue links its PR body
-// footer) shows the synced report read-only as the Guide. Lives under a `-` prefix so the route
-// generator ignores it.
-import type { ComponentType } from "react"
-import { render, screen } from "@testing-library/react"
+// EXP-1293: the raw session view's page — back to its thread, the session's
+// name, Stop while live, the feed and the reply box. Lives under a `-` prefix
+// so the route generator ignores it.
+import type { ComponentType, ReactNode } from "react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
-  search: { current: {} as { view?: `guide` } },
-  session: { current: null as Record<string, unknown> | null },
+  row: { current: null as Record<string, unknown> | null },
+  isReady: { current: true },
+  stop: vi.fn(),
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   createFileRoute: () => (options: Record<string, unknown>) => ({
     ...options,
-    useParams: () => ({ teamSlug: `acme`, sessionId: `s1` }),
-    useSearch: () => mocks.search.current,
+    useParams: () => ({ teamSlug: `acme`, sessionId: `s2` }),
   }),
-  Link: ({ children }: { children: unknown }) => children,
+  Link: ({
+    children,
+    params,
+    ...rest
+  }: {
+    children: ReactNode
+    params?: Record<string, string>
+    "data-testid"?: string
+  }) => (
+    <a data-testid={rest[`data-testid`]} data-thread={params?.threadId}>
+      {children}
+    </a>
+  ),
   redirect: vi.fn(),
-  useNavigate: () => vi.fn(),
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamBySlug: () => ({ id: `t1`, slug: `acme` }),
   useTeamUsers: () => ({ users: [] }),
 }))
-vi.mock(`@/hooks/use-session`, () => ({
-  useSession: () => ({ data: { user: { id: `viewer` } } }),
-}))
-vi.mock(`@/hooks/use-agents-data`, () => ({
-  rowPrState: () => null,
-  useIssueRuns: () => ({ runs: [] }),
-  useRunChain: () => ({ runs: [] }),
-  useSessionRow: () => ({
-    row: { session: mocks.session.current, issue: null, board: null, batchIssues: [] },
-    session: mocks.session.current,
-    isReady: true,
-  }),
-}))
-vi.mock(`@/lib/session-identity`, () => ({
-  sessionIdentity: () => ({ identifier: null, subject: `Chat session` }),
+vi.mock(`@/hooks/use-session-tree`, () => ({
+  useSessionRow: () => ({ row: mocks.row.current, isReady: mocks.isReady.current }),
+  useTreeSessions: () => ({ rows: [], tree: [], isReady: true }),
+  useSessionCard: (row: { title: string | null } | null) =>
+    row ? { name: row.title ?? `Session 2`, icon: `coding-running` } : null,
+  useSessionThread: () => ({ view: { title: `Reduce cold start below 800 ms` } }),
 }))
 vi.mock(`@/lib/page-title`, () => ({
   pageTitle: (...parts: string[]) => parts.join(` `),
   usePageTitle: () => {},
 }))
+vi.mock(`@/lib/trpc-client`, () => ({
+  trpc: { sessions: { stop: { mutate: mocks.stop } } },
+}))
 vi.mock(`@/components/agent-session`, () => ({
-  AgentSessionView: () => <div data-testid="agent-session-view" />,
-  renderResultText: (text: string) => <div data-testid="report-markdown">{text}</div>,
+  AgentSessionView: ({ header, composer }: { header: ReactNode; composer: ReactNode }) => (
+    <div data-testid="agent-session-view">
+      {header}
+      {composer}
+    </div>
+  ),
 }))
-// EXP-1284: the run's thread (its link band, its Guide) is synced state.
-vi.mock(`@/hooks/use-threads`, () => ({ useThreadOfRun: () => null }))
-vi.mock(`@/components/thread/run-thread-link`, () => ({ RunThreadLink: () => null }))
-vi.mock(`@/components/issue-coding-rows`, () => ({
-  SessionStatusBadge: () => <span data-testid="status-badge" />,
-}))
-vi.mock(`@/components/team/mobile-detail-header`, () => ({
-  MobileDetailHeader: ({ title }: { title: string }) => <header>{title}</header>,
-  MOBILE_DETAIL_SCREEN_CLASS: ``,
-}))
-for (const path of [
-  `@/components/issue-actions-menu`,
-  `@/components/issue-coding-action`,
-  `@/components/issue-mobile-header`,
-  `@/components/issue-properties-tray`,
-  `@/components/pin-toggle-button`,
-  `@/components/pr-graph-badge`,
-  `@/hooks/use-open-composer`,
-  `@/hooks/use-open-session`,
-  `@/hooks/use-issue-property-handlers`,
-  `@/hooks/use-team-permissions`,
-  `@/lib/collections`,
-]) {
-  vi.doMock(path, () => ({}))
-}
-
-vi.doMock(`@/hooks/use-review-files`, () => ({
-  useReviewFiles: () => ({ state: { kind: `none` }, reload: () => {} }),
-  useSessionPrFiles: () => ({ state: { kind: `none` }, reload: () => {} }),
+vi.mock(`@/components/session-composer`, () => ({
+  SessionComposer: ({ placeholder, sessionId }: { placeholder: string; sessionId: string }) => (
+    <div data-testid="session-composer" data-session={sessionId}>
+      {placeholder}
+    </div>
+  ),
 }))
 
 const { Route } = await import(`@/routes/t/$teamSlug/sessions/$sessionId`)
 const Page = (Route as unknown as { component: ComponentType }).component
 
-const report = [
-  { topic: `Summary`, label: null, attachmentId: null, width: null, height: null, text: `Shipped the chat fix.` },
-]
-
-beforeEach(() => {
-  mocks.search.current = {}
-  mocks.session.current = {
-    id: `s1`,
-    userId: `owner`,
-    status: `ended`,
-    results: report,
-    prUrl: null,
-  }
+const row = (over: Record<string, unknown> = {}) => ({
+  id: `s2`,
+  teamId: `t1`,
+  rootId: `s1`,
+  parentId: `s1`,
+  userId: `u1`,
+  status: `running`,
+  busy: true,
+  needsInput: false,
+  title: `Profile the launch path`,
+  ...over,
 })
 
-describe(`a teammate's run`, () => {
-  it(`shows the synced report read-only on ?view=guide`, () => {
-    mocks.search.current = { view: `guide` }
+beforeEach(() => {
+  mocks.row.current = row()
+  mocks.isReady.current = true
+  mocks.stop.mockReset()
+  mocks.stop.mockResolvedValue({})
+})
+
+describe(`the session page`, () => {
+  it(`leads back to its thread, names the session and posts to it`, () => {
     render(<Page />)
-    expect(screen.getByTestId(`guide-body`)).toBeTruthy()
-    expect(screen.getByTestId(`report-markdown`).textContent).toBe(`Shipped the chat fix.`)
-    expect(screen.queryByText(`Only the owner can steer this session.`)).toBeNull()
-    expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
+    const back = screen.getByTestId(`session-back`)
+    expect(back.textContent).toBe(`Reduce cold start below 800 ms`)
+    expect(back.getAttribute(`data-thread`)).toBe(`s1`)
+    expect(screen.getByTestId(`session-title`).textContent).toBe(`Profile the launch path`)
+    const composer = screen.getByTestId(`session-composer`)
+    expect(composer.getAttribute(`data-session`)).toBe(`s2`)
+    expect(composer.textContent).toBe(`Reply…`)
   })
 
-  it(`says so when the run has no report yet`, () => {
-    mocks.search.current = { view: `guide` }
-    mocks.session.current = { ...mocks.session.current!, results: null }
+  it(`offers Stop while live and stops through sessions.stop`, () => {
     render(<Page />)
-    expect(screen.getByText(`No report yet`)).toBeTruthy()
-    expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
+    fireEvent.click(screen.getByTestId(`session-stop`))
+    expect(mocks.stop).toHaveBeenCalledWith({ sessionId: `s2` })
   })
 
-  it(`keeps the owner-only stub on every other view`, () => {
-    mocks.search.current = {}
+  it(`has no Stop once the session ended`, () => {
+    mocks.row.current = row({ status: `ended`, busy: false })
     render(<Page />)
-    expect(screen.getByText(`Only the owner can steer this session.`)).toBeTruthy()
-    expect(screen.queryByTestId(`guide-body`)).toBeNull()
+    expect(screen.queryByTestId(`session-stop`)).toBeNull()
+    expect(screen.getByTestId(`agent-session-view`)).toBeTruthy()
+  })
+
+  it(`says so when the session is not there`, () => {
+    mocks.row.current = null
+    render(<Page />)
+    expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
+    expect(screen.getByText(`Session not found`)).toBeTruthy()
   })
 })

@@ -1,12 +1,6 @@
 import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
-import { createSchemaFactory } from "drizzle-zod"
-import { z } from "zod"
-import {
-  threadItemKindSchema,
-  threadItemSourceSchema,
-} from "@exp/db-schema/domain"
 import { shapeParser } from "@/lib/shape-parser"
 import {
   reportTransportFailure,
@@ -20,7 +14,6 @@ import {
   selectPullRequestSchema,
   selectSyncedPullRequestIssueSchema,
   selectAttachmentSchema,
-  selectCodingSessionSchema,
   selectCommentSchema,
   selectDeviceSchema,
   selectSyncedDeviceWorktreeSchema,
@@ -39,8 +32,6 @@ import {
   selectTeamInviteSchema,
   selectTeamMemberSchema,
   selectTeamSchema,
-  threadItems,
-  threads,
 } from "@/db/schema"
 
 const baseUrl =
@@ -277,18 +268,6 @@ export const issueSubscriberCollection = createCollection(
   })
 )
 
-// Live "coding now" sessions, team-scoped. Synced so every coordination
-// client can render the coding-session badge + Watch/Steer button straight from
-// sync (one row per interactive desktop session).
-export const codingSessionCollection = createCollection(
-  electricCollectionOptions({
-    id: `coding_sessions`,
-    shapeOptions: shapeOptions(`/api/shapes/coding-sessions`),
-    schema: selectCodingSessionSchema,
-    getKey: (item) => item.id,
-  })
-)
-
 // EXP-481: the per-user device registry (own rows + team-shared server rows).
 // Online-ness derives client-side from last_seen_at freshness — no relay
 // presence in the sync path.
@@ -309,38 +288,6 @@ export const deviceWorktreeCollection = createCollection(
     id: `device_worktrees`,
     shapeOptions: shapeOptions(`/api/shapes/device-worktrees`),
     schema: selectSyncedDeviceWorktreeSchema,
-    getKey: (item) => item.id,
-  })
-)
-
-// EXP-1284: the synced projections of the two thread tables. thread_items
-// drops the server-only board mirrors (the shape filters on them, never
-// streams them).
-const { createSelectSchema } = createSchemaFactory({ zodInstance: z })
-const selectThreadSchema = createSelectSchema(threads)
-const selectSyncedThreadItemSchema = createSelectSchema(threadItems, {
-  kind: threadItemKindSchema,
-  source: threadItemSourceSchema,
-}).omit({ boardDeletedAt: true, boardArchivedAt: true })
-
-// EXP-1284: thread shells (title + the ONE Guide), team-scoped, member-visible.
-export const threadsCollection = createCollection(
-  electricCollectionOptions({
-    id: `threads`,
-    shapeOptions: shapeOptions(`/api/shapes/threads`),
-    schema: selectThreadSchema,
-    getKey: (item) => item.id,
-  })
-)
-
-// EXP-1284: a thread's children — issue items (trash/archive-scoped like
-// every issue child) and run items (always synced; resolve the run from
-// `codingSessionCollection`).
-export const threadItemsCollection = createCollection(
-  electricCollectionOptions({
-    id: `thread_items`,
-    shapeOptions: shapeOptions(`/api/shapes/thread-items`),
-    schema: selectSyncedThreadItemSchema,
     getKey: (item) => item.id,
   })
 )

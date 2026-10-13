@@ -1,36 +1,28 @@
-import type { Team } from "@/db/schema"
-import { useReviewsData } from "@/hooks/use-reviews-data"
-import { reviewsNav } from "@/lib/reviews-queue"
-import { sessionDisplayState } from "@/lib/coding-session-display"
+import { useMemo } from "react"
+import { useThreadsList } from "@/hooks/use-session-tree"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
+import { threadsNavState } from "@/components/team/sidebar-running"
 
 // Shared nav-count hooks for the sidebar badges (desktop) and the mobile
 // tab bar dots. Both count purely client-side over already-synced shapes.
 
 /**
- * EXP-1244: the Reviews nav entry (sidebar, rail, phone tab bar) reads the
- * SAME queue the page lists — `reviewsQueue` over the same synced rows and
- * the app-wide openPulls store, then `reviewsNav` (fixture-locked ×4): the
- * dot = anything to review, unlinked PRs included; EXP-1105 yolo mode hides
- * the entry unless something is open (an open PR there = a failed merge).
- * `teams` = the nav's scope (md+ the active team, the phone every member team).
+ * EXP-1293: the Threads entry's dot (the phone's Threads tab; md+ reads the
+ * sidebar's own list) — green while any thread of the scope runs, amber
+ * while one needs you. `teamIds` = the scope (the phone: every member team).
  */
-export function useReviewsNav(teams: readonly Team[]): {
-  dot: boolean
-  shows: boolean
+export function useThreadsNav(teamIds: string | readonly string[] | undefined): {
+  live: boolean
+  needsYou: boolean
 } {
-  const { count } = useReviewsData(undefined, teams)
-  return reviewsNav({
-    yolo: teams.map((team) => team.yoloMode === true),
-    count,
-  })
+  const { groups } = useThreadsList(teamIds)
+  return useMemo(() => threadsNavState(groups), [groups])
 }
 
-// Live count of the signed-in user's OWN live coding sessions in the team —
-// `useMyLiveRuns` (EXP-870: the same set the work tabs auto-add). The Agent
-// entry shows a dot while any is live (EXP-880: never the count). `needsInput` (EXP-214) is true
-// while any live session sits on a plan-approval / AskUserQuestion picker —
-// the badges escalate to amber for it.
+// Live count of the signed-in user's OWN live sessions — `useMyLiveRuns`.
+// The phone's chat arm shows a dot while any is live (EXP-880: never the
+// count); `needsInput` (EXP-214) is true while any of them waits on a person
+// — the badges escalate to amber for it.
 export function useAgentsRunningCount(
   teamId?: string | readonly string[],
   currentUserId?: string
@@ -41,8 +33,6 @@ export function useAgentsRunningCount(
   const { runs } = useMyLiveRuns(teamId, currentUserId)
   return {
     count: runs.length,
-    needsInput: runs.some(
-      (s) => sessionDisplayState(s, null) === `needs_input`
-    ),
+    needsInput: runs.some((session) => session.needsInput),
   }
 }

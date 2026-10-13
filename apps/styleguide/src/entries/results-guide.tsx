@@ -2,8 +2,9 @@ import { fromPullFile, type DiffFile } from "@exp/domain-contract/diff"
 import {
   conceptIcon,
   GlassSectionHeader,
+  Pill,
+  PrRow,
   SessionResultsView,
-  StackRail,
   type SessionResultGroup,
 } from "@exp/ui"
 
@@ -15,17 +16,18 @@ import type { StyleguideEntry } from "./types.ts"
 // its text, ONE `Changes · N files · +A −D ›` row (the files it names, by
 // path or rename source) and its tiles; the file no topic names lands in the
 // unnumbered `Other changes` band and `Show complete diff` closes the page.
-// EXP-1248: the Stack card leads while the PR sits in an open stack — the
-// band (no count) over the ONE `StackRail`, the current member washed, a
-// hovered member offering `Merge through here` (apps/web `GuideStackCard`).
+// EXP-1293: a thread's Guide tab leads with its pull requests
+// (`pull_requests` rows of the root): one PR row each (`#number`, the title,
+// the state word), the open one carrying THE merge pill (`Merge stack` while
+// it sits in an open stack); the picked PR's files feed the Changes rows.
 
-const PrStackIcon = conceptIcon(`pr-stack`)
+const PrOpenIcon = conceptIcon(`pr-open`)
+const PrMergedIcon = conceptIcon(`pr-merged`)
 
-const STACK = [
-  { key: `top`, identifier: `APP-13`, title: `Topic screen error state`, current: true },
-  { key: `mid`, identifier: `APP-11`, title: `Shared ErrorState component` },
-  { key: `low`, identifier: `APP-9`, title: `Topic repository retries` },
-]
+const PRS = [
+  { key: `p45`, number: 45, title: `Topic screen error state`, state: `open` },
+  { key: `p41`, number: 41, title: `Topic repository retries`, state: `merged` },
+] as const
 
 const SHOT = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#3f3f46"/></svg>`
@@ -89,13 +91,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1154`,
   title: `Guide`,
-  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). A Stack card comes first while the pull request sits in an open stack of two or more (the band, no count, over the stack rail: top first, the current member on the active wash, the base branch last; a member row swaps the subject in place, a hovered one offers \`Merge through here\`). The \`Summary\` topic leads the report as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). An issue with an open PR and no report shows the GitHub PR body as one unnumbered band.`,
+  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). A thread's Guide tab leads with its pull requests (the root's \`pull_requests\` rows, open first: \`#number\`, the title, the state word, the GitHub link, THE merge pill on an open one reading \`Merge stack\` while it sits in an open stack, Close in its menu); the picked PR's files (\`pullRequests.files\`) feed the Changes rows. The \`Summary\` topic leads the report as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). The Guide is the ROOT's (\`sessions.guide\`).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `GuideBody / GuideStackCard over SessionResultsView`,
-      file: `apps/web/src/components/guide-face.tsx`,
-      note: `section page: guide-section-diff.tsx; rules: guideCoverage (ui), guideSectionPage (web lib/work-faces.ts)`,
+      symbol: `ThreadGuide: PR rows + GuideBody over SessionResultsView`,
+      file: `apps/web/src/components/thread/thread-guide.tsx`,
+      note: `section page + guideSectionPage: guide-section-diff.tsx; merge: session-merge-button.tsx`,
     },
     desktop: {
       state: `ok`,
@@ -120,18 +122,28 @@ export const entry: StyleguideEntry = {
     <div className="flex flex-col">
       <div className="flex flex-col px-7 pt-5 md:px-5">
         <GlassSectionHeader
-          label="Stack"
-          className="-mx-3 w-auto md:mx-0"
-          leading={<PrStackIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+          label="Pull requests"
+          leading={<PrOpenIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
         />
-        <StackRail
-          className="pt-1"
-          members={STACK}
-          baseBranch="main"
-          onOpen={() => {}}
-          onMergeThrough={() => {}}
-          defaultHoveredKey="mid"
-        />
+        {PRS.map((pr, index) => (
+          <PrRow
+            key={pr.key}
+            node={pr.state === `open` ? `open` : `base`}
+            identifier={`#${pr.number}`}
+            title={pr.title}
+            word={pr.state === `open` ? null : pr.state}
+            active={index === 0}
+            onClick={() => {}}
+            trailing={
+              pr.state === `open` ? (
+                <Pill size="md" mode="action" primary className="shrink-0">
+                  <PrMergedIcon />
+                  Merge PR
+                </Pill>
+              ) : null
+            }
+          />
+        ))}
       </div>
       <SessionResultsView
         groups={GROUPS}

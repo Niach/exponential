@@ -10,10 +10,13 @@ import { Separator, SEGMENTED_ITEM, SEGMENTED_LIST, conceptIcon, BoardGlyph } fr
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { cn } from "@/lib/utils"
 import { useTeamBoards } from "@/hooks/use-team-data"
+import { useAgents } from "@/hooks/use-session-tree"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import {
   flattenSettingsNav,
+  NEW_AGENT_LABEL,
   NEW_BOARD_LABEL,
+  SETTINGS_AGENTS_GROUP,
   SETTINGS_BOARDS_GROUP,
   SETTINGS_NAV,
   useSettingsPage,
@@ -47,6 +50,9 @@ function SettingsLayout() {
   const boards = useTeamBoards(team?.id)
   const showBoards = permissions.isOwner
   const [createOpen, setCreateOpen] = useState(false)
+  // EXP-1293: the Agents group, injected the same way (member-visible rows,
+  // owner-only "New agent").
+  const { agents } = useAgents(team?.id)
 
   // EXP-698: the strip is wider than a phone, so the section you are ON can
   // start scrolled out of frame ("…torage"). Bring it into view once the row
@@ -57,7 +63,7 @@ function SettingsLayout() {
   // permissions), so a board page keys on that count too — or its own row
   // could still be off-screen when the nav items settled first.
   const navRef = useRef<HTMLElement | null>(null)
-  const boardRows = showBoards ? boards.length : 0
+  const boardRows = (showBoards ? boards.length : 0) + agents.length
   // The layout stays mounted across sections, so every section change
   // re-centres the strip on the new active pill as well.
   const pathname = useRouterState({ select: (state) => state.location.pathname })
@@ -136,6 +142,43 @@ function SettingsLayout() {
                       <AddIcon className="h-4 w-4" />
                       {NEW_BOARD_LABEL}
                     </button>
+                  )}
+                </>
+              )}
+              {group.group === SETTINGS_AGENTS_GROUP && (
+                <>
+                  {agents.map((agent) => (
+                    <Link
+                      key={agent.sessionId}
+                      to="/t/$teamSlug/settings/agents/$agentId"
+                      params={{ teamSlug, agentId: agent.sessionId }}
+                      className={SEGMENTED_ITEM}
+                      activeProps={{
+                        className: `border-glass-stroke-active bg-glass-active text-foreground`,
+                      }}
+                      inactiveProps={{
+                        className: `border-transparent text-muted-foreground hover:text-foreground`,
+                      }}
+                    >
+                      <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+                      {agent.name}
+                    </Link>
+                  ))}
+                  {permissions.isOwner && (
+                    <Link
+                      to="/t/$teamSlug/settings/agents/new"
+                      params={{ teamSlug }}
+                      className={SEGMENTED_ITEM}
+                      activeProps={{
+                        className: `border-glass-stroke-active bg-glass-active text-foreground`,
+                      }}
+                      inactiveProps={{
+                        className: `border-transparent text-muted-foreground hover:text-foreground`,
+                      }}
+                    >
+                      <AddIcon className="h-4 w-4" />
+                      {NEW_AGENT_LABEL}
+                    </Link>
                   )}
                 </>
               )}

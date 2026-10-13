@@ -14,11 +14,11 @@ vi.mock(`@/lib/collections`, () => ({
   issueCollection: {},
   issueLabelCollection: {},
 }))
-vi.mock(`@/hooks/use-remote-start`, () => ({
-  useRemoteStart: () => ({
+vi.mock(`@/hooks/use-steer-devices`, () => ({
+  useSteerDevices: () => ({
     devices: [{ deviceId: `dev-1`, deviceLabel: `buildbox`, online: true }],
-    starting: false,
-    sentTo: null,
+    refresh: () => {},
+    latestVersions: null,
   }),
 }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))

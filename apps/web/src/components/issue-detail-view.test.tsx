@@ -54,11 +54,16 @@ vi.mock(`@/components/issue-ref-provider`, () => ({ useIssueRefs: () => null }))
 // Every sibling of the description is scenery for this test.
 vi.mock(`@/components/issue-timeline`, () => ({ IssueTimeline: () => null }))
 vi.mock(`@/components/issue-coding-rows`, () => ({
-  IssueCodingControl: () => null,
-  IssuePrRow: () => null,
+  IssueStartButton: ({ variant }: { variant: string }) => (
+    <button type="button" data-testid="issue-start" data-variant={variant}>
+      Start
+    </button>
+  ),
 }))
 vi.mock(`@/components/issue-detail-mobile-bar`, () => ({
-  IssueDetailMobileBar: () => null,
+  IssueDetailMobileBar: ({ trailingNode }: { trailingNode: React.ReactNode }) => (
+    <div data-testid="issue-mobile-bar">{trailingNode}</div>
+  ),
 }))
 vi.mock(`@/components/issue-mobile-header`, () => ({
   IssueMobileHeader: () => null,
@@ -270,10 +275,11 @@ describe(`IssueDetailView description`, () => {
   })
 })
 
-// EXP-1154: the md+ work header carries the face's own action (GitHub on the
-// Changes face) after the toggle, and a face body replaces the issue body.
-describe(`IssueDetailView faces`, () => {
-  it(`draws the header action and the face body in place of the issue`, () => {
+// EXP-1293: ONE face. The md+ header's trailing slot carries THE Start
+// pill; the phone's bar carries it as its right circle. No toggle, no Stop,
+// no Merge, no PR row.
+describe(`IssueDetailView Start`, () => {
+  it(`puts ONE Start pill in the header over the issue body`, () => {
     render(
       <IssueDetailView
         issue={makeIssue(`met-1`, `Body`)}
@@ -281,52 +287,32 @@ describe(`IssueDetailView faces`, () => {
         board={board}
         teamSlug="acme"
         teamId="t1"
-        faceToggle={<div data-testid="toggle" />}
-        headerAction={<button type="button" data-testid="header-github" />}
-        faceBody={<div data-testid="changes-body" />}
       />
     )
-    expect(screen.getByTestId(`header-github`)).toBeTruthy()
-    expect(screen.getByTestId(`changes-body`)).toBeTruthy()
-    expect(screen.queryByTestId(`description-editor`)).toBeNull()
-    // The action follows the toggle in the cluster.
-    const toggle = screen.getByTestId(`toggle`)
-    expect(
-      toggle.compareDocumentPosition(screen.getByTestId(`header-github`)) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
+    const starts = screen.getAllByTestId(`issue-start`)
+    expect(starts).toHaveLength(1)
+    expect(starts[0]!.getAttribute(`data-variant`)).toBe(`pill`)
+    expect(screen.getByTestId(`description-editor`)).toBeTruthy()
   })
-})
 
-// EXP-1191: the Merge circle rides IN the bar (no float above it), so the
-// Issue face's scroller keeps the bar's clearance alone either way.
-describe(`IssueDetailView phone clearance`, () => {
-  const scroller = (container: HTMLElement) =>
-    container.querySelector(`[data-face-body]`) as HTMLElement
-
-  it(`reserves the bar's clearance with or without the Merge circle`, () => {
+  it(`puts Start in the phone bar's circle and keeps the bar's clearance`, () => {
     mobileState.mobile = true
     try {
-      const props = {
-        issue: makeIssue(`met-2`, `Body`),
-        users: [],
-        board,
-        teamSlug: `acme`,
-        teamId: `t1`,
-      }
-      const view = render(<IssueDetailView {...props} mobileWork={{}} />)
-      expect(scroller(view.container).className).toContain(
-        MOBILE_WORK_BAR_CLEARANCE
-      )
-      view.rerender(
+      const view = render(
         <IssueDetailView
-          {...props}
-          mobileWork={{ merge: <div data-testid="merge" /> }}
+          issue={makeIssue(`met-2`, `Body`)}
+          users={[]}
+          board={board}
+          teamSlug="acme"
+          teamId="t1"
         />
       )
-      expect(scroller(view.container).className).toContain(
-        MOBILE_WORK_BAR_CLEARANCE
-      )
+      const bar = screen.getByTestId(`issue-mobile-bar`)
+      const start = screen.getByTestId(`issue-start`)
+      expect(bar.contains(start)).toBe(true)
+      expect(start.getAttribute(`data-variant`)).toBe(`fab`)
+      const scroller = view.container.querySelector(`.overflow-y-auto`) as HTMLElement
+      expect(scroller.className).toContain(MOBILE_WORK_BAR_CLEARANCE)
     } finally {
       mobileState.mobile = false
     }

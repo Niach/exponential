@@ -6,6 +6,8 @@ import { Fragment, useEffect, useState } from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
+import { useAgents } from "@/hooks/use-session-tree"
+import { AGENT_SETTINGS_TEST_IDS } from "@/components/team/agents-section"
 import { getRuntimeConfigCached, type RuntimeConfig } from "@/lib/runtime-config"
 import {
   conceptIcon,
@@ -23,7 +25,9 @@ import {
   BoardGlyph,
 } from "@exp/ui"
 import {
+  NEW_AGENT_LABEL,
   NEW_BOARD_LABEL,
+  SETTINGS_AGENTS_GROUP,
   SETTINGS_BOARDS_GROUP,
   SETTINGS_NAV,
   type SettingsNavContext,
@@ -128,6 +132,9 @@ export function SettingsSidebar({
   const boards = useTeamBoards(team?.id)
   const showBoards = permissions.isOwner
   const [createOpen, setCreateOpen] = useState(false)
+  // EXP-1293: the Agents group lists the team's agents the same way. Every
+  // member sees them (their pages read-only); "New agent" is owner-only.
+  const { agents } = useAgents(team?.id)
 
   return (
     <>
@@ -140,9 +147,15 @@ export function SettingsSidebar({
           )
           const withBoards =
             group.group === SETTINGS_BOARDS_GROUP && showBoards
-          if (items.length === 0 && !withBoards) return null
+          const isAgentsGroup = group.group === SETTINGS_AGENTS_GROUP
+          const withAgents =
+            isAgentsGroup && (agents.length > 0 || permissions.isOwner)
+          if (items.length === 0 && !withBoards && !withAgents) return null
           return (
-            <SidebarGroup key={group.group}>
+            <SidebarGroup
+              key={group.group}
+              data-testid={isAgentsGroup ? AGENT_SETTINGS_TEST_IDS.list : undefined}
+            >
               <SidebarGroupLabel>{group.group}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
@@ -169,6 +182,41 @@ export function SettingsSidebar({
                           >
                             <AddIcon className="h-4 w-4" />
                             <span>{NEW_BOARD_LABEL}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      )}
+                    </Fragment>
+                  )}
+                  {withAgents && (
+                    <Fragment>
+                      {agents.map((agent) => (
+                        <SidebarMenuItem key={agent.sessionId}>
+                          <SidebarMenuButton asChild>
+                            <Link
+                              to="/t/$teamSlug/settings/agents/$agentId"
+                              params={{ teamSlug, agentId: agent.sessionId }}
+                            >
+                              <BoardGlyph
+                                board={{ icon: agent.icon, color: agent.color }}
+                              />
+                              <span>{agent.name}</span>
+                            </Link>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                      {permissions.isOwner && (
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            asChild
+                            className="text-muted-foreground"
+                          >
+                            <Link
+                              to="/t/$teamSlug/settings/agents/new"
+                              params={{ teamSlug }}
+                            >
+                              <AddIcon className="h-4 w-4" />
+                              <span>{NEW_AGENT_LABEL}</span>
+                            </Link>
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       )}

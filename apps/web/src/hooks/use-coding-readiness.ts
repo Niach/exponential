@@ -39,8 +39,7 @@ type GithubStatus = Awaited<
 >
 
 // Membership gate shared by every coding surface (the server enforces it
-// regardless; this only decides what renders). Re-exported by
-// `issue-coding-rows.tsx` for its existing importers.
+// regardless; this only decides what renders).
 export function useIsTeamMember(teamId: string, currentUserId: string) {
   return useTeamMembership(teamId, currentUserId).isMember
 }

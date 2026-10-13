@@ -5,17 +5,16 @@ import type { Team } from "@/db/schema"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 
 // EXP-1019: the launcher's SHELL. The composer inside it has its own suite
-// (`launch-composer.test.tsx`) — this only proves the things the shell owns:
+// (`launch-composer.test.tsx`); this only proves the things the shell owns:
 // it opens on a request, it hands the seed to the composer once, it gets out
-// of the way when the run it started LANDS — and NOT before: while a start is
-// pending (the composer's `starting`, EXP-1271) the watch and the deadline
-// live in its hooks, so a dismissal is refused; a timeout leaves it open.
-// EXP-870: the request's origin reaches the watch.
+// of the way once the session STARTED (EXP-1293: the composer then opens its
+// thread) and not before: while the start is in flight (`busy`) a
+// dismissal is refused; a failed start leaves it open.
 
 const steerEnabled = vi.hoisted(() => ({ value: true }))
 const composerState = vi.hoisted(() => ({
-  starting: null as { deviceLabel: string; since: number } | null,
-  onLanded: undefined as (() => void) | undefined,
+  busy: false,
+  onStarted: undefined as ((sessionId: string) => void) | undefined,
 }))
 const remoteCalls = vi.hoisted(() => [] as Record<string, unknown>[])
 const composerCalls = vi.hoisted(
@@ -34,24 +33,27 @@ vi.mock(`@/hooks/use-session`, () => ({
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamUsers: () => ({ users: [] }),
 }))
-vi.mock(`@/hooks/use-remote-start`, () => ({
-  useRemoteStart: (options: Record<string, unknown>) => {
+vi.mock(`@/hooks/use-steer-devices`, () => ({
+  useSteerDevices: (options: Record<string, unknown>) => {
     remoteCalls.push(options)
-    return { sentTo: null, starting: false }
+    return { devices: [], refresh: () => {}, latestVersions: null }
   },
 }))
 vi.mock(`@/hooks/use-launch-composer`, () => ({
-  useLaunchComposer: (args: { teamId: string; seed: unknown; onLanded?: () => void }) => {
+  useLaunchComposer: (args: {
+    teamId: string
+    seed: unknown
+    onStarted?: (sessionId: string) => void
+  }) => {
     composerCalls.push({ teamId: args.teamId, seed: args.seed })
-    composerState.onLanded = args.onLanded
+    composerState.onStarted = args.onStarted
     return {
-      starting: composerState.starting,
       subject: { kind: `action`, id: `a1`, inputs: {} },
       selectedAction: { id: `a1`, name: `Release train` },
       checkedIssues: [],
       toggleIssue: vi.fn(),
       clearAction: vi.fn(),
-      busy: false,
+      busy: composerState.busy,
     } as unknown as LaunchComposerModel
   },
 }))
@@ -72,8 +74,8 @@ beforeEach(() => {
   closeLaunchDialog()
   composerCalls.length = 0
   remoteCalls.length = 0
-  composerState.starting = null
-  composerState.onLanded = undefined
+  composerState.busy = false
+  composerState.onStarted = undefined
   steerEnabled.value = true
 })
 
@@ -94,38 +96,34 @@ describe(`LaunchDialogHost`, () => {
     expect(composerCalls[0]?.seed).toEqual({ issueIds: [], actionId: `a1` })
   })
 
-  it(`shuts once the started run lands, not at send time`, () => {
+  it(`shuts once the session started, not at send time`, () => {
     const { rerender } = render(<LaunchDialogHost team={team} />)
     act(() => requestLaunchDialog({ issueIds: [`i1`] }))
-    // Starting: the watch that opens the run lives in the dialog, so it stays.
-    composerState.starting = { deviceLabel: `buildbox`, since: 0 }
+    composerState.busy = true
     rerender(<LaunchDialogHost team={team} />)
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
-    // The run's row landed: done here.
     act(() => {
-      composerState.starting = null
-      composerState.onLanded?.()
+      composerState.busy = false
+      composerState.onStarted?.(`s-new`)
     })
     expect(screen.queryByTestId(`launch-dialog`)).toBeNull()
   })
 
-  it(`refuses a dismissal while a start is pending, and stays after a timeout`, () => {
+  it(`refuses a dismissal while the start is in flight, and stays after a failure`, () => {
     const { rerender } = render(<LaunchDialogHost team={team} />)
     act(() => requestLaunchDialog({ issueIds: [`i1`] }))
     act(() => {
-      composerState.starting = { deviceLabel: `buildbox`, since: 0 }
+      composerState.busy = true
       rerender(<LaunchDialogHost team={team} />)
     })
-    // Escape at the layer, and the close paths that funnel through
-    // `onOpenChange(false)` (the ✕): both no-ops while the run is pending.
     fireEvent.keyDown(document.activeElement ?? document.body, { key: `Escape` })
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
     fireEvent.click(screen.getByRole(`button`, { name: `Close` }))
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
-    // A timeout (no landing) returns the composer to idle: the dialog stays,
-    // and dismisses freely again.
+    // A failed start returns the composer to idle: the dialog stays, and
+    // dismisses freely again.
     act(() => {
-      composerState.starting = null
+      composerState.busy = false
       rerender(<LaunchDialogHost team={team} />)
     })
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
@@ -143,15 +141,11 @@ describe(`LaunchDialogHost`, () => {
     expect(screen.queryByTestId(`launch-dialog`)).toBeNull()
   })
 
-  it(`hands the request's origin to the run watch, and only when it was named`, () => {
+  it(`hands the request to the composer as its seed`, () => {
     render(<LaunchDialogHost team={team} />)
-    act(() => requestLaunchDialog({ issueIds: [], actionId: `a1`, origin: null }))
-    expect(remoteCalls[0]).toMatchObject({ teamId: `t1`, origin: null })
-    // The composer's seed never carries the origin: it is the watch's alone.
+    act(() => requestLaunchDialog({ issueIds: [], actionId: `a1` }))
+    expect(remoteCalls[0]).toMatchObject({ teamId: `t1` })
     expect(composerCalls[0]?.seed).toEqual({ issueIds: [], actionId: `a1` })
-    act(() => requestLaunchDialog({ issueIds: [`i2`] }))
-    const derived = remoteCalls[remoteCalls.length - 1]!
-    expect(`origin` in derived).toBe(false)
   })
 
   it(`says so instead of doing nothing when the instance has no relay`, () => {

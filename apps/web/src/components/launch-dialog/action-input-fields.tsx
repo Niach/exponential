@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { type ActionInputDef, type BoardIcon } from "@exp/db-schema/domain"
+import { type ActionInputDef } from "@exp/db-schema/domain"
 import {
-  IconPicker,
   Label,
   GlassGroup,
   Picker,
@@ -12,30 +11,30 @@ import {
   type PickerItem,
   BoardGlyph,
 } from "@exp/ui"
-import type { Board, Issue } from "@/db/schema"
+import type { Board } from "@/db/schema"
 import {
   boardCollection,
   issueCollection,
+  pullRequestCollection,
+  pullRequestIssueCollection,
 } from "@/lib/collections"
-import {
-  buildPrOptions,
-  findPrOptionForIssue,
-  type PrOption,
-} from "@/lib/pr-options"
-import type { ActionRepoOption } from "@/components/action-prompt-form"
+import { buildPrOptions, findPrOption, type PrOption } from "@/lib/pr-options"
 
 // The selected action's typed input fields (EXP-257; EXP-825 retired the
-// free-text kinds — the composer's own text is the run's instructions):
-// repo → a `Picker` row over the team's connected repos, board → the same
-// picker over the synced boards, pr (EXP-259) → the same picker over the
-// team's OPEN issue-linked pull requests (deduped by prUrl — a batch PR shows
-// once, its value is the representative issue's id), icon (EXP-273) → the
-// curated swatch grid shared with the board form. Values live in the dialog
-// shell as a flat Record<key, string> — repo/board/pr store the picked id and
-// icon stores the registry NAME, blank = unset (dropped from the payload by
-// buildInputsPayload); EXP-941 retired the `none` sentinel these two pickers
-// used for "unset" — the picker's none row reports it and the mapping happens
-// here.
+// free-text kinds: the composer's own text is the session's instructions).
+// Every input is a PICK, repo | board | pr | issue (EXP-1293 dropped `icon`
+// with the Create action builtin): repo → a `Picker` row over the team's
+// connected repos, board → the same picker over the synced boards, pr → the
+// team's OPEN pull requests off the synced `pull_requests` rows (the value is
+// the pull request's id), issue → the team's issues. Values are a flat
+// Record<key, string> of picked ids, blank = unset (dropped from the payload
+// by buildInputsPayload).
+
+/** A repository the `repo` inputs offer. */
+export interface ActionInputRepo {
+  id: string
+  fullName: string
+}
 
 export function ActionInputFields({
   defs,
@@ -49,9 +48,9 @@ export function ActionInputFields({
   values: Record<string, string>
   onChange: (key: string, value: string) => void
   /** The team's connected repos, for `repo` inputs. */
-  repos: ActionRepoOption[]
+  repos: ActionInputRepo[]
   teamId: string
-  /** Any issue id linked to the PR a `pr` input should open pre-picked. */
+  /** The PR (or any issue it closes) a `pr` input opens pre-picked on. */
   seedPrIssueId?: string
 }) {
   if (defs.length === 0) return null
@@ -96,17 +95,15 @@ export function ActionInputFields({
             </div>
           )
         }
-        if ((def.type as string) === `icon`) {
-          // EXP-273: the same curated picker the board form uses — the value
-          // is a registry icon NAME, not an id, so there is nothing to scope
-          // to the team.
+        if (def.type === `issue`) {
           return (
             <div key={def.key} className="space-y-2">
               <Label>{label}</Label>
-              <IconPicker
-                value={(values[def.key] ?? ``) as BoardIcon | ``}
-                onChange={(icon) => onChange(def.key, icon)}
-                allowsNone={!def.required}
+              <IssueInputField
+                teamId={teamId}
+                value={values[def.key] ?? ``}
+                required={def.required}
+                onChange={(value) => onChange(def.key, value)}
               />
             </div>
           )
@@ -127,61 +124,66 @@ export function ActionInputFields({
   )
 }
 
-// Open-PR single-select (EXP-259): the team's issue-linked open pull
-// requests, deduped by prUrl (a batch PR links several issues to one PR —
-// the row lists every linked identifier and carries the representative
-// issue's id as its value). Issues don't sync team_id, so the team scope
-// comes from the synced boards.
-//
-// EXP-1233: the OPTIONS and the seed latch are hooks of their own, because
-// the Fix merge conflicts card (`fix-conflicts-card.tsx`) draws the same
-// picker inside its own row — one list, two triggers.
+// Open-PR single-select (EXP-259): the team's open pull requests off the
+// synced `pull_requests` rows, labelled by the issues they close
+// (`pull_request_issues`). Never read off the issues (EXP-1293: PR state
+// left them).
 
 /** The team's open pull requests as picker options, off the synced rows. */
 export function useOpenPrOptions(teamId: string): PrOption[] {
-  const { data: boardRows } = useLiveQuery(
+  const { data: pullRows } = useLiveQuery(
     (q) =>
       q
-        .from({ boards: boardCollection })
-        .where(({ boards }) => eq(boards.teamId, teamId)),
+        .from({ pulls: pullRequestCollection })
+        .where(({ pulls }) => eq(pulls.teamId, teamId)),
+    [teamId]
+  )
+  const { data: linkRows } = useLiveQuery(
+    (q) =>
+      q
+        .from({ links: pullRequestIssueCollection })
+        .where(({ links }) => eq(links.teamId, teamId)),
     [teamId]
   )
   const { data: issueRows } = useLiveQuery(
     (q) =>
       q
         .from({ issues: issueCollection })
-        .where(({ issues }) => eq(issues.prState, `open`)),
-    []
+        .where(({ issues }) => eq(issues.teamId, teamId))
+        .select(({ issues }) => ({ id: issues.id, identifier: issues.identifier })),
+    [teamId]
   )
-  return useMemo(() => {
-    const teamBoards = new Set(
-      ((boardRows ?? []) as Board[]).map((board) => board.id)
-    )
-    return buildPrOptions((issueRows ?? []) as Issue[], teamBoards)
-  }, [boardRows, issueRows])
+  return useMemo(
+    () =>
+      buildPrOptions(
+        pullRows ?? [],
+        linkRows ?? [],
+        new Map((issueRows ?? []).map((row) => [row.id, row.identifier])),
+        teamId
+      ),
+    [pullRows, linkRows, issueRows, teamId]
+  )
 }
 
 /**
- * Seed the preselected PR once the options land (the dialog clears input
- * values on open, so the seed can't live there). The ref latch keeps a
- * manual re-pick — including clearing an optional field — from being stomped.
- * `seedIssueId` is ANY issue linked to the PR (EXP-323 — a Reviews row's
- * representative is the newest linked issue, not this list's lowest-id one,
- * so it is resolved by membership). Applied once per mount.
+ * Seed the preselected PR once the options land. `seedId` = the pull
+ * request's id or ANY issue it closes (`findPrOption`). The ref latch keeps
+ * a manual re-pick (including clearing an optional field) from being
+ * stomped; applied once per mount.
  */
 export function usePrInputSeed(
   pulls: PrOption[],
-  seedIssueId: string | undefined,
-  onChange: (issueId: string) => void
+  seedId: string | undefined,
+  onChange: (pullRequestId: string) => void
 ) {
   const seeded = useRef(false)
   useEffect(() => {
-    if (seeded.current || !seedIssueId || pulls.length === 0) return
-    const option = findPrOptionForIssue(pulls, seedIssueId)
+    if (seeded.current || !seedId || pulls.length === 0) return
+    const option = findPrOption(pulls, seedId)
     if (!option) return
     seeded.current = true
-    onChange(option.issueId)
-  }, [seedIssueId, pulls, onChange])
+    onChange(option.pullRequestId)
+  }, [seedId, pulls, onChange])
 }
 
 function PrInputField({
@@ -192,16 +194,15 @@ function PrInputField({
   onChange,
 }: {
   teamId: string
-  /** The picked representative issue id, or `` when unset. */
+  /** The picked pull request id, or `` when unset. */
   value: string
   required: boolean
   seedIssueId?: string
-  onChange: (issueId: string) => void
+  onChange: (pullRequestId: string) => void
 }) {
   const pulls = useOpenPrOptions(teamId)
   const options = useMemo<PickerItem[]>(
-    () =>
-      pulls.map((pull) => ({ value: pull.issueId, label: pull.label })),
+    () => pulls.map((pull) => ({ value: pull.pullRequestId, label: pull.label })),
     [pulls]
   )
   usePrInputSeed(pulls, seedIssueId, onChange)
@@ -221,6 +222,62 @@ function PrInputField({
       mobileTitle="Select a pull request"
       searchPlaceholder="Select a pull request..."
       emptyText="No open pull requests."
+    />
+  )
+}
+
+// Issue single-select over the team's synced issues (identifier + title),
+// newest first.
+function IssueInputField({
+  teamId,
+  value,
+  required,
+  onChange,
+}: {
+  teamId: string
+  /** The picked issue id, or `` when unset. */
+  value: string
+  required: boolean
+  onChange: (issueId: string) => void
+}) {
+  const { data: issueRows } = useLiveQuery(
+    (q) =>
+      q
+        .from({ issues: issueCollection })
+        .where(({ issues }) => eq(issues.teamId, teamId))
+        .select(({ issues }) => ({
+          id: issues.id,
+          identifier: issues.identifier,
+          title: issues.title,
+          createdAt: issues.createdAt,
+        })),
+    [teamId]
+  )
+  const items = useMemo<PickerItem[]>(
+    () =>
+      [...(issueRows ?? [])]
+        .sort(
+          (left, right) =>
+            new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+        )
+        .map((row) => ({ value: row.id, label: `${row.identifier} ${row.title}` })),
+    [issueRows]
+  )
+  return (
+    <Picker
+      mode="single"
+      search
+      items={items}
+      value={value === `` ? null : value}
+      onChange={onChange}
+      noneLabel={required ? undefined : `None`}
+      onNone={() => onChange(``)}
+      triggerVariant="field"
+      triggerLabel="Select an issue…"
+      width="lg"
+      mobileTitle="Select an issue"
+      searchPlaceholder="Select an issue..."
+      emptyText="No issues found."
     />
   )
 }

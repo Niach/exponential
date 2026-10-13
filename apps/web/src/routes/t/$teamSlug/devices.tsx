@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router"
 import { SkeletonRows } from "@exp/ui"
 import { MyMachines } from "@/components/my-machines"
 import { useSteerConfig } from "@/hooks/use-steer-config"
-import { useRemoteStart } from "@/hooks/use-remote-start"
+import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
@@ -52,7 +52,7 @@ function DevicesPage() {
   // teammate server shared into ANY member team, listed once; md+ keeps
   // the active team's.
   const scope = useCrossTeamScope(team)
-  const remote = useRemoteStart({
+  const remote = useSteerDevices({
     enabled: steerEnabled,
     currentUserId,
     teamId,

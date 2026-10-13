@@ -21,7 +21,6 @@ import { boardCollection } from "@/lib/collections"
 import { useSession } from "@/hooks/use-session"
 import { compareBoards, useTeamMemberships } from "@/hooks/use-team-data"
 import { useOpenComposer } from "@/hooks/use-open-composer"
-import { useOpenSession } from "@/hooks/use-open-session"
 import { usePinnedEntries } from "@/hooks/use-pins"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { Empty } from "@/components/empty"
@@ -40,7 +39,6 @@ interface BoardSwitcherSheetProps {
 
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
-const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const PinIcon = conceptIcon(`ui-pin`)
 // EXP-687: one glyph for "boards" across every web surface that moves an
 // issue or a reader between them; here the empty row draws it through
@@ -77,9 +75,9 @@ export function BoardSwitcherSheet({
   const [createBoardTeam, setCreateBoardTeam] = useState<Team | null>(null)
   const [createBoardOpen, setCreateBoardOpen] = useState(false)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
-  // EXP-1075: my live runs per team — the sheet IS the phone's team list, so
-  // a foreign team's header says a run of mine is alive there. The active
-  // team is skipped: its runs are the Agent screen one tap away.
+  // EXP-1075: my live sessions per team — the sheet IS the phone's team
+  // list, so a foreign team's header says a session of mine is alive there.
+  // The active team is skipped: its sessions are the Threads tab away.
   const teamLive = useTeamLiveRuns(session?.user?.id)
 
   // The active team leads; the rest keep their membership order.
@@ -246,7 +244,6 @@ function PinnedSheetSection({
   onNavigate: () => void
 }) {
   const navigate = useNavigate()
-  const openSession = useOpenSession()
   const openComposer = useOpenComposer()
   const entries = usePinnedEntries(teamId)
   if (entries.length === 0) return null
@@ -270,19 +267,11 @@ function PinnedSheetSection({
             })
             return
           }
-          if (entry.kind === `session`) {
-            openSession(entry.session, { origin: null })
-            return
-          }
           openComposer({ actionId: entry.action.id })
         }
         // One glyph per kind — the sidebar group's vocabulary.
         const EntryIcon =
-          entry.kind === `action`
-            ? getActionIcon(entry.action)
-            : entry.kind === `session`
-              ? CodingAssistantIcon
-              : NavIssuesIcon
+          entry.kind === `action` ? getActionIcon(entry.action) : NavIssuesIcon
         return (
           <GlassRow
             key={entry.pin.id}
@@ -291,7 +280,7 @@ function PinnedSheetSection({
             onClick={open}
           >
             <EntryIcon className="size-4 shrink-0 text-muted-foreground" />
-            {entry.kind !== `action` && entry.identifier && (
+            {entry.kind === `issue` && (
               <span className="shrink-0 font-mono text-xs text-muted-foreground">
                 {entry.identifier}
               </span>

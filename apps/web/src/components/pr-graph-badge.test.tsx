@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { CodingSession, Issue } from "@/db/schema"
+import type { Issue } from "@/db/schema"
 
 // EXP-897 Part 4 / SLOP-16 r5: THE "Related work" view: the relations card's
 // foldable bands (Blocked by · Same pull request · Pull request stack) over
@@ -99,12 +99,15 @@ vi.mock(`@/lib/collections`, () => ({
   boardCollection: {},
   issueCollection: {},
   issueRelationCollection: {},
+  pullRequestCollection: {},
+  pullRequestIssueCollection: {},
 }))
 vi.mock(`@/hooks/use-team-issue-graph`, () => ({
   useTeamBoardIds: () => [`b1`],
 }))
-// The badge reads three collections through `useLiveQuery`, each query
-// aliasing its source (`i` issues, `r` relations, `b` boards). The stub runs
+// The badge reads five collections through `useLiveQuery`, each query
+// aliasing its source (`i` issues, `prs` pull requests, `links` their
+// issues, `r` relations, `b` boards). The stub runs
 // the builder against a probe that records the alias and answers with THAT
 // table's rows: empty unless a test fills it.
 const liveRows = vi.hoisted(() => ({
@@ -129,38 +132,59 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   }
 })
 
-import { PrGraphBadge, PrGraphOverlay } from "@/components/pr-graph-badge"
+import {
+  PrGraphBadge,
+  PrGraphOverlay,
+  type IssuePrRow,
+} from "@/components/pr-graph-badge"
 import { prGraph } from "@/lib/pr-graph"
 
-const issue = (id: string, over: Partial<Issue> = {}): Issue =>
+/** An issue as `issuePrRows` hands it over: joined to its pull request. */
+const issue = (id: string, over: Partial<IssuePrRow> = {}): IssuePrRow =>
   ({
     id,
     identifier: id.toUpperCase(),
     title: `Issue ${id}`,
     status: `in_progress`,
-    teamId: `t1`,
     boardId: `b1`,
     branch: `exp/${id.toUpperCase()}`,
     prBaseBranch: null,
     prUrl: `https://github.com/acme/app/pull/${id}`,
     prNumber: 1,
     prState: `open`,
+    pullRequestId: null,
+    basePullRequestId: null,
     ...over,
-  }) as unknown as Issue
+  }) as unknown as IssuePrRow
 
-const session = (
-  id: string,
-  parentSessionId: string | null = null,
-  issueId: string | null = null
-): CodingSession =>
-  ({
-    id,
-    parentSessionId,
-    issueId,
-    status: `running`,
-    startedAt: `2026-09-10T10:00:00Z`,
-    prState: null,
-  }) as unknown as CodingSession
+/** The synced tables behind joined rows: the issues (no PR columns read),
+ *  one `pull_requests` row per url and a link per issue. */
+function tablesOf(rows: IssuePrRow[]) {
+  const prs = new Map<string, Record<string, unknown>>()
+  const links: Record<string, unknown>[] = []
+  for (const row of rows) {
+    if (!row.prUrl) continue
+    if (!prs.has(row.prUrl)) {
+      prs.set(row.prUrl, {
+        id: `pr:${row.prUrl}`,
+        number: row.prNumber,
+        url: row.prUrl,
+        head: row.branch,
+        base: row.prBaseBranch ?? `master`,
+        basePullRequestId: null,
+        state: row.prState,
+      })
+    }
+    links.push({ pullRequestId: `pr:${row.prUrl}`, issueId: row.id })
+  }
+  return {
+    i: rows.map((row) => ({ ...row, prUrl: null, prState: null, branch: null })),
+    prs: [...prs.values()],
+    links,
+  }
+}
+
+const asIssue = (row: IssuePrRow) => row as unknown as Issue
 
 const lower = issue(`lower`, { prNumber: 1, prState: `merged` })
 const upper = issue(`upper`, { prBaseBranch: `exp/LOWER`, prNumber: 2 })
@@ -171,7 +195,7 @@ const blocker = issue(`blocker`)
 const boards = new Map([[`b1`, `web`]])
 
 function overlay(
-  input: Parameters<typeof prGraph<Issue, CodingSession>>[0],
+  input: Parameters<typeof prGraph<IssuePrRow>>[0],
   onClose = () => {}
 ) {
   return render(
@@ -244,8 +268,7 @@ describe(`PrGraphOverlay`, () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  // EXP-1154: a PR row opens the issue on its Changes face.
-  it(`draws a stack row as #n, the pr glyph and its state pill, opening the Guide`, () => {
+  it(`draws a stack row as #n, the pr glyph and its state pill, opening the issue`, () => {
     const onClose = vi.fn()
     overlay({ issue: upper, issues: [lower, upper] }, onClose)
     const row = screen.getByTestId(`relation-row-LOWER`)
@@ -258,7 +281,7 @@ describe(`PrGraphOverlay`, () => {
       `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
     )
     expect(link.getAttribute(`data-issue`)).toBe(`LOWER`)
-    expect(link.getAttribute(`data-view`)).toBe(`guide`)
+    expect(link.getAttribute(`data-view`)).toBeNull()
     fireEvent.click(link)
     expect(onClose).toHaveBeenCalled()
   })
@@ -289,63 +312,9 @@ describe(`PrGraphOverlay`, () => {
     expect(within(band).getByText(`5`)).toBeTruthy()
   })
 
-  it(`lists a batch run's covered issues and nothing about its runs`, () => {
-    const one = issue(`one`, { prUrl: null })
-    const two = issue(`two`, { prUrl: null })
-    const run = {
-      ...session(`run`),
-      batchIssueIds: [`one`, `two`],
-    } as unknown as CodingSession
-    overlay({ session: run, issues: [one, two] })
-    expect(bandTitles()).toEqual([`pr-graph-band-batch`])
-    expect(screen.getByTestId(`relation-row-ONE`)).toBeTruthy()
-    expect(screen.getByTestId(`relation-row-TWO`)).toBeTruthy()
-    expect(screen.queryByText(`Sessions`)).toBeNull()
-    expect(screen.queryByText(`Merge stack`)).toBeNull()
-  })
-
   it(`says so when nothing else is linked`, () => {
     overlay({ issue: issue(`lone`), issues: [] })
     expect(screen.getByText(`Nothing else is linked to this issue.`)).toBeTruthy()
-  })
-})
-
-// EXP-916: a `glyph` badge sits in a FIXED lead cell of a Reviews grid row.
-// When the graph has no badge to draw (the sibling issues have not synced yet)
-// it must still fill that cell, or the whole row shifts one column left.
-describe(`PrGraphBadge fallback (EXP-916)`, () => {
-  it(`renders its fallback when the graph carries no badge`, () => {
-    render(
-      <PrGraphBadge
-        teamId="t1"
-        teamSlug="acme"
-        issue={issue(`lone`)}
-        variant="glyph"
-        fallback={<span data-testid="badge-fallback" />}
-      />
-    )
-    expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
-    expect(screen.getByTestId(`badge-fallback`)).toBeTruthy()
-  })
-
-  it(`no fallback keeps the old behaviour: nothing at all`, () => {
-    const { container } = render(
-      <PrGraphBadge teamId="t1" teamSlug="acme" issue={issue(`lone`)} variant="glyph" />
-    )
-    expect(container.innerHTML).toBe(``)
-  })
-})
-
-// SLOP-16 r5: a run family alone earns no badge.
-describe(`PrGraphBadge for a run`, () => {
-  afterEach(() => {
-    liveRows.tables = {}
-  })
-
-  it(`stays away for a run with a family and no relation`, () => {
-    const family = [session(`child`, `root`), session(`root`)]
-    render(<PrGraphBadge teamId="t1" teamSlug="acme" session={family[0]} />)
-    expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
   })
 })
 
@@ -358,8 +327,8 @@ describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
   })
 
   it(`wears the batch glyph and the count`, () => {
-    liveRows.tables = { i: [batchA, batchB], b: [{ id: `b1`, slug: `web` }] }
-    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={batchB} />)
+    liveRows.tables = { ...tablesOf([batchA, batchB]), b: [{ id: `b1`, slug: `web` }] }
+    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={asIssue(batchB)} />)
     const badge = screen.getByTestId(`pr-graph-badge`)
     expect(badge.getAttribute(`aria-label`)).toBe(`Batch pull request`)
     expect(badge.getAttribute(`data-shape`)).toBe(`batch`)
@@ -368,8 +337,8 @@ describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
   })
 
   it(`wears the stack glyph for a pull request stack`, () => {
-    liveRows.tables = { i: [lower, upper], b: [{ id: `b1`, slug: `web` }] }
-    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={upper} />)
+    liveRows.tables = { ...tablesOf([lower, upper]), b: [{ id: `b1`, slug: `web` }] }
+    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={asIssue(upper)} />)
     const badge = screen.getByTestId(`pr-graph-badge`)
     expect(badge.getAttribute(`aria-label`)).toBe(`Pull request stack`)
     expect(badge.querySelector(`svg.lucide-layers`)).toBeTruthy()
@@ -381,14 +350,14 @@ describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
     const b1 = issue(`b1`, { prUrl: null })
     const b2 = issue(`b2`, { prUrl: null })
     liveRows.tables = {
-      i: [me, b1, b2],
+      ...tablesOf([me, b1, b2]),
       b: [{ id: `b1`, slug: `web` }],
       r: [
         { type: `blocks`, issueId: `b2`, relatedIssueId: `me` },
         { type: `blocks`, issueId: `b1`, relatedIssueId: `me` },
       ],
     }
-    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={me} />)
+    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={asIssue(me)} />)
     const badge = screen.getByTestId(`pr-graph-badge`)
     expect(badge.getAttribute(`aria-label`)).toBe(`Blocked by`)
     expect(badge.getAttribute(`data-shape`)).toBe(`blocked`)
@@ -403,8 +372,8 @@ describe(`PrGraphBadge as the header icon button (SLOP-16)`, () => {
     [`a phone`, true],
   ])(`opens the Related work dialog on click (%s)`, (_label, phone) => {
     viewport.phone = phone
-    liveRows.tables = { i: [batchA, batchB], b: [{ id: `b1`, slug: `web` }] }
-    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={batchB} />)
+    liveRows.tables = { ...tablesOf([batchA, batchB]), b: [{ id: `b1`, slug: `web` }] }
+    render(<PrGraphBadge teamId="t1" teamSlug="acme" issue={asIssue(batchB)} />)
     expect(screen.queryByRole(`dialog`)).toBeNull()
     fireEvent.click(screen.getByTestId(`pr-graph-badge`))
     const dialog = screen.getByRole(`dialog`)

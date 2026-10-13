@@ -13,10 +13,8 @@ import { contract } from "@exp/domain-contract"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import {
   agentEffortValues,
-  agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
-import { subjectOwnsMcpServers } from "@/lib/mcp-servers"
 import { ActionPickerList } from "@/components/launch-dialog/action-picker"
 import { ComposerIssuePicker } from "@/components/launch-dialog/issue-picker"
 import {
@@ -36,8 +34,9 @@ import {
 } from "@/components/launch-dialog/composer-menu"
 
 // EXP-1249: the composer's ONE "+" — the subject (Implement issue ›, Run
-// action ›: THE search list since SLOP-28), the attach, the run's options (Effort ›, Subagents ›,
-// Ultracode) and the run's tools (MCP servers ›, Computer use), as ONE
+// action ›: THE search list since SLOP-28), the attach, the session's
+// options (Effort ›, Ultracode; Subagents › hides, `sessions.send` has no
+// field for it) and its tools (MCP servers ›, Computer use), as ONE
 // `Menu`: a dropdown at the "+" from md up, the bottom sheet of the same rows
 // on a phone (submenus as pushed pages). Which rows show, their order, glyphs
 // and copy are `composer-menu.ts` (fixture-locked ×4); this file binds each
@@ -70,7 +69,8 @@ export function ComposerPlusMenu({
   const checkedCount = subject?.kind === `issues` ? subject.ids.length : 0
   const selectedActionId = subject?.kind === `action` ? subject.id : null
   const mcpServers = model.mcpServers ?? []
-  const showMcp = mcpServers.length > 0 && !subjectOwnsMcpServers(subject)
+  // FEED-73: an action brings its own MCP list (the server sets it).
+  const showMcp = mcpServers.length > 0 && subject?.kind !== `action`
 
   const effortOptions: ValueChoice[] = [
     { value: CLI_DEFAULT_EFFORT, label: CLI_DEFAULT_LABEL },
@@ -94,7 +94,8 @@ export function ComposerPlusMenu({
     options.find((option) => option.value === value)?.label
 
   const layout = composerMenuLayout({
-    subagentModel: agentSupportsSubagentModel(agent),
+    // EXP-1293: `sessions.send` carries no subagent model; the row hides.
+    subagentModel: false,
     ultracode: agentSupportsUltracode(agent),
     mcp: showMcp,
     computerUse: launch.computerUseAvailable,

@@ -786,8 +786,7 @@ export function liveToolRowId<
  *  its subject (the `ExpToolRow` rule: settled, the single preview ref's
  *  title, else identifier, else the preview's title/identifier, else the
  *  call's detail; unsettled, the detail), any other tool its name and detail;
- *  joined by one space, a missing part dropped. `null` without a tool item.
- *  Fixture `run-row.json` `toolLines` (×4). */
+ *  joined by one space, a missing part dropped. `null` without a tool item. */
 export function lastToolLine<
   T extends {
     kind: string

@@ -24,52 +24,6 @@
         "sha256": "c853b085971e4f0f71f2e051f679e850b46ebe3d11978f7793b8311a15125bfe"
       }
     },
-    "action-runs": {
-      "android": {
-        "file": "shots/action-runs/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 13400,
-        "sha256": "49a10f41bfe83eeccd13c4c26d26f8a4eeedbeb949709163b131cb652c104e8c"
-      },
-      "ios": {
-        "file": "shots/action-runs/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 15058,
-        "sha256": "909be148dfc5d6c476b4d97a80a1bdf89d88f4f2d368fe1dba85f2463a3fca95"
-      },
-      "web-mobile": {
-        "file": "shots/action-runs/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 13394,
-        "sha256": "51665ff8841608d9c84f97f4ea90e9e5fddfbbc2c3763f71fc1203add01fe87d"
-      }
-    },
-    "action-triggers": {
-      "android": {
-        "file": "shots/action-triggers/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 16126,
-        "sha256": "03520a7b08c8d100087a22ac7c10d0d3ed9033735efc3c5e7c79878bd1969e58"
-      },
-      "ios": {
-        "file": "shots/action-triggers/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 17448,
-        "sha256": "b076f0a1e04995bde0554b8f9b741b88e473e8c149b17fe746585461fabe3c15"
-      },
-      "web-mobile": {
-        "file": "shots/action-triggers/web-mobile.webp",
-        "width": 832,
-        "height": 1800,
-        "bytes": 16492,
-        "sha256": "7444492b10f70570c18121b2919edb170c1343f37275086cd7464a1321127a61"
-      }
-    },
     "actions-mobile": {
       "android": {
         "file": "shots/actions-mobile/android.webp",
@@ -3977,36 +3931,6 @@
         "height": 1800,
         "bytes": 92968,
         "sha256": "54045e3b23bf2776ad420b34df73c7eb72b32a1a80181d97b846b155bd78d5e5"
-      }
-    },
-    "trigger-editor": {
-      "android": {
-        "file": "shots/trigger-editor/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 17486,
-        "sha256": "21bfff1192a69a09d864691dce03a8915b372fb12218cecef86596275c94eb3e"
-      },
-      "desktop": {
-        "file": "shots/trigger-editor/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 50644,
-        "sha256": "1b456fc14abd12d11c87bf7a2d6f6dee45695b1120d25ad6b0a2181ea61a7e49"
-      },
-      "ios": {
-        "file": "shots/trigger-editor/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 21002,
-        "sha256": "f19c30da667ef75d95892deffcbce9209df845d956b96cb9a1c8d67d3cf6b0c1"
-      },
-      "web": {
-        "file": "shots/trigger-editor/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 18512,
-        "sha256": "957c0febb24faedff9fe2afc8849e3d3efbe59ae44ab0e443791f3c917de2f6c"
       }
     },
     "work-card": {

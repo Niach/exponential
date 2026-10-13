@@ -6,21 +6,15 @@ import {
   type TeamLiveRunSession,
 } from "./team-live-runs"
 
-// EXP-1075: the team picker's live-run signal — the caller's OWN live runs
+// EXP-1075: the team picker's live signal — the caller's OWN live sessions
 // grouped by team, with the active team excluded from the switcher's dot.
-
-const NOW = new Date(`2026-09-25T12:00:00Z`)
-const FRESH = new Date(`2026-09-25T11:59:00Z`)
-const DEAD = new Date(`2026-09-25T09:00:00Z`)
 
 const run = (over: Partial<TeamLiveRunSession> = {}): TeamLiveRunSession =>
   ({
     teamId: `team-a`,
     userId: `u-me`,
     status: `running`,
-    endedBy: null,
     needsInput: false,
-    updatedAt: FRESH,
     ...over,
   }) as TeamLiveRunSession
 
@@ -31,7 +25,7 @@ describe(`liveRunsByTeam`, () => {
   it(`groups the caller's live runs by team`, () => {
     const map = liveRunsByTeam(
       [run(), run(), run({ teamId: `team-b` })],
-      { me: `u-me`, now: NOW }
+      { me: `u-me` }
     )
     expect(summary(map)).toEqual({
       "team-a": { count: 2, needsInput: false },
@@ -40,53 +34,32 @@ describe(`liveRunsByTeam`, () => {
   })
 
   it(`ignores a teammate's run`, () => {
-    const map = liveRunsByTeam([run({ userId: `u-lisa` })], {
-      me: `u-me`,
-      now: NOW,
-    })
+    const map = liveRunsByTeam([run({ userId: `u-lisa` })], { me: `u-me` })
     expect(map.size).toBe(0)
   })
 
-  it(`drops an ended row and a heartbeat-stale row`, () => {
+  it(`drops an ended row and counts queued and idle ones`, () => {
     const map = liveRunsByTeam(
       [
-        run({ status: `ended`, endedBy: `user` }),
-        run({ teamId: `team-b`, updatedAt: DEAD }),
+        run({ status: `ended` }),
+        run({ teamId: `team-b`, status: `queued` }),
+        run({ teamId: `team-b`, status: `idle` }),
       ],
-      { me: `u-me`, now: NOW }
-    )
-    expect(map.size).toBe(0)
-  })
-
-  it(`keeps a swept row (EXP-888: ended + stale, fresh heartbeat)`, () => {
-    const map = liveRunsByTeam(
-      [run({ status: `ended`, endedBy: `stale` })],
-      { me: `u-me`, now: NOW }
+      { me: `u-me` }
     )
     expect(summary(map)).toEqual({
-      "team-a": { count: 1, needsInput: false },
+      "team-b": { count: 2, needsInput: false },
     })
   })
 
   it(`lifts needsInput only on the team that waits`, () => {
     const map = liveRunsByTeam(
       [run({ needsInput: true }), run({ teamId: `team-b` })],
-      { me: `u-me`, now: NOW }
+      { me: `u-me` }
     )
     expect(summary(map)).toEqual({
       "team-a": { count: 1, needsInput: true },
       "team-b": { count: 1, needsInput: false },
-    })
-  })
-
-  // EXP-1184: an in_review run that asks again waits on you like any other.
-  it(`reads needs_input off an in_review run too`, () => {
-    const map = liveRunsByTeam(
-      [run({ status: `in_review`, needsInput: true })],
-      { me: `u-me`, now: NOW }
-    )
-    expect(summary(map)).toEqual({
-      "team-a": { count: 1, needsInput: true },
     })
   })
 })
@@ -94,7 +67,7 @@ describe(`liveRunsByTeam`, () => {
 describe(`otherTeamsLive`, () => {
   const map = liveRunsByTeam(
     [run(), run({ teamId: `team-b`, needsInput: true })],
-    { me: `u-me`, now: NOW }
+    { me: `u-me` }
   )
 
   it(`excludes the active team`, () => {
@@ -114,7 +87,7 @@ describe(`otherTeamsLive`, () => {
   it(`is silent with nothing outside the active team`, () => {
     expect(
       otherTeamsLive(
-        liveRunsByTeam([run()], { me: `u-me`, now: NOW }),
+        liveRunsByTeam([run()], { me: `u-me` }),
         `team-a`
       )
     ).toEqual({ any: false, needsInput: false })

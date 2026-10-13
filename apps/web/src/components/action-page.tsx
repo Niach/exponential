@@ -1,81 +1,44 @@
-import { useEffect, useMemo, useState } from "react"
+import { useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
   conceptIcon,
   getActionIcon,
   Button,
-  GlassSectionHeader,
   Menu,
   SkeletonRows,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-  useIsMobile,
 } from "@exp/ui"
-import type { Team } from "@/db/schema"
+import type { SyncedAction, Team } from "@/db/schema"
 import { actionCollection } from "@/lib/collections"
-import { trpc } from "@/lib/trpc-client"
-import { useSteerConfig } from "@/hooks/use-steer-config"
-import {
-  ActionPromptForm,
-  type ActionRepoOption,
-  type TeamAction,
-} from "@/components/action-prompt-form"
-import { ActionTriggersSection } from "@/components/action-triggers-section"
-import { ActionRunsSection } from "@/components/action-runs-section"
+import { ActionPromptForm } from "@/components/action-prompt-form"
 import { DeleteActionDialog } from "@/components/team-actions-panel"
 import { PinToggleButton } from "@/components/pin-toggle-button"
-import {
-  primeTabEnter,
-  useFaceSwipe,
-} from "@/components/work-faces"
 import { useOpenComposer } from "@/hooks/use-open-composer"
-import { useRemoteStart } from "@/hooks/use-remote-start"
-import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 
-// ONE action as a page (SLOP-2): its prompt, its triggers and its runs. A
-// desktop viewport reads them as three SECTIONS of one scroller; a phone gets
-// the same three as TABS (`?tab=`), like the Work screen's faces. The row is
-// read from the synced shape, so the page settles on its own as Electric
-// catches up.
+// ONE action as a page. EXP-1293: an action is a SAVED PROMPT, so the page
+// is its header (back, icon, name, pin, ⋯ Delete, Run) over the ONE form —
+// no tabs, no triggers (they live on team agents now), no runs list. Run
+// seeds the home composer with the action as its subject; the session it
+// starts is a thread like any other. The row is read from the synced shape,
+// so the page settles on its own as Electric catches up.
 
 const UiBackIcon = conceptIcon(`ui-back`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 const ActionRunIcon = conceptIcon(`action-run`)
 
-export const ACTION_PAGE_TABS = [`prompt`, `triggers`, `runs`] as const
-export type ActionPageTab = (typeof ACTION_PAGE_TABS)[number]
-
-export function parseActionPageTab(value: unknown): ActionPageTab | undefined {
-  return ACTION_PAGE_TABS.find((tab) => tab === value)
-}
-
 export function ActionPage({
   team,
   teamSlug,
   actionId,
-  tab,
-  onTabChange,
 }: {
   team: Team
   teamSlug: string
   actionId: string
-  /** Phone only — the controlled tab, i.e. the route's `?tab=`. */
-  tab: ActionPageTab
-  onTabChange: (tab: ActionPageTab) => void
 }) {
   const navigate = useNavigate()
-  const isMobile = useIsMobile()
-  // EXP-1190: the phone's tabs page with a swipe, like the Work faces.
-  const swipe = useFaceSwipe(ACTION_PAGE_TABS, tab, onTabChange)
-  const { data: session } = useSession()
   const { isMember, isOwner } = useTeamPermissions(team)
-  const steerConfig = useSteerConfig()
-  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   const openComposer = useOpenComposer()
 
   const { data: actionRows } = useLiveQuery(
@@ -83,35 +46,7 @@ export function ActionPage({
       query.from({ a: actionCollection }).where(({ a }) => eq(a.id, actionId)),
     [actionId]
   )
-  const action = useMemo<TeamAction | null>(() => {
-    const row = actionRows?.[0]
-    return row ? { ...row, builtin: false as const } : null
-  }, [actionRows])
-
-  // The trigger rows name their device and the trigger form picks one.
-  const remote = useRemoteStart({
-    enabled: steerEnabled,
-    currentUserId: session?.user?.id,
-    teamId: team.id,
-  })
-
-  // Repo names for the form's repository select.
-  const [repos, setRepos] = useState<ActionRepoOption[]>([])
-  useEffect(() => {
-    if (!isMember) return
-    let active = true
-    trpc.repositories.list
-      .query({ teamId: team.id })
-      .then(
-        (rows) =>
-          active &&
-          setRepos(rows.map((r) => ({ id: r.id, fullName: r.fullName })))
-      )
-      .catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [team.id, isMember])
+  const action = (actionRows?.[0] ?? null) as SyncedAction | null
 
   const [deleteOpen, setDeleteOpen] = useState(false)
 
@@ -138,29 +73,10 @@ export function ActionPage({
   }
 
   const ActionIcon = getActionIcon(action)
-  const prompt = (
-    <ActionPromptForm repos={repos} action={action} readOnly={!isOwner} />
-  )
-  const triggersSection = (header: boolean) => (
-    <ActionTriggersSection
-      action={action}
-      devices={remote.devices ?? []}
-      isOwner={isOwner}
-      steerEnabled={steerEnabled}
-      showHeader={header}
-    />
-  )
-  const runsSection = (header: boolean) => (
-    <ActionRunsSection
-      actionId={action.id}
-      teamId={team.id}
-      showHeader={header}
-    />
-  )
 
   return (
     <>
-      <header className="flex items-center gap-2 pb-4">
+      <header className="flex items-center gap-2 pb-4" data-testid="action-page-header">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -200,61 +116,20 @@ export function ActionPage({
             }
           />
         )}
-        {steerEnabled && (
-          <Button
-            variant="glass"
-            size="icon"
-            // EXP-825: the composer with this action as the subject chip.
-            onClick={() => openComposer({ actionId: action.id })}
-            aria-label="Run"
-            title="Run"
-          >
-            <ActionRunIcon />
-          </Button>
-        )}
+        <Button
+          variant="glass"
+          size="icon"
+          // EXP-825: the home composer with this action as the subject chip.
+          onClick={() => openComposer({ actionId: action.id })}
+          aria-label="Run"
+          title="Run"
+          data-testid="action-run"
+        >
+          <ActionRunIcon />
+        </Button>
       </header>
 
-      {isMobile ? (
-        <div className="flex-1" {...swipe}>
-          <Tabs
-            value={tab}
-            onValueChange={(value) => {
-              primeTabEnter(ACTION_PAGE_TABS, tab, value as ActionPageTab)
-              onTabChange(value as ActionPageTab)
-            }}
-          >
-            <TabsList className="w-full">
-              <TabsTrigger value="prompt" className="flex-1">
-                Prompt
-              </TabsTrigger>
-              <TabsTrigger value="triggers" className="flex-1">
-                Triggers
-              </TabsTrigger>
-              <TabsTrigger value="runs" className="flex-1">
-                Sessions
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent value="prompt" data-face-body="">
-              {prompt}
-            </TabsContent>
-            <TabsContent value="triggers" data-face-body="">
-              {triggersSection(false)}
-            </TabsContent>
-            <TabsContent value="runs" data-face-body="">
-              {runsSection(false)}
-            </TabsContent>
-          </Tabs>
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <div>
-            <GlassSectionHeader label="Prompt" />
-            <div className="pt-2">{prompt}</div>
-          </div>
-          {triggersSection(true)}
-          {runsSection(true)}
-        </div>
-      )}
+      <ActionPromptForm action={action} teamId={team.id} readOnly={!isOwner} />
 
       <DeleteActionDialog
         action={deleteOpen ? action : null}

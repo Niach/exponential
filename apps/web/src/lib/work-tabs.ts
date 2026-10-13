@@ -1,82 +1,66 @@
 // EXP-870: the web's WORK TABS — browser-like tabs above the content card on
 // md+, the twin of the desktop title-band strip (apps/desktop/crates/ui/src/
-// screens.rs `TabKey`/`partition_tabs`). Same model, same rules:
+// screens.rs `TabKey`/`partition_tabs`).
 //
-//   * A tab is a WORK ITEM, not a URL. An issue and its run are ONE tab with
-//     two faces (`issue` | `run`, the header's `Issue | Run` toggle); a run
-//     that links no issue (chat, action, batch) is a run-only tab.
-//   * EXP-923: a LIVE run is NOT a tab. Every running run of mine lives in the
-//     sidebar's "Running" section instead (`components/team/sidebar-running`),
-//     and opening one from there navigates with the `running` origin, which
-//     creates NO tab (`upsertFromRoute`) — it only reuses an issue tab that is
-//     already open. The agent groups the strip used to draw went with it.
-//   * A tab is bound to a run all the same (`reconcileLive`), so its chip can
-//     draw the live dot and its Run face knows which run to steer; `live` is a
-//     RENDERING fact now, never a permanence one: EVERY tab closes.
-//   * A run that ends because its PR MERGED takes its tab with it
-//     (`closeMergedRunTabs`); every other ending leaves the tab standing.
-//   * The ACTIVE tab is derived from the URL, never stored.
-//   * EXP-1255: the strip's "+" (and Alt/Option+T) opens ONE "New run" tab
-//     (`kind: 'new'`) hosting the home column (the Agent page). It turns
-//     INTO the run it starts once that run lands (`landNewRun`); runs
-//     started anywhere else still only show in the sidebar's Running.
-//   * EXP-1284: a THREAD is a tab of its own (`kind: 'thread'`, the thread
-//     page `/t/$teamSlug/threads/$threadId`), bound to its newest live run
-//     of mine like an issue tab, and the New run tab lands INTO the thread
-//     its run joined (every start opens or joins one).
+// EXP-1293 (Threads v2): the strip is ROUTE-DRIVEN and nothing else. A tab is
+// a WORK ITEM the URL opened — an issue, a thread (`/threads/$id`), a team
+// agent's channel (`/agents/$id`) or one raw session (`/sessions/$id`) — and
+// no other screen calls into the store:
+//
+//   * opening a work item focuses its tab, creating it at the end when absent
+//     (`upsertFromRoute`); the ACTIVE tab is derived from the URL, never
+//     stored;
+//   * the strip's "+" (and Alt/Option+T) opens ONE "New session" tab
+//     (`kind: 'new'`) hosting the home composer (the Agent page). A
+//     navigation that LEAVES that page for a work item lands IN that tab,
+//     browser-like: the composer's start goes to its thread, and the thread
+//     takes the New session tab's place (`landing`);
+//   * the sidebar's Running rows navigate with the `running` origin
+//     (`TABLESS_ORIGIN`), which creates NO tab — the row IS the affordance;
+//     it only focuses a tab that is already open;
+//   * the Inbox's list-detail opens share ONE preview slot (`PREVIEW_ORIGINS`):
+//     stepping the list replaces that tab in place;
+//   * every tab closes; closing never stops a session.
 //
 // Pure: no React, no storage, no router — every rule is a test
 // (`work-tabs.test.ts`). The store is `hooks/use-work-tabs.ts`, the URL→tab
 // wiring `components/team/work-tabs-sync.tsx`.
 
-export type WorkTabFace = `issue` | `run`
-
 export type WorkTab =
   | {
       kind: `issue`
       issueId: string
-      face: WorkTabFace
-      /** The run the Run face shows — bound by a route or a live run. */
-      runId: string | null
       /** The `?from=` token the tab reopens with. */
       from: string | null
-      live: boolean
     }
   | {
-      kind: `run`
-      runId: string
-      from: string | null
-      live: boolean
-    }
-  | {
-      /** EXP-1284: a thread — its page holds every run and issue of it. */
+      /** A thread = a root session of kind `thread`. */
       kind: `thread`
       threadId: string
-      /** The live run of mine the tab is bound to (its chip's mark). */
-      runId: string | null
       from: string | null
-      live: boolean
     }
   | {
-      /** EXP-1255: the New run tab — the home composer, no work item yet
-       *  (never bound: `runId` stays null, `live` false). */
-      kind: `new`
-      runId: string | null
+      /** A team agent's channel (a root of kind `agent`). */
+      kind: `agent`
+      agentId: string
       from: string | null
-      live: boolean
-      /** EXP-1284 (the batch's per-start handoff): the START ID of the
-       *  start this tab's composer delivered and is waiting on, else null.
-       *  The landing is keyed by it (`landNewRun`), never by the window. */
-      startId: string | null
+    }
+  | {
+      /** One raw session (any node of a tree). */
+      kind: `session`
+      sessionId: string
+      from: string | null
+    }
+  | {
+      /** EXP-1255: the New session tab — the home composer, no work item. */
+      kind: `new`
+      from: null
     }
 
-/** EXP-1255: the one New run tab. */
+/** EXP-1255: the one New session tab. */
 export const NEW_RUN_TAB: Extract<WorkTab, { kind: `new` }> = {
   kind: `new`,
-  runId: null,
   from: null,
-  live: false,
-  startId: null,
 }
 export const NEW_RUN_TAB_KEY = `new`
 
@@ -91,22 +75,29 @@ export function tabKey(tab: WorkTab): string {
   switch (tab.kind) {
     case `issue`:
       return `issue:${tab.issueId}`
-    case `run`:
-      return `run:${tab.runId}`
     case `thread`:
       return `thread:${tab.threadId}`
+    case `agent`:
+      return `agent:${tab.agentId}`
+    case `session`:
+      return `session:${tab.sessionId}`
     case `new`:
       return NEW_RUN_TAB_KEY
   }
 }
 
-/** The run a tab is bound to, when it has one. */
-export function tabRunId(tab: WorkTab): string | null {
-  return tab.runId
-}
-
-export function tabIsLive(tab: WorkTab): boolean {
-  return tab.live
+/** The session row a tab names (a thread, an agent or a session), if any. */
+export function tabSessionId(tab: WorkTab): string | null {
+  switch (tab.kind) {
+    case `thread`:
+      return tab.threadId
+    case `agent`:
+      return tab.agentId
+    case `session`:
+      return tab.sessionId
+    default:
+      return null
+  }
 }
 
 // ── The route side ───────────────────────────────────────────────────────────
@@ -114,11 +105,12 @@ export function tabIsLive(tab: WorkTab): boolean {
 /** What the current URL names, before any collection lookup. */
 export type RoutePath =
   | { kind: `issue`; boardSlug: string; identifier: string; from: string | null }
-  | { kind: `run`; runId: string; from: string | null }
   | { kind: `thread`; threadId: string; from: string | null }
+  | { kind: `agent`; agentId: string; from: string | null }
+  | { kind: `session`; sessionId: string; from: string | null }
 
 /** The work item a pathname shows — `null` for every other screen (lists,
- * full pages, settings). */
+ * full pages, settings, the Agent page). */
 export function routePathFromLocation(
   pathname: string,
   from: string | null | undefined
@@ -142,50 +134,43 @@ export function routePathFromLocation(
     if (boardSlug === null || identifier === null) return null
     return { kind: `issue`, boardSlug, identifier, from: token }
   }
-  const run = rest.match(/^\/sessions\/([^/]+)$/)
-  if (run) {
-    const runId = decode(run[1])
-    return runId === null ? null : { kind: `run`, runId, from: token }
-  }
-  const thread = rest.match(/^\/threads\/([^/]+)$/)
-  if (thread) {
-    const threadId = decode(thread[1])
-    return threadId === null ? null : { kind: `thread`, threadId, from: token }
+  const single = rest.match(/^\/(threads|agents|sessions)\/([^/]+)$/)
+  if (single) {
+    const id = decode(single[2])
+    if (id === null) return null
+    if (single[1] === `threads`) return { kind: `thread`, threadId: id, from: token }
+    if (single[1] === `agents`) return { kind: `agent`, agentId: id, from: token }
+    return { kind: `session`, sessionId: id, from: token }
   }
   return null
 }
 
-/** A route resolved against the collections — the issue's id, the run's
- * issue. */
+/** A route resolved against the collections — an issue's id; a session
+ *  route's row exists in this team. */
 export type RouteTab =
   | { kind: `issue`; issueId: string; from: string | null }
-  | { kind: `run`; runId: string; issueId: string | null; from: string | null }
   | { kind: `thread`; threadId: string; from: string | null }
+  | { kind: `agent`; agentId: string; from: string | null }
+  | { kind: `session`; sessionId: string; from: string | null }
+
+/** The tab a resolved route shows. */
+export function routeTab(route: RouteTab): Exclude<WorkTab, { kind: `new` }> {
+  return { ...route } as Exclude<WorkTab, { kind: `new` }>
+}
 
 /** The key of the tab a resolved route shows — the active tab. */
 export function routeTabKey(route: RouteTab): string {
-  switch (route.kind) {
-    case `issue`:
-      return `issue:${route.issueId}`
-    case `run`:
-      return route.issueId ? `issue:${route.issueId}` : `run:${route.runId}`
-    case `thread`:
-      return `thread:${route.threadId}`
-  }
+  return tabKey(routeTab(route))
 }
 
-/** The face a resolved route shows (a thread has none: its children are
- *  the page's own strip). */
-export function routeTabFace(route: RouteTab): WorkTabFace | null {
-  if (route.kind === `thread`) return null
-  return route.kind === `issue` ? `issue` : `run`
+/** Whether the URL is the New session tab's page (the Agent page). */
+export function isNewRunPath(pathname: string): boolean {
+  return /^\/t\/[^/]+\/agent\/?$/.test(pathname)
 }
 
 /** EXP-923: the `?from=` token the sidebar's Running rows navigate with. A
- * navigation carrying it creates NO tab — the sidebar row IS the affordance,
- * and a live run must not pile a chip onto the strip behind your back. It
- * still FOCUSES a tab that is already open (you started the run from its
- * issue tab), which is why it is an origin rather than a separate route. */
+ * navigation carrying it creates NO tab — the sidebar row IS the affordance.
+ * It still FOCUSES a tab that is already open. */
 export const TABLESS_ORIGIN = `running`
 
 /** Whether a navigation's origin may create a tab. */
@@ -194,21 +179,16 @@ export function originCreatesTab(from: string | null | undefined): boolean {
 }
 
 /** EXP-1250: the list-detail origins (`detail-origin.ts` `originHasListNav`)
- * whose opens share ONE preview slot each — stepping the Inbox (or Agent ›
- * Recent) item by item REPLACES that list's tab in place instead of piling a
- * chip per item onto the strip. */
-export const PREVIEW_ORIGINS: readonly string[] = [
-  `inbox`,
-  `inbox:my-issues`,
-  `agent:recent`,
-]
+ * whose opens share ONE preview slot — stepping the Inbox item by item
+ * REPLACES that list's tab in place instead of piling a chip per item onto
+ * the strip. */
+export const PREVIEW_ORIGINS: readonly string[] = [`inbox`, `inbox:my-issues`]
 
-/** The preview SLOT an origin opens into — keyed per LIST, so both Inbox
- * tabs share ONE slot (the desktop's `inbox_slot`). `null` = not a preview. */
+/** The preview SLOT an origin opens into — both Inbox lists share ONE slot
+ * (the desktop's `inbox_slot`). `null` = not a preview. */
 const PREVIEW_SLOTS: Readonly<Record<string, string>> = {
   inbox: `inbox`,
   'inbox:my-issues': `inbox`,
-  'agent:recent': `recent`,
 }
 
 export function previewSlotKey(from: string | null | undefined): string | null {
@@ -222,377 +202,84 @@ export function isPreviewOrigin(from: string | null | undefined): boolean {
 }
 
 /**
- * The URL opened a work item: focus its tab, creating it at the end when
- * absent. An EXPLICIT `from` on the route overwrites the stored one (a tab
- * reopened from another list follows that list); a route without one keeps
- * what the tab had. A run that syncs its `issueId` after its run tab was made
- * MERGES into the issue's tab, which takes the run tab's place.
+ * The URL opened a work item: focus its tab, creating it when absent. An
+ * EXPLICIT `from` on the route overwrites the stored one (a tab reopened from
+ * another list follows that list); a route without one keeps what the tab had.
+ *
+ * `landing` = the navigation LEFT the New session tab's page (the Agent page
+ * with the New session tab open): a work item with no tab yet takes that
+ * tab's place — browser-like, the composer's start lands IN the tab it was
+ * typed in. One that has a tab already just focuses it, and a `running`
+ * origin lands nothing: the New session tab stays.
  *
  * EXP-923: a `running`-origin route creates nothing and never restamps a
- * tab's stored origin — it only binds the run under a tab that already
- * exists.
- *
- * EXP-1250: a PREVIEW origin (`PREVIEW_ORIGINS`) has one slot per list
- * (`previewSlotKey`: both Inbox tabs = one list): a new
- * item REPLACES the tab that list opened last, in place; an item that already
- * has a tab just focuses it, and that tab keeps its own origin (it is not the
- * slot, so the next list step never replaces it). A slot tab that is LIVE
- * (its run was started from the preview) is never replaced either: the next
- * item opens a fresh tab, which becomes the slot.
+ * tab's stored origin. EXP-1250: a PREVIEW origin replaces the tab its list
+ * opened last, in place; an item that already has a tab just focuses it.
  */
 export function upsertFromRoute(
   state: WorkTabsState,
-  route: RouteTab
+  route: RouteTab,
+  options: { landing?: boolean } = {}
 ): WorkTabsState {
+  const tab = routeTab(route)
+  const key = tabKey(tab)
   const tabs = [...state.tabs]
+  const at = tabs.findIndex((candidate) => tabKey(candidate) === key)
   const creates = originCreatesTab(route.from)
+  // Only an item with no tab lands: switching to an open tab (or a Running
+  // row, which creates none) leaves the New session tab where it is.
+  const newAt =
+    options.landing && at < 0 && creates
+      ? tabs.findIndex((candidate) => candidate.kind === `new`)
+      : -1
+  if (newAt >= 0) {
+    tabs[newAt] = tab
+    return { ...state, tabs }
+  }
+
   const preview = isPreviewOrigin(route.from)
-  const nextFrom = (stored: string | null) =>
-    preview || !creates ? stored : (route.from ?? stored)
-  // A new tab takes the list's preview slot when it has one, else the end.
-  // A LIVE slot tab (a run was just started there) is never replaced: the
-  // new item opens in a fresh tab, which is the slot from then on (the LAST
-  // non-live tab of the list's origin is the slot, so the fresh tab wins
-  // over the live one even once that run ends).
-  const place = (tab: WorkTab): WorkTabsState => {
-    const key = previewSlotKey(route.from)
-    let slot = -1
-    if (key) {
-      for (let i = tabs.length - 1; i >= 0; i--) {
-        const t = tabs[i]!
-        if (!t.live && previewSlotKey(t.from) === key) {
-          slot = i
-          break
-        }
+  if (at >= 0) {
+    const current = tabs[at]!
+    if (preview || !creates || route.from === null || current.from === route.from) {
+      return state
+    }
+    tabs[at] = { ...current, from: route.from } as WorkTab
+    return { ...state, tabs }
+  }
+  if (!creates) return state
+  const slotKey = previewSlotKey(route.from)
+  if (slotKey) {
+    for (let i = tabs.length - 1; i >= 0; i--) {
+      if (previewSlotKey(tabs[i]!.from) === slotKey) {
+        tabs[i] = tab
+        return { ...state, tabs }
       }
     }
-    if (slot >= 0) tabs[slot] = tab
-    else tabs.push(tab)
-    return { ...state, tabs }
   }
-
-  if (route.kind === `thread`) {
-    const at = tabs.findIndex(
-      (tab) => tab.kind === `thread` && tab.threadId === route.threadId
-    )
-    if (at < 0) {
-      if (!creates) return state
-      return place({
-        kind: `thread`,
-        threadId: route.threadId,
-        runId: null,
-        from: route.from,
-        live: false,
-      })
-    }
-    const tab = tabs[at] as Extract<WorkTab, { kind: `thread` }>
-    if (tab.from === nextFrom(tab.from)) return state
-    tabs[at] = { ...tab, from: nextFrom(tab.from) }
-    return { ...state, tabs }
-  }
-
-  if (route.kind === `run` && !route.issueId) {
-    const at = tabs.findIndex(
-      (tab) => tab.kind === `run` && tab.runId === route.runId
-    )
-    if (at < 0) {
-      if (!creates) return state
-      return place({ kind: `run`, runId: route.runId, from: route.from, live: false })
-    }
-    const tab = tabs[at] as Extract<WorkTab, { kind: `run` }>
-    if (tab.from === nextFrom(tab.from)) return state
-    tabs[at] = { ...tab, from: nextFrom(tab.from) }
-    return { ...state, tabs }
-  }
-
-  const issueId = route.kind === `issue` ? route.issueId : route.issueId!
-  const runId = route.kind === `run` ? route.runId : null
-  const face: WorkTabFace = route.kind === `issue` ? `issue` : `run`
-  let at = tabs.findIndex(
-    (tab) => tab.kind === `issue` && tab.issueId === issueId
-  )
-  // The run's own run-only tab (made before its issue id synced) folds in.
-  const orphan = runId
-    ? tabs.findIndex((tab) => tab.kind === `run` && tab.runId === runId)
-    : -1
-  let orphanLive = false
-  if (orphan >= 0) {
-    orphanLive = (tabs[orphan] as Extract<WorkTab, { kind: `run` }>).live
-    if (at < 0) {
-      const old = tabs[orphan] as Extract<WorkTab, { kind: `run` }>
-      tabs[orphan] = {
-        kind: `issue`,
-        issueId,
-        face,
-        runId,
-        from: nextFrom(old.from),
-        live: old.live,
-      }
-      return { ...state, tabs }
-    }
-    tabs.splice(orphan, 1)
-    if (orphan < at) at -= 1
-  }
-  if (at < 0) {
-    if (!creates) return state
-    return place({
-      kind: `issue`,
-      issueId,
-      face,
-      runId,
-      from: route.from,
-      live: false,
-    })
-  }
-  const tab = tabs[at] as Extract<WorkTab, { kind: `issue` }>
-  const next: WorkTab = {
-    ...tab,
-    face,
-    // The Issue face keeps whatever run the tab already shows.
-    runId: runId ?? tab.runId,
-    from: nextFrom(tab.from),
-    // A different run under the tab: its liveness is the folded-in run tab's
-    // until the next reconcile says otherwise.
-    live: runId !== null && runId !== tab.runId ? orphanLive : tab.live,
-  }
-  if (
-    orphan < 0 &&
-    next.face === tab.face &&
-    next.runId === tab.runId &&
-    next.from === tab.from &&
-    next.live === tab.live
-  ) {
-    return state
-  }
-  tabs[at] = next
+  tabs.push(tab)
   return { ...state, tabs }
 }
 
-// ── The live side ────────────────────────────────────────────────────────────
+// ── The New session tab (EXP-1255) ───────────────────────────────────────────
 
-/** One live run of mine, as the reconcile needs it. */
-export interface LiveRun {
-  runId: string
-  issueId: string | null
-  /** EXP-1284: the thread the run sits in, once its item synced. */
-  threadId?: string | null
-}
-
-/**
- * Bind and MARK live runs — EXP-923 took the auto-add away (a live run is a
- * sidebar row now, never a chip), so this only keeps the open tabs honest:
- *
- *   * a tab bound to a live run is `live`; an issue tab with no live binding
- *     binds to its issue's live run (a resume swaps the run under the tab);
- *   * EXP-902: a run that lands under an issue tab THIS way — one you did
- *     not open (an agent spawned it, an automation started it, a resume
- *     from another device) — flips the tab's face to `run`, so the next
- *     click on the chip opens the run and not the issue behind it. A run
- *     you start yourself arrives through its route (`upsertFromRoute`)
- *     already on the Run face. The tab being READ on its issue face is
- *     left alone, exactly like a viewed run is never rebound.
- *   * a tab whose run is no longer live keeps its place with `live: false`.
- */
-export function reconcileLive(
-  state: WorkTabsState,
-  runs: readonly LiveRun[],
-  // The run the URL is showing right now: a tab bound to it is being READ
-  // (a past run of an issue that also has a live one), so it is never
-  // rebound out from under the reader.
-  viewedRunId: string | null = null,
-  // The issue the URL is showing right now (its Issue face): a run binding
-  // under it does not flip the face of the page you are reading.
-  viewedIssueId: string | null = null
-): WorkTabsState {
-  const liveById = new Map(runs.map((run) => [run.runId, run]))
-  const liveByIssue = new Map<string, LiveRun>()
-  const liveByThread = new Map<string, LiveRun>()
-  for (const run of runs) {
-    if (run.issueId && !liveByIssue.has(run.issueId)) {
-      liveByIssue.set(run.issueId, run)
-    }
-    // The NEWEST live run of mine in a thread binds its tab (runs arrive
-    // oldest first).
-    if (run.threadId) liveByThread.set(run.threadId, run)
-  }
-  const bound = new Set<string>()
-  let changed = false
-
-  const tabs: WorkTab[] = state.tabs.map((tab) => {
-    if (tab.kind === `new`) return tab
-    if (tab.kind === `thread`) {
-      // EXP-1284: a thread tab is live while any run of mine in it is.
-      const bound =
-        tab.runId && liveById.get(tab.runId)?.threadId === tab.threadId
-          ? tab.runId
-          : (liveByThread.get(tab.threadId)?.runId ?? null)
-      const runId = bound ?? tab.runId
-      const live = bound !== null
-      if (runId === tab.runId && live === tab.live) return tab
-      changed = true
-      return { ...tab, runId, live }
-    }
-    if (tab.kind === `run`) {
-      const live = liveById.has(tab.runId)
-      if (live) bound.add(tab.runId)
-      if (live === tab.live) return tab
-      changed = true
-      return { ...tab, live }
-    }
-    let runId = tab.runId
-    if ((!runId || !liveById.has(runId)) && (viewedRunId === null || runId !== viewedRunId)) {
-      const issueRun = liveByIssue.get(tab.issueId)
-      if (issueRun && !bound.has(issueRun.runId)) runId = issueRun.runId
-    }
-    const live = runId !== null && liveById.has(runId)
-    if (live && runId) bound.add(runId)
-    // EXP-902: a NEW live run under a background tab is where the tab goes.
-    const face: WorkTabFace =
-      live && runId !== tab.runId && tab.issueId !== viewedIssueId
-        ? `run`
-        : tab.face
-    if (runId === tab.runId && live === tab.live && face === tab.face) return tab
-    changed = true
-    return { ...tab, runId, live, face }
-  })
-
-  return changed ? { tabs } : state
-}
-
-// ── The New run tab (EXP-1255) ───────────────────────────────────────────────
-
-/** "+" / Alt+T: open the New run tab at the end — or keep the one that is
- * already open (there is only ever one). */
+/** "+" / Alt+T: open the New session tab at the end — or keep the one that
+ * is already open (there is only ever one). */
 export function openNewRunTab(state: WorkTabsState): WorkTabsState {
   if (state.tabs.some((tab) => tab.kind === `new`)) return state
   return { ...state, tabs: [...state.tabs, NEW_RUN_TAB] }
 }
 
-/** Whether the URL is the New run tab's page (the Agent page). */
-export function isNewRunPath(pathname: string): boolean {
-  return /^\/t\/[^/]+\/agent\/?$/.test(pathname)
-}
-
-/**
- * EXP-1284: the New session tab's composer DELIVERED a start: the tab
- * remembers that start's id (a Retry reuses it, a new press replaces it), so
- * the landing that follows is matched by the start, never by the window.
- */
-export function markNewRunStarting(
-  state: WorkTabsState,
-  startId: string
-): WorkTabsState {
-  const at = state.tabs.findIndex((tab) => tab.kind === `new`)
-  if (at < 0) return state
-  const tab = state.tabs[at] as Extract<WorkTab, { kind: `new` }>
-  if (tab.startId === startId) return state
-  const tabs = [...state.tabs]
-  tabs[at] = { ...tab, startId }
-  return { ...state, tabs }
-}
-
-/**
- * The session started from the New session tab LANDED: the tab whose
- * in-flight start is `startId` turns into that session's tab in place. A
- * start no New session tab is waiting on (another composer, a dialog, a
- * press the tab has since replaced) lands nothing here. EXP-1284: every
- * start joins a THREAD, so a session whose thread is known lands as that
- * thread's tab; one whose thread item has not synced keeps the old rule (an
- * issue session = its issue's tab on the Run face, else a session-only
- * tab). A work item that already has a tab elsewhere takes the New session
- * tab's place and the duplicate goes, so no empty New session tab is left.
- */
-export function landNewRun(
-  state: WorkTabsState,
-  run: LiveRun,
-  startId: string | null
-): WorkTabsState {
-  if (!startId) return state
-  const at = state.tabs.findIndex(
-    (tab) => tab.kind === `new` && tab.startId === startId
-  )
-  if (at < 0) return state
-  const threadId = run.threadId ?? null
-  const existing = state.tabs.findIndex((tab) =>
-    threadId
-      ? tab.kind === `thread` && tab.threadId === threadId
-      : run.issueId
-        ? tab.kind === `issue` && tab.issueId === run.issueId
-        : tab.kind === `run` && tab.runId === run.runId
-  )
-  const next: WorkTab =
-    existing >= 0
-      ? state.tabs[existing]!
-      : threadId
-        ? { kind: `thread`, threadId, runId: run.runId, from: null, live: false }
-        : run.issueId
-          ? {
-              kind: `issue`,
-              issueId: run.issueId,
-              face: `run`,
-              runId: run.runId,
-              from: null,
-              live: false,
-            }
-          : { kind: `run`, runId: run.runId, from: null, live: false }
-  const tabs = state.tabs.flatMap((tab, index) =>
-    index === at ? [next] : index === existing ? [] : [tab]
-  )
-  return { ...state, tabs }
-}
-
-/** Close tabs. EXP-923: EVERY tab closes again — the live exception went with
- * the live tabs themselves. Closing never ends or kills a run. */
+/** Close tabs. Closing never stops a session. */
 export function closeTabs(
   state: WorkTabsState,
-  keys: readonly string[],
-  /** EXP-1284 (the batch's rule): Close others / Close all spare a New
-   *  session tab whose start is in flight — its landing still needs it.
-   *  A tab's own × (and a middle click) closes it regardless. */
-  options: { spareStarting?: boolean } = {}
+  keys: readonly string[]
 ): WorkTabsState {
   const closing = new Set(keys)
-  const closable = (tab: WorkTab) =>
-    closing.has(tabKey(tab)) &&
-    !(options.spareStarting && tab.kind === `new` && tab.startId !== null)
-  if (!state.tabs.some(closable)) return state
-  return { tabs: state.tabs.filter((tab) => !closable(tab)) }
+  if (!state.tabs.some((tab) => closing.has(tabKey(tab)))) return state
+  return { tabs: state.tabs.filter((tab) => !closing.has(tabKey(tab))) }
 }
 
-/** A run that just stopped being live, as the merge rule needs it. */
-export interface EndedRun {
-  runId: string
-  issueId: string | null
-  /** `coding_sessions.ended_by` — only `merge` closes anything. */
-  endedBy: string | null
-}
-
-/**
- * EXP-923: a run whose PR MERGED is finished work, so its tab goes — together
- * with any other tab of the same issue (the Issue face has nothing left to
- * show either). Every OTHER ending (stopped, errored, swept) leaves the tab
- * standing: you still want to read it.
- */
-export function closeMergedRunTabs(
-  state: WorkTabsState,
-  ended: readonly EndedRun[]
-): WorkTabsState {
-  const merged = ended.filter((run) => run.endedBy === `merge`)
-  if (merged.length === 0) return state
-  const runIds = new Set(merged.map((run) => run.runId))
-  const issueIds = new Set(
-    merged.flatMap((run) => (run.issueId ? [run.issueId] : []))
-  )
-  const keys = state.tabs
-    .filter((tab) => {
-      if (tab.runId !== null && runIds.has(tab.runId)) return true
-      return tab.kind === `issue` && issueIds.has(tab.issueId)
-    })
-    .map(tabKey)
-  return closeTabs(state, keys)
-}
-
-/** Drop tabs whose target no longer resolves (a deleted issue, a run of a
+/** Drop tabs whose target no longer resolves (a deleted issue, a session of a
  * team the user left). Only call once the collections are READY — a cold
  * load must not wipe tabs whose rows simply have not synced yet. */
 export function pruneTabs(
@@ -603,8 +290,8 @@ export function pruneTabs(
   return tabs.length === state.tabs.length ? state : { ...state, tabs }
 }
 
-/** Where a tab click goes. `issueHref` resolves an issue id to its board slug
- * and identifier (null while it syncs — the tab then waits). */
+/** Where a tab click goes. `resolveIssue` resolves an issue id to its board
+ * slug and identifier (null while it syncs — the tab then waits). */
 export function tabHref(
   teamSlug: string,
   tab: WorkTab,
@@ -620,20 +307,19 @@ export function tabHref(
         params: { teamSlug, threadId: tab.threadId },
         search,
       }
-    case `run`:
+    case `agent`:
+      return {
+        to: `/t/$teamSlug/agents/$agentId`,
+        params: { teamSlug, agentId: tab.agentId },
+        search,
+      }
+    case `session`:
       return {
         to: `/t/$teamSlug/sessions/$sessionId`,
-        params: { teamSlug, sessionId: tab.runId },
+        params: { teamSlug, sessionId: tab.sessionId },
         search,
       }
     case `issue`: {
-      if (tab.face === `run` && tab.runId) {
-        return {
-          to: `/t/$teamSlug/sessions/$sessionId`,
-          params: { teamSlug, sessionId: tab.runId },
-          search,
-        }
-      }
       const issue = resolveIssue(tab.issueId)
       if (!issue) return null
       return {
@@ -695,8 +381,9 @@ export function partitionTabs(
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 
+/** EXP-1293: v2 — the v1 blobs named coding-session runs, which are gone. */
 export function workTabsStorageKey(teamId: string): string {
-  return `exp:work-tabs:v1:${teamId}`
+  return `exp:work-tabs:v2:${teamId}`
 }
 
 function str(value: unknown): value is string {
@@ -712,36 +399,23 @@ function parseTab(value: unknown): WorkTab | null {
   const raw = value as Record<string, unknown>
   switch (raw.kind) {
     case `issue`:
-      if (!str(raw.issueId)) return null
-      return {
-        kind: `issue`,
-        issueId: raw.issueId,
-        face: raw.face === `run` && str(raw.runId) ? `run` : `issue`,
-        runId: optStr(raw.runId),
-        from: optStr(raw.from),
-        live: raw.live === true,
-      }
-    case `run`:
-      if (!str(raw.runId)) return null
-      return {
-        kind: `run`,
-        runId: raw.runId,
-        from: optStr(raw.from),
-        live: raw.live === true,
-      }
+      return str(raw.issueId)
+        ? { kind: `issue`, issueId: raw.issueId, from: optStr(raw.from) }
+        : null
     case `thread`:
-      if (!str(raw.threadId)) return null
-      return {
-        kind: `thread`,
-        threadId: raw.threadId,
-        runId: optStr(raw.runId),
-        from: optStr(raw.from),
-        live: raw.live === true,
-      }
+      return str(raw.threadId)
+        ? { kind: `thread`, threadId: raw.threadId, from: optStr(raw.from) }
+        : null
+    case `agent`:
+      return str(raw.agentId)
+        ? { kind: `agent`, agentId: raw.agentId, from: optStr(raw.from) }
+        : null
+    case `session`:
+      return str(raw.sessionId)
+        ? { kind: `session`, sessionId: raw.sessionId, from: optStr(raw.from) }
+        : null
     case `new`:
-      return { ...NEW_RUN_TAB, startId: optStr(raw.startId) }
-    // A `support` tab from an older build (helpdesk, gone in SLOP-4) is
-    // simply dropped.
+      return NEW_RUN_TAB
     default:
       return null
   }
@@ -759,8 +433,6 @@ export function parseWorkTabsState(raw: string | null | undefined): WorkTabsStat
     return EMPTY_WORK_TABS
   }
   if (typeof json !== `object` || json === null) return EMPTY_WORK_TABS
-  // EXP-877: a state written by an older build carries a `dismissed` map —
-  // read past it, the strip has no dismissal memory any more.
   const source = json as { tabs?: unknown }
   const seen = new Set<string>()
   const tabs: WorkTab[] = []

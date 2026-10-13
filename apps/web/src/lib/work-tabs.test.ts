@@ -1,547 +1,222 @@
 import { describe, expect, it } from "vitest"
 import {
-  closeMergedRunTabs,
   closeTabs,
   EMPTY_WORK_TABS,
+  isNewRunPath,
+  isPreviewOrigin,
+  NEW_RUN_TAB,
+  openNewRunTab,
   originCreatesTab,
   parseWorkTabsState,
   partitionTabs,
+  previewSlotKey,
   pruneTabs,
-  reconcileLive,
   routePathFromLocation,
-  routeTabFace,
   routeTabKey,
   TABLESS_ORIGIN,
   tabHref,
   tabKey,
   upsertFromRoute,
-  isPreviewOrigin,
-  previewSlotKey,
-  isNewRunPath,
-  landNewRun,
-  markNewRunStarting,
-  NEW_RUN_TAB,
-  openNewRunTab,
-  type LiveRun,
   type WorkTab,
   type WorkTabsState,
 } from "@/lib/work-tabs"
 
-// EXP-870 / EXP-923: the work-tab model — the same `partition_tabs` vectors
-// the desktop walks (apps/desktop/crates/ui/src/screens.rs), and the four
-// rules EXP-923 left the strip with: only work you OPENED gets a tab, a
-// `running`-origin navigation opens none (the sidebar row is the affordance),
-// every tab closes again, and a run whose PR merged takes its tab with it.
+// EXP-870 / EXP-1293: the work-tab model — route-driven: an issue, a thread,
+// an agent's channel or a raw session the URL opened is a tab; the New
+// session tab turns into whatever its page navigates to; a `running`-origin
+// navigation opens none; the Inbox shares one preview slot; and the desktop's
+// `partition_tabs` vectors (apps/desktop/crates/ui/src/screens.rs).
 
 const state = (tabs: WorkTab[]) => ({ tabs }) satisfies WorkTabsState
-
 const keys = (s: WorkTabsState) => s.tabs.map(tabKey)
+const issue = (issueId: string, from: string | null = null): WorkTab => ({
+  kind: `issue`,
+  issueId,
+  from,
+})
+const thread = (threadId: string, from: string | null = null): WorkTab => ({
+  kind: `thread`,
+  threadId,
+  from,
+})
 
 describe(`routePathFromLocation`, () => {
-  it(`names the three work-item routes`, () => {
-    expect(routePathFromLocation(`/t/acme/boards/web/issues/MET-1`, `inbox`)).toEqual({
+  it(`names the four work items`, () => {
+    expect(routePathFromLocation(`/t/acme/boards/app/issues/APP-1`, `inbox`)).toEqual({
       kind: `issue`,
-      boardSlug: `web`,
-      identifier: `MET-1`,
+      boardSlug: `app`,
+      identifier: `APP-1`,
       from: `inbox`,
     })
-    expect(routePathFromLocation(`/t/acme/sessions/s1`, undefined)).toEqual({
-      kind: `run`,
-      runId: `s1`,
+    expect(routePathFromLocation(`/t/acme/threads/t1`, null)).toEqual({
+      kind: `thread`,
+      threadId: `t1`,
       from: null,
+    })
+    expect(routePathFromLocation(`/t/acme/agents/a1/`, ``)).toEqual({
+      kind: `agent`,
+      agentId: `a1`,
+      from: null,
+    })
+    expect(routePathFromLocation(`/t/acme/sessions/s1`, `running`)).toEqual({
+      kind: `session`,
+      sessionId: `s1`,
+      from: `running`,
     })
   })
 
-  it(`is null everywhere else`, () => {
+  it(`is null on lists, full pages and broken escapes`, () => {
     for (const path of [
       `/t/acme`,
+      `/t/acme/agent`,
+      `/t/acme/threads`,
       `/t/acme/inbox`,
-      `/t/acme/boards/web`,
-      `/t/acme/settings/general`,
-      `/onboarding`,
+      `/t/acme/boards/app`,
+      `/t/acme/settings/agents/a1`,
+      `/t/acme/threads/%E0%A4%A`,
+      `/about`,
     ]) {
       expect(routePathFromLocation(path, null), path).toBeNull()
     }
   })
-})
 
-describe(`routeTabKey / routeTabFace`, () => {
-  it(`makes an issue and its run the same tab`, () => {
-    expect(routeTabKey({ kind: `issue`, issueId: `i1`, from: null })).toBe(`issue:i1`)
-    expect(
-      routeTabKey({ kind: `run`, runId: `s1`, issueId: `i1`, from: null })
-    ).toBe(`issue:i1`)
-    expect(
-      routeTabKey({ kind: `run`, runId: `s1`, issueId: null, from: null })
-    ).toBe(`run:s1`)
-    expect(routeTabFace({ kind: `issue`, issueId: `i1`, from: null })).toBe(`issue`)
-    expect(
-      routeTabFace({ kind: `run`, runId: `s1`, issueId: `i1`, from: null })
-    ).toBe(`run`)
+  it(`knows the New session tab's page`, () => {
+    expect(isNewRunPath(`/t/acme/agent`)).toBe(true)
+    expect(isNewRunPath(`/t/acme/agent/`)).toBe(true)
+    expect(isNewRunPath(`/t/acme/agents/a1`)).toBe(false)
   })
 })
 
 describe(`upsertFromRoute`, () => {
-  it(`appends a new tab and focuses an existing one`, () => {
-    let s = upsertFromRoute(EMPTY_WORK_TABS, {
-      kind: `issue`,
-      issueId: `i1`,
-      from: `board:web`,
-    })
-    s = upsertFromRoute(s, { kind: `run`, runId: `s7`, issueId: null, from: `agent` })
-    expect(keys(s)).toEqual([`issue:i1`, `run:s7`])
-    // Re-opening the same issue with the same token changes nothing.
-    const again = upsertFromRoute(s, {
-      kind: `issue`,
-      issueId: `i1`,
-      from: `board:web`,
-    })
-    expect(again).toBe(s)
+  it(`appends a work item once and focuses it after`, () => {
+    let s = upsertFromRoute(EMPTY_WORK_TABS, { kind: `issue`, issueId: `i1`, from: null })
+    s = upsertFromRoute(s, { kind: `thread`, threadId: `t1`, from: null })
+    s = upsertFromRoute(s, { kind: `agent`, agentId: `a1`, from: null })
+    s = upsertFromRoute(s, { kind: `session`, sessionId: `s1`, from: null })
+    expect(keys(s)).toEqual([`issue:i1`, `thread:t1`, `agent:a1`, `session:s1`])
+    expect(upsertFromRoute(s, { kind: `thread`, threadId: `t1`, from: null })).toBe(s)
   })
 
-  it(`flips the face and binds the run on the issue's run route`, () => {
-    let s = upsertFromRoute(EMPTY_WORK_TABS, {
-      kind: `issue`,
-      issueId: `i1`,
-      from: null,
-    })
-    s = upsertFromRoute(s, { kind: `run`, runId: `s1`, issueId: `i1`, from: null })
-    expect(s.tabs).toEqual([
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: null, live: false },
-    ])
-    // Back to the Issue face keeps the bound run.
-    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: null })
-    expect(s.tabs[0]).toMatchObject({ face: `issue`, runId: `s1` })
-  })
-
-  it(`lets an explicit from overwrite the stored one, and keeps it otherwise`, () => {
-    let s = upsertFromRoute(EMPTY_WORK_TABS, {
-      kind: `issue`,
-      issueId: `i1`,
-      from: `board:web`,
-    })
-    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `reviews` })
-    expect(s.tabs[0]).toMatchObject({ from: `reviews` })
-    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: null })
-    expect(s.tabs[0]).toMatchObject({ from: `reviews` })
-    // EXP-1250: a preview origin never restamps a tab it merely focuses.
-    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `inbox` })
-    expect(s.tabs[0]).toMatchObject({ from: `reviews` })
-    // A stored null is filled too.
-    let r = upsertFromRoute(EMPTY_WORK_TABS, { kind: `run`, runId: `s9`, issueId: null, from: null })
-    r = upsertFromRoute(r, { kind: `run`, runId: `s9`, issueId: null, from: `agent` })
-    expect(r.tabs[0]).toMatchObject({ from: `agent` })
-  })
-
-  it(`folds a run-only tab into its issue once the issue id syncs`, () => {
-    // No issue tab yet: the run tab becomes the issue tab in place.
-    let s = state([
-      { kind: `run`, runId: `s0`, from: null, live: false },
-      { kind: `run`, runId: `s1`, from: `agent`, live: true },
-    ])
-    s = upsertFromRoute(s, { kind: `run`, runId: `s1`, issueId: `i1`, from: null })
-    expect(s.tabs).toEqual([
-      { kind: `run`, runId: `s0`, from: null, live: false },
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `agent`, live: true },
-    ])
-    // An issue tab already there absorbs it.
-    let t = state([
-      { kind: `run`, runId: `s1`, from: null, live: true },
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
-    ])
-    t = upsertFromRoute(t, { kind: `run`, runId: `s1`, issueId: `i1`, from: null })
-    expect(t.tabs).toEqual([
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: null, live: true },
-    ])
-  })
-})
-
-describe(`reconcileLive`, () => {
-  const run = (runId: string, issueId: string | null): LiveRun => ({
-    runId,
-    issueId,
-  })
-
-  // EXP-870 review: a past run of an issue being READ is never rebound to the
-  // issue's live run under the reader.
-  it(`keeps the run the URL shows bound`, () => {
-    const start = state([
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `past`, from: null, live: false },
-    ])
-    const viewed = reconcileLive(start, [run(`live`, `i1`)], `past`)
-    expect(viewed.tabs[0]).toMatchObject({ runId: `past`, live: false })
-    const elsewhere = reconcileLive(start, [run(`live`, `i1`)], null)
-    expect(elsewhere.tabs[0]).toMatchObject({ runId: `live`, live: true })
-  })
-
-  // EXP-923: the live auto-add is GONE — a run of mine never appears as a
-  // chip on its own, whatever it links. It is a sidebar row.
-  it(`never adds a tab for a live run`, () => {
+  it(`restamps the origin only on an explicit one`, () => {
+    const s = state([issue(`i1`, `board:app`)])
+    expect(upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: null })).toBe(s)
     expect(
-      reconcileLive(EMPTY_WORK_TABS, [run(`s1`, `i1`), run(`s2`, null)])
+      upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `drafts` }).tabs
+    ).toEqual([issue(`i1`, `drafts`)])
+  })
+
+  it(`opens no tab from the Running section, but focuses an open one`, () => {
+    expect(originCreatesTab(TABLESS_ORIGIN)).toBe(false)
+    expect(
+      upsertFromRoute(EMPTY_WORK_TABS, { kind: `thread`, threadId: `t1`, from: TABLESS_ORIGIN })
     ).toBe(EMPTY_WORK_TABS)
-    const start = state([
-      { kind: `issue`, issueId: `i9`, face: `issue`, runId: null, from: `inbox`, live: false },
-    ])
+    const open = state([thread(`t1`)])
     expect(
-      keys(reconcileLive(start, [run(`s1`, `i1`), run(`s2`, null)]))
-    ).toEqual([`issue:i9`])
+      upsertFromRoute(open, { kind: `thread`, threadId: `t1`, from: TABLESS_ORIGIN })
+    ).toBe(open)
   })
 
-  // EXP-902: a run that lands under a background issue tab this way is one
-  // you did not open (an agent spawned it): the chip's next click opens the
-  // RUN, not the issue behind it.
-  it(`binds an open issue tab to its issue's live run, on the Run face`, () => {
-    const s = reconcileLive(
-      state([
-        { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: `board:web`, live: false },
-      ]),
-      [run(`s1`, `i1`)]
-    )
-    expect(s.tabs).toEqual([
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `board:web`, live: true },
-    ])
-    // Idempotent: nothing changes on a second pass.
-    expect(reconcileLive(s, [run(`s1`, `i1`)])).toBe(s)
-  })
-
-  // EXP-902: the issue face being READ is not flipped under the reader —
-  // the run binds, the face stays until the next click somewhere else.
-  it(`keeps the Issue face of the issue the URL shows`, () => {
-    const start = state([
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
-      { kind: `issue`, issueId: `i2`, face: `issue`, runId: null, from: null, live: false },
-    ])
-    const s = reconcileLive(start, [run(`s1`, `i1`), run(`s2`, `i2`)], null, `i1`)
-    expect(s.tabs[0]).toMatchObject({ face: `issue`, runId: `s1`, live: true })
-    expect(s.tabs[1]).toMatchObject({ face: `run`, runId: `s2`, live: true })
-    // A tab already bound to its live run keeps whatever face it has: only a
-    // NEW run under the tab flips it.
-    const again = reconcileLive(s, [run(`s1`, `i1`), run(`s2`, `i2`)], null, null)
-    expect(again).toBe(s)
-  })
-
-  // A resume starts a NEW run on the same issue: the tab follows it.
-  it(`rebinds an ended run's issue tab to the issue's new live run`, () => {
-    const s = reconcileLive(
-      state([
-        { kind: `issue`, issueId: `i1`, face: `run`, runId: `old`, from: null, live: false },
-      ]),
-      [run(`new`, `i1`)]
-    )
-    expect(s.tabs[0]).toMatchObject({ runId: `new`, live: true })
-  })
-
-  it(`keeps a tab whose run ended, marked not live`, () => {
-    const s = reconcileLive(
-      state([{ kind: `run`, runId: `s1`, from: null, live: true }]),
-      []
-    )
-    expect(s.tabs).toEqual([{ kind: `run`, runId: `s1`, from: null, live: false }])
-  })
-
-  it(`is a no-op with nothing live and nothing open`, () => {
-    expect(reconcileLive(EMPTY_WORK_TABS, [])).toBe(EMPTY_WORK_TABS)
-  })
-})
-
-// EXP-923: the origin the sidebar's Running rows navigate with.
-describe(`the tabless origin`, () => {
-  it(`names exactly the running origin`, () => {
-    expect(TABLESS_ORIGIN).toBe(`running`)
-    expect(originCreatesTab(`running`)).toBe(false)
-    for (const from of [null, undefined, ``, `agent`, `inbox`, `board:web`]) {
-      expect(originCreatesTab(from), String(from)).toBe(true)
-    }
-  })
-
-  it(`creates no tab for a run or an issue`, () => {
-    expect(
-      upsertFromRoute(EMPTY_WORK_TABS, {
-        kind: `run`,
-        runId: `s1`,
-        issueId: null,
-        from: `running`,
-      })
-    ).toBe(EMPTY_WORK_TABS)
-    expect(
-      upsertFromRoute(EMPTY_WORK_TABS, {
-        kind: `run`,
-        runId: `s1`,
-        issueId: `i1`,
-        from: `running`,
-      })
-    ).toBe(EMPTY_WORK_TABS)
-    expect(
-      upsertFromRoute(EMPTY_WORK_TABS, {
-        kind: `issue`,
-        issueId: `i1`,
-        from: `running`,
-      })
-    ).toBe(EMPTY_WORK_TABS)
-  })
-
-  it(`reuses an issue tab that is already open, keeping its origin`, () => {
-    const s = upsertFromRoute(
-      state([
-        { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: `board:web`, live: false },
-      ]),
-      { kind: `run`, runId: `s1`, issueId: `i1`, from: `running` }
-    )
-    expect(s.tabs).toEqual([
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `board:web`, live: false },
-    ])
-  })
-
-  it(`toggling that tab's faces still creates nothing new`, () => {
-    let s = state([
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: null, live: true },
-    ])
-    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `running` })
-    expect(keys(s)).toEqual([`issue:i1`])
-    expect(s.tabs[0]).toMatchObject({ face: `issue`, runId: `s1` })
-  })
-})
-
-// EXP-1250: the Inbox (and Agent › Recent) step through ONE preview slot.
-describe(`the preview slot`, () => {
-  const openIssue = (s: WorkTabsState, issueId: string, from: string | null) =>
-    upsertFromRoute(s, { kind: `issue`, issueId, from })
-
-  it(`names the list-detail origins`, () => {
-    for (const from of [`inbox`, `inbox:my-issues`, `agent:recent`]) {
-      expect(isPreviewOrigin(from), from).toBe(true)
-    }
-    for (const from of [null, undefined, `agent`, `board:web`, `reviews`, `running`]) {
-      expect(isPreviewOrigin(from), String(from)).toBe(false)
-    }
-  })
-
-  it(`keeps ONE tab for N inbox opens`, () => {
-    let s = openIssue(EMPTY_WORK_TABS, `a`, `board:web`)
-    for (const id of [`i1`, `i2`, `i3`, `i4`]) s = openIssue(s, id, `inbox`)
-    expect(keys(s)).toEqual([`issue:a`, `issue:i4`])
-    expect(s.tabs[1]).toMatchObject({ from: `inbox` })
-  })
-
-  it(`replaces the slot in place, never moving other tabs`, () => {
-    let s = openIssue(EMPTY_WORK_TABS, `a`, null)
-    s = openIssue(s, `i1`, `inbox`)
-    s = openIssue(s, `b`, `board:web`)
-    s = openIssue(s, `i2`, `inbox`)
-    expect(keys(s)).toEqual([`issue:a`, `issue:i2`, `issue:b`])
-  })
-
-  it(`focuses an existing tab for the issue and keeps its origin`, () => {
-    let s = openIssue(EMPTY_WORK_TABS, `a`, `board:web`)
-    s = openIssue(s, `i1`, `inbox`)
-    const before = s
-    s = openIssue(s, `a`, `inbox`)
-    // Nothing changes: `a` stays a board tab, the slot stays `i1`.
-    expect(s).toBe(before)
-    s = openIssue(s, `i2`, `inbox`)
-    expect(keys(s)).toEqual([`issue:a`, `issue:i2`])
-  })
-
-  it(`gives each list its own slot`, () => {
-    let s = openIssue(EMPTY_WORK_TABS, `i1`, `inbox`)
-    s = upsertFromRoute(s, { kind: `run`, runId: `r1`, issueId: null, from: `agent:recent` })
-    s = upsertFromRoute(s, { kind: `run`, runId: `r2`, issueId: null, from: `agent:recent` })
-    s = openIssue(s, `i2`, `inbox`)
-    expect(keys(s)).toEqual([`issue:i2`, `run:r2`])
-  })
-
-  // Both Inbox tabs are ONE list: one slot, like the desktop's `inbox_slot`.
-  it(`shares one slot between the two Inbox tabs`, () => {
-    expect(previewSlotKey(`inbox`)).toBe(`inbox`)
+  it(`steps the Inbox through ONE preview slot`, () => {
+    expect(isPreviewOrigin(`inbox`)).toBe(true)
     expect(previewSlotKey(`inbox:my-issues`)).toBe(`inbox`)
-    expect(previewSlotKey(`agent:recent`)).toBe(`recent`)
-    expect(previewSlotKey(`board:web`)).toBeNull()
-    let s = openIssue(EMPTY_WORK_TABS, `i1`, `inbox`)
-    s = openIssue(s, `m1`, `inbox:my-issues`)
-    expect(keys(s)).toEqual([`issue:m1`])
-    expect(s.tabs[0]).toMatchObject({ from: `inbox:my-issues` })
-    s = openIssue(s, `i2`, `inbox`)
-    expect(keys(s)).toEqual([`issue:i2`])
+    expect(isPreviewOrigin(`board:app`)).toBe(false)
+    let s = state([issue(`i0`, `board:app`)])
+    s = upsertFromRoute(s, { kind: `issue`, issueId: `i1`, from: `inbox` })
+    s = upsertFromRoute(s, { kind: `issue`, issueId: `i2`, from: `inbox:my-issues` })
+    expect(s.tabs).toEqual([issue(`i0`, `board:app`), issue(`i2`, `inbox:my-issues`)])
+    // An item that already has a tab only focuses it, keeping its origin.
+    expect(upsertFromRoute(s, { kind: `issue`, issueId: `i0`, from: `inbox` })).toBe(s)
   })
 
-  // A run started from the preview makes that tab live: it is never the
-  // next item's victim. The fresh tab is the slot from then on.
-  it(`never replaces a live slot tab, opening a fresh tab that becomes the slot`, () => {
-    let s = openIssue(EMPTY_WORK_TABS, `a`, `board:web`)
-    s = openIssue(s, `i1`, `inbox`)
-    s = { tabs: s.tabs.map((t) => (tabKey(t) === `issue:i1` ? { ...t, live: true, runId: `r1` } : t)) }
-    s = openIssue(s, `i2`, `inbox`)
-    expect(keys(s)).toEqual([`issue:a`, `issue:i1`, `issue:i2`])
-    expect(s.tabs[1]).toMatchObject({ live: true, from: `inbox` })
-    // The fresh tab is the slot now: the next step replaces IT, not the live one.
-    s = openIssue(s, `i3`, `inbox`)
-    expect(keys(s)).toEqual([`issue:a`, `issue:i1`, `issue:i3`])
-    // Even once the run ends, the newer tab stays the slot.
-    s = { tabs: s.tabs.map((t) => (tabKey(t) === `issue:i1` ? { ...t, live: false } : t)) }
-    s = openIssue(s, `i4`, `inbox`)
-    expect(keys(s)).toEqual([`issue:a`, `issue:i1`, `issue:i4`])
-  })
-
-  it(`a run opened from Recent under an issue takes the slot too`, () => {
-    let s = upsertFromRoute(EMPTY_WORK_TABS, {
-      kind: `run`,
-      runId: `r1`,
-      issueId: `i1`,
-      from: `agent:recent`,
-    })
-    s = upsertFromRoute(s, { kind: `run`, runId: `r2`, issueId: `i2`, from: `agent:recent` })
-    expect(s.tabs).toEqual([
-      { kind: `issue`, issueId: `i2`, face: `run`, runId: `r2`, from: `agent:recent`, live: false },
-    ])
-  })
-})
-
-describe(`closeTabs`, () => {
-  // EXP-923: the live exception went with the live tabs — every tab closes.
-  it(`closes every tab it is asked to, live or not`, () => {
-    const s = state([
-      { kind: `run`, runId: `live`, from: null, live: true },
-      { kind: `run`, runId: `ended`, from: null, live: false },
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: `s3`, from: null, live: true },
-    ])
+  it(`lands a navigation from the New session page IN its tab`, () => {
+    const s = state([issue(`i1`), NEW_RUN_TAB, issue(`i2`)])
+    const landed = upsertFromRoute(
+      s,
+      { kind: `thread`, threadId: `t1`, from: null },
+      { landing: true }
+    )
+    expect(keys(landed)).toEqual([`issue:i1`, `thread:t1`, `issue:i2`])
+    // An item that already has a tab takes the focus; the New tab stays.
     expect(
-      keys(closeTabs(s, [`run:live`, `run:ended`, `issue:i1`]))
-    ).toEqual([])
-    expect(keys(closeTabs(s, [`run:live`]))).toEqual([
-      `run:ended`,
-      `issue:i1`,
-    ])
-  })
-
-  it(`is a no-op for unknown keys`, () => {
-    const s = state([{ kind: `run`, runId: `s1`, from: null, live: false }])
-    expect(closeTabs(s, [`issue:nope`])).toBe(s)
-    expect(closeTabs(s, [])).toBe(s)
-  })
-})
-
-// EXP-923: a merged run's tab goes; every other ending leaves it standing.
-describe(`closeMergedRunTabs`, () => {
-  const tabs = (): WorkTab[] => [
-    { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: null, live: true },
-    { kind: `run`, runId: `s2`, from: null, live: true },
-    { kind: `run`, runId: `s3`, from: null, live: false },
-  ]
-
-  it(`closes the merged run's tab`, () => {
+      upsertFromRoute(s, { kind: `issue`, issueId: `i2`, from: null }, { landing: true })
+    ).toBe(s)
+    // A Running row (the tabless origin) lands nothing either.
+    expect(
+      upsertFromRoute(s, { kind: `thread`, threadId: `t9`, from: `running` }, { landing: true })
+    ).toBe(s)
+    // Without a New session tab a landing is an ordinary open.
     expect(
       keys(
-        closeMergedRunTabs(state(tabs()), [
-          { runId: `s1`, issueId: `i1`, endedBy: `merge` },
-        ])
+        upsertFromRoute(
+          state([issue(`i1`)]),
+          { kind: `thread`, threadId: `t1`, from: null },
+          { landing: true }
+        )
       )
-    ).toEqual([`run:s2`, `run:s3`])
-    expect(
-      keys(
-        closeMergedRunTabs(state(tabs()), [
-          { runId: `s2`, issueId: null, endedBy: `merge` },
-        ])
-      )
-    ).toEqual([`issue:i1`, `run:s3`])
+    ).toEqual([`issue:i1`, `thread:t1`])
   })
 
-  it(`closes every OTHER tab of the merged issue too`, () => {
-    const s = state([
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
-      { kind: `run`, runId: `s1`, from: null, live: true },
-    ])
-    expect(
-      keys(closeMergedRunTabs(s, [{ runId: `s1`, issueId: `i1`, endedBy: `merge` }]))
-    ).toEqual([])
-  })
-
-  it(`leaves every other ending alone`, () => {
-    const s = state(tabs())
-    for (const endedBy of [null, `user`, `agent`, `stale`, `system`]) {
-      expect(
-        closeMergedRunTabs(s, [{ runId: `s1`, issueId: `i1`, endedBy }]),
-        String(endedBy)
-      ).toBe(s)
-    }
-    expect(closeMergedRunTabs(s, [])).toBe(s)
+  it(`keys a route like its tab`, () => {
+    expect(routeTabKey({ kind: `agent`, agentId: `a1`, from: `x` })).toBe(`agent:a1`)
   })
 })
 
-describe(`pruneTabs`, () => {
-  it(`drops unresolved tabs`, () => {
-    const s = state([
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
-      { kind: `run`, runId: `gone`, from: null, live: false },
-    ])
-    expect(keys(pruneTabs(s, (tab) => tab.kind === `issue`))).toEqual([
-      `issue:i1`,
-    ])
+describe(`the New session tab, closing and pruning`, () => {
+  it(`opens ONE New session tab`, () => {
+    const s = openNewRunTab(state([issue(`i1`)]))
+    expect(keys(s)).toEqual([`issue:i1`, `new`])
+    expect(openNewRunTab(s)).toBe(s)
+  })
+
+  it(`closes the named tabs only`, () => {
+    const s = state([issue(`i1`), thread(`t1`), NEW_RUN_TAB])
+    expect(keys(closeTabs(s, [`thread:t1`, `new`]))).toEqual([`issue:i1`])
+    expect(closeTabs(s, [`thread:nope`])).toBe(s)
+  })
+
+  it(`prunes what no longer resolves`, () => {
+    const s = state([issue(`i1`), thread(`t1`)])
+    expect(keys(pruneTabs(s, (tab) => tab.kind !== `thread`))).toEqual([`issue:i1`])
     expect(pruneTabs(s, () => true)).toBe(s)
-  })
-
-  // EXP-923: no grouping and no reordering — the strip IS the stored order.
-  it(`keeps the stored order`, () => {
-    const tabs: WorkTab[] = [
-      { kind: `run`, runId: `z`, from: null, live: false },
-      { kind: `run`, runId: `a`, from: null, live: true },
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
-    ]
-    expect(pruneTabs(state(tabs), () => true).tabs.map(tabKey)).toEqual([
-      `run:z`,
-      `run:a`,
-      `issue:i1`,
-    ])
   })
 })
 
 describe(`tabHref`, () => {
   const resolve = (id: string) =>
-    id === `i1` ? { boardSlug: `web`, identifier: `MET-1` } : null
+    id === `i1` ? { boardSlug: `app`, identifier: `APP-1` } : null
 
-  it(`opens the issue face on the canonical issue URL`, () => {
-    expect(
-      tabHref(
-        `acme`,
-        { kind: `issue`, issueId: `i1`, face: `issue`, runId: `s1`, from: `inbox`, live: true },
-        resolve
-      )
-    ).toEqual({
-      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-      params: { teamSlug: `acme`, boardSlug: `web`, issueIdentifier: `MET-1` },
-      search: { from: `inbox` },
+  it(`routes every kind`, () => {
+    expect(tabHref(`acme`, NEW_RUN_TAB, resolve)).toEqual({
+      to: `/t/$teamSlug/agent`,
+      params: { teamSlug: `acme` },
+      search: {},
     })
-  })
-
-  it(`opens the run face on the one run URL`, () => {
+    expect(tabHref(`acme`, thread(`t1`, `threads`), resolve)).toEqual({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug: `acme`, threadId: `t1` },
+      search: { from: `threads` },
+    })
+    expect(tabHref(`acme`, { kind: `agent`, agentId: `a1`, from: null }, resolve)).toEqual({
+      to: `/t/$teamSlug/agents/$agentId`,
+      params: { teamSlug: `acme`, agentId: `a1` },
+      search: {},
+    })
     expect(
-      tabHref(
-        `acme`,
-        { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: null, live: true },
-        resolve
-      )
+      tabHref(`acme`, { kind: `session`, sessionId: `s1`, from: null }, resolve)
     ).toEqual({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug: `acme`, sessionId: `s1` },
       search: {},
     })
-    expect(
-      tabHref(`acme`, { kind: `run`, runId: `s2`, from: `agent`, live: false }, resolve)
-    ).toEqual({
-      to: `/t/$teamSlug/sessions/$sessionId`,
-      params: { teamSlug: `acme`, sessionId: `s2` },
-      search: { from: `agent` },
+    expect(tabHref(`acme`, issue(`i1`), resolve)).toEqual({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: { teamSlug: `acme`, boardSlug: `app`, issueIdentifier: `APP-1` },
+      search: {},
     })
   })
 
-  it(`waits for an unsynced issue`, () => {
-    expect(
-      tabHref(
-        `acme`,
-        { kind: `issue`, issueId: `i2`, face: `issue`, runId: null, from: null, live: false },
-        resolve
-      )
-    ).toBeNull()
+  it(`waits on an issue that has not synced`, () => {
+    expect(tabHref(`acme`, issue(`i2`), resolve)).toBeNull()
   })
 })
 
@@ -585,241 +260,34 @@ describe(`partitionTabs`, () => {
 describe(`parseWorkTabsState`, () => {
   it(`round-trips a stored state`, () => {
     const s = state([
-      { kind: `issue`, issueId: `i1`, face: `run`, runId: `s1`, from: `inbox`, live: true },
-      { kind: `run`, runId: `s2`, from: null, live: false },
+      issue(`i1`, `inbox`),
+      thread(`t1`),
+      { kind: `agent`, agentId: `a1`, from: null },
+      { kind: `session`, sessionId: `s1`, from: `threads` },
+      NEW_RUN_TAB,
     ])
     expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
   })
 
-  // SLOP-4: the helpdesk's `support` tabs are gone — a stored one is dropped.
-  it(`drops a legacy support tab`, () => {
+  it(`drops retired kinds and malformed rows`, () => {
     expect(
       parseWorkTabsState(
         JSON.stringify({
           tabs: [
-            { kind: `support`, threadId: `t1`, from: `support` },
             { kind: `run`, runId: `s1`, from: null, live: true },
+            { kind: `support`, threadId: `t1` },
+            { kind: `issue` },
+            { kind: `thread`, threadId: `t1`, from: 4 },
+            { kind: `thread`, threadId: `t1`, from: `x` },
           ],
         })
       )
-    ).toEqual(state([{ kind: `run`, runId: `s1`, from: null, live: true }]))
-  })
-
-  // EXP-877: a state written before the dismissal memory was deleted still
-  // reads — the key is simply dropped.
-  it(`tolerates a legacy dismissed key`, () => {
-    expect(
-      parseWorkTabsState(
-        JSON.stringify({
-          tabs: [{ kind: `run`, runId: `s1`, from: null, live: true }],
-          dismissed: { s1: { attention: true, review: false } },
-        })
-      )
-    ).toEqual({ tabs: [{ kind: `run`, runId: `s1`, from: null, live: true }] })
+    ).toEqual(state([thread(`t1`)]))
   })
 
   it(`reads corrupt or foreign data as an empty strip`, () => {
     expect(parseWorkTabsState(null)).toEqual(EMPTY_WORK_TABS)
     expect(parseWorkTabsState(`{nope`)).toEqual(EMPTY_WORK_TABS)
     expect(parseWorkTabsState(`42`)).toEqual(EMPTY_WORK_TABS)
-    expect(
-      parseWorkTabsState(
-        JSON.stringify({
-          tabs: [
-            { kind: `issue` },
-            { kind: `weird`, id: 1 },
-            { kind: `run`, runId: `s1`, live: `yes` },
-            { kind: `run`, runId: `s1`, live: true },
-            // A run face with no run falls back to the issue face.
-            { kind: `issue`, issueId: `i1`, face: `run`, runId: null },
-          ],
-        })
-      )
-    ).toEqual({
-      tabs: [
-        { kind: `run`, runId: `s1`, from: null, live: false },
-        { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
-      ],
-    })
-  })
-})
-
-
-// EXP-1255: the New run tab — ONE per team, the Agent page, and it turns into
-// the run it starts.
-describe(`the New run tab`, () => {
-  const issueTab: WorkTab = {
-    kind: `issue`,
-    issueId: `i1`,
-    face: `issue`,
-    runId: null,
-    from: null,
-    live: false,
-  }
-
-  it(`opens once at the end and goes to the Agent page`, () => {
-    const opened = openNewRunTab(state([issueTab]))
-    expect(keys(opened)).toEqual([`issue:i1`, `new`])
-    expect(openNewRunTab(opened)).toBe(opened)
-    expect(tabHref(`acme`, NEW_RUN_TAB, () => null)).toEqual({
-      to: `/t/$teamSlug/agent`,
-      params: { teamSlug: `acme` },
-      search: {},
-    })
-    expect(isNewRunPath(`/t/acme/agent`)).toBe(true)
-    expect(isNewRunPath(`/t/acme/agent/`)).toBe(true)
-    expect(isNewRunPath(`/t/acme/agent-x`)).toBe(false)
-    expect(isNewRunPath(`/t/acme/sessions/r1`)).toBe(false)
-  })
-
-  // EXP-1284: the handoff is keyed by the START, never by the window.
-  const starting = (startId: string) => ({ ...NEW_RUN_TAB, startId })
-
-  it(`remembers the start its composer delivered (a new press replaces it)`, () => {
-    const s = state([issueTab, NEW_RUN_TAB])
-    const marked = markNewRunStarting(s, `s1`)
-    expect(marked.tabs[1]).toEqual(starting(`s1`))
-    expect(markNewRunStarting(marked, `s1`)).toBe(marked)
-    expect(markNewRunStarting(marked, `s2`).tabs[1]).toEqual(starting(`s2`))
-    expect(markNewRunStarting(state([issueTab]), `s1`)).toEqual(state([issueTab]))
-  })
-
-  it(`turns into the landed session's tab in place — only for ITS start`, () => {
-    const s = state([starting(`s1`), issueTab])
-    expect(keys(landNewRun(s, { runId: `r1`, issueId: null }, `s1`))).toEqual([`run:r1`, `issue:i1`])
-    // Another start (or none) lands nothing on this tab.
-    expect(landNewRun(s, { runId: `r1`, issueId: null }, `s9`)).toBe(s)
-    expect(landNewRun(s, { runId: `r1`, issueId: null }, null)).toBe(s)
-    expect(landNewRun(state([NEW_RUN_TAB]), { runId: `r1`, issueId: null }, `s1`).tabs).toEqual([
-      NEW_RUN_TAB,
-    ])
-    const issueRun = landNewRun(s, { runId: `r2`, issueId: `i2` }, `s1`)
-    expect(issueRun.tabs[0]).toEqual({
-      kind: `issue`,
-      issueId: `i2`,
-      face: `run`,
-      runId: `r2`,
-      from: null,
-      live: false,
-    })
-  })
-
-  it(`takes the place of a work item that already has a tab, leaving no New tab`, () => {
-    const s = state([starting(`s1`), issueTab])
-    expect(keys(landNewRun(s, { runId: `r1`, issueId: `i1` }, `s1`))).toEqual([`issue:i1`])
-    expect(landNewRun(state([issueTab]), { runId: `r1`, issueId: null }, `s1`).tabs).toEqual([
-      issueTab,
-    ])
-  })
-
-  it(`survives a reload, a live reconcile and closes like any tab`, () => {
-    const s = state([issueTab, starting(`s1`)])
-    expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
-    expect(reconcileLive(s, [{ runId: `r9`, issueId: null }])).toBe(s)
-    expect(keys(closeTabs(s, [`new`]))).toEqual([`issue:i1`])
-  })
-
-  it(`is spared by Close others / Close all while its start is in flight`, () => {
-    const s = state([issueTab, starting(`s1`)])
-    expect(keys(closeTabs(s, [`issue:i1`, `new`], { spareStarting: true }))).toEqual([`new`])
-    // An idle New tab goes with the rest.
-    expect(
-      keys(closeTabs(state([issueTab, NEW_RUN_TAB]), [`issue:i1`, `new`], { spareStarting: true }))
-    ).toEqual([])
-  })
-})
-
-// EXP-1284: a THREAD is a tab of its own, bound to its newest live run of
-// mine, and the New run tab lands INTO the thread its run joined.
-describe(`the thread tab`, () => {
-  const threadTab: WorkTab = {
-    kind: `thread`,
-    threadId: `t1`,
-    runId: null,
-    from: null,
-    live: false,
-  }
-
-  it(`is a route, a key and a href of its own`, () => {
-    expect(routePathFromLocation(`/t/acme/threads/t1`, `agent`)).toEqual({
-      kind: `thread`,
-      threadId: `t1`,
-      from: `agent`,
-    })
-    const route = { kind: `thread` as const, threadId: `t1`, from: null }
-    expect(routeTabKey(route)).toBe(`thread:t1`)
-    expect(routeTabFace(route)).toBeNull()
-    expect(tabHref(`acme`, threadTab, () => null)).toEqual({
-      to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `t1` },
-      search: {},
-    })
-  })
-
-  it(`opens from its route once, and the tabless origin opens none`, () => {
-    const opened = upsertFromRoute(EMPTY_WORK_TABS, {
-      kind: `thread`,
-      threadId: `t1`,
-      from: null,
-    })
-    expect(keys(opened)).toEqual([`thread:t1`])
-    expect(
-      upsertFromRoute(opened, { kind: `thread`, threadId: `t1`, from: null })
-    ).toBe(opened)
-    expect(
-      upsertFromRoute(EMPTY_WORK_TABS, {
-        kind: `thread`,
-        threadId: `t1`,
-        from: TABLESS_ORIGIN,
-      })
-    ).toBe(EMPTY_WORK_TABS)
-  })
-
-  it(`binds the thread's newest live run of mine and lets go when it ends`, () => {
-    const s = state([threadTab])
-    const live = reconcileLive(s, [
-      { runId: `r1`, issueId: null, threadId: `t1` },
-      { runId: `r2`, issueId: `i1`, threadId: `t1` },
-      { runId: `r3`, issueId: null, threadId: `t9` },
-    ])
-    expect(live.tabs[0]).toEqual({ ...threadTab, runId: `r2`, live: true })
-    const ended = reconcileLive(live, [])
-    expect(ended.tabs[0]).toEqual({ ...threadTab, runId: `r2`, live: false })
-    expect(reconcileLive(ended, [])).toBe(ended)
-  })
-
-  it(`is where the New session tab lands, keyed by its start, once the thread is known`, () => {
-    const newTab = { ...NEW_RUN_TAB, startId: `s1` }
-    const s = state([newTab])
-    expect(landNewRun(s, { runId: `r1`, issueId: `i1`, threadId: `t1` }, `s1`).tabs).toEqual([
-      { kind: `thread`, threadId: `t1`, runId: `r1`, from: null, live: false },
-    ])
-    // Another start's session never takes this tab.
-    expect(landNewRun(s, { runId: `r1`, issueId: `i1`, threadId: `t1` }, `s2`)).toBe(s)
-    // A thread that already has a tab takes the New session tab's place: no
-    // empty New session tab is left behind.
-    expect(
-      keys(
-        landNewRun(state([newTab, threadTab]), { runId: `r1`, issueId: null, threadId: `t1` }, `s1`)
-      )
-    ).toEqual([`thread:t1`])
-    // Unknown thread: the old rule.
-    expect(keys(landNewRun(s, { runId: `r1`, issueId: null, threadId: null }, `s1`))).toEqual([
-      `run:r1`,
-    ])
-  })
-
-  it(`keeps a starting New session tab through Close others beside a thread tab`, () => {
-    const s = state([threadTab, { ...NEW_RUN_TAB, startId: `s1` }])
-    expect(keys(closeTabs(s, [`thread:t1`, `new`], { spareStarting: true }))).toEqual([`new`])
-  })
-
-  it(`survives a reload and closes when its bound run merged`, () => {
-    const bound = state([{ ...threadTab, runId: `r1`, live: true }])
-    expect(parseWorkTabsState(JSON.stringify(bound))).toEqual(bound)
-    expect(parseWorkTabsState(JSON.stringify({ tabs: [{ kind: `thread` }] }))).toEqual(EMPTY_WORK_TABS)
-    expect(
-      keys(closeMergedRunTabs(bound, [{ runId: `r1`, issueId: null, endedBy: `merge` }]))
-    ).toEqual([])
   })
 })

@@ -4,6 +4,7 @@ import {
   badgeKind,
   badgeShape,
   batchPartners,
+  issuePrRows,
   overlaySections,
   PR_GRAPH_OVERLAY_COPY,
   prGraph,
@@ -31,28 +32,8 @@ const issue = (
   branch: over.branch ?? `exp/${id.toUpperCase()}`,
   prBaseBranch: over.prBaseBranch ?? null,
   prUrl: over.prUrl ?? `https://github.com/acme/app/pull/${id}`,
-  // EXP-876: a batch run names itself off these.
   title: over.title ?? id.toUpperCase(),
   createdAt: over.createdAt ?? `2026-09-10T10:00:00Z`,
-})
-
-const session = (
-  id: string,
-  parentSessionId: string | null = null,
-  issueId: string | null = null,
-  over: Partial<{
-    actionName: string | null
-    batchIssueIds: string[] | null
-    branch: string | null
-  }> = {}
-) => ({
-  id,
-  parentSessionId,
-  startedAt: `2026-09-10T10:00:00Z`,
-  issueId,
-  actionName: over.actionName ?? null,
-  batchIssueIds: over.batchIssueIds ?? null,
-  branch: over.branch ?? null,
 })
 
 describe(`prGraph`, () => {
@@ -108,90 +89,10 @@ describe(`prGraph`, () => {
     expect(graph.batch?.issues).toHaveLength(2)
   })
 
-  // EXP-876: the pill and its sheet are the surface built to name work that
-  // spans several issues: and a batch RUN, which spans them, resolved
-  // nothing at all before this (it links no issue and stamps no pr_url).
-  // Mirrored ×4.
-  it(`reports a batch badge for a batch run before its pr`, () => {
-    const one = issue(`one`, { prUrl: null })
-    const two = issue(`two`, { prUrl: null })
-    const run = session(`run`, null, null, { batchIssueIds: [`one`, `two`] })
-    const graph = prGraph({ session: run, issues: [one, two] })
-    expect(badgeKind(graph)).toBe(`batch`)
-    // The composer's order, so the sheet reads like the row that named it.
-    expect(graph.batch?.issues.map((row) => row.id)).toEqual([`one`, `two`])
-    // No pull request yet, so no stack: a batch of two is not a stack of two.
-    expect(graph.stack).toEqual([])
-  })
-
-  it(`reports a batch run's pull request once it opens`, () => {
-    // The GROUPED entry wins the moment the PR exists: it carries the branch
-    // and the base the stack chains on, so a stacked batch still reads
-    // `stack+batch` from its run.
-    const url = `https://github.com/acme/app/pull/9`
-    const lower = issue(`lower`)
-    const one = issue(`one`, {
-      prUrl: url,
-      branch: `exp/batch-abcd1234`,
-      prBaseBranch: `exp/LOWER`,
-    })
-    const two = issue(`two`, {
-      prUrl: url,
-      branch: `exp/batch-abcd1234`,
-      prBaseBranch: `exp/LOWER`,
-    })
-    const run = session(`run`, null, null, {
-      batchIssueIds: [`one`, `two`],
-      branch: `exp/batch-abcd1234`,
-    })
-    const graph = prGraph({
-      session: run,
-      issues: [lower, one, two],
-    })
-    expect(badgeKind(graph)).toBe(`stack+batch`)
-    expect(graph.entry?.key).toBe(url)
-    expect(graph.batch?.issues).toHaveLength(2)
-  })
-
-  it(`reports nothing for a batch run whose issues are unknown`, () => {
-    // No stored ids and no PR: the row reads "Batch run" and wears no pill,
-    // rather than a pill that could say nothing.
-    const run = session(`run`)
-    const graph = prGraph({ session: run, issues: [] })
-    expect(badgeKind(graph)).toBeNull()
-    expect(graph.entry).toBeNull()
-    // And an ACTION run is never a batch, whatever else it carries.
-    const action = session(`action`, null, null, {
-      actionName: `Chat`,
-      batchIssueIds: [`one`],
-    })
-    expect(
-      prGraph({ session: action, issues: [issue(`one`)] })
-        .batch
-    ).toBeNull()
-  })
-
   it(`reports nothing for a lone pr`, () => {
     const lone = issue(`lone`)
     const graph = prGraph({ issue: lone, issues: [lone] })
     expect(badgeKind(graph)).toBeNull()
-  })
-
-  // SLOP-16 r5: a run family alone earns NO badge on any face; a PR relation
-  // still does from the run.
-  it(`shapes no badge for a run family alone`, () => {
-    const sessions = [session(`child`, `root`), session(`root`)]
-    const family = prGraph({ session: sessions[0], issues: [] })
-    expect(badgeShape(family)).toBeNull()
-    expect(badgeChip(family)).toBeNull()
-    const batchA = issue(`bata`, { prUrl: `https://github.com/acme/app/pull/9` })
-    const batchB = issue(`batb`, { prUrl: `https://github.com/acme/app/pull/9` })
-    const batched = prGraph({
-      session: sessions[0],
-      issue: batchA,
-      issues: [batchA, batchB],
-    })
-    expect(badgeShape(batched)).toBe(`batch`)
   })
 
   // EXP-1097: open blockers alone earn the badge, behind the PR relations;
@@ -213,11 +114,6 @@ describe(`prGraph`, () => {
     // Only closed blockers: no badge.
     const done = prGraph({ issue: me, issues: [me, closed], relations })
     expect(badgeShape(done)).toBeNull()
-    // A run subject reads its issue's blockers.
-    const run = session(`run`, null, `me`)
-    expect(
-      badgeShape(prGraph({ session: run, issues: [me, b1], relations }))
-    ).toBe(`blocked`)
     // A batch wins over the blockers.
     const batchA = issue(`me`, { prUrl: `https://github.com/acme/app/pull/9` })
     const batchB = issue(`batb`, { prUrl: `https://github.com/acme/app/pull/9` })
@@ -276,13 +172,6 @@ describe(`prGraph`, () => {
     // A lone pull request: nothing.
     const lone = issue(`lone`)
     expect(overlaySections(prGraph({ issue: lone, issues: [lone] }))).toEqual([])
-    // A batch run with no issue lists every issue it covers.
-    const one = issue(`one`, { prUrl: null })
-    const two = issue(`two`, { prUrl: null })
-    const run = session(`run`, null, null, { batchIssueIds: [`one`, `two`] })
-    const byRun = prGraph({ session: run, issues: [one, two] })
-    expect(batchPartners(byRun).map((row) => row.id)).toEqual([`one`, `two`])
-    expect(overlaySections(byRun)).toEqual([`batch`])
   })
 
   it(`lists the subject issue's open blockers`, () => {
@@ -298,6 +187,60 @@ describe(`prGraph`, () => {
       ],
     })
     expect(graph.blockedBy.map((row) => row.id)).toEqual([`blocker`])
+  })
+})
+
+// EXP-1293: PR state comes off `pull_requests` + `pull_request_issues`.
+describe(`issuePrRows`, () => {
+  const pr = (
+    id: string,
+    number: number,
+    over: Partial<{ state: string; head: string; base: string; basePullRequestId: string | null }> = {}
+  ) => ({
+    id,
+    number,
+    url: `https://github.com/acme/app/pull/${number}`,
+    head: over.head ?? `exp/${id}`,
+    base: over.base ?? `master`,
+    basePullRequestId: over.basePullRequestId ?? null,
+    state: over.state ?? `open`,
+  })
+  const plain = (id: string) => ({ id, identifier: id.toUpperCase(), status: `in_progress` })
+
+  it(`joins each issue to its open pull request, else the newest`, () => {
+    const rows = issuePrRows(
+      [plain(`a`), plain(`b`), plain(`c`)],
+      [pr(`p1`, 1, { state: `closed` }), pr(`p2`, 2), pr(`p3`, 3, { state: `merged` })],
+      [
+        { pullRequestId: `p1`, issueId: `a` },
+        { pullRequestId: `p2`, issueId: `a` },
+        { pullRequestId: `p1`, issueId: `b` },
+        { pullRequestId: `p3`, issueId: `b` },
+      ]
+    )
+    expect(rows.map((row) => row.pullRequestId)).toEqual([`p2`, `p3`, null])
+    expect(rows[0]).toMatchObject({ prNumber: 2, prState: `open`, branch: `exp/p2`, prBaseBranch: `master` })
+    expect(rows[2]).toMatchObject({ prUrl: null, prState: null, branch: null })
+  })
+
+  it(`stacks on the resolved base pull request and groups a batch by pull request`, () => {
+    const rows = issuePrRows(
+      [plain(`lower`), plain(`one`), plain(`two`)],
+      [
+        pr(`p1`, 1, { head: `exp/LOWER` }),
+        // The base branch says nothing (renamed); the resolved id decides.
+        pr(`p2`, 2, { head: `exp/batch`, base: `gone`, basePullRequestId: `p1` }),
+      ],
+      [
+        { pullRequestId: `p1`, issueId: `lower` },
+        { pullRequestId: `p2`, issueId: `one` },
+        { pullRequestId: `p2`, issueId: `two` },
+      ]
+    )
+    const graph = prGraph({ issue: rows[2], issues: rows })
+    expect(badgeKind(graph)).toBe(`stack+batch`)
+    expect(graph.stack.map((row) => row.entry.key)).toEqual([`p1`, `p2`])
+    expect(graph.batch?.issues.map((row) => row.id)).toEqual([`one`, `two`])
   })
 })
 

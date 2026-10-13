@@ -1,144 +1,84 @@
-import {
-  RunStatusRow,
-  SessionThreadView,
-  sessionThread,
-  sessionTurns,
-  userMessageCaption,
-} from "@exp/ui"
+import fixture from "@exp/domain-contract/fixtures/session-thread.json"
+import { buildSessionThread } from "@exp/domain-contract/session-tree"
+import { ThreadConversation, userMessageCaption } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1175: the Run face's default body — the REAL `SessionThreadView` over a
-// static `results` blob run through the shared `sessionThread` rule.
-// EXP-1245: and the OWNER's form, the same view over `sessionTurns` (two
-// turns + the person's bubble), one REAL `RunStatusRow` per turn with the
-// app's `turnRowCaption` words passed literal.
+// EXP-1293 Threads v2: a thread's CONVERSATION, the REAL `ThreadConversation`
+// over `buildSessionThread()` run on the contract's own cases
+// (`session-thread.json`, ×4): the root's session card first, a person's
+// bubble right-aligned (`queued` until the device consumed it), the agent's
+// text, a child's session card, an event line, a question card answered in
+// the card.
+
+type Input = Parameters<typeof buildSessionThread>[0]
 
 const SHOT = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#3f3f46"/></svg>`
 )}`
 
-const THREAD = sessionThread([
-  {
-    topic: `Summary`,
-    text: `The Session face now opens on the results thread; Show work brings the transcript back in place.`,
-  },
-  {
-    topic: `Status row`,
-    text: `One row over the thread: the session mark, the caption, the last tool line and Show work.`,
-  },
-  {
-    topic: `Status row`,
-    label: `web`,
-    attachmentId: `shot-1`,
-    width: 1440,
-    height: 900,
-    inline: true,
-    caption: `The thread on md+`,
-  },
-  {
-    topic: `Preference`,
-    text: `Show work is remembered per user in this browser.`,
-  },
-])
-
-const T0 = Date.UTC(2026, 9, 6, 19, 16)
-
-const TURNS = sessionTurns(
-  [
-    {
-      topic: `Summary`,
-      text: `The iOS New issue page showed Back and a × together. The × is gone, so the trailing cluster is just Create.`,
-      at: T0 + 300_000,
-    },
-    {
-      topic: `Reviews: linked PR shown as not linked`,
-      text: `Reviews matched PRs by branch name, so a batch-head PR never found its issue. It now resolves by the exact pr_url.`,
-      at: T0 + 1_800_000,
-    },
-  ],
-  [
-    { kind: `turn`, state: `started`, at: T0 },
-    { kind: `turn`, state: `ended`, at: T0 + 437_000 },
-    {
-      kind: `user_message`,
-      at: T0 + 1_440_000,
-      text: `why is this PR not connected to the issue? file a new issue and stack on top of this one`,
-      images: [SHOT],
-    },
-    { kind: `turn`, state: `started`, at: T0 + 1_441_000 },
-  ]
-).turns
-
-const TURN_ROWS = [
-  { caption: `Done on macbook · 7m 17s`, markState: `ended` as const, toolLine: null },
-  { caption: `Building on macbook · 7m 02s`, markState: `working` as const, toolLine: `Bash grep` },
-]
-
 const paragraph = (text: string) => (
-  <p className="text-sm leading-relaxed text-foreground">{text}</p>
+  <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{text}</p>
 )
+
+const AT = Date.UTC(2026, 9, 13, 19, 56)
+
+function Case({ index }: { index: number }) {
+  const found = fixture.cases[index]
+  if (!found) return null
+  const view = buildSessionThread(found.input as unknown as Input)
+  return (
+    <ThreadConversation
+      rows={view.rows}
+      renderText={paragraph}
+      attachmentSrc={() => SHOT}
+      messageCaption={(row) => {
+        const caption = userMessageCaption({ name: `Alex Carter`, at: AT })
+        return row.queued ? `${caption} · queued` : caption
+      }}
+      onOpenSession={() => {}}
+      onAnswer={() => {}}
+      onDecide={() => {}}
+    />
+  )
+}
 
 export const entry: StyleguideEntry = {
   id: `session-thread`,
   section: `special`,
-  owner: `EXP-1175`,
-  title: `Results thread`,
-  blurb: `The thread under the status row: the session's published results in PUBLISH order (\`sessionThread\`): a topic's first text under its muted caption, a picture where it was published, and the Summary text LAST as the agent's reply. Pending plan and question cards follow it, so a question never hides. Show work swaps the whole thread for the transcript in place (fixture \`session-results.json\` \`thread\`). EXP-1245: for the session's OWNER the thread is a conversation of TURNS off the relay feed (\`sessionTurns\`, fixture \`turns\`): the person's message as a right-aligned bubble (max 70%, an image thumb, \`<name> · <time> · from <device>\` under it), then that turn's own status row (\`Done on <device> · <turn time>\` once settled, the live row timed from the turn's start, fixture \`run-row.json\` \`turnCaptions\`), then the results the server stamped inside it. Teammates and an offline host keep the single-row thread (first island).`,
+  owner: `EXP-1293`,
+  title: `Conversation`,
+  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question card offers its options IN the card, a plan card Approve / Reject; a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. No captions, no Show work, no right sidebar. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `SessionThreadView`,
+      symbol: `ThreadConversation`,
       file: `packages/ui/src/session-thread-view.tsx`,
-      note: `rule: session-results.ts sessionThread, fixture session-results.json thread`,
+      note: `page: apps/web/src/routes/t/$teamSlug/threads/$threadId.tsx; model: domain-contract session-tree.ts`,
     },
     desktop: {
       state: `ok`,
-      symbol: `steer_viewer::render_thread`,
-      file: `apps/desktop/crates/ui/src/steer_viewer.rs`,
+      symbol: `ThreadScreenView`,
+      file: `apps/desktop/crates/ui/src/thread_screen.rs`,
+      note: `model: crates/domain/src/session_tree.rs`,
     },
     ios: {
       state: `ok`,
-      symbol: `AgentSessionView.threadList`,
-      file: `apps/ios/Exponential/UI/Session/AgentSessionView.swift`,
+      symbol: `ThreadScreen`,
+      file: `apps/ios/Exponential/UI/Thread/ThreadScreen.swift`,
+      note: `model: ExpCore SessionTree.swift`,
     },
     android: {
       state: `ok`,
-      symbol: `RunThread`,
-      file: `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
+      symbol: `ThreadScreen`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/ThreadScreen.kt`,
+      note: `model: domain/SessionTree.kt`,
     },
   },
   island: () => (
-    <div className="flex flex-col gap-8">
-      <SessionThreadView
-        thread={THREAD}
-        attachmentSrc={() => SHOT}
-        renderText={paragraph}
-        renderReply={paragraph}
-      />
-      <SessionThreadView
-        turns={TURNS}
-        renderStatusRow={(_turn, index) => {
-          const row = TURN_ROWS[index]
-          return row ? (
-            <RunStatusRow
-              agent="claude"
-              markState={row.markState}
-              caption={row.caption}
-              tone="muted"
-              toolLine={row.toolLine}
-              toggleLabel="Show work"
-              onToggle={() => {}}
-            />
-          ) : null
-        }}
-        messageCaption={(message) =>
-          userMessageCaption({ name: `Danny`, at: message.at, device: `mint` })
-        }
-        attachmentSrc={() => SHOT}
-        renderText={paragraph}
-        renderReply={paragraph}
-      />
+    <div className="flex max-w-2xl flex-col gap-10">
+      <Case index={0} />
+      <Case index={1} />
     </div>
   ),
 }

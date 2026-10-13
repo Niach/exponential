@@ -5,7 +5,6 @@
 // encrypted; nothing here ever sees one) and how many members connected.
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import type { trpc } from "@/lib/trpc-client"
-import { isBuiltinActionId } from "@/lib/builtin-actions"
 
 export type McpServerList = Awaited<
   ReturnType<typeof trpc.mcpServers.list.query>
@@ -73,19 +72,6 @@ export function sharedSummary(
   return server.sharedCount > 0
     ? `${connected} · ${server.sharedCount} shared`
     : connected
-}
-
-/** FEED-73: a REAL action subject brings its own MCP list (the server sets it
- * on start), so the composer neither offers the picker nor sends a pick.
- * Builtins, issues and chats keep the caller's pick. */
-export function subjectOwnsMcpServers(
-  subject: { kind: string; id?: string } | null | undefined
-): boolean {
-  return (
-    subject?.kind === `action` &&
-    typeof subject.id === `string` &&
-    !isBuiltinActionId(subject.id)
-  )
 }
 
 /** The picker's muted second line for a server the caller cannot use yet. */
