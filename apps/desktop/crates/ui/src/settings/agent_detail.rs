@@ -432,7 +432,11 @@ impl AgentDetailPane {
         let Some(agent_id) = self.loaded_agent.clone() else {
             return;
         };
-        let agent = crate::session_data::session(&agent_id, cx);
+        // A deleted agent (its row gone) has nothing left to rename.
+        let Some(agent) = crate::session_data::session(&agent_id, cx) else {
+            return;
+        };
+        let agent = Some(agent);
         if let Some(message) = self.field_error("identity", agent.as_ref(), cx) {
             self.error = Some(message.into());
             cx.notify();
@@ -465,7 +469,10 @@ impl AgentDetailPane {
         let InstructionsLoad::Ready(saved) = &self.load else {
             return;
         };
-        let agent = crate::session_data::session(&agent_id, cx);
+        let Some(agent) = crate::session_data::session(&agent_id, cx) else {
+            return;
+        };
+        let agent = Some(agent);
         if let Some(message) = self.field_error("instructions", agent.as_ref(), cx) {
             self.error = Some(message.into());
             cx.notify();

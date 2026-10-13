@@ -1,8 +1,8 @@
 //! EXP-895/EXP-916 — THE Changes layout, on every desktop surface that shows
 //! a diff.
 //!
-//! One anatomy, every host (the issue's Changes face [`crate::pr_diff`], the
-//! run's Changes face [`crate::steer_viewer`], and anything else that grows one):
+//! One anatomy, every host (the Guide's section diff [`crate::pr_diff`],
+//! Source Control, and anything else that grows one):
 //!
 //! ```text
 //! ┌───────────────────┐  ┌──────────────────────────────────────────────┐
@@ -19,8 +19,7 @@
 //! EXP-916 took the pane's own `Changes +N −M · K files · branch · state` bar
 //! away: the pane IS the changes, and everything that bar said about the PR
 //! (its branch, its state, the merge and the GitHub link) belongs to the
-//! header ABOVE the pane — the work header on a run or an issue (EXP-1154:
-//! the review of a PR is the issue's Changes face). What is left here is the diff and
+//! header ABOVE the pane (EXP-1294: the thread's Guide). What is left here is the diff and
 //! the way around it: the file TREE
 //! ([`domain::diff_tree::diff_file_tree`], hand-mirrored ×4) over a
 //! `Filter files` field.

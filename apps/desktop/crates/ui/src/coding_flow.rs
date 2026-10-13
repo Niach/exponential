@@ -670,8 +670,8 @@ pub fn install_quit_hook(cx: &mut App) {
 // ---------------------------------------------------------------------------
 
 struct RefresherEntry {
-    /// Live sessions sharing this clone (single-issue + batch runs on the
-    /// same repo share one loop).
+    /// Live sessions sharing this clone (every session on the same repo
+    /// shares one loop).
     count: usize,
     cancel: Arc<AtomicBool>,
 }

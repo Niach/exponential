@@ -40,8 +40,6 @@ mod trigger_editor;
 mod board;
 mod board_form;
 mod changelog;
-// EXP-746: the ONE "Changes" surface — every session surface renders
-// through it.
 // EXP-772: the Chat page — one centred prompt box, one row of pickers.
 mod chat_launch;
 mod chat_screen;
@@ -140,8 +138,7 @@ mod queries;
 mod repo_resolver;
 mod repo_scope;
 mod resize_edge;
-// EXP-746: the ONE agent-run row (an action's Runs, Devices' Running and
-// Past) and the two Devices sections that render it.
+// EXP-746: the ONE agent-run row (EXP-1294: the rail's Running rows).
 mod run_rows;
 mod scope_picker;
 mod screens;
@@ -168,7 +165,7 @@ mod steer_viewer;
 mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
-// EXP-1284: threads — the read side and the thread screen.
+// EXP-1294: the thread screen and the Threads page.
 mod thread_screen;
 mod threads_view;
 mod work_card;

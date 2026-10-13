@@ -3,8 +3,9 @@
 //!
 //! A session this process hosts is an in-process [`engine::EngineSession`]
 //! and renders in the CENTER pane like every other detail screen.
-//! [`open_session`] is the ONE entry point (a session card in a thread or an
-//! agent channel, the rail's Running rows, a notification).
+//! Every opener navigates to [`Screen::Session`]: the session card in a
+//! thread or an agent channel (`thread_screen::open_session_card`), the
+//! rail's Running rows and notifications.
 //!
 //! Three feed sources, one renderer ([`SteerSessionView`]): the in-process
 //! engine (`Local`), the relay viewer (`Remote` — another machine, or another
@@ -216,8 +217,9 @@ fn back_link(screen: Screen, title: String, cx: &App) -> AnyElement {
         .hover(move |style| style.text_color(hover))
         .child(Icon::new(registry::UI_BACK).small())
         .child(div().min_w_0().truncate().child(SharedString::from(title)))
+        // Back to the root when it is the previous entry (no ping-pong).
         .on_click(move |_, window, cx| {
-            crate::navigation::navigate(window, cx, screen.clone());
+            crate::navigation::go_back_to(window, cx, screen.clone());
         })
         .into_any_element()
 }

@@ -108,9 +108,10 @@ pub struct DiffOptions {
 }
 
 impl DiffOptions {
-    /// The Reviews screen: a stack of per-file cards, OPEN — a review is
-    /// read top to bottom, and the file list beside it is how a big PR is
-    /// navigated. Each card still folds on its own header.
+    /// A pull request's review (the Guide's section diff, [`crate::pr_diff`]):
+    /// a stack of per-file cards, OPEN — a review is read top to bottom, and
+    /// the file list beside it is how a big PR is navigated. Each card still
+    /// folds on its own header.
     pub fn review() -> Self {
         Self {
             collapsible: true,
@@ -122,8 +123,8 @@ impl DiffOptions {
         }
     }
 
-    /// The run's / issue's Changes face: the same cards, OPEN — a run's diff
-    /// is small and you came to read it.
+    /// The shared Changes pane ([`crate::diff_pane`]): the same cards, OPEN —
+    /// a session's diff is small and you came to read it.
     pub fn pane() -> Self {
         Self {
             collapsible: true,
@@ -786,7 +787,7 @@ pub fn build_pr_diff(
 }
 
 /// [`build_diff`] from the desktop's own `git diff` (`coding::scm`) — the
-/// Source Control screen and the session's Changes face.
+/// Source Control screen.
 pub fn build_scm_diff(
     files: &[DiffFile],
     theme: &HighlightTheme,

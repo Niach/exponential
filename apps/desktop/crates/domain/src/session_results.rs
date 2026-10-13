@@ -246,8 +246,9 @@ pub fn parse_session_result_groups(raw: Option<&Value>) -> Vec<SessionResultGrou
     fold_inline(groups)
 }
 
-/// EXP-933 — true when the blob has anything for the Results face to show
-/// (a picture OR a topic's text).
+/// EXP-933 — true when the blob has anything for the Guide to show (a
+/// picture OR a topic's text). EXP-1294: no desktop caller left; kept so the
+/// ×4 fixture mirror stays complete.
 pub fn has_session_results(raw: Option<&Value>) -> bool {
     !parse_session_result_groups(raw).is_empty()
 }
@@ -432,7 +433,8 @@ fn topic_pr_urls(items: &[Value]) -> Vec<(String, Option<String>)> {
 }
 
 /// The entries a PR shows (untagged topics + the ones tagged `pr_url`), as a
-/// blob any reader here takes.
+/// blob any reader here takes. EXP-1294: no desktop caller left; kept (with
+/// [`session_result_pr_urls`]) so the ×4 fixture mirror stays complete.
 pub fn session_results_for_pr(raw: Option<&Value>, pr_url: Option<&str>) -> Value {
     let items = blob_items(raw);
     let tags = topic_pr_urls(&items);

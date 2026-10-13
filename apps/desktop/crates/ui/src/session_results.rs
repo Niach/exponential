@@ -1,4 +1,4 @@
-//! EXP-879 — the RESULTS face: the pictures a coding run published while it
+//! EXP-879 — the Guide: the pictures a coding run published while it
 //! worked. EXP-1294: read off the thread root's `sessions.guide`, the
 //! thread's Guide tab.
 //!
@@ -816,4 +816,48 @@ fn tall_pill() -> impl IntoElement {
         .border_1()
         .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
         .child("Tall")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::diff_pane::PaneFile;
+    use domain::diff::DiffStatus;
+
+    fn pane_file(path: &str, previous: Option<&str>, additions: u32, deletions: u32) -> PaneFile {
+        let status = if previous.is_some() { DiffStatus::Renamed } else { DiffStatus::Modified };
+        PaneFile::from_parts(path, status, additions, deletions).with_previous_path(previous)
+    }
+
+    /// EXP-1294: the Guide's Changes rows — a section claims the diff files
+    /// its report names (a rename by its source too), every other file lands
+    /// in Other changes, and Show complete diff takes them all.
+    #[test]
+    fn guide_sections_claim_their_files_and_the_rest_is_other_changes() {
+        let raw = serde_json::json!([
+            {"topic": "Summary", "text": "What changed."},
+            {"topic": "Sidebar", "text": "The rail.", "files": ["ui/src/sidebar.rs", "ui/src/old_name.rs"]},
+        ]);
+        let groups = domain::session_results::parse_session_result_groups(Some(&raw));
+        let files = vec![
+            pane_file("ui/src/sidebar.rs", None, 10, 2),
+            pane_file("ui/src/new_name.rs", Some("ui/src/old_name.rs"), 1, 1),
+            pane_file("ui/src/lib.rs", None, 3, 0),
+        ];
+        let diff = guide_diff_files(&files);
+        assert_eq!(diff[1].previous_path.as_deref(), Some("ui/src/old_name.rs"));
+
+        let section = guide_page_view(&groups, &diff, GuidePage::Section(1), false).expect("section");
+        assert_eq!(section.title, "Sidebar");
+        assert_eq!(section.paths, vec!["ui/src/sidebar.rs", "ui/src/new_name.rs"]);
+        assert_eq!((section.additions, section.deletions), (11, 3));
+
+        let other = guide_page_view(&groups, &diff, GuidePage::Other, false).expect("other");
+        assert_eq!(other.title, domain::session_results::GUIDE_OTHER_CHANGES_TOPIC);
+        assert_eq!(other.paths, vec!["ui/src/lib.rs"]);
+
+        let all = guide_page_view(&groups, &diff, GuidePage::All, false).expect("all");
+        assert_eq!(all.paths.len(), 3);
+        assert_eq!((all.additions, all.deletions), (14, 3));
+    }
 }

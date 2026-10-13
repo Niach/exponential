@@ -530,7 +530,7 @@ impl IssueDraftView {
         // that opened this fresh draft.
         let thread_id = row
             .as_ref()
-            .and_then(|row| row.thread_id.clone())
+            .and_then(|row| row.session_id.clone())
             .or_else(|| crate::thread_screen::draft_thread(&draft_id, cx));
 
         self.title.update(cx, |title, cx| {

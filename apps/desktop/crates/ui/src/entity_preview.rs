@@ -401,11 +401,6 @@ fn action_card(action_id: &str, cx: &mut App) -> Option<AnyElement> {
         card = card.child(muted_line(description.to_string(), cx));
     }
     let mut facts: Vec<String> = Vec::new();
-    // Repositories never sync (server-only rows): the card can say the
-    // action is bound, not to what.
-    if action.repository_id.is_some() {
-        facts.push("Repository-bound".to_string());
-    }
     let inputs = action
         .inputs
         .as_ref()

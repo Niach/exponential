@@ -2019,9 +2019,14 @@ impl IssueDetailView {
         // EXP-1162: the large title rides the scrolling body under the
         // FLOATING bar (EXP-1170: `work_header::scrolling_title_rows`, shared
         // with the New issue page).
+        // EXP-1294: the issue names its threads on their own line, between
+        // the title and the property tray (the issue draft).
+        let threads = crate::thread_screen::issue_threads_row(&issue.id, cx)
+            .map(|row| div().w_full().pb_2().child(row).into_any_element());
         let title = vec![
             parent_line.map(IntoElement::into_any_element),
             Some(self.render_title(under_parent_line, cx).into_any_element()),
+            threads,
         ]
         .into_iter()
         .flatten()

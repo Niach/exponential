@@ -3,8 +3,7 @@
 //!
 //! EXP-895/EXP-916: the pane IS the shared Changes layout
 //! ([`crate::diff_pane`]) — the file tree beside the per-file cards, the same
-//! thing the run's Changes face renders, so a review and a run read
-//! identically.
+//! thing Source Control renders, so every diff reads identically.
 //!
 //! EXP-1294: keyed on a `pull_requests` row (PR state left the issue). The
 //! host is the thread's Guide: [`PrDiffView::set_paths`] filters both the

@@ -1,7 +1,7 @@
 //! The Drafts center screen (EXP-878): the New issue pages this user left
 //! with something in them, most recently touched first.
 //!
-//! A tab-less full-page screen like Devices / Reviews — context-free, so it
+//! A tab-less full-page screen like Devices / Threads — context-free, so it
 //! leaves the rail up and lends no list to what it opens. Clicking a row
 //! REOPENS its New issue page seeded from the row
 //! ([`crate::issue_draft_screen::open_existing`], EXP-1170);
@@ -28,7 +28,7 @@ use crate::actions_view::page_scaffold_with;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 
-/// The page column's cap — the Reviews width (`max-w-3xl`): these rows are a
+/// The page column's cap — the list pages' width (`max-w-3xl`): these rows are a
 /// title and a board, not a table.
 const DRAFTS_COLUMN_W: f32 = 768.;
 

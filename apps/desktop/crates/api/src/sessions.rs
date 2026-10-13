@@ -93,7 +93,8 @@ impl SendInput {
     pub fn message(session_id: &str, text: &str, attachment_ids: Vec<String>) -> Self {
         Self {
             session_id: Some(session_id.to_string()),
-            text: Some(text.to_string()).filter(|text| !text.is_empty()),
+            // Blank text is no text (the server refuses whitespace alone).
+            text: Some(text.to_string()).filter(|text| !text.trim().is_empty()),
             attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
             ..Self::default()
         }
@@ -104,7 +105,7 @@ impl SendInput {
         Self {
             parent_id: Some(parent_id.to_string()),
             device_id: Some(device_id.to_string()),
-            text: Some(text.to_string()),
+            text: Some(text.to_string()).filter(|text| !text.trim().is_empty()),
             ..Self::default()
         }
     }
@@ -397,6 +398,13 @@ mod tests {
         assert!(request(&captured).ends_with(
             r##"{"teamId":"t-1","deviceId":"dev-1","agent":{"name":"Triage","icon":"bot","color":"#22c55e","instructions":"","triggers":[{"kind":"schedule"}]}}"##
         ));
+    }
+
+    #[test]
+    fn blank_text_is_no_text() {
+        assert_eq!(SendInput::message("s-1", "  \n", Vec::new()).text, None);
+        assert_eq!(SendInput::child("s-1", "dev-1", " ").text, None);
+        assert_eq!(SendInput::message("s-1", "  code", Vec::new()).text.as_deref(), Some("  code"));
     }
 
     #[test]

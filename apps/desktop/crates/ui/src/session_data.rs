@@ -399,23 +399,37 @@ pub(crate) fn session_thread_view(root_id: &str, now_ms: i64, cx: &App) -> Optio
         .iter()
         .filter(|session| session.team_id == root.team_id || session.root_id_or_self() == root_id)
         .collect();
-    let links: Vec<&SessionIssueRow> = collections
+    let mut links: Vec<&SessionIssueRow> = collections
         .session_issues
         .read(cx)
         .iter()
         .filter(|link| link.session_id == root_id)
         .collect();
-    let all_issues = collections.issues.read(cx);
-    let issues: Vec<TreeIssue> = links
-        .iter()
-        .filter_map(|link| all_issues.get(&link.issue_id))
-        .map(TreeIssue::from_issue)
-        .collect();
+    // One order everywhere (title, tabs, the list row's identifier).
+    sort_links(&mut links);
     let messages: Vec<&MessageRow> = collections
         .messages
         .read(cx)
         .iter()
         .filter(|message| message.session_id == root_id)
+        .collect();
+    // The linked issues plus every issue an event card names: an unlinked
+    // issue still reads "Unlinked EXP-12" (the event lines look it up).
+    let all_issues = collections.issues.read(cx);
+    let mut seen: HashSet<&str> = HashSet::new();
+    let issues: Vec<TreeIssue> = links
+        .iter()
+        .map(|link| link.issue_id.as_str())
+        .chain(messages.iter().filter_map(|message| {
+            message
+                .card
+                .as_ref()?
+                .get("issueId")?
+                .as_str()
+        }))
+        .filter(|id| seen.insert(id))
+        .filter_map(|id| all_issues.get(id))
+        .map(TreeIssue::from_issue)
         .collect();
     let pulls: Vec<&PullRequestRow> = collections
         .pull_requests
@@ -446,19 +460,9 @@ pub(crate) fn agents_in_team(team_id: &str, cx: &App) -> Vec<AgentRow> {
     };
     let sessions = store.collections().sessions.read(cx);
     let rows: Vec<&SessionRow> = sessions.iter().collect();
-    let mut agents = list_agents(&rows, Some(team_id));
-    // `list_agents` reads the root's own flags; an agent's work runs in the
-    // threads it spawns, so busy / needs-you fold those trees in too.
-    for agent in &mut agents {
-        for session in rows.iter().filter(|session| {
-            session.spawned_by_session_id.as_deref() == Some(agent.session_id.as_str())
-                || session.root_id_or_self() == agent.session_id
-        }) {
-            agent.busy |= session.busy && !session.is_ended();
-            agent.needs_you |= session_needs_you(session);
-        }
-    }
-    agents
+    // An agent's spinner / needs-you dot is its own row only: the threads
+    // it spawns are their own roots (the Threads entry lights for them).
+    list_agents(&rows, Some(team_id))
 }
 
 /// The store state one [`thread_lists`] answer derives from.
@@ -512,12 +516,13 @@ fn derive_thread_lists(team_id: &str, cx: &App) -> Vec<ThreadsListGroup> {
         .filter(|session| session.is_root())
         .map(|session| session.id.as_str())
         .collect();
-    let links: Vec<&SessionIssueRow> = collections
+    let mut links: Vec<&SessionIssueRow> = collections
         .session_issues
         .read(cx)
         .iter()
         .filter(|link| roots.contains(link.session_id.as_str()))
         .collect();
+    sort_links(&mut links);
     let all_issues = collections.issues.read(cx);
     let mut seen: HashSet<&str> = HashSet::new();
     let issues: Vec<TreeIssue> = links

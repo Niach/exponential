@@ -61,7 +61,7 @@ pub struct Team {
     /// enabled, matching the server DEFAULT true.
     #[serde(default, deserialize_with = "tolerant_opt_bool")]
     pub end_sessions_on_merge: Option<bool>,
-    /// EXP-1105 yolo mode: `Some(true)` hides Reviews, Files and Source
+    /// EXP-1105 yolo mode: `Some(true)` hides Files and Source
     /// Control for every member (failures still surface) and auto-merges
     /// every PR an agent opens. `None` (pre-column rows) = off, matching the
     /// server DEFAULT false.
@@ -366,11 +366,11 @@ pub struct IssueDraftRow {
     /// `YYYY-MM-DD` — date only, like `issues.due_date`.
     #[serde(default)]
     pub due_date: Option<String>,
-    /// EXP-1284: "New issue in this thread" — the thread the issue files
+    /// EXP-1294: the session root a "New issue" opened from a thread files
     /// into (`issues.create({draftId})` links it there). Stored on the draft,
-    /// so a draft reopened from Drafts still files into its thread.
+    /// so a draft reopened from Drafts still files into that root.
     #[serde(default)]
-    pub thread_id: Option<String>,
+    pub session_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1241,26 +1241,6 @@ pub struct DeviceWorktreeRow {
     pub updated_at: Option<String>,
 }
 
-impl DeviceWorktreeRow {
-    /// The marker's agent ids; `None` = pre-marker worktree (any agent).
-    pub fn agent_ids(&self) -> Option<Vec<String>> {
-        self.agents.as_ref().and_then(|v| v.as_array()).map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_string))
-                .collect()
-        })
-    }
-
-    /// Whether `agent` may resume in this worktree (marker absent = any).
-    pub fn offers_agent(&self, agent: &str) -> bool {
-        match self.agent_ids() {
-            None => true,
-            Some(ids) => ids.iter().any(|id| id == agent),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1356,13 +1336,13 @@ mod tests {
             // The Postgres array literal, exactly like devices.shared_team_ids.
             "label_ids": "{l-1,l-2}",
             "due_date": "2026-09-14",
-            "thread_id": "th-1",
+            "session_id": "th-1",
         }))
         .expect("full draft hydrates");
         assert_eq!(full.label_ids, vec!["l-1", "l-2"]);
-        // EXP-1284: the draft's thread (absent = files into none).
-        assert_eq!(full.thread_id.as_deref(), Some("th-1"));
-        assert_eq!(bare.thread_id, None);
+        // EXP-1294: the draft's session root (absent = files into none).
+        assert_eq!(full.session_id.as_deref(), Some("th-1"));
+        assert_eq!(bare.session_id, None);
         assert_eq!(full.priority, Some(IssuePriority::High));
         assert_eq!(full.due_date.as_deref(), Some("2026-09-14"));
 
@@ -1504,7 +1484,7 @@ mod tests {
     }
 
     #[test]
-    fn device_worktree_row_offers_agents_via_the_marker() {
+    fn device_worktree_row_hydrates_its_flags() {
         let row: DeviceWorktreeRow = serde_json::from_value(json!({
             "id": "wt-1",
             "device_row_id": "row-1",
@@ -1516,14 +1496,11 @@ mod tests {
             "busy": "t",
         }))
         .unwrap();
-        assert!(row.offers_agent("codex"));
-        assert!(!row.offers_agent("claude"));
         assert_eq!(row.busy, Some(true));
-        // No marker = any agent may resume (pre-marker worktree).
+        assert!(row.agents.is_some());
         let unmarked: DeviceWorktreeRow =
             serde_json::from_value(json!({"id": "wt-2"})).unwrap();
-        assert!(unmarked.offers_agent("claude"));
-        assert_eq!(unmarked.agent_ids(), None);
+        assert!(unmarked.agents.is_none());
     }
 
     #[test]

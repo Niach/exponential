@@ -6617,8 +6617,8 @@ impl SteerSessionView {
                     .child(SharedString::from(PLAN_MODE_FOOTER))
             }))
             // EXP-698: the attach tool is ALWAYS offered — steer images upload
-            // to the session route, so a batch/action run (no issue at all)
-            // attaches exactly like an issue run. EXP-850 §13: its glyph is
+            // to the session route, so a session with no issue attaches
+            // exactly like an issue's. EXP-850 §13: its glyph is
             // `ui-add` on every steer composer ×4; `editor-image` stayed with
             // the comment and description editors.
             .child(
@@ -7315,8 +7315,8 @@ fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl In
 /// tool that answers `none` never gets more. Mirrored ×4.
 ///
 /// EXP-933: a SETTLED, successful `results` call (`sessions_results`) carries
-/// an `Open Guide` button that puts `run_id` — the run this transcript is —
-/// on its Results face.
+/// an `Open Guide` button that opens the Guide tab of the root of `run_id`
+/// (the session this transcript is).
 ///
 /// EXP-1172: a `picture` call (`sessions_show`) hangs its `picture` tile (the
 /// caller resolved it off the synced results) under the row instead of a

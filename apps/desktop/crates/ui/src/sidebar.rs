@@ -273,7 +273,9 @@ pub(crate) fn select_file(window: &mut Window, cx: &mut App, path: Option<String
 }
 
 /// DEV-ONLY `EXP_DEV_SETTINGS` values: the [`crate::settings::SettingsSection`]
-/// variants in kebab form, plus `board:<uuid>` for one board's pane. The
+/// variants in kebab form, plus `board:<uuid>` / `agent:<id>` for one
+/// board's / agent's pane and `agents` = the team's first agent (or the
+/// empty Agents pane; resolved by the settings screen once synced). The
 /// settings screen clamps a section the signed-in user cannot see
 /// (`settings::effective_selection`), so an owner-only value on a member
 /// account still lands on the fallback pane rather than an empty one.
@@ -290,6 +292,7 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "repositories" => Some(S::Repositories),
         "tools" => Some(S::Tools),
         "agent-clis" => Some(S::AgentClis),
+        "agents" => Some(S::Agent(String::new())),
         "local-repos" => Some(S::LocalRepos),
         "sessions" => Some(S::Sessions),
         "account" => Some(S::Account),
@@ -1255,7 +1258,7 @@ impl RailView {
         self.rail_screen_entry(
             "rail-threads",
             Icon::from(registry::NAV_THREADS),
-            "Threads",
+            domain::session_tree::THREADS_LIST.copy.title.as_str(),
             Screen::Threads,
             badge,
             cx,
@@ -1263,14 +1266,14 @@ impl RailView {
     }
 
     /// EXP-1294: one Agents row — the agent root's glyph tinted with its
-    /// color (the board rows' recipe), lit while its channel is up. Click =
-    /// the agent's channel; a hover gear (owners, like the board rows) opens
-    /// the agent's settings page.
+    /// color (the board rows' recipe), lit while its channel is up, the
+    /// Threads entry's dot while it needs you (amber) or works (green).
+    /// Click = the agent's channel; a hover gear (every member: the agent
+    /// page is theirs to edit) opens the agent's settings page.
     fn rail_agent_row(
         &self,
         index: usize,
         agent: &domain::session_tree::AgentRow,
-        owner: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let active = matches!(
@@ -1285,7 +1288,7 @@ impl RailView {
             icon.with_size(gpui_component::Size::Medium).flex_shrink_0().into_any_element(),
             SharedString::from(agent.name.clone()),
             active,
-            None,
+            threads_badge(agent.needs_you, agent.busy).map(RailBadge::Dot),
             cx,
         )
         .group(AGENT_ROW_GROUP)
@@ -1298,8 +1301,7 @@ impl RailView {
                 },
             );
         }))
-        .when(owner, |row| {
-            row.child(
+        .child(
                 div()
                     .invisible()
                     .group_hover(AGENT_ROW_GROUP, |style| style.visible())
@@ -1321,8 +1323,7 @@ impl RailView {
                                 navigate(window, cx, Screen::Settings);
                             })),
                     ),
-            )
-        })
+        )
         .into_any_element()
     }
 
@@ -1977,9 +1978,6 @@ impl Render for RailView {
         // EXP-1294: the Agents section — the team's agent roots as tinted
         // rows under an "Agents" label with a trailing `+` (the Boards
         // section's twin); no rows, no empty copy — just the header.
-        let owner = active_team
-            .as_deref()
-            .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
         let agents = active_team
             .as_deref()
             .map(|team_id| crate::session_data::agents_in_team(team_id, cx))
@@ -1987,11 +1985,11 @@ impl Render for RailView {
         let agent_rows: Vec<gpui::AnyElement> = agents
             .iter()
             .enumerate()
-            .map(|(index, agent)| self.rail_agent_row(index, agent, owner, cx))
+            .map(|(index, agent)| self.rail_agent_row(index, agent, cx))
             .collect();
         let agents_header: Option<gpui::AnyElement> =
             active_team.clone().map(|team_id| {
-                self.section_label("Agents", cx)
+                self.section_label(domain::session_tree::THREADS_LIST.copy.agents.as_str(), cx)
                     .child(
                         Button::new("rail-new-agent")
                             .ghost().cursor_pointer()

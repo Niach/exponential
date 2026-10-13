@@ -1,13 +1,13 @@
 //! EXP-1029 contract — the issue picker (single or multi): rows read
 //! `IDENT Title`, search matches the identifier and the title. The composer
-//! picks several (a batch); relations, duplicates and the stack dialog pick
+//! picks several (one multi-issue session); relations, duplicates and the stack dialog pick
 //! one. The old top-level `issue_picker.rs` (EXP-892) moved in here (wave D).
 //!
 //! Wave D: the composer's DATA half (formerly `crate::issue_picker`) lives
 //! here too, below the typed constructors:
 //! EXP-825 — the Agent page composer's issue picker: the team's OPEN issues
 //! as a searchable checklist in a popover (the `#` tool), one checked issue =
-//! Start coding, two or more = a batch. Ported out of the deleted
+//! Start coding, two or more = a multi-issue session. Ported out of the deleted
 //! start-coding dialog: the pool rules (EXP-119: `done`/`cancelled`/
 //! `duplicate`/PR-merged rows hidden, pre-seeded ids exempt and force-checked),
 //! and the per-run cap are unchanged.

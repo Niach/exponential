@@ -221,7 +221,7 @@ pub(crate) fn run_badge_color(state: domain::session_tree::SessionState) -> Opti
 }
 
 /// EXP-923/EXP-1162/EXP-1184: a live run's LEAD — wherever a run is named
-/// (the rail's Running rows, the work header's Run tab) it reads the same:
+/// (the rail's Running rows, the Threads rows) it reads the same:
 /// the agent's working mark ([`agent_working_mark`]) while it works, else its
 /// brand mark (the generic agents concept for an unknown agent, `None`),
 /// `size` square, with a `badge`-wide state dot ([`run_badge_color`]) on its

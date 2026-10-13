@@ -108,7 +108,7 @@ pub const SHAPES: [ShapeSpec; 25] = [
             "pr_merged_automation",
             // EXP-711: the merge-ends-sessions toggle.
             "end_sessions_on_merge",
-            // EXP-1105: yolo mode (hides Reviews/Files/Source Control).
+            // EXP-1105: yolo mode (hides Files/Source Control).
             "yolo_mode",
             // EXP-630: the estimate scale (Settings → Issues).
             "estimation_type",
@@ -523,18 +523,18 @@ pub const SHAPES: [ShapeSpec; 25] = [
         columns: &[
             "id",
             "team_id",
-            "repository_id",
             "name",
-            "description",
             // EXP-273: the action's curated registry glyph (same set as
             // boards.icon). `heal_missing_columns` ALTERs it onto an existing
             // local table, so no hand-written migration.
             "icon",
             "inputs",
-            // SLOP-2: the action's triggers (jsonb array, TEXT-stored like
-            // `inputs`) — the old `automations` shape folded in, and what
-            // the bound device fires off. `heal_missing_columns` ALTERs it
-            // onto an existing local table. `ShapeStore::open` drops the
+            // EXP-825: the composer hint while the action is picked.
+            "prompt_placeholder",
+            // EXP-1294: actions are saved prompts now (the server no longer
+            // syncs triggers); kept only while #EXP-1292's
+            // `coding::triggers::parse_action_triggers` still reads it, so
+            // it decodes as an absent column. `ShapeStore::open` drops the
             // orphaned pre-SLOP-2 `automations` table (SLOP-17).
             "triggers",
             "sort_order",
@@ -709,8 +709,8 @@ pub const SHAPES: [ShapeSpec; 25] = [
             "assignee_id",
             "label_ids",
             "due_date",
-            // EXP-1284: the thread "New issue in this thread" files into.
-            "thread_id",
+            // EXP-1294: the session root a draft files into.
+            "session_id",
             "created_at",
             "updated_at",
         ],
@@ -870,12 +870,14 @@ mod tests {
     }
 
     #[test]
-    fn actions_sync_their_triggers() {
-        // SLOP-2: the bound device fires off `actions.triggers` — dropping
-        // the column silently disables every trigger. The legacy
-        // `automations` mirror shape is for OLD clients only.
+    fn actions_match_the_proxy_allowlist() {
+        // EXP-1294: actions = saved prompts. The composer hint syncs, the
+        // retired repository/description columns do not.
         let actions = shape_by_name("actions").unwrap();
-        assert!(actions.columns.contains(&"triggers"));
+        assert!(actions.columns.contains(&"prompt_placeholder"));
+        for gone in ["repository_id", "description"] {
+            assert!(!actions.columns.contains(&gone), "{gone} left the actions shape");
+        }
         assert!(!actions.columns.contains(&"body"), "the prompt never syncs");
         assert!(shape_by_name("automations").is_none());
     }
@@ -889,8 +891,7 @@ mod tests {
         assert!(spec.columns.contains(&"pr_opened_automation"));
         assert!(spec.columns.contains(&"pr_merged_status_id"));
         assert!(spec.columns.contains(&"pr_merged_automation"));
-        // EXP-711: the same card's merge-ends-sessions switch, and the
-        // batch self-close predicate in coding_flow.
+        // EXP-711: the same card's merge-ends-sessions switch.
         assert!(spec.columns.contains(&"end_sessions_on_merge"));
         assert!(spec.columns.contains(&"yolo_mode"));
         // EXP-630: the Issues pane's estimate scale.
@@ -1034,7 +1035,7 @@ mod tests {
             "assignee_id",
             "label_ids",
             "due_date",
-            "thread_id",
+            "session_id",
         ] {
             assert!(spec.columns.contains(&column), "issue_drafts needs {column}");
         }

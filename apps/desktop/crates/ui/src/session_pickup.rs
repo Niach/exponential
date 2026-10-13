@@ -18,6 +18,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui::{App, Global};
 
@@ -44,9 +45,17 @@ struct PickupHost {
     live: Arc<pickup::LiveRegistry>,
     /// Sessions whose launch or delivery is on the background executor.
     in_flight: HashSet<String>,
-    /// Messages handed straight to a live engine whose `consumed_at` has not
-    /// synced back yet — never delivered twice.
-    delivered: HashSet<String>,
+    /// `(session_id, message_id)` handed straight to a live engine whose
+    /// `consumed_at` has not synced back yet — never delivered twice to the
+    /// same engine. A session's entries drop when it stops being live here,
+    /// so a fresh engine gets its still-queued messages again.
+    delivered: HashSet<(String, String)>,
+    /// Sessions whose last step changed nothing (a refused or foreign-held
+    /// claim, a failed launch or resume), keyed to the [`fingerprint`] they
+    /// stalled at: the plan's `Launch`/`Resume` for them waits until the row
+    /// or its queue moves (or the retry timer of a failure clears it).
+    /// Without it every finished step re-plans the same step at once.
+    stalled: HashMap<String, String>,
     /// A pass is already scheduled for the next effect cycle.
     scheduled: bool,
 }
@@ -66,6 +75,7 @@ pub(crate) fn install(cx: &mut App) {
         live: Arc::new(pickup::LiveRegistry::new()),
         in_flight: HashSet::new(),
         delivered: HashSet::new(),
+        stalled: HashMap::new(),
         scheduled: false,
     });
     cx.spawn(async move |cx| {
@@ -128,28 +138,53 @@ fn run_pass(cx: &mut App) {
         .filter(|row| hosted.contains(row.session_id.as_str()))
         .cloned()
         .collect();
-    // A consumed message has left the queue: forget it.
-    let queued: HashSet<&str> = messages
-        .iter()
-        .filter(|row| row.is_queued())
-        .map(|row| row.id.as_str())
-        .collect();
-    cx.global_mut::<PickupHost>()
-        .delivered
-        .retain(|id| queued.contains(id.as_str()));
     let live: HashSet<String> = LocalSessions::global(cx)
         .read(cx)
         .session_ids()
         .into_iter()
         .collect();
+    // A consumed message has left the queue, and a session no longer live
+    // here took its engine (and what it was handed) with it: forget both.
+    let queued: HashSet<&str> = messages
+        .iter()
+        .filter(|row| row.is_queued())
+        .map(|row| row.id.as_str())
+        .collect();
+    let fingerprints: HashMap<&str, String> = sessions
+        .iter()
+        .map(|row| (row.id.as_str(), fingerprint(row, &messages)))
+        .collect();
+    {
+        let host = cx.global_mut::<PickupHost>();
+        host.delivered.retain(|(session_id, message_id)| {
+            live.contains(session_id) && queued.contains(message_id.as_str())
+        });
+        // A stall lasts only while nothing about the session moved.
+        host.stalled.retain(|session_id, at| {
+            fingerprints.get(session_id.as_str()) == Some(&*at)
+        });
+    }
     let in_flight = cx.global::<PickupHost>().in_flight.clone();
-    let actions = pickup::plan(PickupInput {
+    let stalled = cx.global::<PickupHost>().stalled.clone();
+    let is_stalled = |session_id: &str| stalled.contains_key(session_id);
+    let actions: Vec<PickupAction> = pickup::plan(PickupInput {
         device_id: &device_id,
         sessions: &sessions,
         messages: &messages,
         live: &live,
         in_flight: &in_flight,
-    });
+    })
+    .into_iter()
+    .filter(|action| match action {
+        PickupAction::Launch { session_id } | PickupAction::Resume { session_id } => {
+            !is_stalled(session_id)
+        }
+        PickupAction::Deliver { session_id, .. } => {
+            live.contains(session_id) || !is_stalled(session_id)
+        }
+        _ => true,
+    })
+    .collect();
     if actions.is_empty() {
         return;
     }
@@ -163,19 +198,26 @@ fn run_pass(cx: &mut App) {
                 let Some(row) = sessions.iter().find(|row| row.id == session_id).cloned() else {
                     continue;
                 };
-                spawn_step(session_id, cx, {
+                let at = fingerprints.get(session_id.as_str()).cloned().unwrap_or_default();
+                spawn_step(session_id, at, cx, {
                     let deps = Arc::clone(&deps);
                     move || match pickup::launch_queued(&row, &deps) {
                         Ok(LaunchQueued::Launched { session_id }) => {
                             log::info!("[pickup] launched {session_id}");
+                            StepOutcome::Progressed
                         }
                         Ok(LaunchQueued::Skipped { reason }) => {
                             log::info!("[pickup] {} skipped: {reason}", row.id);
+                            StepOutcome::Stalled
                         }
                         Ok(LaunchQueued::Disabled { reason }) => {
                             log::warn!("[pickup] {} disabled: {reason}", row.id);
+                            StepOutcome::Stalled
                         }
-                        Err(err) => log::warn!("[pickup] launching {} failed: {err}", row.id),
+                        Err(err) => {
+                            log::warn!("[pickup] launching {} failed: {err}", row.id);
+                            StepOutcome::Failed
+                        }
                     }
                 });
             }
@@ -193,12 +235,16 @@ fn run_pass(cx: &mut App) {
                 match hosted_engine(&session_id, cx) {
                     Some(engine) => {
                         for row in rows {
-                            if cx.global_mut::<PickupHost>().delivered.insert(row.id.clone()) {
+                            let key = (session_id.clone(), row.id.clone());
+                            if cx.global_mut::<PickupHost>().delivered.insert(key) {
                                 engine.deliver(row.id.clone(), row.body_text().to_string());
                             }
                         }
                     }
-                    None => deliver(session_id, rows, &deps, cx),
+                    None => {
+                        let at = fingerprints.get(session_id.as_str()).cloned().unwrap_or_default();
+                        deliver(session_id, at, rows, &deps, cx)
+                    }
                 }
             }
             PickupAction::Resume { session_id } => {
@@ -207,7 +253,8 @@ fn run_pass(cx: &mut App) {
                     .filter(|row| row.session_id == session_id && row.is_queued())
                     .cloned()
                     .collect();
-                deliver(session_id, rows, &deps, cx);
+                let at = fingerprints.get(session_id.as_str()).cloned().unwrap_or_default();
+                deliver(session_id, at, rows, &deps, cx);
             }
             PickupAction::Revoke {
                 session_id,
@@ -237,29 +284,98 @@ fn run_pass(cx: &mut App) {
 
 /// `Deliver` / `Resume`: hand `rows` to the session (resumed natively when
 /// it is not live here).
-fn deliver(session_id: String, rows: Vec<MessageRow>, deps: &Arc<PickupDeps>, cx: &mut App) {
+fn deliver(
+    session_id: String,
+    at: String,
+    rows: Vec<MessageRow>,
+    deps: &Arc<PickupDeps>,
+    cx: &mut App,
+) {
     let deps = Arc::clone(deps);
     let id = session_id.clone();
-    spawn_step(session_id, cx, move || {
+    spawn_step(session_id, at, cx, move || {
         match pickup::deliver_messages(&id, &rows, &deps) {
-            Ok(delivered) => log::info!("[pickup] delivered {} message(s) to {id}", delivered.len()),
-            Err(err) => log::warn!("[pickup] delivering to {id} failed: {err}"),
+            Ok(delivered) if delivered.is_empty() => {
+                log::info!("[pickup] nothing delivered to {id}");
+                StepOutcome::Stalled
+            }
+            Ok(delivered) => {
+                log::info!("[pickup] delivered {} message(s) to {id}", delivered.len());
+                StepOutcome::Progressed
+            }
+            Err(err) => {
+                log::warn!("[pickup] delivering to {id} failed: {err}");
+                StepOutcome::Failed
+            }
         }
     });
 }
 
+/// How a pickup step ended: whether the next pass may plan the same step
+/// for that session straight away.
+enum StepOutcome {
+    /// It moved the session along (the rows will follow).
+    Progressed,
+    /// It changed nothing and retrying unchanged would change nothing either
+    /// (a refused or foreign-held claim): wait for the row to move.
+    Stalled,
+    /// It failed: wait for the row to move, or [`STEP_RETRY`].
+    Failed,
+}
+
+/// How long a FAILED step waits before the same step is planned again.
+const STEP_RETRY: Duration = Duration::from_secs(30);
+
+/// What a stall waits on: the row (its `updated_at` and status) plus the ids
+/// of its queued messages — any change re-opens the session to the plan.
+fn fingerprint(row: &SessionRow, messages: &[MessageRow]) -> String {
+    let mut at = format!(
+        "{}|{}",
+        row.updated_at.as_deref().unwrap_or_default(),
+        row.status.as_deref().unwrap_or_default()
+    );
+    for message in messages {
+        if message.session_id == row.id && message.is_queued() {
+            at.push('|');
+            at.push_str(&message.id);
+        }
+    }
+    at
+}
+
 /// Run one blocking pickup step on the background executor with
-/// `session_id` marked in flight, then plan again.
-fn spawn_step(session_id: String, cx: &mut App, step: impl FnOnce() + Send + 'static) {
+/// `session_id` marked in flight, then plan again. A step that changed
+/// nothing parks the session at `at` (its [`fingerprint`] when planned).
+fn spawn_step(
+    session_id: String,
+    at: String,
+    cx: &mut App,
+    step: impl FnOnce() -> StepOutcome + Send + 'static,
+) {
     cx.global_mut::<PickupHost>()
         .in_flight
         .insert(session_id.clone());
     cx.spawn(async move |cx| {
-        cx.background_executor().spawn(async move { step() }).await;
+        let outcome = cx.background_executor().spawn(async move { step() }).await;
+        let failed = matches!(outcome, StepOutcome::Failed);
         let _ = cx.update(|cx| {
-            cx.global_mut::<PickupHost>().in_flight.remove(&session_id);
+            let host = cx.global_mut::<PickupHost>();
+            host.in_flight.remove(&session_id);
+            if !matches!(outcome, StepOutcome::Progressed) {
+                host.stalled.insert(session_id.clone(), at.clone());
+            }
             schedule(cx);
         });
+        if failed {
+            cx.background_executor().timer(STEP_RETRY).await;
+            let _ = cx.update(|cx| {
+                let host = cx.global_mut::<PickupHost>();
+                if host.stalled.get(&session_id) == Some(&at) {
+                    host.stalled.remove(&session_id);
+                    schedule(cx);
+                }
+            });
+        }
     })
     .detach();
 }
@@ -320,26 +436,32 @@ fn launch_fn(cx: &App) -> pickup::LaunchFn {
 struct HostedEngine(engine::EngineSession);
 
 impl LiveEngine for HostedEngine {
+    /// A local session has no publisher in front of it, so a `/` command
+    /// the agent knows runs as a command, never as prompt text (EXP-746).
     fn deliver(&self, _message_id: String, text: String) {
-        self.0.steer(text);
+        let agent = match self.0.agent() {
+            coding::CodingAgent::Claude => steer::SessionAgent::Claude,
+            coding::CodingAgent::Codex => steer::SessionAgent::Codex,
+        };
+        match steer::commands::parse_command(&text, agent) {
+            Some(parsed) => self.0.run_command(parsed.command.name, &parsed.args),
+            None => self.0.steer(text),
+        }
     }
 
     fn unqueue(&self, message_id: &str) {
         self.0.unqueue(message_id);
     }
 
-    fn answer_card(&self, question_id: &str, card: &serde_json::Value) {
-        let text = |key: &str| card.get(key).and_then(serde_json::Value::as_str);
-        let keys = text("answer")
-            .or_else(|| text("decision"))
-            .map(|key| vec![key.to_string()])
-            .unwrap_or_default();
-        self.0.answer(steer::RemoteAnswer {
-            question_id: question_id.to_string(),
-            ask_id: None,
-            keys,
-            text: text("feedback").map(str::to_string),
-        });
+    /// The answered `messages` card → the engine's own open question: the
+    /// card carries the option LABEL (`answer`) or the plan `decision`, the
+    /// engine wants its question id and option KEYS, so both are looked up
+    /// on the feed's open question cards.
+    fn answer_card(&self, _message_id: &str, card: &serde_json::Value) {
+        let open = open_questions(&self.0.subscribe());
+        if let Some(answer) = engine_answer(card, &open) {
+            self.0.answer(answer);
+        }
     }
 
     fn open_cards(&self) -> HashMap<String, String> {
@@ -352,5 +474,176 @@ impl LiveEngine for HostedEngine {
 
     fn is_done(&self) -> bool {
         self.0.is_done()
+    }
+}
+
+/// One open question card on the engine's feed.
+#[derive(Debug, Clone, PartialEq)]
+struct OpenQuestion {
+    id: String,
+    ask_id: Option<String>,
+    text: String,
+    plan: bool,
+    options: Vec<(String, String)>,
+}
+
+/// The engine's still-open question cards, oldest first, off a fresh feed
+/// subscription (its backlog replays synchronously).
+fn open_questions(feed: &flume::Receiver<engine::LocalFeedEvent>) -> Vec<OpenQuestion> {
+    let mut open: Vec<OpenQuestion> = Vec::new();
+    for event in feed.try_iter() {
+        let engine::LocalFeedEvent::Activity { event, .. } = event else {
+            continue;
+        };
+        match event {
+            steer::ActivityEvent::Question {
+                text,
+                options,
+                plan_mode,
+                id,
+                ask_id,
+                ..
+            } => {
+                open.retain(|question| question.id != id);
+                open.push(OpenQuestion {
+                    id,
+                    ask_id,
+                    text,
+                    plan: plan_mode == Some(true),
+                    options: options.into_iter().map(|option| (option.label, option.key)).collect(),
+                });
+            }
+            steer::ActivityEvent::QuestionResolved { id, ask_id, .. } => match (id, ask_id) {
+                (Some(id), _) => open.retain(|question| question.id != id),
+                (None, Some(ask_id)) => {
+                    open.retain(|question| question.ask_id.as_deref() != Some(ask_id.as_str()))
+                }
+                (None, None) => {}
+            },
+            _ => {}
+        }
+    }
+    open
+}
+
+/// Map an answered `messages` card onto the engine's open card: a question
+/// matches by its text (else the newest open question), its `answer` label
+/// picks the option key; a plan's `approved` picks the first non-reject
+/// option, `rejected` the reject one (its `feedback` rides as the text).
+fn engine_answer(card: &serde_json::Value, open: &[OpenQuestion]) -> Option<steer::RemoteAnswer> {
+    let text = |key: &str| card.get(key).and_then(serde_json::Value::as_str);
+    let is_reject = |key: &str| {
+        let key = key.to_ascii_lowercase();
+        key.contains("reject") || key.contains("deny")
+    };
+    match text("kind")? {
+        "question" => {
+            let label = text("answer")?;
+            let candidates = open.iter().filter(|question| !question.plan);
+            let question = match text("question") {
+                Some(asked) => candidates
+                    .clone()
+                    .find(|question| question.text.trim() == asked.trim())
+                    .or_else(|| candidates.last()),
+                None => candidates.last(),
+            }?;
+            let key = question
+                .options
+                .iter()
+                .find(|(option, _)| option.trim().eq_ignore_ascii_case(label.trim()))
+                .map(|(_, key)| key.clone());
+            Some(steer::RemoteAnswer {
+                question_id: question.id.clone(),
+                ask_id: question.ask_id.clone(),
+                // No matching option = a typed reply.
+                text: key.is_none().then(|| label.to_string()),
+                keys: key.into_iter().collect(),
+            })
+        }
+        "plan" => {
+            let question = open.iter().filter(|question| question.plan).last()?;
+            let reject = text("decision")? == "rejected";
+            let key = question
+                .options
+                .iter()
+                .find(|(_, key)| is_reject(key) == reject)
+                .map(|(_, key)| key.clone())?;
+            Some(steer::RemoteAnswer {
+                question_id: question.id.clone(),
+                ask_id: None,
+                keys: vec![key],
+                text: text("feedback").filter(|_| reject).map(str::to_string),
+            })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn question(id: &str, text: &str, plan: bool, options: &[(&str, &str)]) -> OpenQuestion {
+        OpenQuestion {
+            id: id.into(),
+            ask_id: None,
+            text: text.into(),
+            plan,
+            options: options.iter().map(|(l, k)| (l.to_string(), k.to_string())).collect(),
+        }
+    }
+
+    #[test]
+    fn a_question_answer_maps_its_label_onto_the_engine_key() {
+        let open = vec![
+            question("q-1", "Which db?", false, &[("Postgres", "1"), ("SQLite", "2")]),
+            question("p-1", "The plan", true, &[("Approve", "exit-plan-bypass"), ("No", "reject")]),
+        ];
+        let card = serde_json::json!({"kind": "question", "question": "Which db?", "answer": "SQLite"});
+        let answer = engine_answer(&card, &open).expect("maps");
+        assert_eq!(answer.question_id, "q-1");
+        assert_eq!(answer.keys, vec!["2".to_string()]);
+        assert_eq!(answer.text, None);
+    }
+
+    #[test]
+    fn a_plan_decision_picks_approve_or_reject() {
+        let open = vec![question(
+            "p-1",
+            "The plan",
+            true,
+            &[("Approve", "exit-plan-bypass"), ("Keep planning", "reject")],
+        )];
+        let approved = serde_json::json!({"kind": "plan", "plan": "x", "decision": "approved"});
+        let answer = engine_answer(&approved, &open).expect("maps");
+        assert_eq!((answer.question_id.as_str(), answer.keys), ("p-1", vec!["exit-plan-bypass".to_string()]));
+        let rejected =
+            serde_json::json!({"kind": "plan", "plan": "x", "decision": "rejected", "feedback": "smaller"});
+        let answer = engine_answer(&rejected, &open).expect("maps");
+        assert_eq!(answer.keys, vec!["reject".to_string()]);
+        assert_eq!(answer.text.as_deref(), Some("smaller"));
+    }
+
+    #[test]
+    fn no_open_card_answers_nothing() {
+        let card = serde_json::json!({"kind": "question", "question": "Q", "answer": "A"});
+        assert!(engine_answer(&card, &[]).is_none());
+    }
+
+    #[test]
+    fn the_fingerprint_moves_with_the_row_and_its_queue() {
+        let row: SessionRow = serde_json::from_value(serde_json::json!({
+            "id": "s-1", "status": "queued", "updated_at": "t1",
+        }))
+        .unwrap();
+        let before = fingerprint(&row, &[]);
+        let message: MessageRow = serde_json::from_value(serde_json::json!({
+            "id": "m-1", "session_id": "s-1", "root_id": "s-1", "author_kind": "user",
+        }))
+        .unwrap();
+        assert_ne!(before, fingerprint(&row, &[message]));
+        let mut later = row.clone();
+        later.updated_at = Some("t2".into());
+        assert_ne!(before, fingerprint(&later, &[]));
     }
 }

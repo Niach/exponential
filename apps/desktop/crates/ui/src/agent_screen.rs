@@ -251,14 +251,18 @@ impl AgentScreenView {
                 return crate::thread_screen::muted_line(registry::UI_INFO, body.clone(), cx);
             }
         };
-        crate::comments::message_row(
-            crate::comments::MessageRowProps {
+        // THE comment card (the run thread's), whole: no clamp, no toggle.
+        crate::comments::thread_comment_card(
+            crate::comments::ThreadCommentProps {
                 id: SharedString::from(format!("agent-message-{id}")),
-                marker,
-                author: name,
+                mark: marker,
+                author: Some(name),
                 meta: crate::thread_screen::clock(at),
                 body: body.clone(),
                 team_id,
+                expanded: true,
+                on_toggle: None,
+                on_open: None,
             },
             cx,
         )

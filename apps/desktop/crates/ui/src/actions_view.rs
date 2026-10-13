@@ -59,7 +59,7 @@ pub(crate) fn page_scaffold(
     page_scaffold_with(id, scroll, column, PAGE_COLUMN_W)
 }
 
-/// [`page_scaffold`] with an explicit column cap — the Reviews page (EXP-706)
+/// [`page_scaffold`] with an explicit column cap — a list page (EXP-706)
 /// reads as a narrower list than the settings-shaped pages, matching the web
 /// route's `max-w-3xl`. Same flex rules apply verbatim; only the cap moves.
 pub(crate) fn page_scaffold_with(

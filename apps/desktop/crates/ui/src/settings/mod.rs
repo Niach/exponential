@@ -293,12 +293,12 @@ const NAV_GROUPS: &[NavGroup] = &[
         ],
     },
     NavGroup {
-        label: AGENTS_GROUP,
-        items: &[],
-    },
-    NavGroup {
         label: "Boards",
         items: &[NavItem::leaf("Repositories", SettingsSection::Repositories)],
+    },
+    NavGroup {
+        label: AGENTS_GROUP,
+        items: &[],
     },
     // EXP-771: the web's Features group, verbatim (SLOP-4: the Helpdesk row
     // is gone with the helpdesk; the widget page is "Widget" now).
@@ -443,6 +443,22 @@ fn valid_agent_ids(
             .map(|agent| agent.session_id)
             .collect(),
     )
+}
+
+/// EXP-1294: `Agent("")` (the DEV `EXP_DEV_SETTINGS=agents` seed) = the
+/// active team's first agent, or the empty Agents pane while it has none.
+fn first_agent_resolved(
+    selected: SettingsSection,
+    nav: &Entity<Navigation>,
+    cx: &App,
+) -> SettingsSection {
+    match selected {
+        SettingsSection::Agent(id) if id.is_empty() => active_team_id(nav, cx)
+            .and_then(|team_id| crate::session_data::agents_in_team(&team_id, cx).into_iter().next())
+            .map(|agent| SettingsSection::Agent(agent.session_id))
+            .unwrap_or(SettingsSection::Agent(id)),
+        other => other,
+    }
 }
 
 /// The selected section, clamped to what's visible. Clamped at render time —
@@ -634,10 +650,10 @@ impl Render for SettingsView {
         let board_ids = valid_board_ids(cx, &self.nav);
         let agent_ids = valid_agent_ids(cx, &self.nav);
         let effective = effective_selection(
-            self.shared.read(cx).settings_section(),
+            first_agent_resolved(self.shared.read(cx).settings_section(), &self.nav, cx),
             owner,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
-            |id| agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+            |id| id.is_empty() || agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
 
         // A switch INTO a server-read pane refetches it (the screen-level
@@ -886,10 +902,10 @@ impl Render for SettingsNavPanel {
         let board_ids = valid_board_ids(cx, &self.nav);
         let agent_ids = valid_agent_ids(cx, &self.nav);
         let effective = effective_selection(
-            self.shared.read(cx).settings_section(),
+            first_agent_resolved(self.shared.read(cx).settings_section(), &self.nav, cx),
             owner,
             |id| board_ids.as_ref().is_none_or(|ids| ids.contains(id)),
-            |id| agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
+            |id| id.is_empty() || agent_ids.as_ref().is_none_or(|ids| ids.contains(id)),
         );
         let team_id = active_team_id(&self.nav, cx);
         let boards = team_id
@@ -1642,7 +1658,8 @@ mod tests {
         assert_eq!(AGENTS_GROUP, domain::agent_settings::AGENT_SETTINGS.copy.title);
     }
 
-    /// EXP-771/EXP-792: the Features group sits between Boards and This
+    /// EXP-771/EXP-792: the Features group sits between Agents (EXP-1294: after
+    /// Boards, like the web) and This
     /// device, its labels are the web's, and its gating is the web's too —
     /// the widget pane is owner-only (`canManageWidgets`), MCP servers
     /// is member-visible (`visible: () => true`), because every member reads
@@ -1655,7 +1672,7 @@ mod tests {
         // closes the nav AFTER Personal, so the fallback scan is unchanged.
         assert_eq!(
             groups,
-            vec!["Team", "Agents", "Boards", "Features", "This device", "Personal", "Advanced"]
+            vec!["Team", "Boards", "Agents", "Features", "This device", "Personal", "Advanced"]
         );
         let features = NAV_GROUPS
             .iter()

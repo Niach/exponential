@@ -130,8 +130,8 @@ fn card_vertical_gaps(client_chrome: bool, bar_visible: bool, bottom_resize_inse
 
 /// EXP-851: who owns the window's leftmost column — the rail (the default)
 /// or the settings nav (Settings replaces the rail outright, EXP-456).
-/// EXP-1192: nothing else; the lists a detail was opened from, a run's file
-/// tree and Recent runs moved INTO the content card (`ScreensPanel`).
+/// EXP-1192: nothing else; the lists a detail was opened from and a run's
+/// file tree moved INTO the content card (`ScreensPanel`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LeftOccupant {
     Rail,

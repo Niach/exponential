@@ -1346,7 +1346,7 @@ pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, boa
 
 /// EXP-825: open Home's composer with `seed` preselected — what
 /// every play button does now (issue detail, the bulk bar, an action's Run,
-/// a machine's ▶, Fix conflicts). The seed lands on the nav the composer
+/// a machine's ▶). The seed lands on the nav the composer
 /// reads and the navigation itself is the ordinary [`navigate`] — EXP-851:
 /// it no longer forces a list column, so a run started from a board's issue
 /// keeps that board beside it all the way into the session.

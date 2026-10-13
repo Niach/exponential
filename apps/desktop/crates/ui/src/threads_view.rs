@@ -33,6 +33,8 @@ const THREADS_COLUMN_W: f32 = 768.;
 
 /// A row's lead glyph.
 const LEAD_PX: f32 = 14.;
+/// The amber needs-you dot on a row's lead.
+const LEAD_BADGE_PX: f32 = 6.;
 
 /// The quiet words a row ends on.
 pub(crate) const QUESTION_WORD: &str = "question";
@@ -138,22 +140,30 @@ impl ThreadsView {
         });
         let question = row.needs_you && asks_a_question(&session_data::messages_of_session(&row.session_id, cx));
         let word = quiet_word(row.needs_you, question, pull, stacked);
+        // threads-list.json: a spinner while busy, an amber dot when it
+        // needs you — over the PR glyph once the thread has a PR.
         let lead: gpui::AnyElement = match pull {
-            Some(pull) if pull.is_merged() => Icon::new(registry::PR_MERGED)
-                .with_size(px(LEAD_PX))
-                .text_color(theme::tokens::BLUE.to_hsla())
+            _ if row.busy => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX)
                 .into_any_element(),
-            Some(_) => Icon::new(registry::PR_OPEN)
-                .with_size(px(LEAD_PX))
-                .text_color(theme::tokens::GREEN.to_hsla())
-                .into_any_element(),
-            None if row.busy => crate::coding_selects::agent_working_mark(root_agent(root.as_ref()), LEAD_PX)
-                .into_any_element(),
-            None => match root_agent(root.as_ref()) {
-                Some(agent) => crate::coding_selects::agent_mark(agent).with_size(px(LEAD_PX)),
-                None => Icon::new(registry::SETTINGS_AGENTS).with_size(px(LEAD_PX)).text_color(muted),
+            Some(pull) => {
+                let (glyph, tint) = if pull.is_merged() {
+                    (registry::PR_MERGED, theme::tokens::BLUE)
+                } else {
+                    (registry::PR_OPEN, theme::tokens::GREEN)
+                };
+                crate::thread_screen::with_needs_you_dot(
+                    Icon::new(glyph).with_size(px(LEAD_PX)).text_color(tint.to_hsla()),
+                    row.needs_you,
+                    LEAD_BADGE_PX,
+                )
             }
-            .into_any_element(),
+            None => match root.as_ref() {
+                Some(root) => crate::thread_screen::root_mark(root, false, row.needs_you, LEAD_PX, LEAD_BADGE_PX),
+                None => Icon::new(registry::SETTINGS_AGENTS)
+                    .with_size(px(LEAD_PX))
+                    .text_color(muted)
+                    .into_any_element(),
+            },
         };
         // The stack word carries the stack glyph in front (draft 2).
         let word_el = word.map(|word| {

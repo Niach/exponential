@@ -741,8 +741,6 @@ impl IssueHeader {
         chips.extend(self.estimate_control(issue, cx).map(IntoElement::into_any_element));
         chips.extend(self.board_chip(issue, cx).map(IntoElement::into_any_element));
         chips.extend(self.origin_chip(issue, cx).map(IntoElement::into_any_element));
-        // EXP-1284: the issue names its threads (draft 3).
-        chips.extend(crate::thread_screen::issue_threads_row(&issue.id, cx));
         crate::work_header::property_tray(chips, Vec::new())
     }
 

@@ -1343,14 +1343,10 @@ impl ChatScreenView {
         }
     }
 
-    /// The launch options as picked. FEED-73: an action's run takes the
-    /// action's own MCP list (server-side), never the composer's pick.
+    /// The launch options as picked. EXP-1294: every subject (an action
+    /// too: actions are saved prompts) takes the composer's MCP pick.
     fn options(&self, cx: &App) -> LaunchOptions {
-        let mut options = self.launch_ref().options(cx);
-        if chat_launch::subject_owns_mcp_servers(&self.subject_kind()) {
-            options.mcp_server_ids.clear();
-        }
-        options
+        self.launch_ref().options(cx)
     }
 
     // ── send ──────────────────────────────────────────────────────────────
@@ -1509,12 +1505,21 @@ impl ChatScreenView {
                 .await;
             let _ = this.update_in(cx, |this, window, cx| match result {
                 Ok(output) => {
+                    // Read before `start_landed` closes a dialog composer.
+                    let in_dialog = this.in_dialog();
                     if this.start_landed(generation, window, cx) {
                         let session_id = output.session_id;
                         // A dialog has closed itself by now: the root opens
-                        // in the window its play button was pressed in.
+                        // in the window its play button was pressed in, ON
+                        // TOP of what it showed (Back returns there); the
+                        // Home page gives way to the root it started.
                         navigation::defer_in_result_window(window, cx, move |window, cx| {
-                            navigation::navigate_replace(window, cx, Screen::Thread { session_id });
+                            let screen = Screen::Thread { session_id };
+                            if in_dialog {
+                                navigation::navigate(window, cx, screen);
+                            } else {
+                                navigation::navigate_replace(window, cx, screen);
+                            }
                         });
                     }
                 }
@@ -2134,10 +2139,8 @@ impl ChatScreenView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let mcp = self.mcp_options();
-        let mcp_owned = chat_launch::subject_owns_mcp_servers(&self.subject_kind());
         if let Some(launch) = self.launch.as_mut() {
             launch.set_mcp_servers(mcp);
-            launch.set_mcp_owned_by_subject(mcp_owned);
         }
 
         let blocker = self.launch_blocker(cx);

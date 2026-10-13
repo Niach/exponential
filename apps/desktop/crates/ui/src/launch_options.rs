@@ -215,7 +215,7 @@ pub(crate) fn pickable_agents(report: Option<&coding::DoctorReport>) -> Vec<Codi
 /// The `(ultracode, plan_mode)` settings defaults for `agent`,
 /// capability-masked (EXP-201: ultracode is Claude-only, plan mode is
 /// claude-only). EXP-206: ONE set of defaults — a single-issue
-/// run and a multi-issue batch run seed identically, and plan mode is a
+/// session and a multi-issue session seed identically, and plan mode is a
 /// per-AGENT setting. EXP-690 retired the skip-permissions toggle (every
 /// run bypasses).
 pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) -> (bool, bool) {
@@ -744,10 +744,6 @@ pub(crate) struct LaunchOptionsSection {
     /// depend on the device pick, which moves), and re-seeding there would
     /// undo the person's ticks under their cursor.
     mcp_seeded: bool,
-    /// FEED-73: the subject brings its OWN MCP list (a real action — the
-    /// server sets the run's pick from it), so the row hides and no pick
-    /// rides the launch. The pick itself is kept for the next subject.
-    mcp_owned_by_subject: bool,
     /// EXP-747 B7: the agent account PROFILE the run signs in as on the
     /// target machine; `None` = unnamed, the machine's last used login
     /// (EXP-1158).
@@ -786,7 +782,6 @@ impl LaunchOptionsSection {
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_seeded: false,
-            mcp_owned_by_subject: false,
             // Settled just below against what the machine reports.
             account: None,
             computer_use: None,
@@ -804,13 +799,6 @@ impl LaunchOptionsSection {
     pub(crate) fn set_mcp_servers(&mut self, servers: Vec<McpServerOption>) {
         seed_or_clamp_mcp(&mut self.mcp_seeded, &mut self.mcp_selected, &servers);
         self.mcp_servers = servers;
-    }
-
-    /// FEED-73: whether the composer's subject owns its MCP list
-    /// ([`crate::chat_launch::subject_owns_mcp_servers`]). Safe on every
-    /// render.
-    pub(crate) fn set_mcp_owned_by_subject(&mut self, owned: bool) {
-        self.mcp_owned_by_subject = owned;
     }
 
     /// Forget the seed: the owner switched TEAM, so the next non-empty list
@@ -1050,12 +1038,7 @@ impl LaunchOptionsSection {
             // EXP-792/747 B7: the run's own picks, no longer hardcoded — the
             // launcher resolves the ids against the device's secret store
             // and the account against its profile dirs.
-            // FEED-73: never for a subject that owns its list.
-            mcp_server_ids: if self.mcp_owned_by_subject {
-                Vec::new()
-            } else {
-                self.mcp_selected.clone()
-            },
+            mcp_server_ids: self.mcp_selected.clone(),
             account: self.account.clone(),
             // EXP-1249: only a pick the target can read rides the launch.
             computer_use: computer_use_pick(self.computer_use, self.computer_use_offered()),
@@ -1095,14 +1078,10 @@ impl LaunchOptionsSection {
         set_choice(&self.subagent_model, value, window, cx);
     }
 
-    /// EXP-792: the servers the "+" menu's MCP picker offers — none for a
-    /// subject that owns its list (FEED-73) — and the current pick.
+    /// EXP-792: the servers the "+" menu's MCP picker offers and the
+    /// current pick (every subject, EXP-1294).
     pub(crate) fn mcp_menu(&self) -> (Vec<McpServerOption>, Vec<String>) {
-        if self.mcp_owned_by_subject {
-            (Vec::new(), Vec::new())
-        } else {
-            (self.mcp_servers.clone(), self.mcp_selected.clone())
-        }
+        (self.mcp_servers.clone(), self.mcp_selected.clone())
     }
 
     // ── EXP-825: the Agent page composer's inline options row ──────────────

@@ -142,7 +142,7 @@ fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCache>, cx: &mu
                     .find(|message| message.id == *id)
                     .and_then(|message| message.created_at.as_deref());
                 let name = crate::comments::author_label(None);
-                user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, cx)
+                user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, true, cx)
             }
             domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
             _ => muted_line(registry::UI_INFO, body.clone(), cx),

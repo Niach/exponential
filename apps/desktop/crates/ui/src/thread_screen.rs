@@ -26,7 +26,7 @@
 //!   search list, `sessions.linkIssues`), `New issue` and, on a chip,
 //!   `Unlink <IDENT>` (`sessions.unlinkIssue`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -104,7 +104,7 @@ pub(crate) enum ThreadChildSel {
 
 /// "New issue" → the FRESH New issue page `draft_id` files INTO a thread
 /// (the root id). Only the opener's seed: the draft's first write stores it
-/// on the row (`issue_drafts.thread_id`), which is what a reopen reads.
+/// on the row (`issue_drafts.session_id`), which is what a reopen reads.
 #[derive(Default)]
 struct DraftThreads(HashMap<String, String>);
 
@@ -242,9 +242,47 @@ fn rename_root(root_id: String, title: Option<String>, cx: &mut App) {
     });
 }
 
+/// Cards whose answer is on its way (or landed before `answered_at`
+/// synced): a second click never answers twice, and the card goes quiet.
+#[derive(Default)]
+struct AnsweringCards(HashSet<String>);
+
+impl gpui::Global for AnsweringCards {}
+
+/// Whether `message_id`'s answer is already on its way.
+fn answering(message_id: &str, cx: &App) -> bool {
+    cx.try_global::<AnsweringCards>()
+        .is_some_and(|cards| cards.0.contains(message_id))
+}
+
 /// `sessions.answer` — a question card's option, a plan card's decision.
+/// Once per card: a failure re-opens it (and is the usual toast).
 pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
-    background_write("answer", "the question", cx, move |trpc| api::sessions::answer(trpc, &input));
+    let message_id = input.message_id.clone();
+    if !cx.default_global::<AnsweringCards>().0.insert(message_id.clone()) {
+        return;
+    }
+    cx.refresh_windows();
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        cx.default_global::<AnsweringCards>().0.remove(&message_id);
+        crate::action_error::failed_action("answer", "the question", None, cx);
+        return;
+    };
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::sessions::answer(&trpc, &input) })
+            .await;
+        if let Err(err) = result {
+            log::warn!("[thread] answer the question failed: {err}");
+            cx.update(|cx| {
+                cx.default_global::<AnsweringCards>().0.remove(&message_id);
+                cx.refresh_windows();
+                crate::action_error::failed_action_err("answer", "the question", &err, cx);
+            });
+        }
+    })
+    .detach();
 }
 
 /// `sessions.unqueue` — take back a message the device has not consumed.
@@ -578,12 +616,13 @@ fn body_text(element: gpui::Div) -> gpui::Div {
 }
 
 /// A person's message: the right-aligned bubble with its caption under it;
-/// a queued one reads `Queued` and offers to take it back.
+/// a queued one reads `Queued`, and its AUTHOR (`own`) may take it back.
 pub(crate) fn user_bubble(
     id: &str,
     body: MarkdownView,
     caption: String,
     queued: bool,
+    own: bool,
     cx: &App,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
@@ -596,7 +635,9 @@ pub(crate) fn user_bubble(
         .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
         .when(queued, |row| {
             row.child(SharedString::from(format!("· {}", steer::feed::QUEUE_STRIP_TITLE)))
-                .child(
+        })
+        .when(queued && own, |row| {
+            row.child(
                     crate::controls::ghost_icon_button(
                         SharedString::from(format!("thread-unqueue-{id}")),
                         Icon::new(registry::UI_CLOSE).xsmall(),
@@ -779,6 +820,8 @@ pub(crate) fn plan_card(message_id: &str, plan: MarkdownView, decision: Option<&
                     .child(SharedString::from(decision_word(decision))),
             );
         }
+        // Decided here, the echo still on its way.
+        None if answering(message_id, cx) => {}
         None => {
             let decide = |decision: &'static str, label: &'static str, primary: bool| {
                 let message_id = message_id.to_string();
@@ -880,7 +923,7 @@ pub(crate) fn card_row(
             message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id),
             options,
             answer.as_deref(),
-            *answered,
+            *answered || answering(id, cx),
             cx,
         ),
         SessionThreadRow::Plan { id, plan, decision } => plan_card(
@@ -924,10 +967,16 @@ pub(crate) fn root_mark(root: &SessionRow, busy: bool, needs_you: bool, size: f3
         Some(agent) => crate::coding_selects::agent_mark(agent),
         None => Icon::new(registry::SETTINGS_AGENTS),
     };
+    with_needs_you_dot(mark.with_size(px(size)), needs_you, badge)
+}
+
+/// `mark` with the amber needs-you dot on its top-right corner while
+/// `needs_you` ([`root_mark`]'s badge; the Threads rows put it on a PR glyph).
+pub(crate) fn with_needs_you_dot(mark: impl IntoElement, needs_you: bool, badge: f32) -> AnyElement {
     div()
         .relative()
         .flex_shrink_0()
-        .child(mark.with_size(px(size)))
+        .child(mark)
         .when(needs_you, |this| {
             this.child(
                 div()
@@ -1078,13 +1127,12 @@ fn thread_model(root_id: &str, cx: &App) -> Option<ThreadModel> {
 }
 
 /// The Guide child's own state: the open diff page, the pull request's
-/// diff, the hovered stack member, a merge in flight.
+/// diff, the hovered stack member. Merges ride [`crate::pr_merge`]'s state.
 #[derive(Default)]
 struct GuideState {
     page: Option<GuidePage>,
     diff: Option<(String, Entity<crate::pr_diff::PrDiffView>)>,
     stack_hovered: Option<String>,
-    merging: bool,
 }
 
 pub(crate) struct ThreadScreenView {
@@ -1134,6 +1182,9 @@ impl ThreadScreenView {
             subscriptions.push(cx.observe(&collections.pull_requests, |this, _, cx| this.refresh(cx)));
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| this.refresh(cx)));
         }
+        // The merge capsule's armed / merging state.
+        let merge_state = crate::pr_merge::MergeState::global(cx);
+        subscriptions.push(cx.observe(&merge_state, |_, _, cx| cx.notify()));
         let transport = crate::queries::attachment_transport(cx);
         let images = cx.new(|_| ImageCache::new(transport));
         // Re-render once the grace passed, so a missing thread says so.
@@ -1360,38 +1411,6 @@ impl ThreadScreenView {
         cx.notify();
     }
 
-    /// `pullRequests.merge` — `stack` merges THROUGH the PR (every open one
-    /// below lands first); a refusal is the `Couldn't merge` toast.
-    fn merge(&mut self, pull_request_id: String, stack: bool, cx: &mut gpui::Context<Self>) {
-        if self.guide.merging {
-            return;
-        }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            crate::action_error::failed_action("merge", "the pull request", None, cx);
-            return;
-        };
-        self.guide.merging = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::sessions::pr_merge(&trpc, &pull_request_id, stack) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.guide.merging = false;
-                match result {
-                    Ok(output) if !output.merged && !output.queued => {
-                        crate::action_error::failed_action("merge", "the pull request", output.error, cx);
-                    }
-                    Ok(_) => {}
-                    Err(err) => crate::action_error::failed_action_err("merge", "the pull request", &err, cx),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
     // ── render ───────────────────────────────────────────────────────────
 
     fn menu_target(&self, chip: Option<(String, String)>) -> ThreadMenuTarget {
@@ -1541,7 +1560,9 @@ impl ThreadScreenView {
                 domain::contract::MESSAGE_AUTHOR_KIND_USER => {
                     let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
                     let name = member_name(author_id.as_deref(), cx);
-                    user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, cx)
+                    let own = author_id.is_some()
+                        && crate::queries::active_account(cx).map(|me| me.user_id) == *author_id;
+                    user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, own, cx)
                 }
                 domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
                 _ => muted_line(registry::UI_INFO, body.clone(), cx),
@@ -1681,37 +1702,16 @@ impl ThreadScreenView {
                 cx,
             )
         };
-        // THE merge capsule of the thread's open pull request.
+        // THE merge capsule of the thread's open pull request: the ONE Merge
+        // pill (two-click confirm, the stack confirm, echo-settled spinner).
         let capsule = pull.filter(|pull| pull.is_open()).map(|pull| {
-            let stacked = model
-                .root
-                .team_id
-                .as_deref()
-                .map(|team_id| crate::session_data::team_pr_snapshot(team_id, cx))
-                .is_some_and(|snapshot| {
-                    snapshot.with_set(|set| domain::pr_stack::stack_position(&pull, set).is_some())
-                });
-            let label = if self.guide.merging {
-                "Merging…"
-            } else if stacked {
-                domain::pr_stack::MERGE_STACK_LABEL
-            } else {
-                domain::contract::DIFF_UI_MERGE_PR
-            };
-            let pull_request_id = pull.id.clone();
-            h_flex().w_full().justify_center().pb_4().pt_2().child(
-                crate::surface::glass_pill_button_primary("thread-guide-merge", crate::surface::PillSize::Md)
-                    .icon(
-                        Icon::from(crate::icons::ExpIcon::GitMerge)
-                            .with_size(px(crate::surface::PillSize::Md.glyph()))
-                            .text_color(cx.theme().primary_foreground),
-                    )
-                    .label(label)
-                    .loading(self.guide.merging)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        this.merge(pull_request_id.clone(), stacked, cx)
-                    })),
-            )
+            h_flex().w_full().justify_center().pb_4().pt_2().child(crate::work_header::merge_pill(
+                "thread-guide-merge",
+                &pull.id,
+                true,
+                crate::surface::PillSize::Md,
+                cx,
+            ))
         });
         v_flex()
             .flex_1()
@@ -1744,10 +1744,14 @@ impl ThreadScreenView {
                 );
             }
         });
-        let this = cx.entity().downgrade();
-        let on_merge: crate::session_results::OnPickStackRow = std::rc::Rc::new(move |pull_request_id, _window, cx| {
-            let id = pull_request_id.to_string();
-            let _ = this.update(cx, |this, cx| this.merge(id, true, cx));
+        // Merge through the hovered member = the stack's ONE confirm.
+        let on_merge: crate::session_results::OnPickStackRow = std::rc::Rc::new(move |pull_request_id, window, cx| {
+            crate::pr_merge::ask_stack_merge_mode(
+                pull_request_id,
+                domain::pr_stack::StackConfirmMode::Through,
+                window,
+                cx,
+            );
         });
         let this = cx.entity().downgrade();
         let on_hover: crate::session_results::OnHoverStackRow = std::rc::Rc::new(move |hovered, _window, cx| {

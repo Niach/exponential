@@ -25,13 +25,6 @@ pub(crate) enum SubjectKind {
     Action,
 }
 
-/// FEED-73 — an action brings its own MCP list (the server sets the run's
-/// pick from it), so the composer neither offers the picker nor sends a pick
-/// (web `subjectOwnsMcpServers`).
-pub(crate) fn subject_owns_mcp_servers(subject: &SubjectKind) -> bool {
-    matches!(subject, SubjectKind::Action)
-}
-
 /// EXP-1019/EXP-1037 — the composer's HEADLINE verb, the launcher's main
 /// element above the text field: `Run` beside an action's chip, `Implement`
 /// beside the issue chips. The strings are the shared contract's
@@ -226,13 +219,6 @@ mod tests {
         }
     }
 
-    /// FEED-73 — web `subjectOwnsMcpServers`: only an action owns it.
-    #[test]
-    fn only_an_action_subject_owns_its_mcp_servers() {
-        assert!(subject_owns_mcp_servers(&SubjectKind::Action));
-        assert!(!subject_owns_mcp_servers(&SubjectKind::Chat));
-        assert!(!subject_owns_mcp_servers(&SubjectKind::Issues { count: 2 }));
-    }
 
     /// EXP-1019: the headline verb per subject kind — the contract's strings.
     #[test]

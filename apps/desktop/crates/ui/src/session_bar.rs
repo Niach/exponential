@@ -2,7 +2,7 @@
 //! panel carrying the tabs of the user's PTY terminals, then the `+` button.
 //! Nothing else. EXP-791: it used to be the desktop twin of the web
 //! `AgentDock` and carried the coding-session tabs too; those are top tabs
-//! now (EXP-870: a run is its issue's Run face), the Chat button became the rail's Agent
+//! now (EXP-1294: a session is its own screen), the Chat button became the rail's Agent
 //! entry, and the bar takes NO height while no terminal is open (the shell
 //! keeps it mounted — its manager, key bindings and registry live on).
 //!
@@ -610,7 +610,7 @@ impl SessionBar {
     /// MCP wiring → promptless argv with the agent's settings defaults) →
     /// foreground [`TabKind::AgentShell`] tab in THIS window. No
     /// `sessions` row / heartbeat / exit hook — the session has no
-    /// issue/batch/action subject; the P9 token-refresher hold keeps `git
+    /// subject; the P9 token-refresher hold keeps `git
     /// push` working past the token TTL, released on tab close.
     ///
     /// This path serves the EXP-369 worktree-PINNED terminals (the settings
