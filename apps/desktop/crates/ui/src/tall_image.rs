@@ -66,6 +66,24 @@ impl Drop for TallImage {
     }
 }
 
+/// Queue `image`'s atlas tiles for the next frame's release, exactly like a
+/// dropped strip: the markdown `CachedImage` (`markdown/editor.rs`) calls it
+/// from its last holder's drop, which has no window either.
+pub(crate) fn queue_atlas_release(image: &RenderImage) {
+    if let Ok(mut dropped) = DROPPED_STRIPS.lock() {
+        dropped.push((image.id, image.frame_count()));
+    }
+}
+
+/// Whether `id`'s release is queued and not yet drained — tests only.
+#[cfg(test)]
+pub(crate) fn atlas_release_queued(id: ImageId) -> bool {
+    DROPPED_STRIPS
+        .lock()
+        .map(|dropped| dropped.iter().any(|(queued, _)| *queued == id))
+        .unwrap_or(false)
+}
+
 /// Release the sprite-atlas tiles of every strip whose picture dropped since
 /// the last call. Runs once per frame from the shell's render — the one place
 /// with the main window at hand: a per-issue `ImageCache` drops with its

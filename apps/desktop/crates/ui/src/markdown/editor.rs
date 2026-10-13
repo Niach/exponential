@@ -23,17 +23,17 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    canvas, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry,
-    ClipboardItem, Context, ElementId, Entity, Focusable as _, FontStyle, FontWeight,
-    HighlightStyle, InteractiveElement as _, InteractiveText, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render, ScrollHandle,
-    SharedString, StatefulInteractiveElement as _, StrikethroughStyle, Styled as _,
-    StyledImage as _, StyledText,
-    Subscription, TextRun, UnderlineStyle, WeakEntity, Window,
+    canvas, div, img, point, px, App, AppContext as _, Bounds, ClipboardEntry, ClipboardItem,
+    Context, ElementId, Entity, EntityId, Focusable as _, FontStyle, FontWeight, HighlightStyle,
+    ImageCacheError, ImageSource, InteractiveElement as _, InteractiveText, IntoElement,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Render,
+    RenderImage, ScrollHandle, SharedString, StatefulInteractiveElement as _, StrikethroughStyle,
+    Styled as _, StyledImage as _, StyledText, Subscription, TextRun, UnderlineStyle, WeakEntity,
+    Window,
 };
 use gpui_base::{TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
 use gpui_component::input::{self, InputEvent, InputState, Position, Textarea, TextareaState};
@@ -206,7 +206,7 @@ impl RefResolver {
 #[derive(Clone)]
 pub(crate) enum ImageSlot {
     Loading,
-    Ready(Arc<gpui::Image>),
+    Ready(CachedImage),
     /// EXP-1128: a picture over the GPU texture cap, decoded off the
     /// foreground and cut into strips ([`crate::tall_image`]) — as one
     /// texture it would paint nothing.
@@ -225,6 +225,183 @@ pub(crate) enum ImageSlot {
 
 /// How long a failed fetch is displayed before the next render retries it.
 pub(crate) const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// One attachment picture: its encoded bytes (the clipboard's "Copy image")
+/// and the decode the `img` element paints. Decoded by US — on the
+/// background executor, on the first paint — and handed to gpui as
+/// `ImageSource::Custom`, never `ImageSource::Image`: that path parks every
+/// decode in `App.loading_assets`, keyed by a fresh `Image` id per
+/// `from_bytes`, with NO eviction, so every re-opened run or issue leaked
+/// another full-RGBA screenshot (≈20 MB retina) for the rest of the session.
+/// Here the pixels live in this `Arc` alone: the last holder's drop frees
+/// them and queues the sprite-atlas tiles for release
+/// ([`crate::tall_image::queue_atlas_release`]).
+#[derive(Clone)]
+pub(crate) struct CachedImage(Arc<SharedImage>);
+
+struct SharedImage {
+    encoded: Arc<gpui::Image>,
+    decode: Mutex<DecodeState>,
+}
+
+enum DecodeState {
+    Idle,
+    /// Decoding on the background executor; the views to re-render when done.
+    Running(Vec<EntityId>),
+    Done(Result<Arc<RenderImage>, ImageCacheError>),
+}
+
+/// The LIVE picture of every attachment URL (query-stripped), one per `App`:
+/// a second view of the same picture (issue + lightbox, thread + Guide, the
+/// same run reopened while a list still shows it) shares ONE decode and ONE
+/// atlas tile instead of fetching and decoding its own. `Weak`: it retains
+/// nothing no view is holding — memory is bounded by what is on screen,
+/// never by history; dead entries are pruned as it grows.
+#[derive(Default)]
+struct LiveImages(HashMap<String, Weak<SharedImage>>);
+
+impl gpui::Global for LiveImages {}
+
+/// Prune dead entries once the registry holds this many.
+const LIVE_IMAGES_PRUNE_AT: usize = 128;
+
+impl CachedImage {
+    /// The live picture for `key`, else a new one over `encoded`, registered
+    /// for the next asker.
+    fn for_key(key: &str, encoded: Arc<gpui::Image>, cx: &mut App) -> Self {
+        if let Some(live) = Self::live(key, cx) {
+            return live;
+        }
+        let image = Self(Arc::new(SharedImage {
+            encoded,
+            decode: Mutex::new(DecodeState::Idle),
+        }));
+        let registry = &mut cx.default_global::<LiveImages>().0;
+        if registry.len() >= LIVE_IMAGES_PRUNE_AT {
+            registry.retain(|_, weak| weak.strong_count() > 0);
+        }
+        registry.insert(key.to_string(), Arc::downgrade(&image.0));
+        image
+    }
+
+    /// The picture another holder already has for `key`, if any.
+    fn live(key: &str, cx: &App) -> Option<Self> {
+        cx.try_global::<LiveImages>()?
+            .0
+            .get(key)
+            .and_then(Weak::upgrade)
+            .map(Self)
+    }
+
+    /// Locally-staged bytes (a `draft://` paste): only this editor shows
+    /// them, so they stay out of the registry.
+    fn unshared(encoded: Arc<gpui::Image>) -> Self {
+        Self(Arc::new(SharedImage {
+            encoded,
+            decode: Mutex::new(DecodeState::Idle),
+        }))
+    }
+
+    /// The encoded bytes — the clipboard and the vendored WYSIWYG editor
+    /// (whose `ImageSourceResolution::Decoded` takes an `Arc<gpui::Image>`).
+    pub(crate) fn encoded(&self) -> Arc<gpui::Image> {
+        self.0.encoded.clone()
+    }
+
+    #[cfg(test)]
+    fn decoded(&self) -> Option<Arc<RenderImage>> {
+        match &*self
+            .0
+            .decode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        {
+            DecodeState::Done(Ok(image)) => Some(image.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// `img(image)` paints through the custom loader: gpui's own `ImageSource::
+/// Image` would decode AGAIN into its never-evicted asset map.
+impl From<CachedImage> for ImageSource {
+    fn from(image: CachedImage) -> Self {
+        let shared = image.0;
+        ImageSource::Custom(Arc::new(move |window, cx| shared.clone().load(window, cx)))
+    }
+}
+
+impl SharedImage {
+    /// gpui's `use_asset` contract: the decode once it is there, `None` while
+    /// it runs — the first caller starts it, every caller's view is
+    /// re-rendered on completion (`Window::use_asset` notifies only the
+    /// first).
+    fn load(
+        self: Arc<Self>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Result<Arc<RenderImage>, ImageCacheError>> {
+        let view = window.current_view();
+        let mut state = self
+            .decode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &mut *state {
+            DecodeState::Done(result) => return Some(result.clone()),
+            DecodeState::Running(waiters) => {
+                if !waiters.contains(&view) {
+                    waiters.push(view);
+                }
+                return None;
+            }
+            DecodeState::Idle => {}
+        }
+        *state = DecodeState::Running(vec![view]);
+        drop(state);
+        let renderer = cx.svg_renderer();
+        let encoded = self.encoded.clone();
+        let decode = cx.background_executor().spawn(async move {
+            encoded
+                .to_image_data(renderer)
+                .map_err(|error| ImageCacheError::Other(Arc::new(error)))
+        });
+        // Only a `Weak` rides the task: when every holder drops mid-decode
+        // the pixels are discarded, never parked anywhere.
+        let weak = Arc::downgrade(&self);
+        window
+            .spawn(cx, async move |cx| {
+                let result = decode.await;
+                let Some(shared) = weak.upgrade() else {
+                    return;
+                };
+                let waiters = {
+                    let mut state = shared
+                        .decode
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    match std::mem::replace(&mut *state, DecodeState::Done(result)) {
+                        DecodeState::Running(waiters) => waiters,
+                        _ => Vec::new(),
+                    }
+                };
+                cx.on_next_frame(move |_, cx| {
+                    for view in waiters {
+                        cx.notify(view);
+                    }
+                });
+            })
+            .detach();
+        None
+    }
+}
+
+impl Drop for SharedImage {
+    fn drop(&mut self) {
+        if let Ok(DecodeState::Done(Ok(image))) = self.decode.get_mut().as_deref() {
+            crate::tall_image::queue_atlas_release(image);
+        }
+    }
+}
 
 /// Caches decoded attachment images per URL. `/api/attachments/{id}` is
 /// auth-gated, so bytes go through the [`AttachmentTransport`] (bearer
@@ -255,7 +432,7 @@ impl ImageCache {
     /// the "Copy image" path; never triggers a fetch.
     pub(crate) fn ready_image(&self, url: &str) -> Option<Arc<gpui::Image>> {
         match self.slots.get(url) {
-            Some(ImageSlot::Ready(image)) => Some(image.clone()),
+            Some(ImageSlot::Ready(image)) => Some(image.encoded()),
             // A strip-decoded picture has no single encoded image to put on
             // the clipboard (and at >16k px it would be unusable there).
             Some(ImageSlot::ReadyTall(_)) => None,
@@ -266,7 +443,7 @@ impl ImageCache {
     /// Register locally-staged bytes (a `draft://` image) for rendering.
     pub fn insert_bytes(&mut self, url: String, content_type: &str, bytes: Vec<u8>) {
         let format = sniff_format(content_type, &bytes);
-        let image = Arc::new(gpui::Image::from_bytes(format, bytes));
+        let image = CachedImage::unshared(Arc::new(gpui::Image::from_bytes(format, bytes)));
         self.slots.insert(url, ImageSlot::Ready(image));
     }
 
@@ -299,6 +476,13 @@ impl ImageCache {
             // Draft bytes are inserted eagerly; a miss means they're gone.
             return ImageSlot::Failed(std::time::Instant::now());
         }
+        // Another view already holds this picture: share its decode — no
+        // fetch, no second RGBA copy, one atlas tile.
+        if let Some(image) = CachedImage::live(url, cx) {
+            self.slots
+                .insert(url.to_string(), ImageSlot::Ready(image.clone()));
+            return ImageSlot::Ready(image);
+        }
         let Some(transport) = self.transport.clone() else {
             return ImageSlot::Failed(std::time::Instant::now());
         };
@@ -309,31 +493,39 @@ impl ImageCache {
             let log_url = url_owned.clone();
             // The slot is built on the BACKGROUND executor too: a picture over
             // the texture cap is fully decoded + stripped here (EXP-1128).
-            let slot = cx
+            // Plain bytes come back ENCODED: the picture is registered (and
+            // later decoded, off its first paint) on the foreground.
+            let fetched = cx
                 .background_executor()
                 .spawn(async move {
                     match transport.fetch(&fetch_url) {
                         Ok(bytes) if crate::tall_image::needs_strips(&bytes) => {
                             match crate::tall_image::decode_tall(&bytes) {
-                                Ok(tall) => ImageSlot::ReadyTall(Arc::new(tall)),
+                                Ok(tall) => Fetched::Slot(ImageSlot::ReadyTall(Arc::new(tall))),
                                 Err(error) => {
                                     log::warn!("tall image decode failed for {log_url}: {error}");
-                                    ImageSlot::Unrenderable
+                                    Fetched::Slot(ImageSlot::Unrenderable)
                                 }
                             }
                         }
                         Ok(bytes) => {
                             let format = sniff_format("", &bytes);
-                            ImageSlot::Ready(Arc::new(gpui::Image::from_bytes(format, bytes)))
+                            Fetched::Encoded(Arc::new(gpui::Image::from_bytes(format, bytes)))
                         }
                         Err(error) => {
                             log::warn!("attachment fetch failed for {log_url}: {error}");
-                            ImageSlot::Failed(std::time::Instant::now())
+                            Fetched::Slot(ImageSlot::Failed(std::time::Instant::now()))
                         }
                     }
                 })
                 .await;
             this.update(cx, |cache, cx| {
+                let slot = match fetched {
+                    Fetched::Slot(slot) => slot,
+                    Fetched::Encoded(encoded) => {
+                        ImageSlot::Ready(CachedImage::for_key(&url_owned, encoded, cx))
+                    }
+                };
                 cache.slots.insert(url_owned.clone(), slot);
                 cx.notify();
             })
@@ -342,6 +534,12 @@ impl ImageCache {
         .detach();
         ImageSlot::Loading
     }
+}
+
+/// What the background fetch hands the foreground.
+enum Fetched {
+    Slot(ImageSlot),
+    Encoded(Arc<gpui::Image>),
 }
 
 /// Magic-byte sniff with a mime fallback (attachment bytes may be any of the
@@ -4222,6 +4420,115 @@ pub(crate) fn scan_issue_refs_with(line: &str, bare: bool) -> Vec<Range<usize>> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 4×4 PNG as the encoded picture a cache slot holds.
+    fn test_png() -> Arc<gpui::Image> {
+        let buffer = image::RgbaImage::from_pixel(4, 4, image::Rgba([10, 20, 30, 255]));
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(buffer)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, bytes))
+    }
+
+    /// Every asker of one URL gets the SAME picture while a holder lives;
+    /// the last holder's drop forgets it — the registry retains nothing of
+    /// its own, so memory is bounded by what is on screen.
+    #[gpui::test]
+    async fn cached_images_share_one_decode_per_url_and_release_with_the_last_holder(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(|cx| {
+            let key = "test://cached-image/shared";
+            let first = CachedImage::for_key(key, test_png(), cx);
+            let second = CachedImage::for_key(key, test_png(), cx);
+            assert!(Arc::ptr_eq(&first.0, &second.0), "one decode per URL");
+            assert!(CachedImage::live(key, cx).is_some());
+            drop(first);
+            assert!(CachedImage::live(key, cx).is_some(), "a holder still lives");
+            drop(second);
+            assert!(
+                CachedImage::live(key, cx).is_none(),
+                "forgotten with the last holder"
+            );
+            let third = CachedImage::for_key(key, test_png(), cx);
+            assert!(CachedImage::live(key, cx).is_some_and(|live| Arc::ptr_eq(&live.0, &third.0)));
+
+            // Dead entries never pile up: past the prune mark an insert sweeps them.
+            for i in 0..LIVE_IMAGES_PRUNE_AT {
+                drop(CachedImage::for_key(
+                    &format!("test://dead/{i}"),
+                    test_png(),
+                    cx,
+                ));
+            }
+            drop(CachedImage::for_key("test://dead/last", test_png(), cx));
+            assert!(
+                cx.global::<LiveImages>().0.len() < LIVE_IMAGES_PRUNE_AT,
+                "the sweep dropped the dead entries"
+            );
+            assert!(
+                CachedImage::live(key, cx).is_some(),
+                "the live one survived the sweep"
+            );
+        });
+    }
+
+    /// The whole lifetime through a real window: `img(CachedImage)` decodes
+    /// off the first paint WITHOUT an entry in gpui's never-evicted asset
+    /// map, paints an atlas tile, and the last holder's drop queues that tile
+    /// for the shell's per-frame release.
+    #[gpui::test]
+    async fn cached_image_paints_outside_the_asset_map_and_frees_its_tile(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        struct Host {
+            image: Option<CachedImage>,
+        }
+        impl Render for Host {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().children(
+                    self.image
+                        .clone()
+                        .map(|image| img(image).w(px(4.)).h(px(4.))),
+                )
+            }
+        }
+
+        let key = "test://cached-image/paint";
+        let image = cx.update(|cx| CachedImage::for_key(key, test_png(), cx));
+        let encoded = image.encoded();
+        let (view, cx) = cx.add_window_view(|_, _| Host {
+            image: Some(image.clone()),
+        });
+        let mut decoded = None;
+        for _ in 0..6 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.run_until_parked();
+            decoded = image.decoded();
+        }
+        let render = decoded.expect("decoded off the paint");
+        cx.update(|window, cx| {
+            assert!(
+                !ImageSource::Image(encoded.clone()).is_asset_cached(cx),
+                "the decode must never enter App.loading_assets"
+            );
+            assert!(window.has_image_atlas_entry(&render), "painted a tile");
+        });
+
+        drop(image);
+        view.update(cx, |host, _| host.image = None);
+        assert!(
+            crate::tall_image::atlas_release_queued(render.id),
+            "the last holder's drop queues the tile"
+        );
+        cx.update(|_, cx| assert!(CachedImage::live(key, cx).is_none()));
+        cx.update(|window, _| crate::tall_image::release_dropped_strips(window));
+        cx.update(|window, _| assert!(!window.has_image_atlas_entry(&render)));
+    }
 
     /// A markdown href reaches the OS opener only as http(s) or mailto.
     #[test]

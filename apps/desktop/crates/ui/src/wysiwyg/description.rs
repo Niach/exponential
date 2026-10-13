@@ -794,7 +794,7 @@ impl WysiwygDescription {
             } else {
                 let slot = self.images.update(cx, |cache, cx| cache.slot(&key, cx));
                 match slot {
-                    ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image),
+                    ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image.encoded()),
                     // EXP-1128: the vendored editor takes only one
                     // `Arc<gpui::Image>`; a >16k px strip-decoded picture
                     // shows its unavailable placeholder rather than a blank.
@@ -868,7 +868,7 @@ impl WysiwygDescription {
             let resolution = match &tile.poster_url {
                 Some(poster_url) => {
                     match self.images.update(cx, |cache, cx| cache.slot(poster_url, cx)) {
-                        ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image),
+                        ImageSlot::Ready(image) => ImageSourceResolution::Decoded(image.encoded()),
                         // Same as above: no single-image form for strips.
                         ImageSlot::ReadyTall(_) => {
                             unrenderable.insert(key.clone());
