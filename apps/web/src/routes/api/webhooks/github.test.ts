@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { createHmac } from "node:crypto"
 
-// The webhook's pull_request handling resolves the PR to ISSUES by exact
-// pr_url first — PLURAL, because a batch coding run links all its issues to
-// one combined PR — then falls back to the single-issue head-branch parse.
-// The pr-sync writers are mocked wholesale so this file tests only the
-// routing/fan-out; the writers themselves are covered in pr-sync.test.ts. The
-// fake db serves resolveIssuesForPr's exact-prUrl lookup from a FIFO queue.
+// EXP-1291: the webhook's pull_request handling resolves the PR to its
+// `pull_requests` row by url and hands each transition to the pr-sync
+// writers (mocked wholesale here: this file tests the routing, the claims
+// and the actor resolution; the writers own their idempotent claims).
 
 const h = vi.hoisted(() => {
   const selectQueue: unknown[][] = []
@@ -78,17 +76,17 @@ const h = vi.hoisted(() => {
 
 vi.mock(`@/db/connection`, () => ({ db: h.fakeDb }))
 vi.mock(`@/lib/integrations/pr-sync`, () => ({
-  applyPrClosedState: vi.fn(async () => {}),
-  applyPrMergeState: vi.fn(async () => {}),
-  applyPrOpenedState: vi.fn(async () => {}),
-  applyPrReopenedState: vi.fn(async () => {}),
-  findIssueIdByBranch: vi.fn(async () => null),
-  applySessionPrState: vi.fn(async () => ({ endedSessionIds: [] })),
-  applyPrBaseBranchEdit: vi.fn(async () => {}),
+  adoptOutOfBandPullRequest: vi.fn(async () => {}),
+  applyPullRequestBase: vi.fn(async () => ({ txid: 1 })),
+  applyPullRequestClosed: vi.fn(async () => ({ applied: true, txid: 1 })),
+  applyPullRequestDraft: vi.fn(async () => {}),
+  applyPullRequestMerged: vi.fn(async () => ({ applied: true, txid: 1 })),
+  applyPullRequestReopened: vi.fn(async () => {}),
+  loadPullRequestByUrl: vi.fn(async (): Promise<{ id: string } | null> => null),
 }))
-// EXP-617: the resolver itself (bot filter, id-over-login rule) is covered in
-// github-identity.test.ts — here we only assert WHICH actor the webhook hands
-// it and that the answer reaches the writers.
+// EXP-617: the resolver itself is covered in github-identity.test.ts — here
+// we only assert WHICH actor the webhook hands it and that it reaches the
+// writers.
 vi.mock(`@/lib/integrations/github-identity`, () => ({
   resolveAppUserForGithubActor: vi.fn(async () => null),
 }))
@@ -109,8 +107,7 @@ const prSyncMock = vi.mocked(prSync)
 
 const SECRET = `test-webhook-secret`
 const HTML_URL = `https://github.com/org/repo/pull/7`
-const ISSUE_A = `33333333-3333-4333-8333-333333333333`
-const ISSUE_B = `44444444-4444-4444-8444-444444444444`
+const PR_ID = `55555555-5555-4555-8555-555555555555`
 const MERGED_AT_ISO = `2026-07-11T10:00:00Z`
 
 // The route file exports only the Route; its POST handler wraps
@@ -148,22 +145,34 @@ function pullRequestPayload(overrides: {
   action: string
   merged?: boolean
   merged_at?: string | null
-  // The PR's base ref; omitted = a payload without one.
   base?: string
+  draft?: boolean
+  user?: unknown
+  merged_by?: unknown
+  sender?: unknown
+  changes?: unknown
 }): unknown {
   return {
     action: overrides.action,
     pull_request: {
       html_url: HTML_URL,
       number: 7,
+      title: `Fix the nav`,
       merged: overrides.merged ?? false,
       merged_at: overrides.merged_at ?? null,
-      head: { ref: `exp/batch-a1b2c3d4` },
+      draft: overrides.draft ?? false,
+      head: { ref: `exp/EXP-9` },
       ...(overrides.base ? { base: { ref: overrides.base } } : {}),
+      user: overrides.user,
+      merged_by: overrides.merged_by,
     },
     repository: { full_name: `org/repo` },
+    sender: overrides.sender,
+    ...(overrides.changes ? { changes: overrides.changes } : {}),
   }
 }
+
+const known = () => prSyncMock.loadPullRequestByUrl.mockResolvedValue({ id: PR_ID } as never)
 
 beforeEach(() => {
   process.env.GITHUB_WEBHOOK_SECRET = SECRET
@@ -173,345 +182,214 @@ beforeEach(() => {
   h.deletes.length = 0
   _clearPrActorClaims()
   vi.clearAllMocks()
+  prSyncMock.loadPullRequestByUrl.mockResolvedValue(null)
 })
 
-describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, () => {
-  it(`closed+merged with TWO issues on the pr_url → applyPrMergeState for each`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-
+describe(`github webhook — pull_request routing (EXP-1291)`, () => {
+  it(`closed+merged on a known PR → applyPullRequestMerged, unattributed without a claim`, async () => {
+    known()
     const res = await postHandler({
       request: webhookRequest(
         `pull_request`,
-        pullRequestPayload({
-          action: `closed`,
-          merged: true,
-          merged_at: MERGED_AT_ISO,
-        })
+        pullRequestPayload({ action: `closed`, merged: true, merged_at: MERGED_AT_ISO })
       ),
     })
-
     expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledTimes(2)
-    for (const issueId of [ISSUE_A, ISSUE_B]) {
-      expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
-        issueId,
-        prUrl: HTML_URL,
-        prNumber: 7,
-        headBranch: `exp/batch-a1b2c3d4`,
-        mergedAt: new Date(MERGED_AT_ISO),
-        actorUserId: null,
-        githubActorUserId: null,
-      })
-    }
-    // The exact-prUrl match short-circuits the branch parse.
-    expect(prSyncMock.findIssueIdByBranch).not.toHaveBeenCalled()
-  })
-
-  it(`closed WITHOUT merging with two issues → applyPrClosedState for each`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `closed`, merged: false })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
-    expect(prSyncMock.applyPrClosedState).toHaveBeenCalledTimes(2)
-    expect(prSyncMock.applyPrClosedState).toHaveBeenCalledWith({
-      issueId: ISSUE_A,
-      prUrl: HTML_URL,
-    })
-    expect(prSyncMock.applyPrClosedState).toHaveBeenCalledWith({
-      issueId: ISSUE_B,
-      prUrl: HTML_URL,
-    })
-  })
-
-  it(`reopened with two issues → applyPrReopenedState for each`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `reopened` })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrReopenedState).toHaveBeenCalledTimes(2)
-  })
-
-  it(`no pr_url match falls back to the single-issue branch parse`, async () => {
-    h.selectQueue.push([]) // exact-prUrl lookup misses
-    prSyncMock.findIssueIdByBranch.mockResolvedValueOnce(ISSUE_A)
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({
-          action: `closed`,
-          merged: true,
-          merged_at: MERGED_AT_ISO,
-        })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.findIssueIdByBranch).toHaveBeenCalledWith(
-      `org/repo`,
-      `exp/batch-a1b2c3d4`
-    )
-    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledTimes(1)
-    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
-      issueId: ISSUE_A,
-      prUrl: HTML_URL,
-      prNumber: 7,
-      headBranch: `exp/batch-a1b2c3d4`,
+    expect(prSyncMock.applyPullRequestMerged).toHaveBeenCalledWith({
+      pullRequestId: PR_ID,
       mergedAt: new Date(MERGED_AT_ISO),
-      actorUserId: null,
       githubActorUserId: null,
+      actorUserId: null,
     })
+    expect(prSyncMock.adoptOutOfBandPullRequest).not.toHaveBeenCalled()
   })
 
-  it(`no match anywhere → acked 200 with no writer calls`, async () => {
-    h.selectQueue.push([])
-    // findIssueIdByBranch keeps its default null resolution.
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({
-          action: `closed`,
-          merged: true,
-          merged_at: MERGED_AT_ISO,
-        })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
-    expect(prSyncMock.applyPrClosedState).not.toHaveBeenCalled()
-    // EXP-637/EXP-626/EXP-734: no issue resolved means the PR may still be
-    // an issue-less chore PR an action run opened — its session row carries
-    // the PR, so the state flip on the same delivery is the whole handle on
-    // that run. EXP-711: no claim ⇒ no endSessions override.
-    expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
-      prUrl: HTML_URL,
-      state: `merged`,
-    })
-  })
-
-  it(`closed / reopened flip the session-PR state alongside the issues (EXP-734)`, async () => {
-    h.selectQueue.push([])
+  it(`closed+merged on an unknown PR adopts it first (a lost 'opened', REV-26)`, async () => {
+    prSyncMock.loadPullRequestByUrl
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: PR_ID } as never)
     await postHandler({
       request: webhookRequest(
         `pull_request`,
-        pullRequestPayload({ action: `closed`, merged: false })
+        pullRequestPayload({ action: `closed`, merged: true, merged_at: MERGED_AT_ISO, base: `master` })
       ),
     })
-    expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
-      prUrl: HTML_URL,
-      state: `closed`,
-    })
-
-    h.selectQueue.push([])
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `reopened`, base: `exp/EXP-1` })
-      ),
-    })
-    // The close cleared the run row's base too; the reopen restores it.
-    expect(prSyncMock.applySessionPrState).toHaveBeenCalledWith({
-      prUrl: HTML_URL,
-      state: `open`,
-      baseBranch: `exp/EXP-1`,
-    })
-  })
-
-  it(`opened out-of-band links every resolved issue`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `opened` })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledTimes(2)
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith({
-      issueId: ISSUE_A,
-      prUrl: HTML_URL,
-      prNumber: 7,
-      branch: `exp/batch-a1b2c3d4`,
-      baseBranch: null,
-      actorUserId: null,
-      githubActorUserId: null,
-    })
-  })
-
-  // `opened` and `reopened` both carry the base ref (`pr_base_branch`), so a
-  // PR opened on github.com (or a fresh PR on an issue whose earlier PR was
-  // closed) records the truth instead of inheriting a stale base.
-  it(`opened forwards the PR base ref`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `opened`, base: `exp/EXP-4` })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
-      expect.objectContaining({ issueId: ISSUE_A, baseBranch: `exp/EXP-4` })
+    expect(prSyncMock.adoptOutOfBandPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ url: HTML_URL, number: 7, head: `exp/EXP-9`, base: `master` })
+    )
+    expect(prSyncMock.applyPullRequestMerged).toHaveBeenCalledWith(
+      expect.objectContaining({ pullRequestId: PR_ID })
     )
   })
 
-  it(`reopened forwards the PR base ref (the close cleared it)`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-
+  it(`an unknown merged PR nobody can adopt is acked with no write`, async () => {
     const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `reopened`, base: `master` })
-      ),
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `closed`, merged: true })),
     })
-
     expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrReopenedState).toHaveBeenCalledTimes(2)
-    expect(prSyncMock.applyPrReopenedState).toHaveBeenCalledWith({
-      issueId: ISSUE_B,
-      prUrl: HTML_URL,
-      baseBranch: `master`,
-    })
+    expect(prSyncMock.applyPullRequestMerged).not.toHaveBeenCalled()
   })
 
-  // EXP-494: an in-app merge/open claims its initiator right before the
-  // GitHub call; the webhook resolves the claim ONCE per delivery and passes
-  // the actor into every per-issue apply, so the fan-out is attributed (and
-  // the initiator excluded) even when no coding_sessions row survived.
-  it(`closed+merged consumes the merge claim and attributes EVERY issue of a batch PR`, async () => {
-    claimPrMerge(`org/repo`, 7, { userId: `u-merger`, viaAgent: true })
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({
-          action: `closed`,
-          merged: true,
-          merged_at: MERGED_AT_ISO,
-        })
-      ),
+  it(`closed WITHOUT merging → applyPullRequestClosed`, async () => {
+    known()
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `closed` })),
     })
+    expect(prSyncMock.applyPullRequestClosed).toHaveBeenCalledWith({ pullRequestId: PR_ID })
+    expect(prSyncMock.applyPullRequestMerged).not.toHaveBeenCalled()
+  })
 
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledTimes(2)
-    for (const issueId of [ISSUE_A, ISSUE_B]) {
-      expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
-        issueId,
-        prUrl: HTML_URL,
-        prNumber: 7,
-        headBranch: `exp/batch-a1b2c3d4`,
-        mergedAt: new Date(MERGED_AT_ISO),
-        actorUserId: `u-merger`,
-        actorViaAgent: true,
-        githubActorUserId: null,
-      })
-    }
-
-    // Take = consume: a redelivery falls back to the anonymous shape.
-    h.selectQueue.push([{ id: ISSUE_A }])
-    prSyncMock.applyPrMergeState.mockClear()
+  it(`reopened forwards the live base and the draft flag`, async () => {
+    known()
     await postHandler({
       request: webhookRequest(
         `pull_request`,
-        pullRequestPayload({
-          action: `closed`,
-          merged: true,
-          merged_at: MERGED_AT_ISO,
-        })
+        pullRequestPayload({ action: `reopened`, base: `exp/EXP-8`, draft: true })
       ),
     })
-    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith({
-      issueId: ISSUE_A,
-      prUrl: HTML_URL,
-      prNumber: 7,
-      headBranch: `exp/batch-a1b2c3d4`,
-      mergedAt: new Date(MERGED_AT_ISO),
-      actorUserId: null,
-      githubActorUserId: null,
+    expect(prSyncMock.applyPullRequestReopened).toHaveBeenCalledWith({
+      pullRequestId: PR_ID,
+      base: `exp/EXP-8`,
+      draft: true,
     })
   })
 
-  it(`opened consumes the open claim (keyed on the head branch) and attributes the link`, async () => {
-    claimPrOpen(`org/repo`, `exp/batch-a1b2c3d4`, {
-      userId: `u-opener`,
-      viaAgent: true,
+  it(`opened hands the PR to the out-of-band adoption`, async () => {
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `opened`, base: `master` })),
     })
-    h.selectQueue.push([{ id: ISSUE_A }])
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        pullRequestPayload({ action: `opened` })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith({
-      issueId: ISSUE_A,
-      prUrl: HTML_URL,
-      prNumber: 7,
-      branch: `exp/batch-a1b2c3d4`,
-      baseBranch: null,
-      actorUserId: `u-opener`,
-      actorViaAgent: true,
+    expect(prSyncMock.adoptOutOfBandPullRequest).toHaveBeenCalledWith({
+      repoFullName: `org/repo`,
+      url: HTML_URL,
+      number: 7,
+      title: `Fix the nav`,
+      head: `exp/EXP-9`,
+      base: `master`,
+      draft: false,
       githubActorUserId: null,
+      actorUserId: null,
     })
+  })
+
+  it(`opened consumes the open claim (keyed on the head branch)`, async () => {
+    claimPrOpen(`org/repo`, `exp/EXP-9`, { userId: `user-1`, viaAgent: true })
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `opened`, base: `master` })),
+    })
+    expect(prSyncMock.adoptOutOfBandPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ actorUserId: `user-1`, actorViaAgent: true })
+    )
+  })
+
+  it(`closed+merged consumes the merge claim exactly once`, async () => {
+    known()
+    claimPrMerge(`org/repo`, 7, { userId: `user-2`, viaAgent: false })
+    const payload = pullRequestPayload({ action: `closed`, merged: true, merged_at: MERGED_AT_ISO })
+    await postHandler({ request: webhookRequest(`pull_request`, payload) })
+    expect(prSyncMock.applyPullRequestMerged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ actorUserId: `user-2`, actorViaAgent: false })
+    )
+    await postHandler({ request: webhookRequest(`pull_request`, payload) })
+    expect(prSyncMock.applyPullRequestMerged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ actorUserId: null })
+    )
   })
 
   it(`a merge claim never leaks into the opened path`, async () => {
-    claimPrMerge(`org/repo`, 7, { userId: `u-merger`, viaAgent: false })
-    h.selectQueue.push([{ id: ISSUE_A }])
+    claimPrMerge(`org/repo`, 7, { userId: `user-2`, viaAgent: false })
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `opened`, base: `master` })),
+    })
+    expect(prSyncMock.adoptOutOfBandPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ actorUserId: null })
+    )
+  })
 
+  it(`edited stores a BASE change and ignores other edits`, async () => {
+    known()
     await postHandler({
       request: webhookRequest(
         `pull_request`,
-        pullRequestPayload({ action: `opened` })
+        pullRequestPayload({ action: `edited`, base: `exp/EXP-10`, changes: { base: { from: { ref: `master` } } } })
       ),
     })
-
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith({
-      issueId: ISSUE_A,
-      prUrl: HTML_URL,
-      prNumber: 7,
-      branch: `exp/batch-a1b2c3d4`,
-      baseBranch: null,
-      actorUserId: null,
-      githubActorUserId: null,
+    expect(prSyncMock.applyPullRequestBase).toHaveBeenCalledWith({
+      pullRequestId: PR_ID,
+      base: `exp/EXP-10`,
     })
-  })
-
-  it(`rejects a bad signature with 401 before touching any resolution`, async () => {
-    const res = await postHandler({
+    vi.clearAllMocks()
+    known()
+    await postHandler({
       request: webhookRequest(
         `pull_request`,
-        pullRequestPayload({ action: `closed`, merged: true }),
-        { signature: `sha256=${`0`.repeat(64)}` }
+        pullRequestPayload({ action: `edited`, base: `exp/EXP-10`, changes: { title: { from: `old` } } })
       ),
     })
+    expect(prSyncMock.applyPullRequestBase).not.toHaveBeenCalled()
+  })
 
+  it.each([
+    [`converted_to_draft`, true],
+    [`ready_for_review`, false],
+  ])(`%s flips the stored draft state`, async (action, draft) => {
+    known()
+    await postHandler({ request: webhookRequest(`pull_request`, pullRequestPayload({ action })) })
+    expect(prSyncMock.applyPullRequestDraft).toHaveBeenCalledWith({ pullRequestId: PR_ID, draft })
+  })
+
+  it(`rejects a bad signature with 401 before touching anything`, async () => {
+    const res = await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `closed`, merged: true }), {
+        signature: `sha256=bad`,
+      }),
+    })
     expect(res.status).toBe(401)
-    expect(h.select).not.toHaveBeenCalled()
-    expect(prSyncMock.applyPrMergeState).not.toHaveBeenCalled()
+    expect(prSyncMock.loadPullRequestByUrl).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-617: GitHub tells us who acted; the mapping turns that into an app
+// user so they can be kept out of a notification about their own click.
+describe(`github webhook — GitHub actor identity (EXP-617)`, () => {
+  const resolve = vi.mocked(resolveAppUserForGithubActor)
+  const HUMAN = { id: 4242, login: `niach`, type: `User` }
+  const BOT = { id: 1, login: `exponential[bot]`, type: `Bot` }
+
+  it(`prefers merged_by over sender and forwards the resolved user`, async () => {
+    known()
+    resolve.mockResolvedValueOnce(`user-human`)
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `closed`, merged: true, merged_by: HUMAN, sender: BOT })
+      ),
+    })
+    expect(resolve).toHaveBeenCalledWith(HUMAN)
+    expect(prSyncMock.applyPullRequestMerged).toHaveBeenCalledWith(
+      expect.objectContaining({ githubActorUserId: `user-human` })
+    )
+  })
+
+  it(`falls back to sender when merged_by is absent`, async () => {
+    known()
+    await postHandler({
+      request: webhookRequest(`pull_request`, pullRequestPayload({ action: `closed`, merged: true, sender: HUMAN })),
+    })
+    expect(resolve).toHaveBeenCalledWith(HUMAN)
+  })
+
+  it(`opened resolves the PR author`, async () => {
+    resolve.mockResolvedValueOnce(`user-author`)
+    await postHandler({
+      request: webhookRequest(
+        `pull_request`,
+        pullRequestPayload({ action: `opened`, base: `master`, user: HUMAN, sender: BOT })
+      ),
+    })
+    expect(resolve).toHaveBeenCalledWith(HUMAN)
+    expect(prSyncMock.adoptOutOfBandPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ githubActorUserId: `user-author` })
+    )
   })
 })
 
@@ -635,170 +513,4 @@ describe(`github webhook — installation_repositories heal scoping`, () => {
     expect(repositoryUpdates()[0].where).toBeDefined()
   })
 
-})
-
-// EXP-617: the merge-side answer to "the webhook is all we get". GitHub tells
-// us who acted; the mapping turns that into an app user so they can be kept
-// out of a notification about their own click.
-describe(`github webhook — GitHub actor identity (EXP-617)`, () => {
-  const resolve = vi.mocked(resolveAppUserForGithubActor)
-  const HUMAN = { id: 4242, login: `niach`, type: `User` }
-  const BOT = { id: 1, login: `exponential[bot]`, type: `Bot` }
-
-  function actorPayload(overrides: {
-    action: string
-    merged?: boolean
-    sender?: unknown
-    user?: unknown
-    merged_by?: unknown
-  }): unknown {
-    return {
-      action: overrides.action,
-      pull_request: {
-        html_url: HTML_URL,
-        number: 7,
-        merged: overrides.merged ?? false,
-        merged_at: overrides.merged ? MERGED_AT_ISO : null,
-        head: { ref: `exp/EXP-9` },
-        user: overrides.user,
-        merged_by: overrides.merged_by,
-      },
-      repository: { full_name: `org/repo` },
-      sender: overrides.sender,
-    }
-  }
-
-  it(`prefers merged_by over sender and forwards the resolved user`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }])
-    resolve.mockResolvedValue(`u-merger`)
-
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        actorPayload({
-          action: `closed`,
-          merged: true,
-          merged_by: HUMAN,
-          sender: BOT,
-        })
-      ),
-    })
-
-    expect(res.status).toBe(200)
-    expect(resolve).toHaveBeenCalledWith(HUMAN)
-    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledWith(
-      expect.objectContaining({ githubActorUserId: `u-merger` })
-    )
-  })
-
-  it(`falls back to sender when merged_by is absent`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }])
-    resolve.mockResolvedValue(`u-sender`)
-
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        actorPayload({ action: `closed`, merged: true, sender: HUMAN })
-      ),
-    })
-
-    expect(resolve).toHaveBeenCalledWith(HUMAN)
-  })
-
-  it(`resolves once per delivery, so one lookup covers a batch PR's issues`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }, { id: ISSUE_B }])
-    resolve.mockResolvedValue(`u-merger`)
-
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        actorPayload({ action: `closed`, merged: true, merged_by: HUMAN })
-      ),
-    })
-
-    expect(prSyncMock.applyPrMergeState).toHaveBeenCalledTimes(2)
-    expect(resolve).toHaveBeenCalledTimes(1)
-  })
-
-  it(`opened resolves the PR author and forwards it alongside the claim`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }])
-    resolve.mockResolvedValue(`u-author`)
-    claimPrOpen(`org/repo`, `exp/EXP-9`, { userId: `u-claim`, viaAgent: true })
-
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        actorPayload({ action: `opened`, user: HUMAN })
-      ),
-    })
-
-    expect(resolve).toHaveBeenCalledWith(HUMAN)
-    // The claim still owns the title; the GitHub identity rides along so both
-    // views of the same act are excluded.
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        actorUserId: `u-claim`,
-        actorViaAgent: true,
-        githubActorUserId: `u-author`,
-      })
-    )
-  })
-
-  it(`forwards a null for an unmapped or bot actor`, async () => {
-    h.selectQueue.push([{ id: ISSUE_A }])
-    resolve.mockResolvedValue(null)
-
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        actorPayload({ action: `opened`, user: BOT })
-      ),
-    })
-
-    expect(prSyncMock.applyPrOpenedState).toHaveBeenCalledWith(
-      expect.objectContaining({ githubActorUserId: null, actorUserId: null })
-    )
-  })
-})
-
-// A base changed on github.com (or by our own retarget/heal) reaches the
-// synced `pr_base_branch` through the `edited` delivery.
-describe(`github webhook — edited base`, () => {
-  function editedPayload(changes: Record<string, unknown>) {
-    return {
-      action: `edited`,
-      pull_request: {
-        html_url: HTML_URL,
-        number: 7,
-        merged: false,
-        head: { ref: `exp/EXP-11` },
-        base: { ref: `exp/EXP-10` },
-      },
-      repository: { full_name: `org/repo` },
-      changes,
-    }
-  }
-
-  it(`mirrors an 'edited' that changed the BASE, and ignores other edits`, async () => {
-    const res = await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        editedPayload({ base: { from: { ref: `master` } } })
-      ),
-    })
-    expect(res.status).toBe(200)
-    expect(prSyncMock.applyPrBaseBranchEdit).toHaveBeenCalledWith({
-      prUrl: HTML_URL,
-      baseRef: `exp/EXP-10`,
-    })
-
-    vi.clearAllMocks()
-    await postHandler({
-      request: webhookRequest(
-        `pull_request`,
-        editedPayload({ title: { from: `old` } })
-      ),
-    })
-    expect(prSyncMock.applyPrBaseBranchEdit).not.toHaveBeenCalled()
-  })
 })

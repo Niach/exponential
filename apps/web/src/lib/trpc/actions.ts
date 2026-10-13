@@ -5,72 +5,40 @@ import {
   actionIconSchema,
   actionInputsSchema,
   actionPromptPlaceholderSchema,
-  actionTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { actions, repositories } from "@/db/schema"
+import { actions } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
-import {
-  assertTriggersRunnable,
-  resolveTriggersWrite,
-  storedTriggers,
-} from "@/lib/action-trigger-rules"
-import { assertMcpServersInTeam } from "@/lib/mcp-servers-guard"
-import {
-  BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_CHAT_ID,
-  BUILTIN_CHAT_NAME,
-  BUILTIN_CREATE_ACTION_NAME,
-  BUILTIN_FIX_CONFLICTS_ID,
-  BUILTIN_FIX_CONFLICTS_NAME,
-  BUILTIN_TIDY_UP_ID,
-  BUILTIN_TIDY_UP_NAME,
-  isBuiltinActionId,
-} from "@/lib/builtin-actions"
 
-// Team action prompts (EXP-253). Listing is Electric-synced since EXP-268
-// (the `actions` shape — body EXCLUDED by the server-pinned allowlist), but
-// this router stays load-bearing: `list` serves pre-shape native builds + MCP,
-// `get` is the ONLY body path (editors on open, the desktop right before a
-// run), and all writes are tRPC. Reads are member-gated (running is a member
-// affordance); writes are team-owner-only.
+// Team actions = SAVED PROMPTS (EXP-253 → EXP-1291): a name, an icon, a
+// markdown body and typed pick inputs. Running one is `sessions.send({
+// actionId, inputs})`; no triggers (they live on team agents), no repository
+// and no MCP list (the composer picks both per start). Listing is
+// Electric-synced (the `actions` shape — body EXCLUDED by the server-pinned
+// allowlist); `get` is the ONLY body path. Reads are member-gated, writes
+// team-owner-only.
 
 export const MAX_ACTION_NAME = 255
-export const MAX_ACTION_DESCRIPTION = 2048
 // The body is a markdown prompt; 64KB is far above any sane prompt and far
 // below anything that could hurt Postgres (api/contact.ts precedent).
 export const MAX_ACTION_BODY = 64 * 1024
 
-// The pinned wire shape — teamId included: it is the primary scope key the
-// clients group and query by (unlike run-configs' denormalized copy).
+// The pinned wire shape (the shape's allowlist, camelCased).
 const wireColumns = {
   id: actions.id,
   teamId: actions.teamId,
-  repositoryId: actions.repositoryId,
   name: actions.name,
-  description: actions.description,
   icon: actions.icon,
-  body: actions.body,
   inputs: actions.inputs,
   promptPlaceholder: actions.promptPlaceholder,
-  triggers: actions.triggers,
   sortOrder: actions.sortOrder,
   createdAt: actions.createdAt,
   updatedAt: actions.updatedAt,
 }
 
-// FEED-73: the write paths also echo the action's MCP list. It is
-// SERVER-ONLY like `body` (never in the shape, never in `list`); `get`
-// returns the whole row, so it carries it too.
-const detailColumns = {
-  ...wireColumns,
-  mcpServerIds: actions.mcpServerIds,
-}
-
-// FEED-73: the team MCP servers every run of the action uses. Whole-array
-// replace; ids must be rows of the action's team (mcp-servers-guard.ts).
-const mcpServerIdsSchema = z.array(z.string().uuid()).max(16)
+// `get` and the write echoes carry the server-only body too.
+const detailColumns = { ...wireColumns, body: actions.body }
 
 // NUL bytes are valid JSON/zod strings but unstorable in Postgres text
 // (22P05) — reject them up front so a crafted input 400s instead of 500ing.
@@ -84,13 +52,6 @@ const nameSchema = z
   .max(MAX_ACTION_NAME)
   .refine(hasNoNul, noNul)
 
-const descriptionSchema = z
-  .string()
-  .trim()
-  .max(MAX_ACTION_DESCRIPTION)
-  .refine(hasNoNul, noNul)
-  .nullable()
-
 // Deliberately NOT trimmed — markdown leading/trailing whitespace is content;
 // only fully blank bodies are rejected.
 const bodySchema = z
@@ -101,10 +62,29 @@ const bodySchema = z
     message: `Body must not be empty`,
   })
 
+export const actionCreateInputSchema = z.object({
+  teamId: z.string().uuid(),
+  name: nameSchema,
+  icon: actionIconSchema.nullable().optional(),
+  body: bodySchema,
+  inputs: actionInputsSchema.optional(),
+  promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
+})
+
+export const actionUpdateInputSchema = z.object({
+  id: z.string().uuid(),
+  name: nameSchema.optional(),
+  icon: actionIconSchema.nullable().optional(),
+  body: bodySchema.optional(),
+  inputs: actionInputsSchema.optional(),
+  promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
+  sortOrder: z.number().finite().optional(),
+})
+
 async function loadAction(id: string) {
   const { db } = await import(`@/db/connection`)
   const [action] = await db
-    .select()
+    .select(detailColumns)
     .from(actions)
     .where(eq(actions.id, id))
     .limit(1)
@@ -114,72 +94,11 @@ async function loadAction(id: string) {
   return action
 }
 
-// An action's optional repo must come from the SAME team's registry — a
-// cross-team id would make members clone a repo their team never connected.
-async function assertRepoInTeam(repositoryId: string, teamId: string) {
-  const { db } = await import(`@/db/connection`)
-  const [repo] = await db
-    .select({ teamId: repositories.teamId })
-    .from(repositories)
-    .where(eq(repositories.id, repositoryId))
-    .limit(1)
-  if (!repo) {
-    throw new TRPCError({ code: `BAD_REQUEST`, message: `Repository not found` })
-  }
-  if (repo.teamId !== teamId) {
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: `Repository must belong to the team`,
-    })
-  }
-}
-
 function duplicateNameError(name: string): TRPCError {
   return new TRPCError({
     code: `CONFLICT`,
     message: `An action named "${name}" already exists in this team`,
   })
-}
-
-// The builtins' ids are accepted by every id field (so clients get a readable
-// error instead of a zod 400) but rejected before any DB work.
-const actionIdSchema = z
-  .string()
-  .uuid()
-  .or(z.literal(BUILTIN_CREATE_ACTION_ID))
-  .or(z.literal(BUILTIN_FIX_CONFLICTS_ID))
-  .or(z.literal(BUILTIN_CHAT_ID))
-  .or(z.literal(BUILTIN_TIDY_UP_ID))
-
-function rejectBuiltin(id: string, verb: string): void {
-  if (isBuiltinActionId(id)) {
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: `Built-in actions can't be ${verb}`,
-    })
-  }
-}
-
-// Keep the list free of a second "Create action" / "Fix merge conflicts"
-// entry — the builtins own those names on every team.
-function assertNotReservedName(name: string): void {
-  const normalized = name.trim().toLowerCase()
-  for (const reserved of [
-    BUILTIN_CREATE_ACTION_NAME,
-    BUILTIN_FIX_CONFLICTS_NAME,
-    // EXP-615: chat session rows carry actionName "Chat" and clients watch
-    // started runs by that snapshot — a team action named "Chat" would
-    // hijack the watch.
-    BUILTIN_CHAT_NAME,
-    BUILTIN_TIDY_UP_NAME,
-  ]) {
-    if (normalized === reserved.toLowerCase()) {
-      throw new TRPCError({
-        code: `CONFLICT`,
-        message: `"${reserved}" is a built-in action name`,
-      })
-    }
-  }
 }
 
 export const actionsRouter = router({
@@ -188,62 +107,31 @@ export const actionsRouter = router({
     .input(z.object({ teamId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       await assertTeamMember(ctx.session.user.id, input.teamId)
-
       const rows = await ctx.db
         .select(wireColumns)
         .from(actions)
         .where(eq(actions.teamId, input.teamId))
         .orderBy(asc(actions.sortOrder), asc(actions.name))
-      // EXP-539: DB rows only — every client constructs the virtual builtins
-      // locally and pins them first by the `builtin` flag (explicit false on
-      // real rows so the union stays uniformly narrowable). The MCP list
-      // tool appends them itself for agents.
-      return {
-        actions: rows.map((row) => ({ ...row, builtin: false as const })),
-      }
+      return { actions: rows }
     }),
 
-  // Member-gated single fetch — the ONLY body path: synced rows exclude the
-  // body, so editors fetch it on open and the desktop right before a run.
+  // Member-gated single fetch — the ONLY body path: synced rows exclude it.
   get: authedProcedure
-    .input(z.object({ id: actionIdSchema }))
+    .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      // The builtin has no server body — desktops compose its prompt from
-      // their own shipped constants.
-      rejectBuiltin(input.id, `fetched`)
       const action = await loadAction(input.id)
       await assertTeamMember(ctx.session.user.id, action.teamId)
       return { action }
     }),
 
   create: authedProcedure
-    .input(
-      z.object({
-        teamId: z.string().uuid(),
-        name: nameSchema,
-        description: descriptionSchema.optional(),
-        icon: actionIconSchema.nullable().optional(),
-        repositoryId: z.string().uuid().nullable().optional(),
-        body: bodySchema,
-        inputs: actionInputsSchema.optional(),
-        promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
-        mcpServerIds: mcpServerIdsSchema.optional(),
-      })
-    )
+    .input(actionCreateInputSchema)
     .mutation(async ({ ctx, input }) => {
       await assertTeamOwner(ctx.session.user.id, input.teamId)
-      assertNotReservedName(input.name)
-      if (input.repositoryId) {
-        await assertRepoInTeam(input.repositoryId, input.teamId)
-      }
-      const mcpServerIds =
-        (await assertMcpServersInTeam(input.mcpServerIds, input.teamId)) ?? []
-
       // EXP-707: actions are Electric-synced, so every write returns a txId
       // sync barrier like the other synced-table routers.
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-
         // Append to the end of the list by default.
         const [last] = await tx
           .select({ sortOrder: actions.sortOrder })
@@ -251,81 +139,29 @@ export const actionsRouter = router({
           .where(eq(actions.teamId, input.teamId))
           .orderBy(desc(actions.sortOrder))
           .limit(1)
-        const nextSortOrder = (last?.sortOrder ?? 0) + 1
-
         const [action] = await tx
           .insert(actions)
           .values({
             teamId: input.teamId,
-            repositoryId: input.repositoryId ?? null,
             name: input.name,
-            description: input.description ?? null,
             icon: input.icon ?? null,
             body: input.body,
             inputs: input.inputs ?? [],
             promptPlaceholder: input.promptPlaceholder || null,
-            mcpServerIds,
-            sortOrder: nextSortOrder,
+            sortOrder: (last?.sortOrder ?? 0) + 1,
           })
-          .onConflictDoNothing({
-            target: [actions.teamId, actions.name],
-          })
+          .onConflictDoNothing({ target: [actions.teamId, actions.name] })
           .returning(detailColumns)
-
         if (!action) throw duplicateNameError(input.name)
         return { action, txId }
       })
     }),
 
   update: authedProcedure
-    .input(
-      z.object({
-        id: actionIdSchema,
-        name: nameSchema.optional(),
-        description: descriptionSchema.optional(),
-        icon: actionIconSchema.nullable().optional(),
-        repositoryId: z.string().uuid().nullable().optional(),
-        body: bodySchema.optional(),
-        inputs: actionInputsSchema.optional(),
-        promptPlaceholder: actionPromptPlaceholderSchema.nullable().optional(),
-        // SLOP-2: whole-array replace, like inputs. A trigger keeps its id
-        // when the action already holds it; a new one gets a server id.
-        triggers: actionTriggersSchema.optional(),
-        mcpServerIds: mcpServerIdsSchema.optional(),
-        sortOrder: z.number().finite().optional(),
-      })
-    )
+    .input(actionUpdateInputSchema)
     .mutation(async ({ ctx, input }) => {
-      rejectBuiltin(input.id, `edited`)
       const existing = await loadAction(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
-      // A rename only: the migrated "Tidy up" row (SLOP-2) keeps its name.
-      if (input.name !== undefined && input.name !== existing.name) {
-        assertNotReservedName(input.name)
-      }
-      if (input.repositoryId) {
-        await assertRepoInTeam(input.repositoryId, existing.teamId)
-      }
-      const mcpServerIds =
-        input.mcpServerIds === undefined
-          ? undefined
-          : ((await assertMcpServersInTeam(input.mcpServerIds, existing.teamId)) ?? [])
-      const triggers =
-        input.triggers === undefined
-          ? undefined
-          : await resolveTriggersWrite({
-              written: input.triggers,
-              existing: storedTriggers(existing.triggers),
-              teamId: existing.teamId,
-              callerUserId: ctx.session.user.id,
-            })
-      // A triggered run fills no inputs: refused whichever side changes.
-      if (input.inputs !== undefined || triggers !== undefined) {
-        assertTriggersRunnable(
-          input.inputs ?? existing.inputs,
-          triggers ?? storedTriggers(existing.triggers)
-        )
-      }
 
       // Pre-check renames against the (teamId, name) unique so the caller
       // gets a readable CONFLICT instead of a raw 23505.
@@ -346,39 +182,17 @@ export const actionsRouter = router({
 
       const updates: Partial<typeof actions.$inferInsert> = {}
       if (input.name !== undefined) updates.name = input.name
-      if (input.description !== undefined) {
-        updates.description = input.description
-      }
       if (input.icon !== undefined) updates.icon = input.icon
-      if (input.repositoryId !== undefined) {
-        updates.repositoryId = input.repositoryId
-      }
       if (input.body !== undefined) updates.body = input.body
       // Whole-array replace — inputs are small and orderful, no patching.
       if (input.inputs !== undefined) updates.inputs = input.inputs
       if (input.promptPlaceholder !== undefined) {
         updates.promptPlaceholder = input.promptPlaceholder || null
       }
-      if (triggers !== undefined) updates.triggers = triggers
-      if (mcpServerIds !== undefined) updates.mcpServerIds = mcpServerIds
       if (input.sortOrder !== undefined) updates.sortOrder = input.sortOrder
 
-      // Nothing to change — return the current row (drizzle rejects an empty
-      // .set()).
-      if (Object.keys(updates).length === 0) {
-        const [action] = await ctx.db
-          .select(detailColumns)
-          .from(actions)
-          .where(eq(actions.id, input.id))
-          .limit(1)
-        if (!action) {
-          throw new TRPCError({
-            code: `NOT_FOUND`,
-            message: `Action not found`,
-          })
-        }
-        return { action }
-      }
+      // Nothing to change — the current row (drizzle rejects an empty set()).
+      if (Object.keys(updates).length === 0) return { action: existing }
 
       try {
         return await ctx.db.transaction(async (tx) => {
@@ -406,13 +220,10 @@ export const actionsRouter = router({
       }
     }),
 
-  // Live coding_sessions rows survive a delete batch-shaped: action_id nulls
-  // (FK SET NULL) while the action_name snapshot keeps labeling the run.
-  // Its triggers go with the row.
+  // Threads that ran it keep their `action_name` snapshot (FK SET NULL).
   delete: authedProcedure
-    .input(z.object({ id: actionIdSchema }))
+    .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      rejectBuiltin(input.id, `deleted`)
       const existing = await loadAction(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
       return await ctx.db.transaction(async (tx) => {

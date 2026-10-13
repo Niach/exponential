@@ -2038,6 +2038,15 @@ describe(`activity event kinds`, () => {
     expect(pub.framesOf(`unqueue`).length).toBe(1)
   })
 
+  // EXP-1291: `sessions.stop` interrupts server-side; no publisher = not delivered.
+  test(`interruptSession reaches the publisher and reports delivery`, () => {
+    const hub = new Hub()
+    expect(hub.interruptSession(`sess-1`)).toBe(false)
+    const pub = connectPublisher(hub)
+    expect(hub.interruptSession(`sess-1`)).toBe(true)
+    expect(pub.lastFrame(`interrupt`)).toEqual({ t: `interrupt` })
+  })
+
   // EXP-850 §3: `workflow` is latest-wins PER ID — one frame per card, all of
   // them replayed between `turn` and `background_tasks`.
   test(`workflow is latest-wins per id, replayed before background_tasks`, () => {

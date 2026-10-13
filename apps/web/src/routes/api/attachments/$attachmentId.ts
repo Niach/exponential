@@ -118,14 +118,14 @@ async function getAttachment({
     })
   }
 
-  // Issue attachments first; draft attachments (EXP-878) and steer images
-  // (EXP-702) live behind their own owner columns/tables but are served from
+  // Issue attachments first; draft attachments (EXP-878) and session files
+  // (EXP-1291) live behind their own owner columns but are served from
   // the SAME url shape — the EXP-511 embed `![image](/api/attachments/{id})`
   // is load-bearing across every host and viewer, so the fallbacks happen
   // here rather than in extra routes. Order matters only for cost: the issue
   // lookup inner-joins issues and misses on a NULL `issue_id`, the draft
   // lookup inner-joins issue_drafts and misses on a NULL `draft_id`, and the
-  // session lookup is a different table entirely — the three are disjoint.
+  // session lookup takes only rows with neither — the three are disjoint.
   const notFound = (error: unknown) =>
     error instanceof TRPCError && error.code === `NOT_FOUND`
   const attachment = await getAttachmentTeamContext(params.attachmentId)
@@ -141,6 +141,16 @@ async function getAttachment({
     })
   if (!tokenAuthorized) {
     await assertTeamMember(session!.user.id, attachment.teamId)
+    // EXP-1291: a private session's message files are its starter's alone
+    // (the ONE session visibility rule); NOT_FOUND, no existence oracle.
+    if (
+      `messageShared` in attachment &&
+      attachment.messageId &&
+      !attachment.messageShared &&
+      attachment.messageOwnerId !== session!.user.id
+    ) {
+      throw new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+    }
   }
 
   // EXP-824: `?poster=1` serves the video row's poster frame — a second blob

@@ -10,7 +10,6 @@ import { Route as issueLabelsRoute } from "@/routes/api/shapes/issue-labels"
 import { Route as issueRelationsRoute } from "@/routes/api/shapes/issue-relations"
 import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
-import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as pinsRoute } from "@/routes/api/shapes/pins"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
@@ -21,8 +20,11 @@ import { Route as deviceWorktreesRoute } from "@/routes/api/shapes/device-worktr
 import { Route as labelsRoute } from "@/routes/api/shapes/labels"
 import { Route as teamMembersRoute } from "@/routes/api/shapes/team-members"
 import { Route as teamsRoute } from "@/routes/api/shapes/teams"
-import { Route as threadsRoute } from "@/routes/api/shapes/threads"
-import { Route as threadItemsRoute } from "@/routes/api/shapes/thread-items"
+import { Route as sessionsRoute } from "@/routes/api/shapes/sessions"
+import { Route as sessionIssuesRoute } from "@/routes/api/shapes/session-issues"
+import { Route as messagesRoute } from "@/routes/api/shapes/messages"
+import { Route as pullRequestsRoute } from "@/routes/api/shapes/pull-requests"
+import { Route as pullRequestIssuesRoute } from "@/routes/api/shapes/pull-request-issues"
 
 const {
   resolveSession,
@@ -486,16 +488,11 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).toEqual([
       `id`,
       `team_id`,
-      `repository_id`,
       `name`,
-      `description`,
       `icon`,
       `inputs`,
       // EXP-825: the composer hint rides the shape (older natives drop it).
       `prompt_placeholder`,
-      // SLOP-2: the action's triggers ride the shape; the bound device
-      // reads them off it.
-      `triggers`,
       `sort_order`,
       `created_at`,
       `updated_at`,
@@ -506,73 +503,6 @@ describe(`shape column + trash contracts`, () => {
     expect(originUrl.searchParams.get(`where`)).toBe(
       `"team_id" IN ('w-1','w-2')`
     )
-  })
-
-  // EXP-637: the close-out columns are synced, but `merged_own_pr` is
-  // server-only — it exists so the merge-driven end paths can spare the
-  // session that merged its own PR, and no client acts on it. EXP-862 took
-  // `summary` out with the rest of the stored close-out.
-  it(`pins the coding-sessions columns and keeps the server-only ones out`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
-    prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
-
-    await shapeHandler(codingSessionsRoute)({
-      request: new Request(
-        `https://example.com/api/shapes/coding-sessions?columns=merged_own_pr`,
-        { headers: { authorization: `Bearer t` } }
-      ),
-    })
-
-    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
-    expect(columns).toEqual([
-      `id`,
-      `issue_id`,
-      `team_id`,
-      `board_id`,
-      `action_id`,
-      `action_name`,
-      `started_reason`,
-      `trigger_id`,
-      `user_id`,
-      `device_label`,
-      `device_id`,
-      `agent`,
-      // EXP-909: the login the run SPENDS — every client resolves the run's
-      // account off it.
-      `agent_account`,
-      `status`,
-      `branch`,
-      `pr_url`,
-      `pr_number`,
-      `pr_state`,
-      `pr_base_branch`,
-      `ended_by`,
-      `resumed_from_id`,
-      `parent_session_id`,
-      // EXP-1082: the parked question, synced.
-      `pending_question`,
-      `needs_input`,
-      `agent_busy`,
-      `agent_caption`,
-      `agent_title`,
-      `blocked`,
-      `results`,
-      `batch_issue_ids`,
-      `started_at`,
-      `ended_at`,
-      `created_at`,
-      `updated_at`,
-    ])
-    expect(columns).not.toContain(`outcome`)
-    // EXP-862: the agent's close-out is reported to whoever started the run,
-    // never stored on it and never synced.
-    expect(columns).not.toContain(`summary`)
-    expect(columns).not.toContain(`merged_own_pr`)
-    expect(columns).not.toContain(`host_user_id`)
-    expect(columns).not.toContain(`board_deleted_at`)
-    expect(columns).not.toContain(`board_archived_at`)
   })
 
   it(`pins the issue-statuses columns and scopes members by team`, async () => {
@@ -658,9 +588,6 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     [`issue-relations`, issueRelationsRoute],
     [`issue-subscribers`, issueSubscribersRoute],
     [`attachments`, attachmentsRoute],
-    [`coding-sessions`, codingSessionsRoute],
-    // EXP-1284: issue items carry the board mirrors; run items keep them NULL.
-    [`thread-items`, threadItemsRoute],
   ] as const
 
   // EXP-878: attachments additionally drop draft-owned rows (`draft_id` set,
@@ -826,55 +753,51 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).not.toContain(`emailed_at`)
   })
 
-  // EXP-1284: thread shells are team-scoped with NO board/trash predicate (a
-  // thread spans boards; its items carry the mirrors) but the STATIC hidden
-  // filter (review T3): `has_visible_items` is filtered on, never streamed.
-  it(`threads pins its columns and scopes members by team + visibility`, async () => {
+  // EXP-1291: the session tree — ONE visibility rule (`shared OR mine`
+  // inside the member's teams) on sessions and every child table (their
+  // `owner_id` mirror), the server-only facets behind the allowlist.
+  it(`sessions pins its columns and scopes by team + visibility`, async () => {
     const originUrl = new URL(`https://electric.example/v1/shape`)
     resolveSession.mockResolvedValue({ user: { id: `user-1` } })
     prepareElectricUrl.mockReturnValue(originUrl)
     membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
 
-    await shapeHandler(threadsRoute)({
-      request: new Request(`https://example.com/api/shapes/threads?columns=x`, {
+    await shapeHandler(sessionsRoute)({
+      request: new Request(`https://example.com/api/shapes/sessions?columns=instructions`, {
         headers: { authorization: `Bearer t` },
       }),
     })
-    expect(originUrl.searchParams.get(`columns`)).toBe(
-      `id,team_id,title,created_by,results,created_at,updated_at`
-    )
+    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+    for (const hidden of [`instructions`, `host_user_id`, `mcp_server_ids`]) {
+      expect(columns).not.toContain(hidden)
+    }
+    expect(columns).toContain(`shared`)
     expect(originUrl.searchParams.get(`where`)).toBe(
-      `("team_id" IN ('w-1','w-2')) AND ("has_visible_items" = true)`
+      `("team_id" IN ('w-1','w-2')) AND (("shared" = true) OR ("user_id" = 'user-1'))`
     )
-    expect(originUrl.searchParams.get(`columns`)).not.toContain(`has_visible_items`)
-
-    const anonUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue(null)
-    prepareElectricUrl.mockReturnValue(anonUrl)
-    membership.getUserTeamIds.mockClear()
-    await shapeHandler(threadsRoute)({
-      request: new Request(`https://example.com/api/shapes/threads`),
-    })
-    expect(anonUrl.searchParams.get(`where`)).toBe(
-      `"id" = '00000000-0000-0000-0000-000000000000'`
-    )
-    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
   })
 
-  it(`thread-items pins its columns (the board mirrors stay server-only)`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
-    prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserTeamIds.mockResolvedValue([`w-1`])
-
-    await shapeHandler(threadItemsRoute)({
-      request: new Request(`https://example.com/api/shapes/thread-items`, {
-        headers: { authorization: `Bearer t` },
-      }),
-    })
-    expect(originUrl.searchParams.get(`columns`)).toBe(
-      `id,thread_id,kind,issue_id,session_id,team_id,board_id,added_by,added_by_session_id,source,sort_order,created_at,updated_at`
-    )
+  it(`messages and session-issues filter on the owner mirror`, async () => {
+    for (const [route, extra] of [
+      [messagesRoute, ``],
+      [sessionIssuesRoute, ` AND ("board_deleted_at" IS NULL) AND ("board_archived_at" IS NULL)`],
+    ] as const) {
+      const originUrl = new URL(`https://electric.example/v1/shape`)
+      resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+      prepareElectricUrl.mockReturnValue(originUrl)
+      membership.getUserTeamIds.mockResolvedValue([`w-1`])
+      await shapeHandler(route)({
+        request: new Request(`https://example.com/api/shapes/x`, {
+          headers: { authorization: `Bearer t` },
+        }),
+      })
+      const where = originUrl.searchParams.get(`where`) ?? ``
+      expect(where).toContain(`("shared" = true) OR ("owner_id" = 'user-1')`)
+      expect(where.endsWith(extra)).toBe(true)
+      const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
+      expect(columns).not.toContain(`owner_id`)
+      expect(columns).not.toContain(`shared`)
+    }
   })
 
   // EXP-778: the pins shape — the caller's own rows, static per user, no
@@ -940,8 +863,8 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `assignee_id`,
       `label_ids`,
       `due_date`,
-      // EXP-1284: the thread a "New issue in this thread" draft files into.
-      `thread_id`,
+      // EXP-1291: the thread a "New issue in this thread" draft files into.
+      `session_id`,
       `created_at`,
       `updated_at`,
     ])
@@ -1076,7 +999,6 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`actions`, actionsRoute],
     [`attachments`, attachmentsRoute],
     [`boards`, boardsRoute],
-    [`coding-sessions`, codingSessionsRoute],
     [`comments`, commentsRoute],
     [`device-worktrees`, deviceWorktreesRoute],
     [`devices`, devicesRoute],
@@ -1090,11 +1012,14 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`labels`, labelsRoute],
     [`notifications`, notificationsRoute],
     [`pins`, pinsRoute],
+    [`pull-request-issues`, pullRequestIssuesRoute],
+    [`pull-requests`, pullRequestsRoute],
+    [`messages`, messagesRoute],
+    [`session-issues`, sessionIssuesRoute],
+    [`sessions`, sessionsRoute],
     [`team-invites`, teamInvitesRoute],
     [`team-members`, teamMembersRoute],
     [`teams`, teamsRoute],
-    [`thread-items`, threadItemsRoute],
-    [`threads`, threadsRoute],
     [`users`, usersRoute],
   ] as const
 

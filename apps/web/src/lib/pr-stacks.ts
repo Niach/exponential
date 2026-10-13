@@ -5,8 +5,8 @@
 // failed stack call throws (`GitHubStackError`) and the caller surfaces it.
 //
 // `pr_open` wires `inferBaseBranch` (base omitted) and `ensureGithubStack`
-// (base = another open PR's head); `pr_merge({mergeStack})` and
-// `issues.mergePr({mergeStack})` land a member through `mergeThrough`.
+// (base = another open PR's head); a merge with `stack: true`
+// (lib/pull-requests.ts) lands a member through `mergeThrough`.
 import {
   addToStack,
   compareRefs,
@@ -27,7 +27,7 @@ const MAX_CHAIN = 10
 
 /** The line forks: a PR already sits on the lower one (or on a PR below it)
  *  in its GitHub stack. A GitHub stack is linear, so the line is a TREE:
- *  `pr_open` skips the join, `mergeStack` surfaces it. */
+ *  `pr_open` skips the join, a `stack` merge surfaces it. */
 export class GitHubStackForkError extends Error {
   // Its own root (not `GitHubStackError`): the tests that mock github-pr
   // must not have to export the parent for this module to load.

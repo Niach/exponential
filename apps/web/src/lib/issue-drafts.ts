@@ -24,8 +24,9 @@ export interface DraftSnapshot {
   assigneeId: string | null
   labelIds: string[]
   dueDate: string | null
-  /** EXP-1284: the thread a "New issue in this thread" draft files into. */
-  threadId: string | null
+  /** EXP-1291: the thread (root session) a "New issue in this thread"
+   *  draft files into. */
+  sessionId: string | null
   /** Rows already uploaded against this draft (eager uploads, EXP-878). */
   attachmentCount?: number
 }
@@ -61,7 +62,7 @@ export function toUpsertInput(snapshot: DraftSnapshot) {
     assigneeId: snapshot.assigneeId,
     labelIds: snapshot.labelIds,
     dueDate: snapshot.dueDate,
-    threadId: snapshot.threadId,
+    sessionId: snapshot.sessionId,
   }
 }
 
@@ -76,8 +77,8 @@ export interface DraftDialogSeed {
   assigneeId: string | null
   labelIds: string[]
   dueDate: string | null
-  /** EXP-1284: the thread it files into (null = none). */
-  threadId: string | null
+  /** EXP-1291: the thread (root session) it files into (null = none). */
+  sessionId: string | null
 }
 
 /**
@@ -114,7 +115,7 @@ export function toDialogSeed(
         : null,
     labelIds: (draft.labelIds ?? []).filter((id) => labelIds.has(id)),
     dueDate: draft.dueDate ?? null,
-    threadId: draft.threadId ?? null,
+    sessionId: draft.sessionId ?? null,
   }
 }
 

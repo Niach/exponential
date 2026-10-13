@@ -73,7 +73,7 @@ const shapeFetch = async (
   }
 }
 
-// The per-collection shape wiring, identical for all 23 of them: the proxy URL,
+// The per-collection shape wiring, identical for all 25 of them: the proxy URL,
 // the timestamp parser and the snake→camel mapper `useLiveQuery` where clauses
 // depend on.
 function shapeOptions(path: string) {

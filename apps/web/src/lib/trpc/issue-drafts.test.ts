@@ -19,7 +19,12 @@ const h = vi.hoisted(() => ({
   getBoardTeamId: vi.fn(),
   resolveTeamAccess: vi.fn(async (..._args: unknown[]) => undefined),
   deleteStorageObjects: vi.fn(async (..._args: unknown[]) => undefined),
-  getThread: vi.fn(async (_db: unknown, _id: string): Promise<{ id: string; teamId: string } | null> => null),
+  loadSessionForUser: vi.fn(
+    async (
+      _userId: string,
+      _id: string
+    ): Promise<{ id: string; rootId: string; teamId: string; kind: string } | null> => null
+  ),
 }))
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
@@ -31,7 +36,13 @@ vi.mock(`@/lib/team-membership`, () => ({
 vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: h.deleteStorageObjects,
 }))
-vi.mock(`@/lib/threads`, () => ({ getThread: h.getThread }))
+vi.mock(`@/lib/sessions/access`, () => ({
+  loadSessionForUser: async (userId: string, id: string) => {
+    const row = await h.loadSessionForUser(userId, id)
+    if (!row) throw new Error(`not found`)
+    return row
+  },
+}))
 
 import { attachments, issueDrafts, issues, issueStatuses } from "@/db/schema"
 import { issueDraftsRouter } from "@/lib/trpc/issue-drafts"
@@ -302,43 +313,45 @@ describe(`issueDrafts.upsert`, () => {
   })
 })
 
-// EXP-1284: "New issue in this thread" — the draft persists its thread, so a
-// draft reopened from Drafts still files into it. Absent keeps the row's
-// thread; null clears it; a thread must be the board's team's.
-describe(`issueDrafts.upsert threadId`, () => {
+// EXP-1291: "New issue in this thread" — the draft persists its thread (the
+// ROOT session), so a draft reopened from Drafts still files into it. Absent
+// keeps the row's; null clears it; the thread must be the board's team's.
+describe(`issueDrafts.upsert sessionId`, () => {
   const THREAD = `66666666-6666-4666-8666-666666666666`
+  const CHILD = `77777777-7777-4777-8777-777777777777`
 
   beforeEach(() => {
-    h.getThread.mockReset()
-    h.getThread.mockResolvedValue({ id: THREAD, teamId: TEAM })
+    h.loadSessionForUser.mockReset()
+    h.loadSessionForUser.mockResolvedValue({ id: THREAD, rootId: THREAD, teamId: TEAM, kind: `thread` })
   })
 
-  it(`stores the thread and re-sets it on conflict`, async () => {
-    await caller.upsert(input({ threadId: THREAD }))
-    expect(h.getThread).toHaveBeenCalledWith(expect.anything(), THREAD)
-    expect(state.inserted[0]).toMatchObject({ threadId: THREAD })
-    expect(state.conflictSets[0]).toMatchObject({ threadId: THREAD })
+  it(`stores the thread's root and re-sets it on conflict`, async () => {
+    h.loadSessionForUser.mockResolvedValue({ id: CHILD, rootId: THREAD, teamId: TEAM, kind: `thread` })
+    await caller.upsert(input({ sessionId: CHILD }))
+    expect(state.inserted[0]).toMatchObject({ sessionId: THREAD })
+    expect(state.conflictSets[0]).toMatchObject({ sessionId: THREAD })
   })
 
   it(`clears it on null`, async () => {
-    await caller.upsert(input({ threadId: null }))
-    expect(h.getThread).not.toHaveBeenCalled()
-    expect(state.inserted[0]).toMatchObject({ threadId: null })
-    expect(state.conflictSets[0]).toMatchObject({ threadId: null })
+    await caller.upsert(input({ sessionId: null }))
+    expect(h.loadSessionForUser).not.toHaveBeenCalled()
+    expect(state.inserted[0]).toMatchObject({ sessionId: null })
+    expect(state.conflictSets[0]).toMatchObject({ sessionId: null })
   })
 
   it(`keeps the row's thread when the key is absent`, async () => {
     await caller.upsert(input())
-    expect(state.inserted[0]).toMatchObject({ threadId: null })
-    expect(state.conflictSets[0]).not.toHaveProperty(`threadId`)
+    expect(state.inserted[0]).toMatchObject({ sessionId: null })
+    expect(state.conflictSets[0]).not.toHaveProperty(`sessionId`)
   })
 
   it.each([
-    [`another team's thread`, { id: THREAD, teamId: `other-team` }],
+    [`another team's thread`, { id: THREAD, rootId: THREAD, teamId: `other-team`, kind: `thread` }],
+    [`an agent`, { id: THREAD, rootId: THREAD, teamId: TEAM, kind: `agent` }],
     [`a missing thread`, null],
   ])(`refuses %s before anything is written`, async (_name, thread) => {
-    h.getThread.mockResolvedValue(thread)
-    await expect(caller.upsert(input({ threadId: THREAD }))).rejects.toMatchObject({
+    h.loadSessionForUser.mockResolvedValue(thread)
+    await expect(caller.upsert(input({ sessionId: THREAD }))).rejects.toMatchObject({
       code: `BAD_REQUEST`,
     })
     expect(state.inserted).toHaveLength(0)

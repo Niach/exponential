@@ -60,7 +60,7 @@ function snapshot(overrides: Partial<DraftSnapshot> = {}): DraftSnapshot {
     assigneeId: null,
     labelIds: [],
     dueDate: null,
-    threadId: null,
+    sessionId: null,
     attachmentCount: 0,
     ...overrides,
   }
@@ -112,7 +112,7 @@ describe(`toUpsertInput`, () => {
       assigneeId: `user-2`,
       labelIds: [`label-1`],
       dueDate: `2026-03-04`,
-      threadId: null,
+      sessionId: null,
     })
   })
 })
@@ -146,7 +146,7 @@ describe(`toDialogSeed`, () => {
       assigneeId: `user-2`,
       labelIds: [`label-1`],
       dueDate: `2026-03-04`,
-      threadId: null,
+      sessionId: null,
     })
   })
 

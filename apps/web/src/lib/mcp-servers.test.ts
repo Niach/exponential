@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest"
-import {
-  isTeamMcp,
-  sharedSummary,
-} from "@/lib/mcp-servers"
+import { isTeamMcp, sharedSummary } from "@/lib/mcp-servers"
 
 // FEED-73: shared MCP connections. A team MCP = no sign-in, or at least one
-// member shares their connection; a real action subject owns its MCP list.
+// member shares their connection.
 
 describe(`isTeamMcp`, () => {
   it(`counts a no-sign-in server and a shared one, never an unshared sign-in`, () => {
@@ -37,4 +34,3 @@ describe(`sharedSummary`, () => {
     ).toBe(`2 of 3 connected · 1 shared`)
   })
 })
-

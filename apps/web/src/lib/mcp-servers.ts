@@ -53,7 +53,7 @@ export function mcpServerReady(
 
 /** FEED-73: a "team MCP" = one any run of the team can use whoever starts
  * it: nothing to sign in to, or at least one member SHARES their connection
- * (like a shared device). Only these go on an action's MCP list. A stdio
+ * (like a shared device). A stdio
  * server's secret never leaves its owner's machine, so a share on one
  * (a stale row; the server refuses new ones) counts for nothing. */
 export function isTeamMcp(

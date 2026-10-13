@@ -3,10 +3,10 @@ import { PgDialect } from "drizzle-orm/pg-core"
 import type { SQL } from "drizzle-orm"
 
 // EXP-1244: `repositories.openPulls` lists the team's repos' open PRs that
-// NO issue or run links. "Linked" is decided by the PR url across EVERY
-// team (two teams on one repository, an issue moved across teams), never
-// by the caller's team alone: the exclusion only hides a row. The output
-// shape is pinned: desktop 0.14.65 reads it.
+// are NOT recorded in `pull_requests` (EXP-1291). "Recorded" is decided by
+// the repository across EVERY team (two teams on one GitHub repo), never by
+// the caller's team alone: the exclusion only hides a row. The output shape
+// is pinned: desktop 0.14.65 reads it.
 
 const h = vi.hoisted(() => ({
   selectQueue: [] as unknown[][],
@@ -107,12 +107,12 @@ beforeEach(() => {
 })
 
 describe(`repositories.openPulls (EXP-1244)`, () => {
-  it(`hides a PR any issue or run links, by repository url, in the pinned shape`, async () => {
-    // The team's repos, then the linked urls: an issue row (ANY team) and a
-    // run row (EXP-734) each carry one of the three open PRs.
+  it(`hides a recorded PR (by repository and by full name), in the pinned shape`, async () => {
+    // The team's repos, then the recorded urls: one on this repo row, one on
+    // another team's row for the same GitHub repo.
     h.selectQueue.push([repoRow])
-    h.selectQueue.push([{ prUrl: pull(5).url }])
-    h.selectQueue.push([{ prUrl: pull(6).url }])
+    h.selectQueue.push([{ url: pull(5).url }])
+    h.selectQueue.push([{ url: pull(6).url }])
     h.listOpenPulls.mockResolvedValueOnce([pull(5), pull(6), pull(7)])
 
     await expect(caller.openPulls({ teamId: TEAM })).resolves.toEqual({
@@ -121,23 +121,20 @@ describe(`repositories.openPulls (EXP-1244)`, () => {
     expect(h.listOpenPulls).toHaveBeenCalledWith(`owner/repo`, `tok`)
   })
 
-  it(`keys the linked lookups on the repo's PR urls, never on the caller's team`, async () => {
+  it(`keys the recorded lookups on the repository, never on the caller's team`, async () => {
     h.selectQueue.push([repoRow], [], [])
     h.listOpenPulls.mockResolvedValueOnce([pull(7)])
 
     await caller.openPulls({ teamId: TEAM })
 
-    // The repos read is team-scoped; the two linked-url reads are not.
-    const [repos, issueLinks, sessionLinks] = h.wheres.map(render)
+    const [repos, byRepo, byName] = h.wheres.map(render)
     expect(repos?.params).toContain(TEAM)
-    for (const linked of [issueLinks, sessionLinks]) {
-      expect(linked?.sql).toMatch(/like/)
-      expect(linked?.sql).not.toMatch(/team_id/)
-      expect(linked?.params).toEqual([`https://github.com/owner/repo/pull/%`])
-    }
+    expect(byRepo?.params).toEqual([`repo-1`])
+    expect(byName?.params).toEqual([`owner/repo`])
+    for (const recorded of [byRepo, byName]) expect(recorded?.sql).not.toMatch(/team_id/)
   })
 
-  it(`makes no linked lookup for a team without repos`, async () => {
+  it(`makes no recorded lookup for a team without repos`, async () => {
     h.selectQueue.push([])
 
     await expect(caller.openPulls({ teamId: TEAM })).resolves.toEqual({ repos: [] })

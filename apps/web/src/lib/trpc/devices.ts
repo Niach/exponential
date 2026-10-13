@@ -25,7 +25,6 @@ import {
   sql,
 } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
-import { pauseDeviceTriggers } from "@/lib/action-trigger-rules"
 import { deviceIconSchema } from "@exp/db-schema/domain"
 import {
   router,
@@ -58,7 +57,7 @@ import {
 } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/team-membership"
 import { versionPayload } from "@/lib/client-version"
-import { endForeignHostedSessions } from "@/lib/coding-session-kill"
+import { endForeignHostedSessions, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import {
   agentAllowsBlankModel,
   agentEffortValues,
@@ -1412,15 +1411,15 @@ export const devicesRouter = router({
       for (const teamId of added) {
         await assertTeamMember(ctx.session.user.id, teamId)
       }
-      // EXP-530 follow-up: a trigger bound to this device by one of a
-      // REVOKED team's owners keeps firing on the device owner's credentials
-      // once the share is withdrawn (there is no server scheduler — the
-      // device self-selects triggers off Electric), and the toggle is
-      // owner-only, so the machine's owner cannot stop it. Withdrawing the
-      // share pauses those triggers in the same transaction as the column
-      // write. Skipped when the device owner is an OWNER of that team: then
-      // the bindings are plausibly their own, and they keep the toggle to
-      // undo them.
+      // EXP-530 follow-up / EXP-1291: an agent a REVOKED team's owner put
+      // on this device keeps firing its triggers on the device owner's
+      // credentials once the share is withdrawn (there is no server
+      // scheduler — the device self-selects agents off Electric), and agent
+      // settings are owner-only, so the machine's owner cannot stop it.
+      // Withdrawing the share disarms those agents in the same transaction
+      // as the column write. Skipped when the device owner is an OWNER of
+      // that team: then the agents are plausibly their own, and they keep
+      // the settings to undo it.
       const disarm: string[] = []
       for (const teamId of revoked) {
         const member = await getTeamMember(ctx.session.user.id, teamId)
@@ -1433,7 +1432,7 @@ export const devicesRouter = router({
           .set({ sharedTeamIds: next, updatedAt: new Date() })
           .where(eq(devices.id, row.id))
         if (disarm.length > 0) {
-          await pauseDeviceTriggers(tx, disarm, input.deviceId)
+          await pauseDeviceAgents(tx, disarm, input.deviceId)
         }
         return id
       })

@@ -16,8 +16,10 @@ vi.mock(`@/lib/billing/creem-subscriptions`, () => ({
 
 import {
   attachments,
-  codingSessions,
   comments,
+  messages,
+  sessionIssues,
+  sessions,
   emailBounces,
   issues,
   teams,
@@ -504,98 +506,57 @@ function whereShape(cond: unknown, out: unknown[] = []): unknown[] {
   return out
 }
 
-describe(`guardAndCleanupTeamsForUserDeletion — coding sessions (EXP-445)`, () => {
+describe(`guardAndCleanupTeamsForUserDeletion — sessions (EXP-445/1291)`, () => {
   const surviving = [m(SHARED, USER, `owner`), m(SHARED, `user-2`, `owner`)]
+  const queueSelects = () => {
+    for (let i = 0; i < 4; i += 1) selectQueue.push([])
+  }
 
-  it(`ends the runs the user requested on a host, reassigning them to that host`, async () => {
+  it(`re-attributes the sessions the user started on a host to that host, ending the live ones`, async () => {
     seedBaseline({ memberships: surviving })
-    selectQueue.push([])
-    selectQueue.push([])
-    selectQueue.push([])
+    queueSelects()
+    updateReturningQueue.push([{ id: `sess-requested` }])
     updateReturningQueue.push([{ id: `sess-requested` }])
 
-    const result = await guardAndCleanupTeamsForUserDeletion(
-      fakeTx,
-      USER,
-      `self`
-    )
+    const result = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
 
-    const [requested] = updatesTo(codingSessions)
-    expect(requested!.values).toMatchObject({
-      status: `ended`,
-      endedAt: expect.any(Date),
-      // An ended run asks nobody anything.
-      pendingQuestion: null,
-    })
-    // user_id := host_user_id, so the row outlives the users-row cascade as a
-    // host-owned ended row the hosting daemon still polls.
-    expect(whereShape(requested!.values.userId)).toEqual([`col:host_user_id`])
-    // Only rows with a host — a self-hosted session (host_user_id NULL) is
-    // vaporized by the cascade and must not be touched here.
-    expect(whereShape(requested!.where)).toEqual([
-      `col:user_id`,
-      USER,
-      `col:host_user_id`,
-      // EXP-888: a stale-swept row is still a live agent as far as this path
-      // is concerned — the sweep's end is not one any client acts on.
-      `col:status`,
-      `running`,
-      `in_review`,
-      `col:ended_by`,
-      `stale`,
-    ])
+    const [reassign, ended] = updatesTo(sessions)
+    // user_id := host_user_id, so the row outlives the users-row cascade.
+    expect(whereShape(reassign!.values.userId)).toEqual([`col:host_user_id`])
+    expect(reassign!.values.hostUserId).toBeNull()
+    expect(whereShape(reassign!.where)).toEqual([`col:user_id`, USER, `col:host_user_id`])
+    // The visibility mirrors follow, or the cascade would take them.
+    expect(updatesTo(messages)).toHaveLength(1)
+    expect(updatesTo(sessionIssues)).toHaveLength(1)
+    expect(ended!.values).toMatchObject({ status: `ended`, busy: false, needsInput: false })
     expect(result.endedSessionIds).toContain(`sess-requested`)
   })
 
-  it(`ends the runs the user HOSTS without reassigning them (the requester lives on)`, async () => {
+  it(`ends the sessions the user HOSTS without reassigning them`, async () => {
     seedBaseline({ memberships: surviving })
-    selectQueue.push([])
-    selectQueue.push([])
-    selectQueue.push([])
+    queueSelects()
     updateReturningQueue.push([])
     updateReturningQueue.push([{ id: `sess-hosted` }])
 
-    const result = await guardAndCleanupTeamsForUserDeletion(
-      fakeTx,
-      USER,
-      `admin`
-    )
+    const result = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `admin`)
 
-    const hosted = updatesTo(codingSessions)[1]
-    expect(hosted!.values).toMatchObject({ status: `ended`, pendingQuestion: null })
+    const hosted = updatesTo(sessions)[1]
+    expect(hosted!.values).toMatchObject({ status: `ended`, busy: false })
     expect(`userId` in hosted!.values).toBe(false)
-    expect(whereShape(hosted!.where)).toEqual([
+    expect(whereShape(hosted!.where).slice(0, 4)).toEqual([
       `col:host_user_id`,
       USER,
       `col:user_id`,
       USER,
-      `col:status`,
-      `running`,
-      `in_review`,
-      `col:ended_by`,
-      `stale`,
     ])
     expect(result.endedSessionIds).toEqual([`sess-hosted`])
   })
 
-  it(`surfaces both directions' ids and stays empty when nothing was live`, async () => {
+  it(`stays empty when nothing was hosted`, async () => {
     seedBaseline({ memberships: surviving })
-    selectQueue.push([])
-    selectQueue.push([])
-    selectQueue.push([])
-    updateReturningQueue.push([{ id: `sess-a` }])
-    updateReturningQueue.push([{ id: `sess-b` }])
-
-    const both = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
-    expect(both.endedSessionIds).toEqual([`sess-a`, `sess-b`])
-
-    updates.length = 0
-    seedBaseline({ memberships: surviving })
-    selectQueue.push([])
-    selectQueue.push([])
-    selectQueue.push([])
-
+    queueSelects()
     const none = await guardAndCleanupTeamsForUserDeletion(fakeTx, USER, `self`)
     expect(none.endedSessionIds).toEqual([])
+    expect(updatesTo(messages)).toHaveLength(0)
   })
 })
