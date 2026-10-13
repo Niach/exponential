@@ -27,17 +27,36 @@ struct ThreadRows: Equatable, Sendable {
     let issues: [IssueEntity]
     let devices: [DeviceEntity]
 
+    /// EXP-1288: what the observations' `removeDuplicates()` compares — a
+    /// synced write that changed none of these (another thread's row, an
+    /// unrelated issue) re-renders nothing. Every synced row bumps its
+    /// `updated_at` server-side; devices also compare the heartbeat
+    /// (`last_seen_at`), which is what makes a run read paused or live.
     static func == (lhs: ThreadRows, rhs: ThreadRows) -> Bool {
         lhs.thread.id == rhs.thread.id
             && lhs.thread.updatedAt == rhs.thread.updatedAt
             && lhs.thread.title == rhs.thread.title
             && lhs.thread.results == rhs.thread.results
             && lhs.items.map(\.id) == rhs.items.map(\.id)
-            && lhs.sessions.map(\.updatedAt) == rhs.sessions.map(\.updatedAt)
-            && lhs.sessions.map(\.id) == rhs.sessions.map(\.id)
-            && lhs.issues.map(\.updatedAt) == rhs.issues.map(\.updatedAt)
-            && lhs.issues.map(\.id) == rhs.issues.map(\.id)
-            && lhs.devices.map(\.label) == rhs.devices.map(\.label)
+            && lhs.items.map(\.updatedAt) == rhs.items.map(\.updatedAt)
+            && sameRows(lhs.sessions, rhs.sessions)
+            && sameRows(lhs.issues, rhs.issues)
+            && sameDevices(lhs.devices, rhs.devices)
+    }
+
+    static func sameRows(_ lhs: [CodingSessionEntity], _ rhs: [CodingSessionEntity]) -> Bool {
+        lhs.map(\.id) == rhs.map(\.id) && lhs.map(\.updatedAt) == rhs.map(\.updatedAt)
+    }
+
+    static func sameRows(_ lhs: [IssueEntity], _ rhs: [IssueEntity]) -> Bool {
+        lhs.map(\.id) == rhs.map(\.id) && lhs.map(\.updatedAt) == rhs.map(\.updatedAt)
+    }
+
+    static func sameDevices(_ lhs: [DeviceEntity], _ rhs: [DeviceEntity]) -> Bool {
+        lhs.map(\.id) == rhs.map(\.id)
+            && lhs.map(\.label) == rhs.map(\.label)
+            && lhs.map(\.lastSeenAt) == rhs.map(\.lastSeenAt)
+            && lhs.map(\.updatedAt) == rhs.map(\.updatedAt)
     }
 
     /// The thread's issue rows in link order (items that resolved).
@@ -174,14 +193,44 @@ struct ThreadRows: Equatable, Sendable {
         return try assemble(db: db, threads: threads, order: threadIds)
     }
 
-    /// Every thread in `teamIds` (nil = every synced team), newest activity
-    /// first.
-    static func load(db: Database, teamIds: [String]?) throws -> [ThreadRows] {
-        var request = ThreadEntity.order(Column("updated_at").desc, Column("id").asc)
-        if let teamIds {
-            request = request.filter(teamIds.contains(Column("team_id")))
+    /// EXP-1288: only the threads the Agent page's lists can show
+    /// (`partitionThreadList`), newest activity first — never every thread
+    /// of every team. `includeRecent` false = the threads holding a
+    /// live-status session of mine (Running's candidates: the heartbeat rule
+    /// narrows them further); true = also every other thread that is mine (a
+    /// session of mine in it, or created by me), what Recent lists.
+    static func loadMine(db: Database, userId: String, includeRecent: Bool) throws -> [ThreadRows] {
+        let mySessionThreads = """
+            SELECT "thread_items"."thread_id" FROM "thread_items"
+            JOIN "coding_sessions" ON "coding_sessions"."id" = "thread_items"."session_id"
+            WHERE "coding_sessions"."user_id" = ?
+            """
+        let sql: String
+        let arguments: StatementArguments
+        if includeRecent {
+            sql = """
+                SELECT "id" FROM "threads" WHERE "created_by" = ?
+                UNION \(mySessionThreads)
+                """
+            arguments = [userId, userId]
+        } else {
+            sql = """
+                \(mySessionThreads)
+                AND ("coding_sessions"."status" IN (?, ?) OR "coding_sessions"."ended_by" = ?)
+                """
+            arguments = [
+                userId,
+                DomainContract.codingSessionStatusRunning,
+                DomainContract.codingSessionStatusInReview,
+                DomainContract.codingSessionEndedByStale,
+            ]
         }
-        let threads = try request.fetchAll(db)
+        let ids = Array(Set(try String.fetchAll(db, sql: sql, arguments: arguments)))
+        guard !ids.isEmpty else { return [] }
+        let threads = try ThreadEntity
+            .filter(ids.contains(Column("id")))
+            .order(Column("updated_at").desc, Column("id").asc)
+            .fetchAll(db)
         return try assemble(db: db, threads: threads, order: threads.map(\.id))
     }
 

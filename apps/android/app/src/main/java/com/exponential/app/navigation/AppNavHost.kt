@@ -201,10 +201,23 @@ fun AppNavHost() {
                         }
                         // EXP-1241: a web link's `?comment=` lands on that comment.
                         navController.navigateIssueDeepLink(
-                            resolution.issueId,
+                            resolution.id,
                             rawFace = null,
                             commentId = target.uri.getQueryParameter("comment"),
                         )
+                    }
+                    WebLinkResolver.Resolution.NotFound ->
+                        CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
+                }
+            // EXP-1288: a verified thread link — resolved like the issue
+            // link above, then the SAME route the in-app thread link takes.
+            is DeepLinkBus.Target.WebThreadRef ->
+                when (val resolution = webLinkResolver.resolveThread(target)) {
+                    is WebLinkResolver.Resolution.Found -> guarded {
+                        if (resolution.accountId != state.activeAccountId) {
+                            viewModel.switchAccount(resolution.accountId)
+                        }
+                        navController.navigateDeepLink(threadRoute(resolution.id))
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)

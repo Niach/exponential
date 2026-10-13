@@ -157,10 +157,15 @@ fun ThreadScreen(
     val selected = pages.firstOrNull { threadChildKey(it) == selectedKey } ?: ThreadView.Child.Conversation
 
     // First-render stamps per issue item: a child linked moments before the
-    // viewer first saw it fades in with a ring, once per mount.
+    // viewer first saw it fades in with a ring, once per mount. Stamped in an
+    // effect so composition never writes state; until it runs, `fresh` reads
+    // "now" — the same instant the effect stamps.
     val firstSeen = remember { mutableStateMapOf<String, Long>() }
     val itemCreatedAt = bundle?.items?.filter { it.issueId != null }?.associate { it.issueId!! to it.createdAt }.orEmpty()
-    itemCreatedAt.keys.forEach { id -> if (id !in firstSeen) firstSeen[id] = System.currentTimeMillis() }
+    LaunchedEffect(itemCreatedAt.keys) {
+        val now = System.currentTimeMillis()
+        itemCreatedAt.keys.forEach { id -> if (id !in firstSeen) firstSeen[id] = now }
+    }
 
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }

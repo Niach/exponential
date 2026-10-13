@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -55,30 +56,29 @@ import kotlinx.coroutines.launch
 /** T-N2: how long a landing waits for a new session's thread item. */
 const val THREAD_LANDING_WAIT_MS = 4_000L
 
-/** The synced rows every thread bundle is built from (all member teams). */
-private data class ThreadRows(
+/** The thread rows + their items — the links every lookup starts from. */
+private data class ThreadLinks(
     val threads: List<ThreadEntity>,
     val items: List<ThreadItemEntity>,
+)
+
+/** The synced rows every thread bundle is built from (all member teams). */
+private data class ThreadRows(
+    val links: ThreadLinks,
     val sessions: List<CodingSessionEntity>,
     val issues: List<IssueEntity>,
     val devices: List<DeviceEntity>,
 )
 
-@OptIn(ExperimentalCoroutinesApi::class)
-private fun threadRowsFlow(
-    dbFlow: Flow<com.exponential.app.data.db.ExponentialDatabase?>,
-): Flow<ThreadRows> = combine(
-    dbFlow.scopedQuery(emptyList<ThreadEntity>()) { it.threadDao().observeAll() },
-    dbFlow.scopedQuery(emptyList<ThreadItemEntity>()) { it.threadItemDao().observeAll() },
-    dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
-    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-    dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
-) { threads, items, sessions, issues, devices -> ThreadRows(threads, items, sessions, issues, devices) }
-
 /**
  * The list surfaces + the lookups other screens make: every member team's
  * threads resolved ([bundles]), Running vs Recent ([list]), the thread each
  * run sits in ([threadBySession]) and the threads holding an issue.
+ *
+ * EXP-1288: ONE set of Room observers per model. [links] (threads + items) is
+ * shared by [threadBySession] and [rows]; [rows] is shared by [bundles] and
+ * [orphanLive]. A screen that reads only [threadBySession] (the Work and
+ * Changes pages) opens just the two link observers.
  */
 @HiltViewModel
 class ThreadsViewModel @Inject constructor(
@@ -90,13 +90,32 @@ class ThreadsViewModel @Inject constructor(
 
     val currentUserId: StateFlow<String?> = auth.userId
 
-    val bundles: StateFlow<List<ThreadPage.Bundle>> = combine(
-        threadRowsFlow(dbFlow),
+    private val links: Flow<ThreadLinks> = combine(
+        dbFlow.scopedQuery(emptyList<ThreadEntity>()) { it.threadDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<ThreadItemEntity>()) { it.threadItemDao().observeAll() },
+    ) { threads, items -> ThreadLinks(threads, items) }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    /** [rows] + the viewer + the liveness clock, shared by every derivation. */
+    private val clocked: Flow<Triple<ThreadRows, String?, Long>> = combine(
+        combine(
+            links,
+            dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeAll() },
+            dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+            dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        ) { links, sessions, issues, devices -> ThreadRows(links, sessions, issues, devices) },
         auth.userId,
         CodingSessionLiveness.minuteTicker(),
-    ) { rows, userId, now ->
-        ThreadPage.bundles(rows.threads, rows.items, rows.sessions, rows.issues, rows.devices, userId, now)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    ) { rows, userId, now -> Triple(rows, userId, now) }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    val bundles: StateFlow<List<ThreadPage.Bundle>> = clocked
+        .map { (rows, userId, now) ->
+            ThreadPage.bundles(
+                rows.links.threads, rows.links.items, rows.sessions, rows.issues, rows.devices, userId, now,
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Running (a live run of mine) vs Recent, newest activity first. */
     val list: StateFlow<ThreadView.Partition<ThreadPage.Bundle>> = bundles
@@ -109,37 +128,34 @@ class ThreadsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** run id → the ONE thread it sits in (rule 8's Guide readers). */
-    val threadBySession: StateFlow<Map<String, ThreadEntity>> = combine(
-        dbFlow.scopedQuery(emptyList<ThreadEntity>()) { it.threadDao().observeAll() },
-        dbFlow.scopedQuery(emptyList<ThreadItemEntity>()) { it.threadItemDao().observeAll() },
-    ) { threads, items ->
-        val byId = threads.associateBy { it.id }
-        items.mapNotNull { item ->
-            val session = item.sessionId ?: return@mapNotNull null
-            byId[item.threadId]?.let { session to it }
-        }.toMap()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    val threadBySession: StateFlow<Map<String, ThreadEntity>> = links
+        .map { (threads, items) ->
+            val byId = threads.associateBy { it.id }
+            items.mapNotNull { item ->
+                val session = item.sessionId ?: return@mapNotNull null
+                byId[item.threadId]?.let { session to it }
+            }.toMap()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * T4: my LIVE sessions no thread item names yet (placement failed, or
      * the thread-items shape lags the sessions shape), drawn in Running as
      * plain session rows — a live session never vanishes from the lists.
      */
-    val orphanLive: StateFlow<List<com.exponential.app.ui.session.PastRunRow>> = combine(
-        threadRowsFlow(dbFlow),
-        auth.userId,
-        CodingSessionLiveness.minuteTicker(),
-    ) { rows, userId, now ->
-        val issuesById = rows.issues.associateBy { it.id }
-        ThreadPage.orphanLiveSessions(rows.sessions, rows.items, userId, now).map { session ->
-            com.exponential.app.ui.session.PastRunRow(
-                session = session,
-                issue = session.issueId?.let(issuesById::get),
-                batchIssues = com.exponential.app.domain.batchRunIssues(session, rows.issues),
-                device = com.exponential.app.domain.resolveSessionDevice(session, rows.devices, now),
-            )
+    val orphanLive: StateFlow<List<com.exponential.app.ui.session.PastRunRow>> = clocked
+        .map { (rows, userId, now) ->
+            val issuesById = rows.issues.associateBy { it.id }
+            ThreadPage.orphanLiveSessions(rows.sessions, rows.links.items, userId, now).map { session ->
+                com.exponential.app.ui.session.PastRunRow(
+                    session = session,
+                    issue = session.issueId?.let(issuesById::get),
+                    batchIssues = com.exponential.app.domain.batchRunIssues(session, rows.issues),
+                    device = com.exponential.app.domain.resolveSessionDevice(session, rows.devices, now),
+                )
+            }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * T-N2: the thread a just-started session lands in — waits up to

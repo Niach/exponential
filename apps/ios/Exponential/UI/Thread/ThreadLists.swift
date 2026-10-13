@@ -209,7 +209,11 @@ struct RecentThreadsSheet: View {
     var body: some View {
         GlassSheetChrome(title: ThreadViews.recentLabel) {
             VStack(alignment: .leading, spacing: 0) {
-                if model.recent.isEmpty {
+                if !model.recentLoaded {
+                    // EXP-1288: Recent loads as the sheet opens.
+                    SkeletonRows()
+                        .padding(.vertical, 8)
+                } else if model.recent.isEmpty {
                     EmptyState(.recentRuns)
                         .padding(.vertical, 24)
                 } else {

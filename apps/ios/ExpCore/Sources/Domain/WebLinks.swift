@@ -4,6 +4,7 @@ import Foundation
 /// route shape:
 ///   issue:  {base}/t/{teamSlug}/boards/{boardSlug}/issues/{identifier}
 ///   agent:  {base}/t/{teamSlug}/agent   (EXP-825 — the team's Agent page)
+///   thread: {base}/t/{teamSlug}/threads/{threadId}   (EXP-1284/1288)
 ///
 /// EXP-180 (the great rename): the web's canonical routes are `/t/…/boards/…`
 /// and the legacy `/w/` + `/projects/` forms are DEAD server-side (no
@@ -56,17 +57,29 @@ public enum WebLinks {
         return URL(string: "\(base)/t/\(encode(trimmed))/agent")
     }
 
+    /// `{base}/t/{teamSlug}/threads/{threadId}` — a thread (EXP-1284), the
+    /// page the phone renders as the Thread screen (EXP-1288).
+    public static func thread(instanceUrl: String?, teamSlug: String, threadId: String) -> URL? {
+        guard let base = normalizedBase(instanceUrl) else { return nil }
+        let team = teamSlug.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = threadId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !team.isEmpty, !id.isEmpty else { return nil }
+        return URL(string: "\(base)/t/\(encode(team))/threads/\(encode(id))")
+    }
+
     private static func encode(_ segment: String) -> String {
         segment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? segment
     }
 
     /// A web-app URL the native app can render (EXP-92 Universal Links) — the
-    /// inverse of `issue(...)` plus the invite route and, since EXP-825, the
-    /// team's Agent page. Anything else returns nil.
+    /// inverse of `issue(...)` plus the invite route, since EXP-825 the
+    /// team's Agent page and since EXP-1288 a thread. Anything else returns
+    /// nil.
     public enum Parsed: Equatable, Sendable {
         case issue(teamSlug: String, boardSlug: String, identifier: String)
         case invite(token: String)
         case agent(teamSlug: String)
+        case thread(teamSlug: String, threadId: String)
     }
 
     /// Parse `{base}/t/{team}/boards/{board}/issues/{identifier}` plus
@@ -90,6 +103,12 @@ public enum WebLinks {
         // and the other team surfaces stay unclaimed.
         if parts.count == 3, parts[0] == "t", parts[2] == "agent" {
             return .agent(teamSlug: parts[1])
+        }
+        // EXP-1288: `/t/{team}/threads/{id}` — exact length, the thread page
+        // itself (the in-app `AppLink.thread` shape, now from Mail and Safari
+        // too).
+        if parts.count == 4, parts[0] == "t", parts[2] == "threads" {
+            return .thread(teamSlug: parts[1], threadId: parts[3])
         }
         return nil
     }

@@ -215,6 +215,10 @@ struct AgentPageView: View {
                 .environment(teamState)
             }
         }
+        // EXP-1288: Recent's threads are read only while the sheet lists them.
+        .onChange(of: showRecent) { _, open in
+            threads?.includeRecent = open
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }

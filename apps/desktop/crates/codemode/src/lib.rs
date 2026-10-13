@@ -15,18 +15,21 @@
 //! servers stay direct-call only (a second instance of a stdio server is
 //! not the same server); every HTTP upstream is reachable.
 //!
-//! Limits: a script runs in-process on boa with no module loader, no fs,
-//! no network; its deadline is observed at every await, call and native
-//! (`runtime.rs`). What boa cannot interrupt is a synchronous loop that
-//! never awaits: the caller still gets its timeout, but that one engine
-//! thread keeps a core until boa's per-function loop ceiling ends it, or
-//! until the host exits when the loop re-enters a helper per iteration.
+//! Limits: a script runs on boa with no module loader, no fs, no network;
+//! its deadline is observed at every await, call and native (`runtime.rs`).
+//! EXP-1287: each script runs in a WORKER PROCESS (`worker.rs`: this same
+//! executable re-run as `__codemode-worker`, the host keeps the
+//! credentials and runs the calls), killed at the deadline, at a revoke and
+//! at a resident-memory ceiling — so a synchronous loop boa cannot
+//! interrupt, or one that allocates without end, dies with its process
+//! instead of keeping a core and growing until the host exits.
 
 mod catalog;
 mod client;
 mod reports;
 mod runtime;
 mod server;
+pub mod worker;
 
 use std::sync::{Arc, OnceLock};
 

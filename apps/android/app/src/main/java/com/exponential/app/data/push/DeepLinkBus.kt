@@ -46,6 +46,16 @@ class DeepLinkBus @Inject constructor() {
             val identifier: String,
         ) : Target
 
+        // A verified https `/t/{team}/threads/{id}` App Link (EXP-1288): the
+        // thread twin of [WebIssueRef], resolved the same way (account by
+        // host, brief poll for the synced row, Custom Tab on a miss).
+        data class WebThreadRef(
+            val uri: android.net.Uri,
+            val host: String,
+            val teamSlug: String,
+            val threadId: String,
+        ) : Target
+
         // A verified https App Link the manifest claims but the app cannot
         // render (its pathPattern `/t/.*/agent` also matches nested paths
         // such as `/t/x/boards/b/issues/APP-1/agent`): AppNavHost hands it
@@ -110,6 +120,15 @@ class DeepLinkBus @Inject constructor() {
         identifier: String,
     ) {
         _target.value = Target.WebIssueRef(uri, host, teamSlug, identifier)
+    }
+
+    fun openWebThreadRef(
+        uri: android.net.Uri,
+        host: String,
+        teamSlug: String,
+        threadId: String,
+    ) {
+        _target.value = Target.WebThreadRef(uri, host, teamSlug, threadId)
     }
 
     fun openWebUrl(uri: android.net.Uri) {

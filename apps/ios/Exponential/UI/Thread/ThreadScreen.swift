@@ -42,8 +42,14 @@ struct ThreadScreen: View {
     /// moment the child arrives; a tab tap drops the request.
     @State private var pendingPage: ThreadPage?
     @State private var model: ThreadScreenModel?
-    /// One Issue face model per linked issue, created as the issues arrive.
+    /// The Issue face models of the issue tabs VISITED so far, created when
+    /// their page is first reached (EXP-1288): a batch thread's ten issues
+    /// never hold ten sets of live observations. Only the SHOWN page's model
+    /// observes (`observingIssueId`); a model kept for a page left behind is
+    /// stopped, so coming back re-arms it instead of rebuilding it.
     @State private var issueVMs: [String: IssueDetailViewModel] = [:]
+    /// The one issue model observing right now (the shown issue tab's).
+    @State private var observingIssueId: String?
     /// nil until the relay config resolves (the reply box waits for it).
     @State private var steerEnabled: Bool?
     /// THE Menu's sheet: the "+" (issueId nil) or an issue tab's long press.
@@ -582,7 +588,6 @@ struct ThreadScreen: View {
             model = ThreadScreenModel(threadId: threadId, accountId: accountId, db: deps.db)
         }
         model?.start(api: deps.threadsApi)
-        for vm in issueVMs.values { vm.startObserving() }
         prChangesModel?.startObserving()
         syncIssueModels()
         claimReplyRun()
@@ -592,43 +597,61 @@ struct ThreadScreen: View {
         UIApplication.endEditing()
         model?.stop()
         prChangesModel?.stopObserving()
-        for vm in issueVMs.values {
-            vm.stopObserving()
-            Task {
-                await vm.saveTitle()
-                await vm.commitDescription()
-            }
-        }
+        stopIssueModel()
         if let claimedRunId {
             deps.steerSessions.detach(accountId: accountId, sessionId: claimedRunId)
             self.claimedRunId = nil
         }
     }
 
-    /// One Issue face model per linked issue (created once, kept while the
-    /// screen lives — an unlinked issue's model just stops).
+    /// EXP-1288: ONE issue model observes at a time — the shown issue tab's,
+    /// created the first time its page is reached and kept (stopped) once
+    /// the page is left. An unlinked issue's model is dropped.
     private func syncIssueModels() {
         guard let rows else { return }
         let ids = Set(rows.linkedIssues.map(\.id))
-        for id in ids where issueVMs[id] == nil {
-            let vm = IssueDetailViewModel(
-                accountId: accountId,
-                issueId: id,
-                db: deps.db,
-                issuesApi: deps.issuesApi,
-                attachmentsApi: deps.attachmentsApi,
-                labelsApi: deps.labelsApi,
-                relationsApi: deps.relationsApi,
-                steerApi: deps.steerApi,
-                widgetsApi: deps.widgetsApi,
-                auth: deps.auth
-            )
-            issueVMs[id] = vm
-            vm.startObserving()
+        for id in issueVMs.keys where !ids.contains(id) {
+            if observingIssueId == id { stopIssueModel() }
+            issueVMs[id] = nil
         }
-        for (id, vm) in issueVMs where !ids.contains(id) {
-            vm.stopObserving()
+        guard case let .issue(id) = page, ids.contains(id) else {
+            stopIssueModel()
+            return
         }
+        guard observingIssueId != id else { return }
+        stopIssueModel()
+        let vm = issueVMs[id] ?? makeIssueModel(id)
+        issueVMs[id] = vm
+        vm.startObserving()
+        observingIssueId = id
+    }
+
+    /// Stop the observing issue model, saving what its face left unsaved
+    /// (the face's own leave saves too; both are no-ops when nothing changed).
+    private func stopIssueModel() {
+        guard let id = observingIssueId else { return }
+        observingIssueId = nil
+        guard let vm = issueVMs[id] else { return }
+        vm.stopObserving()
+        Task {
+            await vm.saveTitle()
+            await vm.commitDescription()
+        }
+    }
+
+    private func makeIssueModel(_ id: String) -> IssueDetailViewModel {
+        IssueDetailViewModel(
+            accountId: accountId,
+            issueId: id,
+            db: deps.db,
+            issuesApi: deps.issuesApi,
+            attachmentsApi: deps.attachmentsApi,
+            labelsApi: deps.labelsApi,
+            relationsApi: deps.relationsApi,
+            steerApi: deps.steerApi,
+            widgetsApi: deps.widgetsApi,
+            auth: deps.auth
+        )
     }
 
     // MARK: - Pages
@@ -654,6 +677,7 @@ struct ThreadScreen: View {
         guard next != page else { return }
         UIApplication.endEditing()
         page = next
+        syncIssueModels()
     }
 }
 
