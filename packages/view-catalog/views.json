@@ -1846,6 +1846,10 @@
         "shot": "sg_settings-team-agent",
         "lane": "styleguide"
       },
+      "android": {
+        "shot": "sg_settings-team-agent",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1853,7 +1857,6 @@
         }
       },
       "notes": {
-        "android": "Not captured (EXP-1299 integration): the Android screenshot suite has no walk to this screen yet.",
         "web": "`$agentId` resolves to DEMO_AGENT_ID, the Triage agent (on the shared build server, one daily schedule trigger). The instructions are server-only (`sessions.getAgent`), so the card fills after that query."
       }
     },

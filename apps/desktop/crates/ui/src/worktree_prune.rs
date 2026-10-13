@@ -242,7 +242,7 @@ fn assemble(
         })
         .unwrap_or_default();
     let mut prefixes = vec![prefix];
-    for hardcoded in [coding::CHAT_BRANCH_PREFIX] {
+    for hardcoded in [coding::SESSION_BRANCH_PREFIX] {
         if !prefixes.iter().any(|p| p == hardcoded) {
             prefixes.push(hardcoded.to_string());
         }

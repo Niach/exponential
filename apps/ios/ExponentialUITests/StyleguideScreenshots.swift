@@ -18,33 +18,29 @@ import XCTest
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
-///   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
-///   sg_machine-settings · sg_action-create · sg_action-triggers ·
-///   sg_trigger-editor · sg_action-runs · sg_reviews ·
+///   sg_chat · sg_composer-menu · sg_chat-issues ·
+///   sg_machine-settings · sg_settings-team-agent · sg_threads ·
 ///   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
-///   sg_script-card · sg_comment-call-card · sg_thread · sg_thread-runs
+///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel
 ///
-/// EXP-1295 (Threads v2) kept every name and repointed the shots whose
-/// screens left: Reviews, the work faces, the Recent sheet, the builtin
-/// actions and the action page's Triggers/Runs tabs are gone. Now:
+/// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
+/// the work faces, the Recent sheet, the builtin actions, the action page)
+/// and retired `sg_chat-action`, `sg_action-runs`, `sg_action-create`,
+/// `sg_run-changes` and `sg_trigger-editor`. Now:
 ///   * `sg_agent-home` = the dawn home the app lands on (`agent-page`);
 ///   * `sg_session-row` = THE session row in the home's Running band and
-///     `sg_reviews` = the Threads tab (Agents band, Needs you · Running ·
+///     `sg_threads` = the Threads tab (Agents band, Needs you · Running ·
 ///     Recent) — the `home` / `threads` specimens (`ThreadsStyleguideScreen`);
-///   * `sg_chat-action` = a seeded action picked in the composer;
-///   * `sg_action-runs` = the action page (the prompt alone) and
-///     `sg_action-create` = its Run: the composer with the action chipped;
-///   * `sg_action-triggers` / `sg_trigger-editor` = Settings → Agents'
-///     Schedule rows and the trigger form, where triggers live now (the
-///     `settings-agents` specimen, `AgentSettingsStyleguideScreen`);
+///   * `sg_settings-team-agent` = Settings → Agents, one team agent's page
+///     with its Schedule (the `settings-agents` specimen,
+///     `AgentSettingsStyleguideScreen`);
 ///   * `sg_pr-row` = the issue page's pull-request row, `sg_guide` /
-///     `sg_guide-section` = the Guide tab of the thread holding APP-14, and
-///     `sg_run-changes` = the complete diff of an issue-less thread's PR;
-///   * `sg_thread` / `sg_thread-runs` = the `thread` / `agent-channel`
+///     `sg_guide-section` = the Guide tab of the thread holding APP-14;
+///   * `sg_thread` / `sg_agent-channel` = the `thread` / `agent-channel`
 ///     specimens (`ThreadStyleguideScreen`): a thread with its session
 ///     cards, and a team agent's channel with the thread it started.
 ///
@@ -91,7 +87,7 @@ import XCTest
 /// threads holding them, actions) PLUS, since EXP-642, the relay stub:
 /// `bun run screenshots:desktop` (apps/web) registers the demo user's OWN
 /// device row, which is what `sg_machine-settings` (gated `isMine &&
-/// registered`) and the three `sg_chat*` shots photograph. No steer
+/// registered`) and the `sg_chat*` shots photograph. No steer
 /// RELAY traffic is needed beyond that registration — nothing here watches a
 /// live session.
 ///
@@ -124,9 +120,6 @@ final class StyleguideScreenshots: XCTestCase {
     /// APP-14: the seed's realPr issue, so its thread's Guide has files from
     /// GitHub.
     private static let guideTitle = "Group board issues by assignee"
-    /// EXP-1204/1295: the seeded issue-less thread with an open PR of its
-    /// own — its title on the Threads tab.
-    private static let runChangesTitle = "Fix the error-type comparison in the resolver"
     private static let searchQuery = "cold start"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
@@ -138,8 +131,6 @@ final class StyleguideScreenshots: XCTestCase {
     /// sit in the same group, so one scroll reaches both.
     private static let bulkFirstTitle = "Localize the app in German and Spanish"
     private static let bulkSecondTitle = "Audit accessibility labels for VoiceOver"
-    /// One of the three seeded team actions, listed on the Actions segment.
-    private static let seededActionName = "Nightly test triage"
     /// The device `bun run screenshots:desktop` registers for the demo user.
     private static let demoDeviceName = "Alex's MacBook Pro"
     /// The login that device announces for its agents (`screenshot-demo.ts`
@@ -465,12 +456,11 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agents", settle: 2)
 
-        // ── sg_chat / sg_chat-issues / sg_chat-action: the home composer ────
+        // ── sg_chat / sg_chat-issues: the home composer ─────────────────────
         // EXP-825: the ONE launcher. EXP-909: a device row starts nothing any
         // more (its one control is the settings gear), so the bar's Chat
         // arm opens the home on the default device: an empty composer
-        // starts a free request; Implement issue › chips two issues; Run
-        // action › picks a seeded action (EXP-1295: the builtins are gone).
+        // starts a free request; Implement issue › chips two issues.
         // Nothing is ever submitted — a session would land on a real machine.
         let chatButton = app.buttons["chat-button"].firstMatch
         expect(
@@ -518,26 +508,6 @@ final class StyleguideScreenshots: XCTestCase {
         ).firstMatch
         expect(issueChip, within: Wait.nav, "No issue chip after picking")
         snapshot("sg_chat-issues", settle: 2)
-
-        anyElement(app, identified: "agent-composer-plus-button").tap()
-        expect(
-            anyElement(app, identified: "agent-composer-menu"),
-            within: Wait.nav,
-            "The + menu did not reopen"
-        )
-        anyElement(app, identified: "agent-composer-menu-run-action").tap()
-        let actionPicker = anyElement(app, identified: "agent-composer-actions-picker")
-        expect(actionPicker, within: Wait.nav, "Action picker did not open")
-        let actionRow = anyElement(app, containing: Self.seededActionName)
-        expect(actionRow, within: Wait.sync, "Action picker never listed \"\(Self.seededActionName)\"")
-        actionRow.tap()
-        _ = actionPicker.waitForNonExistence(timeout: Wait.nav)
-        expect(
-            anyElement(app, identified: "agent-composer-chip-action"),
-            within: Wait.nav,
-            "No action chip after picking"
-        )
-        snapshot("sg_chat-action", settle: 2)
 
         // ── sg_search-list: the `#` typeahead's sheet (SLOP-28) ─────────────
         // Typing `#` in the composer opens THE search list as a bottom sheet,
@@ -594,87 +564,6 @@ final class StyleguideScreenshots: XCTestCase {
         dismissSheet(app, whileVisible: deviceSheet)
         _ = deviceSheet.waitForNonExistence(timeout: Wait.nav)
         settle(1)
-
-        // ── The Actions surface: two shots off one tab ───────────────────────
-        // EXP-1187: Actions is a tab of its own (the More menu is gone).
-        let actionsBarTab = app.buttons["tab-actions"]
-        expect(actionsBarTab, within: Wait.nav, "Actions tab missing")
-        actionsBarTab.tap()
-        expect(
-            app.navigationBars["Actions"],
-            within: Wait.nav,
-            "Actions surface never appeared"
-        )
-        // EXP-1270: the Suggestions segment is gone, the surface is the list.
-        let seededAction = app.staticTexts[Self.seededActionName].firstMatch
-        expect(
-            seededAction,
-            within: Wait.sync,
-            "The Actions surface never listed the seeded team actions"
-        )
-
-        // ── sg_action-runs: the action page ──────────────────────────────────
-        // EXP-1295: an action is a saved prompt, so its page is the prompt
-        // alone (the Triggers and Runs tabs left with the action's triggers
-        // and run types); the shot keeps its name on the nearest surface.
-        seededAction.tap()
-        expect(
-            anyElement(app, identified: "action-prompt-tab"),
-            within: Wait.nav,
-            "The action page did not open"
-        )
-        snapshot("sg_action-runs", settle: 2)
-
-        // ── sg_action-create: the composer running the action ────────────────
-        // EXP-1295: "New action" was the Create action builtin, gone with
-        // the builtins; the nearest surface is the page's Run, which pushes
-        // the home composer with the action chipped. Only photographed,
-        // never submitted.
-        anyElement(app, identified: "action-run").tap()
-        expect(
-            anyElement(app, identified: "agent-composer-chip-action"),
-            within: Wait.nav,
-            "Run did not open the composer on the action"
-        )
-        expect(
-            app.buttons["Run action"].firstMatch,
-            within: Wait.nav,
-            "The composer never settled on the action subject"
-        )
-        snapshot("sg_action-create", settle: 2)
-        // Composer → action page → Actions.
-        goBack(app)
-        goBack(app)
-        expect(
-            app.navigationBars["Actions"],
-            within: Wait.nav,
-            "Did not return to the Actions surface"
-        )
-        settle(1)
-
-        // ── sg_run-changes: an issue-less thread's PR diff (EXP-1194/1295) ───
-        // The Threads tab lists Jonas's finished thread with no issue, whose
-        // own pull request is open; its Guide tab's diff page is fed by
-        // `pullRequests.files` — a real public PR the seed points it at
-        // (SCREENSHOT_RUN_PR_URL).
-        let threadsTab = app.buttons["tab-threads"]
-        expect(threadsTab, within: Wait.nav, "Threads tab missing")
-        threadsTab.tap()
-        let runThread = labeledButton(app, containing: Self.runChangesTitle)
-        expect(
-            runThread,
-            within: Wait.sync,
-            "The Threads tab never listed the seeded issue-less thread"
-        )
-        runThread.tap()
-        openThreadGuide(app)
-        openGuideDiffPage(
-            app,
-            failure: "The thread's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
-        )
-        snapshot("sg_run-changes", settle: 2)
-        anyElement(app, identified: "guide-section-back").tap()
-        goBack(app)
 
         // ── sg_pr-row: THE pull-request row (EXP-1248/1295) ──────────────────
         // An issue page lists its pull requests as rows; APP-14 owns the
@@ -887,7 +776,7 @@ final class StyleguideScreenshots: XCTestCase {
         openThreadCards(app, "comment-call-card")
         snapshot("sg_comment-call-card", settle: 2)
 
-        // ── sg_thread · sg_thread-runs: a thread and an agent's channel ──────
+        // ── sg_thread · sg_agent-channel: a thread and an agent's channel ───
         // EXP-1295: capture-only specimens over the real Thread pieces, one
         // relaunch each (the shot names stay literal for views.test.ts):
         // `thread` = its strip, Conversation and session cards; `agent-channel`
@@ -905,9 +794,9 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.nav,
             "The agent channel specimen drew no session card"
         )
-        snapshot("sg_thread-runs", settle: 2)
+        snapshot("sg_agent-channel", settle: 2)
 
-        // ── sg_session-row · sg_reviews: the home band and the Threads tab ───
+        // ── sg_session-row · sg_threads: the home band and the Threads tab ───
         // EXP-1295: THE session row in the home's Running band (`home`), and
         // the Threads tab that replaced Reviews (`threads`): the Agents band,
         // then Needs you · Running · Recent.
@@ -924,23 +813,15 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.nav,
             "The Threads specimen drew no Agents band"
         )
-        snapshot("sg_reviews", settle: 2)
+        snapshot("sg_threads", settle: 2)
 
-        // ── sg_action-triggers · sg_trigger-editor: an agent's Schedule ──────
-        // EXP-1295: triggers moved off actions onto team agents (Settings →
-        // Agents); the `settings-agents` specimen is the agent page with a
-        // daily trigger, and its row opens the trigger form.
+        // ── sg_settings-team-agent: Settings → Agents, one agent's page ─────
+        // EXP-1293/1295: the `settings-agents` specimen is a team agent's
+        // settings page with a daily trigger in its Schedule.
         openSpecimen(app, "settings-agents", awaiting: "agent-settings-styleguide-screen")
         let triggerRow = anyElement(app, identified: "trigger-row")
         expect(triggerRow, within: Wait.nav, "The agent specimen drew no trigger row")
-        snapshot("sg_action-triggers", settle: 2)
-        triggerRow.tap()
-        expect(
-            anyElement(app, identified: "trigger-form-sheet"),
-            within: Wait.nav,
-            "The trigger form sheet did not open"
-        )
-        snapshot("sg_trigger-editor", settle: 2)
+        snapshot("sg_settings-team-agent", settle: 2)
 
         finished = true
     }
@@ -997,13 +878,5 @@ final class StyleguideScreenshots: XCTestCase {
         row.tap()
         _ = headline.waitForNonExistence(timeout: Wait.nav)
         settle(1)
-    }
-
-    /// A Threads row by its title: a row is a plain Button over `SessionRow`,
-    /// which COMBINES its texts into one element, so the title is no
-    /// standalone staticText: match the button whose label contains it.
-    @MainActor
-    private func labeledButton(_ app: XCUIApplication, containing title: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
     }
 }

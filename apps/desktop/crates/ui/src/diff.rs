@@ -31,7 +31,6 @@ pub use highlight::language_for_filename;
 use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui::{
     div, point, px, size, AnyElement, App, Bounds, FocusHandle, Focusable, HighlightStyle,
@@ -777,15 +776,6 @@ pub fn build_diff(
     }
 }
 
-/// [`build_diff`] from `issues.prFiles` / `repositories.branchDiff`.
-pub fn build_pr_diff(
-    files: &[PullFile],
-    theme: &HighlightTheme,
-    options: DiffOptions,
-) -> PreparedDiff {
-    build_diff(&files_from_pull(files), theme, options)
-}
-
 /// [`build_diff`] from the desktop's own `git diff` (`coding::scm`) — the
 /// Source Control screen.
 pub fn build_scm_diff(
@@ -1311,37 +1301,6 @@ impl DiffView {
         self.chevron_anim = Some((file_ix, self.chevron_seq));
         self.rebuild_projection();
         cx.notify();
-    }
-
-    /// Fetch `issues.prFiles` for `issue_id` on the background executor and
-    /// populate the view. Both the blocking HTTP and the row build stay off
-    /// the foreground; only the cheap `set_prepared` swap runs on the UI
-    /// thread.
-    pub fn fetch(
-        &mut self,
-        client: Arc<api::TrpcClient>,
-        issue_id: String,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.set_loading(cx);
-        let theme = cx.theme().highlight_theme.clone();
-        let options = self.options;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    api::issues::pr_files(&client, &issue_id)
-                        .map(|pr| build_pr_diff(&pr.files, &theme, options))
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(prepared) => this.set_prepared(prepared, cx),
-                // Fetched on open (the Guide's counts, the Changes face):
-                // quiet, the empty list says it.
-                Err(err) => this.set_error(err.to_string(), false, cx),
-            });
-        })
-        .detach();
     }
 
     /// EXP-1251 — show only the files at these indices (a Guide section's

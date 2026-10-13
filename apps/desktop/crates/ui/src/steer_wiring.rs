@@ -243,9 +243,6 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 device_id,
                 device_label,
             };
-            // EXP-1294: starts are `sessions` rows the pickup reads off the
-            // shapes, so a relay start frame has nowhere to go.
-            let on_start: steer::control_channel::StartSessionFn = Arc::new(|_| {});
             // Non-blocking by contract: flip the flag — the device-sync
             // loop's next 1s tick beats immediately.
             let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
@@ -257,7 +254,7 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
             let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id| {
                 let tickets: Arc<dyn PublisherTickets> = Arc::new(TrpcPublisherTickets {
                     trpc: Arc::clone(&history_trpc),
-                    coding_session_id: session_id.clone(),
+                    session_id: session_id.clone(),
                 });
                 steer::serve_history_request(
                     &history_runtime,
@@ -275,7 +272,6 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 &runtime,
                 device,
                 control_api,
-                on_start,
                 on_check_in,
                 on_history_request,
                 on_history_page,

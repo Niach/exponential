@@ -114,6 +114,7 @@ private fun PrRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("issue-pr-row")
             .clickable(onClick = onOpenChanges)
             .glassRow()
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),

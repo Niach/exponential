@@ -76,23 +76,28 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
- *   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
- *   sg_machine-settings · sg_action-create · sg_action-triggers ·
- *   sg_trigger-editor · sg_action-runs · sg_reviews ·
+ *   sg_chat · sg_composer-menu · sg_chat-issues ·
+ *   sg_machine-settings · sg_threads ·
  *   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
- *   sg_script-card · sg_comment-call-card · sg_thread · sg_thread-runs
+ *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel
+ *
+ * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
+ * actions and the action create sheet left the catalog), renamed the
+ * Threads tab `sg_threads` and the agent channel `sg_agent-channel`;
+ * `sg_pr-row` = the issue page's pull-request row, `sg_guide` /
+ * `sg_guide-section` = the Guide tab of the thread holding APP-14.
  *
  * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
  * walks the live app against the seeded backend; [captureOnlyScreens] needs NO
  * server and NO sign-in: each screen of the session-tree model is drawn by its
  * real composables over fixture data (the ui/styleguide Captures files) and set as
- * the activity's content — sg_agent-home, sg_chat-issues, sg_chat-action,
- * sg_composer-menu, sg_reviews (the Threads tab), sg_thread, sg_thread-runs
- * (an agent's channel), sg_session-row (the session cards), sg_action-create,
+ * the activity's content — sg_agent-home, sg_chat-issues,
+ * sg_composer-menu, sg_threads (the Threads tab), sg_thread, sg_agent-channel
+ * (an agent's channel), sg_session-row (the session cards),
  * the feedback states and the thread cards. It also writes Guide-only
  * extras under NON-catalog names (`x_*`, never imported) through [extra].
  * A scoped run (`shots:`) naming only capture shots skips the live walk.
@@ -124,8 +129,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * Every shot gates on genuinely seeded content rather than on a screen merely
  * existing, so a stale/missing seed fails the run instead of quietly shipping
- * an empty state. The exception is called out where it happens (the action
- * page's Triggers and Runs tabs, whose seed is newer than this suite). The sign-in / polling / settle /
+ * an empty state. The sign-in / polling / settle /
  * capture machinery lives in [ScreenshotFlow]; its KDoc carries the
  * synchronization notes, and [ScreenshotFlow.screenshot] honours the lane's
  * optional `shots` allowlist.
@@ -141,15 +145,15 @@ class StyleguideScreenshotsTest {
 
         /** The catalog shots [captureOnlyScreens] owns (no server, no sign-in). */
         private val CAPTURE_SHOTS = setOf(
-            "sg_agent-home", "sg_chat-issues", "sg_chat-action", "sg_composer-menu",
-            "sg_reviews", "sg_thread", "sg_thread-runs", "sg_session-row",
-            "sg_action-create", "sg_feedback-states", "sg_work-card",
-            "sg_script-card", "sg_comment-call-card",
+            "sg_agent-home", "sg_chat-issues", "sg_composer-menu",
+            "sg_threads", "sg_thread", "sg_agent-channel", "sg_session-row",
+            "sg_feedback-states", "sg_work-card",
+            "sg_script-card", "sg_comment-call-card", "sg_settings-team-agent",
         )
 
         /** Guide-only extras: NOT catalog views (the importer ignores them). */
         private val EXTRA_SHOTS = setOf(
-            "x_session-view", "x_issue-start", "x_agent-settings", "x_agents-list",
+            "x_session-view", "x_issue-start", "x_agents-list",
         )
 
         // APP-5 — the only seeded issue with a comment thread.
@@ -170,14 +174,10 @@ class StyleguideScreenshotsTest {
         // Issues segment is showing, not the Inbox one.
         private const val MY_ISSUE_TITLE = "Group board issues by assignee"
 
-        // APP-15: an open PR in the Reviews queue.
-        private const val REVIEW_ISSUE_TITLE = "Batch-edit labels from the board"
-        // APP-14: the seed's realPr issue, so its Guide has files from GitHub.
-        private const val GUIDE_ISSUE_TITLE = "Group board issues by assignee"
-
-        // EXP-1204: the seeded chat run with an open PR of its own — its
-        // subject is the "Agent runs" row title and the RunChanges header.
-        private const val RUN_CHANGES_TITLE = "Fix the error-type comparison in the resolver"
+        // APP-14: the seed's realPr issue, so its thread's Guide has files
+        // from GitHub. Addressed by row tag so the lazy board list can
+        // scroll to it.
+        private const val GUIDE_ISSUE_ROW = "issue-row-APP-14"
 
         private const val TEAM_NAME = "Acme"
         private const val TEAM_BOARD_NAME = "Mobile App"
@@ -199,13 +199,6 @@ class StyleguideScreenshotsTest {
         // (apps/web/scripts/lib/demo-ids.ts), neither with a running session.
         private const val CHAT_FIRST_ISSUE_TITLE = "Dark mode contrast pass across settings"
         private const val CHAT_SECOND_ISSUE_TITLE = "Push notification deep links open the wrong tab"
-        // The builtin the sg_chat-action shot picks (EXP-259).
-        private const val FIX_CONFLICTS_ACTION_NAME = "Fix merge conflicts"
-
-        // EXP-1233: the seeded open PR the Fix merge conflicts card picks
-        // (APP-14, the realPr review issue).
-        private const val FIX_CONFLICTS_PR_IDENTIFIER = "APP-14"
-
         // The close-out the seed's freshest agent-ended run carries (EXP-637) —
         // only the EXPANDED row shows it, so it is the post-tap gate.
 
@@ -429,6 +422,59 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(SEARCH_RESULT_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_search")
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        flow.settle()
+
+        // --- sg_pr-row: THE pull-request row (EXP-1248/1291). An issue page
+        // lists its pull requests as rows; APP-14 owns the seed's real open
+        // PR. The detail body is a plain verticalScroll Column, so
+        // performScrollTo reaches the row.
+        composeRule.onNode(hasTestTag("issue-list"))
+            .performScrollToNode(hasTestTag(GUIDE_ISSUE_ROW))
+        composeRule.onNode(hasTestTag(GUIDE_ISSUE_ROW)).performClick()
+        flow.waitFor(hasTestTag("issue-pr-row"), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasTestTag("issue-pr-row")).onFirst().performScrollTo()
+        flow.settle()
+        flow.screenshot("sg_pr-row")
+
+        // --- sg_guide / sg_guide-section: the thread's Guide (EXP-1251/1295).
+        // The issue's Threads row opens the thread holding it; its strip's
+        // Guide tab: APP-14's real PR has no report, so its whole diff is ONE
+        // Changes section; that row opens the section page. A detour no later
+        // shot needs (it pops back to the issue), so a scoped run that did
+        // not ask for it skips it whole — its GitHub fetch is the walk's one
+        // network dependency.
+        val wantsGuide = ScreenshotFlow.isShotWanted("sg_guide")
+        val wantsGuideSection = ScreenshotFlow.isShotWanted("sg_guide-section")
+        if (wantsGuide || wantsGuideSection) {
+            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+            flow.waitFor(hasTestTag("thread-tab-guide"), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_guide")
+            // At rest the Changes row can sit under the floating Merge capsule
+            // (APP-14 is a stack member: `Merge stack`), and a centre click
+            // would land on the capsule. Swipe the Guide to its end, where the
+            // bottom inset lifts every row clear of the bar.
+            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+            flow.settle()
+            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_guide-section")
+            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
+            // Thread → the issue page.
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("issue-pr-row"), NAV_TIMEOUT)
+            flow.settle()
+        }
+        // Issue → board.
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
@@ -735,35 +781,27 @@ class StyleguideScreenshotsTest {
         show(HomeCaptureKind.Home)
         flow.screenshot("sg_agent-home")
 
-        // --- sg_chat-issues · sg_chat-action: the composer carrying two issue
-        // chips, then a saved action with its inputs filled.
+        // --- sg_chat-issues: the composer carrying two issue chips.
         show(HomeCaptureKind.ChatIssues)
         flow.screenshot("sg_chat-issues")
-        show(HomeCaptureKind.ChatAction)
-        flow.screenshot("sg_chat-action")
 
         // --- sg_composer-menu: the composer's "+" menu sheet, every row.
         show(HomeCaptureKind.ComposerMenu)
         flow.screenshot("sg_composer-menu")
 
-        // --- sg_reviews: the Threads tab (it replaced Reviews; the shot name
-        // is the cross-platform contract) — agents band + Needs you · Running
+        // --- sg_threads: the Threads tab — agents band + Needs you · Running
         // · Recent.
         show(ThreadsCaptureKind.Threads.testId) { ThreadsCaptures(ThreadsCaptureKind.Threads) }
-        flow.screenshot("sg_reviews")
+        flow.screenshot("sg_threads")
 
-        // --- sg_thread · sg_thread-runs · sg_session-row: a thread's
+        // --- sg_thread · sg_agent-channel · sg_session-row: a thread's
         // Conversation, an agent's channel, one session card per state.
         show(ThreadCaptureKind.Thread)
         flow.screenshot("sg_thread")
         show(ThreadCaptureKind.AgentChannel)
-        flow.screenshot("sg_thread-runs")
+        flow.screenshot("sg_agent-channel")
         show(ThreadCaptureKind.SessionCards)
         flow.screenshot("sg_session-row")
-
-        // --- sg_action-create: the saved-prompt editor in its create sheet.
-        show(AgentsCaptureKind.ActionCreate)
-        flow.screenshot("sg_action-create")
 
         // --- sg_feedback-states: the six feedback kinds (EXP-1275). A
         // capture-only screen, every kind drawn by its real primitive and the
@@ -784,14 +822,16 @@ class StyleguideScreenshotsTest {
         showThreadCards(ThreadCardsKind.Comment)
         flow.screenshot("sg_comment-call-card")
 
+        // --- sg_settings-team-agent: one team agent's settings page.
+        show(AgentsCaptureKind.AgentPage)
+        flow.screenshot("sg_settings-team-agent")
+
         // --- Guide-only extras (never catalog views): the session view, an
-        // issue with its Start circle, the agent settings page and list.
+        // issue with its Start circle and the agents list.
         show(SessionCaptureKind.Session)
         extra("x_session-view")
         show(SessionCaptureKind.IssueStart)
         extra("x_issue-start")
-        show(AgentsCaptureKind.AgentPage)
-        extra("x_agent-settings")
         show(AgentsCaptureKind.AgentsList)
         extra("x_agents-list")
 

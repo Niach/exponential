@@ -16,7 +16,7 @@ use crate::home_greeting;
 use crate::icons::registry;
 
 pub(crate) const ID: &str = "agent-home";
-pub(crate) const OWNER: &str = "EXP-1253";
+pub(crate) const OWNER: &str = "EXP-1293";
 
 /// The card at rest: the home placeholder, the "+" and the send.
 fn card(id: &'static str, cx: &App) -> Div {

@@ -53,7 +53,7 @@ pub const PANEL_NAME: &str = "Screens";
 /// Per-tab hover group (EXP-65): reveals the undock button. Reused per tab —
 /// gpui resolves `group_hover` against the innermost enclosing group (the
 /// same idiom as the issue list's `ROW_GROUP`).
-const TAB_GROUP: &str = "center-tab";
+pub(crate) const TAB_GROUP: &str = "center-tab";
 
 /// EXP-277: per-window handle to the center [`ScreensPanel`] so the titlebar
 /// ([`crate::app_title_bar::AppTitleBar`]) can host the tab strip. Mirrors
@@ -359,7 +359,7 @@ const NEW_TAB_BUTTON_PX: f32 = 24.;
 
 /// EXP-1294 — the strip's "+": a ghost icon button after the last chip (and
 /// after "+N") that opens Home ([`open_home`]).
-fn home_button(id: impl Into<gpui::ElementId>) -> Button {
+pub(crate) fn home_button(id: impl Into<gpui::ElementId>) -> Button {
     Button::new(id)
         .ghost()
         .cursor_pointer()
@@ -697,6 +697,15 @@ impl ChipLead {
 }
 
 /// The [`crate::surface::RichTabStatus`] a chip's lead paints as.
+/// EXP-1255 — the lead a thread / session chip in `state` wears on the
+/// strip (the styleguide's `work-tabs-strip` paints the strip's own chips).
+pub(crate) fn session_tab_status(
+    state: domain::session_tree::SessionState,
+    cx: &App,
+) -> crate::surface::RichTabStatus {
+    rich_tab_status(&state_lead_of(state, cx), cx)
+}
+
 fn rich_tab_status(lead: &ChipLead, cx: &App) -> crate::surface::RichTabStatus {
     match lead {
         ChipLead::Dot(tone) => crate::surface::RichTabStatus::Dot(*tone),
@@ -744,7 +753,12 @@ fn loading_chip(cx: &App) -> ChipContent {
 /// EXP-1294: the live state mark of a tree — the fixture icon of its root's
 /// state ([`domain::session_tree::session_state`]), tinted by its tone.
 fn state_lead(root: &domain::rows::SessionRow, cx: &App) -> ChipLead {
-    let state = domain::session_tree::session_state(root);
+    state_lead_of(domain::session_tree::session_state(root), cx)
+}
+
+/// A thread / session chip's lead for `state` (`session-card.json` icon +
+/// tone).
+fn state_lead_of(state: domain::session_tree::SessionState, cx: &App) -> ChipLead {
     ChipLead::Tinted(
         registry::concept_by_name(state.icon()).unwrap_or(registry::NAV_THREADS),
         crate::work_card::session_tone_color(state.tone(), cx),

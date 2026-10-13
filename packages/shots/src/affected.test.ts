@@ -136,9 +136,10 @@ describe(`desktop attribution`, () => {
     // `_screen` is a wrapper suffix like `_dialog`: `session_screen.rs` is the
     // steering view's own module, not the auth glue `session.rs` names.
     // EXP-1259's `work-card`, `script-card` and `comment-call-card` are its
-    // feed's cards, so they ride along; nothing else does.
+    // feed's cards, so they ride along, and EXP-1299's `session` view drives
+    // the same screen.
     const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
-    expect(views(result, `desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`])
+    expect(views(result, `desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`, `session`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -703,7 +704,7 @@ describe(`fail-safe`, () => {
     expect(named.broad).toEqual([])
     // The two ui modules also draw EXP-1259's feed cards; the engine and
     // feed files alone claim the same feed-drawn shots.
-    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`])
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`, `session`])
     const feedOnly = affectedScope({
       changedFiles: [
         `apps/desktop/crates/steer/src/viewer.rs`,
@@ -712,7 +713,7 @@ describe(`fail-safe`, () => {
       platforms: [`desktop`],
       includeMissing: false,
     })
-    expect(feedOnly.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`])
+    expect(feedOnly.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`, `session`])
 
     // A grid picker rides the feed AND draws into the PTY grid, so it claims
     // both views rather than narrowing to one of them.

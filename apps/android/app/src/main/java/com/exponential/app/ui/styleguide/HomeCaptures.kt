@@ -39,7 +39,7 @@ enum class HomeCaptureKind(val testId: String) {
     Home("home-capture-screen"),
     /** sg_chat-issues: the composer with two issue chips. */
     ChatIssues("chat-issues-capture-screen"),
-    /** sg_chat-action: a saved action picked, its typed inputs filled. */
+    /** A saved action picked, its typed inputs filled (no catalog shot since EXP-1295). */
     ChatAction("chat-action-capture-screen"),
     /** sg_composer-menu: the "+" menu open over the home. */
     ComposerMenu("composer-menu-capture-screen"),

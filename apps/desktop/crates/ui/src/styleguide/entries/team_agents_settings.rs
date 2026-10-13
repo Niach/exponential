@@ -27,7 +27,7 @@ use crate::icons::registry;
 use crate::surface;
 
 pub(crate) const ID: &str = "team-agents-settings";
-pub(crate) const OWNER: &str = "EXP-1269";
+pub(crate) const OWNER: &str = "EXP-1293";
 
 /// The demo agent: the draft's Triage.
 const NAME: &str = "Triage";

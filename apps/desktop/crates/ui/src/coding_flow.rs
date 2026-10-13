@@ -886,8 +886,7 @@ pub fn coding_data_dir(cx: &App) -> PathBuf {
 }
 
 /// Everything `coding::pickup` needs to prepare a session on this machine,
-/// assembled from the signed-in app state. `None` when signed out. The issue
-/// seed is inert: a session's brief carries its own issues (EXP-1294).
+/// assembled from the signed-in app state. `None` when signed out.
 pub fn build_coding_deps(cx: &mut App) -> Option<CodingDeps> {
     let account = queries::active_account(cx)?;
     let trpc = Arc::new(queries::trpc_client(cx)?);
@@ -899,7 +898,6 @@ pub fn build_coding_deps(cx: &mut App) -> Option<CodingDeps> {
         token_store: Arc::new(api::token_store::TokenStore::new(data_dir.clone())),
         account_id: account.id,
         settings,
-        issue_seed: Arc::new(|_| None),
         worktrees: Arc::new(coding::GitWorktrees),
         codex_sessions_root: None,
         claude_projects_root: None,
@@ -958,7 +956,12 @@ pub(crate) fn host_prepared(
     let branch = prepared.branch.clone();
     let worktree = prepared.worktree.clone();
     let agent = prepared.agent;
-    let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
+    // EXP-444: the row's starter (a teammate's start on this shared machine).
+    let started_by_id = crate::session_data::session(&session_id, cx).and_then(|row| row.user_id);
+    // EXP-1292: a team agent's ROOT never ends — its engine idles the row on
+    // exit. `prepare` recorded the kind in the run record a moment ago.
+    let agent_root = coding::run_registry::get(&coding_data_dir(cx), &session_id)
+        .is_some_and(|record| record.kind == coding::run_registry::RunKind::Agent);
     let run_cleanup = prepared.run_cleanup.clone();
     // EXP-792: the team MCP servers this run starts WITHOUT — logged; the
     // run's own transcript carries the warning.
@@ -1031,7 +1034,7 @@ pub(crate) fn host_prepared(
         own_user_id: Some(account.user_id),
         // REV2-17 + the agent's MCP bearer.
         personal_key: crate::steer_wiring::personal_key(cx),
-        issue_id: issue_ids.first().cloned(),
+        agent_root,
         foreign_host: crate::steer_wiring::foreign_host(started_by_id.as_deref(), cx),
         // EXP-1005: the desktop runs the account-rotation beat.
         rotation_host: true,

@@ -3137,7 +3137,7 @@ fn spawn_viewer(
     let trpc = crate::queries::trpc_client(cx)?;
     let tickets = Arc::new(steer::TrpcViewerTickets {
         trpc: Arc::new(trpc),
-        coding_session_id: session_id.to_string(),
+        session_id: session_id.to_string(),
     });
     Some(steer::spawn_viewer(
         &runtime,
@@ -3732,6 +3732,33 @@ fn ask_body_text(cx: &App) -> gpui::Div {
 // Rendering
 // ---------------------------------------------------------------------------
 
+/// EXP-1175 → EXP-1294 — the session view's status row: the agent's mark
+/// for `state` ([`crate::run_rows::run_mark`]) beside the state word in its
+/// tone (`session-card.json`). Also the styleguide's `run-status-row`.
+pub(crate) fn session_status_row(
+    id: impl Into<gpui::ElementId>,
+    agent: Option<coding::CodingAgent>,
+    state: domain::session_tree::SessionState,
+    cx: &App,
+) -> AnyElement {
+    h_flex()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap_2()
+        .child(crate::run_rows::run_mark(agent, state, cx))
+        .child(
+            v_flex().flex_1().min_w_0().child(
+                div()
+                    .text_sm()
+                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
+                    .child(SharedString::from(state.word())),
+            ),
+        )
+        .into_any_element()
+}
+
 impl SteerSessionView {
     /// EXP-1294 — the session's state as the status row shows it: the
     /// synced state (`session_tree::session_state`) with the viewer's own
@@ -3754,41 +3781,16 @@ impl SteerSessionView {
 
     /// EXP-1294 — the status row over the transcript: the agent's mark (it
     /// works while the agent does, badges while it waits), the state word
-    /// in its tone (`session-card.json`), and — while the session is live —
-    /// the newest tool call muted under it. No device caption.
+    /// in its tone (`session-card.json`). No device caption.
     fn render_status_row(&self, cx: &App) -> Option<AnyElement> {
         let row = self.row.as_ref()?;
         let state = self.view_state()?;
-        let theme = cx.theme();
-        let tool_line = (state != domain::session_tree::SessionState::Ended)
-            .then(|| steer::feed::last_tool_line(self.feed.items()))
-            .flatten();
-        let element = h_flex()
-            .id("steer-run-status-row")
-            .w_full()
-            .min_w_0()
-            .items_start()
-            .gap_2()
-            .child(crate::run_rows::run_mark(crate::run_rows::run_agent(row.cli.as_deref()), state, cx))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(crate::work_card::session_tone_color(state.tone(), cx))
-                            .child(SharedString::from(state.word())),
-                    )
-                    .children(tool_line.map(|line| {
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .truncate()
-                            .child(SharedString::from(line))
-                    })),
-            )
-            .into_any_element();
+        let element = session_status_row(
+            "steer-run-status-row",
+            crate::run_rows::run_agent(row.cli.as_deref()),
+            state,
+            cx,
+        );
         Some(work_column_row(element).py_2().into_any_element())
     }
 

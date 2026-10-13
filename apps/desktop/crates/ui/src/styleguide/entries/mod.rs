@@ -36,6 +36,8 @@ pub(crate) mod readiness_checklist;
 pub(crate) mod device_readiness;
 pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;
+pub(crate) mod run_status_row;
+pub(crate) mod session_thread;
 pub(crate) mod composer_options;
 pub(crate) mod work_card;
 pub(crate) mod thread_parts;
@@ -45,6 +47,7 @@ pub(crate) mod team_agents_settings;
 pub(crate) mod voice_call_overlay;
 pub(crate) mod feedback_states;
 pub(crate) mod agent_home;
+pub(crate) mod work_tabs_strip;
 pub(crate) mod getting_started;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
@@ -105,6 +108,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: device_readiness::ID, owner: device_readiness::OWNER, render: device_readiness::render },
     Entry { id: results_guide::ID, owner: results_guide::OWNER, render: results_guide::render },
     Entry { id: mcp_app_views::ID, owner: mcp_app_views::OWNER, render: mcp_app_views::render },
+    Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
+    Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
     Entry { id: composer_options::ID, owner: composer_options::OWNER, render: composer_options::render },
     Entry { id: work_card::ID, owner: work_card::OWNER, render: work_card::render },
     Entry { id: thread_parts::ID, owner: thread_parts::OWNER, render: thread_parts::render },
@@ -113,5 +118,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
     Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },
     Entry { id: agent_home::ID, owner: agent_home::OWNER, render: agent_home::render },
+    Entry { id: work_tabs_strip::ID, owner: work_tabs_strip::OWNER, render: work_tabs_strip::render },
     Entry { id: getting_started::ID, owner: getting_started::OWNER, render: getting_started::render },
 ];

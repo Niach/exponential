@@ -36,18 +36,18 @@ use crate::thread_screen::{
 use super::fixture_rows;
 
 pub(crate) const ID: &str = "thread-parts";
-pub(crate) const OWNER: &str = "EXP-1284";
+pub(crate) const OWNER: &str = "EXP-1293";
 
 /// One fixture case: the view, plus the messages it was built from (a
 /// bubble's caption reads its `createdAt`).
-struct Case {
-    view: SessionThreadView,
+pub(super) struct Case {
+    pub(super) view: SessionThreadView,
     messages: Vec<MessageRow>,
     issues: Vec<TreeIssue>,
 }
 
 /// Fixture case `index`, built through the shared model.
-fn case(index: usize) -> Case {
+pub(super) fn case(index: usize) -> Case {
     let fixture: serde_json::Value =
         serde_json::from_str(fixture_rows::SESSION_THREAD_JSON).expect("session-thread.json parses");
     let input = &fixture["cases"][index]["input"];
@@ -131,7 +131,7 @@ fn strip(case: &Case, cx: &App) -> AnyElement {
 }
 
 /// One conversation row, the way the thread screen paints it.
-fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+pub(super) fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
     if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
         let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, None);
         return match author.as_str() {
