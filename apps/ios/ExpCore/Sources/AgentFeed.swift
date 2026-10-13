@@ -1322,11 +1322,12 @@ public enum AgentFeed {
     /// The composer's placeholder. EXP-820: the composer HIDES while a card
     /// is pending (its free answer is an inline field on the card itself), so
     /// there is only the one generic prompt. EXP-893: the phone's steer
-    /// composer wears the desktop's words (`WorkFaces.steerComposerPlaceholder`).
-    public static let composerPlaceholder = WorkFaces.steerComposerPlaceholder
+    /// composer wears the desktop's words, byte-identical ×4 (desktop
+    /// `steer-composer.tsx` / `session_screen.rs`).
+    public static let composerPlaceholder = "Type / for commands"
     /// EXP-893: the expanded composer's footer word for plan mode — blue text
-    /// while the run is in plan mode (`WorkFaces.planModeLabel`).
-    public static let planModeFooterLabel = WorkFaces.planModeLabel
+    /// while the run is in plan mode.
+    public static let planModeFooterLabel = "Plan mode"
     /// EXP-820: the inline field a free-text row ("Type something.") expands
     /// into. Byte-identical ×4 (web `agent-session.tsx`).
     public static let freeTextPlaceholder = "Type your answer…"
@@ -1638,36 +1639,6 @@ public enum AgentFeed {
               !settled
         else { return nil }
         return id
-    }
-
-    /// EXP-1175: the Run face status row's muted second line — the NEWEST
-    /// tool item (anything after it is ignored). An Exponential MCP tool reads
-    /// its `ExpToolDisplay` caption for its settled state plus its subject
-    /// (settled: the single preview ref's title, else identifier, else the
-    /// preview's title/identifier, else the call's detail; unsettled: the
-    /// detail), any other tool its name and detail; joined by one space, a
-    /// missing part dropped. nil without a tool item. Fixture `run-row.json`
-    /// `toolLines` (×4: web `lastToolLine`).
-    public static func lastToolLine(_ feed: [AgentFeedItem]) -> String? {
-        for item in feed.reversed() {
-            guard case let .tool(_, name, detail, _, _, _, settled, _, _, preview, _, _, _) = item
-            else { continue }
-            var head: String? = name
-            var subject = detail
-            if let exp = ExpToolDisplay.resolve(toolName: name) {
-                head = exp.caption(settled: settled)
-                if settled {
-                    let ref = preview?.refs.count == 1 ? preview?.refs.first : nil
-                    subject = ref?.title ?? ref?.identifier ?? preview?.title
-                        ?? preview?.identifier ?? detail
-                }
-            }
-            return [head, subject]
-                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-        }
-        return nil
     }
 
     /// §9: pending cards last, everything else in place. Pure and mirrored ×4.

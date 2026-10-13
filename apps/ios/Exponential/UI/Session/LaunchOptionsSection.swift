@@ -36,16 +36,6 @@ struct LaunchOptionsSection: View {
         case device
     }
 
-    /// EXP-481's "Resume previous run" offer — launch variant only.
-    struct ResumeRow {
-        let isOn: Binding<Bool>
-        /// The issue the existing worktree belongs to (nil renders "this issue").
-        let identifier: String?
-        let branch: String
-        /// Whether the offer is currently taken (hides the plan-mode toggle).
-        let active: Bool
-    }
-
     let variant: Variant
     /// The machines this block offers. Empty renders `noDeviceNote` instead.
     let devices: [SteerDevice]
@@ -71,9 +61,7 @@ struct LaunchOptionsSection: View {
     @Binding var effort: String
     var ultracode: Binding<Bool>? = nil
     var planMode: Binding<Bool>? = nil
-    var resumeRow: ResumeRow? = nil
-    /// A sentence under the card (the device variant's offline notice). The
-    /// resume note, when there is one, sits above it.
+    /// A sentence under the card (the device variant's offline notice).
     var footerNote: String? = nil
     /// EXP-1196/1219: runs the not-ready row's pill (Update / Sign in on the
     /// picked machine). Nil = the row renders without its pill.
@@ -267,16 +255,10 @@ struct LaunchOptionsSection: View {
             // EXP-208: no helper notices, like the IDE. Ultracode and plan
             // mode are both claude-only (EXP-441/EXP-849); a binding (the
             // trigger variant) has neither.
-            if let resumeRow {
-                GlassToggleRow("Resume previous session", isOn: resumeRow.isOn)
-            }
             if let ultracode, agent == "claude" {
                 GlassToggleRow("Ultracode", isOn: ultracode)
             }
-            // A resume never re-enters plan mode (the machine clamps it too) —
-            // hide the toggle while one is active.
-            if let planMode, LaunchVocabulary.supportsPlanMode(agent),
-               resumeRow?.active != true {
+            if let planMode, LaunchVocabulary.supportsPlanMode(agent) {
                 GlassToggleRow("Plan mode", isOn: planMode)
             }
         } footer: {
@@ -311,18 +293,10 @@ struct LaunchOptionsSection: View {
         )
     }
 
-    private var resumeNote: String? {
-        guard let resumeRow, resumeRow.active else { return nil }
-        return "A worktree for \(resumeRow.identifier ?? "this issue") already exists (\(resumeRow.branch))."
-    }
-
     @ViewBuilder
     private var optionsFooter: some View {
-        if resumeNote != nil || notReadyRow != nil || notReadyNote != nil || footerNote != nil {
+        if notReadyRow != nil || notReadyNote != nil || footerNote != nil {
             VStack(alignment: .leading, spacing: 4) {
-                if let resumeNote {
-                    Text(resumeNote)
-                }
                 if let notReadyRow {
                     Group {
                         if let onReadinessAction {

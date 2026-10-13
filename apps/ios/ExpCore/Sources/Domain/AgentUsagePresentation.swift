@@ -110,12 +110,12 @@ public struct UsageGroup: Equatable, Sendable, Identifiable {
     }
 }
 
-/// EXP-804: `coding_sessions.blocked` — the agent's usage wall as row state.
+/// EXP-804: `sessions.blocked` — the agent's usage wall as row state.
 /// Every field is optional for the same reason the server's zod mirror is
 /// `.nullish()` throughout: a newer device naming a window this build has no
 /// name for must degrade that field, never fail the whole decode and leave a
 /// walled run rendering healthy.
-public struct CodingSessionBlocked: Decodable, Equatable, Sendable {
+public struct SessionBlocked: Decodable, Equatable, Sendable {
     public let kind: String?
     public let agent: String?
     public let window: String?
@@ -178,9 +178,9 @@ public enum AgentUsagePresentation {
     /// EXP-804: the run's usage wall from the stored jsonb string. Nil on
     /// absent or unparsable JSON — a run is then simply not shown as blocked,
     /// never guessed.
-    public static func parseBlocked(_ json: String?) -> CodingSessionBlocked? {
+    public static func parseBlocked(_ json: String?) -> SessionBlocked? {
         guard let json, let data = jsonData(json) else { return nil }
-        return try? JSONDecoder().decode(CodingSessionBlocked.self, from: data)
+        return try? JSONDecoder().decode(SessionBlocked.self, from: data)
     }
 
     private static func jsonData(_ json: String) -> Data? {
@@ -407,12 +407,12 @@ public enum AgentUsagePresentation {
     /// time. Nil when the run is not blocked.
     ///
     /// The wall is ORTHOGONAL to the session state: a blocked run still reads
-    /// `running`, so this NEVER replaces `CodingSessionDisplay`'s state — it
+    /// `running`, so this NEVER replaces the session's state word — it
     /// renders beside it. An unrecognised `kind` still gets a badge
     /// (`Blocked`): a future device reporting a wall this build has no name
     /// for must not render silent. Locked ×4 (web `blockedBadgeLabel`).
     public static func blockedBadgeLabel(
-        _ blocked: CodingSessionBlocked?,
+        _ blocked: SessionBlocked?,
         now: Date = Date()
     ) -> String? {
         guard let blocked else { return nil }
@@ -477,38 +477,32 @@ public enum AgentUsagePresentation {
 
     // MARK: - Session join
 
-    /// The usage bar a coding session shows, or nil when it shows none.
+    /// The usage bar a session shows, or nil when it shows none.
     ///
-    /// Renders only for a run that is still going (`running` / `in_review`) on
-    /// a machine whose report is FRESH and non-empty for the run's own agent —
-    /// a finished run's host limits are nobody's business, and stale numbers
-    /// beside a live agent read as current ones.
+    /// Renders only for a session that has not ended, on a machine whose
+    /// report is FRESH and non-empty for the session's own CLI (`cli`) — a
+    /// finished session's host limits are nobody's business, and stale
+    /// numbers beside a live agent read as current ones.
     ///
-    /// The devices-row join mirrors `SessionDevicePresentation` exactly: the
-    /// stamped `device_id`, preferring the session owner's own row (two users
-    /// may see the same machine id through a shared server row).
+    /// The devices-row join: the stamped `device_id`, preferring the session
+    /// starter's own row (two users may see the same machine id through a
+    /// shared server row).
     public static func sessionUsage(
-        session: CodingSessionEntity,
+        status: String,
+        cli: String?,
+        deviceId: String?,
+        userId: String,
         devices: [DeviceEntity],
         now: Date = Date()
     ) -> SessionAgentUsage? {
-        guard session.status == DomainContract.codingSessionStatusRunning
-            || session.status == DomainContract.codingSessionStatusInReview
-        else { return nil }
-        guard let agent = session.agent, !agent.isEmpty else { return nil }
-        guard let row = matchedRow(session: session, devices: devices) else { return nil }
+        guard status != DomainContract.sessionStatusEnded else { return nil }
+        guard let agent = cli, !agent.isEmpty else { return nil }
+        guard let deviceId, !deviceId.isEmpty else { return nil }
+        let byId = devices.filter { $0.deviceId == deviceId }
+        guard let row = byId.first(where: { $0.userId == userId }) ?? byId.first else { return nil }
         guard let usage = parseMap(row.agentUsage)?[agent] else { return nil }
         guard isFresh(fetchedAt: usage.fetchedAt, now: now) else { return nil }
         guard let windows = usage.windows, !windows.isEmpty else { return nil }
         return SessionAgentUsage(agent: agent, usage: usage)
-    }
-
-    private static func matchedRow(
-        session: CodingSessionEntity,
-        devices: [DeviceEntity]
-    ) -> DeviceEntity? {
-        guard let deviceId = session.deviceId, !deviceId.isEmpty else { return nil }
-        let byId = devices.filter { $0.deviceId == deviceId }
-        return byId.first { $0.userId == session.userId } ?? byId.first
     }
 }

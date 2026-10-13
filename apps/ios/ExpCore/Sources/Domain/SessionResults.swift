@@ -597,257 +597,67 @@ public func sessionResultTileHeightFitting(
     return max(1, (base * availableWidth / widest).rounded(.down))
 }
 
-// MARK: - EXP-1175: the Run face's THREAD
+// MARK: - EXP-1251: the Guide's section pages
 
-/// What the run published, in the order it published it, with the Summary
-/// text as the agent's reply at the end. Fixture `session-results.json`
-/// `thread` (×4).
-public struct SessionThread: Equatable, Sendable {
-    public enum Item: Equatable, Sendable {
-        case text(topic: String, text: String)
-        case picture(SessionResultEntry)
-    }
-
-    public let items: [Item]
-    /// The Summary topic's text (its first non-blank one), drawn LAST as the
-    /// agent's reply; nil without one.
-    public let reply: String?
-
-    public init(items: [Item] = [], reply: String? = nil) {
-        self.items = items
-        self.reply = reply
-    }
-
-    public var isEmpty: Bool { items.isEmpty && reply == nil }
+/// A section page under the Guide: a 1-based section number, `lead` (the
+/// Summary's own files), `other` (the automatic Other changes) or `all`
+/// (Show complete diff). Web `GuideSectionKey`.
+public enum GuideSectionKey: Equatable, Hashable, Sendable {
+    case section(Int)
+    case lead
+    case other
+    case all
 }
 
-/// A run's thread in publish order, each piece with the server's write stamp
-/// (`at`, ms; nil on an entry filed before EXP-1251).
-private struct ThreadPiece {
-    let item: SessionThread.Item?
-    let reply: String?
-    let at: Double?
+/// A section page: the back row's caption (`02 / 06`, numbered sections
+/// only), its title, the files it covers and their summed counts.
+public struct GuideSectionPage: Equatable, Sendable {
+    public let section: GuideSectionKey
+    public let caption: String?
+    public let title: String
+    public let files: [Diff.File]
+    public let additions: Int
+    public let deletions: Int
 }
 
-private func stampMs(_ value: Any?) -> Double? {
-    guard let number = value as? NSNumber,
-          CFGetTypeID(number) != CFBooleanGetTypeID()
-    else { return nil }
-    let double = number.doubleValue
-    return double.isFinite && double > 0 ? double : nil
-}
-
-private func threadPieces(_ raw: String?) -> [ThreadPiece] {
-    var pieces: [ThreadPiece] = []
-    var seenText = Set<String>()
-    var replied = false
-    var pictures = 0
-    for record in resultRecords(raw) {
-        let at = stampMs(record["at"])
-        if let entry = resultPicture(record) {
-            if pictures >= maxSessionResults { continue }
-            pictures += 1
-            pieces.append(ThreadPiece(item: .picture(entry), reply: nil, at: at))
-            continue
-        }
-        guard let topic = resultText(record["topic"]),
-              let body = resultText(record["text"])
-        else { continue }
-        if isSummaryTopic(topic) {
-            if !replied { pieces.append(ThreadPiece(item: nil, reply: body, at: at)) }
-            replied = true
-            continue
-        }
-        if seenText.contains(topic) { continue }
-        seenText.insert(topic)
-        pieces.append(ThreadPiece(item: .text(topic: topic, text: body), reply: nil, at: at))
-    }
-    return pieces
-}
-
-/// Array (publish) order, the group reader's tolerance and 60-picture cap: a
-/// picture is an item where it sits; a topic's FIRST non-blank text is an item
-/// where it sits (a later text of the same topic is dropped); the Summary
-/// topic's text is `reply`, never an item, while pictures filed under Summary
-/// stay in the stream.
-public func sessionThread(_ raw: String?) -> SessionThread {
-    var items: [SessionThread.Item] = []
-    var reply: String?
-    for piece in threadPieces(raw) {
-        if let item = piece.item { items.append(item) } else { reply = piece.reply }
-    }
-    return SessionThread(items: items, reply: reply)
-}
-
-// MARK: - EXP-1245: the thread as a CONVERSATION of turns
-
-// For the run's OWNER (the relay feed is theirs alone): each turn = the
-// person's message that opened it (a bubble), its status row (`startedAt` /
-// `endedAt` feed the per-turn caption) and the results the server stamped
-// (`at`) inside it, the Summary as the reply of the turn that last wrote it.
-// Teammates and an offline host have no feed and keep today's single-row
-// thread. Fixture `session-results.json` `turns` (×4).
-
-/// One relay feed fact the turns read: a person's message or a turn edge.
-/// Times are epoch milliseconds.
-public enum SessionTurnEvent: Equatable, Sendable {
-    /// Wave D: `files` = the message's non-image attachments (iOS-local:
-    /// the fixture carries none, so it defaults empty).
-    case userMessage(at: Double, text: String, images: [String] = [], files: [SteerImageMessage.File] = [])
-    case turn(started: Bool, at: Double)
-
-    var at: Double {
-        switch self {
-        case let .userMessage(at, _, _, _): at
-        case let .turn(_, at): at
-        }
-    }
-}
-
-public struct SessionTurnMessage: Equatable, Sendable {
-    public let text: String
-    public let at: Double
-    /// The message's image urls, in order (the bubble shows a thumb).
-    public let images: [String]
-    /// Wave D: the message's non-image files, in order (link rows).
-    public let files: [SteerImageMessage.File]
-
-    public init(text: String, at: Double, images: [String] = [], files: [SteerImageMessage.File] = []) {
-        self.text = text
-        self.at = at
-        self.images = images
-        self.files = files
-    }
-}
-
-public struct SessionTurn: Equatable, Sendable {
-    /// The person's message that opened the turn; nil for the first turn of
-    /// an issue run (its prompt is the issue) or a turn the agent began.
-    public var message: SessionTurnMessage?
-    /// The turn's `started` edge; nil while a sent message waits.
-    public var startedAt: Double?
-    /// The turn's `ended` edge (or the next message that cut in); nil while live.
-    public var endedAt: Double?
-    public var items: [SessionThread.Item]
-    public var reply: String?
-
-    public init(
-        message: SessionTurnMessage? = nil,
-        startedAt: Double? = nil,
-        endedAt: Double? = nil,
-        items: [SessionThread.Item] = [],
-        reply: String? = nil
-    ) {
-        self.message = message
-        self.startedAt = startedAt
-        self.endedAt = endedAt
-        self.items = items
-        self.reply = reply
-    }
-
-    var boundary: Double { message?.at ?? startedAt ?? 0 }
-}
-
-public struct SessionTurns: Equatable, Sendable {
-    /// False = no feed: ONE turn holding today's thread, drawn under the one
-    /// run-wide status row.
-    public let perTurn: Bool
-    public let turns: [SessionTurn]
-}
-
-/// Walks the feed in time order (ties keep feed order): a message opens a new
-/// turn (closing a still-open one at its time, the new turn starting there
-/// too: the agent never stopped); a `started` edge starts the newest turn when
-/// it has not started yet, else opens a turn with no message; an `ended` edge
-/// ends the open turn. Every result lands in the LAST turn whose boundary
-/// (message time, else start) is at or before its `at`; one without `at`, or
-/// older than the first turn, lands in the first. No usable feed event = one
-/// turn, `perTurn` false.
-public func sessionTurns(_ raw: String?, feed: [SessionTurnEvent]? = nil) -> SessionTurns {
-    let events = (feed ?? []).enumerated()
-        .filter { $0.element.at.isFinite }
-        .sorted { a, b in
-            a.element.at != b.element.at ? a.element.at < b.element.at : a.offset < b.offset
-        }
-        .map(\.element)
-    var turns: [SessionTurn] = []
-    func openIndex() -> Int? {
-        guard let last = turns.indices.last,
-              turns[last].startedAt != nil, turns[last].endedAt == nil
-        else { return nil }
-        return last
-    }
-    for event in events {
-        switch event {
-        case let .userMessage(at, text, images, files):
-            let running = openIndex()
-            if let running { turns[running].endedAt = at }
-            turns.append(SessionTurn(
-                message: SessionTurnMessage(
-                    text: text, at: at, images: images.filter { !$0.isEmpty }, files: files
-                ),
-                startedAt: running == nil ? nil : at
-            ))
-        case let .turn(started, at):
-            if started {
-                if let last = turns.indices.last,
-                   turns[last].startedAt == nil, turns[last].endedAt == nil {
-                    turns[last].startedAt = at
-                } else if openIndex() == nil {
-                    turns.append(SessionTurn(startedAt: at))
-                }
-            } else if let running = openIndex() {
-                turns[running].endedAt = at
-            }
-        }
-    }
-    if turns.isEmpty {
-        let thread = sessionThread(raw)
-        return SessionTurns(
-            perTurn: false,
-            turns: [SessionTurn(items: thread.items, reply: thread.reply)]
+/// The page `section` opens over `files` (the diff the Guide counts): the
+/// same coverage the Guide's rows read, so a page never shows a file its
+/// row did not count. nil = no such section (a stale link) or no diff
+/// loaded.
+/// `numbered` false = the PR-body fallback (an unnumbered Guide): its
+/// page carries no `01 / 01` caption, as its band carries no number.
+public func guideSectionPage(
+    _ groups: [SessionResultGroup],
+    files: [Diff.File]?,
+    section: GuideSectionKey,
+    numbered: Bool = true
+) -> GuideSectionPage? {
+    guard let files else { return nil }
+    let coverage = guideCoverage(groups, files)
+    func page(_ title: String, _ caption: String?, _ set: GuideChangeSet?) -> GuideSectionPage? {
+        guard let set else { return nil }
+        return GuideSectionPage(
+            section: section, caption: caption, title: title,
+            files: set.files, additions: set.additions, deletions: set.deletions
         )
     }
-    for piece in threadPieces(raw) {
-        var target = 0
-        if let at = piece.at {
-            for index in turns.indices where turns[index].boundary <= at { target = index }
-        }
-        if let item = piece.item {
-            turns[target].items.append(item)
-        } else {
-            turns[target].reply = piece.reply
-        }
+    switch section {
+    case .all: return page(guideChangesTopic, nil, coverage.complete)
+    case .other:
+        guard let other = coverage.other else { return nil }
+        return page(other.topic, nil, other.changes)
+    case .lead:
+        guard let lead = coverage.lead else { return nil }
+        return page(lead.group.topic, nil, lead.changes)
+    case let .section(index):
+        guard let hit = coverage.sections.first(where: { $0.index == index }) else { return nil }
+        return page(
+            hit.group.topic, numbered ? guideSectionCaption(hit.index, hit.total) : nil, hit.changes
+        )
     }
-    return SessionTurns(perTurn: true, turns: turns)
 }
 
-// MARK: - EXP-1245: the owner's message bubble caption
-
-/// `21:40`: local hours and minutes, both two-digit (web `userMessageTime`).
-public func userMessageTime(_ atMs: Double, timeZone: TimeZone = .current) -> String {
-    guard atMs.isFinite else { return "" }
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = timeZone
-    let parts = calendar.dateComponents([.hour, .minute], from: Date(timeIntervalSince1970: atMs / 1000))
-    return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
-}
-
-/// The caption under the bubble — `<name> · <time> · from <device>`; a
-/// missing part drops with its separator (web `userMessageCaption`).
-public func userMessageCaption(
-    name: String?, at: Double?, device: String?, timeZone: TimeZone = .current
-) -> String {
-    var parts: [String] = []
-    if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
-        parts.append(name)
-    }
-    if let at {
-        let time = userMessageTime(at, timeZone: timeZone)
-        if !time.isEmpty { parts.append(time) }
-    }
-    if let device = device?.trimmingCharacters(in: .whitespacesAndNewlines), !device.isEmpty {
-        parts.append("from \(device)")
-    }
-    return parts.joined(separator: " · ")
+/// The section page's back-row summary: `+A −D · N files`.
+public func guideSectionSummary(_ page: GuideSectionPage) -> String {
+    "\(Diff.additionsLabel(page.additions)) \(Diff.deletionsLabel(page.deletions)) · \(guideFileCountLabel(page.files.count))"
 }

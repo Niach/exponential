@@ -307,51 +307,25 @@ final class AgentUsagePresentationTests: XCTestCase {
     // FRESH, non-empty numbers for the agent the run uses.
     func testSessionUsageHiddenCases() {
         let row = device(agentUsage: #"{"claude":\#(usageJson)}"#)
-        XCTAssertEqual(
-            AgentUsagePresentation.sessionUsage(
-                session: session(), devices: [row], now: now
-            )?.agent,
-            "claude"
-        )
-        XCTAssertEqual(
-            AgentUsagePresentation.sessionUsage(
-                session: session(), devices: [row], now: now
-            )?.usage.windows?.count,
-            3
-        )
+        XCTAssertEqual(usage(row, now: now)?.agent, "claude")
+        XCTAssertEqual(usage(row, now: now)?.usage.windows?.count, 3)
         // Ended run: the host's limits stopped being the viewer's business.
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(status: "ended"), devices: [row], now: now
-        ))
+        XCTAssertNil(usage(row, status: "ended", now: now))
         // No agent recorded on the run (a pre-EXP-484 row).
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(agent: nil), devices: [row], now: now
-        ))
+        XCTAssertNil(usage(row, agent: nil, now: now))
         // The run's agent is not the one the machine reported for.
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(agent: "codex"), devices: [row], now: now
-        ))
+        XCTAssertNil(usage(row, agent: "codex", now: now))
         // No devices row for the stamped id, and no stamped id at all.
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(), devices: [], now: now
-        ))
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(deviceId: nil), devices: [row], now: now
-        ))
+        XCTAssertNil(usage(nil, now: now))
+        XCTAssertNil(usage(row, deviceId: nil, now: now))
         // Stale numbers must not read as current ones.
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(), devices: [row],
-            now: WireTimestamps.parse("2026-08-28T10:20:00Z")!
-        ))
+        XCTAssertNil(usage(row, now: WireTimestamps.parse("2026-08-28T10:20:00Z")!))
         // Reported, but with nothing to draw.
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(),
-            devices: [device(agentUsage: #"{"claude":{"fetchedAt":"2026-08-28T09:58:00Z","windows":[]}}"#)],
+        XCTAssertNil(usage(
+            device(agentUsage: #"{"claude":{"fetchedAt":"2026-08-28T09:58:00Z","windows":[]}}"#),
             now: now
         ))
-        XCTAssertNil(AgentUsagePresentation.sessionUsage(
-            session: session(), devices: [device(agentUsage: nil)], now: now
-        ))
+        XCTAssertNil(usage(device(agentUsage: nil), now: now))
     }
 
     func testParsesAgentLoginResult() {
@@ -428,8 +402,8 @@ final class AgentUsagePresentationTests: XCTestCase {
     // `blockedBadgeLabel`, desktop `blocked_badge_label`, Android's twin) and
     // this fixture is theirs: NOW = 2026-08-28T10:00Z, reset two hours out.
     func testBlockedBadgeNamesTheWallAndCountsDown() {
-        func blocked(_ kind: String, _ resetsAt: String?) -> CodingSessionBlocked {
-            CodingSessionBlocked(kind: kind, agent: "claude", window: "session", resetsAt: resetsAt)
+        func blocked(_ kind: String, _ resetsAt: String?) -> SessionBlocked {
+            SessionBlocked(kind: kind, agent: "claude", window: "session", resetsAt: resetsAt)
         }
         XCTAssertEqual(
             AgentUsagePresentation.blockedBadgeLabel(
@@ -465,7 +439,7 @@ final class AgentUsagePresentationTests: XCTestCase {
         XCTAssertNil(AgentUsagePresentation.parseBlocked(nil))
         XCTAssertNil(AgentUsagePresentation.parseBlocked(""))
         XCTAssertNil(AgentUsagePresentation.parseBlocked("nope"))
-        XCTAssertEqual(AgentUsagePresentation.parseBlocked("{}"), CodingSessionBlocked())
+        XCTAssertEqual(AgentUsagePresentation.parseBlocked("{}"), SessionBlocked())
         let parsed = AgentUsagePresentation.parseBlocked("""
             {"kind":"rate_limit","agent":"claude","window":"session",
             "resetsAt":"2026-08-28T12:00:00.000Z","since":"2026-08-28T09:00:00Z"}
@@ -476,21 +450,21 @@ final class AgentUsagePresentationTests: XCTestCase {
         // A bare `{}` is still "blocked" — the badge falls back to the
         // rate-limit wording rather than showing nothing.
         XCTAssertEqual(
-            AgentUsagePresentation.blockedBadgeLabel(CodingSessionBlocked(), now: now),
+            AgentUsagePresentation.blockedBadgeLabel(SessionBlocked(), now: now),
             "Rate limited"
         )
     }
 
-    private func session(
+    private func usage(
+        _ row: DeviceEntity?,
         agent: String? = "claude",
         status: String = "running",
-        deviceId: String? = "dev-1"
-    ) -> CodingSessionEntity {
-        CodingSessionEntity(
-            id: "sess-1", issueId: "issue-1", teamId: "team-1", userId: "me",
-            deviceLabel: "macbook", deviceId: deviceId, status: status, agent: agent,
-            startedAt: "2026-08-28T09:00:00Z", endedAt: nil,
-            createdAt: "2026-08-28T09:00:00Z", updatedAt: "2026-08-28T09:30:00Z"
+        deviceId: String? = "dev-1",
+        now: Date
+    ) -> SessionAgentUsage? {
+        AgentUsagePresentation.sessionUsage(
+            status: status, cli: agent, deviceId: deviceId, userId: "me",
+            devices: row.map { [$0] } ?? [], now: now
         )
     }
 

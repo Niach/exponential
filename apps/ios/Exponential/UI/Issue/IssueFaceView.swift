@@ -6,7 +6,7 @@ import SwiftUI
 /// presents. The per-property pickers are `IssuePropertyChild` — they stack
 /// OVER the Properties sheet now instead of dismissing and re-presenting it
 /// (Android's `propertiesOpen` + `activeSheet` split). EXP-893: the `…`
-/// menu's Move-to-board picker moved up to the Work screen with the menu.
+/// menu's Move-to-board picker lives on the screen with the menu.
 enum IssueDetailSheet: String, Identifiable {
     case properties
 
@@ -69,9 +69,9 @@ func issuePickerOpen(
     )
 }
 
-/// EXP-1162: the Issue face's title row's bottom edge (global space) — the
-/// Work screen collapses its nav-bar title once it is under the header band
-/// (`DetailChrome.isTitleCollapsed`). Nil = not measured (no Issue page up).
+/// EXP-1162: the issue page's title row's bottom edge (global space) — the
+/// host collapses its nav-bar title once it is under the header band
+/// (`DetailChrome.isTitleCollapsed`). Nil = not measured (no issue page up).
 struct IssueTitleRowBottomKey: PreferenceKey {
     static let defaultValue: CGFloat? = nil
     /// The pager keeps sibling pages alive beside the Issue page: their nil
@@ -81,32 +81,28 @@ struct IssueTitleRowBottomKey: PreferenceKey {
     }
 }
 
-/// EXP-893: the Work screen's ISSUE face — today's issue body (big title,
-/// props chip box, description, PR row, files, activity) and its floating
-/// bar. Everything around it — the nav bar, the `…` menu, share, delete, the
-/// view model's lifetime — is the Work screen's; the face is swapped in and
-/// out as screen STATE, so it must be re-mountable without losing the issue.
+/// The issue PAGE — today's issue body (big title, props chip box, the
+/// Threads row, description, sub-issues, PR rows, files, activity) and its
+/// floating bar. Everything around it — the nav bar, the `…` menu, share,
+/// delete, the view model's lifetime — is the host's (`IssueScreen`, or a
+/// thread's issue tab), so it must be re-mountable without losing the issue.
 struct IssueFaceView: View {
     let vm: IssueDetailViewModel
     let issue: IssueEntity
-    /// The bar's trailing circle: Start coding whenever the issue can be
-    /// started (EXP-1150: the faces are the screen's tab strip now).
+    /// The bar's trailing circle: Start whenever the issue can be started.
     let barTrailing: IssueBarTrailing
     let onStartCoding: () -> Void
-    /// The PR / branch row switches the screen to its Changes face.
-    let onOpenChanges: () -> Void
-    /// EXP-1191: the screen's Merge PR circle, right of the bar's capsule.
-    var mergeCircle: AnyView? = nil
-    /// EXP-1241: scroll to this comment once the timeline holds it (a run's
+    /// EXP-1241: scroll to this comment once the timeline holds it (a
     /// comment card tap); the timeline flashes it.
     var focusCommentId: String? = nil
+    /// T-N9: the thread whose page hosts this one — its `Threads` row leaves
+    /// that thread out (it IS the page you are on).
+    var hostThreadId: String? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
-    /// EXP-1284 (T-N9): the thread page hosting this face, if any.
-    @Environment(\.currentThreadId) private var currentThreadId
     @Environment(\.motion) private var motion
     @State private var activeSheet: IssueDetailSheet?
     /// A property picker opened straight from the chip box (no Properties
@@ -134,8 +130,6 @@ struct IssueFaceView: View {
     /// thread's "Leave a reply…" row, cleared by the bar.
     @State private var commentReplyTarget: CommentReplyTarget?
     @FocusState private var titleFocused: Bool
-    /// EXP-1284: the threads holding the issue (the `Threads` row).
-    @State private var threadsModel: IssueThreadsModel?
 
     // Shown while team membership is still syncing, so a signed-in viewer
     // sees "we're catching up" instead of a silently read-only issue.
@@ -157,7 +151,7 @@ struct IssueFaceView: View {
     /// EXP-1097: the relations view model, read once per render.
     private var relations: IssueRelationsView.Model { vm.relationsView }
 
-    /// Open a related issue's Work screen (the parent, a sub-issue, a band row).
+    /// Open a related issue (the parent, a sub-issue, a band row).
     private func openRelated(_ issueId: String) {
         deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
     }
@@ -211,7 +205,7 @@ struct IssueFaceView: View {
 
                     // Title (editable) — the shared field (EXP-1170); it
                     // reports the row the nav-bar title collapses against
-                    // (EXP-1162) up to the Work screen.
+                    // (EXP-1162) up to the host.
                     IssueTitleField(
                         text: Binding(
                             get: { vm.editingTitle },
@@ -241,18 +235,14 @@ struct IssueFaceView: View {
                     onOpenProperties: { activeSheet = .properties }
                 )
 
-                // EXP-1284: the issue names its THREADS — one chip per thread
-                // holding it (the live mark while one of its runs is live),
-                // each opening the thread. Nothing while it sits in none.
-                // T-N9: embedded in a thread page, that thread is left out.
-                if let threads = threadsModel?.threads.filter({ $0.id != currentThreadId }),
-                   !threads.isEmpty {
-                    IssueThreadsRow(threads: threads)
+                // EXP-1295: the issue names its THREADS — one chip per
+                // thread holding it, each opening the thread. Nothing while
+                // it sits in none. T-N9: on a thread page, that thread is
+                // left out.
+                let threads = vm.threads.filter { $0.id != hostThreadId }
+                if !threads.isEmpty {
+                    IssueThreadsStrip(threads: threads)
                 }
-
-                // EXP-893: no "Coding now" row any more — the run is the
-                // screen's Run face, one switch away, and its state rides
-                // the Run tab's dot (EXP-1162).
 
                 // A remote edit arrived while editing locally — offer
                 // a non-blocking reload (field-level last-write-wins).
@@ -324,10 +314,10 @@ struct IssueFaceView: View {
                     onOpen: openRelated
                 )
 
-                // PR status rows (EXP-156): GitHub-style PR + branch
-                // chips → the Changes face. Renders nothing when there's
-                // nothing to show.
-                AgentPrCard(issue: issue, onOpenChanges: onOpenChanges)
+                // PR rows (EXP-156; EXP-1295: `pull_request_issues` →
+                // `pull_requests`), each opening its PR on GitHub. Renders
+                // nothing while the issue has none.
+                AgentPrCard(pullRequests: vm.pullRequests)
 
                 // Widget/agent submission metadata (EXP-496):
                 // expandable card, default collapsed; renders nothing
@@ -368,8 +358,8 @@ struct IssueFaceView: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
-        // EXP-1162: no `stickyHeaderFade` here — the Work screen's header
-        // band hangs the top edge strip over every face itself.
+        // EXP-1162: no `stickyHeaderFade` here — the host's header
+        // band hangs the top edge strip over the page itself.
         // The floating bottom bar (EXP-240): reserves scroll clearance
         // and rides the keyboard automatically. ALWAYS mounted so the
         // composer draft (bar-owned @State) survives; the bar renders
@@ -402,29 +392,13 @@ struct IssueFaceView: View {
                     onStartCoding: onStartCoding,
                     replyTarget: $commentReplyTarget,
                     // SLOP-4: the reporter-reply pill keys off the submission.
-                    widgetSubmission: vm.widgetSubmission,
-                    mergeCircle: mergeCircle
+                    widgetSubmission: vm.widgetSubmission
                 )
             }
-        }
-        // Relay config for the view model's steer state. Device presence
-        // for the Start circle is the Work screen's live readiness model
-        // (EXP-1121), so this only has to land the config once.
-        .task(id: "\(accountId)|\(issue.id)|\(vm.runningSessions.isEmpty)|\(vm.permissions.isMember)|\(vm.board?.teamId ?? "")") {
-            await vm.refreshSteer()
         }
         // EXP-496: the submission metadata card's one-shot fetch.
         .task(id: "widget-submission-\(issue.id)") {
             await vm.loadWidgetSubmission()
-        }
-        // EXP-1284: the Threads row's observation, re-armed on every appear
-        // (the face is re-mounted as screen state) and stopped on leave.
-        .task(id: "threads-\(accountId)|\(issue.id)") {
-            if threadsModel?.issueId != issue.id {
-                threadsModel?.stop()
-                threadsModel = IssueThreadsModel(accountId: accountId, issueId: issue.id, db: deps.db)
-            }
-            threadsModel?.start()
         }
         // EXP-1031: a failed save/action is the shared error toast; the
         // view model's `error` is a one-shot hand-off, cleared once shown.
@@ -480,9 +454,8 @@ struct IssueFaceView: View {
         .onDisappear {
             // Belt-and-braces with EditorTextView.willMove(toWindow:) — no
             // first responder may outlive this face (EXP-246). The screen
-            // keeps observing; a face switch only has to SAVE.
+            // keeps observing; a remount only has to SAVE.
             UIApplication.endEditing()
-            threadsModel?.stop()
             Task {
                 await vm.saveTitle()
                 await vm.commitDescription()
@@ -643,7 +616,7 @@ struct IssueFaceView: View {
     }
 
     /// "Duplicate of {IDENTIFIER}" — the identifier pill pushes the canonical
-    /// issue's Work screen; Unmark clears the FK and restores a working status.
+    /// issue; Unmark clears the FK and restores a working status.
     @ViewBuilder
     private func duplicateBanner(duplicateOfId: String) -> some View {
         HStack(spacing: 8) {

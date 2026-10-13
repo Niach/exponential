@@ -235,7 +235,6 @@ final class DeviceEntityDecodingTests: XCTestCase {
         XCTAssertEqual(worktree.deviceRowId, "row-1")
         XCTAssertEqual(worktree.issueIdentifier, "EXP-42")
         XCTAssertTrue(worktree.busy)
-        XCTAssertEqual(worktree.agentIds, ["claude"])
     }
 
     func testWorktreeAbsentOptionalsDefault() throws {
@@ -244,9 +243,6 @@ final class DeviceEntityDecodingTests: XCTestCase {
         "branch":"exp/batch-a1b2c3d4"}
         """)
         XCTAssertNil(worktree.issueIdentifier)
-        // nil marker = pre-marker worktree: any agent may resume — the
-        // absent/empty distinction is load-bearing, never collapse it.
-        XCTAssertNil(worktree.agentIds)
         XCTAssertFalse(worktree.busy)
         XCTAssertNil(worktree.dirty)
     }

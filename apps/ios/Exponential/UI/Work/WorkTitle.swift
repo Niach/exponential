@@ -2,16 +2,12 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-893: the Work screen's nav-bar title — IDENTICAL across faces, so it
-/// never jumps: the issue identifier, or the session title (Chat / the action
-/// name / Batch run) for an issue-less run. EXP-1162: no state dot — the
-/// state lives on the face tabs (`DetailChrome.faceDots`).
-///
-/// EXP-1162: an issue subject's title COLLAPSES (`DetailChrome`) once the
-/// Issue face's own title row has scrolled under the header band — and on
-/// every face without that row: the mono identifier small and muted on top,
-/// the issue title on ONE truncated line under it. A threshold, not a morph:
-/// the collapsed form fades in over `collapseMs` while rising `collapseRise`.
+/// EXP-893: a detail screen's nav-bar title — the issue identifier (the
+/// issue page, the New issue page). EXP-1162: the title COLLAPSES
+/// (`DetailChrome`) once the page's own title row has scrolled under the
+/// header band: the mono identifier small and muted on top, the issue title
+/// on ONE truncated line under it. A threshold, not a morph: the collapsed
+/// form fades in over `collapseMs` while rising `collapseRise`.
 struct WorkTitle: View {
     let text: String
     /// The issue's title — nil (an issue-less run) never collapses.

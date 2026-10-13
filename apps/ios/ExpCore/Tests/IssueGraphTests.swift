@@ -401,7 +401,6 @@ private func makeIssue(id: String, identifier: String, status: String) -> IssueE
         id: id, boardId: "b1", number: 1, identifier: identifier, title: "T \(identifier)",
         description: nil, status: status, priority: "none", assigneeId: nil, creatorId: nil,
         source: nil, dueDate: nil, sortOrder: 1, completedAt: nil, duplicateOfId: nil,
-        prUrl: nil, prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,
         createdAt: "2026-09-19T09:00:00Z", updatedAt: "2026-09-19T09:00:00Z"
     )
 }

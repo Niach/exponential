@@ -17,10 +17,9 @@ import SwiftUI
 /// "…" menu: Update and Remove are the settings sheet's last two sections, so
 /// a row never has to explain which of three controls does what.
 ///
-/// EXP-825: machines ONLY (web parity, EXP-818). The Running/Recent sessions
-/// moved to the Agent page, which is also the ONE launcher; the tab bar's Chat
-/// FAB pushes it with an empty seed. When the relay is off nothing here can be
-/// started, so the tab says so instead of listing devices.
+/// EXP-825: machines ONLY (web parity, EXP-818) — sessions live in the
+/// Threads list. EXP-1295: a start is a `sessions` row the machine picks up
+/// from its shapes, so the list never waits on the steer relay.
 ///
 /// EXP-909: every device row LISTS ITS OWN LOGINS beneath it (`DeviceLogins`)
 /// — who each login is, its health, its compact usage line, and (own machines
@@ -33,8 +32,6 @@ struct AgentsView: View {
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
     @State private var viewModel: AgentsViewModel?
-    /// nil until the relay config resolves.
-    @State private var steerEnabled: Bool?
     /// EXP-909: the row's ONE action — the settings sheet it opens (name,
     /// default device, sharing, launch defaults, and now update + remove,
     /// which used to be row-level handlers here).
@@ -76,21 +73,13 @@ struct AgentsView: View {
         ZStack {
             AppBackground()
 
-            if let vm = viewModel, let steerEnabled {
-                if steerEnabled {
-                    machinesContent(vm)
-                } else {
-                    relayOffState
-                }
+            if let vm = viewModel {
+                machinesContent(vm)
             }
         }
         .navigationTitle("Devices")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .task(id: accountId) {
-            let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
-            steerEnabled = config.enabled
-        }
         // EXP-944: the 30s beat the login rows' "as of …" captions and their
         // reset countdowns age on — a countdown that never moves is a stamp.
         .task {
@@ -150,24 +139,7 @@ struct AgentsView: View {
         devices?.filter { !$0.isMine } ?? []
     }
 
-    /// Web parity: without the relay there is nothing to start on, and the
-    /// machines list would only ever be decorative.
-    private var relayOffState: some View {
-        VStack(spacing: 12) {
-            AppIcon(AppIcons.navDevices, size: 28)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("Remote start isn't available on this server")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Machines and remote starts need the steer relay. Live sessions still show up on the Agent page.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 40)
-    }
-
-    // MARK: - Machines content (relay on)
+    // MARK: - Machines content
 
     @ViewBuilder
     private func machinesContent(_ vm: AgentsViewModel) -> some View {

@@ -8,15 +8,14 @@ import SwiftUI
 /// snapshotted at open and never re-sorts on toggle, so a tapped row visibly
 /// checks in place instead of teleporting into a pinned group (EXP-241).
 /// Checking an issue swaps out an action chip; the single-repository and
-/// batch-cap guards caption the list.
+/// issue-cap guards caption the list.
 ///
 /// SLOP-28 (EXP-1259 D5): it is THE search list (`SearchListView`,
 /// search-list.json), pushed as a page of the "+" sheet (`ComposerPlusMenu`):
 /// the search input on top, the picker's own rows (`IDENT Title` behind the
 /// status glyph) under it, ranked by the shared engine at its DEFAULT limit.
-/// Once something is picked the footer carries composer-menu.json's
-/// `implementButton` (`Implement N issues`), which only closes the menu: the
-/// picks already are the run's subject.
+/// Once something is picked the footer carries `Implement N issues`, which
+/// only closes the menu: the picks already are the thread's subject.
 struct AgentIssuePickerPage: View {
     let model: AgentComposerModel
     /// Closes the whole "+" menu.
@@ -81,7 +80,7 @@ struct AgentIssuePickerPage: View {
     }
 
     private var showsGuards: Bool {
-        model.multiRepo || model.overCap || model.costWarning
+        model.multiRepo || model.overCap
     }
 
     private var pickedCount: Int { model.effectiveChecked.count }
@@ -103,7 +102,7 @@ struct AgentIssuePickerPage: View {
         }
     }
 
-    /// The batch guards, under the rows: what cannot start, said where the
+    /// The guards, under the rows: what cannot start, said where the
     /// picking happens. Invalid input, so it stays inline (FEED-79).
     private var guards: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -112,11 +111,8 @@ struct AgentIssuePickerPage: View {
                     .foregroundStyle(DesignTokens.Semantic.red)
             }
             if model.overCap {
-                Text("At most \(AgentComposerModel.maxBatchIssues) issues per session. Split the batch.")
+                Text("At most \(AgentComposerModel.maxIssues) issues per session.")
                     .foregroundStyle(DesignTokens.Semantic.red)
-            } else if model.costWarning {
-                Text("Large batches are token-expensive.")
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
         }
         .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))

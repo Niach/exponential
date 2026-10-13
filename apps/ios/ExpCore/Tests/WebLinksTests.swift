@@ -75,6 +75,18 @@ final class WebLinksTests: XCTestCase {
         XCTAssertNil(WebLinks.thread(instanceUrl: "https://app.exponential.at", teamSlug: "acme", threadId: ""))
     }
 
+    // EXP-1291: the PR body footer links the ROOT session with
+    // `?view=guide` — the thread on its Guide; a bare session link opens it
+    // without.
+    func testParseSessionUrlCarriesTheGuideView() {
+        let guide = URL(string: "https://app.exponential.at/t/acme/sessions/abc?view=guide")!
+        XCTAssertEqual(WebLinks.parse(guide), .session(teamSlug: "acme", sessionId: "abc", guide: true))
+        let bare = URL(string: "https://app.exponential.at/t/acme/sessions/abc/")!
+        XCTAssertEqual(WebLinks.parse(bare), .session(teamSlug: "acme", sessionId: "abc", guide: false))
+        let other = URL(string: "https://app.exponential.at/t/acme/sessions/abc?view=run")!
+        XCTAssertEqual(WebLinks.parse(other), .session(teamSlug: "acme", sessionId: "abc", guide: false))
+    }
+
     func testTrailingSlashTolerated() {
         let url = URL(string: "https://app.exponential.at/t/acme/boards/web/issues/EXP-42/")!
         XCTAssertEqual(
@@ -91,9 +103,11 @@ final class WebLinksTests: XCTestCase {
             // exist on the web, so the app must not claim them either.
             "/w/acme/projects/web/issues/EXP-42", "/w/acme/boards/web/issues/EXP-42",
             "/t/acme/projects/web/issues/EXP-42",
-            // Only the Agent page itself — a session under the team, or a
-            // deeper agent path, is not something the app renders from a link.
-            "/t/acme/sessions/abc", "/t/acme/agent/extra", "/agent",
+            // Only the Agent page itself — a deeper agent path is not
+            // something the app renders from a link.
+            "/t/acme/agent/extra", "/agent",
+            // Only the session page itself (EXP-1291).
+            "/t/acme/sessions", "/t/acme/sessions/abc/files", "/sessions/abc",
             // Only the thread page itself (EXP-1288).
             "/t/acme/threads", "/t/acme/threads/abc/guide", "/threads/abc",
             "/invite", "/auth/login",

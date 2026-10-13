@@ -2,223 +2,385 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-818 — the session tree's four rules, the same four tests web
-// (`session-tree.test.ts`), Android (`SessionTreeTest`) and the desktop
-// (`nest_sessions_*`) run.
+// EXP-1291 Threads v2: the session tree's view models, locked ×4 (TS
+// `session-tree.test.ts`, desktop `domain::session_tree`, Android
+// `SessionTreeTest`) against the contract fixtures session-card.json,
+// session-thread.json and threads-list.json. Every case compares the WHOLE
+// expected object: the Swift result is rendered back into the reference's
+// JSON shape and compared as a JSON value.
 final class SessionTreeTests: XCTestCase {
-    private struct Row {
-        let id: String
-        let parent: String?
-        var startedAt = "2026-09-10T10:00:00Z"
+    // MARK: - Fixture plumbing
+
+    /// The committed contract fixture, read through `#filePath` because the
+    /// unit-test bundle carries no repo resources.
+    private func fixture(_ name: String) throws -> [String: Any] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()          // ExpCore/Tests/
+            .deletingLastPathComponent()          // ExpCore/
+            .deletingLastPathComponent()          // apps/ios/
+            .deletingLastPathComponent()          // apps/
+            .deletingLastPathComponent()          // the repo root
+            .appendingPathComponent("packages/domain-contract/fixtures/\(name)")
+        let json = try JSONSerialization.jsonObject(with: try Data(contentsOf: url))
+        return try XCTUnwrap(json as? [String: Any])
     }
 
-    private func nest(_ rows: [Row]) -> [SessionTree.Row<Row>] {
-        SessionTree.nest(rows, id: { $0.id }, parent: { $0.parent }, startedAt: { $0.startedAt })
+    private func cases(_ object: [String: Any], _ key: String = "cases") throws -> [[String: Any]] {
+        let list = try XCTUnwrap(object[key] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        return list
     }
 
-    private func shape(_ rows: [SessionTree.Row<Row>]) -> [String] {
-        rows.map { "\($0.session.id)@\($0.depth)\($0.hasChildren ? "+" : "")" }
+    private func string(_ value: Any?) -> String? { value as? String }
+
+    private func date(_ value: Any?) throws -> Date {
+        try XCTUnwrap(WireTimestamps.parse(try XCTUnwrap(value as? String)))
     }
 
-    func testKeepsTheCallersRootOrder() {
-        XCTAssertEqual(shape(nest([Row(id: "b", parent: nil), Row(id: "a", parent: nil), Row(id: "c", parent: nil)])), ["b@0", "a@0", "c@0"])
-    }
-
-    func testNestsAChildOnlyUnderAParentThatIsListed() {
-        XCTAssertEqual(
-            shape(nest([Row(id: "p", parent: nil), Row(id: "c", parent: "p"), Row(id: "orphan", parent: "gone")])),
-            ["p@0+", "c@1", "orphan@0"]
-        )
-    }
-
-    func testListsChildrenRightAfterTheirParentOldestFirstRecursively() {
-        let rows = nest([
-            Row(id: "late", parent: "p", startedAt: "2026-09-10T12:00:00Z"),
-            Row(id: "p", parent: nil),
-            Row(id: "grand", parent: "early", startedAt: "2026-09-10T13:00:00Z"),
-            Row(id: "early", parent: "p", startedAt: "2026-09-10T11:00:00Z"),
-            Row(id: "z", parent: nil),
-        ])
-        XCTAssertEqual(shape(rows), ["p@0+", "early@1+", "grand@2", "late@1", "z@0"])
-        XCTAssertEqual(SessionTree.descendantIds(rows, of: "p", rowId: { $0.id }), ["early", "grand", "late"])
-        XCTAssertEqual(SessionTree.descendantIds(rows, of: "early", rowId: { $0.id }), ["grand"])
-        XCTAssertEqual(SessionTree.descendantIds(rows, of: "z", rowId: { $0.id }), [])
-    }
-
-    func testBreaksACycleWhereItFirstAppears() {
-        XCTAssertEqual(
-            shape(nest([Row(id: "a", parent: "b"), Row(id: "b", parent: "a"), Row(id: "self", parent: "self")])),
-            ["self@0", "a@0+", "b@1"]
-        )
-    }
-
-    // Children sort by the PARSED instant (web `startStamp`), never the raw
-    // string: `.5Z` sorts before `Z` as text but after it in time, a Postgres
-    // `+00` text form sorts before every ISO `T` form as text whatever its
-    // instant, and an unparseable stamp reads as 0 so the id decides.
-    func testSortsChildrenByTheParsedInstantNotTheRawString() {
-        let rows = nest([
-            Row(id: "p", parent: nil),
-            Row(id: "half", parent: "p", startedAt: "2026-09-10T10:00:00.5Z"),
-            Row(id: "whole", parent: "p", startedAt: "2026-09-10T10:00:00Z"),
-            Row(id: "pg", parent: "p", startedAt: "2026-09-10 10:00:02+00"),
-            Row(id: "iso", parent: "p", startedAt: "2026-09-10T10:00:01Z"),
-        ])
-        XCTAssertEqual(shape(rows), ["p@0+", "whole@1", "half@1", "iso@1", "pg@1"])
-        let unparseable = nest([
-            Row(id: "p", parent: nil),
-            Row(id: "b", parent: "p", startedAt: "2026-09-10T10:00:00Z"),
-            Row(id: "z", parent: "p", startedAt: "not a stamp"),
-            Row(id: "a", parent: "p", startedAt: ""),
-        ])
-        XCTAssertEqual(shape(unparseable), ["p@0+", "a@1", "z@1", "b@1"])
-    }
-}
-
-// EXP-996 — the NODE tree: `SessionTree.sessionTree`, `nodeKey`,
-// `visibleRows`, `flatten`. Every case name mirrors an `it(...)` of web
-// `lib/sessions/session-tree.test.ts`, which the desktop (`session_tree`) and
-// Android (`SessionTreeNodeTest`) carry too.
-final class SessionTreeNodeTests: XCTestCase {
-
-    private func run(
-        _ id: String,
-        issueId: String? = nil,
-        parent: String? = nil,
-        resumedFrom: String? = nil,
-        batchIssueIds: String? = nil,
-        status: String = "running",
-        at stamp: String = "2026-09-01T10:00:00Z"
-    ) -> CodingSessionEntity {
-        CodingSessionEntity(
-            id: id,
-            issueId: issueId,
-            teamId: "team-1",
-            userId: "user-1",
-            deviceLabel: "macbook",
-            status: status,
-            batchIssueIds: batchIssueIds,
-            resumedFromId: resumedFrom,
-            parentSessionId: parent,
-            startedAt: stamp,
-            endedAt: nil,
-            createdAt: stamp,
-            updatedAt: stamp
-        )
-    }
-
-    /// The tree as one string: `p[c1 c2]` — the Swift reading of web's nested
-    /// `ids()` helper.
-    private func shape(_ nodes: [SessionTree.SessionNode]) -> String {
-        nodes.map { node in
-            let label = node.session.id
-            return node.children.isEmpty ? label : "\(label)[\(shape(node.children))]"
+    private func session(_ object: Any?) throws -> TreeSession {
+        let row = try XCTUnwrap(object as? [String: Any])
+        let blocked = (row["blocked"] as? [String: Any]).map {
+            TreeSessionBlocked(window: $0["window"] as? String, resetsAt: $0["resetsAt"] as? String)
         }
-        .joined(separator: " ")
-    }
-
-    private func seconds(_ iso: String) -> TimeInterval {
-        WireTimestamps.parse(iso)?.timeIntervalSince1970 ?? 0
-    }
-
-    // MARK: - flatten
-
-    func testWalksChildrenDepthFirst() {
-        let leaf = SessionTree.SessionNode(
-            session: run("b"), chain: [run("b")], children: [], lastActivityAt: 0
+        let guide = (row["guide"] as? [[String: Any]]).map { entries in
+            entries.map { TreeGuideEntry(text: $0["text"] as? String, label: $0["label"] as? String) }
+        }
+        return TreeSession(
+            id: try XCTUnwrap(string(row["id"])),
+            teamId: try XCTUnwrap(string(row["teamId"])),
+            parentId: string(row["parentId"]),
+            rootId: try XCTUnwrap(string(row["rootId"])),
+            kind: try XCTUnwrap(string(row["kind"])),
+            userId: try XCTUnwrap(string(row["userId"])),
+            status: try XCTUnwrap(string(row["status"])),
+            busy: try XCTUnwrap(row["busy"] as? Bool),
+            needsInput: try XCTUnwrap(row["needsInput"] as? Bool),
+            blocked: blocked,
+            shared: try XCTUnwrap(row["shared"] as? Bool),
+            title: string(row["title"]),
+            guide: guide,
+            actionName: string(row["actionName"]),
+            name: string(row["name"]),
+            icon: string(row["icon"]),
+            color: string(row["color"]),
+            sortOrder: try XCTUnwrap(row["sortOrder"] as? Double),
+            startedAt: string(row["startedAt"]),
+            endedAt: string(row["endedAt"]),
+            createdAt: try XCTUnwrap(string(row["createdAt"])),
+            updatedAt: try XCTUnwrap(string(row["updatedAt"]))
         )
-        let nodes = [
-            SessionTree.SessionNode(
-                session: run("p"), chain: [run("p")], children: [leaf], lastActivityAt: 0
-            ),
-            SessionTree.SessionNode(
-                session: run("a"), chain: [run("a")], children: [], lastActivityAt: 0
-            ),
+    }
+
+    private func sessionIssues(_ value: Any?) throws -> [TreeSessionIssue] {
+        try XCTUnwrap(value as? [[String: Any]]).map {
+            TreeSessionIssue(
+                sessionId: try XCTUnwrap(string($0["sessionId"])),
+                issueId: try XCTUnwrap(string($0["issueId"])),
+                sortOrder: try XCTUnwrap($0["sortOrder"] as? Double)
+            )
+        }
+    }
+
+    private func issues(_ value: Any?) throws -> [TreeIssue] {
+        try XCTUnwrap(value as? [[String: Any]]).map {
+            TreeIssue(
+                id: try XCTUnwrap(string($0["id"])),
+                identifier: try XCTUnwrap(string($0["identifier"])),
+                title: try XCTUnwrap(string($0["title"]))
+            )
+        }
+    }
+
+    private func messages(_ value: Any?) throws -> [TreeMessage] {
+        try XCTUnwrap(value as? [[String: Any]]).map {
+            TreeMessage(
+                id: try XCTUnwrap(string($0["id"])),
+                sessionId: try XCTUnwrap(string($0["sessionId"])),
+                authorKind: try XCTUnwrap(string($0["authorKind"])),
+                authorId: string($0["authorId"]),
+                body: try XCTUnwrap(string($0["body"])),
+                card: ($0["card"] as? [String: Any]).map(TreeMessageCard.init(object:)),
+                answeredAt: string($0["answeredAt"]),
+                consumedAt: string($0["consumedAt"]),
+                createdAt: try XCTUnwrap(string($0["createdAt"]))
+            )
+        }
+    }
+
+    private func pullRequests(_ value: Any?) throws -> [TreePullRequest] {
+        try XCTUnwrap(value as? [[String: Any]]).map {
+            TreePullRequest(
+                id: try XCTUnwrap(string($0["id"])),
+                number: try XCTUnwrap($0["number"] as? Int)
+            )
+        }
+    }
+
+    // MARK: - Back into the reference's JSON shape
+
+    private func json(_ value: String?) -> Any { value ?? NSNull() }
+    private func json(_ value: Double?) -> Any { value ?? NSNull() }
+
+    private func json(_ card: SessionCard) -> [String: Any] {
+        [
+            "sessionId": card.sessionId,
+            "icon": card.icon,
+            "name": card.name,
+            "kindWord": card.kindWord,
+            "state": card.state.rawValue,
+            "tone": card.tone,
+            "elapsed": json(card.elapsed),
+            "running": card.running,
+            "testId": card.testId,
         ]
-        XCTAssertEqual(SessionTree.flatten(nodes).map(\.session.id), ["p", "b", "a"])
     }
 
-    // MARK: - sessionTree
-
-    func testListsUnrelatedSessionsAtTopLevelNewestActivityFirst() {
-        let a = run("a", at: "2026-09-01T10:00:00Z")
-        let b = run("b", at: "2026-09-01T11:00:00Z")
-        XCTAssertEqual(shape(SessionTree.sessionTree([a, b])), "b a")
+    private func json(_ tab: ThreadTab) -> [String: Any] {
+        switch tab {
+        case .conversation: ["kind": "conversation"]
+        case let .issue(issueId, identifier): ["kind": "issue", "issueId": issueId, "identifier": identifier]
+        case .add: ["kind": "add"]
+        case let .guide(dot): ["kind": "guide", "dot": dot]
+        }
     }
 
-    func testNestsAChildUnderItsParentSessionId() {
-        let parent = run("p")
-        let child = run("c", parent: "p", at: "2026-09-01T10:30:00Z")
-        XCTAssertEqual(shape(SessionTree.sessionTree([child, parent])), "p[c]")
+    private func json(_ row: ThreadRow) -> [String: Any] {
+        switch row {
+        case let .message(id, author, authorId, body, queued):
+            ["type": "message", "id": id, "author": author, "authorId": json(authorId), "body": body, "queued": queued]
+        case let .session(id, card):
+            ["type": "session", "id": id, "card": json(card)]
+        case let .question(id, question, options, answer, answered):
+            ["type": "question", "id": id, "question": question, "options": options, "answer": json(answer), "answered": answered]
+        case let .plan(id, plan, decision):
+            ["type": "plan", "id": id, "plan": plan, "decision": json(decision)]
+        case let .subagent(id, title, status):
+            ["type": "subagent", "id": id, "title": title, "status": status]
+        case let .picture(id, attachmentId, width, height, caption):
+            ["type": "picture", "id": id, "attachmentId": attachmentId, "width": json(width), "height": json(height), "caption": json(caption)]
+        case let .event(id, event, text):
+            ["type": "event", "id": id, "event": event, "text": text]
+        }
     }
 
-    func testCollapsesAResumeSuccessionIntoOneNodeKeyedByItsNewestRow() {
-        let first = run("r1", at: "2026-09-01T10:00:00Z")
-        let second = run("r2", resumedFrom: "r1", at: "2026-09-01T12:00:00Z")
-        let tree = SessionTree.sessionTree([first, second])
-        XCTAssertEqual(shape(tree), "r2")
-        XCTAssertEqual(tree.first?.chain.map(\.id), ["r1", "r2"])
+    private func json(_ view: SessionThreadView) -> [String: Any] {
+        [
+            "rootId": view.rootId,
+            "title": view.title,
+            "titleDerived": view.titleDerived,
+            "private": view.isPrivate,
+            "tabs": view.tabs.map(json),
+            "rows": view.rows.map(json),
+            "composer": ["sessionId": view.composer.sessionId, "placeholder": view.composer.placeholder],
+            "live": view.live,
+            "busy": view.busy,
+            "needsYou": view.needsYou,
+        ]
     }
 
-    func testFollowsAChildToItsParentsResumeSuccession() {
-        let p1 = run("p1")
-        let p2 = run("p2", resumedFrom: "p1", at: "2026-09-01T11:00:00Z")
-        let child = run("c", parent: "p1")
-        XCTAssertEqual(shape(SessionTree.sessionTree([p1, p2, child])), "p2[c]")
+    private func json(_ group: ThreadsListGroup) -> [String: Any] {
+        [
+            "key": group.key.rawValue,
+            "title": group.title,
+            "rows": group.rows.map { row -> [String: Any] in
+                [
+                    "sessionId": row.sessionId,
+                    "teamId": row.teamId,
+                    "title": row.title,
+                    "private": row.isPrivate,
+                    "busy": row.busy,
+                    "needsYou": row.needsYou,
+                    "activityAt": row.activityAt,
+                ]
+            },
+        ]
     }
 
-    func testCountsTheSubtreeInAParentsLastActivity() {
-        let parent = run("p", at: "2026-09-01T10:00:00Z")
-        let child = run("c", parent: "p", at: "2026-09-01T12:00:00Z")
-        let lone = run("lone", at: "2026-09-01T11:00:00Z")
-        let tree = SessionTree.sessionTree([lone, parent, child])
-        XCTAssertEqual(tree.map(\.key), ["p", "lone"])
-        XCTAssertEqual(tree.first?.lastActivityAt, seconds("2026-09-01T12:00:00Z"))
+    private func json(_ agent: AgentRow) -> [String: Any] {
+        [
+            "sessionId": agent.sessionId,
+            "teamId": agent.teamId,
+            "name": agent.name,
+            "icon": agent.icon,
+            "color": agent.color,
+            "busy": agent.busy,
+            "needsYou": agent.needsYou,
+        ]
     }
 
-    func testPutsAnOrphanChildWhoseParentIsGoneAtTopLevel() {
-        XCTAssertEqual(shape(SessionTree.sessionTree([run("o", parent: "gone")])), "o")
+    private func assertJSON(_ actual: Any, _ expected: Any?, _ name: String, file: StaticString = #filePath, line: UInt = #line) {
+        let lhs = actual as AnyObject
+        let rhs = (expected ?? NSNull()) as AnyObject
+        XCTAssertTrue(lhs.isEqual(rhs), "\(name)\n actual: \(actual)\n expected: \(String(describing: expected))", file: file, line: line)
     }
 
-    func testKeepsChildrenInCreationOrderUnderTheirParent() {
-        let parent = run("p")
-        let c1 = run("c1", parent: "p", at: "2026-09-01T10:10:00Z")
-        let c2 = run("c2", parent: "p", at: "2026-09-01T10:20:00Z")
-        XCTAssertEqual(shape(SessionTree.sessionTree([c2, parent, c1])), "p[c1 c2]")
+    // MARK: - session-card.json
+
+    func testSessionCardCopyMatchesTheFixture() throws {
+        let fixture = try fixture("session-card.json")
+        let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
+        XCTAssertEqual(copy["session"] as? String, SessionTree.CardCopy.session)
+        let states = try XCTUnwrap(copy["states"] as? [String: String])
+        let icons = try XCTUnwrap(fixture["icons"] as? [String: String])
+        let tones = try XCTUnwrap(fixture["tones"] as? [String: String])
+        XCTAssertEqual(Set(states.keys), Set(SessionState.allCases.map(\.rawValue)))
+        for state in SessionState.allCases {
+            XCTAssertEqual(states[state.rawValue], state.word, state.rawValue)
+            XCTAssertEqual(icons[state.rawValue], state.icon, state.rawValue)
+            XCTAssertEqual(tones[state.rawValue], state.tone, state.rawValue)
+        }
+        XCTAssertEqual((fixture["testIds"] as? [String: String])?["card"], SessionTree.CardCopy.testId)
     }
 
-    // Issue and batch runs never group: only `parentSessionId` nests.
-    func testNeverGroupsRunsByTheirIssues() {
-        let a = run("a", issueId: "i1", at: "2026-09-01T10:00:00Z")
-        let b = run("b", batchIssueIds: "[\"i1\",\"i2\"]", at: "2026-09-01T11:00:00Z")
-        XCTAssertEqual(shape(SessionTree.sessionTree([a, b])), "b a")
+    func testSessionCardReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-card.json")) {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let card = SessionTree.sessionCard(
+                try session(input["session"]),
+                ordinal: try XCTUnwrap(input["ordinal"] as? Int),
+                now: try date(input["now"])
+            )
+            assertJSON(json(card), testCase["expected"], name)
+        }
     }
 
-    // MARK: - visibleRows (EXP-996)
-
-    // The flattening every client paints the EXP-965 connector over.
-    private func nestedTree() -> [SessionTree.SessionNode] {
-        let parent = run("p", at: "2026-09-01T11:00:00Z")
-        let child = run("c", parent: "p", at: "2026-09-01T10:30:00Z")
-        let grandchild = run("g", parent: "c", at: "2026-09-01T10:40:00Z")
-        let other = run("o", at: "2026-09-01T10:00:00Z")
-        return SessionTree.sessionTree([parent, child, grandchild, other])
+    func testFormatsTheElapsedLadder() {
+        XCTAssertEqual(SessionTree.formatElapsed(ms: 0), "0s")
+        XCTAssertEqual(SessionTree.formatElapsed(ms: -5_000), "0s")
+        XCTAssertEqual(SessionTree.formatElapsed(ms: 37_999), "37s")
+        XCTAssertEqual(SessionTree.formatElapsed(ms: 124_000), "2m 04s")
+        XCTAssertEqual(SessionTree.formatElapsed(ms: 3_780_000), "1h 03m")
     }
 
-    func testFlattensChildrenWithTheirDepths() {
+    // MARK: - session-thread.json
+
+    func testThreadCopyMatchesTheFixture() throws {
+        let fixture = try fixture("session-thread.json")
+        let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
+        XCTAssertEqual(copy["untitled"] as? String, SessionTree.ThreadCopy.untitled)
+        XCTAssertEqual(copy["placeholder"] as? String, SessionTree.ThreadCopy.placeholder)
+        XCTAssertEqual(copy["conversation"] as? String, SessionTree.ThreadCopy.conversation)
+        XCTAssertEqual(copy["guide"] as? String, SessionTree.ThreadCopy.guide)
+        XCTAssertEqual(copy["events"] as? [String: String], SessionTree.ThreadCopy.events)
+        XCTAssertEqual(fixture["titleMax"] as? Int, SessionTree.ThreadCopy.titleMax)
+        let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
+        XCTAssertEqual(testIds["tabs"], SessionTree.ThreadCopy.tabsTestId)
+        XCTAssertEqual(testIds["conversation"], SessionTree.ThreadCopy.conversationTestId)
+        XCTAssertEqual(testIds["composer"], SessionTree.ThreadCopy.composerTestId)
+    }
+
+    func testBuildSessionThreadReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-thread.json")) {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let view = SessionTree.buildSessionThread(
+                root: try session(input["root"]),
+                sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
+                sessionIssues: try sessionIssues(input["sessionIssues"]),
+                issues: try issues(input["issues"]),
+                messages: try messages(input["messages"]),
+                pullRequests: try pullRequests(input["pullRequests"]),
+                now: try date(input["now"])
+            )
+            assertJSON(json(view), testCase["expected"], name)
+        }
+    }
+
+    // MARK: - threads-list.json
+
+    func testThreadsListCopyMatchesTheFixture() throws {
+        let fixture = try fixture("threads-list.json")
+        let copy = try XCTUnwrap(fixture["copy"] as? [String: Any])
+        XCTAssertEqual(copy["title"] as? String, SessionTree.ListCopy.title)
+        XCTAssertEqual(copy["agents"] as? String, SessionTree.ListCopy.agents)
+        XCTAssertEqual(copy["empty"] as? String, SessionTree.ListCopy.empty)
+        let groups = try XCTUnwrap(copy["groups"] as? [String: String])
+        XCTAssertEqual(Set(groups.keys), Set(ThreadsListGroup.Key.allCases.map(\.rawValue)))
+        for key in ThreadsListGroup.Key.allCases {
+            XCTAssertEqual(groups[key.rawValue], key.title, key.rawValue)
+        }
+        let defaults = try XCTUnwrap(fixture["agentDefaults"] as? [String: String])
+        XCTAssertEqual(defaults["icon"], SessionTree.ListCopy.agentDefaultIcon)
+        XCTAssertEqual(defaults["color"], SessionTree.ListCopy.agentDefaultColor)
+        let testIds = try XCTUnwrap(fixture["testIds"] as? [String: String])
+        XCTAssertEqual(testIds["list"], SessionTree.ListCopy.listTestId)
+        XCTAssertEqual(testIds["row"], SessionTree.ListCopy.rowTestId)
+        XCTAssertEqual(testIds["agentRow"], SessionTree.ListCopy.agentRowTestId)
+    }
+
+    func testPartitionThreadsReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json")) {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let groups = SessionTree.partitionThreads(
+                sessions: try XCTUnwrap(input["sessions"] as? [Any]).map(session),
+                sessionIssues: try sessionIssues(input["sessionIssues"]),
+                issues: try issues(input["issues"]),
+                messages: try messages(input["messages"]),
+                teamId: string(input["teamId"])
+            )
+            assertJSON(groups.map(json), testCase["expected"], name)
+        }
+    }
+
+    func testListAgentsReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "agentCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let agents = SessionTree.listAgents(
+                try XCTUnwrap(input["sessions"] as? [Any]).map(session),
+                teamId: string(input["teamId"])
+            )
+            assertJSON(agents.map(json), testCase["expected"], name)
+        }
+    }
+
+    // MARK: - Board switcher dots
+
+    func testCountsOwnWorkingSessionsPerTeam() throws {
+        func row(_ id: String, team: String, user: String = "me", status: String, needsInput: Bool = false) -> TreeSession {
+            TreeSession(
+                id: id, teamId: team, parentId: nil, rootId: id, kind: "thread", userId: user,
+                status: status, busy: false, needsInput: needsInput, blocked: nil, shared: true,
+                title: nil, guide: nil, actionName: nil, name: nil, icon: nil, color: nil,
+                sortOrder: 0, startedAt: nil, endedAt: nil,
+                createdAt: "2026-10-13T10:00:00.000Z", updatedAt: "2026-10-13T10:00:00.000Z"
+            )
+        }
+        let sessions = [
+            row("a", team: "t1", status: "running"),
+            row("b", team: "t1", status: "queued"),
+            row("c", team: "t1", status: "idle"),
+            row("d", team: "t2", status: "idle", needsInput: true),
+            row("e", team: "t2", status: "ended", needsInput: true),
+            row("f", team: "t3", user: "them", status: "running"),
+        ]
+        XCTAssertEqual(SessionTree.liveByTeam(sessions, userId: "me"), [
+            "t1": .init(count: 2, needsInput: false),
+            "t2": .init(count: 0, needsInput: true),
+        ])
+        XCTAssertEqual(SessionTree.liveByTeam(sessions, userId: nil), [:])
+    }
+
+    // MARK: - Synced jsonb text
+
+    func testReadsTheSyncedJsonbText() {
+        XCTAssertNil(TreeSessionBlocked.parse(nil))
+        XCTAssertNil(TreeSessionBlocked.parse("null"))
         XCTAssertEqual(
-            SessionTree.visibleRows(nestedTree()).map { "\($0.key)@\($0.depth)" },
-            ["p@0", "c@1", "g@2", "o@0"]
+            TreeSessionBlocked.parse(#"{"window":"weekly","resetsAt":null}"#),
+            TreeSessionBlocked(window: "weekly")
         )
-    }
-
-    func testMarksANodeWithChildren() {
-        let rows = SessionTree.visibleRows(nestedTree())
-        XCTAssertEqual(rows.first { $0.key == "p" }?.hasChildren, true)
-        XCTAssertEqual(rows.first { $0.key == "g" }?.hasChildren, false)
-    }
-
-    func testKeysASessionByItsNewestRowsId() {
-        XCTAssertEqual(nestedTree().first.map(SessionTree.nodeKey), "p")
+        XCTAssertNil(TreeGuideEntry.parseList("null"))
+        XCTAssertEqual(
+            TreeGuideEntry.parseList(#"[{"topic":"Summary","text":"Done","label":null},3]"#),
+            [TreeGuideEntry(text: "Done")]
+        )
+        XCTAssertNil(TreeMessageCard.parse(nil))
+        XCTAssertEqual(
+            TreeMessageCard.parse(#"{"kind":"question","question":"Ship?","options":["Yes","No"]}"#),
+            TreeMessageCard(kind: "question", question: "Ship?", options: ["Yes", "No"])
+        )
     }
 }

@@ -2,8 +2,8 @@ import SwiftUI
 
 /// EXP-973: the phone tab bar's WIDTH budget. The split launcher (chat | new
 /// issue) rides every bar-visible route now, not just a board — so the widest
-/// bar the app can draw is five tabs (Issues · My Work · Devices · Actions ·
-/// Reviews; SLOP-4 retired the sixth, Support) beside the 104pt capsule, and
+/// bar the app can draw is five tabs (Issues · Inbox · Devices · Threads ·
+/// Actions; SLOP-4 retired the sixth, Support) beside the 104pt capsule, and
 /// that has to fit the narrowest phone (375pt: SE / mini) with its screen
 /// insets intact.
 ///

@@ -3,10 +3,9 @@ import ExpUI
 import SwiftUI
 
 /// EXP-825: the launch options as ONE muted inline line under the composer
-/// card (Danny's variant B): Device, Account, Model, a Plan switch and the
-/// Resume switch inline while a worktree makes it offerable (EXP-481).
-/// EXP-1249: nothing else — the `⋯` pill is gone; Effort, Subagents,
-/// Ultracode, MCP servers and Computer use live in the composer's "+" menu
+/// card (Danny's variant B): Device, Account, Model and a Plan switch.
+/// EXP-1249: nothing else — the `⋯` pill is gone; Effort, Ultracode, MCP
+/// servers and Computer use live in the composer's "+" menu
 /// (`ComposerPlusMenu`). Every pill is a picker or a toggle — no disabled
 /// controls, the footer under the row explains what cannot start.
 ///
@@ -26,7 +25,6 @@ struct AgentOptionsRow: View {
                 accountPill
                 modelPill
                 planPill
-                resumePill
             }
             .padding(.horizontal, 2)
         }
@@ -128,32 +126,18 @@ struct AgentOptionsRow: View {
         .accessibilityLabel("Model")
     }
 
-    /// Plan mode is claude's (EXP-441/EXP-849); a resume never re-enters plan
-    /// mode (the machine clamps it too), so the switch hides while one is on.
-    /// EXP-827: a slide switch on every platform (web and desktop use one),
+    /// Plan mode is claude's (EXP-441/EXP-849). EXP-827: a slide switch on
+    /// every platform (web and desktop use one),
     /// not a lit select pill. EXP-859 rebuilt it without `.fixedSize()` and
     /// without scaling the app-wide toggle down: a scaled switch reported its
     /// UNSCALED size, which pushed the caption out of the pill and clipped the
     /// track. The shared `GlassToggleRow` `.pill` arm draws it at row scale.
     @ViewBuilder
     private var planPill: some View {
-        if LaunchVocabulary.supportsPlanMode(launch.agent), !model.resumeActive {
+        if LaunchVocabulary.supportsPlanMode(launch.agent) {
             @Bindable var launch = model.launch
             GlassToggleRow("Plan", isOn: $launch.planMode, style: .pill)
                 .accessibilityLabel("Plan mode")
-        }
-    }
-
-    /// EXP-481: offered only while the picked machine's synced worktree
-    /// inventory carries a row for the ONE checked issue.
-    @ViewBuilder
-    private var resumePill: some View {
-        if model.resumeCandidate != nil {
-            GlassPill(
-                "Resume",
-                mode: .select(isSelected: launch.resume) { launch.resume.toggle() }
-            )
-            .accessibilityLabel("Resume previous session")
         }
     }
 }

@@ -1,10 +1,8 @@
 import Foundation
 
-/// EXP-825: the composer's free text on the wire. With a subject picked it is
-/// OPTIONAL additional instructions (the desktop renders it as an
-/// "Additional instructions from the requester" section); with none it IS
-/// the chat prompt, and for the Chat and Create action builtins the server
-/// requires it. Images ride it as the steer embed format
+/// EXP-825: the composer's free text on the wire (`sessions.send({text})`).
+/// With a subject picked it is OPTIONAL additional instructions (the brief's
+/// Request section); with none it IS the request. Images ride it as the steer embed format
 /// (`SteerImageMessage.build`, byte-identical ×4): prose, blank line, one
 /// `![image](/api/attachments/<id>)` line per upload, `[Image #k]` markers in
 /// the prose. The contract caps both (`startPrompt`).
@@ -36,40 +34,33 @@ public enum AgentComposerPrompt {
 
     /// What the composer is about to start.
     public enum Subject: Equatable, Sendable {
-        /// No subject: a chat.
+        /// No subject: the text is the request.
         case none
-        /// `count` checked issues (1 = a single-issue run, 2+ = a batch).
+        /// `count` checked issues (the new thread's issues).
         case issues(count: Int)
-        /// A team action or a builtin.
+        /// A team action.
         case action
-        /// EXP-1233: the Fix merge conflicts builtin WITH a picked pull
-        /// request — its own headline ("Fix merge conflicts" + the PR's
-        /// issue chips) and send ("Fix conflicts"). Unpicked it is `.action`.
-        case fixConflicts
     }
 
     /// The submit label — the ×4 contract: "Start chat" / "Start coding" /
-    /// "Start batch · N" / "Run action" / (EXP-1233) "Fix conflicts".
+    /// "Run action".
     public static func submitTitle(for subject: Subject) -> String {
         switch subject {
         case .none: "Start chat"
-        case let .issues(count): count > 1 ? "Start batch · \(count)" : "Start coding"
+        case .issues: "Start coding"
         case .action: "Run action"
-        case .fixConflicts: DomainContract.composerUiFixConflictsSubmit
         }
     }
 
     /// EXP-1038: the composer's HEADLINE verb, above the field and beside the
     /// subject chips — the contract's `composerUi*` copy ×4: "Run" for an
     /// action, "Implement" for issue chips, "Ask the agent" for a subjectless
-    /// chat (which has no chips, so the verb stands alone). EXP-1233: "Fix
-    /// merge conflicts" for the builtin with a picked pull request.
+    /// chat (which has no chips, so the verb stands alone).
     public static func headline(for subject: Subject) -> String {
         switch subject {
         case .none: DomainContract.composerUiChatHeadline
         case .issues: DomainContract.composerUiImplementHeadline
         case .action: DomainContract.composerUiRunHeadline
-        case .fixConflicts: DomainContract.composerUiFixConflictsHeadline
         }
     }
 
@@ -83,7 +74,7 @@ public enum AgentComposerPrompt {
         switch subject {
         case .none:
             return DomainContract.composerUiChatPlaceholder
-        case .action, .fixConflicts:
+        case .action:
             let hint = actionHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return hint.isEmpty ? DomainContract.composerUiInstructionsPlaceholder : hint
         case .issues:

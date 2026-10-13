@@ -54,8 +54,7 @@ final class SyncApplyTests: XCTestCase {
                 id: id, boardId: "p1", number: 1, identifier: "EXP-1", title: title,
                 description: nil, status: "in_progress", priority: "none", assigneeId: nil,
                 creatorId: "u1", source: nil, dueDate: nil, sortOrder: 1.0,
-                completedAt: nil, duplicateOfId: nil, prUrl: nil,
-                prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,
+                completedAt: nil, duplicateOfId: nil,
                 createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z"
             ).save(db)
         }
@@ -255,175 +254,176 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertNil(stored?.defaultBranch)
     }
 
-    // EXP-637: the coding-sessions shape carries the agent's own close-out.
-    // An inserted row must round-trip all three columns into the schema
-    // (EXP-686 removed the fourth, `outcome`).
-    func testCodingSessionInsertPersistsCloseOut() async throws {
-        let session = CodingSessionEntity(
-            id: "cs1", issueId: nil, teamId: "ws1", userId: "u1",
-            deviceLabel: "macbook", deviceId: "dev-1", status: "ended",
-            actionName: "Refresh screenshots",
-            endedBy: "agent", resumedFromId: "cs0",
-            startedAt: "2026-08-27T09:00:00Z", endedAt: "2026-08-27T09:12:00Z",
-            createdAt: "2026-08-27T09:00:00Z", updatedAt: "2026-08-27T09:12:00Z"
+    // EXP-1291: a sessions row off the Electric wire — bools as Postgres
+    // "t"/"f", depth/sort_order as text, jsonb (guide, triggers,
+    // action_inputs, blocked) as native JSON stored as TEXT, and a
+    // server-only column leaking onto the wire ignored. It round-trips, a
+    // partial flips the turn state (bool coercion) and an unknown column
+    // drops, and a value-less delete removes the row by its key.
+    func testSessionInsertPartialAndDeleteApply() async throws {
+        let json = """
+            {"id":"s1","team_id":"ws1","parent_id":null,"root_id":"s1","depth":"0",
+             "kind":"thread","user_id":"u1","device_id":"dev-1","cli":"claude",
+             "account":"p-1","model":"fable","effort":"high","plan_mode":"t",
+             "computer_use":"f","ultracode":"f","repository_id":"r-1",
+             "branch":"exp/s1","status":"running","busy":"t","needs_input":"f",
+             "blocked":null,"started_at":"2026-10-13T09:00:00Z","last_turn_at":null,
+             "ended_at":null,"shared":"t","title":null,
+             "guide":[{"topic":"Summary","label":"Board","attachmentId":"a1"}],
+             "action_id":"act-1","action_name":"Ship","action_inputs":{"repo":"r-1"},
+             "spawned_by_session_id":null,"name":null,"icon":null,"color":null,
+             "triggers":[],"sort_order":"0","instructions":"server only",
+             "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
+            """
+        let session = try JSONDecoder().decode(SessionEntity.self, from: Data(json.utf8))
+        XCTAssertTrue(session.isRoot)
+        XCTAssertFalse(session.isAgent)
+        XCTAssertTrue(session.isLive)
+        XCTAssertTrue(session.planMode)
+        XCTAssertTrue(session.busy)
+        XCTAssertTrue(session.shared)
+        XCTAssertEqual(session.actionInputs, #"{"repo":"r-1"}"#)
+        XCTAssertEqual(session.triggers, "[]")
+        XCTAssertTrue(session.guide?.contains("\"attachmentId\":\"a1\"") ?? false)
+
+        let key = #""public"."sessions"/"s1""#
+        try await applyBatch(
+            messages: [ShapeMessage<SessionEntity>.insert(key: key, value: session)],
+            name: "sessions", table: "sessions", pool: pool
         )
-        let message = ShapeMessage<CodingSessionEntity>.insert(
-            key: #""public"."coding_sessions"/"cs1""#, value: session
+        let stored = try await pool.read { try SessionEntity.fetchOne($0, key: "s1") }
+        XCTAssertEqual(stored?.deviceId, "dev-1")
+        XCTAssertEqual(stored?.repositoryId, "r-1")
+        XCTAssertEqual(stored?.busy, true)
+
+        let partial = ShapeMessage<SessionEntity>.partialUpdate(
+            key: key,
+            columns: columns([
+                "id": "s1", "status": "idle", "busy": "f", "needs_input": "t",
+                "title": "Onboarding polish", "host_user_id": "u2",
+            ])
+        )
+        try await applyBatch(messages: [partial], name: "sessions", table: "sessions", pool: pool)
+        let patched = try await pool.read { try SessionEntity.fetchOne($0, key: "s1") }
+        XCTAssertEqual(patched?.status, DomainContract.sessionStatusIdle)
+        XCTAssertEqual(patched?.busy, false)
+        XCTAssertEqual(patched?.needsInput, true)
+        XCTAssertEqual(patched?.title, "Onboarding polish")
+        XCTAssertEqual(patched?.planMode, true)
+
+        try await applyBatch(
+            messages: [ShapeMessage<SessionEntity>.delete(key: key, value: nil)],
+            name: "sessions", table: "sessions", pool: pool
+        )
+        let gone = try await pool.read { try SessionEntity.fetchOne($0, key: "s1") }
+        XCTAssertNil(gone)
+    }
+
+    // EXP-1291: an agent root decodes its facets; a native-scalar (tRPC /
+    // fixture) row with the defaulted columns absent takes the schema
+    // defaults rather than throwing.
+    func testAgentSessionDecodesFacetsAndDefaults() throws {
+        let json = """
+            {"id":"ag1","team_id":"ws1","kind":"agent","user_id":"u1",
+             "device_id":"dev-1","status":"idle","name":"Caretaker",
+             "icon":"bot","color":"#4f46e5","sort_order":2,
+             "triggers":[{"id":"tr1","enabled":true,"kind":"schedule",
+                          "interval":"daily","minuteOfDay":540}],
+             "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
+            """
+        let agent = try JSONDecoder().decode(SessionEntity.self, from: Data(json.utf8))
+        XCTAssertTrue(agent.isAgent)
+        XCTAssertTrue(agent.isRoot)
+        XCTAssertEqual(agent.rootId, "ag1")
+        XCTAssertEqual(agent.depth, 0)
+        XCTAssertEqual(agent.name, "Caretaker")
+        XCTAssertEqual(agent.color, "#4f46e5")
+        XCTAssertEqual(agent.sortOrder, 2)
+        XCTAssertFalse(agent.busy)
+        XCTAssertFalse(agent.shared)
+        XCTAssertTrue(agent.triggers.contains("\"minuteOfDay\":540"))
+    }
+
+    // EXP-1291: the four child shapes round-trip — a message's card (jsonb)
+    // as TEXT, a PR's number off the wire as text, a session issue's
+    // defaulted source, a PR→issue link — and a partial answers a card.
+    func testSessionChildShapesApply() async throws {
+        let messageJson = """
+            {"id":"m1","session_id":"s2","root_id":"s1","team_id":"ws1",
+             "author_kind":"agent","author_id":null,"body":"",
+             "card":{"kind":"question","question":"Which board?","options":["A","B"]},
+             "answered_at":null,"consumed_at":null,
+             "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
+            """
+        let message = try JSONDecoder().decode(MessageEntity.self, from: Data(messageJson.utf8))
+        XCTAssertEqual(message.authorKind, DomainContract.messageAuthorKindAgent)
+        XCTAssertTrue(message.card?.contains("\"kind\":\"question\"") ?? false)
+        let messageKey = #""public"."messages"/"m1""#
+        try await applyBatch(
+            messages: [ShapeMessage<MessageEntity>.insert(key: messageKey, value: message)],
+            name: "messages", table: "messages", pool: pool
         )
         try await applyBatch(
-            messages: [message], name: "coding-sessions", table: "coding_sessions", pool: pool
+            messages: [ShapeMessage<MessageEntity>.partialUpdate(
+                key: messageKey,
+                columns: columns([
+                    "id": "m1", "answered_at": "2026-10-13T09:05:00Z",
+                    "card": #"{"kind":"question","question":"Which board?","answer":"A"}"#,
+                ])
+            )],
+            name: "messages", table: "messages", pool: pool
         )
-        let stored = try await pool.read { try CodingSessionEntity.fetchOne($0, key: "cs1") }
-        XCTAssertEqual(stored?.endedBy, "agent")
-        XCTAssertEqual(stored?.resumedFromId, "cs0")
-    }
+        let answered = try await pool.read { try MessageEntity.fetchOne($0, key: "m1") }
+        XCTAssertEqual(answered?.answeredAt, "2026-10-13T09:05:00Z")
+        XCTAssertTrue(answered?.card?.contains("\"answer\":\"A\"") ?? false)
 
-    // A pre-EXP-637 snapshot omits both keys entirely — the decoder must
-    // read them as nil rather than throw (which would brick the shape).
-    func testCodingSessionDecodesWithoutCloseOutKeys() throws {
-        let json = """
-            {"id":"cs2","issue_id":null,"team_id":"ws1","user_id":"u1",
-             "device_label":"macbook","status":"ended",
-             "started_at":"2026-08-27T09:00:00Z","ended_at":"2026-08-27T09:12:00Z",
-             "created_at":"2026-08-27T09:00:00Z","updated_at":"2026-08-27T09:12:00Z"}
+        let prJson = """
+            {"id":"pr1","team_id":"ws1","root_session_id":"s1","session_id":"s2",
+             "repository_id":"r-1","number":"12","url":"https://github.com/acme/repo/pull/12",
+             "title":"Polish","head":"exp/s1","base":"main","base_pull_request_id":null,
+             "state":"open","merged_at":null,
+             "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
             """
-        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
-        XCTAssertNil(row.endedBy)
-        XCTAssertNil(row.resumedFromId)
-        XCTAssertEqual(row.status, "ended")
-    }
-
-    // EXP-686 dropped `outcome` and EXP-864 `summary` from the shape, but an
-    // older server (or a replayed snapshot) may still send the keys — an
-    // unknown column must be ignored, never brick the shape.
-    func testCodingSessionToleratesAStrayOutcomeKey() throws {
-        let json = """
-            {"id":"cs3","issue_id":null,"team_id":"ws1","user_id":"u1",
-             "device_label":"macbook","status":"ended","outcome":"done",
-             "summary":"Shipped it.",
-             "started_at":"2026-08-27T09:00:00Z","ended_at":"2026-08-27T09:12:00Z",
-             "created_at":"2026-08-27T09:00:00Z","updated_at":"2026-08-27T09:12:00Z"}
-            """
-        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(row.endedBy, nil)
-        XCTAssertEqual(row.status, "ended")
-    }
-
-    // EXP-484: the coding-sessions shape carries the agent the run was
-    // launched with. It round-trips into the v23 column, and a pre-EXP-484
-    // snapshot omitting the key decodes nil rather than bricking the shape.
-    func testCodingSessionDecodesAgentAndDefaultsNil() async throws {
-        let session = CodingSessionEntity(
-            id: "cs3", issueId: "i1", teamId: "ws1", userId: "u1",
-            deviceLabel: "macbook", deviceId: "dev-1", status: "running", agent: "codex",
-            startedAt: "2026-08-28T09:00:00Z", endedAt: nil,
-            createdAt: "2026-08-28T09:00:00Z", updatedAt: "2026-08-28T09:00:00Z"
+        let pr = try JSONDecoder().decode(PullRequestEntity.self, from: Data(prJson.utf8))
+        XCTAssertEqual(pr.number, 12)
+        XCTAssertTrue(pr.isOpen)
+        try await applyBatch(
+            messages: [ShapeMessage<PullRequestEntity>.insert(
+                key: #""public"."pull_requests"/"pr1""#, value: pr
+            )],
+            name: "pull-requests", table: "pull_requests", pool: pool
         )
-        let message = ShapeMessage<CodingSessionEntity>.insert(
-            key: #""public"."coding_sessions"/"cs3""#, value: session
+
+        let linkJson = """
+            {"id":"si1","session_id":"s1","issue_id":"i1","team_id":"ws1",
+             "added_by":"u1","added_by_session_id":null,"sort_order":"1",
+             "created_at":"2026-10-13T09:00:00Z","updated_at":"2026-10-13T09:00:00Z"}
+            """
+        let link = try JSONDecoder().decode(SessionIssueEntity.self, from: Data(linkJson.utf8))
+        XCTAssertEqual(link.source, DomainContract.sessionIssueSourceUser)
+        XCTAssertEqual(link.sortOrder, 1)
+        try await applyBatch(
+            messages: [ShapeMessage<SessionIssueEntity>.insert(
+                key: #""public"."session_issues"/"si1""#, value: link
+            )],
+            name: "session-issues", table: "session_issues", pool: pool
         )
         try await applyBatch(
-            messages: [message], name: "coding-sessions", table: "coding_sessions", pool: pool
+            messages: [ShapeMessage<PullRequestIssueEntity>.insert(
+                key: #""public"."pull_request_issues"/"pri1""#,
+                value: PullRequestIssueEntity(
+                    id: "pri1", pullRequestId: "pr1", issueId: "i1", teamId: "ws1",
+                    createdAt: "2026-10-13T09:00:00Z", updatedAt: "2026-10-13T09:00:00Z"
+                )
+            )],
+            name: "pull-request-issues", table: "pull_request_issues", pool: pool
         )
-        let stored = try await pool.read { try CodingSessionEntity.fetchOne($0, key: "cs3") }
-        XCTAssertEqual(stored?.agent, "codex")
-
-        let json = """
-            {"id":"cs4","issue_id":"i1","team_id":"ws1","user_id":"u1",
-             "device_label":"macbook","status":"running",
-             "started_at":"2026-08-28T09:00:00Z","ended_at":null,
-             "created_at":"2026-08-28T09:00:00Z","updated_at":"2026-08-28T09:00:00Z"}
-            """
-        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
-        XCTAssertNil(row.agent)
-    }
-
-    // EXP-734: an action or chat run's OWN pull request rides the
-    // coding-sessions shape. It must round-trip into the v26 columns, and
-    // `pr_number` arrives as Postgres TEXT off the wire.
-    func testCodingSessionInsertPersistsOwnPr() async throws {
-        let session = CodingSessionEntity(
-            id: "cs5", issueId: nil, teamId: "ws1", userId: "u1",
-            deviceLabel: "macbook", deviceId: "dev-1", status: "running",
-            actionName: "Refresh screenshots",
-            startedAt: "2026-09-04T09:00:00Z", endedAt: nil,
-            createdAt: "2026-09-04T09:00:00Z", updatedAt: "2026-09-04T09:05:00Z",
-            prUrl: "https://github.com/acme/repo/pull/12", prNumber: 12, prState: "open"
-        )
-        let message = ShapeMessage<CodingSessionEntity>.insert(
-            key: #""public"."coding_sessions"/"cs5""#, value: session
-        )
-        try await applyBatch(
-            messages: [message], name: "coding-sessions", table: "coding_sessions", pool: pool
-        )
-        let stored = try await pool.read { try CodingSessionEntity.fetchOne($0, key: "cs5") }
-        XCTAssertEqual(stored?.prUrl, "https://github.com/acme/repo/pull/12")
-        XCTAssertEqual(stored?.prNumber, 12)
-        XCTAssertEqual(stored?.prState, "open")
-        XCTAssertEqual(stored?.hasOpenPr, true)
-    }
-
-    func testCodingSessionDecodesWirePrNumberAndDefaultsNil() throws {
-        let json = """
-            {"id":"cs6","issue_id":null,"team_id":"ws1","user_id":"u1",
-             "device_label":"macbook","status":"running",
-             "pr_url":"https://github.com/acme/repo/pull/12","pr_number":"12",
-             "pr_state":"open",
-             "started_at":"2026-09-04T09:00:00Z","ended_at":null,
-             "created_at":"2026-09-04T09:00:00Z","updated_at":"2026-09-04T09:00:00Z"}
-            """
-        let row = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(row.prNumber, 12)
-        XCTAssertEqual(row.prState, "open")
-        XCTAssertTrue(row.hasOpenPr)
-
-        // A pre-EXP-734 snapshot omits all three keys — nil, never a throw
-        // (which would brick the shape).
-        let older = """
-            {"id":"cs7","issue_id":null,"team_id":"ws1","user_id":"u1",
-             "device_label":"macbook","status":"running",
-             "started_at":"2026-09-04T09:00:00Z","ended_at":null,
-             "created_at":"2026-09-04T09:00:00Z","updated_at":"2026-09-04T09:00:00Z"}
-            """
-        let bare = try JSONDecoder().decode(CodingSessionEntity.self, from: Data(older.utf8))
-        XCTAssertNil(bare.prUrl)
-        XCTAssertNil(bare.prNumber)
-        XCTAssertNil(bare.prState)
-        XCTAssertFalse(bare.hasOpenPr)
-    }
-
-    // EXP-897: the stack edge rides the issues shape: a row off the wire must
-    // round-trip `pr_base_branch` into the v40 column, and a pre-EXP-897
-    // snapshot that omits the key decodes as nil rather than throwing (which
-    // would brick the issues shape for every older client).
-    func testIssueInsertPersistsPrBaseBranch() async throws {
-        let json = """
-            {"id":"i-stack","board_id":"p1","number":"7","identifier":"EXP-7",
-             "title":"Stacked","description":null,"status":"in_review","priority":"none",
-             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
-             "sort_order":"1","completed_at":null,"duplicate_of_id":null,
-             "pr_url":"https://github.com/acme/repo/pull/12","pr_number":"12",
-             "pr_state":"open","branch":"exp/EXP-7","pr_base_branch":"exp/EXP-6",
-             "pr_merged_at":null,
-             "created_at":"2026-09-16T09:00:00Z","updated_at":"2026-09-16T09:00:00Z"}
-            """
-        let issue = try JSONDecoder().decode(IssueEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(issue.prBaseBranch, "exp/EXP-6")
-        let message = ShapeMessage<IssueEntity>.insert(key: issueKey("i-stack"), value: issue)
-        try await applyBatch(messages: [message], name: "issues", table: "issues", pool: pool)
-        XCTAssertEqual(try fetchIssue("i-stack")?.prBaseBranch, "exp/EXP-6")
-
-        let older = """
-            {"id":"i-plain","board_id":"p1","number":"8","identifier":"EXP-8",
-             "title":"Plain","description":null,"status":"backlog","priority":"none",
-             "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
-             "sort_order":"2","completed_at":null,"duplicate_of_id":null,
-             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
-             "pr_merged_at":null,
-             "created_at":"2026-09-16T09:00:00Z","updated_at":"2026-09-16T09:00:00Z"}
-            """
-        let bare = try JSONDecoder().decode(IssueEntity.self, from: Data(older.utf8))
-        XCTAssertNil(bare.prBaseBranch)
+        let counts = try await pool.read { db in
+            try ["messages", "pull_requests", "session_issues", "pull_request_issues"].map {
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \($0)") ?? 0
+            }
+        }
+        XCTAssertEqual(counts, [1, 1, 1, 1])
     }
 
     // EXP-1231: `draft_id` rides the issues shape: a row off the wire must
@@ -435,8 +435,7 @@ final class SyncApplyTests: XCTestCase {
              "title":"From a draft","description":null,"status":"backlog","priority":"none",
              "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
              "sort_order":"1","completed_at":null,"duplicate_of_id":null,
-             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
-             "pr_base_branch":null,"pr_merged_at":null,"estimate":null,
+             "estimate":null,
              "draft_id":"d-1",
              "created_at":"2026-10-07T09:00:00Z","updated_at":"2026-10-07T09:00:00Z"}
             """
@@ -451,8 +450,6 @@ final class SyncApplyTests: XCTestCase {
              "title":"Plain","description":null,"status":"backlog","priority":"none",
              "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
              "sort_order":"2","completed_at":null,"duplicate_of_id":null,
-             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
-             "pr_merged_at":null,
              "created_at":"2026-10-07T09:00:00Z","updated_at":"2026-10-07T09:00:00Z"}
             """
         let bare = try JSONDecoder().decode(IssueEntity.self, from: Data(older.utf8))
@@ -469,8 +466,7 @@ final class SyncApplyTests: XCTestCase {
              "title":"Sized","description":null,"status":"backlog","priority":"none",
              "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
              "sort_order":"1","completed_at":null,"duplicate_of_id":null,
-             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
-             "pr_base_branch":null,"pr_merged_at":null,"estimate":"5",
+             "estimate":"5",
              "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
             """
         let issue = try JSONDecoder().decode(IssueEntity.self, from: Data(json.utf8))
@@ -491,8 +487,6 @@ final class SyncApplyTests: XCTestCase {
              "title":"Plain","description":null,"status":"backlog","priority":"none",
              "assignee_id":null,"creator_id":"u1","source":"user","due_date":null,
              "sort_order":"2","completed_at":null,"duplicate_of_id":null,
-             "pr_url":null,"pr_number":null,"pr_state":null,"branch":null,
-             "pr_merged_at":null,
              "created_at":"2026-09-24T09:00:00Z","updated_at":"2026-09-24T09:00:00Z"}
             """
         XCTAssertNil(try JSONDecoder().decode(IssueEntity.self, from: Data(older.utf8)).estimate)
@@ -676,18 +670,18 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(patched?.dueDate, "2026-10-01")
     }
 
-    // EXP-1284: `issue_drafts.thread_id` — a "New issue in this thread"
+    // EXP-1291: `issue_drafts.session_id` — a "New issue in this thread"
     // draft keeps its thread across a partial that does not touch it, and a
     // partial that nulls it (the thread was deleted: FK SET NULL) clears it.
-    func testIssueDraftThreadIdPersistsAndSurvivesPartials() async throws {
+    func testIssueDraftSessionIdPersistsAndSurvivesPartials() async throws {
         let json = """
             {"id":"d2","user_id":"u1","team_id":"ws1","board_id":"b1",
              "title":"In a thread","priority":"none","label_ids":"{}",
-             "thread_id":"t1",
+             "session_id":"t1",
              "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
             """
         let draft = try JSONDecoder().decode(IssueDraftEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(draft.threadId, "t1")
+        XCTAssertEqual(draft.sessionId, "t1")
         try await applyBatch(
             messages: [ShapeMessage<IssueDraftEntity>.insert(
                 key: #""public"."issue_drafts"/"d2""#, value: draft
@@ -695,7 +689,7 @@ final class SyncApplyTests: XCTestCase {
             name: "issue-drafts", table: "issue_drafts", pool: pool
         )
         let stored = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d2") }
-        XCTAssertEqual(stored?.threadId, "t1")
+        XCTAssertEqual(stored?.sessionId, "t1")
 
         try await applyBatch(
             messages: [ShapeMessage<IssueDraftEntity>.partialUpdate(
@@ -706,17 +700,17 @@ final class SyncApplyTests: XCTestCase {
         )
         let renamed = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d2") }
         XCTAssertEqual(renamed?.title, "Renamed")
-        XCTAssertEqual(renamed?.threadId, "t1")
+        XCTAssertEqual(renamed?.sessionId, "t1")
 
         try await applyBatch(
             messages: [ShapeMessage<IssueDraftEntity>.partialUpdate(
                 key: #""public"."issue_drafts"/"d2""#,
-                columns: columns(["id": "d2", "thread_id": NSNull()])
+                columns: columns(["id": "d2", "session_id": NSNull()])
             )],
             name: "issue-drafts", table: "issue_drafts", pool: pool
         )
         let cleared = try await pool.read { try IssueDraftEntity.fetchOne($0, key: "d2") }
-        XCTAssertNil(cleared?.threadId)
+        XCTAssertNil(cleared?.sessionId)
     }
 
     // EXP-878: a draft renders ONLY when its board resolves locally (the
@@ -779,201 +773,109 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(orphan?.title, "Orphan")
     }
 
-    // EXP-1284: a threads row off the wire — `results` (the thread's Guide)
-    // is jsonb, a native array here, stored as TEXT the way
-    // `coding_sessions.results` is and parsed by the same reader; a column
-    // the shape adds later is ignored by the decoder. A partial retitles and
-    // rewrites the Guide as raw JSON text, dropping an unknown column; a
-    // value-less delete removes the row by its key.
-    func testThreadInsertPartialAndDeleteApply() async throws {
-        let json = """
-            {"id":"t1","team_id":"ws1","title":null,"created_by":"u1",
-             "results":[{"topic":"Summary","label":"Board","attachmentId":"a1",
-                         "width":1170,"height":2532}],
-             "some_future_column":"x",
-             "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
-            """
-        let thread = try JSONDecoder().decode(ThreadEntity.self, from: Data(json.utf8))
-        XCTAssertNil(thread.title)
-        XCTAssertEqual(thread.createdBy, "u1")
-        XCTAssertEqual(parseSessionResults(thread.results).map(\.attachmentId), ["a1"])
-
-        let key = #""public"."threads"/"t1""#
-        try await applyBatch(
-            messages: [ShapeMessage<ThreadEntity>.insert(key: key, value: thread)],
-            name: "threads", table: "threads", pool: pool
-        )
-        let stored = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
-        XCTAssertEqual(stored?.teamId, "ws1")
-        XCTAssertEqual(parseSessionResults(stored?.results).first?.width, 1170)
-
-        let partial = ShapeMessage<ThreadEntity>.partialUpdate(
-            key: key,
-            columns: columns([
-                "id": "t1",
-                "title": "Onboarding polish",
-                "results": #"[{"topic":"Summary","label":"After","attachmentId":"a2"}]"#,
-                "updated_at": "2026-10-12T10:00:00Z",
-                "some_future_column": "y",
-            ])
-        )
-        try await applyBatch(messages: [partial], name: "threads", table: "threads", pool: pool)
-        let patched = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
-        XCTAssertEqual(patched?.title, "Onboarding polish")
-        XCTAssertEqual(parseSessionResults(patched?.results).map(\.attachmentId), ["a2"])
-        XCTAssertEqual(patched?.updatedAt, "2026-10-12T10:00:00Z")
-        // Untouched columns survive the partial.
-        XCTAssertEqual(patched?.createdBy, "u1")
-
-        // A partial clearing the title back to derived (JSON null).
-        let cleared = ShapeMessage<ThreadEntity>.partialUpdate(
-            key: key, columns: columns(["id": "t1", "title": NSNull()])
-        )
-        try await applyBatch(messages: [cleared], name: "threads", table: "threads", pool: pool)
-        let untitled = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
-        XCTAssertNil(untitled?.title)
-
-        try await applyBatch(
-            messages: [ShapeMessage<ThreadEntity>.delete(key: key, value: nil)],
-            name: "threads", table: "threads", pool: pool
-        )
-        let gone = try await pool.read { try ThreadEntity.fetchOne($0, key: "t1") }
-        XCTAssertNil(gone)
-    }
-
-    // EXP-1284: a thread_items row off the wire — `sort_order` arrives as
-    // Postgres text, the unused target column as null, and a server-only
-    // mirror leaking onto the wire never bricks the decode. A partial that
-    // MOVES a run (new `thread_id`) applies, an unknown column drops, and a
-    // value-less delete removes the row.
-    func testThreadItemInsertPartialAndDeleteApply() async throws {
-        let json = """
-            {"id":"ti1","thread_id":"t1","kind":"run","issue_id":null,
-             "session_id":"cs1","team_id":"ws1","board_id":null,
-             "added_by":"u1","added_by_session_id":"cs0","source":"agent",
-             "sort_order":"1.5","board_archived_at":null,
-             "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
-            """
-        let item = try JSONDecoder().decode(ThreadItemEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(item.kind, DomainContract.threadItemKindRun)
-        XCTAssertEqual(item.targetId, "cs1")
-        XCTAssertEqual(item.source, DomainContract.threadItemSourceAgent)
-        XCTAssertEqual(item.sortOrder, 1.5)
-        XCTAssertNil(item.issueId)
-
-        let key = #""public"."thread_items"/"ti1""#
-        try await applyBatch(
-            messages: [ShapeMessage<ThreadItemEntity>.insert(key: key, value: item)],
-            name: "thread-items", table: "thread_items", pool: pool
-        )
-        let stored = try await pool.read { try ThreadItemEntity.fetchOne($0, key: "ti1") }
-        XCTAssertEqual(stored?.sessionId, "cs1")
-        XCTAssertEqual(stored?.addedBySessionId, "cs0")
-        XCTAssertEqual(stored?.sortOrder, 1.5)
-
-        let moved = ShapeMessage<ThreadItemEntity>.partialUpdate(
-            key: key,
-            columns: columns([
-                "id": "ti1", "thread_id": "t2", "sort_order": "3",
-                "board_deleted_at": "2026-10-12T10:00:00Z",
-            ])
-        )
-        try await applyBatch(
-            messages: [moved], name: "thread-items", table: "thread_items", pool: pool
-        )
-        let patched = try await pool.read { try ThreadItemEntity.fetchOne($0, key: "ti1") }
-        XCTAssertEqual(patched?.threadId, "t2")
-        XCTAssertEqual(patched?.sortOrder, 3)
-        XCTAssertEqual(patched?.source, DomainContract.threadItemSourceAgent)
-
-        try await applyBatch(
-            messages: [ShapeMessage<ThreadItemEntity>.delete(key: key, value: nil)],
-            name: "thread-items", table: "thread_items", pool: pool
-        )
-        let gone = try await pool.read { try ThreadItemEntity.fetchOne($0, key: "ti1") }
-        XCTAssertNil(gone)
-    }
-
-    // EXP-1284: an issue item decodes with `source` absent (server default
-    // `user`) and a NATIVE sort order (tRPC/fixture form).
-    func testThreadItemDecodesIssueItemWithDefaults() throws {
-        let json = """
-            {"id":"ti2","thread_id":"t1","kind":"issue","issue_id":"i1",
-             "session_id":null,"team_id":"ws1","board_id":"b1","sort_order":2,
-             "created_at":"2026-10-12T09:00:00Z","updated_at":"2026-10-12T09:00:00Z"}
-            """
-        let item = try JSONDecoder().decode(ThreadItemEntity.self, from: Data(json.utf8))
-        XCTAssertEqual(item.targetId, "i1")
-        XCTAssertEqual(item.boardId, "b1")
-        XCTAssertEqual(item.source, DomainContract.threadItemSourceUser)
-        XCTAssertEqual(item.sortOrder, 2)
-        XCTAssertNil(item.addedBy)
-    }
-
-    // EXP-1284: the four thread reads — a team's threads by activity, a
-    // thread's items in order, the threads holding an issue (several, newest
-    // first), and the ONE thread of a run.
-    func testThreadQueries() async throws {
+    // EXP-1291: the session-tree reads — roots per kind (threads by
+    // activity, agents by their order), a tree shallowest first, a root's
+    // conversation and issues in order, the threads holding an issue, a
+    // root's and an issue's pull requests, and my live sessions.
+    func testSessionQueries() async throws {
+        let at = "2026-10-13T09:00:00Z"
         try await pool.write { db in
-            try ThreadEntity(
-                id: "t-old", teamId: "ws1", createdAt: "2026-10-12T09:00:00Z",
-                updatedAt: "2026-10-12T09:00:00Z"
+            try SessionEntity(
+                id: "t-old", teamId: "ws1", userId: "u1", deviceId: "dev-1",
+                status: DomainContract.sessionStatusEnded, createdAt: at, updatedAt: at
             ).save(db)
-            try ThreadEntity(
-                id: "t-new", teamId: "ws1", title: "Newest",
-                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T11:00:00Z"
+            try SessionEntity(
+                id: "t-new", teamId: "ws1", userId: "u1", deviceId: "dev-1",
+                status: DomainContract.sessionStatusRunning, title: "Newest",
+                createdAt: at, updatedAt: "2026-10-13T11:00:00Z"
             ).save(db)
-            try ThreadEntity(
-                id: "t-other", teamId: "ws2", createdAt: "2026-10-12T09:00:00Z",
-                updatedAt: "2026-10-12T12:00:00Z"
+            try SessionEntity(
+                id: "t-child", teamId: "ws1", parentId: "t-new", rootId: "t-new", depth: 1,
+                userId: "u2", deviceId: "dev-2", status: DomainContract.sessionStatusIdle,
+                createdAt: "2026-10-13T10:00:00Z", updatedAt: "2026-10-13T10:00:00Z"
             ).save(db)
-            // i1 sits in BOTH ws1 threads; cs1 in t-new only.
-            try ThreadItemEntity(
-                id: "ti-b", threadId: "t-new", kind: DomainContract.threadItemKindIssue,
-                issueId: "i1", teamId: "ws1", boardId: "b1", sortOrder: 2,
-                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T09:00:00Z"
+            try SessionEntity(
+                id: "t-other", teamId: "ws2", userId: "u1", deviceId: "dev-1",
+                createdAt: at, updatedAt: "2026-10-13T12:00:00Z"
             ).save(db)
-            try ThreadItemEntity(
-                id: "ti-a", threadId: "t-new", kind: DomainContract.threadItemKindRun,
-                sessionId: "cs1", teamId: "ws1", source: DomainContract.threadItemSourceAgent,
-                sortOrder: 1,
-                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T09:00:00Z"
+            try SessionEntity(
+                id: "ag-b", teamId: "ws1", kind: DomainContract.sessionKindAgent, userId: "u1",
+                deviceId: "dev-1", status: DomainContract.sessionStatusIdle, name: "Beta",
+                sortOrder: 1, createdAt: at, updatedAt: at
             ).save(db)
-            try ThreadItemEntity(
-                id: "ti-c", threadId: "t-old", kind: DomainContract.threadItemKindIssue,
-                issueId: "i1", teamId: "ws1", boardId: "b1",
-                createdAt: "2026-10-12T09:00:00Z", updatedAt: "2026-10-12T09:00:00Z"
+            try SessionEntity(
+                id: "ag-a", teamId: "ws1", kind: DomainContract.sessionKindAgent, userId: "u1",
+                deviceId: "dev-1", status: DomainContract.sessionStatusIdle, name: "Alpha",
+                sortOrder: 1, createdAt: at, updatedAt: at
+            ).save(db)
+            try MessageEntity(
+                id: "m2", sessionId: "t-child", rootId: "t-new", teamId: "ws1",
+                authorKind: DomainContract.messageAuthorKindAgent, body: "Done",
+                createdAt: "2026-10-13T10:05:00Z", updatedAt: "2026-10-13T10:05:00Z"
+            ).save(db)
+            try MessageEntity(
+                id: "m1", sessionId: "t-new", rootId: "t-new", teamId: "ws1",
+                authorKind: DomainContract.messageAuthorKindUser, authorId: "u1", body: "Go",
+                createdAt: at, updatedAt: at
+            ).save(db)
+            // i1 sits in BOTH ws1 threads; i2 only in t-new (linked first).
+            try SessionIssueEntity(
+                id: "si-b", sessionId: "t-new", issueId: "i1", teamId: "ws1", sortOrder: 2,
+                createdAt: at, updatedAt: at
+            ).save(db)
+            try SessionIssueEntity(
+                id: "si-a", sessionId: "t-new", issueId: "i2", teamId: "ws1", sortOrder: 1,
+                createdAt: at, updatedAt: at
+            ).save(db)
+            try SessionIssueEntity(
+                id: "si-c", sessionId: "t-old", issueId: "i1", teamId: "ws1",
+                createdAt: at, updatedAt: at
+            ).save(db)
+            try PullRequestEntity(
+                id: "pr1", teamId: "ws1", rootSessionId: "t-new", sessionId: "t-child",
+                repositoryId: "r-1", number: 12, url: "https://github.com/acme/repo/pull/12",
+                head: "exp/a", base: "main", createdAt: at, updatedAt: at
+            ).save(db)
+            try PullRequestIssueEntity(
+                id: "pri1", pullRequestId: "pr1", issueId: "i1", teamId: "ws1",
+                createdAt: at, updatedAt: at
             ).save(db)
         }
+        try seedIssue(id: "i1", title: "First")
+        try seedIssue(id: "i2", title: "Second")
 
-        let teamThreads = try await pool.read { db in
-            try ThreadQueries.threads(db: db, teamId: "ws1")
+        try await pool.read { db in
+            XCTAssertEqual(
+                try SessionQueries.roots(db: db, teamId: "ws1", kind: DomainContract.sessionKindThread)
+                    .map(\.id),
+                ["t-new", "t-old"]
+            )
+            XCTAssertEqual(
+                try SessionQueries.roots(db: db, teamId: nil, kind: DomainContract.sessionKindThread)
+                    .map(\.id),
+                ["t-other", "t-new", "t-old"]
+            )
+            XCTAssertEqual(
+                try SessionQueries.roots(db: db, teamId: "ws1", kind: DomainContract.sessionKindAgent)
+                    .map(\.id),
+                ["ag-a", "ag-b"]
+            )
+            XCTAssertEqual(try SessionQueries.tree(db: db, rootId: "t-new").map(\.id), ["t-new", "t-child"])
+            XCTAssertEqual(try SessionQueries.messages(db: db, rootId: "t-new").map(\.id), ["m1", "m2"])
+            XCTAssertEqual(try SessionQueries.messages(db: db, sessionId: "t-child").map(\.id), ["m2"])
+            XCTAssertEqual(
+                try SessionQueries.sessionIssues(db: db, rootId: "t-new").map(\.id), ["si-a", "si-b"]
+            )
+            XCTAssertEqual(try SessionQueries.issues(db: db, rootId: "t-new").map(\.id), ["i2", "i1"])
+            XCTAssertEqual(
+                try SessionQueries.rootsHoldingIssue(db: db, issueId: "i1").map(\.id), ["t-new", "t-old"]
+            )
+            XCTAssertTrue(try SessionQueries.rootsHoldingIssue(db: db, issueId: "i-missing").isEmpty)
+            XCTAssertEqual(try SessionQueries.pullRequests(db: db, rootId: "t-new").map(\.id), ["pr1"])
+            XCTAssertEqual(try SessionQueries.pullRequests(db: db, issueId: "i1").map(\.id), ["pr1"])
+            XCTAssertTrue(try SessionQueries.pullRequests(db: db, issueId: "i2").isEmpty)
+            XCTAssertEqual(try SessionQueries.issueIds(db: db, pullRequestId: "pr1"), ["i1"])
         }
-        XCTAssertEqual(teamThreads.map(\.id), ["t-new", "t-old"])
-
-        let items = try await pool.read { db in
-            try ThreadQueries.items(db: db, threadId: "t-new")
-        }
-        XCTAssertEqual(items.map(\.id), ["ti-a", "ti-b"])
-
-        let holding = try await pool.read { db in
-            try ThreadQueries.threadsHoldingIssue(db: db, issueId: "i1")
-        }
-        XCTAssertEqual(holding.map(\.id), ["t-new", "t-old"])
-        let none = try await pool.read { db in
-            try ThreadQueries.threadsHoldingIssue(db: db, issueId: "i-missing")
-        }
-        XCTAssertTrue(none.isEmpty)
-
-        let ofRun = try await pool.read { db in
-            try ThreadQueries.threadOfSession(db: db, sessionId: "cs1")
-        }
-        XCTAssertEqual(ofRun?.id, "t-new")
-        // An issue id is never mistaken for a run's.
-        let notARun = try await pool.read { db in
-            try ThreadQueries.threadOfSession(db: db, sessionId: "i1")
-        }
-        XCTAssertNil(notARun)
     }
 
     func testIssuelessNotificationInsertPersistsTeamId() async throws {

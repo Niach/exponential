@@ -203,7 +203,6 @@ final class CodingReadinessModel {
 
     func readiness(
         isMember: Bool,
-        remoteStartEnabled: Bool?,
         teamName: String,
         board: BoardEntity?
     ) -> CodingReadiness.Readiness {
@@ -212,7 +211,10 @@ final class CodingReadinessModel {
         }
         return CodingReadiness.derive(CodingReadiness.Input(
             isMember: isMember,
-            remoteStartEnabled: remoteStartEnabled,
+            // EXP-1291: a start is `sessions.send` (the database is the
+            // bus); the relay only carries the live layer, so it never
+            // gates Start — readiness = repository + device.
+            remoteStartEnabled: true,
             teamName: teamName,
             boardName: board?.name ?? "",
             boardRepository: boardRepository,

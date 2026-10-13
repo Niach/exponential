@@ -3,10 +3,9 @@ import ExpUI
 import SwiftUI
 
 /// EXP-825: the composer's action picker, the "+" menu's Run action › page:
-/// builtins pinned FIRST by the `builtin` flag ("Fix merge conflicts", then
-/// "Create action"), then the team's rows (`AgentComposerModel.actions` owns
-/// that order). Chat is never listed: it is what "no subject" means. A pick
-/// sets the subject and closes the menu; picking swaps out any issue chips.
+/// the team's saved prompts (`AgentComposerModel.actions` owns the order;
+/// EXP-1291: no builtins). A pick sets the subject and closes the menu;
+/// picking swaps out any issue chips.
 ///
 /// SLOP-28 (EXP-1259 D5): THE search list (`SearchListView`), pushed as a
 /// page of the "+" sheet; a row is the action's curated glyph (EXP-273) + its
