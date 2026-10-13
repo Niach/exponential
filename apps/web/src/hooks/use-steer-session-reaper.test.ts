@@ -1,27 +1,33 @@
 import { renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// The reaper left the sidebar's Sessions group (never mounted on phones) for
-// the team layout. Pinned: the keep set is the running rows plus the route's
-// session, it runs with no team resolved yet, and it re-runs on changes.
+// The reaper lives in the team layout (a phone's sidebar never mounts).
+// Pinned: the keep set is my non-ended sessions plus the route's session, it
+// runs with no team resolved yet, and it re-runs on changes.
 
 const mockState = vi.hoisted(() => ({
-  running: [] as { session: { id: string } }[],
+  rows: [] as { id: string; status: string }[],
   params: {} as Record<string, string | undefined>,
   retain: vi.fn(),
-  agentsArgs: [] as unknown[],
+  queried: false,
 }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useParams: () => mockState.params,
 }))
 
-vi.mock(`@/hooks/use-agents-data`, () => ({
-  useAgentsData: (...args: unknown[]) => {
-    mockState.agentsArgs = args
-    return { running: mockState.running, isLoading: false }
+vi.mock(`@tanstack/react-db`, () => ({
+  and: () => null,
+  eq: () => null,
+  useLiveQuery: (build: (query: unknown) => unknown) => {
+    const chain: Record<string, unknown> = {}
+    for (const key of [`from`, `where`, `select`]) chain[key] = () => chain
+    mockState.queried = build(chain) !== undefined
+    return { data: mockState.queried ? mockState.rows : undefined }
   },
 }))
+
+vi.mock(`@/lib/collections`, () => ({ sessionCollection: {} }))
 
 vi.mock(`@/lib/steer-session-store`, () => ({
   retainSteerSessions: mockState.retain,
@@ -29,40 +35,44 @@ vi.mock(`@/lib/steer-session-store`, () => ({
 
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 
-const row = (id: string) => ({ session: { id } })
-
 const lastKeep = () =>
   [...(mockState.retain.mock.calls.at(-1)![0] as Set<string>)].sort()
 
 describe(`useSteerSessionReaper`, () => {
   beforeEach(() => {
-    mockState.running = []
+    mockState.rows = []
     mockState.params = {}
     mockState.retain.mockClear()
   })
 
-  it(`retains the running stores plus the one the route is showing`, () => {
-    mockState.running = [row(`s1`), row(`s2`)]
+  it(`retains my live stores plus the one the route is showing`, () => {
+    mockState.rows = [
+      { id: `s1`, status: `running` },
+      { id: `s2`, status: `queued` },
+      { id: `s3`, status: `idle` },
+      { id: `gone`, status: `ended` },
+    ]
     mockState.params = { teamSlug: `acme`, sessionId: `s-ended` }
     renderHook(() => useSteerSessionReaper(`team-1`, `user-1`))
-    expect(mockState.agentsArgs).toEqual([`team-1`, `user-1`])
-    expect(lastKeep()).toEqual([`s-ended`, `s1`, `s2`])
+    expect(lastKeep()).toEqual([`s-ended`, `s1`, `s2`, `s3`])
   })
 
   it(`runs before the team resolves, keeping only the route's session`, () => {
+    mockState.rows = [{ id: `s1`, status: `running` }]
     mockState.params = { teamSlug: `acme`, sessionId: `s9` }
     renderHook(() => useSteerSessionReaper(undefined, undefined))
-    expect(mockState.retain).toHaveBeenCalledTimes(1)
+    expect(mockState.queried).toBe(false)
     expect(lastKeep()).toEqual([`s9`])
   })
 
-  it(`re-retains when the running set or the route changes`, () => {
-    mockState.running = [row(`s1`)]
-    const { rerender } = renderHook(() =>
-      useSteerSessionReaper(`team-1`, `user-1`)
-    )
+  it(`re-retains when the live set or the route changes`, () => {
+    mockState.rows = [{ id: `s1`, status: `running` }]
+    const { rerender } = renderHook(() => useSteerSessionReaper(`team-1`, `user-1`))
     expect(lastKeep()).toEqual([`s1`])
-    mockState.running = [row(`s1`), row(`s2`)]
+    mockState.rows = [
+      { id: `s1`, status: `running` },
+      { id: `s2`, status: `running` },
+    ]
     rerender()
     expect(lastKeep()).toEqual([`s1`, `s2`])
     mockState.params = { teamSlug: `acme`, sessionId: `s3` }

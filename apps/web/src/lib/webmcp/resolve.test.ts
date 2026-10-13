@@ -124,7 +124,8 @@ describe(`serializeIssue`, () => {
         source: `user`,
       },
       [`Bug`],
-      new Map([[`u1`, `Danny`]])
+      new Map([[`u1`, `Danny`]]),
+      { url: `https://github.com/o/r/pull/7`, state: `open` }
     )
     expect(serialized).toEqual({
       identifier: `EXP-7`,
@@ -135,6 +136,8 @@ describe(`serializeIssue`, () => {
       assignee: `Danny`,
       dueDate: `2026-08-01`,
       labels: [`Bug`],
+      prUrl: `https://github.com/o/r/pull/7`,
+      prState: `open`,
       createdAt: `2026-07-01T10:00:00.000Z`,
       updatedAt: `2026-07-02T10:00:00.000Z`,
     })
@@ -154,6 +157,7 @@ describe(`serializeIssue`, () => {
     expect(
       serializeIssue({ ...base, assigneeId: null }, [], new Map()).assignee
     ).toBeNull()
+    expect(serializeIssue({ ...base, assigneeId: null }, [], new Map()).prUrl).toBeNull()
     expect(
       serializeIssue({ ...base, assigneeId: `gone` }, [], new Map()).assignee
     ).toBe(`gone`)

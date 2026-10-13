@@ -3,10 +3,11 @@ import { conceptIcon, GlassSectionHeader, PrList, StackRail } from "@exp/ui"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1248: THE PR row, the REAL `@exp/ui` PrRow in its two shapes: a PR TREE
-// (follow-up runs based on their parent's branch) nests with tree guides; a
+// (sub-session PRs based on their parent's branch) nests with tree guides; a
 // linear STACK hangs off one rail down to its base branch, the current member
 // washed, and a hovered member offers the ghost "Merge through here" (pinned
-// on one row here). Reviews, PR trees and the Guide's stack card share it.
+// on one row here). EXP-1293: one row per `pull_requests` row (the stack edge
+// = `base_pull_request_id`); a thread's Guide draws them.
 
 const ExternalIcon = conceptIcon(`ui-external-link`)
 
@@ -67,25 +68,25 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `PrRow / PrList / StackRail / PrNode`,
       file: `packages/ui/src/pr-row.tsx`,
-      note: `Reviews and the Guide stack card draw it`,
+      note: `a thread's Guide draws it, one row per pull_requests row`,
     },
     desktop: {
       state: `ok`,
       symbol: `pr_rows::pr_row / pr_list / stack_rail`,
       file: `apps/desktop/crates/ui/src/pr_rows.rs`,
-      note: `Reviews (reviews_view.rs), the Guide stack card and the Related-work Stack band`,
+      note: `the Guide stack card and the Related-work Stack band`,
     },
     ios: {
       state: `ok`,
       symbol: `PrRow / PrList / StackRail`,
       file: `apps/ios/ExpUI/Sources/PrRow.swift`,
-      note: `ReviewsView and the GuideFace stack card`,
+      note: `the Guide stack card`,
     },
     android: {
       state: `ok`,
       symbol: `PrRow / PrList`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/PrRow.kt`,
-      note: `ReviewsScreen and the GuideFace stack card`,
+      note: `the Guide stack card`,
     },
   },
   island: () => <PrRowSpecimen />,

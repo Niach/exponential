@@ -7,6 +7,8 @@ import {
   issueLabelCollection,
   labelCollection,
   notificationCollection,
+  pullRequestCollection,
+  pullRequestIssueCollection,
   teamMemberCollection,
   userCollection,
 } from "@/lib/collections"
@@ -25,6 +27,7 @@ import {
   serializeBoard,
   serializeComment,
   serializeIssue,
+  type SerializedIssuePr,
 } from "@/lib/webmcp/resolve"
 
 // WebMCP tool surface (EXP-245): one useWebMCP call per tool, registered for
@@ -90,6 +93,27 @@ async function getLabelNamesByIssue() {
     byIssue.set(issueLabel.issueId, names)
   }
   return byIssue
+}
+
+/** Each issue's newest linked pull request (`pull_request_issues`). */
+async function getPullRequestByIssue() {
+  await Promise.all([
+    pullRequestCollection.preload(),
+    pullRequestIssueCollection.preload(),
+  ])
+  const prById = new Map(pullRequestCollection.toArray.map((pr) => [pr.id, pr]))
+  const byIssue = new Map<string, { url: string; state: string; number: number }>()
+  for (const link of pullRequestIssueCollection.toArray) {
+    const pr = prById.get(link.pullRequestId)
+    if (!pr) continue
+    const current = byIssue.get(link.issueId)
+    if (current && current.number > pr.number) continue
+    byIssue.set(link.issueId, { url: pr.url, state: pr.state, number: pr.number })
+  }
+  return (issueId: string): SerializedIssuePr => {
+    const pr = byIssue.get(issueId)
+    return pr ? { url: pr.url, state: pr.state } : null
+  }
 }
 
 function issueUrl(teamSlug: string, boardSlug: string, identifier: string) {
@@ -191,9 +215,10 @@ export function WebMcpReadTools() {
         (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
       )
       const limit = input.limit ?? 50
-      const [labelNames, userNames] = await Promise.all([
+      const [labelNames, userNames, prOf] = await Promise.all([
         getLabelNamesByIssue(),
         getUserNameById(),
+        getPullRequestByIssue(),
       ])
       return {
         board: board.slug,
@@ -201,7 +226,12 @@ export function WebMcpReadTools() {
         issues: rows
           .slice(0, limit)
           .map((issue) =>
-            serializeIssue(issue, labelNames.get(issue.id) ?? [], userNames)
+            serializeIssue(
+              issue,
+              labelNames.get(issue.id) ?? [],
+              userNames,
+              prOf(issue.id)
+            )
           ),
       }
     },
@@ -248,16 +278,22 @@ export function WebMcpReadTools() {
       const { boardById, issues } = await getTeamIssues(ctx.teamId)
       const issue = resolveIssue(input.issue, ctx.issueIdentifier, issues)
       await commentCollection.preload()
-      const [labelNames, userNames] = await Promise.all([
+      const [labelNames, userNames, prOf] = await Promise.all([
         getLabelNamesByIssue(),
         getUserNameById(),
+        getPullRequestByIssue(),
       ])
       const comments = commentCollection.toArray
         .filter((comment) => comment.issueId === issue.id)
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       const boardSlug = boardById.get(issue.boardId)?.slug ?? null
       return {
-        ...serializeIssue(issue, labelNames.get(issue.id) ?? [], userNames),
+        ...serializeIssue(
+          issue,
+          labelNames.get(issue.id) ?? [],
+          userNames,
+          prOf(issue.id)
+        ),
         description: issue.description,
         board: boardSlug,
         url: boardSlug
@@ -309,16 +345,16 @@ export function WebMcpReadTools() {
 
   useWebMCP({
     name: `navigate`,
-    description: `Navigate the app to a board, an issue, the notification inbox, or the PR reviews view of the current team. Changes what the user sees; modifies no data.`,
+    description: `Navigate the app to a board, an issue, the notification inbox, or the Threads list of the current team. Changes what the user sees; modifies no data.`,
     inputSchema: {
-      to: z.enum([`board`, `issue`, `inbox`, `reviews`]),
+      to: z.enum([`board`, `issue`, `inbox`, `threads`]),
       board: boardRefSchema,
       issue: issueRefSchema,
     },
     annotations: { idempotentHint: true },
     handler: async (input) => {
       const ctx = getWebMcpAppContext()
-      if (input.to === `inbox` || input.to === `reviews`) {
+      if (input.to === `inbox` || input.to === `threads`) {
         ctx.navigate({ kind: input.to })
         return { navigated: input.to }
       }

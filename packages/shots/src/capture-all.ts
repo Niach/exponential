@@ -101,19 +101,17 @@ const STEER_DEPENDENT_VIEWS = new Set([
   // photographs the logins that row reports — nothing to frame without it.
   `agents`,
   `chat-issues`,
-  `chat-action`,
   `steering`,
-  // The steered session's transcript (Show work on) — `steering`'s feed and
-  // the cards it carries (EXP-1259).
+  // EXP-1293: the raw session view `steering` photographs, anchored on its
+  // header — without the stub its feed reads Reconnecting.
+  `session`,
+  // The steered session's feed — `steering`'s cards (EXP-1259).
   `work-card`,
   `script-card`,
   `comment-call-card`,
   `issue-detail`,
   `board`,
   `machine-settings`,
-  // EXP-1284: the thread's live session renders its prompt, work and pending
-  // question off the stub's feed; without it the conversation reads "Paused".
-  `thread`,
 ])
 /**
  * Views that photograph the demo user's DEVICE FLEET: the Devices page, a
@@ -132,7 +130,6 @@ const FLEET_VIEWS = new Set([
   `chat`,
   `agent-home`,
   `chat-issues`,
-  `chat-action`,
   `chat-from-issue`,
   `composer-menu`,
   `steering`,
@@ -140,11 +137,9 @@ const FLEET_VIEWS = new Set([
   `script-card`,
   `comment-call-card`,
   `action-page`,
-  `action-create`,
-  `action-triggers`,
-  `trigger-editor`,
-  `action-runs`,
   `settings-agents`,
+  // EXP-1293: a team agent's settings page names its runner machine.
+  `settings-team-agent`,
   `settings-worktrees`,
   `getting-started`,
 ])
@@ -2102,7 +2097,7 @@ async function main(): Promise<number> {
 
     ids = await fetchDemoIds()
     console.log(
-      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}${ids.runChangesSessionId ? `` : ` · NO run-changes session (run-changes will skip)`}${ids.threadId && ids.threadRunsId ? `` : ` · NO demo threads (thread/thread-runs will skip)`}`
+      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.sessionId ? `` : ` · NO demo session (steering/session will skip)`}${ids.threadId ? `` : ` · NO demo thread (thread will skip)`}${ids.agentId ? `` : ` · NO demo agent (agent-channel will skip)`}`
     )
   }
 

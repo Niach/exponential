@@ -105,8 +105,6 @@ export * from "./session-thread-view"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"
 export * from "./run-status-row"
-// EXP-1233: the Fix merge conflicts card the composer draws for the builtin.
-export * from "./fix-conflicts-card"
 export * from "./sheet"
 export * from "./sidebar"
 export * from "./skeleton"
@@ -134,7 +132,6 @@ export * from "./usage-windows"
 export * from "./user-avatar"
 export * from "./user-message-bubble"
 export * from "./wave-graph"
-export * from "./work-face-strip"
 export * from "./work-header"
 // EXP-1275: THE feedback states (Spinner, InlineStatus, useDelayedFlag,
 // FeedbackMark, BlockingOverlay + blockWindow); pending Button and
@@ -149,7 +146,6 @@ export * from "./search-list"
 // EXP-1259 D12-D14: the run transcript's cards — THE Work card (workflow,
 // task list, subagent), the code-mode Script card and the comment call card.
 export * from "./work-card"
-export * from "./thread-parts"
 export * from "./script-card"
 export * from "./comment-call-card"
 // EXP-1270 (EXP-1259 D6): THE Getting started block's face (header + one

@@ -29,7 +29,7 @@ import {
 } from "@/lib/steer-devices"
 import { useNow } from "@/hooks/use-now"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 
 export type ReadinessRepoList = Awaited<
   ReturnType<typeof trpc.repositories.list.query>
@@ -39,8 +39,7 @@ type GithubStatus = Awaited<
 >
 
 // Membership gate shared by every coding surface (the server enforces it
-// regardless; this only decides what renders). Re-exported by
-// `issue-coding-rows.tsx` for its existing importers.
+// regardless; this only decides what renders).
 export function useIsTeamMember(teamId: string, currentUserId: string) {
   return useTeamMembership(teamId, currentUserId).isMember
 }

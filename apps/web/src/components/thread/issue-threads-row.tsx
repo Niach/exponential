@@ -1,90 +1,219 @@
-import { useNavigate } from "@tanstack/react-router"
-import { THREAD_COPY } from "@exp/ui"
-import { useThreadBundle, useThreadsOfIssue, type ThreadBundle } from "@/hooks/use-threads"
-import { ThreadLead } from "@/components/thread/thread-row"
-import { useSession } from "@/hooks/use-session"
+import { useMemo } from "react"
+import { Link } from "@tanstack/react-router"
+import { inArray, useLiveQuery } from "@tanstack/react-db"
+import { AgentBrandMark, AgentWorkingMark, Pill } from "@exp/ui"
+import {
+  issueCollection,
+  messageCollection,
+  sessionIssueCollection,
+} from "@/lib/collections"
+import { useSessionRow, useThreadsOfIssue } from "@/hooks/use-session-tree"
+import {
+  threadTitle,
+  toTreeIssue,
+  toTreeMessage,
+  toTreeSession,
+  type MessageRow,
+  type SessionIssueRow,
+  type SessionRow,
+  type TreeIssue,
+} from "@/lib/session-tree"
 
-// EXP-1284 (rule 6): the issue page NAMES its threads — a `Threads` row in
-// the header area, one chip per thread holding the issue (its live run's
-// mark while one runs, else the thread glyph, then the title), opening the
-// thread page. Absent while the issue sits in none.
+// EXP-1284 / EXP-1293: the issue page NAMES the threads it sits in: a
+// `Threads` row under the title, one chip per thread (a ROOT session linked
+// through `session_issues`): the agent's mark (working while it works) and
+// the thread's title (`threadTitle`), opening the thread page. Absent while
+// the issue sits in none.
 
-/** One thread as a chip: its live run's mark (else the thread glyph) and
- *  its title, opening the thread page. */
-function ThreadChip({ bundle, teamSlug }: { bundle: ThreadBundle; teamSlug: string }) {
-  const navigate = useNavigate()
+/** The rail/page title is the one place copy may say it. */
+export const ISSUE_THREADS_LABEL = `Threads`
+/** The draft page's word before its thread chip. */
+export const DRAFT_THREAD_LABEL = `In`
+
+/** `threadTitle` for each root: its linked issues (sort order) and its first
+ *  person message, read in three live queries for the whole set. */
+function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> {
+  const rootIds = roots.map((root) => root.id).sort()
+  const key = rootIds.join(`,`)
+  const { data: links } = useLiveQuery(
+    (query) =>
+      rootIds.length > 0
+        ? query
+            .from({ links: sessionIssueCollection })
+            .where(({ links }) => inArray(links.sessionId, rootIds))
+        : undefined,
+    [key]
+  )
+  const linkRows = (links ?? []) as SessionIssueRow[]
+  const issueIds = [...new Set(linkRows.map((link) => link.issueId))].sort()
+  const issueKey = issueIds.join(`,`)
+  const { data: issues } = useLiveQuery(
+    (query) =>
+      issueIds.length > 0
+        ? query
+            .from({ issues: issueCollection })
+            .where(({ issues }) => inArray(issues.id, issueIds))
+            .select(({ issues }) => ({
+              id: issues.id,
+              identifier: issues.identifier,
+              title: issues.title,
+            }))
+        : undefined,
+    [issueKey]
+  )
+  const { data: messages } = useLiveQuery(
+    (query) =>
+      rootIds.length > 0
+        ? query
+            .from({ messages: messageCollection })
+            .where(({ messages }) => inArray(messages.sessionId, rootIds))
+        : undefined,
+    [key]
+  )
+  return useMemo(() => {
+    const issueById = new Map(
+      ((issues ?? []) as TreeIssue[]).map((issue) => [issue.id, toTreeIssue(issue)])
+    )
+    const treeMessages = ((messages ?? []) as MessageRow[]).map(toTreeMessage)
+    const titles = new Map<string, string>()
+    for (const root of roots) {
+      const rootIssues = linkRows
+        .filter((link) => link.sessionId === root.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((link) => issueById.get(link.issueId))
+        .filter((issue): issue is TreeIssue => issue !== undefined)
+      titles.set(
+        root.id,
+        threadTitle(toTreeSession(root), rootIssues, treeMessages).title
+      )
+    }
+    return titles
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roots, links, issues, messages])
+}
+
+/** One thread as a chip: the agent's mark and the title, opening it. */
+function ThreadChip({
+  root,
+  title,
+  teamSlug,
+}: {
+  root: SessionRow
+  title: string
+  teamSlug: string
+}) {
+  const working = root.status !== `ended` && root.busy
   return (
-    <button
-      type="button"
-      data-testid={`issue-thread-chip-${bundle.thread.id}`}
-      className="flex h-6 max-w-[18rem] min-w-0 items-center gap-1.5 rounded-md border border-border bg-accent/60 px-2 text-[0.8125rem] font-medium text-foreground hover:bg-accent"
-      onClick={() =>
-        void navigate({
-          to: `/t/$teamSlug/threads/$threadId`,
-          params: { teamSlug, threadId: bundle.thread.id },
-        })
+    <Pill
+      asChild
+      mode="action"
+      className="max-w-[18rem] min-w-0 text-foreground"
+      leading={
+        working ? (
+          <AgentWorkingMark agent={root.cli} className="size-3.5" />
+        ) : (
+          <AgentBrandMark agent={root.cli} className="size-3.5" />
+        )
       }
     >
-      <ThreadLead bundle={bundle} ringClassName="ring-accent" />
-      <span className="min-w-0 truncate">{bundle.view.title}</span>
-    </button>
+      <Link
+        to="/t/$teamSlug/threads/$threadId"
+        params={{ teamSlug, threadId: root.id }}
+        data-testid={`issue-thread-chip-${root.id}`}
+      >
+        <span className="min-w-0 truncate">{title}</span>
+      </Link>
+    </Pill>
   )
 }
 
-/** EXP-1284: the New issue page of a "New issue in this thread" draft says
- *  where it files — `In <thread>` under the title, the issue page's Threads
- *  row style. Absent for a plain draft (or a thread not synced / gone). */
+function ThreadChipRow({
+  label,
+  roots,
+  teamSlug,
+  testId,
+  className,
+}: {
+  label: string
+  roots: readonly SessionRow[]
+  teamSlug: string
+  testId: string
+  className?: string
+}) {
+  const titles = useThreadTitles(roots)
+  if (roots.length === 0) return null
+  return (
+    <div
+      data-testid={testId}
+      className={`flex min-w-0 flex-wrap items-center gap-1.5 text-sm ${className ?? ``}`}
+    >
+      <span className="mr-1 shrink-0 text-xs text-muted-foreground">{label}</span>
+      {roots.map((root) => (
+        <ThreadChip
+          key={root.id}
+          root={root}
+          title={titles.get(root.id) ?? ``}
+          teamSlug={teamSlug}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** EXP-1284: a "New issue in this thread" draft says where it files: `In
+ *  <thread>` under the title. Absent for a plain draft (or a thread not
+ *  synced / gone). */
 export function DraftThreadRow({
   threadId,
-  teamId,
   teamSlug,
   className,
 }: {
   threadId: string | null
-  teamId: string
+  /** Kept for the draft page's call; the root row carries its team. */
+  teamId?: string
   teamSlug: string
   className?: string
 }) {
-  const { data: session } = useSession()
-  const { bundle } = useThreadBundle(teamId, session?.user?.id, threadId ?? undefined)
-  if (!threadId || !bundle) return null
+  const { row } = useSessionRow(threadId)
+  const roots = useMemo(
+    () => (row && row.parentId === null ? [row] : []),
+    [row]
+  )
   return (
-    <div
-      data-testid="draft-thread-row"
-      className={`flex min-w-0 items-center gap-1.5 text-sm ${className ?? ``}`}
-    >
-      <span className="mr-1 shrink-0 text-xs text-muted-foreground">{DRAFT_THREAD_LABEL}</span>
-      <ThreadChip bundle={bundle} teamSlug={teamSlug} />
-    </div>
+    <ThreadChipRow
+      label={DRAFT_THREAD_LABEL}
+      roots={roots}
+      teamSlug={teamSlug}
+      testId="draft-thread-row"
+      className={className}
+    />
   )
 }
 
-/** The draft page's word before its thread chip. */
-export const DRAFT_THREAD_LABEL = `In`
-
 export function IssueThreadsRow({
   issueId,
-  teamId,
   teamSlug,
   className,
 }: {
   issueId: string
-  teamId: string
+  /** Kept for the callers; the links carry their team. */
+  teamId?: string
   teamSlug: string
   className?: string
 }) {
-  const { data: session } = useSession()
-  const threads = useThreadsOfIssue(teamId, session?.user?.id, issueId)
-  if (threads.length === 0) return null
+  const roots = useThreadsOfIssue(issueId)
+  // Threads only: an agent's channel is not a thread the issue sits in.
+  const threads = useMemo(
+    () => roots.filter((root) => root.parentId === null && root.kind !== `agent`),
+    [roots]
+  )
   return (
-    <div
-      data-testid="issue-threads-row"
-      className={`flex min-w-0 flex-wrap items-center gap-1.5 text-sm ${className ?? ``}`}
-    >
-      <span className="mr-1 shrink-0 text-xs text-muted-foreground">{THREAD_COPY.threads}</span>
-      {threads.map((bundle) => (
-        <ThreadChip key={bundle.thread.id} bundle={bundle} teamSlug={teamSlug} />
-      ))}
-    </div>
+    <ThreadChipRow
+      label={ISSUE_THREADS_LABEL}
+      roots={threads}
+      teamSlug={teamSlug}
+      testId="issue-threads-row"
+      className={className}
+    />
   )
 }

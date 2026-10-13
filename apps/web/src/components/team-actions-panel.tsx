@@ -4,8 +4,6 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import type { SyncedAction, Team } from "@/db/schema"
 import { actionCollection } from "@/lib/collections"
-import { BUILTIN_CREATE_ACTION_ID } from "@/lib/builtin-actions"
-import { parseActionTriggers, triggerBadges } from "@/lib/action-triggers"
 import {
   conceptIcon,
   Button,
@@ -20,9 +18,8 @@ import {
   type MenuEntry,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
-import { useSteerConfig } from "@/components/agent-session"
-import type { TeamAction } from "@/components/action-prompt-form"
-import { TriggerGlyph } from "@/components/action-triggers-section"
+import { CreateActionDialog } from "@/components/action-prompt-form"
+import { Empty } from "@/components/empty"
 import { useOpenComposerInTeam } from "@/hooks/use-open-composer"
 import { TeamBandHeader } from "@/components/team/team-band"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -33,10 +30,10 @@ import {
 import { usePinToggle } from "@/hooks/use-pins"
 
 // The team Actions surface (EXP-257/EXP-530), extracted from the Agents route
-// in EXP-574: ONE list of actions (SLOP-2 — an action carries its triggers,
-// so there is no separate automations list), the same on every viewport
-// (EXP-1270: the Suggestions tab and the lightbulb are gone ×4). A row opens
-// the action's page (`actions/$actionId`: prompt, triggers, runs).
+// in EXP-574: ONE list of actions, the same on every viewport (EXP-1270: the
+// Suggestions tab and the lightbulb are gone ×4). EXP-1293: an action is a
+// SAVED PROMPT — no triggers (they live on team agents), no builtins. A row
+// opens the action's page (`actions/$actionId`); ▶ seeds the home composer.
 
 // EXP-431: the create entry points share the cross-client `action-create`
 // concept (desktop's `registry::ACTION_CREATE`), never a raw glyph.
@@ -49,8 +46,7 @@ const UiUnpinIcon = conceptIcon(`ui-unpin`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 
-// The row's ⋯ menu — hidden entirely on the builtin (server-shipped, not
-// editable, deletable or pinnable). EXP-778: every member gets Pin/Unpin (a
+// The row's ⋯ menu. EXP-778: every member gets Pin/Unpin (a
 // pin is personal), on a sidebar-width viewport only (EXP-858); Edit and
 // Delete stay owner-only, like the IDE's row menu. Both rules are
 // conditional, so the TRIGGER asks first whether anything would be in the
@@ -120,89 +116,55 @@ export function ActionMenu({
 function ActionRow({
   action,
   isOwner,
-  canRun,
   onRun,
   onOpen,
   onDelete,
 }: {
-  action: TeamAction
+  action: SyncedAction
   isOwner: boolean
-  canRun: boolean
   onRun: () => void
   onOpen: () => void
   onDelete: () => void
 }) {
   const RowIcon = getActionIcon(action)
-  // SLOP-2: which trigger kinds the action carries — a glyph each beside the
-  // name, muted while none of that kind is enabled. The triggers themselves
-  // are on the action's page.
-  const badges = triggerBadges(
-    action.builtin ? [] : parseActionTriggers(action.triggers)
-  )
   return (
     // EXP-862: every flat row takes the hover wash; a row opens the action's
     // page (the ▶ and the menu stop the click underneath them).
     <ListRow
       interactive
-      onClick={action.builtin ? undefined : onOpen}
+      onClick={onOpen}
       // A clickable row is a button to assistive tech; without its own name
       // it would be called after everything inside it, including the "..."
       // menu's label, and mask that control.
-      aria-label={action.builtin ? undefined : action.name}
+      aria-label={action.name}
+      data-testid="action-row"
     >
       <RowIcon className="size-4 shrink-0 text-foreground/70" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">{action.name}</span>
-          {([`schedule`, `event`] as const).map((kind) => {
-            const badge = badges[kind]
-            if (!badge) return null
-            const label =
-              kind === `schedule` ? `Runs on a schedule` : `Runs on an event`
-            return (
-              <span
-                key={kind}
-                title={badge.active ? label : `${label} (paused)`}
-                className="flex shrink-0 items-center"
-              >
-                <TriggerGlyph
-                  kind={kind}
-                  className={`size-3 ${badge.active ? `text-muted-foreground` : `text-muted-foreground/40`}`}
-                />
-              </span>
-            )
-          })}
         </div>
-        {action.description && (
-          <div className="line-clamp-2 text-xs text-muted-foreground">
-            {action.description}
-          </div>
-        )}
       </div>
-      {canRun && (
-        <Button
-          variant="glass"
-          size="icon"
-          onClick={(event) => {
-            event.stopPropagation()
-            onRun()
-          }}
-          aria-label="Run"
-          title="Run"
-        >
-          <ActionRunIcon />
-        </Button>
-      )}
-      {!action.builtin && (
-        <span onClick={(event) => event.stopPropagation()}>
-          <ActionMenu
-            action={action}
-            isOwner={isOwner}
-            onEdit={onOpen}
-            onDelete={onDelete}
-          />
-        </span>
-      )}
+      <Button
+        variant="glass"
+        size="icon"
+        onClick={(event) => {
+          event.stopPropagation()
+          onRun()
+        }}
+        aria-label="Run"
+        title="Run"
+      >
+        <ActionRunIcon />
+      </Button>
+      <span onClick={(event) => event.stopPropagation()}>
+        <ActionMenu
+          action={action}
+          isOwner={isOwner}
+          onEdit={onOpen}
+          onDelete={onDelete}
+        />
+      </span>
     </ListRow>
   )
 }
@@ -214,7 +176,7 @@ export function DeleteActionDialog({
   onDeleted,
 }: {
   /** The action to delete; null = closed. */
-  action: TeamAction | null
+  action: SyncedAction | null
   onClose: () => void
   onDeleted?: () => void
 }) {
@@ -252,16 +214,15 @@ export function DeleteActionDialog({
   )
 }
 
-// Rendered after the builtin row(s) while the team has no custom actions yet
-// (EXP-431) — the create flow no longer poses as a list entry, so the empty-ish
-// list nudges toward the "New action" button's dialog instead. EXP-962: that
-// dashed nudge IS `EmptyCta`.
-function NoCustomActionsNudge({ onClick }: { onClick: () => void }) {
+// Rendered while the team has no actions yet (EXP-431): the create flow
+// never poses as a list entry, so the empty list nudges toward "New action".
+// EXP-962: that dashed nudge IS `EmptyCta`.
+function NoActionsNudge({ onClick }: { onClick: () => void }) {
   return (
     <EmptyCta
       icon={ActionCreateIcon}
-      title="No custom actions yet"
-      description="Describe one and your agent will build it."
+      title="No actions yet"
+      description="Save a prompt your team runs again and again."
       onClick={onClick}
     />
   )
@@ -281,7 +242,7 @@ export function TeamActionsPanel({
   grouped?: boolean
 }) {
   const { isMember } = useTeamPermissions(team)
-  const [deleteTarget, setDeleteTarget] = useState<TeamAction | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<SyncedAction | null>(null)
 
   if (!isMember) return null
 
@@ -322,24 +283,19 @@ function TeamActionsSection({
 }: {
   team: Team
   grouped: boolean
-  onDelete: (action: TeamAction) => void
+  onDelete: (action: SyncedAction) => void
 }) {
   const { isMember, isOwner } = useTeamPermissions(team)
-  const steerConfig = useSteerConfig()
   const navigate = useNavigate()
+  const [createOpen, setCreateOpen] = useState(false)
 
   const teamId = team.id
-  // Steer tickets require team membership and a configured relay; the
-  // server enforces both at mint time, this only decides whether the
-  // interactive affordances render.
-  const steerEnabled = Boolean(isMember && steerConfig?.enabled)
-  // EXP-1186: starts go to the action's OWN team (the route's team keeps
-  // the dialog).
+  // EXP-1186: starts go to the action's OWN team.
   const openComposer = useOpenComposerInTeam()
 
   // Actions ride the Electric `actions` shape since EXP-268 (body excluded —
-  // the action page fetches it via tRPC), so a builtin "Create action" run's
-  // MCP-authored action just appears; no refetch machinery.
+  // the action page fetches it via tRPC), so an MCP-authored action just
+  // appears; no refetch machinery.
   const { data: actionRows } = useLiveQuery(
     (query) =>
       query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
@@ -347,39 +303,34 @@ function TeamActionsSection({
   )
 
   // The synced rows re-apply the server's ordering (sortOrder asc, then name
-  // — collections hydrate unordered). No builtin is LISTED: "Create action"
-  // lives behind the section's own "New action" button (EXP-431), and
-  // EXP-686 hid "Fix merge conflicts" too — it is launched from Reviews and
-  // over MCP, never picked out of this list.
-  const sortedActions = useMemo<TeamAction[] | null>(() => {
+  // — collections hydrate unordered).
+  const sortedActions = useMemo<SyncedAction[] | null>(() => {
     if (!isMember || actionRows === undefined) return null
-    return [...actionRows]
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
-      .map((row) => ({ ...row, builtin: false as const }))
+    return [...(actionRows as SyncedAction[])].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+    )
   }, [isMember, actionRows])
 
   if (!isMember) return null
 
-  const actionItemProps = (action: TeamAction) => ({
+  const openAction = (actionId: string) =>
+    void navigate({
+      to: `/t/$teamSlug/actions/$actionId`,
+      params: { teamSlug: team.slug, actionId },
+    })
+  const actionItemProps = (action: SyncedAction) => ({
     action,
     isOwner,
-    canRun: steerEnabled,
     // EXP-825: the composer with this action as the subject chip.
     onRun: () => openComposer(team.slug, { actionId: action.id }),
-    onOpen: () => {
-      void navigate({
-        to: `/t/$teamSlug/actions/$actionId`,
-        params: { teamSlug: team.slug, actionId: action.id },
-      })
-    },
+    onOpen: () => openAction(action.id),
     onDelete: () => onDelete(action),
   })
 
-  const canCreateAction = steerEnabled && isOwner
-  // EXP-825: "New action" is the composer with the Create action builtin
-  // picked — the request is typed there (its own dialog is gone).
-  const openCreateAction = () =>
-    openComposer(team.slug, { actionId: BUILTIN_CREATE_ACTION_ID })
+  // EXP-1293: "New action" opens the action form in create mode (the
+  // builtin "Create action" session is gone); owner-only like every write.
+  const canCreateAction = isOwner
+  const openCreateAction = () => setCreateOpen(true)
   // A grouped team with nothing to list and nothing to create is no band.
   if (grouped && sortedActions?.length === 0 && !canCreateAction) return null
   const trailing = canCreateAction ? (
@@ -404,9 +355,20 @@ function TeamActionsSection({
             <ActionRow key={action.id} {...actionItemProps(action)} />
           ))}
           {canCreateAction && !grouped && sortedActions.length === 0 && (
-            <NoCustomActionsNudge onClick={openCreateAction} />
+            <NoActionsNudge onClick={openCreateAction} />
+          )}
+          {!canCreateAction && !grouped && sortedActions.length === 0 && (
+            <Empty id="actions" />
           )}
         </div>
+      )}
+      {canCreateAction && (
+        <CreateActionDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          teamId={team.id}
+          onCreated={openAction}
+        />
       )}
     </div>
   )

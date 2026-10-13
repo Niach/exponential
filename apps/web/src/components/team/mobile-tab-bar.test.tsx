@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Board, Team } from "@/db/schema"
 
 // EXP-973: the phone's FAB is the SAME split capsule on EVERY tab-bar route.
-// Devices, Actions/Automations, Reviews, Inbox and Support used to drop the
+// Devices, Actions/Automations, Threads, Inbox and Support used to drop the
 // New-issue arm and leave a lone chat circle, which turned "file this" into a
 // trip back to a board. Nothing collapses it any more: a team with NO board
 // dims the arm in place (×3 with iOS / Android `composeEnabled`), so the
@@ -44,19 +44,18 @@ vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: null }) }))
 vi.mock(`@/hooks/use-unread-notifications`, () => ({
   useUnreadNotificationCount: () => 0,
 }))
-const openPrs = { current: 0 }
-vi.mock(`@/hooks/use-nav-counts`, async () => {
-  // The real `reviewsNav` (fixture-locked) over the faked queue count.
-  const { reviewsNav } = await import(`@/lib/reviews-queue`)
-  return {
-    useReviewsNav: (teams: Team[]) =>
-      reviewsNav({
-        yolo: teams.map((t) => t.yoloMode === true),
-        count: openPrs.current,
-      }),
-    useAgentsRunningCount: () => ({ count: 0, needsInput: false }),
-  }
-})
+const threadsNav = vi.hoisted(() => ({
+  value: { live: false, needsYou: false },
+  scope: [] as readonly string[],
+}))
+const myLive = vi.hoisted(() => ({ value: { count: 0, needsInput: false } }))
+vi.mock(`@/hooks/use-nav-counts`, () => ({
+  useThreadsNav: (teamIds: readonly string[]) => {
+    threadsNav.scope = teamIds
+    return threadsNav.value
+  },
+  useAgentsRunningCount: () => myLive.value,
+}))
 // EXP-1186: the bar's cross-team scope — the member teams the test sets.
 const memberTeams = vi.hoisted(() => ({ value: null as unknown[] | null }))
 vi.mock(`@/hooks/use-cross-team-scope`, () => ({
@@ -103,7 +102,7 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
       `/t/$teamSlug/inbox`,
       `/t/$teamSlug/devices`,
       `/t/$teamSlug/actions`,
-      `/t/$teamSlug/reviews`,
+      `/t/$teamSlug/threads`,
     ]) {
       route.value = path
       const view = renderBar()
@@ -146,7 +145,7 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
   })
 
   it(`leaves the arm live wherever a board resolves`, () => {
-    route.value = `/t/$teamSlug/reviews`
+    route.value = `/t/$teamSlug/threads`
     renderBar()
     const compose = screen.getByTestId(`compose-button`)
     expect(compose.getAttribute(`aria-disabled`)).toBeNull()
@@ -154,38 +153,48 @@ describe(`MobileTabBar FAB (EXP-973)`, () => {
   })
 })
 
-describe(`MobileTabBar Reviews in yolo mode (EXP-1105)`, () => {
+// EXP-1293: Threads replaced Reviews — always a tab, its dot green while a
+// thread runs and amber while one needs you, across every member team.
+describe(`MobileTabBar Threads (EXP-1293)`, () => {
   beforeEach(() => {
     route.value = ``
-    openPrs.current = 0
     memberTeams.value = null
+    threadsNav.value = { live: false, needsYou: false }
+    myLive.value = { count: 0, needsInput: false }
   })
 
-  const reviewsTab = () => screen.queryByLabelText(`Reviews`)
+  const threadsTab = () => screen.getByTestId(`tab-threads`)
 
-  it(`keeps Reviews when yolo mode is off`, () => {
+  it(`links Threads and lights it on its routes`, () => {
+    route.value = `/t/$teamSlug/threads`
     renderBar()
-    expect(reviewsTab()).toBeTruthy()
+    expect(threadsTab().getAttribute(`href`)).toBe(`/t/$teamSlug/threads`)
+    expect(threadsTab().className).toContain(`bg-glass-active`)
   })
 
-  it(`hides Reviews in yolo mode while nothing is left open`, () => {
-    renderBar(boards, { ...team, yoloMode: true })
-    expect(reviewsTab()).toBeNull()
+  it(`dots Threads green while running, amber while it needs you`, () => {
+    const view = renderBar()
+    expect(threadsTab().querySelector(`.bg-green-500, .bg-yellow-400`)).toBeNull()
+    view.unmount()
+    threadsNav.value = { live: true, needsYou: false }
+    const running = renderBar()
+    expect(threadsTab().querySelector(`.bg-green-500`)).toBeTruthy()
+    running.unmount()
+    threadsNav.value = { live: true, needsYou: true }
+    renderBar()
+    expect(threadsTab().querySelector(`.bg-yellow-400`)).toBeTruthy()
   })
 
-  it(`brings Reviews back in yolo mode while a PR is open`, () => {
-    openPrs.current = 1
-    renderBar(boards, { ...team, yoloMode: true })
-    expect(reviewsTab()).toBeTruthy()
+  it(`reads the dot across every member team`, () => {
+    memberTeams.value = [team, { id: `t2`, name: `Beta` }]
+    renderBar()
+    expect(threadsNav.scope).toEqual([`t1`, `t2`])
   })
 
-  // EXP-1186: the phone's Reviews is cross-team — one non-yolo member team
-  // keeps the tab even while the active one is in yolo mode.
-  it(`keeps Reviews while another member team is not in yolo mode`, () => {
-    const yolo = { ...team, yoloMode: true }
-    memberTeams.value = [yolo, { id: `t2`, name: `Beta`, yoloMode: false }]
-    renderBar(boards, yolo)
-    expect(reviewsTab()).toBeTruthy()
+  it(`dots the chat arm off my live sessions`, () => {
+    myLive.value = { count: 1, needsInput: true }
+    renderBar()
+    expect(screen.getByTestId(`chat-button`).querySelector(`.bg-yellow-400`)).toBeTruthy()
   })
 })
 
@@ -194,17 +203,16 @@ describe(`MobileTabBar Reviews in yolo mode (EXP-1105)`, () => {
 describe(`MobileTabBar tabs (EXP-1187)`, () => {
   beforeEach(() => {
     route.value = ``
-    openPrs.current = 0
     memberTeams.value = null
   })
 
-  it(`draws Issues · Inbox · Devices · Reviews · Actions and no More`, () => {
+  it(`draws Issues · Inbox · Devices · Threads · Actions and no More`, () => {
     renderBar()
     const nav = screen.getByRole(`navigation`, { name: `Primary` })
     const labels = [...nav.querySelectorAll(`a, button`)].map((el) =>
       el.getAttribute(`aria-label`)
     )
-    expect(labels).toEqual([`Issues`, `Inbox`, `Devices`, `Reviews`, `Actions`])
+    expect(labels).toEqual([`Issues`, `Inbox`, `Devices`, `Threads`, `Actions`])
     expect(screen.queryByTestId(`nav-more`)).toBeNull()
     expect(screen.queryByLabelText(`More`)).toBeNull()
     expect(screen.queryByLabelText(`Settings`)).toBeNull()

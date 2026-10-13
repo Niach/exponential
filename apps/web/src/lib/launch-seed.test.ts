@@ -19,34 +19,26 @@ describe(`seedFromSearch`, () => {
       deviceId: undefined,
       prIssueId: undefined,
       text: undefined,
-      icon: undefined,
-      conflict: undefined,
     })
     // A list of junk is no seed at all.
     expect(seedFromSearch({ issues: `x,y` })).toBeNull()
   })
 
-  it(`carries action, pr, device, text, icon and the conflict flag`, () => {
+  it(`carries action, pr, device and text`, () => {
     expect(
       seedFromSearch({
-        action: `builtin:fix-conflicts`,
+        action: `act-1`,
         pr: a,
         device: `dev-1`,
         text: `Label new issues`,
-        icon: `sparkles`,
-        conflict: `1`,
       })
     ).toEqual({
       issueIds: [],
-      actionId: `builtin:fix-conflicts`,
+      actionId: `act-1`,
       deviceId: `dev-1`,
       prIssueId: a,
       text: `Label new issues`,
-      icon: `sparkles`,
-      conflict: true,
     })
-    // EXP-1233: only the literal `1` means a refused merge.
-    expect(seedFromSearch({ action: `x`, conflict: `yes` })?.conflict).toBeUndefined()
     // A malformed `pr` is dropped, not refused.
     expect(seedFromSearch({ action: `x`, pr: `nope` })?.prIssueId).toBeUndefined()
   })
@@ -58,20 +50,16 @@ describe(`searchFromSeed`, () => {
     expect(searchFromSeed({ issueIds: [] })).toEqual({})
     expect(
       searchFromSeed({
-        actionId: `builtin:create-action`,
+        actionId: `act-1`,
         text: `Nightly triage`,
-        icon: `sparkles`,
         deviceId: `dev-1`,
         prIssueId: a,
-        conflict: true,
       })
     ).toEqual({
-      action: `builtin:create-action`,
+      action: `act-1`,
       pr: a,
       device: `dev-1`,
       text: `Nightly triage`,
-      icon: `sparkles`,
-      conflict: `1`,
     })
   })
 
@@ -81,8 +69,6 @@ describe(`searchFromSeed`, () => {
       ...seed,
       actionId: undefined,
       prIssueId: undefined,
-      icon: undefined,
-      conflict: undefined,
     })
   })
 })
@@ -91,7 +77,7 @@ describe(`searchFromSeed`, () => {
 describe(`seedHasSubject`, () => {
   it(`is true for issues and for an action`, () => {
     expect(seedHasSubject({ issueIds: [a] })).toBe(true)
-    expect(seedHasSubject({ actionId: `builtin:fix-conflicts` })).toBe(true)
+    expect(seedHasSubject({ actionId: `act-1` })).toBe(true)
   })
 
   it(`is false for a chat, however it is seeded`, () => {

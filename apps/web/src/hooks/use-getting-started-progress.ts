@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { codingSessionCollection, deviceCollection } from "@/lib/collections"
+import { deviceCollection, sessionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -88,13 +88,12 @@ export function useGettingStartedProgress(
     [boards]
   )
 
-  // Lean coding-sessions existence query (the useAgentsData pattern without
-  // its issue/board/user joins).
+  // Lean existence query: has the team started any session yet.
   const { data: sessionRows, isReady: sessionsReady } = useLiveQuery(
     (query) =>
       teamId
         ? query
-            .from({ sessions: codingSessionCollection })
+            .from({ sessions: sessionCollection })
             .where(({ sessions }) => eq(sessions.teamId, teamId))
         : undefined,
     [teamId]

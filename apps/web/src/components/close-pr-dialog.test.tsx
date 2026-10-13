@@ -5,18 +5,23 @@ import { contract } from "@exp/domain-contract"
 import type { Issue } from "@/db/schema"
 
 // EXP-1154: Close PR moved into the issue's actions menu; the copy is the ×4
-// fixture `close-pr.json` (one test per client reads it).
+// fixture `close-pr.json` (one test per client reads it). EXP-1293: the PR
+// is the issue's open `pull_requests` row, closed by id.
 
 const mocks = vi.hoisted(() => ({
   closePr: vi.fn(),
   linked: [] as unknown[],
+  prs: [] as unknown[],
   toastError: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
-  trpc: { issues: { closePr: { mutate: mocks.closePr } } },
+  trpc: { pullRequests: { close: { mutate: mocks.closePr } } },
 }))
-vi.mock(`@/lib/collections`, () => ({ issueCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ pullRequestIssueCollection: {} }))
+vi.mock(`@/hooks/use-session-tree`, () => ({
+  useIssuePullRequests: () => mocks.prs,
+}))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return { ...actual, useLiveQuery: () => ({ data: mocks.linked }) }
@@ -28,13 +33,14 @@ vi.mock(`@/lib/action-error`, () => ({
 
 import { closePrBody, useClosePr } from "@/components/close-pr-dialog"
 
-const ISSUE = {
-  id: `i1`,
-  prUrl: `https://github.com/o/r/pull/7`,
-  prNumber: 7,
-  prState: `open`,
+const ISSUE = { id: `i1` } as unknown as Issue
+const OPEN_PR = {
+  id: `pr7`,
+  number: 7,
+  url: `https://github.com/o/r/pull/7`,
+  state: `open`,
   updatedAt: `2026-10-04T10:00:00.000Z`,
-} as unknown as Issue
+}
 
 function Harness({
   issue = ISSUE,
@@ -68,6 +74,7 @@ const openDialog = async () => {
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.linked = [{ id: `i1` }]
+  mocks.prs = [OPEN_PR]
   mocks.closePr.mockResolvedValue({ closed: true })
 })
 
@@ -89,7 +96,7 @@ describe(`useClosePr`, () => {
     expect(screen.getByText(closePrCopy.body)).toBeTruthy()
     fireEvent.click(screen.getByText(closePrCopy.confirm))
     expect(mocks.closePr).toHaveBeenCalledWith(
-      { issueId: `i1` },
+      { pullRequestId: `pr7` },
       { context: { skipErrorToast: true } }
     )
   })
@@ -104,7 +111,8 @@ describe(`useClosePr`, () => {
   it(`is offered only to a member while the PR is open`, () => {
     const { rerender } = render(<Harness readOnly />)
     expect(screen.queryByText(`menu item`)).toBeNull()
-    rerender(<Harness issue={{ ...ISSUE, prState: `merged` } as Issue} />)
+    mocks.prs = [{ ...OPEN_PR, state: `merged` }]
+    rerender(<Harness />)
     expect(screen.queryByText(`menu item`)).toBeNull()
   })
 

@@ -8,12 +8,12 @@ import {
   DialogTitle,
 } from "@exp/ui"
 
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import { LaunchComposer } from "@/components/launch-composer"
 import { launchHeadlineText } from "@/components/launch-dialog/launch-headline"
 import type { Team } from "@/db/schema"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
-import { useRemoteStart } from "@/hooks/use-remote-start"
+import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useSession } from "@/hooks/use-session"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -37,14 +37,12 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 //
 // It hosts the EXISTING `LaunchComposer` — the same component the Agent page
 // renders inline, with the same hook behind it. There is no second composer,
-// so the pickers, the options line, the blocked-start gate, the image
+// so the pickers, the options line, the image
 // plumbing and the per-subject submit label cannot drift between the two
 // surfaces. What the dialog adds is a shell: a title, a scroll body and the
-// rule that a started run shuts it — and, until then, that nothing ELSE
-// shuts it: the body owns the `useRemoteStart` whose run watch and the
-// composer's starting deadline (EXP-1271) would die with it, so a dismissal
-// while a start is pending is refused rather than dropping "Starting on
-// buildbox" on the floor.
+// rule that a started session shuts it (the composer opens its thread) and,
+// until then, that nothing ELSE shuts it: a dismissal while the start is in
+// flight (uploads + `sessions.send`) is refused rather than dropping it.
 
 /**
  * Mounted ONCE in the team layout. Renders nothing until something asks for
@@ -57,7 +55,7 @@ export function LaunchDialogHost({ team }: { team: Team | null | undefined }) {
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
   const open = seed !== null && Boolean(team)
-  // Reported up by the body: a start was sent and its run has not landed yet.
+  // Reported up by the body: a start is in flight.
   // Every dismissal path Radix owns (✕, the overlay, the sheet drag's hidden
   // Close) funnels through `onOpenChange(false)`, so the guard sits here; the
   // body vetoes Escape and outside-pointer at the layer as well, so the
@@ -106,7 +104,6 @@ function seedKey(seed: LaunchSeed): string {
     seed.issueIds.join(`,`),
     seed.prIssueId ?? ``,
     seed.deviceId ?? ``,
-    seed.icon ?? ``,
   ].join(`|`)
 }
 
@@ -117,22 +114,18 @@ function LaunchDialogBody({
 }: {
   team: Team
   request: LaunchDialogRequest
-  /** `true` from Start until the run's row lands or the deadline passes. */
+  /** `true` while the start is in flight. */
   onPendingStartChange: (pending: boolean) => void
 }) {
   const { data: authSession } = useSession()
   const currentUserId = authSession?.user?.id
   const { users } = useTeamUsers(team.id)
-  // EXP-870: the ORIGIN the play button named rides the request (a pinned
-  // row's `null` = context-free); the watch that opens the run hands it on.
-  // The key absent = the hook derives it from the URL, so it is only spread
-  // in when the caller answered.
-  const { origin, ...seed } = request
-  const remote = useRemoteStart({
+  // EXP-1293: a start opens its THREAD, whatever surface the click came from.
+  const seed = request
+  const { devices } = useSteerDevices({
     enabled: true,
     currentUserId,
     teamId: team.id,
-    ...(`origin` in request ? { origin } : {}),
   })
   // The seed is one-shot here as well: the hook reports back once it has
   // applied it, and re-handing it would re-check issues the person just
@@ -142,20 +135,16 @@ function LaunchDialogBody({
   const onSeedConsumed = useCallback(() => {
     seededRef.current = null
   }, [])
-  // The launcher gets out of the way once its run is under way — but not a
-  // frame earlier: the WATCH that navigates to the run lives in this
-  // `useRemoteStart` and the starting deadline in this composer, so
-  // unmounting at send time would drop both and leave "Starting on
-  // buildbox" nowhere. EXP-1271: the run LANDING closes the dialog; a
-  // timeout returns the composer to idle (draft kept) and the dialog stays.
+  // The launcher gets out of the way once the session started (the composer
+  // then opens its thread); a failed start keeps the draft and the dialog.
   const model = useLaunchComposer({
     teamId: team.id,
-    remote,
+    devices,
     seed: seededRef.current,
     onSeedConsumed,
-    onLanded: closeLaunchDialog,
+    onStarted: closeLaunchDialog,
   })
-  const sent = model.starting !== null
+  const sent = model.busy
   useEffect(() => {
     onPendingStartChange(sent)
   }, [sent, onPendingStartChange])
@@ -178,8 +167,8 @@ function LaunchDialogBody({
       <DialogHeader>
         {/* The VISIBLE headline is the composer's own (chips and all); the
             dialog's accessible name is the same line as plain text, so a
-            screen reader hears "Run Fix merge conflicts" rather than a
-            generic title. */}
+            screen reader hears "Run <action>" rather than a generic
+            title. */}
         <DialogTitle className="sr-only">
           {model.subject === null
             ? contract.composerUi.dialogTitle

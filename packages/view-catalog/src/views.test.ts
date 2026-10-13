@@ -80,14 +80,12 @@ const PINNED_RECIPES = [
   `openAddServer`,
   `openWidgetEditor`,
   `expandFirstDiffFile`,
-  `openTriggerEditor`,
-  `openThreadChildMenu`,
   `openGettingStarted`,
   `typeIssueRef`,
   `openComposerMenuImplement`,
-  `showWorkCards`,
-  `showScriptCard`,
-  `showCommentCard`,
+  `scrollToWorkCards`,
+  `scrollToScriptCard`,
+  `scrollToCommentCard`,
 ]
 
 // ---------------------------------------------------------------- 1. shape

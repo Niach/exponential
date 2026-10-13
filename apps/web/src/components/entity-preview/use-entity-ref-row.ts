@@ -4,11 +4,11 @@ import {
   actionCollection,
   attachmentCollection,
   boardCollection,
-  codingSessionCollection,
   commentCollection,
   deviceCollection,
   labelCollection,
   notificationCollection,
+  sessionCollection,
   teamCollection,
   teamInviteCollection,
   userCollection,
@@ -47,7 +47,7 @@ function rowSource(
     case `comment`:
       return of(commentCollection)
     case `session`:
-      return of(codingSessionCollection)
+      return of(sessionCollection)
     case `label`:
       return of(labelCollection)
     case `device`:

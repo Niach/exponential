@@ -53,6 +53,20 @@ describe(`stackChain`, () => {
     ])
   })
 
+  // EXP-1293: the resolved `base_pull_request_id` decides the edge, the
+  // base branch only stands in when it is unresolved.
+  it(`follows the resolved base pull request over the base branch`, () => {
+    const lower = { ...member(`lower`, `exp/LOWER`, `main`), pullRequestId: `p1` }
+    const upper = {
+      ...member(`upper`, `exp/UPPER`, `renamed`),
+      pullRequestId: `p2`,
+      basePullRequestId: `p1`,
+    }
+    expect(ids(stackChain(upper, [upper, lower]))).toEqual([`lower`, `upper`])
+    expect(ids(stackChain(lower, [upper, lower]))).toEqual([`lower`, `upper`])
+    expect(prGraphShape(prComponent(lower, [lower, upper]))).toBe(`stack`)
+  })
+
   it(`breaks a cycle where it first appears`, () => {
     const a = member(`a`, `exp/A`, `exp/B`)
     const b = member(`b`, `exp/B`, `exp/A`)

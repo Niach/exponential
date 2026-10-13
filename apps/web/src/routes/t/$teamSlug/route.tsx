@@ -150,7 +150,8 @@ function TeamLayout() {
     null
   )
   // EXP-870: browser-like work tabs above the card, md+ only. EXP-1255: the
-  // strip mounts with zero tabs too, so its "+" (a New run tab) is reachable.
+  // strip mounts with zero tabs too, so its "+" (a New session tab) is
+  // reachable. EXP-1293: route-driven — no screen calls into it.
   const isMobile = useIsMobile()
   const showWorkTabs = !isMobile && Boolean(team)
 
@@ -203,7 +204,7 @@ function TeamLayout() {
                 `overflow-x-clip` contains stragglers inside the content
                 region. */}
             {team && !isMobile && (
-              <WorkTabsSync teamId={team.id} userId={user?.id} boards={boards} />
+              <WorkTabsSync teamId={team.id} boards={boards} />
             )}
             <div className={MAIN_COLUMN_CLASS}>
               {showWorkTabs && team && (

@@ -2,23 +2,24 @@ import { RunStatusRow } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1175: the Run face's status row — the REAL `RunStatusRow` in its
-// three everyday states, plus (EXP-1245) a settled turn's row in the owner's
-// thread of turns, which carries no toggle. The words come from the app's `runRowCaption` /
-// `lastToolLine` (fixture `run-row.json` ×4); the island passes them literal.
+// EXP-1175 → EXP-1293: the session view's status row — the REAL
+// `RunStatusRow` over a session's raw work, in its everyday states. The words
+// are the session card's state words (`sessionCard`, fixture
+// `session-card.json`) and the newest tool line (`lastToolLine`); no Show
+// work toggle (the session view always shows the work).
 
 export const entry: StyleguideEntry = {
   id: `run-status-row`,
   section: `special`,
   owner: `EXP-1175`,
   title: `Run status row`,
-  blurb: `The Run face opens as the THREAD, not the transcript: one status row over the session's published results. The row = the session mark as the spinner, the caption in its tone (\`Building on <device> · <elapsed>\` while it works, \`Needs input\` amber, \`Ready for review\` emerald, \`Done\` sky, \`Paused\`, \`Ended on <device> · <elapsed>\`), the last tool line muted under it (live only) and \`Show work\` on the right. Show work swaps the thread for the full transcript IN PLACE (same scroller, strips and composer) and is remembered per user. Pending questions and plans never hide. EXP-1245: in the owner's thread of turns every turn draws its own row (\`turnRowCaption\`: \`Done on <device> · <turn time>\` once settled, the open turn timed from its own start). Label + state only (fixture \`run-row.json\` \`captions\` + \`turnCaptions\`).`,
+  blurb: `The status row over a session's raw work (the session view, opened from its session card): the session mark as the spinner, the session card's state word in its tone (\`Working\`, \`Needs you\` amber, \`Usage limit\` amber, \`Ended\`), the last tool line muted under it (live only), and before the first turn THE mark over \`Starting on <device>\`. EXP-1293: no Show work toggle, the view always shows the work.`,
   status: {
     web: {
       state: `ok`,
       symbol: `RunStatusRow`,
       file: `packages/ui/src/run-status-row.tsx`,
-      note: `rules: lib/work-faces.ts runRowCaption + lib/agent-feed.ts lastToolLine, fixture run-row.json`,
+      note: `components/agent-session.tsx: state = sessionState (lib/session-tree) + lib/agent-feed.ts lastToolLine`,
     },
     desktop: {
       state: `ok`,
@@ -41,40 +42,25 @@ export const entry: StyleguideEntry = {
     <div className="flex flex-col divide-y divide-border">
       <RunStatusRow
         agent="claude"
-        markState="working"
-        caption="Building on MacBook Pro · 4m 12s"
+        starting
+        caption="Starting on MacBook Pro"
         tone="muted"
-        toolLine="Read apps/web/src/lib/work-faces.ts"
-        showWork={false}
-        toggleLabel="Show work"
-        onToggle={() => {}}
+      />
+      <RunStatusRow
+        agent="claude"
+        markState="working"
+        caption="Working"
+        tone="muted"
+        toolLine="Read data/sync/BoardSnapshotCache.kt"
       />
       <RunStatusRow
         agent="claude"
         markState="needs_input"
-        caption="Needs input · MacBook Pro"
+        caption="Needs you"
         tone="amber"
-        toolLine={null}
-        showWork={false}
-        toggleLabel="Show work"
-        onToggle={() => {}}
+        toolLine="Bash ./gradlew :app:startupProfile --variant=release"
       />
-      <RunStatusRow
-        agent="codex"
-        markState="ended"
-        caption="Ended on MacBook Pro · 18m"
-        tone="muted"
-        toolLine={null}
-        showWork
-        toggleLabel="Hide work"
-        onToggle={() => {}}
-      />
-      <RunStatusRow
-        agent="claude"
-        markState="ended"
-        caption="Done on macbook · 7m 17s"
-        tone="muted"
-      />
+      <RunStatusRow agent="codex" markState="ended" caption="Ended" tone="muted" />
     </div>
   ),
 }

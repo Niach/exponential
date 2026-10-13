@@ -4,15 +4,14 @@
 // (iOS `PrGraph.swift`, Android `PrGraph.kt`, desktop `pr_graph.rs`):
 //
 //   · BLOCKERS : the subject issue's direct open blockers (`blocks` rows)
-//   · a BATCH  : issues sharing ONE pull request (`issues.pr_url`)
-//   · a STACK  : pull requests based on each other (`issues.pr_base_branch`)
+//   · a BATCH  : issues sharing ONE pull request (`pull_request_issues`)
+//   · a STACK  : pull requests based on each other (`lib/pr-stack.ts`)
 //
-// SLOP-16 r5: a run FAMILY (`parent_session_id`) no longer earns a badge or a
-// band: the session tree has its own guides in every run list.
-//
-// A stack MEMBER is a pull request, not an issue, so a batch PR can itself sit
-// in a stack: hence the entry type below. Nothing new is stored: every edge
-// is already synced.
+// EXP-1293: PR state lives on `pull_requests` (+ `pull_request_issues`), so
+// the rows below are `issuePrRows`: each issue joined to ITS pull request
+// (the open one, else the newest), grouped by pull request. A stack MEMBER
+// is a pull request, not an issue, so a batch PR can itself sit in a stack:
+// hence the entry type below. Nothing new is stored: every edge is synced.
 //
 // Test names, mirrored ×4: `reports a stack badge for a stacked pr`,
 // `reports a batch badge for a batch pr`, `reports both for a batch inside a
@@ -24,27 +23,82 @@ import { stackChain, type PrStackNode } from "@/lib/pr-stack"
 export { prComponent, prGraphShape, type PrGraphShape } from "@/lib/pr-stack"
 import { RELATIONS_VIEW_COPY } from "@/lib/issue-relations-view"
 import { openBlockers, type GraphRelation } from "@/lib/issue-graph"
-import { batchRunIssues, isBatchRun, type BatchRunIssue } from "@/lib/batch-run"
 
-export interface PrGraphIssue extends PrStackNode, BatchRunIssue {
+/** An issue's view of its pull request (`issuePrRows`). */
+export interface IssuePrFields {
+  pullRequestId: string | null
+  basePullRequestId: string | null
+  prUrl: string | null
+  prNumber: number | null
+  prState: string | null
+  /** The PR's head branch. */
+  branch: string | null
+  /** The branch the PR is based on. */
+  prBaseBranch: string | null
+}
+
+export interface PrGraphIssue extends PrStackNode {
+  id: string
   identifier: string
   /** The dual-written ANCHOR enum: what `openBlockers` judges. */
   status: string
   prUrl: string | null
 }
 
-export interface PrGraphSession {
+/** The synced `pull_requests` columns the join reads. */
+export interface PrLike {
   id: string
-  issueId: string | null
-  prUrl?: string | null
-  /** EXP-876: a BATCH run's own subject: the issues it covers. Absent on a
-   *  caller that does not carry them; such a run resolves no batch. */
-  actionName?: string | null
-  batchIssueIds?: string[] | null
-  branch?: string | null
+  number: number
+  url: string
+  head: string
+  base: string
+  basePullRequestId: string | null
+  state: string
 }
 
-/** ONE pull request: a single issue, or every issue sharing its `prUrl`. */
+/** The synced `pull_request_issues` columns the join reads. */
+export interface PrIssueLinkLike {
+  pullRequestId: string
+  issueId: string
+}
+
+/**
+ * Each issue joined to ITS pull request: the open one, else the highest
+ * number; an issue with none carries nulls. Every PR fact the client reads
+ * about an issue comes from here, never from the legacy issue columns.
+ */
+export function issuePrRows<I extends { id: string }>(
+  issues: readonly I[],
+  pullRequests: readonly PrLike[],
+  links: readonly PrIssueLinkLike[]
+): (Omit<I, keyof IssuePrFields> & IssuePrFields)[] {
+  const prById = new Map(pullRequests.map((pr) => [pr.id, pr]))
+  const prOf = new Map<string, PrLike>()
+  for (const link of links) {
+    const pr = prById.get(link.pullRequestId)
+    if (!pr) continue
+    const held = prOf.get(link.issueId)
+    const better =
+      !held ||
+      (pr.state === `open` && held.state !== `open`) ||
+      ((pr.state === `open`) === (held.state === `open`) && pr.number > held.number)
+    if (better) prOf.set(link.issueId, pr)
+  }
+  return issues.map((issue) => {
+    const pr = prOf.get(issue.id) ?? null
+    return {
+      ...issue,
+      pullRequestId: pr?.id ?? null,
+      basePullRequestId: pr?.basePullRequestId ?? null,
+      prUrl: pr?.url ?? null,
+      prNumber: pr?.number ?? null,
+      prState: pr?.state ?? null,
+      branch: pr?.head ?? null,
+      prBaseBranch: pr?.base ?? null,
+    }
+  })
+}
+
 export interface PrGraphEntry<I> {
   key: string
   /** The representative row: it carries the branch, base and PR fields. */
@@ -54,7 +108,7 @@ export interface PrGraphEntry<I> {
 }
 
 export interface PrGraph<I> {
-  /** The subject issue: the given one, else the run's own issue. */
+  /** The subject issue. */
   subject: I | null
   /** The pull request the subject belongs to; null when it has none. */
   entry: PrGraphEntry<I> | null
@@ -80,7 +134,9 @@ function groupEntries<I extends PrGraphIssue>(
   const byIssueId = new Map<string, PrGraphEntry<I>>()
   for (const issue of issues) {
     // An issue with no pull request cannot collide: keyed by its own id.
-    const key = issue.prUrl && issue.prUrl.length > 0 ? issue.prUrl : issue.id
+    const key =
+      issue.pullRequestId ??
+      (issue.prUrl && issue.prUrl.length > 0 ? issue.prUrl : issue.id)
     let entry = byKey.get(key)
     if (!entry) {
       entry = { key, issue, issues: [] }
@@ -94,68 +150,24 @@ function groupEntries<I extends PrGraphIssue>(
 }
 
 /**
- * EXP-876: a BATCH run's own entry. A batch links no issue and stamps no
- * `pr_url` of its own, so before this it resolved nothing at all: the pill
- * and its sheet, the one surface built to name work that spans several
- * issues, never appeared on the very run that spans them. Its covered set
- * (`batch_issue_ids`) IS the entry.
- *
- * The PR-grouped entry wins whenever there is one: it carries the branch and
- * the base the stack chains on, so a batch PR stacked on another still reads
- * `stack+batch`. The synthesized entry is what a
- * batch wears BEFORE its PR exists: keyed by the run, since it has no url.
+ * Everything the badge and its overlay need for ONE subject issue. Pure:
+ * every input is already synced (`issues` = `issuePrRows`).
  */
-function batchSessionEntry<I extends PrGraphIssue, S extends PrGraphSession>(
-  session: S | null,
-  issues: readonly I[],
-  byIssueId: Map<string, PrGraphEntry<I>>
-): PrGraphEntry<I> | null {
-  if (!session || !isBatchRun({ issueId: session.issueId, actionName: session.actionName ?? null })) {
-    return null
-  }
-  const covered = batchRunIssues(
-    {
-      issueId: session.issueId,
-      actionName: session.actionName ?? null,
-      batchIssueIds: session.batchIssueIds ?? null,
-    },
-    issues
-  )
-  const first = covered[0]
-  if (!first) return null
-  const grouped = byIssueId.get(first.id)
-  if (grouped && grouped.issues.length > 1) return grouped
-  return { key: `run:${session.id}`, issue: first, issues: covered }
-}
-
-/**
- * Everything the badge and its overlay need for ONE subject: an issue, a run,
- * or both (a run's Issue face). Pure: every input is already synced.
- */
-export function prGraph<
-  I extends PrGraphIssue,
-  S extends PrGraphSession,
->(input: {
+export function prGraph<I extends PrGraphIssue>(input: {
   issue?: I | null
-  session?: S | null
   issues: readonly I[]
   relations?: readonly GraphRelation[]
 }): PrGraph<I> {
   const { issues, relations = [] } = input
   const { entries, byIssueId } = groupEntries(issues)
 
-  const subjectIssue =
-    input.issue ??
-    (input.session?.issueId
-      ? (issues.find((row) => row.id === input.session!.issueId) ?? null)
-      : null)
+  const subjectIssue = input.issue
+    ? (issues.find((row) => row.id === input.issue!.id) ?? input.issue)
+    : null
 
-  const subjectEntry =
-    (subjectIssue ? (byIssueId.get(subjectIssue.id) ?? null) : null) ??
-    (input.session?.prUrl
-      ? (entries.find((entry) => entry.key === input.session!.prUrl) ?? null)
-      : null) ??
-    batchSessionEntry(input.session ?? null, issues, byIssueId)
+  const subjectEntry = subjectIssue
+    ? (byIssueId.get(subjectIssue.id) ?? null)
+    : null
 
   // A stack walks over ENTRIES: the representatives carry the branch and the
   // base, and every issue of a batch PR shares them.
@@ -260,7 +272,7 @@ export type OverlaySection = `blocked` | `batch` | `stack`
 const OVERLAY_SECTION_ORDER: OverlaySection[] = [`blocked`, `batch`, `stack`]
 
 /** SLOP-16 r5: the batch PARTNERS: every issue sharing the subject's pull
- *  request but the subject itself (a batch run with no issue lists them all). */
+ *  request but the subject itself. */
 export function batchPartners<I extends { id: string }>(graph: PrGraph<I>): I[] {
   return (graph.batch?.issues ?? []).filter((row) => row.id !== graph.subject?.id)
 }

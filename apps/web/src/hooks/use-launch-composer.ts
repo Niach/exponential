@@ -1,49 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { and, eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
-import { contract } from "@exp/domain-contract"
-import { toast } from "@exp/ui"
-import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
-import type { Board, CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
-import { isCodingSessionStale } from "@exp/db-schema/domain"
-import { useNow } from "@/hooks/use-now"
+import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import { useNavigate } from "@tanstack/react-router"
+import { actionErrorTitle, toast } from "@exp/ui"
+import {
+  SESSIONS_SEND_MAX_ISSUES,
+  type sessionsSendInputSchema,
+} from "@exp/db-schema/domain"
+import type { z } from "zod"
+import type { Board, Issue, SyncedAction } from "@/db/schema"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
 import { useTeamRepos } from "@/hooks/use-team-repos"
-import type { RemoteStart, StartCodingOptions } from "@/hooks/use-remote-start"
 import {
   actionCollection,
-  codingSessionCollection,
-  deviceWorktreeCollection,
   issueCollection,
-  issueRelationCollection,
+  sessionCollection,
 } from "@/lib/collections"
-import { openBlockersOfSet } from "@/lib/issue-graph"
-import {
-  stackedStartPrompt,
-  stackLine,
-  stackPlan,
-  type StackPlan,
-  type StackPlanResult,
-} from "@/lib/blocked-start"
-
-type GraphRelationRow = { type: string; issueId: string; relatedIssueId: string }
-import {
-  BUILTIN_CHAT_ID,
-  BUILTIN_CHAT_NAME,
-  BUILTIN_CREATE_ACTION_ID,
-  BUILTIN_FIX_CONFLICTS_ID,
-  builtinCreateAction,
-  builtinFixConflictsAction,
-  builtinTidyUpAction,
-} from "@/lib/builtin-actions"
 import { buildInputsPayload, missingRequiredInputs } from "@/lib/action-inputs"
 import {
   chatRepoOptions,
-  chatStartInputs,
   defaultChatRepoId,
   type ChatRepoOption,
 } from "@/lib/chat-repo"
-import { agentSeed } from "@/lib/coding-launch-prefs"
+import { agentSeed, type CodingLaunchPrefs } from "@/lib/coding-launch-prefs"
 import { byCreatedAtDesc } from "@/lib/ordering"
 import {
   ATTACHMENT_REJECTED_TOAST,
@@ -52,155 +31,168 @@ import {
   IMAGE_CAP_TOAST,
   markPendingImageUploaded,
   stagePendingImages,
-  uploadedWireParts,
   type PendingAttachment,
 } from "@/lib/pending-images"
-import { buildSteerMessage } from "@/lib/steer-image-message"
 import {
   deviceAgentLaunchDefaults,
+  deviceCanAgentLogin,
   deviceHasRunnableAgent,
+  deviceIsMine,
   deviceIsOnline,
-  resumeWorktree,
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
-import { failedAction } from "@/lib/action-error"
-import { draftStartKey, startMaybeDelivered } from "@/lib/start-intent"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
+import { trpc } from "@/lib/trpc-client"
+import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
   useLaunchOptions,
   type LaunchOptions,
 } from "@/components/launch-dialog/use-launch-options"
-import type { TeamAction } from "@/components/action-prompt-form"
-import { subjectOwnsMcpServers, type McpServerList } from "@/lib/mcp-servers"
+import type { McpServerList } from "@/lib/mcp-servers"
 import type { LaunchSeed } from "@/lib/launch-seed"
 
-// EXP-825: the ONE launcher's state — the Agent page composer. It replaced
-// the three-tab launch dialog (Issues | Actions | Chat, EXP-257) and the
-// dedicated create-action dialog (EXP-431): what a run is ABOUT is now a
-// SUBJECT picked into the composer (issue chips, or one action chip; picking
-// the other kind swaps — no disabled controls), the free text is the chat
-// prompt while there is no subject and "additional instructions" once there
-// is one, images ride the text as the steer embed format, and the options
-// line under the card carries device/agent/model/plan with the rest behind
-// a `⋯` popover. Every play button in the app navigates here with a seed
-// (`LaunchSeed`, ×4) instead of opening a dialog of its own.
+// EXP-825: the ONE launcher's state: the Agent page composer (and the same
+// composer in the launch dialog). What a session is ABOUT is a SUBJECT picked
+// into the composer (issue chips, or one action chip; picking the other kind
+// swaps), the free text is the first message (instructions beside a subject),
+// files ride as attachments, and the options line under the card carries
+// device/account/model/plan with the rest behind the "+".
 //
-// What moved here from the dialog shell verbatim: the codeable-issue pool and
-// its running exclusion (EXP-153 staleness), `MAX_ISSUES_PER_RUN`, the
-// single-repo guard, the resume worktree offer (EXP-481), the EXP-349
-// repo-input seed latch and the EXP-437 device-seeded options cluster.
+// EXP-1293 (Threads v2): a start is ONE `sessions.send` in the ACTIVE team: a
+// new root (a thread) on the picked device, with the subject as its facets
+// (`issueIds` | `actionId`+`inputs` | `repositoryId`). The server writes a
+// `queued` row the device picks up; the composer awaits that row's sync
+// (bounded) and opens the thread. No builtins, no resume, no start ids and
+// no landing watch: the row exists the moment the mutation returns.
 
 export type { LaunchSeed }
+
+/** One action as the composer lists it: the synced, body-less row. */
+export type ComposerAction = SyncedAction
 
 export type LaunchSubject =
   | { kind: `issues`; ids: string[] }
   | { kind: `action`; id: string; inputs: Record<string, string> }
   | null
 
-// Hard cap per run — parity with the server zod cap (issueIds max 30) and the
-// desktop launcher's MAX_ISSUES_PER_RUN. Beyond it the server would reject with
-// a zod BAD_REQUEST whose `[`-prefixed message is discarded into a misleading
-// "could not be delivered" toast, so block the submit here instead.
-export const MAX_ISSUES_PER_RUN = 30
-// Above this, batches get a soft token-cost note (matches the native sheets).
+/** Hard cap per session: parity with `sessions.send`'s zod cap. */
+export const MAX_ISSUES_PER_RUN = SESSIONS_SEND_MAX_ISSUES
+// Above this, a batch gets a soft token-cost note (matches the native sheets).
 export const BATCH_COST_HINT_THRESHOLD = 6
+/** How long a start waits for its row to sync before it opens the thread
+ *  anyway (the page renders its own skeleton until the row lands). */
+export const START_SYNC_WAIT_MS = 4_000
 
-// Only issues in a state worth coding are offered (mirrors the desktop picker).
-// EXP-314: deliberately keyed on the dual-written ANCHOR enum, not on status
-// rows — a custom backlog/unstarted/started status anchors into this set
-// automatically, so custom statuses need no extra gating here.
-const CODEABLE_STATUSES = new Set<string>([
-  `backlog`,
-  `in_progress`,
-  `in_review`,
-])
+// Only issues in a state worth coding are offered (mirrors the desktop
+// picker). EXP-314: keyed on the dual-written ANCHOR enum, so custom
+// statuses anchor into this set automatically.
+const CODEABLE_STATUSES = new Set<string>([`backlog`, `in_progress`, `in_review`])
 
-// EXP-349: an action bound to a repository pre-fills its repo-typed inputs
-// with that repo — the picker showing "None" while the action runs in its
-// bound repo anyway read as a misconfiguration. The user can still re-pick
-// or clear the field.
-function repoInputSeed(action: TeamAction): Record<string, string> {
-  if (!action.repositoryId) return {}
-  const seed: Record<string, string> = {}
-  for (const def of action.inputs) {
-    if (def.type === `repo`) seed[def.key] = action.repositoryId
-  }
-  return seed
-}
-
-/** The contract's submit label per subject (×4). EXP-1233: the Fix merge
- *  conflicts builtin with a PICKED pull request is its own case. */
-export function submitLabelFor(
-  subject: LaunchSubject,
-  fixConflictsPicked = false
-): string {
-  if (subject === null) return `Start chat`
-  if (subject.kind === `action`) {
-    return fixConflictsPicked
-      ? contract.composerUi.fixConflictsSubmit
-      : `Run action`
-  }
+/** The submit's label per subject (its aria-label + tooltip). */
+export function submitLabelFor(subject: LaunchSubject): string {
+  if (subject === null) return `Start session`
+  if (subject.kind === `action`) return `Run action`
   return subject.ids.length >= 2
     ? `Start batch · ${subject.ids.length}`
     : `Start coding`
 }
 
-/** EXP-1233: the Fix merge conflicts builtin as the composer draws it — a
- *  conflict CARD, not the generic action chip + "Pull request" field. `pr`
- *  is the picked pull request resolved off the synced issue rows (every
- *  issue the PR links, its number and branches); null while nothing is
- *  picked, when the headline still reads "Run Fix merge conflicts" and the
- *  card is the picker alone. `refused` = a REFUSED merge opened the
- *  composer (the seed's `conflict`), so the card says why it is here. */
-export interface FixConflictsView {
-  pr: {
-    /** The representative issue id — the `pr` input's value. */
-    issueId: string
-    prNumber: number | null
-    branch: string | null
-    baseBranch: string | null
-    /** Every synced issue the pull request links, by identifier. */
-    issues: Issue[]
-  } | null
-  refused: boolean
+export type SessionsSendInput = z.input<typeof sessionsSendInputSchema>
+
+/**
+ * The `sessions.send` payload for a NEW root, pure so the mapping is a test:
+ * the runner picks off `buildOptions` (`agent` → `cli`; blank model/effort
+ * omitted = the CLI default), the text and attachments, then exactly one
+ * subject facet (`issueIds`, `actionId`+`inputs`, or the chat's
+ * `repositoryId`; repo-less = none).
+ */
+export function buildSendInput(args: {
+  teamId: string
+  deviceId: string
+  options: CodingLaunchPrefs
+  text: string
+  attachmentIds: readonly string[]
+  subject: LaunchSubject
+  /** The action's resolved inputs (`buildInputsPayload`). */
+  actionInputs?: Record<string, string>
+  repoId: string
+}): SessionsSendInput {
+  const { options, subject } = args
+  const text = args.text.trim()
+  return {
+    teamId: args.teamId,
+    deviceId: args.deviceId,
+    cli: options.agent,
+    ...(options.account ? { account: options.account } : {}),
+    ...(options.model ? { model: options.model } : {}),
+    ...(options.effort ? { effort: options.effort } : {}),
+    planMode: options.planMode,
+    ultracode: options.ultracode,
+    ...(options.computerUse !== undefined ? { computerUse: options.computerUse } : {}),
+    ...(options.mcpServerIds && options.mcpServerIds.length > 0
+      ? { mcpServerIds: [...options.mcpServerIds] }
+      : {}),
+    ...(text ? { text: args.text } : {}),
+    ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
+    ...(subject === null
+      ? args.repoId
+        ? { repositoryId: args.repoId }
+        : {}
+      : subject.kind === `issues`
+        ? { issueIds: [...subject.ids] }
+        : {
+            actionId: subject.id,
+            ...(args.actionInputs ? { inputs: args.actionInputs } : {}),
+          }),
+  }
 }
 
-/** The PR picked into the Fix merge conflicts builtin, off the synced rows.
- *  Pure, so the batch grouping is a test: the linked set is every open-PR
- *  row sharing the representative's `prUrl` (a batch PR links several). */
-export function resolveFixConflictsPr(
-  prIssueId: string | undefined,
-  issuesById: Map<string, Issue>
-): FixConflictsView[`pr`] {
-  if (!prIssueId) return null
-  const representative = issuesById.get(prIssueId)
-  if (!representative) return null
-  const linked = representative.prUrl
-    ? [...issuesById.values()]
-        .filter(
-          (issue) =>
-            issue.prUrl === representative.prUrl && issue.prState === `open`
-        )
-        .sort((a, b) => a.identifier.localeCompare(b.identifier))
-    : [representative]
-  return {
-    issueId: representative.id,
-    prNumber: representative.prNumber ?? null,
-    branch: representative.branch ?? null,
-    baseBranch: representative.prBaseBranch ?? null,
-    issues: linked.length > 0 ? linked : [representative],
+/** The failure toast, `Couldn't start the session` (FEED-79), with a
+ *  "Sign in" action when the refusal is one a remote sign-in can fix (a
+ *  PRECONDITION on one of the caller's OWN devices that can run
+ *  `agent_login`); everything else offers Retry. */
+function startFailureToast(
+  error: unknown,
+  device: SteerDevice,
+  agent: string,
+  retry: () => void
+): void {
+  const canSignIn =
+    trpcErrorCode(error) === `PRECONDITION_FAILED` &&
+    deviceIsMine(device) &&
+    deviceCanAgentLogin(device)
+  if (!canSignIn) {
+    failedAction(`start`, `the session`, error, { retry })
+    return
   }
+  toast.error(actionErrorTitle(`start`, `the session`), {
+    description: trpcErrorMessage(error, `The session could not be started`),
+    action: { label: `Sign in`, onClick: () => requestAgentLogin({ device, agent }) },
+  })
+}
+
+/** Wait for `txid` to sync, at most `ms`; never throws. */
+async function awaitSynced(txid: number, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    sessionCollection.utils.awaitTxId(txid).catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms)
+    }),
+  ])
+  clearTimeout(timer)
 }
 
 export interface LaunchComposerModel {
   teamId: string
   subject: LaunchSubject
   /** The subject action's row (null while it is not synced, or no action). */
-  selectedAction: TeamAction | null
-  /** Picker list: fix-conflicts pinned first, then Create action, then the
-   * team's rows in server order. Null while the shape is loading. */
-  actions: TeamAction[] | null
-  /** Codeable, not-running issues on repo-backed boards, newest first. */
+  selectedAction: ComposerAction | null
+  /** The team's actions in server order; null while the shape loads. */
+  actions: ComposerAction[] | null
+  /** Codeable issues on repo-backed boards, newest first. */
   eligibleIssues: Issue[]
   /** The checked issues' rows (a checked id not synced yet is absent). */
   checkedIssues: Issue[]
@@ -208,214 +200,69 @@ export interface LaunchComposerModel {
   pickAction: (actionId: string) => void
   clearAction: () => void
   setInput: (key: string, value: string) => void
-  /** Any issue linked to the PR the `pr` input opens pre-picked on. */
+  /** The PR (or any issue it closes) a `pr` input opens pre-picked on. */
   seedPrIssueId: string | undefined
-  /** EXP-1233: the Fix merge conflicts builtin's own view; null for every
-   * other subject. */
-  fixConflicts: FixConflictsView | null
 
   text: string
   setText: (text: string) => void
   images: PendingAttachment[]
   /** Stages files and drops their markers at `caret`; returns the caret
-   * behind the last marker (the field puts its cursor there). */
+   * behind the last marker. */
   addFiles: (files: File[], caret: number) => number
   removeImage: (url: string) => void
 
-  /** The team's connected repositories (null until fetched) — the
-   * action inputs' `repo` pickers and the chat picker read it. */
+  /** The team's connected repositories (null until fetched). */
   repos: ChatRepoOption[] | null
-  /** Chat only (no subject): the optional repository. */
+  /** No subject only: the repository the session works in. */
   repoId: string
   setRepoId: (repoId: string) => void
   repoOptions: { value: string; label: string }[]
 
-  /** EXP-481: the single checked issue's existing worktree on the picked
-   * device (with the picked agent), when there is one. */
-  resumeCandidate: { identifier: string; branch: string } | null
-  resume: boolean
-  setResume: (value: boolean) => void
-  /** True when the run will resume — plan mode hides behind it. */
-  resumeActive: boolean
-
-  /** EXP-980: the open blockers of the checked issues from OUTSIDE the
-   * picked set (`openBlockersOfSet`). Empty for a chat, an action, or
-   * unblocked issues. */
-  blockedStart: Issue[]
-  /** The blocked-start dialog is up — the submit asked, nothing started. */
-  blockedOpen: boolean
-  closeBlockedStart: () => void
-  /** Start the run, blockers and all. */
-  startAnyway: () => Promise<void>
-  /** SLOP-3: the dependency line a stacked start builds bottom-up
-   * (`stackLine` + `stackPlan`), or why "Stacked PR" is disabled. `first` =
-   * the issue of `plan.run[0]`, the one the stacked start launches. */
-  blockedStack: StackPlanResult & { first: Issue | null }
-  /** Start `plan.run[0]` (not necessarily the picked issue) with the same
-   * launch settings and `stackedStartPrompt(plan, typed text)`. A no-op
-   * while `blockedStack.plan` is null. */
-  startStacked: () => Promise<void>
-
   launch: LaunchOptions
   /** Online machines with a runnable agent. */
   candidateDevices: SteerDevice[]
-  /** EXP-836: why the machine a play button named is NOT the selected one —
-   * it is offline, has no agent signed in, or is gone from the registry.
-   * Null when the request settled (or there was none). */
+  /** EXP-836: why the machine a play button named is NOT the selected one. */
   deviceRequestNote: string | null
   mcpServers: McpServerList | null
-  /** EXP-792: Settings › MCP servers `?connect=<id>` — where a server the
-   * caller has not connected yet sends them (null until the team resolves). */
+  /** EXP-792: where a server the caller has not connected yet sends them. */
   mcpConnectHref: (serverId: string) => string | null
 
   submitLabel: string
-  /** Something stops the submit — the notes say what. */
+  /** Something stops the submit; the notes say what. */
   blocked: boolean
   overCap: boolean
   spansRepos: boolean
   spansBranches: boolean
   costHint: boolean
-  /** Uploading, the start is in flight, or a started run has not landed. */
+  /** Uploading, or the start is in flight (the submit's pending spinner). */
   busy: boolean
-  /** The device label a start was just delivered to (the run opens itself). */
-  sentTo: string | null
-  /** EXP-1271 (feedback-states.json `starting`): from the Start press until
-   * the run's synced row lands (or `starting.timeoutMs` after the request
-   * was SENT gives up on it). The card shows "Starting on <device>" with the
-   * mark; the draft stays put so a timeout leaves it ready to retry, and a
-   * row landing after the timeout still clears it. */
-  starting: ComposerStarting | null
   submit: () => Promise<void>
-}
-
-/** What the composer's starting row says: where, and since when. */
-export interface ComposerStarting {
-  deviceLabel: string
-  /** `Date.now()` at the Start press. */
-  since: number
-}
-
-const STARTING = FEEDBACK_STATES.starting
-
-/** "Starting on buildbox" (feedback-states.json `starting.label`). */
-export function startingLabel(deviceLabel: string): string {
-  return STARTING.label.replace(`{device}`, () => deviceLabel)
-}
-
-/** The starting row's clock: tenths of a second, "1.4 s". */
-export function startingElapsed(ms: number): string {
-  return `${(Math.max(ms, 0) / 1000).toFixed(1)} s`
-}
-
-/** The 30 s give-up toast: title, "<device> did not answer.", Retry.
- *  Returns the toast id (a late landing dismisses it). */
-export function startingTimeoutToast(
-  deviceLabel: string,
-  retry: () => void
-): string | number {
-  const copy = STARTING.timeoutToast
-  return toast.error(copy.title, {
-    description: copy.description.replace(`{device}`, () => deviceLabel),
-    action: { label: copy.action, onClick: retry },
-  })
-}
-
-/** Final review + recheck R2 (feedback-states.json `starting.fingerprint`):
- *  what binds a startId to ONE draft start, every field the start sends:
- *  the target device, the text, the subject (issue ids, or the action + its
- *  picks, or the chat's repo), the attachments and the launch options as
- *  `buildOptions` resolves them (agent, model, effort, plan, account, MCP
- *  picks, computer use, ultracode, subagent model). A stacked start keys
- *  the line issue it launches and its wrapped prompt. Equal fingerprints =
- *  the same start (`draftStartKey`). */
-export function draftStartFingerprint(draft: {
-  deviceId: string
-  text: string
-  subject: LaunchSubject
-  repoId: string
-  attachments: readonly string[]
-  options: StartCodingOptions
-  stackedIssueId?: string
-}): string {
-  const { subject, options } = draft
-  return draftStartKey({
-    deviceId: draft.deviceId,
-    text: draft.text,
-    issueIds:
-      subject?.kind === `issues`
-        ? draft.stackedIssueId
-          ? [draft.stackedIssueId]
-          : subject.ids
-        : [],
-    actionId: subject?.kind === `action` ? subject.id : null,
-    actionInputs: subject?.kind === `action` ? subject.inputs : {},
-    repositoryId: subject === null ? draft.repoId || null : null,
-    attachments: draft.attachments,
-    agent: options.agent,
-    model: options.model,
-    effort: options.effort,
-    planMode: options.planMode,
-    account: options.account,
-    mcpServerIds: options.mcpServerIds,
-    computerUse: options.computerUse,
-    ultracode: options.ultracode,
-    subagentModel: options.subagentModel,
-    resume: options.resume,
-  })
 }
 
 export function useLaunchComposer({
   teamId,
-  remote,
+  devices,
   seed,
   onSeedConsumed,
-  onLanded,
+  onStarted,
 }: {
   teamId: string
-  remote: RemoteStart
+  /** The caller's machines (`useSteerDevices`); null while syncing. */
+  devices: SteerDevice[] | null
   /** The route's one-shot preselection; consumed once, then reported. */
   seed: LaunchSeed | null
   onSeedConsumed: () => void
-  /** EXP-1271: the started run's row landed (the watch opened it). */
-  onLanded?: () => void
+  /** The session started (its row synced, or the wait gave up); called
+   *  right before the composer opens its thread. */
+  onStarted?: (sessionId: string) => void
 }): LaunchComposerModel {
+  const navigate = useNavigate()
   const [subject, setSubject] = useState<LaunchSubject>(null)
   const [text, setText] = useState(``)
   const [images, setImages] = useState<PendingAttachment[]>([])
   const [repoId, setRepoId] = useState(``)
-  // EXP-481: "Resume previous session" — default ON whenever it first becomes
-  // eligible (reset when the sole issue changes); a manual toggle sticks.
-  const [resume, setResume] = useState(true)
   const [seedPrIssueId, setSeedPrIssueId] = useState<string | undefined>()
-  // EXP-1233: the seed said a refused merge brought us here. Cleared with
-  // the subject (a different pick is a different story).
-  const [conflictSeeded, setConflictSeeded] = useState(false)
   const [sending, setSending] = useState(false)
-  const [starting, setStarting] = useState<ComposerStarting | null>(null)
-  // Review #3: `Date.now()` when the start request went out (after the
-  // uploads): the starting deadline counts from here, not from the press.
-  const [sentAt, setSentAt] = useState<number | null>(null)
-  // Final review: ONE startId per draft start, bound to its fingerprint
-  // (`draftStartFingerprint`): every Retry and every later Start of the
-  // same draft on the same device reuses it, so a device (and the server)
-  // that already took the first one drops the repeat; a landing or a
-  // changed draft/device mints a fresh one.
-  const startIdRef = useRef<{ id: string; fingerprint: string } | null>(null)
-  // The delivered start whose run's landing clears the draft, the id of the
-  // run the watch had opened before it (a landing = a newer one), the
-  // draft's fingerprint at the send and whether its deadline gave up.
-  const awaitingLandRef = useRef<{
-    run: ComposerStarting
-    openedBefore: string | null
-    fingerprint: string
-    timedOut: boolean
-  } | null>(null)
-  const currentStartRef = useRef<ComposerStarting | null>(null)
-  const timeoutToastRef = useRef<string | number | null>(null)
-  // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
-  // a manual re-pick (including clearing to "None") from being re-seeded when
-  // the Electric actions rows update.
-  const seededRepoActionId = useRef<string | null>(null)
   const imagesRef = useRef(images)
   imagesRef.current = images
 
@@ -430,37 +277,27 @@ export function useLaunchComposer({
   }, [repos])
   const repoOptions = useMemo(() => chatRepoOptions(repos ?? []), [repos])
 
-  // Live synced actions (EXP-268 — the body-less list projection); the three
-  // listed builtins (not DB rows) pinned first, the rest re-apply the
-  // server's ordering (sortOrder, name). Chat is never listed: it IS the
-  // no-subject state.
   const { data: actionRows } = useLiveQuery(
     (query) =>
       query.from({ a: actionCollection }).where(({ a }) => eq(a.teamId, teamId)),
     [teamId]
   )
-  const actions = useMemo<TeamAction[] | null>(() => {
+  const actions = useMemo<ComposerAction[] | null>(() => {
     if (actionRows === undefined) return null
-    const rows = [...actionRows]
-      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
-      .map((row) => ({ ...row, builtin: false as const }))
-    return [
-      builtinFixConflictsAction(teamId),
-      builtinCreateAction(teamId),
-      builtinTidyUpAction(teamId),
-      ...rows,
-    ]
-  }, [teamId, actionRows])
+    return [...(actionRows as ComposerAction[])].sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+    )
+  }, [actionRows])
   const selectedAction =
     subject?.kind !== `action`
       ? null
       : ((actions ?? []).find((action) => action.id === subject.id) ?? null)
 
-  // Codeable issues live in boards that HAVE a repo — coding gates on repo
-  // presence. Sorted ids keep the dep string stable.
+  // Codeable issues live on boards that HAVE a repo (coding gates on repo
+  // presence). Sorted ids keep the dep string stable.
   const boards = useTeamBoards(teamId)
   const repoBoardIds = useMemo(() => {
-    const ids = boards.filter((p) => p.repositoryId).map((p) => p.id)
+    const ids = boards.filter((board) => board.repositoryId).map((board) => board.id)
     ids.sort()
     return ids
   }, [boards])
@@ -473,63 +310,30 @@ export function useLaunchComposer({
         : undefined,
     [repoBoardIds.join(`,`)]
   )
-  const { data: runningRows } = useLiveQuery(
-    (query) =>
-      query.from({ s: codingSessionCollection }).where(({ s }) =>
-        and(
-          eq(s.teamId, teamId),
-          // in_review terminals are still alive and occupy the issue's
-          // worktree (EXP-194) — they block a restart like running ones.
-          // EXP-888: so does a SWEPT row (`ended` + `ended_by = 'stale'`) —
-          // the sweep's flip is not an end, the agent is still on that
-          // worktree, and a fresh Start would put a SECOND one there.
-          or(
-            inArray(s.status, [`running`, `in_review`]),
-            and(eq(s.status, `ended`), eq(s.endedBy, `stale`))
-          )
-        )
-      ),
-    [teamId]
-  )
-  // Staleness guard (EXP-153): a heartbeat-dead row must not keep its issue
-  // blocked from a fresh start.
-  const now = useNow()
-  const runningIssueIds = useMemo(() => {
-    const set = new Set<string>()
-    for (const s of (runningRows ?? []) as CodingSession[]) {
-      if (s.issueId && !isCodingSessionStale(s.updatedAt, now))
-        set.add(s.issueId)
-    }
-    return set
-  }, [runningRows, now])
   const allById = useMemo(
-    () => new Map(((issueRows ?? []) as Issue[]).map((i) => [i.id, i])),
+    () => new Map(((issueRows ?? []) as Issue[]).map((issue) => [issue.id, issue])),
     [issueRows]
   )
   const eligibleIssues = useMemo(
     () =>
       ((issueRows ?? []) as Issue[])
-        .filter(
-          (issue) =>
-            CODEABLE_STATUSES.has(issue.status) && !runningIssueIds.has(issue.id)
-        )
+        .filter((issue) => CODEABLE_STATUSES.has(issue.status))
         .sort(byCreatedAtDesc),
-    [issueRows, runningIssueIds]
+    [issueRows]
   )
   const checkedIds = subject?.kind === `issues` ? subject.ids : []
   const checkedIssues = useMemo(
     () =>
       checkedIds
         .map((id) => allById.get(id))
-        .filter((i): i is Issue => Boolean(i)),
+        .filter((issue): issue is Issue => Boolean(issue)),
     [checkedIds, allById]
   )
 
-  // A batch run is ONE repository on ONE base branch (the server enforces
-  // both, EXP-712) — resolve each checked issue's board and block a
-  // cross-repo / cross-branch selection client-side. A board with no branch
-  // override rides the repo's default, which only the server knows, so the
-  // branch guard fires only on two DIFFERENT overrides.
+  // A batch is ONE repository on ONE base branch (the server enforces both):
+  // block a cross-repo / cross-branch selection client-side. A board with no
+  // branch override rides the repo's default, which only the server knows,
+  // so the branch guard fires only on two DIFFERENT overrides.
   const boardById = useMemo(
     () => new Map(boards.map((board) => [board.id, board as Board])),
     [boards]
@@ -547,14 +351,11 @@ export function useLaunchComposer({
 
   // ── Options cluster ───────────────────────────────────────────────────────
 
-  // Device candidates (EXP-639: the whole fleet above the version floor
-  // advertises the action/inputs/fix-conflicts caps whenever it advertises a
-  // runnable agent, so only these two filters remain — and
-  // `steer.startSession` enforces the agent check server-side). EXP-403: the
-  // registry lists offline machines too — only online ones are startable.
+  // EXP-403: the registry lists offline machines too; only online ones with
+  // a runnable agent are startable.
   const candidateDevices = useMemo(
-    () => (remote.devices ?? []).filter(deviceIsOnline).filter(deviceHasRunnableAgent),
-    [remote.devices]
+    () => (devices ?? []).filter(deviceIsOnline).filter(deviceHasRunnableAgent),
+    [devices]
   )
   const mcp = useMcpServers(teamId)
   const team = useTeamById(teamId)
@@ -567,9 +368,8 @@ export function useLaunchComposer({
     [teamSlug]
   )
   const hasSubject = subject !== null
-  // EXP-772: a chat (no subject) starts in build mode; a subject seeds plan
-  // mode from the device's defaults. `planModeOff` is read on every reseed
-  // path inside the hook, and the effect below covers the flip itself.
+  // EXP-772: a subjectless session starts in build mode; a subject seeds
+  // plan mode from the device's defaults.
   const launch = useLaunchOptions({
     open: true,
     devices: candidateDevices,
@@ -579,33 +379,24 @@ export function useLaunchComposer({
     mcpServers: mcp.servers,
   })
   const { device, agent } = launch
-  // EXP-836: a play button can name a machine the composer cannot start on
-  // (offline by now, every agent signed out there). Say which and why instead
-  // of silently running on the default one.
+  // EXP-836: a play button can name a machine the composer cannot start on.
   const deviceRequestNote = useMemo(() => {
     const requested = launch.unavailableRequestId
     if (!requested) return null
-    // Still syncing: a machine that has not arrived yet is not a missing one
-    // (and the request keeps outranking the default until it does).
-    if (remote.devices === null) return null
-    const row = remote.devices.find(
-      (candidate) => candidate.deviceId === requested
-    )
+    if (devices === null) return null
+    const row = devices.find((candidate) => candidate.deviceId === requested)
     if (!row) return `That machine is no longer in your registry.`
     const label = row.deviceLabel || row.deviceId
     if (!deviceIsOnline(row)) return `${label} is offline.`
-    if (!deviceHasRunnableAgent(row))
-      return `No agent is signed in on ${label}.`
+    if (!deviceHasRunnableAgent(row)) return `No agent is signed in on ${label}.`
     return null
-  }, [launch.unavailableRequestId, remote.devices])
+  }, [launch.unavailableRequestId, devices])
   const hadSubjectRef = useRef(hasSubject)
   useEffect(() => {
     if (hadSubjectRef.current === hasSubject) return
     hadSubjectRef.current = hasSubject
     launch.setPlanMode(
-      hasSubject
-        ? agentSeed(agent, deviceAgentLaunchDefaults(device, agent)).planMode
-        : false
+      hasSubject ? agentSeed(agent, deviceAgentLaunchDefaults(device, agent)).planMode : false
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasSubject])
@@ -614,29 +405,17 @@ export function useLaunchComposer({
 
   useEffect(() => {
     if (!seed) return
-    // `action` wins over `issues` when both arrive; the hidden Chat builtin
-    // is the no-subject state, not a chip.
-    if (seed.actionId && seed.actionId !== BUILTIN_CHAT_ID) {
-      seededRepoActionId.current = null
-      setSubject({
-        kind: `action`,
-        id: seed.actionId,
-        inputs: seed.icon ? { icon: seed.icon } : {},
-      })
+    // `action` wins over `issues` when both arrive.
+    if (seed.actionId) {
+      setSubject({ kind: `action`, id: seed.actionId, inputs: {} })
       setSeedPrIssueId(seed.prIssueId)
-      setConflictSeeded(
-        seed.actionId === BUILTIN_FIX_CONFLICTS_ID && Boolean(seed.conflict)
-      )
     } else if (seed.issueIds.length > 0) {
       setSubject({ kind: `issues`, ids: [...new Set(seed.issueIds)] })
       setSeedPrIssueId(undefined)
-      setConflictSeeded(false)
     }
-    // EXP-836: an explicit machine is a REQUEST — it outranks the default
-    // machine whether or not the devices shape has hydrated yet, and it is
-    // not persisted (only the select's own change sticks, as a pick).
+    // EXP-836: an explicit machine is a REQUEST that outranks the default.
     if (seed.deviceId) launch.requestDevice(seed.deviceId)
-    // The text lands only in an EMPTY draft — a seed never stomps typing.
+    // The text lands only in an EMPTY draft: a seed never stomps typing.
     if (seed.text) {
       const seeded = seed.text
       setText((current) => (current.trim() ? current : seeded))
@@ -645,33 +424,11 @@ export function useLaunchComposer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed])
 
-  // Seed repo-typed inputs from the selected action's bound repository, once
-  // per selection (EXP-349). Effect-level rather than in `pickAction`
-  // because a seeded action's Electric row may sync in later; the merge is
-  // current-wins so the PrInputField seed (fix-conflicts path) and any
-  // already-picked values are never stomped.
-  useEffect(() => {
-    if (subject?.kind !== `action`) return
-    if (seededRepoActionId.current === subject.id) return
-    // Row not synced yet — leave the latch unset so the arrival retries.
-    if (!selectedAction) return
-    seededRepoActionId.current = subject.id
-    const seeded = repoInputSeed(selectedAction)
-    if (Object.keys(seeded).length > 0) {
-      setSubject((current) =>
-        current?.kind === `action` && current.id === selectedAction.id
-          ? { ...current, inputs: { ...seeded, ...current.inputs } }
-          : current
-      )
-    }
-  }, [subject, selectedAction])
-
   // ── Subject actions ───────────────────────────────────────────────────────
 
   const toggleIssue = useCallback((issueId: string) => {
     setSubject((current) => {
-      // Picking an issue while an action is the subject SWAPS (EXP-825:
-      // exclusivity by swap, the chips make it visible).
+      // Picking an issue while an action is the subject SWAPS.
       if (current?.kind !== `issues`) return { kind: `issues`, ids: [issueId] }
       const ids = current.ids.includes(issueId)
         ? current.ids.filter((id) => id !== issueId)
@@ -679,20 +436,13 @@ export function useLaunchComposer({
       return ids.length === 0 ? null : { kind: `issues`, ids }
     })
     setSeedPrIssueId(undefined)
-    setConflictSeeded(false)
   }, [])
 
   const pickAction = useCallback((actionId: string) => {
-    setConflictSeeded(false)
-    if (actionId === BUILTIN_CHAT_ID) {
-      setSubject(null)
-      return
-    }
     setSubject((current) =>
       current?.kind === `action` && current.id === actionId
         ? current
-        : // A different action has a different input schema — stale values
-          // must not leak into the new one's payload.
+        : // A different action has a different input schema.
           { kind: `action`, id: actionId, inputs: {} }
     )
     setSeedPrIssueId(undefined)
@@ -701,23 +451,7 @@ export function useLaunchComposer({
   const clearAction = useCallback(() => {
     setSubject((current) => (current?.kind === `action` ? null : current))
     setSeedPrIssueId(undefined)
-    setConflictSeeded(false)
   }, [])
-
-  // EXP-1233: the Fix merge conflicts builtin's view — the picked PR's rows
-  // (every synced issue it links) and whether a refused merge sent us here.
-  const fixConflictsPrId =
-    subject?.kind === `action` && subject.id === BUILTIN_FIX_CONFLICTS_ID
-      ? subject.inputs.pr || undefined
-      : undefined
-  const fixConflicts = useMemo<FixConflictsView | null>(() => {
-    if (subject?.kind !== `action` || subject.id !== BUILTIN_FIX_CONFLICTS_ID)
-      return null
-    return {
-      pr: resolveFixConflictsPr(fixConflictsPrId, allById),
-      refused: conflictSeeded,
-    }
-  }, [subject, fixConflictsPrId, allById, conflictSeeded])
 
   const setInput = useCallback((key: string, value: string) => {
     setSubject((current) =>
@@ -754,7 +488,6 @@ export function useLaunchComposer({
     [text]
   )
 
-  // Blob URLs are ours to revoke when the page goes.
   useEffect(
     () => () => {
       for (const image of imagesRef.current) URL.revokeObjectURL(image.url)
@@ -762,358 +495,89 @@ export function useLaunchComposer({
     []
   )
 
-  // ── Resume (EXP-481) ──────────────────────────────────────────────────────
-
-  const { data: worktreeRows } = useLiveQuery((query) =>
-    query.from({ w: deviceWorktreeCollection })
-  )
-  const soleIssue =
-    subject?.kind === `issues` && subject.ids.length === 1
-      ? allById.get(subject.ids[0]!)
-      : undefined
-  const soleIssueId = soleIssue?.id
-  useEffect(() => {
-    setResume(true)
-  }, [soleIssueId])
-  const resumeCandidate =
-    soleIssue && device
-      ? resumeWorktree(
-          (worktreeRows ?? []) as SyncedDeviceWorktree[],
-          device.rowId,
-          soleIssue.identifier,
-          agent
-        )
-      : null
-  const resumeActive = resume && resumeCandidate !== null
-
-  // ── Blocked start (EXP-980) ───────────────────────────────────────────────
-
-  // Only the BLOCKED side is queried: a canonical `blocks` row is
-  // `issue_id` blocks `related_issue_id` (EXP-736), so the picked issues'
-  // blockers are exactly the rows naming one of them as the related one.
-  // EXP-980: for a BATCH too — what blocks it from OUTSIDE the picked set.
-  const [blockedOpen, setBlockedOpen] = useState(false)
-  const checkedKey = checkedIds.join(`,`)
-  const { data: relationRows } = useLiveQuery(
-    (query) =>
-      checkedIds.length > 0
-        ? query
-            .from({ r: issueRelationCollection })
-            .where(({ r }) => inArray(r.relatedIssueId, checkedIds))
-        : undefined,
-    [checkedKey]
-  )
-  const blockerIds = useMemo(() => {
-    const ids = [
-      ...new Set(
-        ((relationRows ?? []) as { type: string; issueId: string }[])
-          .filter((row) => row.type === `blocks`)
-          .map((row) => row.issueId)
-      ),
-    ]
-    ids.sort()
-    return ids
-  }, [relationRows])
-  // The blockers' own rows: a blocker can live on a board with NO repository,
-  // which the codeable pool above never queries.
-  const { data: blockerRows } = useLiveQuery(
-    (query) =>
-      blockerIds.length > 0
-        ? query
-            .from({ bl: issueCollection })
-            .where(({ bl }) => inArray(bl.id, blockerIds))
-        : undefined,
-    [blockerIds.join(`,`)]
-  )
-  const blockedStart = useMemo(() => {
-    if (checkedIssues.length === 0) return []
-    const known = new Map<string, Issue>()
-    for (const row of (blockerRows ?? []) as Issue[]) known.set(row.id, row)
-    for (const row of checkedIssues) known.set(row.id, row)
-    return openBlockersOfSet(
-      checkedIssues.map((row) => row.id),
-      (relationRows ?? []) as {
-        type: string
-        issueId: string
-        relatedIssueId: string
-      }[],
-      [...known.values()]
-    )
-  }, [checkedIssues, relationRows, blockerRows])
-  // SLOP-3: "Stacked PR" builds the whole dependency LINE under the ONE
-  // picked issue, so it needs the team's `blocks` rows and every team issue
-  // (a line member may sit on a repo-less board the codeable pool never
-  // queries). Queried only while a single blocked pick could ask.
-  const lineActive = checkedIssues.length === 1 && blockedStart.length > 0
-  const { data: teamRelationRows } = useLiveQuery(
-    (query) =>
-      lineActive
-        ? query
-            .from({ tr: issueRelationCollection })
-            .where(({ tr }) => eq(tr.teamId, teamId))
-        : undefined,
-    [lineActive, teamId]
-  )
-  const teamBoardIds = useMemo(() => boards.map((b) => b.id).sort(), [boards])
-  const { data: lineIssueRows } = useLiveQuery(
-    (query) =>
-      lineActive && teamBoardIds.length > 0
-        ? query
-            .from({ li: issueCollection })
-            .where(({ li }) => inArray(li.boardId, teamBoardIds))
-        : undefined,
-    [lineActive, teamBoardIds.join(`,`)]
-  )
-  // Both repositories come from the boards (an issue row carries none). A
-  // member is RUNNING when a live, non-stale run holds it (the same rows the
-  // pool's running exclusion reads) and its PR is not open yet.
-  const blockedStack = useMemo((): StackPlanResult & { first: Issue | null } => {
-    const repoOf = (issue: Issue) =>
-      boardById.get(issue.boardId)?.repositoryId ?? null
-    const subjectIssue = checkedIssues.length === 1 ? checkedIssues[0]! : null
-    const known = new Map<string, Issue>()
-    for (const row of (lineIssueRows ?? []) as Issue[]) known.set(row.id, row)
-    for (const row of (blockerRows ?? []) as Issue[]) known.set(row.id, row)
-    for (const row of checkedIssues) known.set(row.id, row)
-    const relations = [
-      ...((teamRelationRows ?? []) as GraphRelationRow[]),
-      ...((relationRows ?? []) as GraphRelationRow[]),
-    ]
-    const walk = subjectIssue
-      ? stackLine(subjectIssue.id, relations, [...known.values()])
-      : { line: [] as Issue[], fork: null, cycle: false }
-    const result = stackPlan({
-      pickedCount: checkedIssues.length,
-      subject: {
-        identifier: subjectIssue?.identifier ?? ``,
-        repositoryId: subjectIssue ? repoOf(subjectIssue) : null,
-      },
-      line: walk.line.map((issue) => ({
-        identifier: issue.identifier,
-        prState: issue.prState ?? null,
-        branch: issue.branch ?? null,
-        repositoryId: repoOf(issue),
-        running: runningIssueIds.has(issue.id) && issue.prState !== `open`,
-      })),
-      fork: walk.fork,
-      cycle: walk.cycle,
-    })
-    const firstIdent = result.plan?.run[0]
-    const first =
-      firstIdent === undefined
-        ? null
-        : ([...walk.line, ...(subjectIssue ? [subjectIssue] : [])].find(
-            (issue) => issue.identifier === firstIdent
-          ) ?? null)
-    return { ...result, first }
-  }, [
-    checkedIssues,
-    boardById,
-    lineIssueRows,
-    blockerRows,
-    teamRelationRows,
-    relationRows,
-    runningIssueIds,
-  ])
-  // A fresh subject asks again.
-  useEffect(() => {
-    setBlockedOpen(false)
-  }, [checkedKey])
-
   // ── Gate ──────────────────────────────────────────────────────────────────
 
   const count = checkedIds.length
   const overCap = count > MAX_ISSUES_PER_RUN
   const inputDefs = selectedAction?.inputs ?? []
   const missingInputs =
-    subject?.kind === `action`
-      ? missingRequiredInputs(inputDefs, subject.inputs)
-      : []
+    subject?.kind === `action` ? missingRequiredInputs(inputDefs, subject.inputs) : []
   const hasText = text.trim().length > 0
-  const busy = sending || remote.starting || starting !== null
+  const busy = sending
   const subjectBlocked =
     subject === null
-      ? // A chat needs SOMETHING to say — text or an image (EXP-739: the
-        // repo is optional).
+      ? // A subjectless session needs SOMETHING to say: text or a file.
         !hasText && images.length === 0
       : subject.kind === `issues`
         ? overCap || spansRepos || spansBranches
-        : !selectedAction ||
-          missingInputs.length > 0 ||
-          // The creator derives everything from the request text.
-          (subject.id === BUILTIN_CREATE_ACTION_ID && !hasText)
+        : !selectedAction || missingInputs.length > 0
   const blocked =
     busy ||
     !device ||
-    // EXP-773: the picked agent is not ACP-ready on the picked machine, so
-    // there is no transport left to start it on (the options line says so).
+    // EXP-773: the picked agent is not ready on the picked machine.
     launch.agentNotReady ||
     subjectBlocked
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  const fingerprintFor = (stacked?: { plan: StackPlan; issueId: string }) =>
-    draftStartFingerprint({
-      deviceId: device?.deviceId ?? ``,
-      text: stacked ? stackedStartPrompt(stacked.plan, text) : text,
-      subject,
-      repoId,
-      attachments: images.map((image) => image.url),
-      // The options exactly as `start` sends them.
-      options: launch.buildOptions({
-        resume: stacked ? false : resumeActive,
-        omitMcp: subjectOwnsMcpServers(subject),
-      }),
-      stackedIssueId: stacked?.issueId,
-    })
-  // The draft as it stands now (a plain start's fingerprint): what a late
-  // landing compares against the draft it sent.
-  const fingerprintRef = useRef(``)
-  fingerprintRef.current = fingerprintFor()
+  const submitRef = useRef<() => Promise<void>>(async () => {})
 
-  /** The actual start. `stacked` = a stacked start (SLOP-3): the line's
-   *  first issue, the typed text wrapped by `stackedStartPrompt`. */
-  const start = async (stacked?: { plan: StackPlan; issueId: string }) => {
+  const submit = async () => {
     if (blocked || !device) return
-    setBlockedOpen(false)
     setSending(true)
-    const fingerprint = fingerprintFor(stacked)
-    // A stacked start's line issue binds the id, not the draft a late
-    // landing compares against.
-    const sentDraft = stacked ? fingerprintFor() : fingerprint
-    const startId =
-      startIdRef.current?.fingerprint === fingerprint
-        ? startIdRef.current.id
-        : crypto.randomUUID()
-    // Final review (B6): a DIFFERENT start supersedes the previous one's
-    // watch here, before the uploads: its late row only shows in Running and
-    // never touches this draft. The SAME startId keeps it (the device drops
-    // the re-send; the original row is this start's landing).
-    if (startIdRef.current?.id !== startId) awaitingLandRef.current = null
-    remote.supersede(startId)
-    startIdRef.current = { id: startId, fingerprint }
-    const startedRun: ComposerStarting = {
-      deviceLabel: device.deviceLabel || device.deviceId,
-      since: Date.now(),
-    }
-    currentStartRef.current = startedRun
-    setStarting(startedRun)
-    setSentAt(null)
-    let delivered = false
-    // Recheck R3: a maybe-delivered failure keeps the landing armed.
-    let followed = false
+    const retry = () => void submitRef.current()
     try {
-      // Upload sequentially, persisting each id as it lands — a mid-batch
-      // failure keeps the composer intact and a retry only uploads the rest.
+      // Upload sequentially, keeping each id as it lands: a mid-batch
+      // failure keeps the composer intact and a retry uploads the rest.
       let current = imagesRef.current
       try {
         for (const image of current) {
           if (image.uploadedId) continue
           const uploaded = await uploadTeamSessionImageFile(teamId, image.file)
-          current = markPendingImageUploaded(
-            current,
-            image.url,
-            uploaded.id,
-            uploaded.filename
-          )
+          current = markPendingImageUploaded(current, image.url, uploaded.id, uploaded.filename)
           setImages(current)
         }
       } catch (error) {
-        // FEED-79: landed uploads are kept, so Retry uploads the rest and
-        // starts (the kept draft, through the same gates as a click).
-        failedAction(`upload`, `the attachment`, error, {
-          retry: () => void submitRef.current(),
-        })
+        failedAction(`upload`, `the attachment`, error, { retry })
         return
       }
-      const { imageIds, files } = uploadedWireParts(current)
-      const prompt = buildSteerMessage(
-        stacked ? stackedStartPrompt(stacked.plan, text) : text,
-        imageIds,
-        files
-      )
-      // A stacked start may launch an issue other than the picked one, whose
-      // worktree the resume offer never looked at: it always starts fresh.
-      // FEED-73: a real action owns its MCP list (the server sets the run's
-      // pick from it), so the composer's pick never rides a real-action start.
-      const options = launch.buildOptions({
-        resume: stacked ? false : resumeActive,
-        omitMcp: subjectOwnsMcpServers(subject),
+      const attachmentIds = current
+        .map((image) => image.uploadedId)
+        .filter((id): id is string => Boolean(id))
+      // FEED-73: a real action owns its MCP list (the server sets it), so
+      // the composer's pick never rides an action start.
+      const options = launch.buildOptions({ omitMcp: subject?.kind === `action` })
+      const input = buildSendInput({
+        teamId,
+        deviceId: device.deviceId,
+        options,
+        text,
+        attachmentIds,
+        subject,
+        actionInputs:
+          subject?.kind === `action`
+            ? buildInputsPayload(inputDefs, subject.inputs)
+            : undefined,
+        repoId,
       })
-      // The remote hook toasts its own failures and rethrows; a refused start
-      // keeps the draft, and the toast's Retry re-submits it (FEED-79)
-      // under the same startId while the draft is unchanged.
-      const retry = () => void submitRef.current()
-      // Review #3: SENT. The deadline arms now, and from here on the run
-      // landing (even after the deadline) is this start's landing.
-      setSentAt(Date.now())
-      awaitingLandRef.current = {
-        run: startedRun,
-        openedBefore: remote.openedId,
-        fingerprint: sentDraft,
-        timedOut: false,
+      let result: { sessionId: string; txid: number }
+      try {
+        result = await trpc.sessions.send.mutate(input, SKIP_ERROR_TOAST)
+      } catch (error) {
+        startFailureToast(error, device, options.agent, retry)
+        return
       }
-      if (subject === null) {
-        await remote.runAction(
-          device,
-          // The hidden builtin has no DB row, so the identity is constructed
-          // here (the server re-derives it from the reserved id).
-          { id: BUILTIN_CHAT_ID, name: BUILTIN_CHAT_NAME, teamId },
-          options,
-          chatStartInputs(repoId),
-          prompt,
-          retry,
-          startId
-        )
-      } else if (subject.kind === `issues`) {
-        await remote.startIssues(
-          device,
-          options,
-          stacked ? [stacked.issueId] : subject.ids,
-          prompt || undefined,
-          retry,
-          startId
-        )
-      } else if (selectedAction) {
-        await remote.runAction(
-          device,
-          {
-            id: selectedAction.id,
-            name: selectedAction.name,
-            teamId: selectedAction.teamId,
-          },
-          options,
-          buildInputsPayload(inputDefs, subject.inputs),
-          prompt || undefined,
-          retry,
-          startId
-        )
-      }
-      // EXP-1271: delivered. The draft stays until the run's row lands
-      // (`clearDraft` below) or the starting deadline gives up on it.
-      delivered = true
-    } catch (error) {
-      // Already toasted by the remote hook. Recheck R3: a start whose fate
-      // is unknown may still land; the remote hook follows it quietly and
-      // its late row lands here like a timed-out one (cleared draft only
-      // while the draft is unchanged since the send).
-      const awaiting = awaitingLandRef.current
-      if (awaiting?.run === startedRun && startMaybeDelivered(error)) {
-        awaiting.timedOut = true
-        followed = true
-        quietWatchRef.current(
-          () => fingerprintRef.current === awaiting.fingerprint
-        )
+      await awaitSynced(result.txid, START_SYNC_WAIT_MS)
+      clearDraft()
+      onStartedRef.current?.(result.sessionId)
+      if (teamSlug) {
+        void navigate({
+          to: `/t/$teamSlug/threads/$threadId`,
+          params: { teamSlug, threadId: result.sessionId },
+        })
       }
     } finally {
       setSending(false)
-      if (!delivered && currentStartRef.current === startedRun) {
-        if (!followed && awaitingLandRef.current?.run === startedRun) {
-          awaitingLandRef.current = null
-        }
-        setStarting(null)
-        setSentAt(null)
-      }
     }
   }
 
@@ -1125,78 +589,10 @@ export function useLaunchComposer({
     setSeedPrIssueId(undefined)
   }
 
-  // EXP-1271: the starting state ends when the run's row lands (the remote
-  // watch matched a run since the request was sent) or, `starting.timeoutMs`
-  // after it was SENT, with the error toast (Retry re-submits the kept draft
-  // under the same startId). Review #3: the timeout aborts nothing: the
-  // watch keeps looking quietly for `starting.watchMs`. Final review: a late
-  // row always dismisses the error; it clears the draft and lands only when
-  // the draft is unchanged since its send, otherwise the field stays as the
-  // person left it and the remote watch does not navigate (`quietWatch`'s
-  // gate below asks the same question).
-  const landedRef = useRef<(() => void) | undefined>(onLanded)
-  landedRef.current = onLanded
-  useEffect(() => {
-    const awaiting = awaitingLandRef.current
-    if (!awaiting || remote.openedId === null) return
-    if (remote.openedId === awaiting.openedBefore) return
-    awaitingLandRef.current = null
-    startIdRef.current = null
-    if (timeoutToastRef.current !== null) {
-      toast.dismiss(timeoutToastRef.current)
-      timeoutToastRef.current = null
-    }
-    setStarting(null)
-    setSentAt(null)
-    if (awaiting.timedOut && fingerprintRef.current !== awaiting.fingerprint) {
-      return
-    }
-    clearDraft()
-    landedRef.current?.()
-    // `clearDraft` only touches setters and a ref.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remote.openedId])
+  const onStartedRef = useRef(onStarted)
+  onStartedRef.current = onStarted
 
-  const submitRef = useRef<() => Promise<void>>(async () => {})
-  const quietWatchRef = useRef(remote.quietWatch)
-  quietWatchRef.current = remote.quietWatch
-  useEffect(() => {
-    if (!starting || sentAt === null) return
-    const left = sentAt + STARTING.timeoutMs - Date.now()
-    const timer = setTimeout(() => {
-      const awaiting = awaitingLandRef.current
-      if (awaiting?.run === starting) {
-        awaiting.timedOut = true
-        quietWatchRef.current(
-          () => fingerprintRef.current === awaiting.fingerprint
-        )
-      } else {
-        quietWatchRef.current()
-      }
-      setStarting(null)
-      setSentAt(null)
-      timeoutToastRef.current = startingTimeoutToast(
-        starting.deviceLabel,
-        () => void submitRef.current()
-      )
-    }, Math.max(left, 0))
-    return () => clearTimeout(timer)
-  }, [starting, sentAt])
-
-  // EXP-980: a BLOCKED start asks first (Cancel, Start anyway or Stacked PR); a batch
-  // asks about blockers outside it. An action or a chat never asks, and
-  // neither does a RESUME: it re-enters a worktree whose base was decided
-  // when the run first started.
-  const submitWith = async () => {
-    if (blocked || !device) return
-    if (blockedStart.length > 0 && subject?.kind === `issues` && !resumeActive) {
-      setBlockedOpen(true)
-      return
-    }
-    await start()
-  }
-  const submit = () => submitWith()
-  submitRef.current = submitWith
+  submitRef.current = submit
 
   return {
     teamId,
@@ -1210,7 +606,6 @@ export function useLaunchComposer({
     clearAction,
     setInput,
     seedPrIssueId,
-    fixConflicts,
     text,
     setText,
     images,
@@ -1220,36 +615,18 @@ export function useLaunchComposer({
     repoId,
     setRepoId,
     repoOptions,
-    resumeCandidate: resumeCandidate
-      ? { identifier: soleIssue!.identifier, branch: resumeCandidate.branch }
-      : null,
-    resume,
-    setResume,
-    resumeActive,
-    blockedStart,
-    blockedOpen,
-    closeBlockedStart: () => setBlockedOpen(false),
-    startAnyway: () => start(),
-    blockedStack,
-    startStacked: async () => {
-      const { plan, first } = blockedStack
-      if (!plan || !first) return
-      await start({ plan, issueId: first.id })
-    },
     launch,
     candidateDevices,
     deviceRequestNote,
     mcpServers: mcp.servers,
     mcpConnectHref,
-    submitLabel: submitLabelFor(subject, Boolean(fixConflicts?.pr)),
+    submitLabel: submitLabelFor(subject),
     blocked,
     overCap,
     spansRepos,
     spansBranches,
     costHint: !overCap && !spansRepos && count > BATCH_COST_HINT_THRESHOLD,
     busy,
-    sentTo: remote.sentTo,
-    starting,
     submit,
   }
 }

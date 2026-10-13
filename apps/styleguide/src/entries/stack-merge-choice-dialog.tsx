@@ -50,13 +50,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1145`,
   title: `Stack merge confirm`,
-  blurb: `What a merge on a member of an OPEN linear stack asks (EXP-1248, replacing EXP-1145's three answers). ONE merge control: on any stack member it reads "${confirm.labels.mergeStack}" and lands the whole open chain (through its top); hovering a member row of the stack rail shows a ghost "${confirm.labels.mergeThrough}" (a phone row's long-press menu) that lands that member and every open member beneath it. Either opens this confirm: the title is the action, the body says what lands bottom-up ("Lands 2 pull requests, bottom-up: …") and what stays open above it (GitHub retargets it), a batch pull request named with its count (\`EXP-874 +2\`). Two answers: "${confirm.labels.cancel}" and the primary pill repeating the title, leading with the merge glyph. The server lands it with ONE GitHub merge-async on that member, after making the line a GitHub stack; a PR TREE (any fork) never gets this confirm (its root merges plainly first). The decision and every word are ONE pure function ×4 (\`stack-merge-choice.json\` \`confirm\`).`,
+  blurb: `What a merge on a member of an OPEN linear stack asks (EXP-1248, replacing EXP-1145's three answers). ONE merge control: on any stack member it reads "${confirm.labels.mergeStack}" and lands the whole open chain (through its top); hovering a member row of the stack rail shows a ghost "${confirm.labels.mergeThrough}" (a phone row's long-press menu) that lands that member and every open member beneath it. Either opens this confirm: the title is the action, the body says what lands bottom-up ("Lands 2 pull requests, bottom-up: …") and what stays open above it (GitHub retargets it), a batch pull request named with its count (\`EXP-874 +2\`). Two answers: "${confirm.labels.cancel}" and the primary pill repeating the title, leading with the merge glyph. The server lands it with ONE GitHub merge-async on that member (\`pullRequests.merge({pullRequestId, stack: true})\`), after making the line a GitHub stack; a PR TREE (any fork) never gets this confirm (its root merges plainly first). The decision and every word are ONE pure function ×4 (\`stack-merge-choice.json\` \`confirm\`).`,
   status: {
     web: {
       state: `ok`,
       symbol: `StackMergeConfirmDialog`,
       file: `apps/web/src/components/stack-merge-choice-dialog.tsx`,
-      note: `copy = lib/pr-stack.ts stackMergeConfirm; the Merge capsule and the Guide stack rail open it`,
+      note: `copy = lib/pr-stack.ts stackMergeConfirm over pull_requests head/base; THE merge pill opens it`,
     },
     desktop: {
       state: `ok`,

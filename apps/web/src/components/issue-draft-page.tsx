@@ -112,21 +112,23 @@ export function IssueDraftPage({
   // thread (a reopened draft keeps its own), read through a ref because the
   // editor is created below.
   const threadIdRef = useRef<string | null>(threadId ?? null)
-  const openIssue = (issue: Pick<Issue, `identifier` | `boardId`>) => {
-    void navigate({
-      ...draftLandingNavigation({
+  const land = (landing: ReturnType<typeof draftLandingNavigation>) => {
+    void navigate({ ...landing, replace: true, ignoreBlocker: true })
+  }
+  const openIssue = (issue: Pick<Issue, `id` | `identifier` | `boardId`>) => {
+    land(
+      draftLandingNavigation({
         teamSlug,
         threadId: threadIdRef.current,
         boardSlug:
           boards.find((row) => row.id === issue.boardId)?.slug ??
           boards[0]?.slug ??
           ``,
+        issueId: issue.id,
         identifier: issue.identifier,
         from,
-      }),
-      replace: true,
-      ignoreBlocker: true,
-    } as never)
+      })
+    )
   }
   const onConsumedElsewhere = (consumed: DraftConsumedElsewhere) => {
     if (consumed.kind === `created`) {
@@ -196,17 +198,16 @@ export function IssueDraftPage({
     if (!editor.canCreate) return
     const created = await editor.create()
     if (!created) return
-    void navigate({
-      ...draftLandingNavigation({
+    land(
+      draftLandingNavigation({
         teamSlug,
         threadId: editor.threadId,
         boardSlug: created.boardSlug ?? board?.slug ?? ``,
+        issueId: created.id,
         identifier: created.identifier,
         from,
-      }),
-      replace: true,
-      ignoreBlocker: true,
-    } as never)
+      })
+    )
   }
 
   // ── Leaving (EXP-1212): any in-app navigation to another path is HELD

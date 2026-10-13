@@ -3,8 +3,7 @@ import { contract } from "@exp/domain-contract"
 import { describe, expect, it, vi } from "vitest"
 
 import type { Issue } from "@/db/schema"
-import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
-import { builtinFixConflictsAction } from "@/lib/builtin-actions"
+import type { ComposerAction, LaunchComposerModel } from "@/hooks/use-launch-composer"
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -13,8 +12,6 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 vi.mock(`@/lib/collections`, () => ({
   actionCollection: {},
   boardCollection: {},
-  codingSessionCollection: {},
-  deviceWorktreeCollection: {},
   issueCollection: {},
 }))
 
@@ -42,7 +39,6 @@ function model(overrides: Partial<LaunchComposerModel>): LaunchComposerModel {
     subject: null,
     selectedAction: null,
     checkedIssues: [],
-    fixConflicts: null,
     toggleIssue: vi.fn(),
     clearAction: vi.fn(),
     setInput: vi.fn(),
@@ -60,48 +56,20 @@ describe(`launchHeadlineVerb`, () => {
     expect(launchHeadlineVerb({ kind: `issues`, ids: [`i1`] })).toBe(
       contract.composerUi.implementHeadline
     )
-    // EXP-1233: the Fix merge conflicts builtin with a PICKED pull request.
-    expect(
-      launchHeadlineVerb({ kind: `action`, id: `a1`, inputs: {} }, true)
-    ).toBe(contract.composerUi.fixConflictsHeadline)
   })
 })
 
 describe(`launchHeadlineText`, () => {
   it(`names the action`, () => {
-    const fix = builtinFixConflictsAction(`t1`)
+    const triage = { id: `act-1`, name: `Triage`, icon: null } as unknown as ComposerAction
     expect(
       launchHeadlineText(
         model({
-          subject: { kind: `action`, id: fix.id, inputs: {} },
-          selectedAction: fix,
+          subject: { kind: `action`, id: triage.id, inputs: {} },
+          selectedAction: triage,
         })
       )
-    ).toBe(`Run ${fix.name}`)
-  })
-
-  // EXP-1233: with a PR picked the verb is the builtin's own and the chips
-  // are the PR's issues, so the accessible name reads like an issue start.
-  it(`names the picked pull request's issues for Fix merge conflicts`, () => {
-    const fix = builtinFixConflictsAction(`t1`)
-    expect(
-      launchHeadlineText(
-        model({
-          subject: { kind: `action`, id: fix.id, inputs: { pr: `i1` } },
-          selectedAction: fix,
-          fixConflicts: {
-            refused: true,
-            pr: {
-              issueId: `i1`,
-              prNumber: 9,
-              branch: `exp/batch-1`,
-              baseBranch: `master`,
-              issues: [issue(`i1`, `APP-2`), issue(`i2`, `APP-3`)],
-            },
-          },
-        })
-      )
-    ).toBe(`Fix merge conflicts APP-2, APP-3`)
+    ).toBe(`Run Triage`)
   })
 
   it(`lists the identifiers, and counts the rows that have not synced`, () => {
