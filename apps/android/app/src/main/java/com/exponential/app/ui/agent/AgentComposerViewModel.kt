@@ -13,16 +13,13 @@ import com.exponential.app.data.api.McpServersApi
 import com.exponential.app.domain.McpServerOption
 import com.exponential.app.domain.mcpServerReady
 import com.exponential.app.domain.preselectMcpServerIds
-import com.exponential.app.domain.subjectOwnsMcpServers
 import kotlinx.coroutines.flow.collectLatest
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.data.api.SteerStartOptions
-import com.exponential.app.data.api.builtinChatAction
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
@@ -35,13 +32,7 @@ import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
-import com.exponential.app.domain.ComposerMenu
-import com.exponential.app.domain.DraftStart
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.FixConflictsPr
-import com.exponential.app.domain.resolveFixConflictsPr
-import com.exponential.app.domain.BlockedStart
-import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.LaunchDeviceRules
@@ -49,9 +40,6 @@ import com.exponential.app.domain.steerAttachmentRefusal
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.PendingAttachment
-import com.exponential.app.domain.RunResumeTarget
-import com.exponential.app.domain.StartedRunMatch
-import com.exponential.app.domain.batchRunIssueIds
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -124,8 +112,6 @@ internal fun composerPlaceholder(
 /** EXP-1271: what the composer's starting row says — where, and since when. */
 data class ComposerStarting(val deviceLabel: String, val sinceMs: Long)
 
-/** The Fix merge conflicts builtin's one input key (`builtinFixConflictsAction`). */
-internal const val FIX_CONFLICTS_PR_KEY = "pr"
 
 /** What the composer is about — issue chips OR one action chip, never both. */
 sealed interface ComposerSubject {
@@ -226,9 +212,6 @@ class AgentComposerViewModel @Inject constructor(
         _openSessionId.value = null
     }
 
-    /** EXP-773: Resume an ended run from the Recent list — the same rails. */
-    fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
-
     /** Every ONLINE machine, runnable or not — the signed-out caption's source. */
     val onlineDevices: StateFlow<List<SteerDevice>?> get() = steerLaunch.devices
 
@@ -289,40 +272,6 @@ class AgentComposerViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
-     * What the blocked-start dialog is asking about (EXP-980) — the picked
-     * subjects, their blockers and the transitive chain it draws as the
-     * mini-graph. Non-null while the dialog is up: a submit on a blocked
-     * start opens it instead of starting, and [submitAnyway] starts the run
-     * it held.
-     */
-    data class BlockedPrompt(
-        val pickedIds: List<String>,
-        val blockers: List<IssueEntity>,
-        val graph: IssueGraph.Graph,
-        /** The pool the graph's nodes resolve against. */
-        val issuesById: Map<String, IssueEntity>,
-        /**
-         * SLOP-3: the dependency line "Stacked PR" starts bottom-up, or the
-         * reason it is disabled ([BlockedStart.stackPlan]).
-         */
-        val stack: BlockedStart.PlanResult,
-        /** The issue behind `stack.plan.run[0]`, what "Stacked PR" starts. */
-        val stackStartIssueId: String?,
-    ) {
-        /** "Stacked PR" is enabled only with a plan and its first issue resolved. */
-        val stackable: Boolean get() = stack.plan != null && stackStartIssueId != null
-
-        /** The note under a disabled "Stacked PR"; null while it is enabled. */
-        val stackNote: String? get() = stack.note
-
-        /** The note under an enabled "Stacked PR" whose run has 2+ issues. */
-        val planNote: String? get() = stack.plan?.let { BlockedStart.stackPlanNote(it.run) }
-    }
-
-    private val _blockedPrompt = MutableStateFlow<BlockedPrompt?>(null)
-    val blockedPrompt: StateFlow<BlockedPrompt?> = _blockedPrompt
-
-    /**
      * SLOP-3: every synced board; an issue's repository is its board's
      * `repository_id`. Eager so a submit reads a warm value.
      */
@@ -346,26 +295,6 @@ class AgentComposerViewModel @Inject constructor(
         if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /**
-     * SLOP-3: the issues with a LIVE coding session (own or a batch's
-     * covered set), what marks a stacked line member as already running.
-     * Eager so a submit reads a warm value.
-     */
-    private val liveRunIssueIds: StateFlow<Set<String>> =
-        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) {
-            it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
-        }
-            .map { sessions ->
-                sessions.filter { CodingSessionLiveness.isLive(it) }
-                    .flatMapTo(HashSet()) { listOfNotNull(it.issueId) + batchRunIssueIds(it.batchIssueIds) }
-            }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
-
-    /** The submit the dialog is holding — its arguments, replayed on answer. */
-    private var heldStart: HeldStart? = null
-
-    private data class HeldStart(val action: ActionDto?, val resumeOffered: Boolean)
-
     /** EXP-323: the PR an action's `pr` input should open pre-picked on —
      * consumed by the screen once the options pool resolves it. */
     private val _pendingPrIssueId = MutableStateFlow<String?>(null)
@@ -374,42 +303,6 @@ class AgentComposerViewModel @Inject constructor(
     fun consumePendingPr() {
         _pendingPrIssueId.value = null
     }
-
-    /**
-     * EXP-1233: a REFUSED merge opened the composer on the Fix merge conflicts
-     * builtin (the seed's `conflict`) — the card's refusal line under the PR
-     * row. Cleared whenever the subject changes.
-     */
-    private val _conflictRefused = MutableStateFlow(false)
-    val conflictRefused: StateFlow<Boolean> = _conflictRefused
-
-    /**
-     * EXP-1233: the pull request picked into the Fix merge conflicts builtin,
-     * resolved off the synced rows (the representative + every open-PR issue
-     * sharing its `prUrl`); null for every other subject and while nothing is
-     * picked — the composer then draws the plain "Run" + action chip.
-     */
-    val fixConflictsPr: StateFlow<FixConflictsPr?> = combine(_subject, allIssues) { subject, issues ->
-        val action = subject as? ComposerSubject.Action
-        if (action?.id != DomainContract.builtinFixConflictsId) {
-            null
-        } else {
-            resolveFixConflictsPr(action.inputs[FIX_CONFLICTS_PR_KEY], issues)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /** EXP-1233: the headline chip's ✕ — clears the PICK, never the action. */
-    fun clearFixConflictsPr() {
-        val current = _subject.value as? ComposerSubject.Action ?: return
-        if (current.id != DomainContract.builtinFixConflictsId) return
-        _pendingPrIssueId.value = null
-        setInput(FIX_CONFLICTS_PR_KEY, "")
-    }
-
-    // EXP-349: the last action id whose repo inputs were seeded — the latch
-    // keeps a manual re-pick (including clearing to "None") from being
-    // re-seeded when the synced rows update.
-    private var seededRepoActionId: String? = null
 
     // ── Draft ───────────────────────────────────────────────────────────────
     private val _draft = MutableStateFlow("")
@@ -463,19 +356,6 @@ class AgentComposerViewModel @Inject constructor(
      */
     private val _startTimedOut = MutableStateFlow<String?>(null)
     val startTimedOut: StateFlow<String?> = _startTimedOut
-    private var startingDeadline: Job? = null
-
-    /**
-     * Final review (feedback-states.json `starting`): the pending draft
-     * start, its `startId` carried by `steer.startSession`. Every Retry and
-     * every later Start of the SAME draft on the SAME device reuses it (the
-     * server and the device start an id once); a landing or a changed draft
-     * or device retires it ([DraftStart]).
-     */
-    private var draftStart: DraftStart? = null
-
-    /** When [draftStart] was FIRST sent: the watch of a re-send cuts off there. */
-    private var draftStartSentAtMs: Long? = null
 
     /** The timeout toast on screen, dismissed when the late row lands. */
     private var timeoutToastId: String? = null
@@ -501,80 +381,19 @@ class AgentComposerViewModel @Inject constructor(
         if (toastId != null) timeoutToastId = toastId
     }
 
-    /**
-     * A row landed. A resume's (no startId) just opens. A composer start's
-     * ends the starting state and takes the error down; the draft clears and
-     * the session opens only when the draft is unchanged since its send.
-     * Review #3: a row landing AFTER the timeout lands the same way.
-     */
-    private fun landed(sessionId: String, startId: String?) {
-        if (startId == null) {
-            _openSessionId.value = sessionId
-            return
-        }
-        val start = draftStart?.takeIf { it.startId == startId } ?: return
-        startingDeadline?.cancel()
-        _starting.value = null
-        draftStart = null
-        draftStartSentAtMs = null
-        _startTimedOut.value = null
-        timeoutToastId?.let { _dismissToast.value = it }
-        timeoutToastId = null
-        if (!start.landsInto(draftFingerprint())) return
-        clearSentDraft()
-        _openSessionId.value = sessionId
-    }
-
-    /**
-     * The draft as a start is bound to it (recheck R2,
-     * `starting.fingerprint.fields`): the machine, the text, the subject
-     * (issues, or the action + its filled inputs, or the chat's repository),
-     * the attachments and every launch option in the form the start sends.
-     * Null without a machine to start on.
-     */
-    private fun draftFingerprint(): DraftStart.Fingerprint? {
-        val target = device.value ?: return null
-        val subject = _subject.value
-        // The Resume toggle rides single-issue starts only (`dispatch`).
-        val resume = resumeOffered && _resume.value && (subject as? ComposerSubject.Issues)?.ids?.size == 1
-        val options = buildOptions(resume)
-        return DraftStart.Fingerprint(
-            deviceId = target.deviceId,
-            text = _draft.value,
-            issueIds = (subject as? ComposerSubject.Issues)?.ids.orEmpty().toSet(),
-            actionId = (subject as? ComposerSubject.Action)?.id,
-            // "" = a cleared pick, which the wire drops too.
-            actionInputs = (subject as? ComposerSubject.Action)?.inputs.orEmpty()
-                .filterValues { it.isNotBlank() },
-            repositoryId = _chatRepoId.value.takeIf { subject == null && it.isNotEmpty() },
-            attachments = _images.value.map { it.uri.toString() }.toSet(),
-            agent = options.agent,
-            model = options.model,
-            effort = options.effort,
-            planMode = options.planMode,
-            account = options.account,
-            mcpServerIds = options.mcpServerIds.orEmpty().toSet(),
-            computerUse = options.computerUse,
-            ultracode = options.ultracode,
-            subagentModel = options.subagentModel,
-            resume = resume,
-        )
-    }
-
-    /** Whether the last Start found a resumable worktree (the fingerprint's
-     *  Resume reads the toggle only where it is offered). */
-    private var resumeOffered = false
-
     init {
-        // Review #4: the pending start ends HERE, the moment the delegate
-        // hands over the row, not when the screen consumes it: a landing
-        // while the Agent screen is off-screen is never a false timeout.
+        // EXP-1291: an accepted `sessions.send` answers with the session at
+        // once (a `queued` row the device picks up) — the draft clears and
+        // the page opens it.
         viewModelScope.launch {
             steerLaunch.startedSessionId.collect { id ->
                 if (id == null) return@collect
-                val startId = steerLaunch.landedStartId
                 steerLaunch.consumeStartedSession()
-                landed(id, startId)
+                _starting.value = null
+                timeoutToastId?.let { _dismissToast.value = it }
+                timeoutToastId = null
+                clearSentDraft()
+                _openSessionId.value = id
             }
         }
     }
@@ -584,10 +403,6 @@ class AgentComposerViewModel @Inject constructor(
         _draft.value = ""
         _subject.value = null
         _pendingPrIssueId.value = null
-        // The subject is gone, so its repo-seed latch goes too: re-picking
-        // the SAME action must pre-fill `repo` again (a required repo
-        // otherwise leaves submit disabled).
-        seededRepoActionId = null
         reseedPlanMode()
     }
 
@@ -736,18 +551,15 @@ class AgentComposerViewModel @Inject constructor(
      */
     fun applySeed(seed: AgentComposerSeed) {
         val actionId = seed.actionId
-        if (actionId != null && actionId != DomainContract.builtinChatId) {
-            seededRepoActionId = null
+        if (actionId != null) {
             _subject.value = ComposerSubject.Action(
                 actionId,
                 if (seed.icon.isNullOrEmpty()) emptyMap() else mapOf("icon" to seed.icon),
             )
             _pendingPrIssueId.value = seed.prIssueId
-            _conflictRefused.value = seed.conflict && actionId == DomainContract.builtinFixConflictsId
         } else if (seed.effectiveIssueIds.isNotEmpty()) {
             _subject.value = ComposerSubject.Issues(seed.effectiveIssueIds.distinct())
             _pendingPrIssueId.value = null
-            _conflictRefused.value = false
         }
         seed.deviceId?.let { id -> _launch.value = _launch.value.copy(requestedDeviceId = id) }
         val text = seed.text
@@ -767,25 +579,16 @@ class AgentComposerViewModel @Inject constructor(
             if (ids.isEmpty()) null else ComposerSubject.Issues(ids)
         }
         _pendingPrIssueId.value = null
-        _conflictRefused.value = false
         steerLaunch.clearFailure()
         reseedPlanMode()
     }
 
     fun pickAction(actionId: String) {
-        _conflictRefused.value = false
-        if (actionId == DomainContract.builtinChatId) {
-            _subject.value = null
-        } else {
-            val current = _subject.value
-            // A different action has a different input schema — stale values
-            // must not leak into the new one's payload.
-            if (current !is ComposerSubject.Action || current.id != actionId) {
-                // A fresh pick re-arms the EXP-349 repo seed: the latch is
-                // per selection, not per action id for the page's lifetime.
-                seededRepoActionId = null
-                _subject.value = ComposerSubject.Action(actionId, emptyMap())
-            }
+        val current = _subject.value
+        // A different action has a different input schema — stale values
+        // must not leak into the new one's payload.
+        if (current !is ComposerSubject.Action || current.id != actionId) {
+            _subject.value = ComposerSubject.Action(actionId, emptyMap())
         }
         _pendingPrIssueId.value = null
         steerLaunch.clearFailure()
@@ -795,7 +598,6 @@ class AgentComposerViewModel @Inject constructor(
     fun clearAction() {
         if (_subject.value is ComposerSubject.Action) _subject.value = null
         _pendingPrIssueId.value = null
-        _conflictRefused.value = false
         steerLaunch.clearFailure()
         reseedPlanMode()
     }
@@ -804,25 +606,6 @@ class AgentComposerViewModel @Inject constructor(
         val current = _subject.value as? ComposerSubject.Action ?: return
         _subject.value = current.copy(inputs = current.inputs + (key to value))
     }
-
-    /**
-     * EXP-349: pre-fill `repo` inputs with the action's bound repository once
-     * per selection — current-wins, so a seeded icon, a `pr` pick or a manual
-     * value is never stomped. The screen calls it whenever the resolved action
-     * row is on hand (a seeded action's synced row may land later).
-     */
-    fun seedRepoInputs(action: ActionDto) {
-        val current = _subject.value as? ComposerSubject.Action ?: return
-        if (current.id != action.id || seededRepoActionId == action.id) return
-        seededRepoActionId = action.id
-        val repoId = action.repositoryId ?: return
-        val seeds = action.inputs.orEmpty()
-            .filter { it.type == "repo" && current.inputs[it.key] == null }
-            .associate { it.key to repoId }
-        if (seeds.isNotEmpty()) _subject.value = current.copy(inputs = seeds + current.inputs)
-    }
-
-    // ── Draft ───────────────────────────────────────────────────────────────
 
     fun setDraft(text: String) {
         if (text == _draft.value) return
@@ -961,7 +744,7 @@ class AgentComposerViewModel @Inject constructor(
     /** The per-run computer use toggle: the flip, else the device's CURRENT
      *  `launch_defaults.computerUse`. */
     val computerUse: StateFlow<Boolean> = combine(_computerUsePick, device) { pick, d ->
-        ComposerMenu.computerUseShown(pick, d?.launchDefaults?.computerUse == true)
+        pick ?: (d?.launchDefaults?.computerUse == true)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setComputerUse(value: Boolean) {
@@ -1024,177 +807,59 @@ class AgentComposerViewModel @Inject constructor(
     // ── Submit ──────────────────────────────────────────────────────────────
 
     /**
-     * The chosen options in wire form. [resume] is the composer's call:
-     * single-issue starts only, and a resume never re-enters plan mode
-     * (EXP-202 — clamped like the desktop dialog).
+     * EXP-1291: the composer's runner pickers + subject as ONE `sessions.send`
+     * NEW ROOT input (in the ACTIVE team, on the settled device). [text] is
+     * the composed prompt (image embeds included), [attachmentIds] the
+     * uploaded files. Plan mode, ultracode and computer use ride only where
+     * the agent / device reads them.
      */
-    fun buildOptions(resume: Boolean): SteerStartOptions {
+    fun sendInput(
+        teamId: String,
+        deviceId: String,
+        action: ActionDto?,
+        text: String?,
+        attachmentIds: List<String>,
+    ): SessionsSendInput {
         val draft = _launch.value
         val agent = draft.agent
-        return SteerStartOptions(
-            model = draft.model,
-            effort = draft.effort,
-            // EXP-981: claude only, and omitted for "Default" — the server
-            // validates it against the closed model vocabulary, which has no
-            // entry for the empty string.
-            subagentModel = draft.subagentModel
-                .takeIf { it.isNotEmpty() && agent == DEFAULT_AGENT },
-            ultracode = if (agent == DEFAULT_AGENT) draft.ultracode else null,
-            planMode = when {
-                resume -> false
-                supportsPlanMode(agent) -> draft.planMode
-                else -> null
+        val subject = _subject.value
+        return SessionsSendInput.root(
+            teamId = teamId,
+            deviceId = deviceId,
+            text = text,
+            attachmentIds = attachmentIds,
+            issueIds = (subject as? ComposerSubject.Issues)?.ids,
+            actionId = (subject as? ComposerSubject.Action)?.id,
+            inputs = (subject as? ComposerSubject.Action)?.let { picked ->
+                ActionInputValues.wireValues(action?.inputs.orEmpty(), picked.inputs)
             },
-            agent = agent,
-            resume = if (resume) true else null,
+            cli = agent,
             account = draft.wireAccount,
-            // EXP-1249: a real action owns its MCP list; none picked = none sent.
-            mcpServerIds = _mcpServerIds.value
-                .takeIf { it.isNotEmpty() && !subjectOwnsMcpServers((_subject.value as? ComposerSubject.Action)?.id) },
-            // Only a device that reads the flag gets it (older builds ignore it).
-            // Web M12: only an explicit flip rides the wire.
-            computerUse = ComposerMenu.computerUseWire(
-                pick = _computerUsePick.value,
-                canToggle = device.value?.canToggleComputerUse == true,
-            ),
-            // EXP-1284: a start from a thread page joins that thread. `resume`
-            // here is the worktree flag (EXP-481), which the server accepts
-            // beside a thread like web, iOS and desktop send it; only a
-            // resumeSessionId refuses the pair, and that path never seeds one.
-            threadId = seed.threadId,
+            model = draft.model.takeIf { it.isNotEmpty() },
+            effort = draft.effort.takeIf { it.isNotEmpty() },
+            planMode = if (supportsPlanMode(agent)) draft.planMode else null,
+            ultracode = if (agent == DEFAULT_AGENT && draft.ultracode) true else null,
+            computerUse = _computerUsePick.value?.takeIf { device.value?.canToggleComputerUse == true },
+            mcpServerIds = _mcpServerIds.value,
         )
     }
 
     /**
-     * Upload the pending images sequentially (each id stamped as it lands, so
-     * a retry after a mid-batch failure only uploads the rest), compose the
-     * `prompt`, then dispatch the subject: the hidden Chat builtin with no
-     * subject, a single/batch issue start, or the action with its filled
-     * inputs. The draft, images and subject clear only once the send was
-     * ACCEPTED — a refused start keeps everything to retry.
-     *
-     * [action] is the resolved row for an action subject (null while its
-     * synced row is missing — the gate already blocks that); [resumeOffered]
-     * whether the single issue's worktree exists on the picked machine.
-     * A Start press and the error toast's Retry alike: the same draft on the
-     * same device re-sends under the SAME `startId`, anything else mints one.
+     * Upload the pending images sequentially (each id stamped as it lands,
+     * so a retry after a mid-batch failure only uploads the rest), compose
+     * the text, then ONE `sessions.send` (a new thread root). The draft,
+     * images and subject clear only once the send was ACCEPTED — a refused
+     * start keeps everything to retry. [action] is the resolved row for an
+     * action subject (null while its synced row is missing).
      */
-    fun submit(action: ActionDto?, resumeOffered: Boolean) {
-        if (_sending.value) return
-        this.resumeOffered = resumeOffered
-        draftFingerprint()?.let { fingerprint ->
-            val resolved = DraftStart.resolve(draftStart, fingerprint)
-            if (resolved.startId != draftStart?.startId) draftStartSentAtMs = null
-            draftStart = resolved
-        }
-        // EXP-980: a blocked start asks first — start anyway, or cancel. A
-        // RESUME re-enters a run that already has its branch, so there is
-        // nothing to ask (desktop parity).
-        val ids = (_subject.value as? ComposerSubject.Issues)?.ids.orEmpty()
-        val resuming = resumeOffered && _resume.value && ids.size == 1
-        // Computed HERE from the synced pools, not read off [openBlockers]: the
-        // combined flow lands a dispatcher hop behind its sources, so a Start
-        // tapped right after they filled could still see its empty seed and
-        // skip the question (the ×4 rule, `IssueGraph.openBlockersOfSet`).
-        val issues = allIssues.value
-        val relations = allRelations.value
-        val blockers = if (ids.isEmpty()) emptyList() else IssueGraph.openBlockersOfSet(ids, relations, issues)
-        if (!resuming && blockers.isNotEmpty() && _blockedPrompt.value == null) {
-            heldStart = HeldStart(action, resumeOffered)
-            val issuesById = issues.associateBy { it.id }
-            val repoOfBoard = allBoards.value.associate { it.id to it.repositoryId }
-            fun repoOf(issue: IssueEntity?) = issue?.let { repoOfBoard[it.boardId] }
-            val subject = ids.singleOrNull()?.let(issuesById::get)
-            val line = subject?.let { BlockedStart.stackLine(it.id, relations, issues) }
-            val live = liveRunIssueIds.value
-            val stack = BlockedStart.stackPlan(
-                pickedCount = ids.size,
-                subject = BlockedStart.Subject(
-                    identifier = subject?.identifier.orEmpty(),
-                    repositoryId = repoOf(subject),
-                ),
-                line = line?.line.orEmpty().map { member ->
-                    BlockedStart.Member(
-                        identifier = member.identifier,
-                        prState = member.prState,
-                        branch = member.branch,
-                        repositoryId = repoOf(member),
-                        running = member.id in live && member.prState != DomainContract.prStateOpen,
-                    )
-                },
-                fork = line?.fork?.identifier,
-                cycle = line?.cycle == true,
-            )
-            _blockedPrompt.value = BlockedPrompt(
-                pickedIds = ids,
-                blockers = blockers,
-                graph = IssueGraph.blockGraph(ids, relations, issues),
-                issuesById = issuesById,
-                stack = stack,
-                // `run[0]` resolves inside the walked line, never by
-                // identifier over every team's issues.
-                stackStartIssueId = BlockedStart.stackStartIssueId(
-                    stack.plan,
-                    line?.line.orEmpty(),
-                    subject,
-                ),
-            )
-            return
-        }
-        dispatch(action, resumeOffered)
-    }
-
-    /** Start anyway: the ordinary start, blockers and all. */
-    fun submitAnyway() {
-        val held = heldStart
-        _blockedPrompt.value = null
-        heldStart = null
-        if (held != null) dispatch(held.action, held.resumeOffered)
-    }
-
-    /**
-     * SLOP-3: "Stacked PR", the SAME start as [submitAnyway] (device, agent,
-     * model, account, images) but for the line's BOTTOM issue, `run[0]`, not
-     * necessarily the picked one, with the prompt
-     * [BlockedStart.stackedStartPrompt] wrapping the typed draft. The rest of
-     * the line starts run by run from that prompt.
-     */
-    fun submitStacked() {
-        val held = heldStart
-        val prompt = _blockedPrompt.value
-        val plan = prompt?.stack?.plan
-        _blockedPrompt.value = null
-        heldStart = null
-        val startIssueId = prompt?.stackStartIssueId
-        if (held == null || plan == null || startIssueId == null) return
-        dispatch(held.action, held.resumeOffered, stacked = StackedStart(startIssueId, plan))
-    }
-
-    /** SLOP-3: what a "Stacked PR" dispatch starts instead of the picked issue. */
-    private data class StackedStart(val issueId: String, val plan: BlockedStart.Plan)
-
-    /** Cancel: the composer keeps everything, nothing was sent. */
-    fun dismissBlockedPrompt() {
-        _blockedPrompt.value = null
-        heldStart = null
-    }
-
-    private fun dispatch(
-        action: ActionDto?,
-        resumeOffered: Boolean,
-        stacked: StackedStart? = null,
-    ) {
+    fun submit(action: ActionDto?, @Suppress("UNUSED_PARAMETER") resumeOffered: Boolean = false) {
         if (_sending.value) return
         val target = device.value ?: return
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
         val subject = _subject.value
+        if (subject is ComposerSubject.Action && action == null) return
         val label = target.deviceLabel.ifBlank { target.deviceId }
-        val sendStartId = draftStart?.startId
-        // B6: a DIFFERENT start supersedes the quiet watch of the previous one
-        // BEFORE its uploads, so that start's late row can never clear this
-        // draft mid-send; a re-send of the same start keeps watching.
-        steerLaunch.supersede(sendStartId)
         viewModelScope.launch {
             _sending.value = true
             timeoutToastId?.let { _dismissToast.value = it }
@@ -1224,89 +889,20 @@ class AgentComposerViewModel @Inject constructor(
                     _uploadFailure.value = trpcErrorMessage(t, "")
                     return@launch
                 }
-                // The original row of a re-sent start landed during the
-                // uploads: it already cleared what it had to, send nothing.
-                if (sendStartId != null && draftStart?.startId != sendStartId) return@launch
-                val sentAtMs = draftStartSentAtMs ?: System.currentTimeMillis()
-                val text = stacked?.let { BlockedStart.stackedStartPrompt(it.plan, _draft.value) }
-                    ?: _draft.value
                 val uploadedSet = _images.value
-                val prompt = AgentComposerPrompt.build(
-                    text,
+                val text = AgentComposerPrompt.build(
+                    _draft.value,
                     uploadedSet.uploadedImageIds(),
                     uploadedSet.uploadedSteerFiles(),
                 )
-                // A stacked start never resumes: its first issue may not be the picked one.
-                val resume = stacked == null && resumeOffered && _resume.value &&
-                    (subject as? ComposerSubject.Issues)?.ids?.size == 1
-                val options = buildOptions(resume)
-                accepted = when (subject) {
-                    null -> {
-                        // The hidden builtin has no DB row: constructed here,
-                        // its one optional input riding only when picked
-                        // (EXP-756 — an empty repo is NO repo).
-                        val chat = builtinChatAction(teamId)
-                        steerLaunch.runAction(
-                            target,
-                            chat,
-                            options,
-                            ActionInputValues.wireValues(
-                                chat.inputs.orEmpty(),
-                                mapOf("repo" to _chatRepoId.value),
-                            ),
-                            prompt,
-                            sendStartId,
-                            sentAtMs,
-                            StartedRunMatch.WATCH_MS,
-                        )
-                    }
-                    is ComposerSubject.Issues ->
-                        steerLaunch.startIssues(
-                            target,
-                            stacked?.let { listOf(it.issueId) } ?: subject.ids,
-                            options,
-                            prompt,
-                            sendStartId,
-                            sentAtMs,
-                            StartedRunMatch.WATCH_MS,
-                        )
-                    is ComposerSubject.Action -> {
-                        val row = action ?: return@launch
-                        steerLaunch.runAction(
-                            target,
-                            row,
-                            options,
-                            ActionInputValues.wireValues(row.inputs.orEmpty(), subject.inputs),
-                            prompt,
-                            sendStartId,
-                            sentAtMs,
-                            StartedRunMatch.WATCH_MS,
-                        )
-                    }
-                }
-                // Recheck R3: a refused send of unknown fate is still followed
-                // (the delegate's quiet watch): its first send is the cutoff.
-                if ((accepted || steerLaunch.isFollowing(sendStartId)) &&
-                    draftStartSentAtMs == null && draftStart?.startId == sendStartId
-                ) {
-                    draftStartSentAtMs = sentAtMs
-                }
-                if (accepted) {
-                    // EXP-1271: the draft stays until the row lands (a
-                    // timeout keeps it to retry). Review #3: the deadline
-                    // counts from HERE, the request SENT (uploads done); on
-                    // timeout the composer goes idle and toasts, but nothing
-                    // is aborted: the watch goes on and a late row lands.
-                    startingDeadline?.cancel()
-                    startingDeadline = viewModelScope.launch {
-                        delay(FeedbackStates.STARTING_TIMEOUT_MS)
-                        if (_starting.value != null) {
-                            steerLaunch.quietWatch()
-                            _starting.value = null
-                            _startTimedOut.value = label
-                        }
-                    }
-                }
+                val input = sendInput(
+                    teamId = teamId,
+                    deviceId = target.deviceId,
+                    action = action,
+                    text = text,
+                    attachmentIds = uploadedSet.mapNotNull { it.uploadedId },
+                )
+                accepted = steerLaunch.send(input, label) != null
             } finally {
                 _sending.value = false
                 if (!accepted) _starting.value = null

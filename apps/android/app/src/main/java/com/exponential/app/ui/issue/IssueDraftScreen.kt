@@ -346,13 +346,6 @@ fun IssueDraftScreen(
                             )
                         }
 
-                        // EXP-1284: a thread draft says where the issue files
-                        // into — the route's thread, or the reopened row's.
-                        state.threadId?.let { threadId ->
-                            Spacer(Modifier.height(8.dp))
-                            com.exponential.app.ui.thread.DraftThreadLine(threadId)
-                        }
-
                         Spacer(Modifier.height(8.dp))
                         IssueTitleField(
                             text = state.title,

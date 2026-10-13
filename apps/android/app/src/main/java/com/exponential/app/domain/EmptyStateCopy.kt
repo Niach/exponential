@@ -127,7 +127,7 @@ object EmptyStateCopy {
         "nav-inbox" -> ExpIcons.navInbox
         "nav-issues" -> ExpIcons.navIssues
         "nav-my-issues" -> ExpIcons.navMyIssues
-        "nav-reviews" -> ExpIcons.navReviews
+        "nav-threads" -> ExpIcons.navThreads
         "settings-boards" -> ExpIcons.settingsBoards
         "settings-labels" -> ExpIcons.settingsLabels
         "settings-mcp" -> ExpIcons.settingsMcp

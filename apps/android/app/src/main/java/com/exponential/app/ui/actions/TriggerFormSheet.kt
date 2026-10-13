@@ -10,7 +10,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,46 +19,27 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.api.SteerDevice
-import com.exponential.app.domain.ActionTrigger
-import com.exponential.app.domain.AccountOptions
-import com.exponential.app.domain.TriggerWhen
+import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.ui.agent.AgentLaunchDataViewModel
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 
 /**
- * What the trigger form hands back on submit: the when-part, the machine it
- * runs on and the pins. A null pin means the bound machine's own launch
- * default; [account] is set only beside its [agent] (EXP-995).
- */
-data class TriggerFormResult(
-    val whenPart: TriggerWhen,
-    val deviceId: String,
-    val agent: String?,
-    val account: String?,
-    val model: String?,
-    val effort: String?,
-)
-
-/**
- * The "New trigger" / "Edit trigger" form (EXP-583; SLOP-2: a trigger lives on
- * its action, so the form lost its action picker) — the mobile twin of the web
- * dialog: the when-part (Schedule | On event with the shared filter pickers),
- * the machine it runs on, and optionally a pinned account/model/effort.
- * Owner-only; the caller renders it and the server re-checks everything — its
- * refusal (an action with required inputs, an incapable device) is the host's
- * error toast (FEED-79) with the sheet still open.
+ * The "New trigger" / "Edit trigger" form of an AGENT's Schedule (EXP-583;
+ * EXP-1291: the trigger carries only its WHEN — the agent itself is the
+ * runner): Schedule | On event with the shared filter pickers. Owner-only;
+ * the caller renders it and writes the agent's WHOLE trigger array
+ * (`sessions.updateAgent({triggers})`), a refusal toasts with the sheet open.
+ * [onSubmit] hands back [editing]'s id (null = a new trigger) + the when-part.
  */
 @Composable
 fun TriggerFormSheet(
-    devices: List<SteerDevice>,
     busy: Boolean,
-    onSubmit: (TriggerFormResult) -> Unit,
+    onSubmit: (AgentTrigger) -> Unit,
     onDismiss: () -> Unit,
     /** The trigger being edited; null = add a new one. */
-    editing: ActionTrigger? = null,
+    editing: AgentTrigger? = null,
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // EXP-1021: the label/status filter rows carry a colour and a resolved
     // glyph, which the launcher's id+name input options do not.
@@ -69,34 +49,10 @@ fun TriggerFormSheet(
     val labelOptions by filterViewModel.labels.collectAsStateWithLifecycle()
     val statusOptions by filterViewModel.statuses.collectAsStateWithLifecycle()
 
-    var draft by remember {
-        mutableStateOf(
-            if (editing == null) {
-                triggerDraftFor(null)
-            } else {
-                triggerDraftFor(editing.whenPart, deviceId = editing.deviceId).copy(
-                    agent = editing.agent.orEmpty(),
-                    // A legacy `system` pin reads as unpinned.
-                    account = AccountOptions.pinnedAccount(editing.account).orEmpty(),
-                    model = editing.model.orEmpty(),
-                    effort = editing.effort.orEmpty(),
-                )
-            },
-        )
-    }
-
-    // Settle the machine as the synced rows land, without stomping a pick.
-    LaunchedEffect(devices) {
-        if (draft.deviceId == null) {
-            // EXP-622: the caller's default machine, else the first candidate.
-            (devices.firstOrNull { it.isDefault } ?: devices.firstOrNull())
-                ?.let { draft = draft.copy(deviceId = it.deviceId) }
-        }
-    }
+    var draft by remember { mutableStateOf(triggerDraftFor(editing?.whenPart)) }
 
     val whenPart = triggerDraftToWhen(draft)
-    val deviceId = draft.deviceId
-    val canSubmit = deviceId != null && whenPart != null && !busy
+    val canSubmit = whenPart != null && !busy
 
     GlassSheet(
         title = if (editing == null) "New trigger" else "Edit trigger",
@@ -108,20 +64,12 @@ fun TriggerFormSheet(
             enabled = canSubmit,
             loading = busy,
             onClick = submit@{
-                val device = deviceId ?: return@submit
                 val picked = whenPart ?: return@submit
                 onSubmit(
-                    TriggerFormResult(
+                    AgentTrigger(
+                        id = editing?.id,
+                        enabled = editing?.enabled ?: true,
                         whenPart = picked,
-                        deviceId = device,
-                        agent = draft.agent.takeIf { it.isNotEmpty() },
-                        // EXP-995: a profile is ONE agent's — it rides only
-                        // beside its agent.
-                        account = draft.account.takeIf {
-                            it.isNotEmpty() && draft.agent.isNotEmpty()
-                        },
-                        model = draft.model.takeIf { it.isNotEmpty() },
-                        effort = draft.effort.takeIf { it.isNotEmpty() },
                     ),
                 )
             },
@@ -133,8 +81,6 @@ fun TriggerFormSheet(
                 .weight(1f)
                 .verticalScroll(rememberScrollState()),
         ) {
-            // EXP-698: no "Trigger" heading — the card's own kind strip says
-            // what it is, and the heading only pushed the groups apart.
             TriggerWhenFields(
                 draft = draft,
                 boards = boardOptions,
@@ -142,21 +88,7 @@ fun TriggerFormSheet(
                 statuses = statusOptions,
                 onChange = { draft = it },
             )
-            Spacer(Modifier.height(8.dp))
-
-            TriggerBindingFields(
-                draft = draft,
-                devices = devices,
-                onChange = { draft = it },
-            )
-
             Spacer(Modifier.height(24.dp))
         }
     }
 }
-
-/** The one sentence a locked trigger row shows — the same wording on every
- * client, wherever a required input blocks enabling a trigger. */
-internal const val REQUIRED_INPUTS_HINT =
-    "This action has required inputs, and a triggered session has none to fill them with. " +
-        "Make the inputs optional to enable it."

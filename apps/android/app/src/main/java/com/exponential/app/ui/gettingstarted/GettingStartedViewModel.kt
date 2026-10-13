@@ -71,7 +71,7 @@ class GettingStartedViewModel @Inject constructor(
         db.boardDao().observeByTeam(teamId)
     }
     private val codingSessions = teamScoped(emptyList()) { db, teamId ->
-        db.codingSessionDao().observeByTeam(teamId)
+        db.sessionDao().observeByTeam(teamId)
     }
     private val members = teamScoped(emptyList()) { db, teamId ->
         db.teamMemberDao().observeByTeam(teamId)

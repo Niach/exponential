@@ -13,7 +13,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.IssueSearch
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.ui.components.GlassSheetDefaults
@@ -102,11 +101,11 @@ internal fun AgentIssuePickerPage(
         }
         if (checked.isNotEmpty()) {
             GlassSubmitButton(
-                label = ComposerMenu.implementButtonLabel(checked.size),
+                label = if (checked.size == 1) "Implement 1 issue" else "Implement ${checked.size} issues",
                 onClick = onDone,
                 modifier = Modifier
                     .padding(horizontal = GlassSheetDefaults.HorizontalPadding, vertical = 12.dp)
-                    .testTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID),
+                    .testTag("agent-composer-implement"),
             )
         }
     }

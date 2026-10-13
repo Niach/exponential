@@ -30,9 +30,10 @@ class WebLinkResolver @Inject constructor(
     suspend fun resolve(target: DeepLinkBus.Target.WebIssueRef): Resolution =
         poll(target.host) { db -> db.issueDao().findIdByTeamRef(target.teamSlug, target.identifier) }
 
-    /** EXP-1288: a `/t/{team}/threads/{id}` link → the synced thread. */
+    /** EXP-1288: a `/t/{team}/threads/{id}` link → the synced thread ROOT
+     *  session (EXP-1291: a thread IS a root session). */
     suspend fun resolveThread(target: DeepLinkBus.Target.WebThreadRef): Resolution =
-        poll(target.host) { db -> db.threadDao().findIdByTeamRef(target.teamSlug, target.threadId) }
+        poll(target.host) { db -> db.sessionDao().findIdByTeamRef(target.teamSlug, target.threadId) }
 
     private suspend fun poll(
         host: String,

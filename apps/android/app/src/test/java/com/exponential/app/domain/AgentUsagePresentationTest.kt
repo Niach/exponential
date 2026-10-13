@@ -1,7 +1,7 @@
 package com.exponential.app.domain
 
 import com.exponential.app.data.api.AgentAccount
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.DeviceEntity
 import java.time.Instant
 import org.junit.Assert.assertEquals
@@ -266,14 +266,13 @@ class AgentUsagePresentationTest {
             agent: String? = "claude",
             deviceId: String? = "dev-1",
             userId: String = "me",
-        ) = CodingSessionEntity(
+        ) = SessionEntity(
             id = "sess-1",
-            issueId = "issue-1",
             teamId = "team-1",
             userId = userId,
-            deviceId = deviceId,
+            deviceId = deviceId.orEmpty(),
             status = status,
-            agent = agent,
+            cli = agent,
             startedAt = "2026-08-28T09:00:00Z",
             createdAt = "2026-08-28T09:00:00Z",
             updatedAt = "2026-08-28T09:00:00Z",
@@ -299,7 +298,7 @@ class AgentUsagePresentationTest {
         val usage = AgentUsagePresentation.sessionUsage(session(), devices, nowMs)
         assertNotNull(usage)
         assertEquals(3, usage!!.windows.size)
-        assertNotNull(AgentUsagePresentation.sessionUsage(session(status = "in_review"), devices, nowMs))
+        assertNotNull(AgentUsagePresentation.sessionUsage(session(status = "idle"), devices, nowMs))
 
         // Hidden: the run is over, it never recorded an agent, it has no
         // device stamp, no row matches, the machine reports another agent, the

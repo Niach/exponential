@@ -78,12 +78,6 @@ class DraftStartTest {
         assertFalse(start.landsInto(null))
     }
 
-    @Test
-    fun theQuietWatchSpansTheDedupeWindow() {
-        assertEquals(1_800_000L, StartedRunMatch.WATCH_MS)
-        assertEquals(FeedbackStates.STARTING_DEDUPE_MS, FeedbackStates.STARTING_WATCH_MS)
-    }
-
     // ── feedback-states.json `starting.fingerprint` ─────────────────────────
 
     private val fingerprintFixture: JsonObject =

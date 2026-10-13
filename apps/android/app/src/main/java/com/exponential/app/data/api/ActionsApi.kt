@@ -1,15 +1,11 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.data.db.ActionEntity
-import com.exponential.app.domain.ActionTrigger
-import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.parseActionTriggers
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -24,11 +20,11 @@ import kotlinx.serialization.json.put
 // sheet opens, exactly like the web dialog and the desktop editor do).
 
 /**
- * One typed run input an action declares (EXP-257): the Agent page composer
- * renders a pick per def ([type] `repo` | `board` | `pr` | `icon` — EXP-825
- * retired `text`/`textarea`: free text is the start's `prompt`) and sends the
- * filled values with `steer.startSession`. [required] defaults false (absent
- * = optional). [placeholder] survives on the wire for older rows.
+ * One typed input a saved prompt declares (EXP-257): the composer renders a
+ * pick per def ([type] = contract `actionInputType`: `repo` | `board` | `pr`
+ * | `issue`) and sends the filled values as `sessions.send({actionId,
+ * inputs})`. [required] defaults false (absent = optional). [placeholder]
+ * survives on the wire for older rows.
  */
 @Serializable
 data class ActionInputDto(
@@ -40,20 +36,16 @@ data class ActionInputDto(
 )
 
 /**
- * One team action row. [repositoryId] is null for repo-less actions (the
- * desktop runs those in a scratch dir); [description] is the optional
- * one-liner under the name. [body] is always empty on mobile (excluded from
- * sync — nothing in the list/run UI needs it). [builtin] marks the virtual
- * "Create action" row ([builtinCreateAction] — id
- * [DomainContract.builtinCreateActionId]), which clients PREPEND themselves
- * now that rows come from the synced shape (the server used to append it in
- * `actions.list`); the pin-first rule keys off this flag, never sort order.
+ * One team action = a SAVED PROMPT (EXP-1291): name, icon, markdown [body],
+ * typed [inputs] and the composer hint. [description] is the optional
+ * one-liner under the name. [body] is always empty off the synced shape
+ * (excluded from sync — `actions.get` is the only body path). No triggers
+ * (they live on agents now), no repository, no builtins.
  */
 @Serializable
 data class ActionDto(
     val id: String,
     val teamId: String,
-    val repositoryId: String? = null,
     val name: String,
     val description: String? = null,
     /** EXP-273: curated registry icon name; null = the generic action glyph. */
@@ -63,28 +55,13 @@ data class ActionDto(
     val createdAt: String = "",
     val updatedAt: String = "",
     val inputs: List<ActionInputDto>? = null,
-    val builtin: Boolean? = null,
     /**
      * EXP-825: the composer's field hint while this action is picked (≤200
      * chars); null = the generic "Additional instructions (optional)…".
      */
     val promptPlaceholder: String? = null,
-    /**
-     * SLOP-2: the action's triggers as the server stores them (a jsonb array;
-     * builtins never carry any). Read through [parsedTriggers] — the tolerant
-     * parse skips whatever this build cannot read.
-     */
-    val triggers: JsonArray? = null,
 ) {
-    /** Whether this is a virtual client-constructed builtin row. */
-    val isBuiltin: Boolean get() = builtin == true
-
-    /** The readable triggers, in array order (unknown kinds are skipped). */
-    val parsedTriggers: List<ActionTrigger> get() = parseActionTriggers(triggers)
-
-    /** Whether the action declares a REQUIRED input: a triggered run has
-     * nobody to fill one in, so the server refuses to enable a trigger on
-     * such an action. */
+    /** Whether the action declares a REQUIRED input. */
     val hasRequiredInputs: Boolean get() = inputs.orEmpty().any { it.required }
 
     companion object {
@@ -97,159 +74,6 @@ data class ActionDto(
     }
 }
 
-/**
- * The virtual builtin "Create action" row (EXP-257): describe a new action and
- * let your agent author it for the team. Synced rows can't carry it, so every
- * consumer PREPENDS this factory's row to the local-flow list. EXP-825: the
- * request itself (what the action should do, and its name if the user states
- * one) is the start's `prompt`, never an input — the two remaining inputs are
- * PICKS the creator run can't derive from prose. Byte-locked ×4 (web
- * builtin-actions.ts, desktop `api::actions`, iOS `ActionsApi`).
- */
-fun builtinCreateAction(teamId: String): ActionDto = ActionDto(
-    id = DomainContract.builtinCreateActionId,
-    teamId = teamId,
-    name = "Create action",
-    description = "Describe a new action and let your agent author it for the team",
-    icon = "sparkles",
-    inputs = listOf(
-        ActionInputDto(
-            key = "repo",
-            label = "Repository",
-            type = "repo",
-            required = false,
-        ),
-        // EXP-273: the author picks the new action's glyph up front.
-        ActionInputDto(
-            key = "icon",
-            label = "Icon",
-            type = "icon",
-            required = false,
-        ),
-    ),
-    sortOrder = 1e9,
-    builtin = true,
-    // EXP-825: the composer's hint for the request text (the retired
-    // free-text input's placeholder, byte-identical to the web).
-    promptPlaceholder = "Describe the action — what it should do, and its name if you have one…",
-)
-
-/**
- * The virtual builtin "Fix merge conflicts" row (EXP-259, mobile parity
- * EXP-270): pick a conflicted open pull request and let the desktop rebase,
- * resolve, push and merge it. The `pr` input's value is the REPRESENTATIVE
- * issue id of an issue-linked open PR (batch PRs dedupe by prUrl). Mirrors
- * apps/web/src/lib/builtin-actions.ts field-for-field.
- */
-fun builtinFixConflictsAction(teamId: String): ActionDto = ActionDto(
-    id = DomainContract.builtinFixConflictsId,
-    teamId = teamId,
-    name = "Fix merge conflicts",
-    description = "Pick a conflicted pull request and let your agent rebase, resolve, and merge it",
-    icon = "git-branch",
-    inputs = listOf(
-        ActionInputDto(
-            key = "pr",
-            label = "Pull request",
-            type = "pr",
-            required = true,
-        ),
-    ),
-    sortOrder = 1e9 + 1,
-    builtin = true,
-    promptPlaceholder = null,
-)
-
-/**
- * The LISTED builtin "Tidy up" (FEED-50): let the agent dedupe, label and link
- * a board's issues over MCP — nothing is deleted. Builtins never carry
- * triggers; a team that wants Tidy up on a trigger owns a REAL row of that
- * name, which hides this one ([hasOwnTidyUpAction]). Mirrors
- * apps/web/src/lib/builtin-actions.ts field-for-field.
- */
-fun builtinTidyUpAction(teamId: String): ActionDto = ActionDto(
-    id = DomainContract.builtinTidyUpId,
-    teamId = teamId,
-    name = "Tidy up",
-    description = "Let your agent dedupe, label and link a board's issues. Nothing is deleted",
-    icon = "brush-cleaning",
-    repositoryId = null,
-    body = "",
-    inputs = listOf(
-        ActionInputDto(
-            key = "board",
-            label = "Board",
-            type = "board",
-            required = false,
-        ),
-        ActionInputDto(
-            key = "repo",
-            label = "Repository",
-            type = "repo",
-            required = false,
-        ),
-    ),
-    sortOrder = 1e9 + 4,
-    builtin = true,
-    promptPlaceholder = "Anything the tidy-up should focus on or leave alone (optional)…",
-)
-
-/**
- * The HIDDEN "Chat" builtin (EXP-615): a conversation with your agent over the
- * tracker's MCP tools, OPTIONALLY anchored to a repository (EXP-739).
- * Deliberately in NO list — the Agent page composer constructs this row
- * directly when no subject is picked (EXP-825), so it never shows up as a
- * runnable action anywhere. EXP-825: the chat text is the start's `prompt`
- * (required for this builtin), never an input. Mirrors
- * apps/web/src/lib/builtin-actions.ts field-for-field.
- */
-fun builtinChatAction(teamId: String): ActionDto = ActionDto(
-    id = DomainContract.builtinChatId,
-    teamId = teamId,
-    name = "Chat",
-    description = "Chat with your agent on a repository",
-    icon = "message-circle",
-    inputs = listOf(
-        ActionInputDto(
-            key = "repo",
-            label = "Repository",
-            type = "repo",
-            required = false,
-        ),
-    ),
-    sortOrder = 1e9 + 2,
-    builtin = true,
-    promptPlaceholder = null,
-)
-
-/** The reserved name a team's OWN "Tidy up" row carries (SLOP-2). */
-const val BUILTIN_TIDY_UP_NAME = "Tidy up"
-
-/**
- * SLOP-2: whether the team owns a REAL action row named exactly "Tidy up" (a
- * migration created it for teams that had triggers on the builtin). That row
- * replaces the virtual builtin in every list (web `hasOwnTidyUpAction`).
- */
-fun hasOwnTidyUpAction(actions: List<ActionDto>): Boolean =
-    actions.any { !it.isBuiltin && it.name == BUILTIN_TIDY_UP_NAME }
-
-/**
- * The three LISTED builtins in the order every client pins them (the hidden
- * chat row is deliberately absent). EXP-270: mobile used
- * to construct only "Create action", so "Fix merge conflicts" silently
- * vanished from Android when EXP-268 moved the list onto the synced shape.
- * SLOP-2: pass the team's synced rows as [teamActions] — a real "Tidy up" row
- * among them hides the virtual one.
- */
-fun builtinActions(
-    teamId: String,
-    teamActions: List<ActionDto> = emptyList(),
-): List<ActionDto> = listOfNotNull(
-    builtinCreateAction(teamId),
-    builtinFixConflictsAction(teamId),
-    builtinTidyUpAction(teamId).takeUnless { hasOwnTidyUpAction(teamActions) },
-)
-
 /** `actions.get`'s / `.update`'s answer — the full row, body included. */
 @Serializable
 data class ActionResult(val action: ActionDto)
@@ -259,7 +83,7 @@ private data class ActionIdInput(val id: String)
 
 /**
  * The editor's patch (EXP-694): every editable field travels, and a null
- * [description]/[icon]/[repositoryId] rides as an EXPLICIT JSON null meaning
+ * [description]/[icon] rides as an EXPLICIT JSON null meaning
  * "cleared" — exactly what the web dialog sends. The router applies a key only
  * when it is `!== undefined`, so an OMITTED key means "keep", and the shared
  * Json (`explicitNulls = false`) would drop a null property from a
@@ -274,7 +98,6 @@ internal fun updateActionInput(
     name: String,
     description: String?,
     icon: String?,
-    repositoryId: String?,
     body: String,
     promptPlaceholder: String?,
 ): JsonObject = buildJsonObject {
@@ -282,7 +105,6 @@ internal fun updateActionInput(
     put("name", name)
     put("description", description?.let(::JsonPrimitive) ?: JsonNull)
     put("icon", icon?.let(::JsonPrimitive) ?: JsonNull)
-    put("repositoryId", repositoryId?.let(::JsonPrimitive) ?: JsonNull)
     put("body", body)
     put("promptPlaceholder", promptPlaceholder?.let(::JsonPrimitive) ?: JsonNull)
 }
@@ -309,7 +131,7 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
 
     /**
      * `actions.update` from the edit sheet — owner-only server-side. Null
-     * [description]/[icon]/[repositoryId]/[promptPlaceholder] CLEAR those
+     * [description]/[icon]/[promptPlaceholder] CLEAR those
      * fields (explicit JSON nulls, see [updateActionInput]); Electric echoes
      * the new metadata back into the shape, so a success needs no local write.
      */
@@ -319,7 +141,6 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
         name: String,
         description: String?,
         icon: String?,
-        repositoryId: String?,
         body: String,
         promptPlaceholder: String?,
     ): ActionDto = trpc.mutation(
@@ -330,7 +151,6 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
             name = name,
             description = description,
             icon = icon,
-            repositoryId = repositoryId,
             body = body,
             promptPlaceholder = promptPlaceholder,
         ),
@@ -338,33 +158,7 @@ class ActionsApi @Inject constructor(private val trpc: TrpcClient) {
         outputSerializer = ActionResult.serializer(),
     ).action
 
-    /**
-     * `actions.update({id, triggers})` — the ONLY trigger write (SLOP-2,
-     * owner-only): a WHOLE-ARRAY replace. [triggers] holds every trigger the
-     * action keeps (`actionTriggerWireJson`; an element without an `id` is
-     * new and gets a server id). Every other field is omitted, so it keeps
-     * its stored value; Electric echoes the row back, so a success needs no
-     * local write.
-     */
-    suspend fun setTriggers(
-        accountId: String,
-        id: String,
-        triggers: List<JsonObject>,
-    ): ActionDto = trpc.mutation(
-        accountId,
-        path = "actions.update",
-        input = updateActionTriggersInput(id = id, triggers = triggers),
-        inputSerializer = JsonObject.serializer(),
-        outputSerializer = ActionResult.serializer(),
-    ).action
 }
-
-/** `actions.update`'s trigger-only input: `{id, triggers: [...]}`. */
-internal fun updateActionTriggersInput(id: String, triggers: List<JsonObject>): JsonObject =
-    buildJsonObject {
-        put("id", id)
-        put("triggers", JsonArray(triggers))
-    }
 
 /**
  * Map a synced [ActionEntity] row to the UI's [ActionDto], parsing the stored
@@ -374,7 +168,6 @@ internal fun updateActionTriggersInput(id: String, triggers: List<JsonObject>): 
 fun ActionEntity.toActionDto(json: Json): ActionDto = ActionDto(
     id = id,
     teamId = teamId,
-    repositoryId = repositoryId,
     name = name,
     description = description,
     icon = icon,
@@ -387,7 +180,4 @@ fun ActionEntity.toActionDto(json: Json): ActionDto = ActionDto(
         }.getOrNull()
     },
     promptPlaceholder = promptPlaceholder,
-    triggers = triggers?.let { raw ->
-        runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonArray
-    },
 )

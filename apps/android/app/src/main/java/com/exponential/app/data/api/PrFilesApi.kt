@@ -1,7 +1,5 @@
 package com.exponential.app.data.api
 
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -25,9 +23,8 @@ data class PrFilesResult(
 )
 
 /**
- * EXP-1154: the pull request's title + body as GitHub holds them
- * (`issues.prDescription`) — the Results face's fallback for an issue whose
- * open PR has no run report. Every field is null when no PR is linked.
+ * EXP-1154: a pull request's title + body as GitHub holds them — the Guide's
+ * PR-body fallback when no session filed one. Every field may be null.
  */
 @Serializable
 data class PrDescription(
@@ -38,47 +35,3 @@ data class PrDescription(
     val body: String? = null,
     val state: String? = null,
 )
-
-@Serializable
-private data class PrFilesInput(@SerialName("issueId") val issueId: String)
-
-@Serializable
-private data class SessionPrFilesInput(@SerialName("sessionId") val sessionId: String)
-
-@Singleton
-class PrFilesApi @Inject constructor(private val trpc: TrpcClient) {
-
-    // Live GitHub fetch via the server (issues.prFiles query) — not synced.
-    suspend fun get(accountId: String, issueId: String): PrFilesResult =
-        trpc.query(
-            accountId,
-            path = "issues.prFiles",
-            input = PrFilesInput(issueId),
-            inputSerializer = PrFilesInput.serializer(),
-            outputSerializer = PrFilesResult.serializer(),
-        )
-
-    /**
-     * EXP-1194: a RUN's own issue-less pull request (an action or chat run's
-     * `pr_open({repositoryId, head})`) — `codingSessions.prFiles`, the same
-     * shape as [get]; empty files while the run has no PR.
-     */
-    suspend fun forSession(accountId: String, sessionId: String): PrFilesResult =
-        trpc.query(
-            accountId,
-            path = "codingSessions.prFiles",
-            input = SessionPrFilesInput(sessionId),
-            inputSerializer = SessionPrFilesInput.serializer(),
-            outputSerializer = PrFilesResult.serializer(),
-        )
-
-    // EXP-1154: the live GitHub title + body (`issues.prDescription`).
-    suspend fun description(accountId: String, issueId: String): PrDescription =
-        trpc.query(
-            accountId,
-            path = "issues.prDescription",
-            input = PrFilesInput(issueId),
-            inputSerializer = PrFilesInput.serializer(),
-            outputSerializer = PrDescription.serializer(),
-        )
-}

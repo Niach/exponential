@@ -181,6 +181,33 @@ val MIGRATION_85_86: Migration = object : Migration(85, 86) {
     }
 }
 
+/**
+ * v87 (EXP-1291 Threads v2): ONE session tree. The old run/thread tables
+ * (`coding_sessions`, `threads`, `thread_items`) drop with their Electric
+ * offsets (and any shape-repair marker naming them); the five new tables
+ * (`sessions`, `session_issues`, `messages`, `pull_requests`,
+ * `pull_request_issues`) are created EMPTY and snapshot from scratch — no row
+ * migration. `issues` loses its pr_* / branch columns (PR state lives in
+ * `pull_requests` now) and `actions` its `triggers` / `repository_id`
+ * (saved prompts only); both are rebuilt in place, every row and every other
+ * shape's offset survives. DDL verbatim from the generated
+ * ExponentialDatabase_Impl (Room validates the tables against the entities).
+ */
+val MIGRATION_86_87: Migration = object : Migration(86, 87) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        for (table in DROPPED_TABLES_V87) {
+            db.execSQL("DROP TABLE IF EXISTS `$table`")
+            db.execSQL(
+                "DELETE FROM `electric_offsets` WHERE `shape` = '$table' OR " +
+                    "(substr(`shape`, 1, 8) = '_repair:' AND substr(`shape`, -${table.length + 1}) = ':$table')",
+            )
+        }
+        rebuild(db, "issues", ISSUES_V87, ISSUE_COLUMNS_V87, ISSUE_INDICES_V87)
+        rebuild(db, "actions", ACTIONS_V87, ACTION_COLUMNS_V87, ACTION_INDICES_V87)
+        for (statement in SESSION_TREE_V87) db.execSQL(statement)
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,
@@ -289,4 +316,88 @@ private val THREAD_ITEM_INDICES_V85 = listOf(
     "CREATE INDEX IF NOT EXISTS `index_thread_items_issue_id` ON `thread_items` (`issue_id`)",
     "CREATE INDEX IF NOT EXISTS `index_thread_items_session_id` ON `thread_items` (`session_id`)",
     "CREATE INDEX IF NOT EXISTS `index_thread_items_team_id` ON `thread_items` (`team_id`)",
+)
+
+// ── v87 schema, verbatim from the generated ExponentialDatabase_Impl ────────
+
+private val DROPPED_TABLES_V87 = listOf("coding_sessions", "threads", "thread_items")
+
+private const val ISSUES_V87 =
+    "CREATE TABLE IF NOT EXISTS `issues` (`id` TEXT NOT NULL, `board_id` TEXT NOT NULL, " +
+        "`number` INTEGER NOT NULL, `identifier` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+        "`description` TEXT, `status` TEXT NOT NULL, `status_id` TEXT, `priority` TEXT NOT NULL, " +
+        "`assignee_id` TEXT, `creator_id` TEXT, `source` TEXT, `due_date` TEXT, `estimate` INTEGER, " +
+        "`sort_order` REAL NOT NULL, `completed_at` TEXT, `duplicate_of_id` TEXT, `draft_id` TEXT, " +
+        "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))"
+
+private val ISSUE_COLUMNS_V87 = listOf(
+    "id", "board_id", "number", "identifier", "title", "description", "status", "status_id",
+    "priority", "assignee_id", "creator_id", "source", "due_date", "estimate", "sort_order",
+    "completed_at", "duplicate_of_id", "draft_id", "created_at", "updated_at",
+)
+
+private val ISSUE_INDICES_V87 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_issues_board_id` ON `issues` (`board_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_issues_status` ON `issues` (`status`)",
+    "CREATE INDEX IF NOT EXISTS `index_issues_assignee_id` ON `issues` (`assignee_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_issues_due_date` ON `issues` (`due_date`)",
+)
+
+private const val ACTIONS_V87 =
+    "CREATE TABLE IF NOT EXISTS `actions` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`name` TEXT NOT NULL, `description` TEXT, `icon` TEXT, `inputs` TEXT, " +
+        "`prompt_placeholder` TEXT, `sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, " +
+        "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))"
+
+private val ACTION_COLUMNS_V87 = listOf(
+    "id", "team_id", "name", "description", "icon", "inputs", "prompt_placeholder", "sort_order",
+    "created_at", "updated_at",
+)
+
+private val ACTION_INDICES_V87 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_actions_team_id` ON `actions` (`team_id`)",
+)
+
+private val SESSION_TREE_V87 = listOf(
+    "CREATE TABLE IF NOT EXISTS `sessions` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`parent_id` TEXT, `root_id` TEXT NOT NULL, `depth` INTEGER, `kind` TEXT NOT NULL, " +
+        "`user_id` TEXT NOT NULL, `device_id` TEXT NOT NULL, `cli` TEXT, `account` TEXT, " +
+        "`model` TEXT, `effort` TEXT, `plan_mode` INTEGER NOT NULL, `computer_use` INTEGER NOT NULL, " +
+        "`ultracode` INTEGER NOT NULL, `repository_id` TEXT, `branch` TEXT, `status` TEXT NOT NULL, " +
+        "`busy` INTEGER NOT NULL, `needs_input` INTEGER NOT NULL, `blocked` TEXT, `started_at` TEXT, " +
+        "`last_turn_at` TEXT, `ended_at` TEXT, `shared` INTEGER NOT NULL, `title` TEXT, `guide` TEXT, " +
+        "`action_id` TEXT, `action_name` TEXT, `action_inputs` TEXT, `spawned_by_session_id` TEXT, " +
+        "`name` TEXT, `icon` TEXT, `color` TEXT, `triggers` TEXT, `sort_order` REAL NOT NULL, " +
+        "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_sessions_team_id` ON `sessions` (`team_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_sessions_root_id` ON `sessions` (`root_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_sessions_parent_id` ON `sessions` (`parent_id`)",
+    "CREATE TABLE IF NOT EXISTS `session_issues` (`id` TEXT NOT NULL, `session_id` TEXT NOT NULL, " +
+        "`issue_id` TEXT NOT NULL, `team_id` TEXT NOT NULL, `source` TEXT NOT NULL, `added_by` TEXT, " +
+        "`added_by_session_id` TEXT, `sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, " +
+        "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_session_issues_session_id` ON `session_issues` (`session_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_session_issues_issue_id` ON `session_issues` (`issue_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_session_issues_team_id` ON `session_issues` (`team_id`)",
+    "CREATE TABLE IF NOT EXISTS `messages` (`id` TEXT NOT NULL, `session_id` TEXT NOT NULL, " +
+        "`root_id` TEXT NOT NULL, `team_id` TEXT NOT NULL, `author_kind` TEXT NOT NULL, " +
+        "`author_id` TEXT, `body` TEXT NOT NULL, `card` TEXT, `answered_at` TEXT, `consumed_at` TEXT, " +
+        "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_messages_session_id` ON `messages` (`session_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_messages_root_id` ON `messages` (`root_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_messages_team_id` ON `messages` (`team_id`)",
+    "CREATE TABLE IF NOT EXISTS `pull_requests` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`root_session_id` TEXT, `session_id` TEXT, `repository_id` TEXT NOT NULL, `number` INTEGER, " +
+        "`url` TEXT NOT NULL, `title` TEXT, `head` TEXT NOT NULL, `base` TEXT NOT NULL, " +
+        "`base_pull_request_id` TEXT, `state` TEXT NOT NULL, `merged_at` TEXT, " +
+        "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_pull_requests_team_id` ON `pull_requests` (`team_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_pull_requests_root_session_id` ON `pull_requests` (`root_session_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_pull_requests_session_id` ON `pull_requests` (`session_id`)",
+    "CREATE TABLE IF NOT EXISTS `pull_request_issues` (`id` TEXT NOT NULL, " +
+        "`pull_request_id` TEXT NOT NULL, `issue_id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+    "CREATE INDEX IF NOT EXISTS `index_pull_request_issues_pull_request_id` ON `pull_request_issues` (`pull_request_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_pull_request_issues_issue_id` ON `pull_request_issues` (`issue_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_pull_request_issues_team_id` ON `pull_request_issues` (`team_id`)",
 )

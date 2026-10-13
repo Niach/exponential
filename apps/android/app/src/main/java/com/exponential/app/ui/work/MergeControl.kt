@@ -14,7 +14,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
@@ -41,13 +40,6 @@ data class ChangesMergeControl(
      *  no issue linked) `merge-run-pr`. */
     val confirmPrompt: Prompts.Prompt,
     val onConfirm: () -> Unit,
-    /** EXP-1248: non-null = the PR is a member of an open stack, so Merge
-     *  lands the whole open chain behind ONE confirm ([PrStack.stackMergeConfirm],
-     *  mode Stack). */
-    val stackConfirm: PrStack.StackMergeConfirm? = null,
-    /** EXP-1248: `issues.mergePr({ issueId, mergeStack: true })` — merge
-     *  through that member (it and every open PR beneath it). */
-    val onMergeStack: (issueId: String) -> Unit = {},
 )
 
 /**
@@ -145,11 +137,6 @@ const val MergeCapsuleTag = "work-merge-pr"
  */
 @Composable
 private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
-    val stack = merge.stackConfirm
-    if (stack != null) {
-        StackMergeDialog(confirm = stack, onConfirm = merge.onMergeStack, onDismiss = onDismiss)
-        return
-    }
     PromptAlert(
         prompt = merge.confirmPrompt,
         onDismiss = onDismiss,

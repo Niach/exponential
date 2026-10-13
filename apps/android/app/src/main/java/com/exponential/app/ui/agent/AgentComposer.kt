@@ -39,13 +39,11 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
-import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.FeedbackMark
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.rememberDelayedFlag
 import kotlinx.coroutines.delay
-import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.imageNumberAt
 import com.exponential.app.domain.insertImageMarker
@@ -100,14 +98,6 @@ internal fun AgentComposer(
     boards: List<StartBoardOption>,
     pullRequests: List<StartPullRequestOption>,
     onInputChange: (key: String, value: String) -> Unit,
-    /**
-     * EXP-1233: the subject is the Fix merge conflicts builtin — its pick row
-     * is [FixConflictsCard] ([fixConflictsPr] picked, [conflictRefused] = a
-     * refused merge opened the page) instead of the generic field.
-     */
-    fixConflictsActive: Boolean,
-    fixConflictsPr: FixConflictsPr?,
-    conflictRefused: Boolean,
     pendingImages: List<PendingAttachment>,
     imageError: String?,
     sending: Boolean,
@@ -117,7 +107,7 @@ internal fun AgentComposer(
      * seconds since the press) until the run's row lands.
      */
     starting: ComposerStarting? = null,
-    /** EXP-1249: the "+" — opens the composer menu. */
+    /** The "+" — attaches a file (EXP-1291: the composer menu is gone). */
     onOpenMenu: () -> Unit,
     onRemoveImage: (Int) -> Unit,
     submitLabel: String,
@@ -151,18 +141,7 @@ internal fun AgentComposer(
         // by the page above this card). What stays here are the picked
         // action's typed pick rows, which belong with the field they are
         // filled next to.
-        leading = if (fixConflictsActive) {
-            {
-                FixConflictsCard(
-                    pr = fixConflictsPr,
-                    conflictRefused = conflictRefused,
-                    pullRequests = pullRequests,
-                    value = inputValues[FIX_CONFLICTS_PR_KEY].orEmpty(),
-                    onSelect = { onInputChange(FIX_CONFLICTS_PR_KEY, it) },
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-        } else if (inputDefs.isNotEmpty()) {
+        leading = if (inputDefs.isNotEmpty()) {
             {
                 ActionInputFields(
                     defs = inputDefs,
@@ -206,10 +185,10 @@ internal fun AgentComposer(
             // EXP-1249 ×4: the "+" is the composer's ONLY tool.
             ComposerToolButton(
                 ExpIcons.uiAdd,
-                contentDescription = ComposerMenu.PLUS_LABEL,
+                contentDescription = "Add",
                 onClick = onOpenMenu,
                 enabled = !sending,
-                modifier = Modifier.testTag(ComposerMenu.PLUS_TEST_ID),
+                modifier = Modifier.testTag("agent-composer-plus-button"),
             )
         },
         submit = {

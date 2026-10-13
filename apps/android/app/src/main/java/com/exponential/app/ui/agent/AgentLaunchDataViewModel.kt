@@ -8,16 +8,14 @@ import com.exponential.app.data.routeTeamIdFlow
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
-import com.exponential.app.data.api.builtinCreateAction
-import com.exponential.app.data.api.builtinFixConflictsAction
-import com.exponential.app.data.api.builtinTidyUpAction
-import com.exponential.app.data.api.hasOwnTidyUpAction
 import com.exponential.app.data.api.toActionDto
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.DomainContract
@@ -82,10 +80,11 @@ data class StartBoardOption(
  * — see [optionForIssue].
  */
 data class StartPullRequestOption(
-    val issueId: String,
+    /** EXP-1291: the `pull_requests` row id — a `pr` input's value. */
+    val pullRequestId: String,
     val prNumber: Int?,
     val identifiers: List<String>,
-    val linkedIssueIds: List<String> = listOf(issueId),
+    val linkedIssueIds: List<String> = emptyList(),
 ) {
     /** `#42 · EXP-1, EXP-2` — the PR number when known, then the linked issues. */
     val label: String
@@ -133,11 +132,8 @@ class AgentLaunchDataViewModel @Inject constructor(
      */
 
     /**
-     * The selected team's actions: the three LISTED builtins pinned first —
-     * "Fix merge conflicts" ahead of "Create action" (the web order, EXP-825),
-     * then "Tidy up" (FEED-50) — then the synced rows in server order. SLOP-2:
-     * a team's OWN "Tidy up" row hides the virtual one ([hasOwnTidyUpAction]).
-     * Chat is in NO list: it is what "no subject" means on the composer.
+     * The selected team's saved prompts (actions), in server order. EXP-1291:
+     * no builtins — "no subject" on the composer is a plain message.
      */
     val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, teamId) { db, teamId ->
         db to teamId
@@ -146,14 +142,7 @@ class AgentLaunchDataViewModel @Inject constructor(
             flowOf(SheetActionsState(actions = emptyList()))
         } else {
             db.actionDao().observeByTeam(teamId).map { rows ->
-                val teamActions = rows.map { it.toActionDto(json) }
-                SheetActionsState(
-                    actions = listOfNotNull(
-                        builtinFixConflictsAction(teamId),
-                        builtinCreateAction(teamId),
-                        builtinTidyUpAction(teamId).takeUnless { hasOwnTidyUpAction(teamActions) },
-                    ) + teamActions,
-                )
+                SheetActionsState(actions = rows.map { it.toActionDto(json) })
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
@@ -218,64 +207,48 @@ class AgentLaunchDataViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
-     * Live, team-scoped OPEN pull requests — options for `pr`-typed inputs.
-     * Issues don't sync `team_id`, so the scope comes from the synced boards
-     * (the same derivation the web picker uses).
+     * Live, team-scoped OPEN pull requests (`pull_requests` + the issues they
+     * close) — options for `pr`-typed inputs.
      */
     val pullRequestOptions: StateFlow<List<StartPullRequestOption>> = combine(
+        dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.pullRequestIssueDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
         teamId,
-    ) { issues, boards, teamId ->
-        if (teamId == null) {
-            emptyList()
-        } else {
-            val teamBoardIds = boards.filter { it.teamId == teamId }.map { it.id }.toSet()
-            buildPullRequestOptions(issues, teamBoardIds)
-        }
+    ) { prs, links, issues, teamId ->
+        if (teamId == null) emptyList() else buildPullRequestOptions(prs, links, issues, teamId)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 }
 
 /**
- * Collapse open-PR issue rows into one option per pull request. Rows outside
- * [teamBoardIds], rows whose PR isn't open, and rows without a `prUrl` are
- * skipped (such an id wouldn't resolve server-side anyway). Sorted by label so
- * the list doesn't reshuffle as sync lands rows; the representative issue is
- * the lowest id, so it doesn't depend on query order either.
+ * One option per OPEN pull request of [teamId], naming the issues it closes.
+ * Sorted by label so the list doesn't reshuffle as sync lands rows.
  */
 fun buildPullRequestOptions(
+    pullRequests: List<PullRequestEntity>,
+    links: List<PullRequestIssueEntity>,
     issues: List<IssueEntity>,
-    teamBoardIds: Set<String>,
-): List<StartPullRequestOption> = issuePullRequestOptions(issues, teamBoardIds)
-    .sortedWith(compareBy({ it.label }, { it.issueId }))
-
-private fun issuePullRequestOptions(
-    issues: List<IssueEntity>,
-    teamBoardIds: Set<String>,
-): List<StartPullRequestOption> = issues
-    .asSequence()
-    .filter {
-        it.boardId in teamBoardIds &&
-            it.prState == DomainContract.prStateOpen &&
-            !it.prUrl.isNullOrEmpty()
-    }
-    .sortedBy { it.id }
-    .groupBy { it.prUrl!! }
-    .map { (_, linked) ->
-        StartPullRequestOption(
-            issueId = linked.first().id,
-            prNumber = linked.first().prNumber,
-            identifiers = linked.mapNotNull { it.identifier?.takeIf(String::isNotEmpty) }.sorted(),
-            linkedIssueIds = linked.map { it.id },
-        )
-    }
+    teamId: String,
+): List<StartPullRequestOption> {
+    val issueById = issues.associateBy { it.id }
+    val linksByPr = links.groupBy { it.pullRequestId }
+    return pullRequests
+        .filter { it.teamId == teamId && it.state == DomainContract.prStateOpen }
+        .map { pr ->
+            val linked = linksByPr[pr.id].orEmpty().mapNotNull { issueById[it.issueId] }
+            StartPullRequestOption(
+                pullRequestId = pr.id,
+                prNumber = pr.number,
+                identifiers = linked.map { it.identifier }.sorted(),
+                linkedIssueIds = linked.map { it.id },
+            )
+        }
+        .sortedWith(compareBy({ it.label }, { it.pullRequestId }))
+}
 
 /**
- * The option a given issue id belongs to — by MEMBERSHIP, not by the
- * representative id. Callers seeding a `pr` input hold whatever issue their
- * surface acts on (the Reviews row's newest issue, or the batch sibling whose
- * Changes screen is open); only the representative id renders a label in the
- * picker, so the seed is normalised through this (EXP-323).
+ * The option a given issue id belongs to — by MEMBERSHIP (the PR closes
+ * it), or the option whose PR id it is.
  */
 fun List<StartPullRequestOption>.optionForIssue(issueId: String): StartPullRequestOption? =
-    firstOrNull { issueId in it.linkedIssueIds }
+    firstOrNull { issueId in it.linkedIssueIds || it.pullRequestId == issueId }

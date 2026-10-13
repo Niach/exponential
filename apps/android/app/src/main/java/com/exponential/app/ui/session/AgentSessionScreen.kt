@@ -138,10 +138,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.PaddingValues
 import com.exponential.app.domain.PLAN_MODE_LABEL
 import com.exponential.app.domain.STEER_COMPOSER_PLACEHOLDER
-import com.exponential.app.domain.SessionDotTone
-import com.exponential.app.domain.CodingSessionDisplayState
-import com.exponential.app.domain.codingSessionDisplayState
-import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.OPEN_RESULTS_LABEL
 import com.exponential.app.domain.SESSION_INLINE_TILE_HEIGHT
 import com.exponential.app.domain.sessionResultPicture
@@ -150,7 +146,6 @@ import com.exponential.app.domain.ThreadItem
 import com.exponential.app.domain.SessionThread
 import com.exponential.app.domain.sessionThread
 import com.exponential.app.domain.ToastAction
-import com.exponential.app.domain.RunRowTone
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.TURN_STATE_STARTED
 import com.exponential.app.domain.SessionTurn
@@ -164,17 +159,12 @@ import com.exponential.app.domain.sessionTurns
 import com.exponential.app.domain.turnEventsOf
 import com.exponential.app.domain.firstTurnEndKnown
 import com.exponential.app.domain.turnLogFor
-import com.exponential.app.domain.turnRowCaption
 import com.exponential.app.domain.userMessageCaption
 import com.exponential.app.domain.lastToolLine
-import com.exponential.app.domain.runRowCaption
-import com.exponential.app.domain.runRowState
-import com.exponential.app.domain.RunRowState
 import com.exponential.app.domain.sessionResultTileCaption
 import com.exponential.app.domain.sessionResultTileHeightFitting
 import com.exponential.app.ui.work.ResultPreviewDialog
 import com.exponential.app.ui.work.ResultTile
-import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.sessionModel
 import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
@@ -185,7 +175,9 @@ import com.exponential.app.ui.components.modelOptionsFor
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
 import com.exponential.app.domain.AgentHealthRules
@@ -235,7 +227,6 @@ import com.exponential.app.domain.COMPACTED_LABEL
 import com.exponential.app.domain.COMPACTING_LABEL
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
-import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.rateLimitBannerShows
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.SteerMessageSegment
@@ -402,19 +393,87 @@ fun RunFace(
     /** EXP-933: switches the host to its Guide face — the inline
      *  `sessions_guide` card's `Open Guide` button. Null hides it. */
     onOpenResults: (() -> Unit)? = null,
-    /** EXP-1175: the shown run's ×4 display state (the status row's state
-     *  and mark); null reads as working. */
-    runState: CodingSessionDisplayState? = null,
 ) {
     // EXP-1172: the run's synced `coding_sessions.results`, read by a settled
     // `exponential_sessions_show` row to draw its picture; live, so the tile
     // appears the moment the upload syncs.
-    val results = viewModel.session.collectAsStateWithLifecycle().value?.results
+    val results = viewModel.session.collectAsStateWithLifecycle().value?.guide
     CompositionLocalProvider(
         LocalOpenResults provides onOpenResults,
         LocalSessionResults provides results,
     ) {
-        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot, runState)
+        RunFaceContent(viewModel, padding, onOpenIssue, trailingBarSlot, mergeBarSlot)
+    }
+}
+
+/**
+ * EXP-1291: the RAW SESSION VIEW (`session/{sessionId}`) — ONE session's live
+ * transcript off the steer relay (lane SESSION owns it). The host owns the
+ * Scaffold, the top bar (the session's name, Stop while it is live and the
+ * viewer may stop it, a link to its THREAD when it is a child) and the stop
+ * confirm; [RunFace] renders inside. Keyed by a `sessions` row id.
+ */
+@Composable
+fun AgentSessionScreen(
+    sessionId: String,
+    onBack: () -> Unit,
+    onOpenIssue: (issueId: String) -> Unit,
+    /** The session's thread (its ROOT), `thread/{rootId}`. */
+    onOpenThread: (rootSessionId: String) -> Unit,
+) {
+    val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
+        key = "session:$sessionId",
+    ) { factory -> factory.create(sessionId) }
+    val session by viewModel.session.collectAsStateWithLifecycle()
+    val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    var stopConfirmOpen by remember { mutableStateOf(false) }
+    val row = session
+    val live = row != null && !row.isEnded
+    // A shared session lets every member Stop; a private one only its starter
+    // (the server re-checks).
+    val canStop = live && (row?.shared == true || row?.userId == currentUserId)
+    val rootId = row?.rootId?.takeIf { it.isNotEmpty() && it != row.id }
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            com.exponential.app.ui.work.WorkTopBar(
+                title = row?.title?.takeIf { it.isNotBlank() } ?: row?.name ?: SessionTree.CardCopy.SESSION,
+                onBack = onBack,
+                verb = if (canStop) com.exponential.app.ui.work.WorkBarVerb.Stop else null,
+                verbEnabled = true,
+                onVerb = { stopConfirmOpen = true },
+                badge = rootId?.let { id ->
+                    {
+                        IconButton(
+                            onClick = { onOpenThread(id) },
+                            modifier = Modifier.testTag("session-open-thread"),
+                        ) {
+                            Icon(ExpIcons.navThreads, contentDescription = "Open thread", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                },
+                menu = null,
+            )
+        },
+    ) { padding ->
+        RunFace(
+            viewModel = viewModel,
+            padding = padding,
+            onOpenIssue = onOpenIssue,
+            trailingBarSlot = null,
+        )
+    }
+    if (stopConfirmOpen) {
+        com.exponential.app.ui.components.PromptAlert(
+            prompt = com.exponential.app.domain.Prompts.StopRun.prompt(),
+            onDismiss = { stopConfirmOpen = false },
+            handlers = mapOf(
+                "stop" to {
+                    stopConfirmOpen = false
+                    viewModel.stopSession()
+                },
+            ),
+        )
     }
 }
 
@@ -433,12 +492,12 @@ private fun RunFaceContent(
     onOpenIssue: (String) -> Unit,
     trailingBarSlot: (@Composable () -> Unit)?,
     mergeBarSlot: (@Composable () -> Unit)?,
-    runState: CodingSessionDisplayState?,
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     // EXP-1175: the viewer's Show work preference — the thread (off) or the
     // full transcript (on), in the same slot.
-    val showWork by viewModel.showWork.collectAsStateWithLifecycle()
+    // EXP-1291: the raw session view always shows the transcript.
+    val showWork = true
     val phase by viewModel.phase.collectAsStateWithLifecycle()
     // Whether the socket is actually up (EXP-621). The banners read the
     // PHASE — a silent redial must not flicker them — but the composer
@@ -466,31 +525,12 @@ private fun RunFaceContent(
         toaster.error(
             title,
             failure.takeIf { it != title },
-            ToastAction(FeedbackStates.RETRY) { viewModel.killSession() },
+            ToastAction(FeedbackStates.RETRY) { viewModel.stopSession() },
         )
         viewModel.clearKillError()
     }
-    val launchRunState by viewModel.runState.collectAsStateWithLifecycle()
-    // FEED-79 (EXP-1259 D10): a failed Resume start is the error toast (the
-    // caption row draws nothing for it). Its Retry re-sends the press under
-    // the same `startId`; a late row landing (Idle) takes the toast down.
-    val failedStartToaster = LocalToaster.current
-    var failedStartToastId by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(launchRunState) {
-        val failed = launchRunState as? ActionRunState.Failed
-        if (failed == null) {
-            if (launchRunState is ActionRunState.Idle) {
-                failedStartToastId?.let { failedStartToaster.dismiss(it) }
-                failedStartToastId = null
-            }
-            return@LaunchedEffect
-        }
-        failedStartToastId = failedStartToaster.error(
-            FeedbackStates.errorTitle("resume", "the session"),
-            failed.message,
-            ToastAction(FeedbackStates.RETRY) { viewModel.retryResume() },
-        )
-    }
+    // EXP-1291: nothing starts from here (no resume / account switch).
+    val launchRunState: ActionRunState = ActionRunState.Idle
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     // EXP-760: the run's team issues, newest-first — resolves the identifiers
     // the agent names in the feed (IssueFace's handler, same shape).
@@ -546,7 +586,7 @@ private fun RunFaceContent(
     // advertises commands has a menu even if the contract had none for it.
     // An agent-less run that publishes a `config_state` is an EXTERNAL agent
     // (`SlashCommands.agentId`), which has no contract rows at all.
-    val catalogAgent = SlashCommands.agentId(session?.agent, sessionConfig != null)
+    val catalogAgent = SlashCommands.agentId(session?.cli, sessionConfig != null)
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
     // document picker feeds the VM's pending list; the upload rides the
@@ -576,7 +616,7 @@ private fun RunFaceContent(
     // network revivals are the store's job, not this screen's.
     LaunchedEffect(Unit) { viewModel.ensureConnected() }
     // EXP-888: a sweep end is not an end — the composer stays live.
-    val sessionEnded = session?.let { runHasEnded(it) } == true
+    val sessionEnded = session?.isEnded == true
     // A trailing question/plan means the session is blocked on a human — the
     // host's title dot flips amber so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&
@@ -601,70 +641,37 @@ private fun RunFaceContent(
         blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
         compacting = activity.compacting != null,
     )
-    // ── EXP-1175: the status row — state, mark, caption, tool line ─────────
-    val rowDisplayState = runState ?: CodingSessionDisplayState.Working
-    // An ended run is never paused, whatever its host's heartbeat or a stale
-    // `agent_busy` says (web guards `paused` with `!sessionEnded` the same way).
-    val rowPaused = !sessionEnded &&
-        hostDevice.isPaused(rowDisplayState, session?.status ?: "running")
-    val rowState = runRowState(
-        paused = rowPaused,
-        ended = sessionEnded,
-        awaitingInput = awaitingInput,
-        working = agentWorking,
-        display = rowDisplayState,
-    )
-    // The elapsed clock ticks each second, ONLY while the row reads Building.
-    var rowNowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(rowState == RunRowState.Working) {
-        if (rowState != RunRowState.Working) return@LaunchedEffect
-        while (true) {
-            rowNowMs = System.currentTimeMillis()
-            delay(1_000L)
-        }
-    }
-    val rowCaption = runRowCaption(
-        state = rowState,
-        device = hostDevice.displayLabel,
-        startedAt = session?.startedAt,
-        endedAt = session?.let { it.endedAt ?: it.updatedAt },
-        nowMs = rowNowMs,
-    )
-    // Only a LIVE run shows what it last touched.
-    val rowToolLine = remember(feed, sessionEnded) { if (sessionEnded) null else lastToolLine(feed) }
-    // The mark reads the SAME row state (web/desktop parity): paused = the
-    // bare mark, ended = dimmed (`ended` below), else that state — the
-    // working mark animates only while the row reads Working.
-    val rowMarkState = when (rowState) {
-        RunRowState.Paused, RunRowState.Ended -> null
-        RunRowState.NeedsInput -> CodingSessionDisplayState.NeedsInput
-        RunRowState.Working -> CodingSessionDisplayState.Working
-        RunRowState.Review -> CodingSessionDisplayState.Review
-        RunRowState.Done -> CodingSessionDisplayState.Done
-    }
-    // EXP-1271 (EXP-1259 D8): before the run's first turn the OWNER's status
-    // row is the mark over "Starting on <device>" — nothing streamed, nothing
-    // published, no turn begun (web `startingRun`).
-    val threadBlank = remember(session?.results) {
-        sessionThread(session?.results).let { it.items.isEmpty() && it.reply == null }
-    }
+    // ── EXP-1291: the status row — the ×4 session state + where it runs ────
+    val cardState = session?.let { SessionTree.sessionState(SessionTree.session(it)) }
+    val rowPaused = !sessionEnded && cardState != null && hostDevice.isPaused(cardState)
     val startingRun = session != null && session?.userId == currentUserId &&
-        !sessionEnded && !rowPaused && feed.isEmpty() && threadBlank &&
+        !sessionEnded && !rowPaused && feed.isEmpty() &&
         activity.turnState != TURN_STATE_STARTED && history == null &&
         phase !is AgentPhase.Closed && phase !is AgentPhase.Ended
     val statusRow: @Composable () -> Unit = {
         ReadingColumn {
-            RunStatusRow(
-                agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
-                markState = rowMarkState,
-                ended = rowState == RunRowState.Ended,
-                starting = startingRun,
-                caption = if (startingRun) FeedbackStates.startingLabel(hostDevice.displayLabel) else rowCaption.text,
-                tone = if (startingRun) RunRowTone.Muted else rowCaption.tone,
-                toolLine = rowToolLine,
-                showWork = showWork,
-                onToggle = { viewModel.setShowWork(!showWork) },
-            )
+            Row(
+                modifier = Modifier.padding(vertical = 8.dp).testTag("run-status-row"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AgentRunMark(
+                    agent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
+                    state = cardState,
+                    size = 14.dp,
+                    badgeSize = 6.dp,
+                )
+                Text(
+                    if (startingRun) {
+                        FeedbackStates.startingLabel(hostDevice.displayLabel)
+                    } else {
+                        listOfNotNull(cardState?.let { SessionTree.CardCopy.STATES[it] }, hostDevice.displayLabel)
+                            .joinToString(" · ")
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            }
         }
     }
     // EXP-850 (S5/S7): the NEWEST running workflow — its caption is what the
@@ -676,7 +683,7 @@ private fun RunFaceContent(
     }
     // EXP-850 (S5): whose brand mark pulses beside the working caption. A run
     // that named no agent is claude (the device default, EXP-484).
-    val workingAgent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
+    val workingAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
     // EXP-850 (S1/S2): the strip above the composer — one line per background
     // task the machine is running, plus one per still-open `wait` tool row.
     // EXP-927: a task of kind `agent` is a subagent, and a subagent is a
@@ -900,62 +907,6 @@ private fun RunFaceContent(
             question.wireId, question.askId, listOf(key), listOf(label), text,
         )
     }
-    // EXP-1175: the THREAD — what the run published (`coding_sessions.results`)
-    // in publish order, the Summary as the agent's reply, then every card that
-    // still waits on this viewer (questions never hide).
-    val thread = remember(session?.results) { sessionThread(session?.results) }
-    // EXP-1245: the OWNER's thread is a conversation of TURNS — their own
-    // messages and the turn edges off the relay feed they already hold
-    // (`SessionTurnEvents`), each turn with its own status row. Teammates and
-    // an offline host have no feed: the single-row thread above.
-    val ownRun = session != null && currentUserId != null && session?.userId == currentUserId
-    val turnEvents = remember(ownRun, session?.id, feed, activity.turnState, activity.turnStartedAt) {
-        val row = session
-        if (!ownRun || row == null) {
-            emptyList()
-        } else {
-            val log = turnLogFor(row.id)
-            val now = System.currentTimeMillis()
-            val rows = feed.map { item ->
-                if (item is AgentFeedItem.UserMessage) {
-                    TurnFeedRow(item.id, isUserMessage = true, text = item.text, subagentId = item.subagentId, at = item.at)
-                } else {
-                    TurnFeedRow(item.id, isUserMessage = false, text = null)
-                }
-            }
-            recordTurnSlot(log, activity.turnState, activity.turnStartedAt, now)
-            recordFeedMessages(log, rows, now)
-            turnEventsOf(log, rows, WireTimestamps.parseEpochMs(row.startedAt))
-        }
-    }
-    val turns = remember(session?.results, turnEvents) { sessionTurns(session?.results, turnEvents) }
-    // Web M6: an unobserved first-turn end reads "Done on <device>", no duration.
-    val firstEndKnown = remember(turnEvents, session?.startedAt) {
-        firstTurnEndKnown(turnEvents, session?.startedAt?.let { WireTimestamps.parseEpochMs(it) })
-    }
-    val turnRow: @Composable (SessionTurn, Boolean) -> Unit = { turn, last ->
-        val caption = turnRowCaption(
-            turn = turn,
-            state = rowState,
-            device = hostDevice.displayLabel,
-            runEndedAt = session?.let { it.endedAt ?: it.updatedAt },
-            nowMs = rowNowMs,
-            endKnown = turn !== turns.turns.firstOrNull() || firstEndKnown,
-        )
-        if (caption != null) {
-            RunStatusRow(
-                agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
-                // A settled turn's mark rests; the open one reads the run's row.
-                markState = if (last && turn.endedAt == null) rowMarkState else null,
-                ended = !(last && turn.endedAt == null) || rowState == RunRowState.Ended,
-                caption = caption.text,
-                tone = caption.tone,
-                toolLine = if (last && turn.endedAt == null) rowToolLine else null,
-                showWork = showWork,
-                onToggle = { viewModel.setShowWork(!showWork) },
-            )
-        }
-    }
     val threadWorkflowIds = remember(activity.workflows) {
         activity.workflows.mapTo(mutableSetOf()) { it.id }
     }
@@ -1049,9 +1000,7 @@ private fun RunFaceContent(
             else -> Unit
         }
     }
-    // The thread only falls back to them while it has nothing to show.
-    val threadEmpty = thread.items.isEmpty() && thread.reply == null && pendingCards.isEmpty()
-    val bodyPlaceholder = feedPlaceholder && (showWork || threadEmpty)
+    val bodyPlaceholder = feedPlaceholder
     Box(
         modifier = Modifier
             .padding(
@@ -1102,7 +1051,7 @@ private fun RunFaceContent(
             // EXP-1241: a comment call's card names the run's agent and its
             // owner (the author until the comment row syncs).
             LocalRunCards provides RunCards(
-                agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
+                agent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
                 ownerId = session?.userId,
             ),
         ) {
@@ -1133,24 +1082,6 @@ private fun RunFaceContent(
                         .weight(1f)
                         .padding(bottom = bandClearance),
                 ) { placeholderBody() }
-            } else if (!showWork) {
-                RunThread(
-                    thread = thread,
-                    turns = turns.takeIf { it.perTurn },
-                    turnRow = turnRow,
-                    pendingCards = pendingCards,
-                    cards = answerCards,
-                    statusRow = statusRow,
-                    header = {
-                        EndedRunHeader(
-                            session = session,
-                            hostLabel = hostDevice.displayLabel,
-                            runState = launchRunState,
-                        )
-                    },
-                    topInset = topInset,
-                    bottomInset = bandClearance,
-                )
             } else {
                 ActivityFeed(
                     feed = feed,
@@ -1903,10 +1834,8 @@ private fun RunFaceContent(
                             switching = launchRunState is ActionRunState.Sending ||
                                 launchRunState is ActionRunState.Sent,
                             nowMs = nowMs,
-                            onSwitch = {
-                                usageSheetOpen = false
-                                viewModel.switchAccount(option)
-                            },
+                            // EXP-1291: no mid-run account switch (no resume path).
+                            onSwitch = { usageSheetOpen = false },
                             // EXP-1051: a refused row no longer carries its
                             // reason as a permanent caption — tapping the
                             // disabled control says it, once.
@@ -1940,34 +1869,6 @@ private fun RunFaceContent(
             ),
             defaultAction = 0,
         )
-    }
-}
-
-/**
- * EXP-893: the tone the host's title dot takes for the
- * shown run — the synced row's display state (`codingSessionDisplayState`,
- * the ×4 list rule) with the live viewer's "waiting on a human" overlaid.
- * Null for an ended row: the top bar shows no dot without a live run.
- */
-fun sessionDotTone(
-    session: CodingSessionEntity?,
-    prState: String?,
-    nowMs: Long,
-    awaitingInput: Boolean,
-): SessionDotTone? {
-    if (session == null) return null
-    if (!isSessionLive(session, nowMs)) return null
-    val state = codingSessionDisplayState(
-        status = session.status,
-        needsInput = session.needsInput || awaitingInput,
-        agentBusy = session.agentBusy,
-        prState = prState,
-    )
-    return when (state) {
-        CodingSessionDisplayState.Working -> SessionDotTone.Running
-        CodingSessionDisplayState.NeedsInput -> SessionDotTone.NeedsInput
-        CodingSessionDisplayState.Review -> SessionDotTone.Review
-        CodingSessionDisplayState.Done -> SessionDotTone.Done
     }
 }
 
@@ -5460,11 +5361,11 @@ private fun historyStatus(state: HistoryState?, device: String): String = when (
  */
 @Composable
 private fun EndedRunHeader(
-    session: CodingSessionEntity?,
+    session: SessionEntity?,
     hostLabel: String,
     runState: ActionRunState,
 ) {
-    if (session == null || !runHasEnded(session)) return
+    if (session == null || !session.isEnded) return
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),

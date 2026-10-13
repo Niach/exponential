@@ -4,7 +4,6 @@ import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.Blocking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.OpenPullsStore
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.UpdateGate
@@ -18,14 +17,10 @@ import com.exponential.app.data.electric.SyncHealthTracker
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.data.steer.SteerConnectionStore
-import com.exponential.app.domain.CodingSessionDisplayState
-import com.exponential.app.domain.CodingSessionLiveness
-import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.domain.defaultTeamId
-import com.exponential.app.domain.ReviewsNav
-import com.exponential.app.domain.ReviewsQueue
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.domain.liveRunsByTeam
+import com.exponential.app.domain.lightsLiveDot
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -66,7 +61,6 @@ class AppViewModel @Inject constructor(
     private val authApi: AuthApi,
     private val steerConnectionStore: SteerConnectionStore,
     private val syncHealthTracker: SyncHealthTracker,
-    private val openPullsStore: OpenPullsStore,
 ) : ViewModel() {
 
     init {
@@ -158,22 +152,6 @@ class AppViewModel @Inject constructor(
                     teamSelection.clearSelection()
                 }
         }
-        // EXP-1244: the Reviews dot's unlinked pulls — refetch every member
-        // team older than 60 s whenever the team set changes (the app
-        // foreground refetch rides ExponentialApp's ON_START).
-        @OptIn(ExperimentalCoroutinesApi::class)
-        viewModelScope.launch {
-            combine(
-                accountDatabaseFlow(auth, databaseHolder),
-                auth.activeAccountId,
-            ) { db, accountId -> db to accountId }
-                .flatMapLatest { (db, accountId) ->
-                    if (db == null || accountId == null) flowOf(null to emptyList())
-                    else db.teamDao().observeAll().map { teams -> accountId to teams.map { it.id } }
-                }
-                .distinctUntilChanged()
-                .collect { (accountId, teamIds) -> openPullsStore.watch(accountId, teamIds) }
-        }
         // REV2-18: a server that 426s rejects every request from this build, so
         // keep its 16 shape loops from polling forever — for the active account
         // (whose screen is the blocking gate) and, crucially, for background
@@ -257,109 +235,33 @@ class AppViewModel @Inject constructor(
         else db.notificationDao().observeUnreadCount(userId)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
-    // True while at least one of my coding sessions is live in ANY member team
-    // (EXP-1186: the Agent page lists every team's runs) on the active
-    // account — drives the bottom bar's Chat dot. A live session
-    // is `running` or the `in_review` PR-open parking spot (EXP-194 — the dot
-    // counts in_review as the "agent finished, look at it" signal).
-    // Heartbeat-stale rows count as absent (EXP-153); the minute ticker clears
-    // the dot once the liveness window elapses without any sync delta.
+    // EXP-1291: true while at least one of MY sessions is live in ANY member
+    // team (`lightsLiveDot`: not ended; an agent only while busy / waiting) —
+    // drives the bottom bar's home dot. Own sessions only: a teammate's may
+    // never light a dot over an empty screen.
     @OptIn(ExperimentalCoroutinesApi::class)
-    val agentsRunning: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
+    private val myLiveSessions = accountDatabaseFlow(auth, databaseHolder)
         .flatMapLatest { db ->
-            if (db == null) flowOf(false)
-            else combine(
-                db.codingSessionDao()
-                    .observeByStatuses(CodingSessionLiveness.liveStatuses),
-                CodingSessionLiveness.minuteTicker(),
-                auth.userId,
-                // Own sessions only, matching the list the dot points at: a
-                // teammate's session may never light a dot over an empty
-                // screen.
-            ) { sessions, now, me ->
-                me != null && sessions.any {
-                    it.userId == me && CodingSessionLiveness.isLive(it, now)
-                }
+            if (db == null) flowOf(emptyList())
+            else combine(db.sessionDao().observeLive(), auth.userId) { sessions, me ->
+                if (me == null) emptyList() else sessions.filter { it.userId == me && lightsLiveDot(it) }
             }
         }
+
+    val agentsRunning: StateFlow<Boolean> = myLiveSessions
+        .map { it.isNotEmpty() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // True while any LIVE session of the caller's (any team) carries
-    // the desktop-written `needs_input` attention flag (EXP-214: agent parked
-    // on a plan-approval / question picker) — escalates the Agents dot to
-    // amber. Same own, cross-team scoping as [agentsRunning].
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val agentsNeedInput: StateFlow<Boolean> = accountDatabaseFlow(auth, databaseHolder)
-        .flatMapLatest { db ->
-            if (db == null) flowOf(false)
-            else combine(
-                db.codingSessionDao()
-                    .observeByStatuses(CodingSessionLiveness.liveStatuses),
-                CodingSessionLiveness.minuteTicker(),
-                auth.userId,
-            ) { sessions, now, me ->
-                // EXP-1184: the display state's NeedsInput — on every live
-                // status, an open PR included — so the amber dot means "a
-                // live agent wants you".
-                me != null && sessions.any {
-                    it.userId == me &&
-                        CodingSessionLiveness.isLive(it, now) &&
-                        codingSessionDisplayState(it, null) == CodingSessionDisplayState.NeedsInput
-                }
-            }
-        }
+    /** …and one of them waits on a person (amber). */
+    val agentsNeedInput: StateFlow<Boolean> = myLiveSessions
+        .map { sessions -> sessions.any { it.needsInput } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
-    // EXP-1075: the caller's LIVE runs grouped by team — the board switcher
-    // sheet's per-team dots (EXP-1210: the switcher pill wears none). No team
-    // enters the combine — the sheet skips the selected one at the draw site.
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val liveRunsByTeam: StateFlow<Map<String, TeamLiveRuns>> =
-        accountDatabaseFlow(auth, databaseHolder)
-            .flatMapLatest { db ->
-                if (db == null) flowOf(emptyMap())
-                else combine(
-                    db.codingSessionDao()
-                        .observeByStatuses(CodingSessionLiveness.liveStatuses),
-                    CodingSessionLiveness.minuteTicker(),
-                    auth.userId,
-                ) { sessions, now, me -> liveRunsByTeam(sessions, me, now) }
-            }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
-
-    // EXP-1244: the Reviews tab's ONE nav state, read off the SAME queue the
-    // Reviews screen lists (`ReviewsQueue.build` over every member team, the
-    // PR-carrying issues + runs of ANY state, the boards and the app-wide
-    // [OpenPullsStore]'s unlinked pulls): dot = the queue is non-empty
-    // (EXP-214 green), shows = no team, some team not in yolo mode
-    // (EXP-1105), or the dot is lit — an open PR in yolo mode is a failed
-    // auto-merge, which must surface. No yolo toggle on Android.
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val reviewsNav: StateFlow<ReviewsNav> = combine(
-        accountDatabaseFlow(auth, databaseHolder),
-        auth.activeAccountId,
-    ) { db, accountId -> db to accountId }
-        .flatMapLatest { (db, accountId) ->
-            if (db == null) {
-                flowOf(ReviewsQueue.nav(emptyList(), 0))
-            } else {
-                db.teamDao().observeAll().flatMapLatest { teams ->
-                    combine(
-                        db.boardDao().observeAll(),
-                        db.issueDao().observeReviewQueueIssues(),
-                        db.codingSessionDao().observeWithPrUrl(),
-                        openPullsStore.pulls(accountId, teams.map { it.id }),
-                    ) { boards, issues, sessions, pulls ->
-                        ReviewsQueue.nav(
-                            yolo = teams.map { it.yoloMode == true },
-                            count = ReviewsQueue.build(teams, boards, issues, sessions, pulls).count,
-                        )
-                    }
-                }
-            }
-        }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ReviewsQueue.nav(emptyList(), 0))
+    // EXP-1075: the caller's LIVE sessions grouped by team — the board
+    // switcher sheet's per-team dots.
+    val liveRunsByTeam: StateFlow<Map<String, TeamLiveRuns>> = combine(myLiveSessions, auth.userId) { sessions, me ->
+        liveRunsByTeam(sessions, me)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     // The Issues tab root's current board: last-used on the active account
     // (validated against the live Room table, so deleted boards fall

@@ -74,11 +74,8 @@ import com.exponential.app.domain.GUIDE_CHANGES_TOPIC
 import com.exponential.app.domain.GuideChangeSet
 import com.exponential.app.domain.GuideSectionKey
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.guideCoverage
 import com.exponential.app.domain.guideFileCountLabel
-import com.exponential.app.ui.components.StackRail
-import com.exponential.app.ui.components.StackRailMember
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.guideSectionCaption
 import com.exponential.app.domain.prDescriptionGroup
@@ -131,20 +128,6 @@ fun prDescriptionGroups(state: PrDescriptionState?, files: List<Diff.File>?): Li
         else -> emptyList()
     }
 
-/** EXP-1251: the Stack card's band title (web `STACK_CARD_TITLE`). */
-internal const val STACK_CARD_TITLE = "Stack"
-
-/** The Stack card's input: the rail plus what a member's tap / long-press does. */
-class GuideStack(
-    val view: PrStack.StackView,
-    /** The issue's board default branch: the base row's fallback. */
-    val boardDefaultBranch: String?,
-    /** Swap the screen's subject to that member's issue, in place. */
-    val onOpen: (issueId: String) -> Unit,
-    /** Merge through that member (its confirm first); null = not a member. */
-    val onMergeThrough: ((issueId: String) -> Unit)?,
-)
-
 @Composable
 fun GuideFace(
     padding: PaddingValues,
@@ -158,8 +141,6 @@ fun GuideFace(
     prFallback: PrDescriptionState? = null,
     /** False for the PR-body group (one band, no `01 / 01`), web `numbered`. */
     numbered: Boolean = true,
-    /** EXP-1251: the Stack card; null = not in an open stack. */
-    stack: GuideStack? = null,
     /** The bar's white Merge; null = no bar. */
     merge: ChangesMergeControl? = null,
     /** A Changes row's tap (its section page); null = inert rows. */
@@ -195,9 +176,6 @@ fun GuideFace(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            stack?.let { card ->
-                item(key = "__stack__") { GuideStackCard(card) }
-            }
             // Web M8 ×4: a loaded PR body arrives as a group ([prDescriptionGroups])
             // that claims EVERY diff path; only its spinner / refusal draws here.
             if (groups.isEmpty() && prFallback != null && prFallback !is PrDescriptionState.Loaded) {
@@ -285,35 +263,6 @@ fun GuideFace(
 
     preview?.let { entry ->
         ResultPreviewDialog(entry = entry, onDismiss = { preview = null })
-    }
-}
-
-/** EXP-1251: the Stack card — band `Stack` (no count) over the rail, top first. */
-@Composable
-private fun GuideStackCard(stack: GuideStack) {
-    val members = remember(stack.view) {
-        stack.view.rows.map { row ->
-            StackRailMember(key = row.issueId, identifier = row.identifier, title = row.title, current = row.isCurrent)
-        }
-    }
-    Column(modifier = Modifier.testTag("guide-stack-card")) {
-        SectionHeader(
-            title = STACK_CARD_TITLE,
-            leading = {
-                Icon(
-                    ExpIcons.prStack,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            },
-        )
-        StackRail(
-            members = members,
-            baseBranch = PrStack.baseRowLabel(stack.view.baseBranch, stack.boardDefaultBranch),
-            onOpen = { member -> if (!member.current) stack.onOpen(member.key) },
-            onMergeThrough = stack.onMergeThrough?.let { through -> { member -> through(member.key) } },
-        )
     }
 }
 

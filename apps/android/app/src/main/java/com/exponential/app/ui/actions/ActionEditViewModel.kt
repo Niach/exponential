@@ -118,8 +118,8 @@ class ActionEditViewModel @Inject constructor(
     }
 
     /**
-     * Save the edited row. Blank [description]/[icon]/[repositoryId]/
-     * [promptPlaceholder] clear those fields (explicit nulls on the wire); a
+     * Save the edited row. Blank [description]/[icon]/[promptPlaceholder]
+     * clear those fields (explicit nulls on the wire); a
      * refusal is the state's [ActionEditState.failure] (a toast with Retry).
      */
     fun save(
@@ -127,7 +127,6 @@ class ActionEditViewModel @Inject constructor(
         name: String,
         description: String,
         icon: String,
-        repositoryId: String,
         body: String,
         promptPlaceholder: String,
     ) {
@@ -146,7 +145,6 @@ class ActionEditViewModel @Inject constructor(
                     name = name.trim(),
                     description = description.trim().takeIf { it.isNotEmpty() },
                     icon = icon.takeIf { it.isNotEmpty() },
-                    repositoryId = repositoryId.takeIf { it.isNotEmpty() },
                     body = body,
                     promptPlaceholder = promptPlaceholder.trim().takeIf { it.isNotEmpty() },
                 )
@@ -156,7 +154,7 @@ class ActionEditViewModel @Inject constructor(
                 _state.value = _state.value.copy(
                     saving = false,
                     failure = FailedAction("save", "the action", trpcErrorMessage(t, "")) {
-                        save(actionId, name, description, icon, repositoryId, body, promptPlaceholder)
+                        save(actionId, name, description, icon, body, promptPlaceholder)
                     },
                 )
             }

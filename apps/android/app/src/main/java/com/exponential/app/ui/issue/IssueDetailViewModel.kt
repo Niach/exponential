@@ -20,7 +20,10 @@ import com.exponential.app.data.api.UpdateIssueInput
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AttachmentEntity
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.MessageEntity
+import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.SessionIssueEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
@@ -49,8 +52,7 @@ import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.isFileAttachment
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.components.FailedAction
-import com.exponential.app.ui.session.PastRunRow
-import com.exponential.app.ui.session.issueRunRows
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
@@ -499,33 +501,49 @@ class IssueDetailViewModel @AssistedInject constructor(
 
     // ── Steer: remote start + live session (masterplan §5b/§5c) ──────────────
 
-    // EXP-893: EVERY coding_sessions row on this issue, unfiltered — the Work
-    // screen's `codingTarget` picks the run it shows off them (bound and live,
-    // else my newest live, else my newest at all), re-evaluated on the minute
-    // ticker so a heartbeat-stale row stops reading as live without a sync
-    // delta. The old `runningSession` (newest live row of ANYONE's) is gone
-    // with the Coding-now row it fed.
-    val issueSessions: StateFlow<List<CodingSessionEntity>> =
-        dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) { it.codingSessionDao().observeByIssue(issueId) }
+    // EXP-1291: the issue's pull requests (`pull_requests` ⋈
+    // `pull_request_issues`, newest first) — the PR rows under the description.
+    val pullRequests: StateFlow<List<PullRequestEntity>> =
+        dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeByIssue(issueId) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Every synced machine row — the run rows' device labels. */
-    private val deviceRows: Flow<List<DeviceEntity>> =
-        dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
+    /** One thread this issue sits in (the issue page's `Threads` row). */
+    data class IssueThread(val rootId: String, val title: String, val live: Boolean, val busy: Boolean)
 
-    /**
-     * EXP-886/893: the issue's runs of mine (`issueRunRows`: live first, then
-     * newest end first) — the Work screen's switcher lists them once there
-     * are two or more, and the Run face shows whichever one is picked. The
-     * devices rows lend each entry its machine's current label.
-     */
-    val issueRuns: StateFlow<List<PastRunRow>> = combine(
-        issueSessions,
-        issueFlow,
-        deviceRows,
-        auth.userId,
-    ) { rows, issueRow, devices, userId ->
-        issueRunRows(rows, issueId, issueRow, userId, devices)
+    // EXP-1291: the THREADS (root sessions) linking this issue, newest
+    // activity first, titled by `SessionTree.threadTitle`.
+    val threads: StateFlow<List<IssueThread>> = dbFlow.flatMapLatest { db ->
+        if (db == null) {
+            flowOf(emptyList())
+        } else {
+            combine(
+                db.sessionDao().observeRootsOfIssue(issueId),
+                db.sessionDao().observeAll(),
+                db.sessionIssueDao().observeAll(),
+                db.issueDao().observeAll(),
+                db.messageDao().observeAll(),
+            ) { roots: List<SessionEntity>, all: List<SessionEntity>, links: List<SessionIssueEntity>,
+                issues: List<IssueEntity>, messages: List<MessageEntity> ->
+                val treeIssues = issues.map(SessionTree::issue)
+                val treeLinks = links.map(SessionTree::sessionIssue)
+                roots.filter { it.parentId == null && !it.isAgent }.map { root ->
+                    val tree = all.filter { it.rootId == root.id || it.id == root.id }
+                    val treeRoot = SessionTree.session(root)
+                    val linked = treeLinks.filter { it.sessionId == root.id }.sortedBy { it.sortOrder }
+                        .mapNotNull { link -> treeIssues.firstOrNull { it.id == link.issueId } }
+                    IssueThread(
+                        rootId = root.id,
+                        title = SessionTree.threadTitle(
+                            treeRoot,
+                            linked,
+                            messages.filter { it.sessionId == root.id }.map(SessionTree::message),
+                        ).title,
+                        live = tree.any { !it.isEnded },
+                        busy = tree.any { !it.isEnded && it.busy },
+                    )
+                }
+            }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // steer.config is env-derived and static per instance: null = still loading.

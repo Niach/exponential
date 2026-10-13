@@ -25,10 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -61,25 +60,25 @@ private val PrOpenGreen = DesignTokens.Semantic.Green
 private val PrMergedBlue = DesignTokens.Semantic.Blue
 private val PrClosedRed = DesignTokens.Semantic.Red
 
+/**
+ * EXP-1291: the issue's pull requests (`pull_requests` ⋈
+ * `pull_request_issues`, newest first) — one full-width row each; renders
+ * nothing without one. A tap opens that PR ([onOpenPullRequest]).
+ */
 @Composable
 fun AgentPrCard(
-    issue: IssueEntity,
-    onOpenChanges: () -> Unit,
+    pullRequests: List<PullRequestEntity>,
+    onOpenPullRequest: (PullRequestEntity) -> Unit,
 ) {
-    val hasPr = !issue.prUrl.isNullOrBlank()
-    val hasBranch = !hasPr && !issue.branch.isNullOrBlank()
-    if (!hasPr && !hasBranch) return
-
-    // No card wrapper (EXP-246): the PR/branch chips render full width against
-    // the screen background, matching iOS.
+    if (pullRequests.isEmpty()) return
+    // No card wrapper (EXP-246): the PR rows render full width against the
+    // screen background, matching iOS.
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (hasPr) {
-            PrRow(prState = issue.prState, prNumber = issue.prNumber, onOpenChanges = onOpenChanges)
-        } else {
-            BranchRow(branch = issue.branch!!, onOpenChanges = onOpenChanges)
+        pullRequests.forEach { pr ->
+            PrRow(prState = pr.state, prNumber = pr.number, onOpenChanges = { onOpenPullRequest(pr) })
         }
     }
 }
@@ -125,43 +124,6 @@ private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
         }
-        Icon(
-            ExpIcons.uiChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
-}
-
-// Pushed branch, no PR yet: the same full-width row shape as [PrRow] (they
-// occupy the same slot, so they must look alike) with the indigo branch icon +
-// mono name, tapping into Changes.
-@Composable
-private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenChanges)
-            .glassRow()
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            ExpIcons.uiBranch,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Text(
-            branch,
-            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
         Icon(
             ExpIcons.uiChevronRight,
             contentDescription = null,

@@ -149,16 +149,16 @@ private fun ActionInputField(
                 value = when {
                     value.isEmpty() && def.required -> "Select"
                     value.isEmpty() -> "None"
-                    else -> pullRequests.firstOrNull { it.issueId == value }?.label ?: value
+                    else -> pullRequests.firstOrNull { it.pullRequestId == value }?.label ?: value
                 },
                 options = (if (def.required) emptyList() else listOf("")) +
-                    pullRequests.map { it.issueId },
+                    pullRequests.map { it.pullRequestId },
                 selected = value.takeIf { it.isNotEmpty() || !def.required },
                 optionLabel = { id ->
                     if (id.isEmpty()) {
                         "None"
                     } else {
-                        pullRequests.firstOrNull { it.issueId == id }?.label ?: id
+                        pullRequests.firstOrNull { it.pullRequestId == id }?.label ?: id
                     }
                 },
                 onSelect = onValueChange,

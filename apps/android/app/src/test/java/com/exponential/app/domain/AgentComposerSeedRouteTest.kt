@@ -110,12 +110,12 @@ class AgentComposerSeedRouteTest {
     @Test
     fun `the conflict flag rides as conflict=1`() {
         val seed = AgentComposerSeed(
-            actionId = DomainContract.builtinFixConflictsId,
+            actionId = "11111111-2222-4333-8444-555555555555",
             prIssueId = issueA,
             conflict = true,
         )
         val route = agentRoute(seed)
-        assertEquals("agent?action=builtin%3Afix-conflicts&pr=$issueA&conflict=1", route)
+        assertEquals("agent?action=11111111-2222-4333-8444-555555555555&pr=$issueA&conflict=1", route)
         assertEquals(seed, AgentComposerSeed.fromArgs(argsOf(route)))
         // Absent from an unflagged seed's route.
         assertFalse(agentRoute(seed.copy(conflict = false)).contains("&conflict="))

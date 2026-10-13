@@ -61,11 +61,7 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.FeedbackStates
-import com.exponential.app.domain.ComposerMenu
-import com.exponential.app.domain.ComposerMenuConditions
-import com.exponential.app.domain.ComposerMenuRowId
 import com.exponential.app.domain.mcpPickValue
-import com.exponential.app.domain.subjectOwnsMcpServers
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
@@ -79,7 +75,6 @@ import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.BlockedStart
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.issue.StaticDot
@@ -109,7 +104,6 @@ import com.exponential.app.ui.markdown.pickAutocompleteAt
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
-import com.exponential.app.ui.session.AgentsViewModel
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.domain.ToastAction
 import com.exponential.app.ui.components.ExponentialMark
@@ -151,20 +145,16 @@ import kotlinx.coroutines.launch
 fun AgentScreen(
     /** Null on the Agent TAB: no back button, and the list clears the bar. */
     onBack: (() -> Unit)?,
-    onOpenSteer: (codingSessionId: String) -> Unit,
+    /** A raw session view (`session/{id}`). */
+    onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    /** EXP-1284: a Running / Recent row opens its THREAD. */
+    /** A thread (`thread/{id}`). */
     onOpenThread: (threadId: String) -> Unit = {},
-    /** T-N2: a start LANDS on its thread (Conversation selected), replacing
-     *  this page when it was pushed; default = [onOpenThread]. */
+    /** EXP-1291: an accepted send LANDS on its thread (the new root IS the
+     *  thread), replacing this page when it was pushed; default = [onOpenThread]. */
     onLandInThread: (threadId: String) -> Unit = onOpenThread,
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
-    // The sessions under the composer: the Devices tab's own model, reused
-    // rather than mirrored (both read the same synced shapes).
-    sessionsViewModel: AgentsViewModel = hiltViewModel(),
-    // EXP-1284: the lists show THREADS (`partitionThreadList`).
-    threadsViewModel: com.exponential.app.ui.thread.ThreadsViewModel = hiltViewModel(),
 ) {
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
@@ -177,18 +167,12 @@ fun AgentScreen(
     val deviceRequestNote by viewModel.deviceRequestNote.collectAsStateWithLifecycle()
     val launch by viewModel.launch.collectAsStateWithLifecycle()
     val subject by viewModel.subject.collectAsStateWithLifecycle()
-    // EXP-980: non-null while the blocked-start dialog is up — the picked
-    // subjects, their blockers and the chain it draws.
-    val blockedPrompt by viewModel.blockedPrompt.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val images by viewModel.images.collectAsStateWithLifecycle()
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
     val resume by viewModel.resume.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val pendingPrIssueId by viewModel.pendingPrIssueId.collectAsStateWithLifecycle()
-    // EXP-1233: the Fix merge conflicts builtin's picked PR + the refusal flag.
-    val fixConflictsPr by viewModel.fixConflictsPr.collectAsStateWithLifecycle()
-    val conflictRefused by viewModel.conflictRefused.collectAsStateWithLifecycle()
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val pool by viewModel.startCandidates.collectAsStateWithLifecycle()
@@ -212,32 +196,13 @@ fun AgentScreen(
     val deviceWorktrees by dataViewModel.deviceWorktrees.collectAsStateWithLifecycle()
     val syncedDeviceRows by dataViewModel.deviceRows.collectAsStateWithLifecycle()
 
-    // ── Sessions ────────────────────────────────────────────────────────────
-    // EXP-1186: runs are cross-team, banded per team once there are several.
-    val memberTeams by sessionsViewModel.teams.collectAsStateWithLifecycle()
-    // EXP-1284: Running (a live run of mine) vs Recent, as THREADS.
-    val threadList by threadsViewModel.list.collectAsStateWithLifecycle()
-    val orphanLive by threadsViewModel.orphanLive.collectAsStateWithLifecycle()
-
-    // The desktop picked the start up — open the live session ONCE (EXP-536).
+    // EXP-1291: an accepted send answers with its session — a NEW ROOT, i.e.
+    // the thread itself — and the page lands there ONCE.
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    // EXP-1284 (T-N2/T11): EVERY start lands on its THREAD with the
-    // Conversation on show — the thread it was started into, else the one
-    // the server placed it in (its synced item, a short wait); a session no
-    // thread names yet opens on its own screen. Kept apart from the one-shot
-    // so consuming it never cancels the wait.
-    var landing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(startedSessionId) {
-        startedSessionId?.let {
-            viewModel.consumeStartedSession()
-            landing = it
-        }
-    }
-    LaunchedEffect(landing) {
-        val sessionId = landing ?: return@LaunchedEffect
-        val threadId = viewModel.seed.threadId ?: threadsViewModel.awaitThreadOf(sessionId)
-        landing = null
-        if (threadId != null) onLandInThread(threadId) else onOpenSteer(sessionId)
+        val sessionId = startedSessionId ?: return@LaunchedEffect
+        viewModel.consumeStartedSession()
+        onLandInThread(sessionId)
     }
     // EXP-1253: computed ONCE per mount (it never flips while you type); the
     // name fills in when the user row syncs.
@@ -281,11 +246,9 @@ fun AgentScreen(
         val issueId = pendingPrIssueId ?: return@LaunchedEffect
         val key = selectedActionInputs.firstOrNull { it.type == "pr" }?.key ?: return@LaunchedEffect
         val option = pullRequestOptions.optionForIssue(issueId) ?: return@LaunchedEffect
-        viewModel.setInput(key, option.issueId)
+        viewModel.setInput(key, option.pullRequestId)
         viewModel.consumePendingPr()
     }
-    // EXP-349: repo-typed inputs seed from the action's bound repository.
-    LaunchedEffect(selectedAction) { selectedAction?.let(viewModel::seedRepoInputs) }
     // A team with exactly one repository pre-picks it for a chat.
     LaunchedEffect(teamRepos) { viewModel.defaultChatRepo(teamRepos.map { it.id }) }
 
@@ -311,9 +274,7 @@ fun AgentScreen(
         is ComposerSubject.Issues -> checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
         is ComposerSubject.Action -> selectedAction != null &&
             !ActionInputValues.hasUnsupportedType(selectedActionInputs) &&
-            viewModel.requiredInputsFilled(selectedActionInputs) &&
-            // The creator derives everything from the request text.
-            (actionSubject?.id != DomainContract.builtinCreateActionId || hasText)
+            viewModel.requiredInputsFilled(selectedActionInputs)
     }
     val busy = sending || starting != null || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
@@ -324,12 +285,7 @@ fun AgentScreen(
         )
     // The ONE pure place the subject turns into copy: the submit's contract
     // label and (EXP-1038) the headline verb above the field.
-    // EXP-1233: the Fix merge conflicts builtin with a picked PR is its own
-    // case (verb + send); unpicked it reads as any action.
-    val fixConflictsActive = actionSubject?.id == DomainContract.builtinFixConflictsId
-    val fixConflictsPicked = if (fixConflictsActive) fixConflictsPr else null
     val promptSubject = when {
-        fixConflictsPicked != null -> AgentComposerPrompt.Subject.FixConflicts
         actionSubject != null -> AgentComposerPrompt.Subject.Action
         checkedCount > 0 -> AgentComposerPrompt.Subject.Issues(checkedCount)
         else -> AgentComposerPrompt.Subject.None
@@ -523,19 +479,13 @@ fun AgentScreen(
     }
 
     // ── Sheets + dialogs ────────────────────────────────────────────────────
-    // EXP-1249: the "+" menu and the pickers its submenu rows open (a picker
-    // sheet IS the pushed page: two stacked sheets are a dead end here).
-    var plusMenuOpen by remember { mutableStateOf(false) }
+    // The pickers the options open (a picker sheet IS the pushed page).
     var effortPickerOpen by remember { mutableStateOf(false) }
     var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
-    // EXP-923: the finished runs live behind the top bar's history button,
-    // with no folded state anywhere — a plain list in a sheet.
-    var recentOpen by remember { mutableStateOf(false) }
-    // …and with nothing running, the composer column sits in the MIDDLE of the
-    // page instead of hugging the top bar (web `justify-center`, desktop
-    // `min_h_full`, iOS the same rule).
-    val emptyRuns = threadList.running.isEmpty() && orphanLive.isEmpty()
+    // EXP-1291: the composer column sits in the MIDDLE of the page (the
+    // threads live on their own tab now).
+    val emptyRuns = true
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -543,20 +493,6 @@ fun AgentScreen(
             CenterAlignedTopAppBar(
                 title = { Text("Agent") },
                 navigationIcon = { onBack?.let { TopBarBackButton(onClick = it) } },
-                // EXP-923: history, where history belongs — the finished runs
-                // are one tap away instead of a band under the composer.
-                actions = {
-                    IconButton(
-                        onClick = { recentOpen = true },
-                        modifier = Modifier.testTag("agent-history-button"),
-                    ) {
-                        Icon(
-                            ExpIcons.settingsSessions,
-                            contentDescription = "Recent sessions",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
             )
         },
@@ -632,26 +568,13 @@ fun AgentScreen(
                     }
                     if (promptSubject != AgentComposerPrompt.Subject.None) {
                         item(key = "__composer_headline__") {
-                            if (fixConflictsPicked != null) {
-                                // EXP-1233: "Fix merge conflicts" + the PR's
-                                // issue chips; the ✕ clears the PICK only.
-                                AgentComposerHeadline(
-                                    headline = headline,
-                                    issueChips = fixConflictsPicked.issues.map { it.toIssueOption() },
-                                    onRemoveIssue = { viewModel.clearFixConflictsPr() },
-                                    actionChip = null,
-                                    onClearAction = viewModel::clearAction,
-                                    removeIssueDescription = { "Clear the pull request" },
-                                )
-                            } else {
-                                AgentComposerHeadline(
-                                    headline = headline,
-                                    issueChips = checkedOptions,
-                                    onRemoveIssue = viewModel::toggleIssue,
-                                    actionChip = selectedAction,
-                                    onClearAction = viewModel::clearAction,
-                                )
-                            }
+                            AgentComposerHeadline(
+                                headline = headline,
+                                issueChips = checkedOptions,
+                                onRemoveIssue = viewModel::toggleIssue,
+                                actionChip = selectedAction,
+                                onClearAction = viewModel::clearAction,
+                            )
                         }
                     }
                     item(key = "__composer__") {
@@ -712,14 +635,11 @@ fun AgentScreen(
                             boards = boardOptions,
                             pullRequests = pullRequestOptions,
                             onInputChange = viewModel::setInput,
-                            fixConflictsActive = fixConflictsActive,
-                            fixConflictsPr = fixConflictsPicked,
-                            conflictRefused = conflictRefused,
                             pendingImages = images,
                             imageError = imageError,
                             sending = sending || starting != null,
                             starting = starting,
-                            onOpenMenu = { plusMenuOpen = true },
+                            onOpenMenu = { filePicker.launch(arrayOf("*/*")) },
                             onRemoveImage = viewModel::removeImage,
                             submitLabel = submitLabel,
                             canSubmit = canSubmit,
@@ -823,84 +743,10 @@ fun AgentScreen(
                 }
                 null -> Unit
             }
-            item(key = "__sessions_gap__") { Spacer(Modifier.height(4.dp)) }
-            agentThreadsList(
-                running = threadList.running,
-                onOpenThread = onOpenThread,
-                teams = memberTeams,
-                // T4: my live sessions no thread names yet stay listed.
-                orphans = orphanLive,
-                onOpenSession = onOpenSteer,
-            )
         }
         }
     }
 
-    if (recentOpen) {
-        RecentThreadsSheet(
-            recent = threadList.recent,
-            teams = memberTeams,
-            onOpenThread = onOpenThread,
-            onDismiss = { recentOpen = false },
-        )
-    }
-    if (plusMenuOpen) {
-        val claude = launch.agent == DEFAULT_AGENT
-        ComposerPlusMenuSheet(
-            layout = ComposerMenu.composerMenuLayout(
-                ComposerMenuConditions(
-                    subagentModel = supportsSubagentModel(launch.agent),
-                    ultracode = claude,
-                    mcp = mcpServers.isNotEmpty() && !subjectOwnsMcpServers(actionSubject?.id),
-                    computerUse = device?.canToggleComputerUse == true,
-                ),
-            ),
-            codex = launch.agent == "codex",
-            effortValue = effortLabel(launch.effort),
-            effortEnabled = !(claude && launch.ultracode),
-            subagentsValue = subagentModelLabel(launch.subagentModel),
-            ultracode = launch.ultracode,
-            mcpValue = mcpPickValue(mcpServerIds.size),
-            computerUse = computerUse,
-            canAttach = images.count { it.isImage } < MAX_STEER_IMAGES ||
-                images.count { !it.isImage } < MAX_STEER_FILES,
-            onRow = { row ->
-                plusMenuOpen = false
-                when (row) {
-                    // SLOP-28: these two push their search-list page inside
-                    // the menu ([ComposerPlusMenuSheet]) and never land here.
-                    ComposerMenuRowId.ImplementIssue, ComposerMenuRowId.RunAction -> Unit
-                    ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
-                    ComposerMenuRowId.Effort -> effortPickerOpen = true
-                    ComposerMenuRowId.Subagents -> subagentPickerOpen = true
-                    ComposerMenuRowId.McpServers -> mcpPickerOpen = true
-                    ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
-                }
-            },
-            onUltracodeChange = viewModel::setUltracode,
-            onComputerUseChange = viewModel::setComputerUse,
-            onDismiss = { plusMenuOpen = false },
-            issuePage = { close ->
-                AgentIssuePickerPage(
-                    issues = pool,
-                    checkedIds = issueSubject?.ids?.toSet().orEmpty(),
-                    onToggle = viewModel::toggleIssue,
-                    onDone = close,
-                )
-            },
-            actionPage = { close ->
-                AgentActionPickerPage(
-                    actions = actionsState.actions,
-                    error = actionsState.error,
-                    selectedId = actionSubject?.id,
-                    onPick = { id ->
-                        viewModel.pickAction(id)
-                        close()
-                    },
-                )
-            },
-        )
-    }
     if (effortPickerOpen) {
         Picker(
             items = (listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(launch.agent)).map { PickerItem(it, effortLabel(it)) },
@@ -933,20 +779,6 @@ fun AgentScreen(
         )
     }
 
-    // EXP-980/SLOP-3: the picked work is still blocked: cancel, start it
-    // anyway, or start a stacked PR. Same title, body, graph and button words
-    // on all four clients (`BlockedStart`).
-    blockedPrompt?.let { prompt ->
-        BlockedStartDialog(
-            prompt = prompt,
-            onOpenIssue = onOpenIssue,
-            onStartAnyway = viewModel::submitAnyway,
-            onStartStacked = viewModel::submitStacked,
-            onDismiss = viewModel::dismissBlockedPrompt,
-        )
-    }
-
-
 }
 
 /**
@@ -977,94 +809,4 @@ private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
             modifier = Modifier.weight(1f, fill = false).testTag(AgentHome.GREETING_TEST_ID),
         )
     }
-}
-
-/**
- * EXP-980: the blocked-start dialog. It asks for ONE picked issue (the blocker
- * chips in the shared prefix/suffix sentence) and for a BATCH alike (the batch
- * body, blockers outside the picked set), and under either the MINI-GRAPH of
- * the transitive chain, so the reader sees what the chain actually is before
- * answering. SLOP-3: three answers, Cancel · Start anyway · Stacked PR
- * (primary). Stacked PR is never hidden: disabled, the reason note says why;
- * enabled over a line of 2+ issues, the plan note says what starts first.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun BlockedStartDialog(
-    prompt: AgentComposerViewModel.BlockedPrompt,
-    onOpenIssue: (String) -> Unit,
-    onStartAnyway: () -> Unit,
-    onStartStacked: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val isBatch = prompt.pickedIds.size > 1
-    val stackable = prompt.stackable
-    // EXP-1215: the shared prompt card; the blocker chips, the mini-graph and
-    // the stacked-start note ride its content slot (scrolling when tall).
-    GlassAlert(
-        title = if (isBatch) BlockedStart.BATCH_TITLE else BlockedStart.TITLE,
-        body = if (isBatch) BlockedStart.BATCH_BODY else BlockedStart.BODY_PREFIX.trimEnd(),
-        onDismiss = onDismiss,
-        trailing = listOf(
-            GlassAlertAction("Cancel", onClick = onDismiss),
-            GlassAlertAction(BlockedStart.START_ANYWAY, testTag = "start-anyway", onClick = onStartAnyway),
-            GlassAlertAction(
-                BlockedStart.STACKED_PR,
-                primary = true,
-                enabled = stackable,
-                testTag = "start-stacked",
-                onClick = onStartStacked,
-            ),
-        ),
-        defaultAction = if (stackable) 2 else 0,
-        content = {
-            if (!isBatch) {
-                FlowRow(
-                    modifier = Modifier.testTag("blocked-start-blockers"),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    prompt.blockers.forEach { blocker ->
-                        IssueChip(
-                            identifier = blocker.identifier,
-                            title = blocker.title,
-                            status = null,
-                        )
-                    }
-                }
-                Text(
-                    (if (stackable) BlockedStart.BODY_SUFFIX_STACKABLE else BlockedStart.BODY_SUFFIX)
-                        .removePrefix(".").trim(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = DesignTokens.Palette.MutedForeground,
-                )
-            }
-            IssueGraphList(
-                graph = prompt.graph,
-                issuesById = prompt.issuesById,
-                onOpenIssue = { id ->
-                    onDismiss()
-                    onOpenIssue(id)
-                },
-            )
-            // SLOP-3: why the stacked start is off (the note under a
-            // disabled, never hidden button), else what it starts first.
-            val stackNote = prompt.stackNote
-            val planNote = prompt.planNote
-            when {
-                stackNote != null -> Text(
-                    stackNote,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.testTag("start-stacked-note"),
-                )
-                planNote != null -> Text(
-                    planNote,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.testTag("start-stacked-plan"),
-                )
-            }
-        },
-    )
 }

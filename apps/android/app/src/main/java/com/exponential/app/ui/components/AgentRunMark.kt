@@ -22,10 +22,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.R
-import com.exponential.app.domain.CodingSessionDisplayState
-import com.exponential.app.ui.issue.DoneBlue
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.issue.ReviewGreen
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.session.rememberWorkingMarkPulse
 import com.exponential.app.ui.theme.LocalReduceMotion
 import kotlinx.coroutines.delay
@@ -106,47 +105,30 @@ fun AgentWorkingMark(
 }
 
 /** The badge colour each parked state wears; null = no badge. */
-internal fun runMarkBadgeColor(state: CodingSessionDisplayState?): Color? = when (state) {
-    CodingSessionDisplayState.NeedsInput -> NeedsInputAmber
-    CodingSessionDisplayState.Review -> ReviewGreen
-    CodingSessionDisplayState.Done -> DoneBlue
+internal fun runMarkBadgeColor(state: SessionTree.SessionState?): Color? = when (state) {
+    SessionTree.SessionState.NeedsYou -> NeedsInputAmber
+    SessionTree.SessionState.Blocked -> DesignTokens.Semantic.Red
     else -> null
 }
 
-/** EXP-1208: an ENDED run's mark is the brand mark at this alpha, ×4. */
+/** EXP-1208: an ENDED session's mark is the brand mark at this alpha, ×4. */
 internal const val RUN_MARK_ENDED_ALPHA = 0.5f
 
 /**
- * EXP-1208: a live session row's mark state, ×4 (web `runningRowMarkState`):
- * the display state, except a paused run (offline host) wears the bare mark
- * (null) and only a WORKING row animates (EXP-848: the turn flag, never
- * `running` alone).
- */
-internal fun runningRowMarkState(
-    state: CodingSessionDisplayState,
-    paused: Boolean,
-    working: Boolean,
-): CodingSessionDisplayState? = when {
-    paused -> null
-    state == CodingSessionDisplayState.Working -> if (working) state else null
-    else -> state
-}
-
-/**
- * A run's mark, wherever a run is named: [CodingSessionDisplayState.Working]
- * = the agent's working mark, no badge; NeedsInput / Review / Done = the brand
- * mark with an amber / green / blue badge at its top end corner. A null
- * [state] = a paused run: the bare mark. EXP-1208: [ended] = a FINISHED run's
- * row (the session lists' Recent rows): the brand mark dimmed, no badge.
+ * A session's mark, wherever one is named (EXP-1291: keyed by the ×4
+ * [SessionTree.SessionState]): Working = the agent's working mark, no badge;
+ * NeedsYou / Blocked = the brand mark with an amber / rose badge at its top
+ * end corner; Queued / Waiting / null = the bare mark; Ended (or [ended]) =
+ * the brand mark dimmed, no badge.
  */
 @Composable
 fun AgentRunMark(
     agent: String?,
-    state: CodingSessionDisplayState?,
+    state: SessionTree.SessionState?,
     size: Dp,
     badgeSize: Dp,
     modifier: Modifier = Modifier,
-    ended: Boolean = false,
+    ended: Boolean = state == SessionTree.SessionState.Ended,
 ) {
     val id = agent.orEmpty()
     if (ended) {
@@ -162,7 +144,7 @@ fun AgentRunMark(
         return
     }
     Box(modifier = modifier.size(size).testTag("run-mark")) {
-        if (state == CodingSessionDisplayState.Working) {
+        if (state == SessionTree.SessionState.Working) {
             AgentWorkingMark(id, size)
         } else {
             Icon(

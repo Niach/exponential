@@ -47,7 +47,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // The action editor (EXP-694; SLOP-2: the action page's `Prompt` tab — it was
 // a sheet of its own): an action's icon, name, description, composer hint,
-// repository and markdown PROMPT — the same field set as the web form
+// markdown PROMPT — the same field set as the web form
 // (components/action-prompt-form.tsx) and the desktop editor, on the grouped
 // card stack every form uses (S7: one control set everywhere).
 //
@@ -67,11 +67,9 @@ fun ActionPromptTab(
     actionId: String,
     modifier: Modifier = Modifier,
     viewModel: ActionEditViewModel = hiltViewModel(),
-    dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
-    val teamRepos by dataViewModel.repos.collectAsStateWithLifecycle()
 
     // One fetch per page visit: the model is scoped to the page's nav entry,
     // so a fresh open always re-reads a body a teammate may have changed.
@@ -81,7 +79,6 @@ fun ActionPromptTab(
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var icon by remember { mutableStateOf("") }
-    var repoId by remember { mutableStateOf("") }
     var body by remember { mutableStateOf("") }
     // EXP-825: the composer's field hint while this action is picked.
     var promptPlaceholder by remember { mutableStateOf("") }
@@ -98,7 +95,6 @@ fun ActionPromptTab(
         name = row.name
         description = row.description.orEmpty()
         icon = row.icon.orEmpty()
-        repoId = row.repositoryId.orEmpty()
         body = row.body
         promptPlaceholder = row.promptPlaceholder.orEmpty()
     }
@@ -108,7 +104,6 @@ fun ActionPromptTab(
         name.trim() != loaded.name ||
             description.trim() != loaded.description.orEmpty().trim() ||
             icon != loaded.icon.orEmpty() ||
-            repoId != loaded.repositoryId.orEmpty() ||
             body != loaded.body ||
             promptPlaceholder.trim() != loaded.promptPlaceholder.orEmpty()
         )
@@ -195,26 +190,6 @@ fun ActionPromptTab(
         }
         Spacer(Modifier.height(8.dp))
 
-        OptionGroup {
-            PickerRow(
-                label = "Repository",
-                value = when {
-                    repoId.isEmpty() -> "None"
-                    else -> teamRepos.firstOrNull { it.id == repoId }?.fullName ?: repoId
-                },
-                options = listOf("") + teamRepos.map { it.id },
-                selected = repoId,
-                optionLabel = { id ->
-                    if (id.isEmpty()) {
-                        "None"
-                    } else {
-                        teamRepos.firstOrNull { it.id == id }?.fullName ?: id
-                    }
-                },
-                onSelect = { repoId = it },
-                enabled = editable,
-            )
-        }
         // P69: no explanatory note under the row (label + state only).
         Spacer(Modifier.height(12.dp))
 
@@ -270,7 +245,6 @@ fun ActionPromptTab(
                         name = name,
                         description = description,
                         icon = icon,
-                        repositoryId = repoId,
                         body = body,
                         promptPlaceholder = promptPlaceholder,
                     )

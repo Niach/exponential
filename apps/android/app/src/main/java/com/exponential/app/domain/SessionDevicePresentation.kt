@@ -1,6 +1,6 @@
 package com.exponential.app.domain
 
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.DeviceEntity
 
 // EXP-549/550: how a coding session presents its HOST MACHINE.
@@ -33,18 +33,12 @@ data class SessionDevicePresentation(
     val displayLabel: String get() = label?.takeIf { it.isNotBlank() } ?: "Desktop"
 
     /**
-     * Whether the session should read "paused" instead of live: its agent
-     * still has work in it and the machine went away. A PR in review or
-     * merged stays what it is (the PR is the story there, not the machine);
-     * EXP-1184: `Done` on a still-`running` row means "idle with no PR",
-     * which pauses. Same rule ×4 (web `sessionIsPaused`, iOS `isPaused`).
+     * EXP-1291: whether the session should read "paused" instead of live —
+     * it is not ended and its machine went away (it continues when the
+     * machine comes back).
      */
-    fun isPaused(state: CodingSessionDisplayState, status: String = "running"): Boolean =
-        offline && when (state) {
-            CodingSessionDisplayState.Working, CodingSessionDisplayState.NeedsInput -> true
-            CodingSessionDisplayState.Done -> status == "running"
-            CodingSessionDisplayState.Review -> false
-        }
+    fun isPaused(state: SessionTree.SessionState): Boolean =
+        offline && state != SessionTree.SessionState.Ended
 
     companion object {
         val Unknown = SessionDevicePresentation(label = null, online = null)
@@ -70,22 +64,22 @@ data class SessionDevicePresentation(
  * every real site passes it.
  */
 fun resolveSessionDevice(
-    session: CodingSessionEntity,
+    session: SessionEntity,
     devices: List<DeviceEntity>,
     nowMs: Long,
     devicesFresh: Boolean = true,
 ): SessionDevicePresentation {
-    val deviceId = session.deviceId
+    val deviceId = session.deviceId.takeIf { it.isNotBlank() }
     val row = deviceId?.let {
         val matches = devices.filter { device -> device.deviceId == it }
         matches.firstOrNull { device -> device.userId == session.userId } ?: matches.firstOrNull()
     }
     if (row == null) {
-        return SessionDevicePresentation(label = session.deviceLabel, online = null)
+        return SessionDevicePresentation(label = null, online = null)
     }
     val live = DeviceLiveness.isOnline(row.lastSeenAt, nowMs)
     return SessionDevicePresentation(
-        label = row.label.takeIf { it.isNotBlank() } ?: session.deviceLabel,
+        label = row.label.takeIf { it.isNotBlank() },
         // A fresh heartbeat is online whatever our cursor did; only the
         // NEGATIVE needs a cursor we trust.
         online = if (live) true else if (devicesFresh) false else null,

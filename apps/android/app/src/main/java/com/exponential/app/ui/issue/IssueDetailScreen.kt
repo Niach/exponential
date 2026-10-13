@@ -251,8 +251,8 @@ fun IssueFace(
     padding: PaddingValues,
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
-    /** The PR / branch row's tap — the host lands on its Changes face. */
-    onOpenChanges: () -> Unit,
+    /** EXP-1291: a pull request row's tap (null = rows inert). */
+    onOpenPullRequest: ((com.exponential.app.data.db.PullRequestEntity) -> Unit)? = null,
     /** The bar's right circle — the host's Start play, else empty. */
     trailingBarSlot: @Composable () -> Unit,
     /** EXP-1191: the bar's Merge circle, directly right of the Comment
@@ -290,6 +290,8 @@ fun IssueFace(
     val estimationType by viewModel.estimationType.collectAsStateWithLifecycle()
     // EXP-57: same-team boards the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
+    // EXP-1291: the issue's pull requests (PR state left `issues`).
+    val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val issue = state.issue
@@ -674,7 +676,7 @@ fun IssueFace(
                 // EXP-1284: the issue names its threads — one chip per
                 // thread holding it (a live mark while it runs).
                 if (onOpenThread != null) {
-                    IssueThreadsRow(issueId = issueId, onOpen = onOpenThread)
+                    IssueThreadsRow(viewModel = viewModel, onOpen = onOpenThread)
                 }
 
                 // EXP-893: no Coding-now / Watch row under the chips any more —
@@ -732,18 +734,12 @@ fun IssueFace(
                     )
                 }
 
-                // The PR/branch rows (EXP-156) linking to the Changes face /
-                // page. Start lives in the bottom bar (EXP-240), so this
-                // renders only with a PR or a pushed branch.
-                val cardVisible = !issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank()
-                if (cardVisible) {
+                // EXP-1291: the issue's pull requests (one row each).
+                if (pullRequests.isNotEmpty()) {
                     Spacer(Modifier.height(20.dp))
-                    // EXP-327: no repo chip here — the PR row itself is the link to
-                    // the code, and the chip only repeated what the board already
-                    // says (Linear parity).
                     AgentPrCard(
-                        issue = issue,
-                        onOpenChanges = onOpenChanges,
+                        pullRequests = pullRequests,
+                        onOpenPullRequest = { pr -> onOpenPullRequest?.invoke(pr) },
                     )
                 }
 
@@ -1128,23 +1124,23 @@ fun IssueTitleField(
     )
 }
 
-/** EXP-1284: the issue page's `Threads` row (×4), off the synced threads. */
+/** EXP-1291: the issue page's `Threads` row — the thread roots linking
+ *  this issue, one tappable title each. */
 @Composable
-private fun IssueThreadsRow(issueId: String, onOpen: (String) -> Unit) {
-    val threadsVm: com.exponential.app.ui.thread.ThreadsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
-    val bundles by threadsVm.bundles.collectAsStateWithLifecycle()
-    val chips = remember(bundles, issueId) {
-        threadsVm.threadsOfIssue(bundles, issueId).map { bundle ->
-            com.exponential.app.ui.thread.ThreadsRowChip(
-                threadId = bundle.thread.id,
-                title = bundle.view.title,
-                live = bundle.view.live,
-                busy = bundle.view.busy,
-                agent = (bundle.myLiveRun ?: bundle.liveRun)?.agent,
-            )
+private fun IssueThreadsRow(viewModel: IssueDetailViewModel, onOpen: (String) -> Unit) {
+    val threads by viewModel.threads.collectAsStateWithLifecycle()
+    if (threads.isEmpty()) return
+    Spacer(Modifier.height(12.dp))
+    Column(modifier = Modifier.fillMaxWidth().testTag("issue-threads-row")) {
+        threads.forEach { thread ->
+            androidx.compose.material3.TextButton(onClick = { onOpen(thread.rootId) }) {
+                Text(
+                    thread.title,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
         }
     }
-    if (chips.isEmpty()) return
-    Spacer(Modifier.height(12.dp))
-    com.exponential.app.ui.thread.ThreadsRow(threads = chips, onOpen = onOpen)
 }

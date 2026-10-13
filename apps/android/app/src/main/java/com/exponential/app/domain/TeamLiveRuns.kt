@@ -1,44 +1,36 @@
 package com.exponential.app.domain
 
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 
 /**
- * EXP-1075: live runs of the CALLER's, grouped by team — the input behind the
- * board switcher SHEET's per-team dots (EXP-1210: the switcher pill itself
- * wears none). A DOT, never a count — the number belongs to the list you
- * reach by switching, not to the control that switches.
+ * EXP-1075: live sessions of the CALLER's, grouped by team — the input behind
+ * the board switcher SHEET's per-team dots. A DOT, never a count.
+ * EXP-1291: a session is live until `ended`; agents (never ended) count only
+ * while busy or waiting on a person, so an idle agent never lights a dot.
  */
 data class TeamLiveRuns(
     val count: Int,
-    /** At least one of this team's live runs is parked on a question/plan. */
+    /** At least one of this team's live sessions waits on a person. */
     val needsInput: Boolean,
 )
 
-/**
- * Own + live sessions grouped by `teamId`. Exactly the predicate
- * [AppViewModel.agentsRunning] applies for the selected team — a teammate's
- * run is never the caller's business (EXP-312: it can't be viewed or steered),
- * and ended/heartbeat-stale rows drop out (EXP-153).
- *
- * `needsInput` uses the DISPLAY state (EXP-1184: `needs_input` wins on every
- * live status, an open PR included), so the dot reads like every list.
- */
-fun liveRunsByTeam(
-    sessions: List<CodingSessionEntity>,
-    me: String?,
-    now: Long,
-): Map<String, TeamLiveRuns> {
+/** Whether [session] lights the live dots (own sessions only, upstream). */
+fun lightsLiveDot(session: SessionEntity): Boolean = when {
+    session.isEnded -> false
+    session.isAgent -> session.busy || session.needsInput
+    else -> true
+}
+
+/** Own + live sessions grouped by `teamId`. */
+fun liveRunsByTeam(sessions: List<SessionEntity>, me: String?): Map<String, TeamLiveRuns> {
     if (me == null) return emptyMap()
     val out = LinkedHashMap<String, TeamLiveRuns>()
     for (session in sessions) {
-        if (session.userId != me) continue
-        if (!CodingSessionLiveness.isLive(session, now)) continue
-        val needsInput =
-            codingSessionDisplayState(session, null) == CodingSessionDisplayState.NeedsInput
+        if (session.userId != me || !lightsLiveDot(session)) continue
         val prev = out[session.teamId]
         out[session.teamId] = TeamLiveRuns(
             count = (prev?.count ?: 0) + 1,
-            needsInput = (prev?.needsInput ?: false) || needsInput,
+            needsInput = (prev?.needsInput ?: false) || session.needsInput,
         )
     }
     return out

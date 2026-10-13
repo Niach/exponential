@@ -12,7 +12,6 @@ import com.exponential.app.data.api.agentProfileSignOutCommand
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
@@ -23,19 +22,11 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentProfileUsageRow
-import com.exponential.app.domain.CodingSessionLiveness
-import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.MergeTarget
-import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionDevicePresentation
-import com.exponential.app.domain.isLiveRun
-import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resolveSessionDevice
-import com.exponential.app.domain.resumeTargetFor
-import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.components.FailedAction
@@ -70,40 +61,7 @@ import kotlinx.coroutines.launch
 // itself — only the informational `devices.latestVersions` query is still
 // fetched (one per account).
 
-data class AgentRow(
-    val session: CodingSessionEntity,
-    val issue: IssueEntity?,
-    // EXP-876: a BATCH row's covered issues, in naming order — what titles it
-    // (`EXP-874 +2`). Empty on every other subject.
-    val batchIssues: List<IssueEntity> = emptyList(),
-    // EXP-549/550: the host machine resolved against its LIVE devices row —
-    // the CURRENT label (not the start-time snapshot) plus whether the machine
-    // dropped offline, which renders the row as paused rather than live.
-    val device: SessionDevicePresentation = SessionDevicePresentation.Unknown,
-    // EXP-734/SLOP-3: what this row's Merge control acts on — its issue, or
-    // for an issue-less run (batch, chat, action) the PR on its own row.
-    // Null = nothing to merge.
-    val mergeTarget: MergeTarget? = null,
-)
-
-/**
- * EXP-746: one FINISHED run in the Agent page's "Recent" list (and issue detail's "Runs") — the session
- * row, its issue when it had one, and the machine that ran it (for the byline
- * and the Resume target).
- */
-data class PastRunRow(
-    val session: CodingSessionEntity,
-    val issue: IssueEntity?,
-    // EXP-876: a BATCH row's covered issues, in naming order.
-    val batchIssues: List<IssueEntity> = emptyList(),
-    val device: SessionDevicePresentation = SessionDevicePresentation.Unknown,
-    // Where a Resume would go, or null when the run can't be resumed right
-    // now (its machine is gone, offline, or too old to know how).
-    val resume: RunResumeTarget? = null,
-)
-
 data class AgentsState(
-    val rows: List<AgentRow> = emptyList(),
     // steer.config is env-derived and static per instance: null = still
     // loading. Decides whether a row tap opens the live viewer directly or
     // falls back to the issue detail, and whether the devices section shows.
@@ -307,86 +265,9 @@ class AgentsViewModel @Inject constructor(
         }
     }
 
-    // The live rows the list renders from.
-    private val liveSessionRows = dbFlow.scopedQuery(emptyList()) {
-        it.codingSessionDao().observeByStatuses(CodingSessionLiveness.liveStatuses)
-    }
-
-    // Bundled up front: the typed `combine` overloads stop at five flows.
-    private val liveSessionsAndIssues = combine(
-        liveSessionRows,
-        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-    ) { sessions, issues -> sessions to issues }
-
-    // Bundled to keep the combine below inside the typed overloads.
-    private val steerEnabledAndDevices = combine(
-        _steerEnabled,
-        deviceRowsAndFreshness,
-    ) { steerEnabled, (devices, polledAt) -> Triple(steerEnabled, devices, polledAt) }
-
-    val state: StateFlow<AgentsState> = combine(
-        liveSessionsAndIssues,
-        steerEnabledAndDevices,
-        // Heartbeat-stale rows render as absent (EXP-153); the ticker clears
-        // them once the liveness window elapses without a sync delta. The
-        // DEVICE window is only 90s (EXP-550), so this ticks at its 30s
-        // cadence — a minute tick could lag the paused flip by two-thirds of
-        // the window.
-        DeviceLiveness.ticker(),
-        auth.userId,
-    ) { (sessions, issues), (steerEnabled, devices, polledAt), now, userId ->
-        val rows = agentRows(
-            sessions, issues, userId, now, devices,
-            // The stamp rides elapsedRealtime, not the wall clock `now`.
-            devicesFresh = DeviceFreshness.isTrustworthy(
-                polledAt,
-                SystemClock.elapsedRealtime(),
-            ),
-        )
-        AgentsState(
-            rows = rows,
-            steerEnabled = steerEnabled,
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
-
-    // EXP-746: the caller's own FINISHED, person-started sessions across
-    // every member team (EXP-1186), newest first — the source of the "Recent" list. Queried
-    // wider than the list shows so a row the pure filter drops can't push a
-    // real one off the end; the DAO already excludes triggered runs, which
-    // belong to their action page's Runs alone.
-    private val endedSessionRows = combine(
-        dbFlow,
-        auth.userId,
-    ) { db, userId -> db to userId }
-        .flatMapLatest { (db, userId) ->
-            if (db == null || userId == null) {
-                flowOf(emptyList())
-            } else {
-                db.codingSessionDao().observePastByUser(
-                    userId = userId,
-                    status = DomainContract.codingSessionStatusEnded,
-                    limit = PAST_RUN_QUERY_LIMIT,
-                )
-            }
-        }
-
-    /**
-     * EXP-746: the runs that finished, newest first — each expandable to its
-     * summary and (on a capable, online machine) a Resume. Empty renders
-     * nothing at all.
-     */
-    val pastRuns: StateFlow<List<PastRunRow>> = combine(
-        endedSessionRows,
-        dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
-        deviceRowsAndFreshness,
-        auth.userId,
-        DeviceLiveness.ticker(),
-    ) { sessions, issues, (devices, polledAt), userId, now ->
-        pastRunRows(
-            sessions, issues, userId, devices, now,
-            devicesFresh = DeviceFreshness.isTrustworthy(polledAt, SystemClock.elapsedRealtime()),
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val state: StateFlow<AgentsState> = _steerEnabled
+        .map { AgentsState(steerEnabled = it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
 
     /**
      * EXP-1186: the member teams, name order — the Agent page bands its live
@@ -494,52 +375,6 @@ class AgentsViewModel @Inject constructor(
 }
 
 /**
- * The Agents list: the signed-in user's OWN live sessions across EVERY member
- * team (EXP-1186, cross-team like the Inbox; the page bands them per team). A
- * teammate's live session is neither viewable nor steerable (EXP-312), so
- * listing it just read as "computer not online". The rows stay SYNCED for the
- * issue-detail badges and Reviews, they only leave this list. Signed out
- * (null [currentUserId]) lists nothing.
- */
-fun agentRows(
-    sessions: List<CodingSessionEntity>,
-    issues: List<IssueEntity>,
-    currentUserId: String?,
-    nowMs: Long,
-    // EXP-549/550: the synced machine rows, for the live label + offline flip.
-    // Defaulted so a caller that only cares about the session/issue join
-    // (tests, and any future non-device surface) stays unchanged.
-    devices: List<DeviceEntity> = emptyList(),
-    // EXP-656: whether our own `devices` cursor is fresh enough for a stale
-    // last_seen_at to mean "away" rather than "we haven't heard".
-    devicesFresh: Boolean = true,
-): List<AgentRow> {
-    if (currentUserId == null) return emptyList()
-    val issuesById = issues.associateBy { it.id }
-    val live = sessions.filter {
-        it.userId == currentUserId &&
-            CodingSessionLiveness.isLive(it, nowMs)
-    }
-    // issueId is null for batch multi-issue sessions — those rows render
-    // without an issue link.
-    return live.map { session ->
-        val issue = session.issueId?.let(issuesById::get)
-        // EXP-876: what names a batch row.
-        val batchIssues = batchRunIssues(session, issues)
-        AgentRow(
-            session = session,
-            issue = issue,
-            batchIssues = batchIssues,
-            device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
-            // EXP-734/SLOP-3: an issue-less run (batch, chat, action) merges
-            // the PR on its own row through codingSessions.mergePr — unless a
-            // covered issue carries a batch's PR (EXP-1165: the issue path).
-            mergeTarget = resolveMergeTarget(session, issue, batchIssues),
-        )
-    }
-}
-
-/**
  * How long a queued usage refresh shows as in flight before the section gives
  * up on the machine answering (it answers by re-reporting on its next beat).
  * Web `REFRESH_PENDING_MS`.
@@ -569,94 +404,6 @@ internal fun deviceLoginCommandKey(row: AgentProfileUsageRow): String =
  */
 internal fun accountCommandKey(deviceId: String, agent: String, profileId: String): String =
     "$deviceId:$agent:$profileId"
-
-/** How many finished rows the DAO pulls before the pure filter narrows them. */
-const val PAST_RUN_QUERY_LIMIT = 50
-
-/** How many finished runs the "Recent" list shows. Byte-identical ×4
- *  (`PAST_RUN_CAP` on web, iOS `PastRuns.cap`, desktop `PAST_RUNS_CAP`). */
-const val PAST_RUN_LIMIT = 20
-
-/**
- * EXP-746: the "Recent" list (EXP-886; "Past" before) — the caller's OWN finished PERSON-STARTED runs in
- * EVERY member team (EXP-1186), newest first by when they ended, capped at [limit].
- *
- * `started_reason == null` is the whole predicate on top of ownership: a
- * scheduled or event-triggered run belongs to its action page's Runs and
- * must NEVER list here (EXP-676's rule, kept). The DAO
- * already scopes, filters and orders; the rules live here too so they are
- * testable and so a wider query can't leak a foreign, still-live or automated
- * row into the list. Signed out lists nothing.
- */
-fun pastRunRows(
-    sessions: List<CodingSessionEntity>,
-    issues: List<IssueEntity>,
-    currentUserId: String?,
-    // EXP-549/550: the synced machine rows, for the byline's live label.
-    devices: List<DeviceEntity> = emptyList(),
-    nowMs: Long = System.currentTimeMillis(),
-    limit: Int = PAST_RUN_LIMIT,
-    // EXP-656: see [agentRows] — an unrefreshed devices cursor renders unknown
-    // presence, never offline.
-    devicesFresh: Boolean = true,
-): List<PastRunRow> {
-    if (currentUserId == null) return emptyList()
-    val issuesById = issues.associateBy { it.id }
-    // Resolved once for the whole list: a Resume needs the run's OWN machine
-    // online and `resume-run`-capable, which only the live device row knows.
-    val steerDevices = devices.map { it.toSteerDevice(nowMs, currentUserId) }
-    return sessions
-        .filter {
-            it.userId == currentUserId &&
-                runHasEnded(it) &&
-                it.startedReason == null
-        }
-        // ISO-8601 UTC stamps order lexicographically; a row swept before it
-        // stamped `ended_at` still sorts off its heartbeat stamp.
-        .sortedByDescending { it.endedAt ?: it.updatedAt }
-        .take(limit)
-        .map { session ->
-            PastRunRow(
-                session = session,
-                issue = session.issueId?.let(issuesById::get),
-                batchIssues = batchRunIssues(session, issues),
-                device = resolveSessionDevice(session, devices, nowMs, devicesFresh),
-                resume = resumeTargetFor(session, steerDevices, currentUserId),
-            )
-        }
-}
-
-/**
- * EXP-886: an issue's RUNS — the caller's OWN runs of ONE issue, whatever
- * their status and `started_reason` (a live run, an ended one, an automated
- * one), UNCAPPED: live runs first (by status), then newest end first. Backs
- * the session screen's run switcher. A batch run (issue_id NULL) never
- * matches. Rows reuse the Recent list's shape so bylines come off the same ×4
- * rules. Signed out lists nothing.
- */
-fun issueRunRows(
-    sessions: List<CodingSessionEntity>,
-    issueId: String,
-    issue: IssueEntity?,
-    currentUserId: String?,
-    devices: List<DeviceEntity> = emptyList(),
-    nowMs: Long = System.currentTimeMillis(),
-): List<PastRunRow> {
-    if (currentUserId == null) return emptyList()
-    return sessions
-        .filter { it.issueId == issueId && it.userId == currentUserId }
-        .sortedWith(
-            compareByDescending<CodingSessionEntity> { isLiveRun(it) }
-                .thenByDescending { it.endedAt ?: it.updatedAt },
-        )
-        .map { session ->
-            PastRunRow(
-                session = session,
-                issue = issue,
-                device = resolveSessionDevice(session, devices, nowMs),
-            )
-        }
-}
 
 /**
  * The synced devices rows → the tab's SteerDevice list (EXP-481): the

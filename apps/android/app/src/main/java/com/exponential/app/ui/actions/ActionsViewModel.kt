@@ -63,21 +63,6 @@ class ActionsViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /**
-     * The machines a suggestion's trigger can be bound to: every synced device
-     * that advertises the `triggers` cap, ONLINE OR NOT (a trigger outlives
-     * a machine's uptime — it fires whenever that machine is next up).
-     */
-    val triggerDevices: StateFlow<List<SteerDevice>> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
-        DeviceLiveness.ticker(),
-        auth.userId,
-    ) { rows, nowMs, userId ->
-        rows.sortedWith(stableDeviceOrder(nowMs))
-            .map { it.toSteerDevice(nowMs, userId) }
-            .filter { it.canRunTriggers }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     // Live from the synced actions shape (EXP-268): the DAO orders by
     // sort_order then name. NEITHER client builtin is listed (EXP-431,
     // EXP-686): "Create action" lives behind the header's "New action" button,
