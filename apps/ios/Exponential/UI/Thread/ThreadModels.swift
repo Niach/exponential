@@ -74,6 +74,9 @@ final class ThreadScreenModel {
             let named = try ThreadItemEntity.filter(Column("thread_id") == threadId).fetchCount(db) > 0
             return ThreadRead(rows: rows, named: named)
         }
+        // EXP-1288: a write that changed nothing this thread shows re-renders
+        // nothing (`ThreadRows.==`).
+        .removeDuplicates()
         observationTask = Task { [weak self] in
             // The GRDB stream is one-shot (EXP-410): re-subscribe on error so
             // a busy database never freezes the thread at its last value.
@@ -128,18 +131,23 @@ final class ThreadScreenModel {
 }
 
 /// One read of the thread screen: its rows, and whether any item names it.
-struct ThreadRead: Sendable {
+struct ThreadRead: Equatable, Sendable {
     let rows: ThreadRows?
     let named: Bool
 }
 
 /// EXP-1284: the Agent page's thread lists (brief §5, review T6/T4) —
-/// every synced thread of EVERY member team (phones band the rows per team),
-/// built into its view and split by `partitionThreadList(entries, teamId:
-/// nil)` (fixture `partitions`): Running = a live session of mine, Recent =
-/// my other threads (a session of mine, or created by me). T4: a live
-/// session of mine whose thread item has not synced (or whose placement
-/// failed) is never hidden: it lists under Running as a plain session row.
+/// the threads of EVERY member team (phones band the rows per team), built
+/// into its view and split by `partitionThreadList(entries, teamId: nil)`
+/// (fixture `partitions`): Running = a live session of mine, Recent = my
+/// other threads (a session of mine, or created by me). T4: a live session
+/// of mine whose thread item has not synced (or whose placement failed) is
+/// never hidden: it lists under Running as a plain session row.
+///
+/// EXP-1288: the observation reads only the threads those lists can show
+/// (`ThreadRows.loadMine`): Running's candidates while the page is up, and
+/// Recent's only while the history sheet that lists them is open
+/// (`includeRecent`).
 @MainActor @Observable
 final class ThreadListModel {
     struct Entry: Identifiable, ThreadListEntry {
@@ -167,17 +175,41 @@ final class ThreadListModel {
 
     /// One GRDB pass: every thread, plus my live-status sessions that no
     /// thread item names, their issues and the device rows.
-    struct Snapshot: Sendable {
+    struct Snapshot: Equatable, Sendable {
         let threads: [ThreadRows]
         let orphanSessions: [CodingSessionEntity]
         let orphanIssues: [IssueEntity]
         let devices: [DeviceEntity]
+        /// Whether `threads` carries Recent's candidates too.
+        let includesRecent: Bool
+
+        static func == (lhs: Snapshot, rhs: Snapshot) -> Bool {
+            lhs.includesRecent == rhs.includesRecent
+                && lhs.threads == rhs.threads
+                && ThreadRows.sameRows(lhs.orphanSessions, rhs.orphanSessions)
+                && ThreadRows.sameRows(lhs.orphanIssues, rhs.orphanIssues)
+                && ThreadRows.sameDevices(lhs.devices, rhs.devices)
+        }
     }
 
     private(set) var running: [Entry] = []
     private(set) var recent: [Entry] = []
     private(set) var orphans: [Orphan] = []
     private(set) var loaded = false
+    /// Whether `recent` is current: the history sheet asked for it
+    /// (`includeRecent`) and a read carrying it landed.
+    private(set) var recentLoaded = false
+    /// Recent's threads are read only while something shows them (the
+    /// history sheet): set by the page as the sheet opens and closes.
+    var includeRecent = false {
+        didSet {
+            guard oldValue != includeRecent else { return }
+            if !includeRecent { recentLoaded = false }
+            guard observationTask != nil else { return }
+            stopObservation()
+            startObservation()
+        }
+    }
 
     private let accountId: String
     private let userId: String?
@@ -193,13 +225,32 @@ final class ThreadListModel {
     }
 
     func start() {
+        guard observationTask == nil else { return }
+        startObservation()
+        // GRDB only re-fires on writes: a heartbeat STOPPING is the absence
+        // of one, so the liveness rule re-runs on a clock too.
+        clockTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled else { return }
+                self?.rebuild()
+            }
+        }
+    }
+
+    private func startObservation() {
         guard observationTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
         let userId = userId
+        let includeRecent = includeRecent
         let observation = ValueObservation.tracking { db -> Snapshot in
-            let threads = try ThreadRows.load(db: db, teamIds: nil)
+            // Both lists are the caller's own threads: no user, nothing.
             guard let userId else {
-                return Snapshot(threads: threads, orphanSessions: [], orphanIssues: [], devices: [])
+                return Snapshot(
+                    threads: [], orphanSessions: [], orphanIssues: [], devices: [],
+                    includesRecent: includeRecent
+                )
             }
+            let threads = try ThreadRows.loadMine(db: db, userId: userId, includeRecent: includeRecent)
             let threaded = Set(try String.fetchAll(
                 db, sql: "SELECT \"session_id\" FROM \"thread_items\" WHERE \"session_id\" IS NOT NULL"
             ))
@@ -224,9 +275,11 @@ final class ThreadListModel {
                 threads: threads,
                 orphanSessions: mineLiveStatus,
                 orphanIssues: issues,
-                devices: try DeviceEntity.fetchAll(db)
+                devices: try DeviceEntity.fetchAll(db),
+                includesRecent: includeRecent
             )
         }
+        .removeDuplicates()
         observationTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
@@ -234,6 +287,7 @@ final class ThreadListModel {
                         guard let self else { return }
                         self.snapshot = snapshot
                         self.loaded = true
+                        self.recentLoaded = snapshot.includesRecent
                         self.rebuild()
                     }
                     return
@@ -244,20 +298,15 @@ final class ThreadListModel {
                 }
             }
         }
-        // GRDB only re-fires on writes: a heartbeat STOPPING is the absence
-        // of one, so the liveness rule re-runs on a clock too.
-        clockTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard !Task.isCancelled else { return }
-                self?.rebuild()
-            }
-        }
+    }
+
+    private func stopObservation() {
+        observationTask?.cancel()
+        observationTask = nil
     }
 
     func stop() {
-        observationTask?.cancel()
-        observationTask = nil
+        stopObservation()
         clockTask?.cancel()
         clockTask = nil
     }
@@ -277,7 +326,9 @@ final class ThreadListModel {
         // Phones: every team, banded per team by the view.
         let parts = ThreadViews.partition(entries, teamId: nil)
         running = parts.running
-        recent = parts.recent
+        // A Running-only read holds no Recent candidates: keep it empty
+        // rather than a partial list.
+        recent = snapshot.includesRecent ? parts.recent : []
         let steerDevices = snapshot.devices.map {
             SteerDevice(entity: $0, now: now, currentUserId: userId)
         }

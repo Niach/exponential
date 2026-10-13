@@ -464,6 +464,15 @@ interface ThreadDao {
     )
     fun observeOfSession(sessionId: String): Flow<ThreadEntity?>
 
+    // App-link resolution (EXP-1288): team SLUG + thread id → the thread id,
+    // only when the synced thread sits in that team (the issue twin is
+    // [IssueDao.findIdByTeamRef]).
+    @Query(
+        "SELECT t.id FROM threads t JOIN teams w ON w.id = t.team_id " +
+            "WHERE t.id = :threadId AND w.slug = :teamSlug LIMIT 1",
+    )
+    suspend fun findIdByTeamRef(teamSlug: String, threadId: String): String?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: ThreadEntity)
 

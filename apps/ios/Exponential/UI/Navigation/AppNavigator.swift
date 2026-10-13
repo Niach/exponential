@@ -271,6 +271,9 @@ struct AppNavigator: View {
             } else {
                 deps.deepLinkBus.openExternal(url)
             }
+        case .thread(let teamSlug, let threadId):
+            // EXP-1288: the Thread screen, the in-app `AppLink.thread` path.
+            resolveWebThreadLink(url: url, teamSlug: teamSlug, threadId: threadId)
         case nil:
             // Shouldn't happen (the AASA claims only the parsed shapes), but
             // never swallow a link the user tapped.
@@ -291,6 +294,30 @@ struct AppNavigator: View {
                 if b.id == activeId { return false }
                 return a.lastUsedAt > b.lastUsedAt
             }
+    }
+
+    /// EXP-1288: a thread link opens under the signed-in account on the
+    /// link's host that holds the thread (else the one in the link's team,
+    /// else the first): the Thread screen reads `threads.get` for a thread
+    /// that has not synced yet and shows `thread-not-found` on a refusal, so
+    /// only a foreign host falls back to the Safari sheet.
+    private func resolveWebThreadLink(url: URL, teamSlug: String, threadId: String) {
+        let candidates = accountsOnHost(of: url)
+        guard let first = candidates.first else {
+            deps.deepLinkBus.openExternal(url)
+            return
+        }
+        let store = deps.db
+        func read<T>(_ account: ServerAccount, _ query: (Database) throws -> T?) -> T? {
+            guard let pool = try? store.pool(forAccountId: account.id) else { return nil }
+            return (try? pool.read { try query($0) }) ?? nil
+        }
+        let holder = candidates.first { account in
+            read(account) { try ThreadQueries.thread(db: $0, id: threadId) } != nil
+        } ?? candidates.first { account in
+            read(account) { try TeamEntity.filter(Column("slug") == teamSlug).fetchOne($0) } != nil
+        } ?? first
+        deps.deepLinkBus.navigateToThread(threadId, accountId: holder.id)
     }
 
     private func resolveWebIssueLink(url: URL, teamSlug: String, identifier: String) {
@@ -511,8 +538,14 @@ struct MainNavigator: View {
         // EXP-1284: a tapped thread link opens the Thread screen.
         .onChange(of: deps.deepLinkBus.pendingThreadId) { _, threadId in
             if threadId != nil, let target = deps.deepLinkBus.consumeThread() {
+                // EXP-1288: like `pushRoute` — a thread already on the stack
+                // is popped back to, never a second page of it.
                 navigate {
-                    path.append(AppRoute.thread(accountId: target.accountId, threadId: target.threadId))
+                    if let index = Self.threadIndex(target.threadId, in: path) {
+                        landOnThread(at: index, threadId: target.threadId, page: nil)
+                    } else {
+                        path.append(AppRoute.thread(accountId: target.accountId, threadId: target.threadId))
+                    }
                 }
             }
         }

@@ -52,6 +52,29 @@ final class WebLinksTests: XCTestCase {
         XCTAssertNil(WebLinks.agent(instanceUrl: "https://app.exponential.at", teamSlug: " "))
     }
 
+    // EXP-1288: a thread link from Mail, Safari or a share sheet opens the
+    // Thread screen, like the in-app `AppLink.thread`.
+    func testParseThreadUrl() {
+        let url = URL(string: "https://app.exponential.at/t/acme/threads/7f0c2b1e-1111-4222-8333-944455556666")!
+        XCTAssertEqual(
+            WebLinks.parse(url),
+            .thread(teamSlug: "acme", threadId: "7f0c2b1e-1111-4222-8333-944455556666")
+        )
+        let trailing = URL(string: "https://app.exponential.at/t/acme/threads/abc/")!
+        XCTAssertEqual(WebLinks.parse(trailing), .thread(teamSlug: "acme", threadId: "abc"))
+    }
+
+    func testThreadLinkMintParseRoundTrip() throws {
+        let minted = try XCTUnwrap(
+            WebLinks.thread(instanceUrl: "https://app.exponential.at/", teamSlug: "acme", threadId: "abc")
+        )
+        XCTAssertEqual(minted.absoluteString, "https://app.exponential.at/t/acme/threads/abc")
+        XCTAssertEqual(WebLinks.parse(minted), .thread(teamSlug: "acme", threadId: "abc"))
+        XCTAssertNil(WebLinks.thread(instanceUrl: nil, teamSlug: "acme", threadId: "abc"))
+        XCTAssertNil(WebLinks.thread(instanceUrl: "https://app.exponential.at", teamSlug: " ", threadId: "abc"))
+        XCTAssertNil(WebLinks.thread(instanceUrl: "https://app.exponential.at", teamSlug: "acme", threadId: ""))
+    }
+
     func testTrailingSlashTolerated() {
         let url = URL(string: "https://app.exponential.at/t/acme/boards/web/issues/EXP-42/")!
         XCTAssertEqual(
@@ -71,6 +94,8 @@ final class WebLinksTests: XCTestCase {
             // Only the Agent page itself — a session under the team, or a
             // deeper agent path, is not something the app renders from a link.
             "/t/acme/sessions/abc", "/t/acme/agent/extra", "/agent",
+            // Only the thread page itself (EXP-1288).
+            "/t/acme/threads", "/t/acme/threads/abc/guide", "/threads/abc",
             "/invite", "/auth/login",
         ] {
             let url = URL(string: "https://app.exponential.at\(path)")!

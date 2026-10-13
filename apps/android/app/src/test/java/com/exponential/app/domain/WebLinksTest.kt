@@ -39,6 +39,20 @@ class WebLinksTest {
         assertEquals(WebLinks.Parsed.Agent("acme"), WebLinks.parsePath("/t/acme/agent/"))
     }
 
+    // EXP-1288: a thread link parses to the same slug + id the in-app
+    // [AppLink.Thread] carries; deeper paths stay unclaimed.
+    @Test
+    fun parsesThreadUrl() {
+        val expected = WebLinks.Parsed.ThreadRef("acme", "0b6c2a4e-1d1f-4c1e-9a55-2f8f1a2b3c4d")
+        assertEquals(expected, WebLinks.parsePath("/t/acme/threads/0b6c2a4e-1d1f-4c1e-9a55-2f8f1a2b3c4d"))
+        assertEquals(expected, WebLinks.parsePath("/t/acme/threads/0b6c2a4e-1d1f-4c1e-9a55-2f8f1a2b3c4d/"))
+        val link = classifyAppLink(
+            "https://app.exponential.at/t/acme/threads/0b6c2a4e-1d1f-4c1e-9a55-2f8f1a2b3c4d",
+            "https://app.exponential.at",
+        )
+        assertEquals(AppLink.Thread("acme", expected.threadId), link)
+    }
+
     @Test
     fun parsesInviteUrl() {
         assertEquals(WebLinks.Parsed.Invite("abc123"), WebLinks.parsePath("/invite/abc123"))
@@ -106,6 +120,7 @@ class WebLinksTest {
         for (path in listOf(
             null, "", "/", "/t/acme", "/t/acme/boards/web", "/t/acme/inbox",
             "/t/acme/agent/sessions/abc", "/agent",
+            "/t/acme/threads", "/t/acme/threads/abc/guide",
             "/t/acme/boards/web/issues", "/t/acme/boards/web/issues/EXP-1/changes",
             // Legacy pre-rename forms are DEAD (EXP-180) — never claimed.
             "/w/acme/boards/web/issues/EXP-1",

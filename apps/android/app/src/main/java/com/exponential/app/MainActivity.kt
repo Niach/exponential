@@ -133,6 +133,13 @@ class MainActivity : ComponentActivity() {
                     teamSlug = parsed.teamSlug,
                     identifier = parsed.identifier,
                 )
+                // EXP-1288: a thread, resolved like the issue link.
+                is WebLinks.Parsed.ThreadRef -> deepLinkBus.openWebThreadRef(
+                    uri = data,
+                    host = data.host ?: return,
+                    teamSlug = parsed.teamSlug,
+                    threadId = parsed.threadId,
+                )
                 is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)
                 // EXP-825: the Agent page, on the active account.
                 is WebLinks.Parsed.Agent -> deepLinkBus.openAgent()

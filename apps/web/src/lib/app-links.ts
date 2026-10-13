@@ -1,5 +1,5 @@
 // Mobile app-link association payloads (EXP-92): iOS Universal Links + Android
-// App Links open app.exponential.at issue/invite URLs in the native apps.
+// App Links open app.exponential.at issue/thread/invite URLs in the native apps.
 // Served from the two /.well-known routes; pure builders live here so they are
 // unit-testable.
 
@@ -20,7 +20,8 @@ const ANDROID_PACKAGES = [`at.exponential`, `at.exponential.staging`]
 
 // Only the link shapes the mobile apps can render. Claiming broader /t/*
 // paths would hijack public feedback-board visitors and web-only surfaces.
-const LINK_PATHS = [`/t/*/boards/*/issues/*`, `/invite/*`]
+// EXP-1288: a thread page opens the native Thread screen.
+const LINK_PATHS = [`/t/*/boards/*/issues/*`, `/t/*/threads/*`, `/invite/*`]
 
 export function buildAppleAppSiteAssociation(): unknown {
   return {

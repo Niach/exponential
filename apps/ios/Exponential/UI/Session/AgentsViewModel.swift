@@ -3,56 +3,13 @@ import ExpUI
 import Foundation
 import GRDB
 
-/// Backs the Devices tab (machines) AND the Agent page (EXP-825: the
-/// sessions and the composer's pools): the signed-in user's own live coding
-/// sessions across EVERY member team of the active account (EXP-1186: the
-/// lists are cross-team like the Inbox and group per team in the view; the
-/// synced `coding_sessions` shape) — running AND in_review (EXP-194), joined
-/// to their issues for display. Desktop is the only session runner — this
-/// list is the mobile window into what YOU are coding right now; teammates'
-/// runs are owner-only (EXP-312) and never listed here. The composer's pools
-/// stay bound to the ACTIVE team.
+/// Backs the Devices tab (machines) AND the Agent page composer's pools
+/// (EXP-825: issues, boards, actions, open PRs, devices, worktrees and the
+/// live runs' issues). EXP-1288: the session ROWS it once built (Running /
+/// Recent) are gone — the Agent page lists threads (`ThreadListModel`). The
+/// composer's pools stay bound to the ACTIVE team.
 @MainActor @Observable
 final class AgentsViewModel {
-    struct Row: Identifiable {
-        let session: CodingSessionEntity
-        let issue: IssueEntity?
-        /// EXP-876: a BATCH row's covered issues, in naming order — empty on
-        /// every other subject, and on a batch whose issues are unknown.
-        let batchIssues: [IssueEntity]
-        /// EXP-549/550: the host machine as it presents right now — the LIVE
-        /// devices row's label (a rename never rewrites the session's
-        /// snapshot) plus whether that machine stopped heartbeating, which
-        /// makes a still-coding run read "Paused" instead of live.
-        let device: SessionDevicePresentation
-        var id: String { session.id }
-    }
-
-    /// EXP-746: one finished run under "Recent" — an ended, PERSON-started run
-    /// of the caller's in any member team (EXP-1186). Triggered runs are not here: they
-    /// live under their action's Runs (EXP-676, SLOP-2) and the two sets are
-    /// disjoint by `started_reason`, so the two Resume paths can never
-    /// double-fire on the same row.
-    struct PastRow: Identifiable {
-        let session: CodingSessionEntity
-        let issue: IssueEntity?
-        /// EXP-876: a BATCH row's covered issues, in naming order.
-        let batchIssues: [IssueEntity]
-        /// The host machine as it presents right now (the live devices row's
-        /// label, not the session's start-time snapshot).
-        let device: SessionDevicePresentation
-        /// Non-nil when a Resume would be accepted: the run's OWN machine,
-        /// online and advertising `resume-run`.
-        let resume: SteerDevice?
-        var id: String { session.id }
-    }
-
-    var rows: [Row] = []
-
-    /// EXP-746: the caller's most recent finished runs, newest first, capped
-    /// at `PastRuns.cap`. Empty = the section is absent entirely.
-    private(set) var pastRows: [PastRow] = []
-
     /// EXP-481: the machines list, composed from the synced `devices` shape
     /// (own rows + the active team's shared servers; online-ness derives from
     /// last_seen_at freshness) — the sync-fed replacement for the old 15s
@@ -122,10 +79,6 @@ final class AgentsViewModel {
     // propagate cancellation into unstructured inner loops, and the view
     // re-arms on every appear.
     private var sessionTask: Task<Void, Never>?
-    /// EXP-746: ended rows are observed separately from the live ones — the
-    /// live query filters on status and would otherwise have to carry them
-    /// through every liveness rule that only makes sense for a running run.
-    private var endedTask: Task<Void, Never>?
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
@@ -139,8 +92,6 @@ final class AgentsViewModel {
     /// that cursor, so a machine's badge must repaint the moment it advances
     /// (and not before: an unrefreshed cursor renders presence as unknown).
     private var freshnessTask: Task<Void, Never>?
-    /// EXP-758: are the observations armed?
-    private var observing = false
 
     /// EXP-829: how long a queued refresh shows as in flight before giving
     /// up on the device answering (it answers by re-reporting on its next
@@ -161,7 +112,6 @@ final class AgentsViewModel {
     private var refreshCaps: [String: [String]] = [:]
 
     private var sessions: [CodingSessionEntity] = []
-    private var endedSessions: [CodingSessionEntity] = []
     private var issues: [IssueEntity] = []
     // Observed so the composer's issue pool can resolve repo-backed boards
     // (EXP-156) and so the pull-request pool can scope issues to the active
@@ -181,12 +131,11 @@ final class AgentsViewModel {
     func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        observing = true
 
         let sessionObservation = ValueObservation.tracking { db in
             try CodingSessionEntity
                 // Every live status — an in_review session is still watchable
-                // (EXP-194); `rebuild()`'s liveness filter drops stale rows.
+                // (EXP-194); `liveRunIssueIds` drops heartbeat-stale rows.
                 // EXP-888: a sweep end (`ended_by = 'stale'`) is not an end —
                 // the host ignores the flip and heartbeats the row back to
                 // `running`, so it stays in the live list (`PastRuns.hasEnded`).
@@ -204,12 +153,9 @@ final class AgentsViewModel {
             do {
                 for try await sessions in sessionObservation.values(in: pool) {
                     self?.sessions = sessions
-                    self?.rebuild()
                 }
             } catch {}
         }
-
-        startEndedObservation()
 
         let issueObservation = ValueObservation.tracking { db in
             try IssueEntity.fetchAll(db)
@@ -218,7 +164,6 @@ final class AgentsViewModel {
             do {
                 for try await issues in issueObservation.values(in: pool) {
                     self?.issues = issues
-                    self?.rebuild()
                 }
             } catch {}
         }
@@ -233,7 +178,6 @@ final class AgentsViewModel {
             do {
                 for try await boards in boardObservation.values(in: pool) {
                     self?.boards = boards
-                    self?.rebuild()
                 }
             } catch {}
         }
@@ -247,10 +191,6 @@ final class AgentsViewModel {
                 for try await rows in deviceObservation.values(in: pool) {
                     self?.deviceEntities = rows
                     self?.rebuildDevices()
-                    // EXP-549/550: the session rows carry a device label +
-                    // liveness derived from these — a rename or a machine
-                    // going quiet has to repaint the running list too.
-                    self?.rebuild()
                 }
             } catch {}
         }
@@ -297,7 +237,6 @@ final class AgentsViewModel {
             for await polledAccountId in SyncFreshness.shared.updates() {
                 guard let self, !Task.isCancelled else { return }
                 guard polledAccountId == self.accountId else { continue }
-                self.rebuild()
                 self.rebuildDevices()
             }
         }
@@ -311,61 +250,14 @@ final class AgentsViewModel {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 guard let self, !Task.isCancelled else { return }
-                self.rebuild()
                 self.rebuildDevices()
             }
         }
     }
 
-    /// EXP-746/758: the finished runs behind "Recent" — the caller's OWN rows in
-    /// every member team (EXP-1186), PERSON-started (`started_reason IS NULL`), newest end
-    /// first and hard-capped, all of it in the QUERY. Android's
-    /// `CodingSessionDao.observePastByTeamAndUser` is the reference predicate:
-    /// an unscoped, unbounded fetch is every ended run of every team on the
-    /// device, rebuilt on every `coding_sessions` write. Queried WIDER than
-    /// `PastRuns.cap` so a row the pure filter drops can't pull a real one off
-    /// the end, and the pure `PastRuns.select` applies the same rules again on
-    /// the way out.
-    private func startEndedObservation() {
-        endedTask?.cancel()
-        endedTask = nil
-        guard observing else { return }
-        // No resolved account owns nothing (`CodingSessionOwnership`): the
-        // section is empty rather than everyone's history.
-        guard let userId, !userId.isEmpty,
-              let pool = try? db.pool(forAccountId: accountId)
-        else {
-            endedSessions = []
-            rebuildPast()
-            return
-        }
-        let endedObservation = ValueObservation.tracking { db in
-            try CodingSessionEntity
-                .filter(Column("user_id") == userId)
-                .filter(Column("status") == DomainContract.codingSessionStatusEnded)
-                .filter(Column("started_reason") == nil)
-                // The ×4 ordering key (`PastRuns.endedAt`): a row swept before
-                // it ever stamped `ended_at` still orders off its heartbeat.
-                .order(sql: "COALESCE(ended_at, updated_at) DESC")
-                .limit(PastRuns.queryLimit)
-                .fetchAll(db)
-        }
-        endedTask = Task { [weak self] in
-            do {
-                for try await sessions in endedObservation.values(in: pool) {
-                    self?.endedSessions = sessions
-                    self?.rebuildPast()
-                }
-            } catch {}
-        }
-    }
-
     func stopObserving() {
-        observing = false
         sessionTask?.cancel()
         sessionTask = nil
-        endedTask?.cancel()
-        endedTask = nil
         issueTask?.cancel()
         issueTask = nil
         boardTask?.cancel()
@@ -384,16 +276,6 @@ final class AgentsViewModel {
         freshnessTask = nil
     }
 
-    /// EXP-656: may a stale `last_seen_at` be read as "that machine is gone"?
-    /// Only when our own `devices` shape polled within the contract window —
-    /// otherwise the rows are pre-sleep knowledge and presence is unknown.
-    private func devicesFresh(now: Date = Date()) -> Bool {
-        DeviceFreshness.isTrustworthy(
-            devicesPolledAt: SyncFreshness.shared.devicesPolledAt(accountId: accountId),
-            now: now
-        )
-    }
-
     /// EXP-481: recompose the machines list from the observed rows — own
     /// machines first (most recently seen), then the shared servers of the
     /// active team (or, on the Devices tab, of every member team), exactly the `devices.list` ordering the view already renders.
@@ -408,9 +290,6 @@ final class AgentsViewModel {
             now: now
         )
         rebuildAccounts(deviceEntities, now: now)
-        // EXP-746: the Resume affordance is gated on the run's machine being
-        // online and `resume-run`-capable, so a heartbeat repaints Recent too.
-        rebuildPast()
     }
 
     // MARK: - Agent logins (EXP-829/EXP-909)
@@ -614,33 +493,6 @@ final class AgentsViewModel {
         }
     }
 
-    /// EXP-746: the "Recent" rows — own, every member team (EXP-1186), ended, person-started,
-    /// newest by `ended_at ?? updated_at`, capped at 20. The predicate, the
-    /// ordering key and the cap are the ×4-locked `PastRuns` rules; only the
-    /// joins (issue, device presentation, resume target) are local.
-    private func rebuildPast() {
-        let now = Date()
-        let fresh = devicesFresh(now: now)
-        let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let deviceRows = deviceEntities ?? []
-        let startTargets = devices ?? []
-        pastRows = PastRuns.select(
-            endedSessions, userId: userId
-        ).map { session in
-            PastRow(
-                session: session,
-                issue: session.issueId.flatMap { issuesById[$0] },
-                batchIssues: BatchRun.issues(session, issues: issues),
-                device: SessionDevicePresentation.resolve(
-                    session: session, devices: deviceRows, now: now, devicesFresh: fresh
-                ),
-                resume: RunResume.target(
-                    for: session, devices: startTargets, currentUserId: userId
-                )
-            )
-        }
-    }
-
     /// Candidate issues for the Agent page composer (EXP-156/EXP-825): every
     /// eligible issue in `teamId` (nil = across all synced teams),
     /// recency-ordered; `exempt` ids (the composer's checked set) skip the
@@ -701,39 +553,5 @@ final class AgentsViewModel {
         return issues.filter {
             boardIds.contains($0.boardId) && $0.prState == DomainContract.prStateOpen
         }
-    }
-
-    private func rebuild() {
-        // One clock for the whole pass (EXP-550): every row's offline-ness is
-        // read against the same instant.
-        let now = Date()
-        let fresh = devicesFresh(now: now)
-        let deviceRows = deviceEntities ?? []
-        let issuesById = Dictionary(issues.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        rows = sessions
-            // Own runs only: a teammate's session can't be opened or steered
-            // (EXP-312), so listing it only read as "computer not online".
-            // EXP-1186: every member team — the view groups them per team.
-            .filter { CodingSessionOwnership.isOwn($0, userId: userId) }
-            // Heartbeat-stale rows render as absent (EXP-153).
-            .filter { CodingSessionLiveness.isLive($0) }
-            .sorted { $0.startedAt > $1.startedAt }
-            // issueId is nil for a desktop batch (multi-issue) run's session —
-            // those rows render without an issue link. EXP-893: a row only
-            // OPENS the run; the merge target lives in `AgentSessionModel`.
-            .map { session in
-                let issue = session.issueId.flatMap { issuesById[$0] }
-                return Row(
-                    session: session,
-                    issue: issue,
-                    // EXP-876: what names a batch row.
-                    batchIssues: BatchRun.issues(session, issues: issues),
-                    device: SessionDevicePresentation.resolve(
-                        session: session, devices: deviceRows, now: now, devicesFresh: fresh
-                    )
-                )
-            }
-        // The Recent rows join the same issues and device rows this pass read.
-        rebuildPast()
     }
 }

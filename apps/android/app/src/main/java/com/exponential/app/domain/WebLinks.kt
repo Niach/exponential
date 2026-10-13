@@ -51,11 +51,14 @@ object WebLinks {
 
         /** EXP-825: `/t/{team}/agent` — the Agent page (the composer). */
         data class Agent(val teamSlug: String) : Parsed
+
+        /** EXP-1288: `/t/{team}/threads/{id}` — a thread (EXP-1284). */
+        data class ThreadRef(val teamSlug: String, val threadId: String) : Parsed
     }
 
     /**
-     * Inverse of [issueUrl] and [agentUrl] plus the invite route — the only
-     * three shapes the manifest's autoVerify filter claims. Takes the already-decoded path
+     * Inverse of [issueUrl] and [agentUrl] plus the invite and thread routes —
+     * the only four shapes the manifest's autoVerify filter claims. Takes the already-decoded path
      * (Uri.getPath) rather than a Uri so it stays JVM-unit-testable; empty
      * segments are dropped (trailing slash tolerated) and deeper paths fail
      * the exact-length match — the app only claims what it can render.
@@ -77,6 +80,10 @@ object WebLinks {
             // is not resolvable to an account without the issue index the
             // issue link has.
             parts.size == 3 && parts[0] == "t" && parts[2] == "agent" -> Parsed.Agent(parts[1])
+            // EXP-1288: a thread, the same shape in-app prose links carry
+            // ([AppLink.Thread]); resolved against the link host's account.
+            parts.size == 4 && parts[0] == "t" && parts[2] == "threads" ->
+                Parsed.ThreadRef(parts[1], parts[3])
             else -> null
         }
     }
