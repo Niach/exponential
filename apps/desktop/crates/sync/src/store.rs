@@ -373,33 +373,23 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 // ---------------------------------------------------------------------------
 
 /// Hand-written local migrations that run BEFORE the additive heal, all
-/// idempotent (SLOP-17, "automations" → "triggers"):
+/// idempotent: a table whose shape left the registry is dropped together
+/// with its `electric_offsets` cursor row (nothing reads it any more, and a
+/// stale cursor must never resume a shape that comes back under the name):
 ///
-/// * the orphaned pre-SLOP-2 `automations` table (its shape is gone, nothing
-///   reads it) is dropped together with its `electric_offsets` cursor row;
-/// * `coding_sessions.automation_id` is RENAMED to `trigger_id` so the
-///   synced values survive. Renaming before the heal means the heal finds
-///   nothing missing and stamps no re-snapshot. When both columns exist
-///   (a heal raced ahead on an older build) the old one is left behind like
-///   any removed column.
+/// * the pre-SLOP-2 `automations` table;
+/// * EXP-1294 (Threads v2): `coding_sessions`, `threads` and `thread_items`
+///   (superseded by the `sessions` tree, `messages` and `pull_requests`).
 fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
-    conn.execute_batch(r#"DROP TABLE IF EXISTS "automations""#)?;
-    conn.execute(r#"DELETE FROM electric_offsets WHERE shape = 'automations'"#, [])?;
-    let columns: Vec<String> = {
-        let mut stmt = conn.prepare(r#"PRAGMA table_info("coding_sessions")"#)?;
-        let names = stmt
-            .query_map([], |row| row.get::<_, String>(1))?
-            .collect::<std::result::Result<Vec<String>, _>>()?;
-        names
-    };
-    let has = |name: &str| columns.iter().any(|col| col == name);
-    if has("automation_id") && !has("trigger_id") {
-        conn.execute_batch(
-            r#"ALTER TABLE "coding_sessions" RENAME COLUMN "automation_id" TO "trigger_id""#,
-        )?;
+    for table in LEGACY_TABLES {
+        conn.execute_batch(&format!(r#"DROP TABLE IF EXISTS "{table}""#))?;
+        conn.execute(r#"DELETE FROM electric_offsets WHERE shape = ?1"#, [table])?;
     }
     Ok(())
 }
+
+/// Local tables of shapes that left the registry ([`migrate_legacy_schema`]).
+const LEGACY_TABLES: [&str; 4] = ["automations", "coding_sessions", "threads", "thread_items"];
 
 /// Bring an existing table up to the current [`ShapeSpec::columns`] set by
 /// adding any missing columns as `TEXT` (see the §5.4 wedge note at the call

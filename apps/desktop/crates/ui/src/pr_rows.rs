@@ -1,7 +1,8 @@
 //! EXP-1248 — THE pull-request row, ×4 (web `@exp/ui` `pr-row.tsx`, fixture
 //! `list-item.json`): ONE line, [ring lead · mono identifier · title · quiet
 //! word]. No branch line, no PR number, no counts, no age, no inline Merge.
-//! Reviews, PR trees and the Guide's stack card all draw it. Two shapes: a
+//! The Threads page, PR trees and the Guide's stack card all draw it (EXP-1294:
+//! a Threads row swaps the ring for its own `lead`). Two shapes: a
 //! TREE nests with tree guides ([`pr_list`]), a linear STACK never nests, it
 //! hangs off one rail down to its base branch ([`stack_rail`]).
 
@@ -27,6 +28,9 @@ const RING_STROKE: f32 = 1.5;
 
 /// The current member's filled centre (web `size-1.5`).
 const FILL: f32 = 6.;
+
+/// The quiet word on a stack's top row ×4 (web `word="stack"`).
+pub(crate) const STACK_WORD: &str = "stack";
 
 /// A hover callback: `true` entering the row, `false` leaving it.
 pub(crate) type PrRowHover = Box<dyn Fn(&bool, &mut Window, &mut App)>;
@@ -72,6 +76,9 @@ pub(crate) struct PrRail {
 pub(crate) struct PrRowSpec {
     pub(crate) id: SharedString,
     pub(crate) node: PrNodeState,
+    /// EXP-1294: a lead drawn INSTEAD of the ring (a Threads row's PR glyph
+    /// or agent mark), in the same [`MARK`]-wide box.
+    pub(crate) lead: Option<AnyElement>,
     pub(crate) identifier: Option<SharedString>,
     /// The PR's issue title, or the base branch's name on a `Base` row.
     pub(crate) title: SharedString,
@@ -96,6 +103,7 @@ impl PrRowSpec {
         Self {
             id: id.into(),
             node: PrNodeState::Open,
+            lead: None,
             identifier: None,
             title: title.into(),
             word: None,
@@ -119,6 +127,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
     let PrRowSpec {
         id,
         node,
+        lead,
         identifier,
         title,
         word,
@@ -192,7 +201,17 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
                     .bg(rail_color),
             )
         })
-        .child(pr_node(node, cx))
+        .child(match lead {
+            Some(lead) => div()
+                .flex_shrink_0()
+                .size(px(MARK))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(lead)
+                .into_any_element(),
+            None => pr_node(node, cx).into_any_element(),
+        })
         .children(identifier.map(|identifier| {
             div()
                 .flex_shrink_0()
@@ -245,6 +264,7 @@ pub(crate) fn pr_list(id_prefix: &str, rows: Vec<PrListRow>, cx: &App) -> AnyEle
                 PrRowSpec {
                     id: SharedString::from(format!("{id_prefix}-{}", row.key)),
                     node: row.node,
+                    lead: None,
                     identifier: row.identifier,
                     title: row.title,
                     word: row.word,
@@ -284,7 +304,7 @@ pub(crate) struct StackRailSpec {
     pub(crate) members: Vec<StackRailMember>,
     /// The trailing muted base-branch row.
     pub(crate) base_branch: SharedString,
-    /// The quiet word on the top row (`stack` in Reviews; none on the Guide).
+    /// The quiet word on the top row ([`STACK_WORD`]; none on the Guide).
     pub(crate) word: Option<SharedString>,
     /// The member under the pointer — the CALLER's view state (`on_hover`
     /// writes it), so only that row offers the ghost.
@@ -365,6 +385,7 @@ pub(crate) fn stack_rail(spec: StackRailSpec, cx: &App) -> AnyElement {
                 } else {
                     PrNodeState::Open
                 },
+                lead: None,
                 identifier: Some(identifier),
                 title,
                 word: if index == 0 { word.clone() } else { None },

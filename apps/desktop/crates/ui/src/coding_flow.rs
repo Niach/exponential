@@ -1,41 +1,33 @@
-//! UI-side Start-coding orchestration (masterplan-v3 §7.1/§7.2/§7.7) —
-//! everything between the issue-detail header's **Start coding**
-//! affordance and the `coding` crate's one launch entry point.
+//! UI-side coding orchestration (masterplan-v3 §7.1/§7.2/§7.7) — the app
+//! state every coding surface reads, and the host half of a session this
+//! machine runs.
 //!
 //! Three shared pieces live here:
 //!
 //! - [`CodingHub`] — the app-global coding state: the §7.7 settings
 //!   (per-agent path/model/effort + repos root / branch prefix,
 //!   file-persisted, per-install) and the tooling-doctor report. The settings
-//!   pane edits through it; the Start-coding button and the launcher read
-//!   from it. The doctor runs on the background executor (it probes every
-//!   agent CLI — claude/codex — plus `git`, EXP-201) and re-runs whenever
-//!   the settings change.
-//! - [`LocalSessions`] — the sessions THIS process launched (issue →
-//!   `{session_id, tab, manager}`). Drives the §7.5 play↔stop flip: while an
-//!   issue has a local session, the header shows a "Coding…" indicator and a
-//!   **stop** affordance (kill the child → the exit hook fires the idempotent
-//!   `codingSessions.end`). A manually closed tab is also caught
-//!   (`TabClosed`) and ends the row best-effort — the "coding now" badge must
-//!   never ghost. EXP-105 extends that rule to the two teardown paths that
-//!   fire neither the exit hook nor `TabClosed`: window close (a manager
-//!   release observer per session) and app quit ([`install_quit_hook`]).
-//! - [`StartCodingControl`] — the header affordance itself. Enabled iff
-//!   `repositories.forIssue` resolves non-null AND the doctor is green
-//!   (EXP-201: `git` plus ANY usable agent enables the affordance; a launch
-//!   additionally gates on the SELECTED agent via `first_failure_for`);
-//!   disabled states carry the EXACT §7 reasons (never a false "not
-//!   connected", never an unexplained block). Click → the Agent page
-//!   composer (`crate::chat_screen`, EXP-825), which owns the
-//!   model/effort/plan-mode choices and the prepare→spawn task.
+//!   pane edits through it; the Start button and the launcher read from it.
+//!   The doctor runs on the background executor (it probes every agent CLI —
+//!   claude/codex — plus `git`, EXP-201) and re-runs whenever the settings
+//!   change.
+//! - [`LocalSessions`] — the sessions THIS process hosts, keyed by their
+//!   `sessions` row id (EXP-1294). [`host_prepared`] registers one when the
+//!   pickup ([`crate::session_pickup`]) launches a queued row; the engine's
+//!   exit edge drops it. EXP-105: app quit ends every hosted session
+//!   ([`install_quit_hook`]).
+//! - [`StartCodingControl`] — the issue header's ONE Start button (EXP-1294).
+//!   Enabled iff `repositories.forIssue` resolves non-null AND the doctor is
+//!   green; disabled states carry the EXACT §7 reasons. Click → the composer
+//!   dialog seeded with the issue (`crate::chat_screen`), whose send is ONE
+//!   `sessions.send`.
 //!
-//! The relay-origin `start_session` path (§08) is the SAME sequence — its
-//! control channel builds the same [`build_launch`] input and calls the same
-//! `coding::prepare`/`spawn_prepared_with`; only the `LaunchOrigin`
-//! differs (§7.1: "there is no second, divergent remote-start
-//! implementation").
+//! EXP-1294: there is no local launch path any more. Every start is a
+//! `sessions.send` row; the hosting device picks it up from its shapes
+//! (`coding::pickup`) and [`host_prepared`] is the engine start plus its
+//! registration.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -45,7 +37,6 @@ use gpui::{
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
     h_flex,
     input::InputState,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
@@ -53,13 +44,8 @@ use gpui_component::{
 use sync::Store;
 use terminal::TerminalManager;
 
-use coding::{
-    run_doctor,
-    run_registry::{RunKind, RunRecord},
-    CodingDeps, DoctorReport, IssueSeed, LaunchOptions, LaunchOrigin, LaunchRequest, Settings,
-};
+use coding::{run_doctor, CodingDeps, DoctorReport, Settings};
 
-use crate::controls::WebControl as _;
 use crate::queries;
 use crate::session::AuthContext;
 use crate::session_bar::SessionBar;
@@ -291,29 +277,11 @@ impl CodingHub {
 }
 
 // ---------------------------------------------------------------------------
-// LocalSessions — the sessions THIS process launched (§7.5 play↔stop)
+// LocalSessions — the sessions THIS process hosts
 // ---------------------------------------------------------------------------
 
-/// What a local coding session works on: one issue (§7.1), a multi-issue
-/// batch (one session per batch run, keyed by its batch id), or an action
-/// run (EXP-253 — keyed by its `coding_sessions` ROW id, not the action id:
-/// concurrent runs of the same action are allowed, so the action id is not
-/// unique per session and would let one run's exit tear down another's
-/// bookkeeping).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SessionSubject {
-    Issue(String),
-    Batch(String),
-    Action(String),
-}
-
-/// WHERE a locally running session's agent actually lives (EXP-746).
-///
-/// Before ACP every local run was a PTY tab in a terminal dock, so the
-/// bookkeeping carried a `TabId` + its manager outright. An ACP run has
-/// neither: it is an in-process [`engine::EngineSession`] rendered by the
-/// session screen. Everything that used to reach for the tab goes through
-/// this instead, so the two hosts never grow parallel registries.
+/// WHERE a locally hosted session's agent actually lives (EXP-746): an
+/// in-process [`engine::EngineSession`] rendered by the session screen.
 #[derive(Clone)]
 pub struct LocalSessionHost {
     pub session: engine::EngineSession,
@@ -330,49 +298,35 @@ impl LocalSessionHost {
     }
 }
 
-/// One locally running coding session (a `coding_sessions` row whose agent
-/// this process hosts — a PTY tab in one of our docks, or an in-process ACP
-/// engine).
-pub struct LocalCodingSession {
+/// One session this process hosts (a `sessions` row whose agent runs in
+/// our in-process ACP engine).
+pub struct LocalSession {
     pub session_id: String,
-    pub subject: SessionSubject,
+    /// EXP-1294: the issues linked to the session's root when it launched —
+    /// the one-session-per-issue guard and the header's live state read it.
+    pub issue_ids: Vec<String>,
     /// The shared clone the session's worktree hangs off — releases its P9
     /// token-refresher hold when the session ends.
     pub clone: PathBuf,
-    /// The branch the session's worktree is on (`exp/<IDENTIFIER>` /
-    /// `exp/batch-<id8>`) — the EXP-102 sweep/delete guard key.
+    /// The branch the session's worktree is on — the EXP-102 sweep/delete
+    /// guard key. Empty for a scratch run.
     pub branch: String,
-    /// EXP-746: the PTY tab or the ACP engine hosting the agent.
+    /// EXP-746: the ACP engine hosting the agent.
     pub host: LocalSessionHost,
-    /// The team action this run executes (`None` for issue/batch sessions).
-    pub action_id: Option<String>,
     /// EXP-484: the agent CLI this session runs.
     pub agent: coding::CodingAgent,
-    /// EXP-688: the session's worktree and the ref its "Latest changes" bar
-    /// diffs against (`origin/<default branch>`; `None` for a repo-less
-    /// scratch run — nothing to compare to).
+    /// EXP-688: the session's worktree.
     pub worktree: PathBuf,
-    pub base_ref: Option<String>,
-    /// EXP-637: `schedule`/`event` when a TRIGGER started this run —
-    /// nobody is watching its tab, so an agent-declared end closes it
-    /// instead of leaving an ended strip. `None` = a person started it.
-    pub started_reason: Option<String>,
     /// EXP-637: the run's own worktree, auto-removed at exit when it is
-    /// clean and carries no commits. `None` for issue/batch sessions and for
-    /// runs with no worktree of their own.
+    /// clean and carries no commits.
     pub run_cleanup: Option<coding::RunCleanup>,
 }
 
-/// Subject-keyed registry of local sessions. An entity (not a bare global) so
-/// the header affordances can `cx.observe` it for the play↔stop flip.
+/// Session-keyed registry of local sessions. An entity (not a bare global)
+/// so the header affordances can `cx.observe` it.
 #[derive(Default)]
 pub struct LocalSessions {
-    by_issue: HashMap<String, LocalCodingSession>,
-    /// Multi-issue batch sessions, keyed by batch id.
-    by_batch: HashMap<String, LocalCodingSession>,
-    /// Action runs (EXP-253), keyed by SESSION row id (concurrent runs of
-    /// one action are allowed — the action id is not unique per session).
-    by_action: HashMap<String, LocalCodingSession>,
+    by_session: HashMap<String, LocalSession>,
 }
 
 struct LocalSessionsGlobal(Entity<LocalSessions>);
@@ -395,50 +349,24 @@ impl LocalSessions {
         cx.try_global::<LocalSessionsGlobal>().map(|g| g.0.clone())
     }
 
-    pub fn get(&self, issue_id: &str) -> Option<&LocalCodingSession> {
-        self.by_issue.get(issue_id)
+    /// The live local session working on `issue_id` (its root links it).
+    pub fn get(&self, issue_id: &str) -> Option<&LocalSession> {
+        self.all()
+            .find(|session| session.issue_ids.iter().any(|id| id == issue_id))
     }
 
-    /// EXP-849: the live local session with this `coding_sessions` row id,
-    /// whatever it is keyed under — the one lookup that starts from a SESSION
-    /// rather than from its subject (an account switch knows the row it is
-    /// continuing, not whether it was keyed by issue, batch or action).
-    pub fn session_for_id(&self, session_id: &str) -> Option<&LocalCodingSession> {
-        self.all().find(|session| session.session_id == session_id)
+    /// EXP-849: the live local session with this `sessions` row id.
+    pub fn session_for_id(&self, session_id: &str) -> Option<&LocalSession> {
+        self.by_session.get(session_id)
     }
 
-    /// EVERY live local session (issue, batch, or action) whose worktree is
-    /// on `branch`. Trunk/scratch action runs carry an empty branch and never
-    /// match. The fix-conflicts launch uses this to END the stale sessions
-    /// still holding the PR branch (a session stays alive through in_review)
-    /// before the run rebases that worktree.
-    ///
-    /// All of them, never "the first found": one branch is routinely held by
-    /// TWO sessions at once — a live fix-conflicts run sits in `by_action`
-    /// while the issue's own session (whose play/resume affordance keys off
-    /// `by_issue`) can be resumed onto the very same branch/worktree. A
-    /// single arbitrary match made the "Fixing…" park flicker off and let the
-    /// launcher close one holder while a second agent kept rebasing and
-    /// force-pushing the same tree.
-    pub fn sessions_on_branch<'a>(
-        &'a self,
-        branch: &'a str,
-    ) -> impl Iterator<Item = &'a LocalCodingSession> + 'a {
-        self.all().filter(move |session| holds_branch(&session.branch, branch))
+    /// Every live local session.
+    fn all(&self) -> impl Iterator<Item = &LocalSession> {
+        self.by_session.values()
     }
 
-    /// Every live local session, whatever its subject.
-    fn all(&self) -> impl Iterator<Item = &LocalCodingSession> {
-        self.by_issue
-            .values()
-            .chain(self.by_batch.values())
-            .chain(self.by_action.values())
-    }
-
-    /// Every branch a live local session holds (issue, batch AND action
-    /// runs) — the prune keep-set feed (EXP-465): synced rows can't name
-    /// batch/action branches, only this process knows them. Trunk/scratch
-    /// runs carry an empty branch and are skipped.
+    /// Every branch a live local session holds — the prune keep-set feed
+    /// (EXP-465). Scratch runs carry an empty branch and are skipped.
     pub fn held_branches(&self) -> impl Iterator<Item = &str> {
         self.all()
             .map(|session| session.branch.as_str())
@@ -447,28 +375,20 @@ impl LocalSessions {
 
     /// ONE live local session holding `branch`, arbitrarily chosen when
     /// several do. Only for callers that ask "is this branch held at all"
-    /// (the EXP-102 clone sweep/delete guard) — anything that ACTS on the
-    /// holder (ending it, or classifying it) must use
-    /// [`Self::sessions_on_branch`] and handle all of them.
-    pub fn session_on_branch(&self, branch: &str) -> Option<&LocalCodingSession> {
+    /// (the EXP-102 clone sweep/delete guard).
+    pub fn session_on_branch(&self, branch: &str) -> Option<&LocalSession> {
         self.all().find(|session| holds_branch(&session.branch, branch))
     }
 
-    /// The live local session with this `coding_sessions` ROW id — the
-    /// reverse of [`Self::session_for_tab`]. EXP-686: the triggers run log
-    /// resolves a synced live row back to the tab this process is hosting it
-    /// in, so clicking the row can reveal that session.
-    pub fn session_by_id(&self, session_id: &str) -> Option<&LocalCodingSession> {
-        self.all().find(|session| session.session_id == session_id)
+    /// The live local session with this `sessions` row id (EXP-686).
+    pub fn session_by_id(&self, session_id: &str) -> Option<&LocalSession> {
+        self.by_session.get(session_id)
     }
 
-    /// Every live local session's row id (issue + batch) — the EXP-105
-    /// quit-time sweep input, the EXP-229 reconcile skip-set, and the
-    /// sign-out sweep input.
+    /// Every live local session's row id — the EXP-105 quit-time sweep input,
+    /// the EXP-229 reconcile skip-set, and the sign-out sweep input.
     pub(crate) fn session_ids(&self) -> Vec<String> {
-        self.all()
-            .map(|session| session.session_id.clone())
-            .collect()
+        self.by_session.keys().cloned().collect()
     }
 
     /// EXP-746: every in-process ACP engine this app hosts — the app-quit
@@ -479,28 +399,11 @@ impl LocalSessions {
             .collect()
     }
 
-    /// The ACTIONS with a live local run (EXP-530) — the trigger host's
-    /// defer set: a trigger never launches a second run of an action this
-    /// process is already running. Keyed by action id (not session id), and
-    /// deliberately over ALL subjects: an issue/batch session carries no
-    /// action id, so only real action runs land in the set.
-    pub(crate) fn live_action_ids(&self) -> HashSet<String> {
-        self.all()
-            .filter_map(|session| session.action_id.clone())
-            .collect()
-    }
-
-    /// Drop the session for `subject` and release its P9 token-refresher
-    /// hold. Both exit paths (child-exit notify + `TabClosed` watcher) land
-    /// here; the second one finds the entry already gone, so the refresher is
-    /// released exactly once.
-    fn remove(sessions: &Entity<LocalSessions>, subject: &SessionSubject, cx: &mut App) {
+    /// Drop `session_id` and release its P9 token-refresher hold. The engine's
+    /// exit edge lands here exactly once.
+    fn remove(sessions: &Entity<LocalSessions>, session_id: &str, cx: &mut App) {
         let (removed, live) = sessions.update(cx, |this, cx| {
-            let entry = match subject {
-                SessionSubject::Issue(id) => this.by_issue.remove(id),
-                SessionSubject::Batch(id) => this.by_batch.remove(id),
-                SessionSubject::Action(id) => this.by_action.remove(id),
-            };
+            let entry = this.by_session.remove(session_id);
             cx.notify();
             // FEED-53: what the OTHER live sessions hold, taken with the
             // finished one already out, so its cleanup never removes a dir
@@ -516,11 +419,7 @@ impl LocalSessions {
         if let Some(entry) = removed {
             // EXP-637: reclaim the run's own worktree — but ONLY when it is
             // provably clean and carries no commits ([`coding::run_cleanup`]).
-            // Background, because it shells out to git; a worktree left
-            // dirty stays, and shows as dirty in Worktrees.
-            // EXP-757: the run registry the LAUNCHER writes — never
-            // `window_size::app_data_dir`, which is the window-layout dir
-            // and a different folder on macOS/Windows/staging.
+            // Background, because it shells out to git.
             let data_dir = coding_data_dir(cx);
             if let Some(cleanup) = entry.run_cleanup.clone() {
                 let session_id = entry.session_id.clone();
@@ -541,10 +440,6 @@ impl LocalSessions {
                         })
                         .await;
                     let _ = cx.update(|cx| {
-                        // The record STAYS on a removal: a resume re-creates
-                        // the worktree on the recorded branch (the prune
-                        // reclaims it again once the work lands), and the
-                        // registry's TTL retires the record.
                         log::info!(
                             "run cleanup [{session_id}] on {}: {verdict:?}",
                             cleanup.branch
@@ -556,8 +451,8 @@ impl LocalSessions {
                 .detach();
             } else if coding::scratch::is_scratch_dir(&data_dir, &entry.worktree) {
                 // EXP-764: a repo-less run is purged WHOLE with the run —
-                // scratch dir, claude trust entries, run
-                // record, steer journal. Nothing of it is resumable.
+                // scratch dir, claude trust entries, run record, steer
+                // journal.
                 let session_id = entry.session_id.clone();
                 let worktree = entry.worktree.clone();
                 // Stamped HERE, not in the spawned task: a resume that
@@ -583,100 +478,38 @@ impl LocalSessions {
             }
             TokenRefreshers::release(&entry.clone, cx);
             // EXP-640: the crash-recovery registry entry is deliberately NOT
-            // dropped here — the session's end path is running (or already
-            // ran), and only its RESOLVED outcome removes the entry (the
-            // coding crate's session-end observer, `session_registry`). An
-            // end this build can no longer land (the server 426-gated it
-            // mid-deploy, a dead network) thus stays recorded for the next
-            // launch's reconcile instead of ghosting "coding now" for the
-            // server sweep's 2h window.
+            // dropped here — only the session's RESOLVED end removes it
+            // (`session_registry`).
         }
     }
 
     /// Track a freshly spawned session.
-    fn insert(
-        sessions: &Entity<LocalSessions>,
-        session: LocalCodingSession,
-        _trpc: Arc<api::TrpcClient>,
-        cx: &mut App,
-    ) {
+    fn insert(sessions: &Entity<LocalSessions>, session: LocalSession, cx: &mut App) {
         // EXP-229: persist the row id so a crash / forced logout / failed
-        // quit-time end can be reconciled (ended) on the next launch —
-        // in-memory tracking alone strands the row `running` for the server
-        // sweep's full 2h window. Dialog, relay remote-start, and batch
-        // launches all funnel through here (`spawn_into_window`).
+        // quit-time end can be reconciled on the next launch.
         if let (Some(auth), Some(account)) = (
             cx.try_global::<AuthContext>().cloned(),
             crate::queries::active_account(cx),
         ) {
             crate::session_registry::record(&auth.data_dir, &session.session_id, &account.id);
         }
-        let subject = session.subject.clone();
         // EXP-481: a session registering changes the inventory's busy flags.
         crate::device_sync::report_soon(cx);
-        // EXP-1158: and a person's start just moved the last used login +
-        // agent (the launcher's stamp) — beat now so the row carries them.
+        // EXP-1158: and a start just moved the last used login + agent (the
+        // launcher's stamp) — beat now so the row carries them.
         crate::device_sync::beat_soon(cx);
         sessions.update(cx, |this, cx| {
-            match &subject {
-                SessionSubject::Issue(id) => {
-                    this.by_issue.insert(id.clone(), session);
-                }
-                SessionSubject::Batch(id) => {
-                    this.by_batch.insert(id.clone(), session);
-                }
-                SessionSubject::Action(id) => {
-                    this.by_action.insert(id.clone(), session);
-                }
-            }
+            this.by_session.insert(session.session_id.clone(), session);
             cx.notify();
         });
     }
 }
 
 /// Does a session's worktree sit on `branch`? An EMPTY branch never matches
-/// anything: trunk/scratch action runs record no branch, and neither does a
-/// branch-less query — matching those to each other would make every scratch
-/// run look like a holder of every other scratch run's tree.
+/// anything: scratch runs record no branch, and neither does a branch-less
+/// query.
 fn holds_branch(session_branch: &str, branch: &str) -> bool {
     !session_branch.is_empty() && session_branch == branch
-}
-
-/// Is this session a fix-conflicts run (EXP-259)? `action_id` is the
-/// session's action id — `None` for issue/batch sessions.
-pub(crate) fn is_fix_conflicts_run(action_id: Option<&str>) -> bool {
-    action_id == Some(api::actions::BUILTIN_FIX_CONFLICTS_ID)
-}
-
-/// One live session's claim on a branch, reduced to what a fix-conflicts
-/// launch decides on. Generic over the close handle so the multiplicity rules
-/// ([`plan_branch_takeover`]) stay unit-testable without gpui entities.
-pub(crate) struct BranchClaim<H> {
-    pub is_fix_run: bool,
-    pub handle: H,
-}
-
-/// What a fix-conflicts launch must do with the sessions holding its branch.
-pub(crate) enum BranchTakeover<H> {
-    /// A fix run is ALREADY working the branch — refuse the duplicate rather
-    /// than put two agents on one worktree rebasing + force-pushing.
-    Refuse,
-    /// Close EVERY holder (never just the first — an issue session and a
-    /// batch session can both sit on one branch), then launch.
-    Close(Vec<H>),
-}
-
-/// The takeover plan for the sessions currently holding a fix run's branch:
-/// refuse if ANY of them is itself a fix run, otherwise hand back ALL of them
-/// to close.
-pub(crate) fn plan_branch_takeover<H>(
-    claims: impl IntoIterator<Item = BranchClaim<H>>,
-) -> BranchTakeover<H> {
-    let claims: Vec<BranchClaim<H>> = claims.into_iter().collect();
-    if claims.iter().any(|claim| claim.is_fix_run) {
-        return BranchTakeover::Refuse;
-    }
-    BranchTakeover::Close(claims.into_iter().map(|claim| claim.handle).collect())
 }
 
 /// In-flight best-effort `codingSessions.end` calls (count + wakeup). The
@@ -698,7 +531,9 @@ fn spawn_tracked_end(trpc: Arc<api::TrpcClient>, session_id: String) {
         *count.lock().unwrap_or_else(|poison| poison.into_inner()) += 1;
     }
     std::thread::spawn(move || {
-        coding::end_session_best_effort(&trpc, &session_id);
+        if let Err(err) = api::sessions::end(&trpc, &session_id) {
+            log::debug!("[ui] quit: sessions.end for {session_id} failed: {err}");
+        }
         let (count, wake) = &PENDING_ENDS;
         *count.lock().unwrap_or_else(|poison| poison.into_inner()) -= 1;
         wake.notify_all();
@@ -748,7 +583,7 @@ fn quit_engine_wait(
         .max(QUIT_ENGINE_MIN_WAIT)
 }
 
-/// EXP-105: end every coding_sessions row THIS process launched when the app
+/// EXP-105: end every `sessions` row THIS process hosts when the app
 /// quits (⌘Q, last-window close on non-macOS). The per-session exit hook and
 /// watchers die with their entities during teardown — the claude child gets
 /// SIGHUP from its PTY closing, but nothing would end the synced row, so the
@@ -833,8 +668,8 @@ pub fn install_quit_hook(cx: &mut App) {
 // ---------------------------------------------------------------------------
 
 struct RefresherEntry {
-    /// Live sessions sharing this clone (single-issue + batch runs on the
-    /// same repo share one loop).
+    /// Live sessions sharing this clone (every session on the same repo
+    /// shares one loop).
     count: usize,
     cancel: Arc<AtomicBool>,
 }
@@ -1050,80 +885,10 @@ pub fn coding_data_dir(cx: &App) -> PathBuf {
         .unwrap_or_else(api::default_data_dir)
 }
 
-/// Everything `coding::prepare` needs for an ISSUE launch, assembled from the
-/// signed-in app state. `None` when signed out or the issue isn't synced
-/// (both make Start coding meaningless). Shared by the Agent page composer
-/// and — via the same construction — the §08 relay `start_session` path
-/// (which passes settings-default `options` with plan mode forced OFF).
-///
-/// EXP-662: `resume_prompt` only seeds the RESUME prompt (and clamps plan
-/// mode) — an exact resume goes through [`build_resume_deps`] +
-/// `PrepareRequest::ResumeRun` instead, off a `run_registry` record.
-/// `prompt` (EXP-825): the composer's free text — the prompt's
-/// additional-instructions section.
-pub fn build_launch(
-    issue_id: &str,
-    origin: LaunchOrigin,
-    options: LaunchOptions,
-    resume_prompt: bool,
-    prompt: Option<String>,
-    cx: &mut App,
-) -> Option<(LaunchRequest, CodingDeps)> {
-    let account = queries::active_account(cx)?;
-    let trpc = Arc::new(queries::trpc_client(cx)?);
-    let data_dir = coding_data_dir(cx);
-    let hub = CodingHub::global(cx);
-    let settings = hub.read(cx).settings.clone();
-
-    let issue = Store::global(cx)
-        .collections()
-        .issues
-        .read(cx)
-        .get(issue_id)
-        .cloned()?;
-    // Snapshot the PROMPT.md seed now — the IssueSeedFn runs on a background
-    // thread where the collections are unreachable (§7.1 step 5).
-    let seed = IssueSeed {
-        title: issue.title.clone(),
-        description: issue.description.clone(),
-    };
-    let request = LaunchRequest {
-        issue_id: issue.id.clone(),
-        // EXP-712: the issue's board decides the worktree base + PR target.
-        board_id: Some(issue.board_id.clone()),
-        issue_identifier: issue.identifier.clone(),
-        issue_status: issue.status,
-        device_label: coding::default_device_label(),
-        origin,
-        options,
-        resume_prompt,
-        prompt,
-    };
-    let deps = CodingDeps {
-        trpc,
-        token_store: Arc::new(api::token_store::TokenStore::new(data_dir.clone())),
-        account_id: account.id,
-        settings,
-        issue_seed: Arc::new(move |_| Some(seed.clone())),
-        worktrees: Arc::new(coding::GitWorktrees),
-        codex_sessions_root: None,
-        claude_projects_root: None,
-        device_id: Some(steer::persistent_device_id(&data_dir)),
-        // EXP-746: the engine runs its session on the steer runtime, so no
-        // runtime means no ACP host — the transport decision is made HERE,
-        // at prepare time, because an Acp-prepared launch has no TUI argv to
-        // fall back to at spawn time.
-        acp_available: crate::steer_wiring::runtime(cx).is_some(),
-        data_dir,
-    };
-    Some((request, deps))
-}
-
-/// [`CodingDeps`] for a BATCH launch — the same assembly as [`build_launch`]
-/// minus the issue lookup: the dialog snapshots every issue's
-/// title/description into the [`coding::BatchLaunchRequest`] itself, so the
-/// seed fn is inert. `None` when signed out.
-pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
+/// Everything `coding::pickup` needs to prepare a session on this machine,
+/// assembled from the signed-in app state. `None` when signed out. The issue
+/// seed is inert: a session's brief carries its own issues (EXP-1294).
+pub fn build_coding_deps(cx: &mut App) -> Option<CodingDeps> {
     let account = queries::active_account(cx)?;
     let trpc = Arc::new(queries::trpc_client(cx)?);
     let data_dir = coding_data_dir(cx);
@@ -1139,147 +904,11 @@ pub fn build_batch_deps(cx: &mut App) -> Option<CodingDeps> {
         codex_sessions_root: None,
         claude_projects_root: None,
         device_id: Some(steer::persistent_device_id(&data_dir)),
-        // EXP-746: see `build_launch` above.
+        // EXP-746: the engine runs its session on the steer runtime, so no
+        // runtime means no ACP host — decided at prepare time.
         acp_available: crate::steer_wiring::runtime(cx).is_some(),
         data_dir,
     })
-}
-
-/// EXP-637: does the run registry hold a resumable record for `session_id`?
-/// Callable from a render pass (`&App`). A repo-backed run stays resumable
-/// after the prune reclaimed its worktree — the resume re-creates it.
-///
-/// EXP-764: a repo-less run answers `false` even while its scratch dir
-/// stands. The dir, the record and the journal are purged with the run the
-/// moment it ends, and [`LocalSessions::remove`] hands that purge to a
-/// background thread — so the ended screen's first paint can still see the
-/// dir and would cache a Resume whose only possible outcome is "no local
-/// record for this run".
-pub fn run_is_resumable_ref(session_id: &str, cx: &App) -> bool {
-    coding::run_registry::get(&coding_data_dir(cx), session_id)
-        .is_some_and(|record| record.clone.is_some() && record.resumable())
-}
-
-/// [`build_batch_deps`]'s action sibling (EXP-253): the same assembly — the
-/// action's name/body ride the [`coding::ActionLaunchRequest`] itself, so
-/// the issue-seed fn is inert. `None` when signed out.
-pub fn build_action_deps(cx: &mut App) -> Option<CodingDeps> {
-    build_batch_deps(cx)
-}
-
-/// EXP-662: [`CodingDeps`] for RESUMING `record` — [`build_batch_deps`] plus
-/// the issue seed an ISSUE record's fallback prompt needs (the launcher asks
-/// for `record.issue_id` when no native transcript survived). Snapshotted in
-/// the foreground like [`build_launch`] does: the seed fn runs on a
-/// background thread, where the collections are unreachable. `None` when
-/// signed out; a missing/unsynced issue just leaves the seed empty (the
-/// prompt falls back to the identifier).
-pub fn build_resume_deps(record: &RunRecord, cx: &mut App) -> Option<CodingDeps> {
-    let mut deps = build_batch_deps(cx)?;
-    if let Some(issue_id) = record.issue_id.clone() {
-        let seed = Store::global(cx)
-            .collections()
-            .issues
-            .read(cx)
-            .get(&issue_id)
-            .map(|issue| IssueSeed {
-                title: issue.title.clone(),
-                description: issue.description.clone(),
-            });
-        deps.issue_seed = Arc::new(move |asked| {
-            if asked == issue_id {
-                seed.clone()
-            } else {
-                None
-            }
-        });
-    }
-    Some(deps)
-}
-
-/// EXP-662: which [`LocalSessions`] key a resumed run registers under. An
-/// issue/batch resume must land on the SUBJECT (so the header's Coding…/Stop
-/// flip and the one-session-per-issue guard see it), not on the new row id —
-/// only action/chat runs key by session.
-pub fn resume_subject(record: &RunRecord, new_session_id: String) -> SessionSubject {
-    match record.kind {
-        RunKind::Issue => match &record.issue_id {
-            Some(issue_id) => SessionSubject::Issue(issue_id.clone()),
-            None => SessionSubject::Action(new_session_id),
-        },
-        RunKind::Batch => match &record.batch_id {
-            Some(batch_id) => SessionSubject::Batch(batch_id.clone()),
-            None => SessionSubject::Action(new_session_id),
-        },
-        _ => SessionSubject::Action(new_session_id),
-    }
-}
-
-/// EXP-662: why `record` cannot be resumed right now; `None` = go ahead.
-/// The one-session-per-issue rule (EXP-202/REV2-24) applies to a resume
-/// exactly as it applies to a fresh start — the resumed agent lands back in
-/// the same `exp/<ID>` worktree, so a second one would orphan the first.
-/// Checked against BOTH this process ([`LocalSessions`]) and the live synced
-/// rows (any other device), for the issue itself or every member of a batch.
-/// Action and chat records own their own branch and are never blocked.
-pub fn resume_blocker(record: &RunRecord, cx: &mut App) -> Option<String> {
-    resume_blocker_for(record, false, cx)
-}
-
-/// [`resume_blocker`], told whether this resume is a CONTINUATION of the
-/// record's own live run (EXP-849: an account switch).
-///
-/// A continuation exempts the record's own session and everything already
-/// chained off it (`queries::resume_chain`) from the cross-device probe: the
-/// live row it is about to replace is the same piece of work, so counting it
-/// would make a switch impossible while the run it switches is still live.
-/// Another machine's session on the issue still refuses.
-pub fn resume_blocker_for(
-    record: &RunRecord,
-    continuation: bool,
-    cx: &mut App,
-) -> Option<String> {
-    let subjects: Vec<(&str, &str)> = match record.kind {
-        RunKind::Issue => {
-            let issue_id = record.issue_id.as_deref()?;
-            vec![(
-                issue_id,
-                record.issue_identifier.as_deref().unwrap_or(issue_id),
-            )]
-        }
-        RunKind::Batch => record
-            .issues
-            .iter()
-            .map(|issue| (issue.issue_id.as_str(), issue.identifier.as_str()))
-            .collect(),
-        _ => return None,
-    };
-    let sessions = LocalSessions::global(cx);
-    let now = chrono::Utc::now().timestamp();
-    for (issue_id, identifier) in subjects {
-        // The record's OWN session never blocks its resume: the ended strip
-        // closes the finished tab and calls straight through, but the close's
-        // `TabClosed` (which drops the registration) only lands on the next
-        // effect flush — a self-conflict would refuse every strip Resume.
-        if sessions
-            .read(cx)
-            .get(issue_id)
-            .is_some_and(|session| session.session_id != record.session_id)
-        {
-            return Some(format!(
-                "Already coding {identifier}. Stop that session first."
-            ));
-        }
-        let except = continuation.then_some(record.session_id.as_str());
-        if let Some(device) =
-            queries::live_session_device_for_issue_except(cx, issue_id, now, except)
-        {
-            return Some(format!(
-                "{identifier} already has a live session on {device} (one session per issue)."
-            ));
-        }
-    }
-    None
 }
 
 struct DesktopEngineHost {
@@ -1299,10 +928,10 @@ impl engine::EngineHost for DesktopEngineHost {
     }
 }
 
-/// Start a prepared launch on the in-process ACP engine and land it per
-/// `landing` ([`should_open_session`], EXP-1271): a start made in THIS
-/// window opens its session screen, every other one stays in the rail's
-/// Running section and raises the remote-start toast.
+/// EXP-1294 — host a prepared session on the in-process ACP engine and
+/// register it: THE spawn behind the pickup's `LaunchFn`
+/// ([`crate::session_pickup`]). It never touches a window: whoever started
+/// the session already navigated to it (the composer lands on its root).
 ///
 /// The ORDER below is the whole function: every step is an invariant some
 /// earlier bug bought.
@@ -1315,47 +944,36 @@ impl engine::EngineHost for DesktopEngineHost {
 /// 3. The exit drain is spawned before the start for the same reason.
 /// 4. The hold is dropped only after `LocalSessions` registered the session,
 ///    so the auto-prune never sees an unheld worktree.
-///
-/// EXP-773: the ONE spawn path. A coding session has no tab, so a window
-/// without a terminal dock is a perfectly good host. Every caller — the
-/// Agent page composer, the three relay start handlers,
-/// `action_run::resume_run`, the chat launch — funnels through here.
-pub fn spawn_into_window(
+pub(crate) fn host_prepared(
     mut prepared: coding::PreparedLaunch,
-    subject: SessionSubject,
-    landing: RunLanding,
-    window: &mut Window,
     cx: &mut App,
-) -> Result<(), String> {
+) -> Result<engine::EngineSession, String> {
     // EXP-478, before anything can consume `prepared`.
     let launch_hold = prepared.launch_hold.take();
 
-    // The bookkeeping snapshot, exactly the PTY arm's (the engine takes
-    // `prepared` whole).
+    // The bookkeeping snapshot (the engine takes `prepared` whole).
     let session_id = prepared.session_id.clone();
     let clone = prepared.clone.clone();
     let repository_id = prepared.repository_id.clone();
     let branch = prepared.branch.clone();
     let worktree = prepared.worktree.clone();
-    let base_ref = prepared.base_ref.clone();
     let agent = prepared.agent;
-    let action_id = prepared.action_id.clone();
-    let started_reason = prepared.heartbeat_scope.started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
-    // EXP-1284: the thread the start placed the run in (`codingSessions.start`
-    // answers it) — where a composer's start lands.
-    let thread_id = prepared.heartbeat_scope.thread_id.clone();
-    // EXP-1271: what the remote-start toast names (the run's subject).
-    let announce = RemoteStartNotice {
-        session_id: session_id.clone(),
-        started_reason: started_reason.clone(),
-        started_by_id: started_by_id.clone(),
-        subject: remote_start_subject(prepared.action_id.as_deref(), &prepared.tab_title_prefix),
-    };
     let run_cleanup = prepared.run_cleanup.clone();
-    // EXP-792: the team MCP servers this run starts WITHOUT, shown once the
-    // engine is up (a launch that fails shows its own error instead).
-    let mcp_warnings = std::mem::take(&mut prepared.mcp_warnings);
+    // EXP-792: the team MCP servers this run starts WITHOUT — logged; the
+    // run's own transcript carries the warning.
+    for warning in std::mem::take(&mut prepared.mcp_warnings) {
+        log::warn!("[ui] session {session_id}: {warning}");
+    }
+    // The issues the session's root links (the one-session-per-issue guard).
+    let issue_ids: Vec<String> = crate::session_data::root_of(&session_id, cx)
+        .map(|root| {
+            crate::session_data::issues_of_root(&root.id, cx)
+                .into_iter()
+                .map(|issue| issue.id)
+                .collect()
+        })
+        .unwrap_or_default();
 
     let Some(trpc) = queries::trpc_client(cx) else {
         return Err("Not signed in.".to_string());
@@ -1378,7 +996,6 @@ pub fn spawn_into_window(
     // sync back and read as a remote kill).
     {
         let sessions = sessions.downgrade();
-        let subject = subject.clone();
         let session_id = session_id.clone();
         cx.spawn(async move |cx| {
             let Ok(exit) = exit_rx.recv_async().await else {
@@ -1392,11 +1009,10 @@ pub fn spawn_into_window(
                 }
                 crate::steer_wiring::unwatch_kill(&session_id, cx);
                 if let Some(sessions) = sessions.upgrade() {
-                    LocalSessions::remove(&sessions, &subject, cx);
+                    LocalSessions::remove(&sessions, &session_id, cx);
                 }
-                // The tab STAYS: an ended run is a read-only transcript.
                 // EXP-758: with the failure carried in, so a run that died on
-                // its handshake is not an empty tab that only says "ended".
+                // its handshake is not an empty view that only says "ended".
                 crate::session_screen::mark_ended(&session_id, exit.error.clone(), cx);
             });
         })
@@ -1415,20 +1031,14 @@ pub fn spawn_into_window(
         own_user_id: Some(account.user_id),
         // REV2-17 + the agent's MCP bearer.
         personal_key: crate::steer_wiring::personal_key(cx),
-        issue_id: match &subject {
-            SessionSubject::Issue(issue_id) => Some(issue_id.clone()),
-            SessionSubject::Batch(_) | SessionSubject::Action(_) => None,
-        },
+        issue_id: issue_ids.first().cloned(),
         foreign_host: crate::steer_wiring::foreign_host(started_by_id.as_deref(), cx),
         // EXP-1005: the desktop runs the account-rotation beat.
         rotation_host: true,
         publish: true,
         kill,
-        // The session screen reads the feed through `EngineSession::subscribe`
-        // — a view can attach late (the tab reopened, the screen rebuilt) and
-        // needs the backlog replayed, which a push sink cannot give it. The
-        // sink is still handed over because its PRESENCE is what tells the
-        // engine this host renders locally at all (the daemon passes `None`).
+        // The session screen reads the feed through `EngineSession::subscribe`;
+        // the sink's PRESENCE tells the engine this host renders locally.
         local_sink: Some(Arc::new(|_| {})),
     };
 
@@ -1439,9 +1049,6 @@ pub fn spawn_into_window(
     let session = match engine::start(start, host) {
         Ok(session) => session,
         Err(err) => {
-            // The row is already created (prepare made it), so it must not
-            // ghost — the PTY arm's failure path, on a thread because it is a
-            // blocking HTTPS call.
             crate::steer_wiring::unwatch_kill(&session_id, cx);
             end_row_best_effort(&trpc, &session_id);
             // `launch_hold` releases via RAII with this return.
@@ -1456,680 +1063,43 @@ pub fn spawn_into_window(
     }
     LocalSessions::insert(
         &sessions,
-        LocalCodingSession {
+        LocalSession {
             session_id: session_id.clone(),
-            subject,
+            issue_ids,
             clone,
             branch,
-            host: LocalSessionHost { session },
-            action_id,
+            host: LocalSessionHost {
+                session: session.clone(),
+            },
             agent,
             worktree,
-            base_ref,
-            started_reason,
             run_cleanup,
         },
-        trpc,
         cx,
     );
-    // EXP-478: only now (see the PTY arm).
+    // EXP-478: only now.
     drop(launch_hold);
-    if should_open_session(landing) {
-        let handoff = match landing {
-            RunLanding::Composer(handoff) => handoff,
-            _ => None,
-        };
-        open_landed_session(&session_id, thread_id, handoff, window, cx);
-    } else {
-        announce_remote_start(announce, landing == RunLanding::Rotation, window, cx);
-    }
-    // EXP-792: a picked server the run starts without is not a silent
-    // degradation: ONE toast names every skipped server (the launcher's
-    // resolver already logged each line).
-    if !mcp_warnings.is_empty() {
-        crate::toast::warning(mcp_warnings.join("\n"), window, cx);
-    }
-    Ok(())
+    Ok(session)
 }
 
-/// EXP-1271 — where a freshly spawned run LANDS.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RunLanding {
-    /// A person started it in THIS window's composer (page, dialog or a New
-    /// run tab). It opens, in place of the New session tab whose start
-    /// handed its slot off ([`hand_off_new_run_tab`]; review #1: keyed by
-    /// THAT start, so two starts in flight each land in their own tab).
-    Composer(Option<StartHandoff>),
-    /// A person started it IN this window from the run itself: its Resume or
-    /// account switch. It opens as an ordinary open.
-    ThisWindow,
-    /// Everything else: a relay start (my own from another device, a
-    /// teammate's on a shared device, an agent's `sessions_start`), a remote
-    /// resume, a trigger. It never takes the window: it shows in the rail's
-    /// Running section with the starting spinner. Review #9: only a PERSON's
-    /// start raises the remote-start toast (`feedback-states.json`
-    /// `remoteStart.toastWhen`), whose Open opens it; a trigger's or an
-    /// agent's (`started_reason`) stays quiet.
-    Background,
-    /// An account-rotation resume (EXP-1005) hosted here: [`Self::Background`]
-    /// that never toasts (review #9).
-    Rotation,
-}
-
-/// EXP-1088/EXP-1271: whether a freshly spawned run takes the window over —
-/// ONLY a start made in this window. The person may be mid-edit anywhere
-/// else, and a background run is one click away in Running (or the toast).
-pub(crate) fn should_open_session(landing: RunLanding) -> bool {
-    matches!(landing, RunLanding::Composer(_) | RunLanding::ThisWindow)
-}
-
-/// EXP-1255 / review #1 — ONE start's claim on the New session tab that
-/// started it: minted per start ([`hand_off_new_run_tab`]) and carried by
-/// that start to its own landing, so two starts in flight from two New
-/// session tabs each land in their own tab.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct StartHandoff(u64);
-
-/// The open handoffs: per start, the window and the New session tab id.
-#[derive(Default)]
-struct NewRunHandoffs {
-    next: u64,
-    tabs: HashMap<StartHandoff, (gpui::WindowId, String)>,
-}
-
-impl gpui::Global for NewRunHandoffs {}
-
-/// The composer in New session tab `new_run_id` is starting a run in
-/// `window`: the run that start lands lands in that tab.
-pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut App) -> StartHandoff {
-    // A start whose window closed before it settled (a local prepare's
-    // answer has nowhere to go) never takes its claim back: drop those.
-    let open: HashSet<gpui::WindowId> = cx.windows().iter().map(|handle| handle.window_id()).collect();
-    let handoffs = cx.default_global::<NewRunHandoffs>();
-    handoffs.tabs.retain(|_, (owner, _)| open.contains(owner));
-    handoffs.next += 1;
-    let handoff = StartHandoff(handoffs.next);
-    handoffs
-        .tabs
-        .insert(handoff, (window.window_handle().window_id(), new_run_id));
-    handoff
-}
-
-/// Whether `handoff` still holds its tab (not landed, not taken back).
-pub(crate) fn handoff_open(handoff: StartHandoff, cx: &App) -> bool {
-    cx.try_global::<NewRunHandoffs>()
-        .is_some_and(|handoffs| handoffs.tabs.contains_key(&handoff))
-}
-
-/// The start `handoff` belongs to never landed (it failed or was given up
-/// on): the tab keeps its slot.
-pub(crate) fn take_back_new_run_tab(handoff: StartHandoff, cx: &mut App) {
-    if let Some(handoffs) = cx.try_global::<NewRunHandoffs>() {
-        if handoffs.tabs.contains_key(&handoff) {
-            cx.global_mut::<NewRunHandoffs>().tabs.remove(&handoff);
-        }
-    }
-}
-
-/// Open a run that landed in `window`: a composer's start in place of the
-/// New session tab ITS start handed off ([`hand_off_new_run_tab`]), else as
-/// an ordinary open (a Resume never takes a New session tab).
-///
-/// EXP-1284: a session lands in its THREAD. `thread_id` is the placement the
-/// start answered (else the synced `thread_items` row, else — a resume
-/// before its own item syncs — its predecessor's): the handed-off New
-/// session tab becomes the THREAD's tab (keyed by the start's handoff, never
-/// per window; an already open thread tab goes active and the New session
-/// tab closes, `screens::sync_tabs`' review-#12 rule), and a session started
-/// or resumed FROM the thread on show (its reply) stays there — the thread
-/// draws it as its next block.
-pub(crate) fn open_landed_session(
-    session_id: &str,
-    thread_id: Option<String>,
-    handoff: Option<StartHandoff>,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let thread_id = thread_id
-        .or_else(|| crate::threads::thread_of_session(session_id, cx))
-        .or_else(|| {
-            let store = Store::try_global(cx)?;
-            let resumed_from = store
-                .collections()
-                .coding_sessions
-                .read(cx)
-                .get(session_id)?
-                .resumed_from_id
-                .clone()?;
-            crate::threads::thread_of_session(&resumed_from, cx)
-        });
-    let window_id = window.window_handle().window_id();
-    let new_run = handoff
-        .filter(|handoff| handoff_open(*handoff, cx))
-        .and_then(|handoff| cx.global_mut::<NewRunHandoffs>().tabs.remove(&handoff))
-        .filter(|(owner, _)| *owner == window_id)
-        .map(|(_, id)| id);
-    let nav = crate::navigation::nav_for_window(window, cx);
-    let shown = crate::navigation::resolved_screen(&nav, cx);
-    match landing_plan(session_id, thread_id, new_run, shown.as_ref()) {
-        LandingPlan::Stay => {}
-        LandingPlan::ReplaceTab { target, new_run } => crate::navigation::navigate_replacing_tab(
-            window,
-            cx,
-            target,
-            crate::navigation::Screen::NewRun { id: new_run },
-        ),
-        LandingPlan::Open => crate::session_screen::open_session(session_id, window, cx),
-    }
-}
-
-/// EXP-1284 — where a landed session goes ([`open_landed_session`]).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum LandingPlan {
-    /// The window shows the session's thread: it draws the session itself.
-    Stay,
-    /// The handed-off New session tab `new_run` becomes `target`'s tab (the
-    /// thread's, else the session's own).
-    ReplaceTab {
-        target: crate::navigation::Screen,
-        new_run: String,
-    },
-    /// An ordinary open of the session.
-    Open,
-}
-
-/// [`open_landed_session`]'s rule, pure: a start that handed off its New
-/// session tab lands IN that tab — as the session's THREAD when the
-/// placement is known, else as the session; without a handoff a session of
-/// the thread on show stays in the thread, anything else opens.
-pub(crate) fn landing_plan(
-    session_id: &str,
-    thread_id: Option<String>,
-    new_run: Option<String>,
-    shown: Option<&crate::navigation::Screen>,
-) -> LandingPlan {
-    use crate::navigation::Screen;
-    match (new_run, thread_id) {
-        (Some(new_run), Some(thread_id)) => LandingPlan::ReplaceTab {
-            target: Screen::Thread { thread_id },
-            new_run,
-        },
-        (Some(new_run), None) => LandingPlan::ReplaceTab {
-            target: Screen::Session {
-                session_id: session_id.to_string(),
-            },
-            new_run,
-        },
-        (None, Some(thread_id))
-            if matches!(shown, Some(Screen::Thread { thread_id: on_show }) if *on_show == thread_id) =>
-        {
-            LandingPlan::Stay
-        }
-        (None, _) => LandingPlan::Open,
-    }
-}
-
-/// EXP-1271 — what a background start's toast says.
-struct RemoteStartNotice {
-    session_id: String,
-    started_reason: Option<String>,
-    started_by_id: Option<String>,
-    subject: String,
-}
-
-/// The toast's description: the chat builtin reads "Chat", anything else
-/// the launch's own subject prefix (`EXP-42`, `EXP-42 +2`, the action's
-/// name).
-fn remote_start_subject(action_id: Option<&str>, tab_title_prefix: &str) -> String {
-    if action_id == Some(api::actions::BUILTIN_CHAT_ID) {
-        return crate::feedback::REMOTE_START_CHAT.to_string();
-    }
-    tab_title_prefix.to_string()
-}
-
-/// Who the toast says started the run: an agent (`sessions_start`), the
-/// requesting teammate (a shared device), else this device's owner — the
-/// first name off the synced `users` row, the account's name before it
-/// lands.
-fn remote_starter_name(started_reason: Option<&str>, started_by_id: Option<&str>, cx: &App) -> String {
-    if started_reason == Some("agent") {
-        return crate::feedback::REMOTE_START_AGENT.to_string();
-    }
-    let users = Store::try_global(cx).map(|store| store.collections().users.clone());
-    let user_name = |user_id: &str| {
-        users
-            .as_ref()
-            .and_then(|users| users.read(cx).get(user_id).cloned())
-            .and_then(|user| user.name.filter(|name| !name.trim().is_empty()).or(user.email))
-    };
-    let name = match started_by_id {
-        Some(user_id) => user_name(user_id),
-        None => queries::active_account(cx).and_then(|account| {
-            user_name(&account.user_id).or(account.name.filter(|name| !name.trim().is_empty()))
-        }),
-    };
-    match name {
-        Some(name) => {
-            let first = crate::home_greeting::greeting_first_name(Some(&name));
-            if first.is_empty() { name } else { first.to_string() }
-        }
-        None => crate::feedback::REMOTE_START_AGENT.to_string(),
-    }
-}
-
-/// The background start's row's starting spinner in Running
-/// ([`run_starting`]), and — only for a person's start (review #9,
-/// [`crate::feedback::remote_start_toasts`]) — the 4 s info toast with Open.
-fn announce_remote_start(notice: RemoteStartNotice, rotation: bool, window: &mut Window, cx: &mut App) {
-    cx.default_global::<StartingRuns>()
-        .0
-        .insert(notice.session_id.clone(), std::time::Instant::now());
-    if !crate::feedback::remote_start_toasts(notice.started_reason.as_deref(), rotation) {
-        return;
-    }
-    let name = remote_starter_name(
-        notice.started_reason.as_deref(),
-        notice.started_by_id.as_deref(),
-        cx,
-    );
-    let session_id = notice.session_id;
-    let mut toast = crate::toast::Toast::info(crate::feedback::remote_start_title(&name)).action(
-        crate::feedback::REMOTE_START_OPEN,
-        move |window, cx| crate::session_screen::open_session(&session_id, window, cx),
-    );
-    if !notice.subject.is_empty() {
-        toast = toast.description(notice.subject);
-    }
-    crate::toast::show(toast, window, cx);
-}
-
-/// EXP-1271 — the background starts still before their first turn, so the
-/// rail's Running row spins ([`run_starting`]).
-#[derive(Default)]
-struct StartingRuns(HashMap<String, std::time::Instant>);
-
-impl gpui::Global for StartingRuns {}
-
-/// How long a background start may show the starting spinner at most (its
-/// first turn normally ends it within seconds).
-const STARTING_SPINNER_CAP: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Whether `session_id` is a background start still waiting for its first
-/// turn. `busy` = the run's agent is working: the start is over, and so is
-/// its entry (a run that later idles never spins again), like one past
-/// [`STARTING_SPINNER_CAP`].
-pub(crate) fn run_starting(session_id: &str, busy: bool, cx: &mut App) -> bool {
-    let Some(since) = cx
-        .try_global::<StartingRuns>()
-        .and_then(|runs| runs.0.get(session_id).copied())
-    else {
-        return false;
-    };
-    if busy || since.elapsed() >= STARTING_SPINNER_CAP {
-        cx.global_mut::<StartingRuns>().0.remove(session_id);
-        return false;
-    }
-    true
-}
-
-// ---------------------------------------------------------------------------
-// EXP-818: following a REMOTE start into its run
-// ---------------------------------------------------------------------------
-
-/// How long a remote start waits for the run's row to sync before giving up on
-/// opening it. The frame is already on the machine by then — the toast said so
-/// — so this is only about whether we navigate for the user.
-const REMOTE_OPEN_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// How often the wait re-reads the synced rows. Electric notifies sooner than
-/// this on a live shape; a poll keeps the watch out of the entity graph (the
-/// launcher is a plain `&mut App` path).
-const REMOTE_OPEN_TICK: std::time::Duration = std::time::Duration::from_millis(250);
-
-/// EXP-818: which freshly synced row a remote start is waiting for.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RemoteRunSubject {
-    /// An issue start — the row names the issue.
-    Issue(String),
-    /// A resume (`resumeSessionId`): the new row links back through
-    /// `resumed_from_id`.
-    Resume(String),
-    /// A batch, action or chat start: nothing on the row identifies it beyond
-    /// the machine it runs on, so any NEW live row there is the one.
-    Any,
-}
-
-impl RemoteRunSubject {
-    /// The subject a `steer.startSession` payload is waiting for: a resume
-    /// links back by `resumed_from_id`, a single-issue start names its issue,
-    /// and a batch / action / chat start names nothing the row carries.
-    pub(crate) fn of(input: &api::steer::StartSessionInput) -> Self {
-        if let Some(resumed_from) = input.resume_session_id.clone() {
-            return RemoteRunSubject::Resume(resumed_from);
-        }
-        match input.issue_id.clone() {
-            Some(issue_id) => RemoteRunSubject::Issue(issue_id),
-            None => RemoteRunSubject::Any,
-        }
-    }
-
-    /// Whether `row` (already known to be new, live and on the target machine)
-    /// is the run this start asked for.
-    fn matches(&self, row: &domain::rows::CodingSession) -> bool {
-        match self {
-            RemoteRunSubject::Issue(issue_id) => row.issue_id.as_deref() == Some(issue_id.as_str()),
-            RemoteRunSubject::Resume(from) => {
-                row.resumed_from_id.as_deref() == Some(from.as_str())
-            }
-            RemoteRunSubject::Any => true,
-        }
-    }
-}
-
-/// EXP-1259 (start surfaces): ONE press of a remote start. The press stamps
-/// a fresh `startId` (unless the input already names one, the composer's
-/// draft id); every send of the intent, its Retries included, carries that
-/// same id, so the server (`forwardStartOnce`) and the device drop a repeat
-/// instead of starting twice. A new press is a new intent and a new id.
-#[derive(Clone, Debug)]
-pub(crate) struct RemoteStartIntent {
-    input: api::steer::StartSessionInput,
-}
-
-impl RemoteStartIntent {
-    /// A press: the input with its startId (a fresh one when it has none).
-    pub(crate) fn press(mut input: api::steer::StartSessionInput) -> Self {
-        if input.start_id.as_deref().is_none_or(|id| id.trim().is_empty()) {
-            input.start_id = Some(api::steer::new_start_id());
-        }
-        Self { input }
-    }
-
-    /// The request every send of this intent posts (the same startId).
-    pub(crate) fn input(&self) -> &api::steer::StartSessionInput {
-        &self.input
-    }
-
-    pub(crate) fn start_id(&self) -> &str {
-        self.input.start_id.as_deref().unwrap_or_default()
-    }
-}
-
-/// Recheck R3 (feedback-states.json `starting.maybeDelivered`): whether a
-/// FAILED `steer.startSession` may still have put the frame on the device.
-/// Unknown fate = no answer (a transport error, the client's own timeout,
-/// both [`api::ApiError::Transport`]), a 2xx we could not read, a 5xx with
-/// no error body (a proxy's page), or the server's relay timeout (REV-34:
-/// HTTP 504 `GATEWAY_TIMEOUT`, "Steer relay error (504)"): toast + Retry AND
-/// the quiet follow for [`REMOTE_LATE_WAIT`]. Any other answer with an error
-/// (a 4xx, a 5xx with another error body) is definite: toast + Retry, no
-/// follower. One rule ×4 (web `startMaybeDelivered`, iOS/Android
-/// `StartDelivery`).
-pub(crate) fn may_have_reached_device(err: &api::ApiError) -> bool {
-    match err {
-        api::ApiError::Transport { .. } | api::ApiError::Decode(_) => true,
-        api::ApiError::Http { status, message } => {
-            *status >= 500 && (is_relay_timeout(*status, message) || !has_error_body(message))
-        }
-        _ => false,
-    }
-}
-
-/// The server's relay timeout: tRPC `GATEWAY_TIMEOUT` (HTTP 504) with the
-/// relay's 504 in its message, or the relay's own `relay_timeout` reason.
-fn is_relay_timeout(status: u16, message: &str) -> bool {
-    (status == 504 && message.contains("Steer relay error (504)")) || message.contains("relay_timeout")
-}
-
-/// Whether an [`api::ApiError::Http`] message came from an error BODY: the
-/// api client extracts the server's message from its JSON envelope and
-/// falls back to the raw body, so an empty or HTML (a proxy's page) message
-/// means the server itself never answered.
-fn has_error_body(message: &str) -> bool {
-    let message = message.trim();
-    !message.is_empty() && !message.starts_with('<')
-}
-
-/// EXP-818: follow a remote start INTO the run, exactly as a local start lands
-/// in its session screen.
-///
-/// `steer.startSession` only confirms the frame reached the machine; the
-/// `coding_sessions` row is written by THAT machine and arrives over Electric a
-/// moment later, which is why this is a watch and not a return value. The ids
-/// already on screen are snapshotted first, so an unrelated run that happens to
-/// be on the same machine can never be mistaken for this one; the newest
-/// matching row wins, and nothing happens at all if none arrives within
-/// [`REMOTE_OPEN_WAIT`] (the toast already told the user where the run went).
-/// EXP-1259: `start_id` = the start's [`RemoteStartIntent`] id; a Retry of
-/// a start already followed spawns no second follower. Recheck R3: `late`
-/// = a FAILED start whose fate is unknown ([`may_have_reached_device`]),
-/// followed quietly for [`REMOTE_LATE_WAIT`] (`starting.watchMs`) instead.
-pub(crate) fn follow_remote_start(
-    device_id: String,
-    subject: RemoteRunSubject,
-    start_id: Option<String>,
-    late: bool,
-    window: &Window,
-    cx: &mut App,
-) {
-    if let Some(start_id) = &start_id {
-        if !cx.default_global::<FollowedStarts>().0.insert(start_id.clone()) {
-            return;
-        }
-    }
-    let unfollow = move |cx: &mut App| {
-        if let Some(start_id) = &start_id {
-            cx.default_global::<FollowedStarts>().0.remove(start_id);
-        }
-    };
-    let known: HashSet<String> = session_ids(cx);
-    // EXP-1075: the run lands on the team the launch was made from. The
-    // predicate is TOLERANT — a row whose `team_id` has not decoded is never
-    // dropped, because losing the run we just started is worse than following
-    // a row that turns out to live elsewhere.
-    let team = crate::navigation::active_team_id(&crate::navigation::nav_for_window(window, cx), cx);
-    // EXP-1037: the run opens SECONDS from now, in a window that still
-    // exists then — a composer DIALOG has closed itself by that point, so the
-    // wait is pinned to the window that opened it.
-    let handle = crate::navigation::deferred_open_window(window, cx);
-    cx.spawn(async move |cx| {
-        let wait = if late { REMOTE_LATE_WAIT } else { REMOTE_OPEN_WAIT };
-        let deadline = std::time::Instant::now() + wait;
-        loop {
-            cx.background_executor().timer(REMOTE_OPEN_TICK).await;
-            if let Some(session_id) =
-                cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
-            {
-                let _ = cx.update(|cx| unfollow(cx));
-                // The window may have closed while we waited; there is nothing
-                // else to do with the run then (its tab opens on the next
-                // visit to the Agent page).
-                let _ = handle.update(cx, |_, window, cx| {
-                    open_landed_session(&session_id, None, None, window, cx);
-                });
-                return;
-            }
-            if std::time::Instant::now() >= deadline {
-                let _ = cx.update(|cx| unfollow(cx));
-                return;
-            }
-        }
-    })
-    .detach();
-}
-
-/// How long a COMPOSER's remote start keeps watching for its row after the
-/// composer's own 30 s deadline gave up on it (feedback-states.json
-/// `starting.watchMs`: a late landing still lands and clears the error) —
-/// the same window the server and the device dedupe a startId in.
-pub(crate) const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
-
-/// The remote starts being followed right now, by `startId` — a Retry
-/// (same startId) never spawns a second follower.
-#[derive(Default)]
-struct FollowedStarts(HashSet<String>);
-
-impl gpui::Global for FollowedStarts {}
-
-/// Review #3 — what a COMPOSER's remote start hands its follower: the start
-/// (its `startId`), the New session tab it lands in, and what to tell the
-/// composer once the row landed (`landed`, with the run's id), which answers
-/// whether the run opens: a LATE landing whose draft the person changed
-/// opens nothing (D11; it shows in Running).
-pub(crate) struct ComposerStartWatch {
-    pub(crate) start_id: String,
-    pub(crate) handoff: Option<StartHandoff>,
-    /// EXP-1284: the thread the start asked to join (a thread's composer);
-    /// `None` = wait briefly for the session's own `thread_items` row.
-    pub(crate) thread_id: Option<String>,
-    pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App) -> bool>,
-}
-
-/// EXP-1284 — how long a landed remote start waits for its session's
-/// `thread_items` row (a separate shape) before it opens as the session:
-/// every start lands on its THREAD when the placement shows up in time.
-const THREAD_ITEM_WAIT: std::time::Duration = std::time::Duration::from_secs(6);
-
-/// [`follow_remote_start`] for the composer's own start (review #3): it
-/// follows until the row lands — past the composer's 30 s deadline, up to
-/// [`REMOTE_LATE_WAIT`] — and, when the composer says so, lands it in the
-/// start's own New session tab. `false` (nothing spawned) when
-/// `watch.start_id` is already followed: that follower lands the Retry's
-/// run too (the device ignored the repeat).
-pub(crate) fn follow_composer_start(
-    device_id: String,
-    subject: RemoteRunSubject,
-    watch: ComposerStartWatch,
-    window: &Window,
-    cx: &mut App,
-) -> bool {
-    if !cx
-        .default_global::<FollowedStarts>()
-        .0
-        .insert(watch.start_id.clone())
-    {
-        return false;
-    }
-    let known: HashSet<String> = session_ids(cx);
-    let team = crate::navigation::active_team_id(&crate::navigation::nav_for_window(window, cx), cx);
-    let handle = crate::navigation::deferred_open_window(window, cx);
-    cx.spawn(async move |cx| {
-        let deadline = std::time::Instant::now() + REMOTE_LATE_WAIT;
-        let ComposerStartWatch { start_id, handoff, thread_id, landed } = watch;
-        let done = |cx: &mut App| {
-            cx.default_global::<FollowedStarts>().0.remove(&start_id);
-        };
-        loop {
-            cx.background_executor().timer(REMOTE_OPEN_TICK).await;
-            if let Some(session_id) =
-                cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
-            {
-                let _ = cx.update(|cx| done(cx));
-                // EXP-1284: the placement rides its own shape: give it a
-                // moment, so the start lands on its THREAD.
-                let mut thread_id = thread_id.clone();
-                let item_deadline = std::time::Instant::now() + THREAD_ITEM_WAIT;
-                while thread_id.is_none() && std::time::Instant::now() < item_deadline {
-                    thread_id = cx.update(|cx| crate::threads::thread_of_session(&session_id, cx));
-                    if thread_id.is_none() {
-                        cx.background_executor().timer(REMOTE_OPEN_TICK).await;
-                    }
-                }
-                let opened = handle.update(cx, |_, window, cx| {
-                    let open = landed(session_id.clone(), window, cx);
-                    if open {
-                        open_landed_session(&session_id, thread_id, handoff, window, cx);
-                    }
-                    open
-                });
-                // Not opened (the draft moved on, or the window closed while
-                // we waited): the New session tab keeps its slot.
-                if !matches!(opened, Ok(true)) {
-                    if let Some(handoff) = handoff {
-                        let _ = cx.update(|cx| take_back_new_run_tab(handoff, cx));
-                    }
-                }
-                return;
-            }
-            if std::time::Instant::now() >= deadline {
-                let _ = cx.update(|cx| {
-                    done(cx);
-                    if let Some(handoff) = handoff {
-                        take_back_new_run_tab(handoff, cx);
-                    }
-                });
-                return;
-            }
-        }
-    })
-    .detach();
-    true
-}
-
-/// Every synced `coding_sessions` id right now — the "already there" baseline
-/// of [`follow_remote_start`].
-fn session_ids(cx: &App) -> HashSet<String> {
-    let Some(store) = Store::try_global(cx) else {
-        return HashSet::new();
-    };
-    store
-        .collections()
-        .coding_sessions
-        .read(cx)
-        .iter()
-        .map(|row| row.id.clone())
-        .collect()
-}
-
-/// The newest row that is NEW (not in `known`), live, hosted on `device_id`,
-/// on `team` and matching `subject`.
-///
-/// EXP-1075: `team` is the team the start was made from — the run opens there,
-/// where its rail row is. The check is TOLERANT: a row whose `team_id` is
-/// `None` (not decoded yet) still matches, because the alternative is silently
-/// losing the run the user just started.
-fn fresh_remote_run(
-    known: &HashSet<String>,
-    device_id: &str,
-    subject: &RemoteRunSubject,
-    team: Option<&str>,
-    cx: &App,
-) -> Option<String> {
-    let store = Store::try_global(cx)?;
-    let collections = store.collections();
-    let rows = collections.coding_sessions.read(cx);
-    rows.iter()
-        .filter(|row| !known.contains(&row.id))
-        .filter(|row| row.device_id.as_deref() == Some(device_id))
-        .filter(|row| row.status.as_deref() != Some("ended"))
-        .filter(|row| match team {
-            Some(team) => row.team_id.is_none() || row.team_id.as_deref() == Some(team),
-            None => true,
-        })
-        .filter(|row| subject.matches(row))
-        .max_by(|a, b| {
-            a.started_at
-                .as_deref()
-                .unwrap_or_default()
-                .cmp(b.started_at.as_deref().unwrap_or_default())
-        })
-        .map(|row| row.id.clone())
-}
-
-/// End `session_id`'s row off the foreground, best effort. Both arms' failure
-/// paths use it: `prepare` already created the row, so a start that never
-/// happened must not leave "coding now" ghosting on every client.
+/// End `session_id`'s row off the foreground, best effort: `prepare` already
+/// claimed the row, so a start that never happened must not leave it live.
 fn end_row_best_effort(trpc: &Arc<api::TrpcClient>, session_id: &str) {
     let trpc = Arc::clone(trpc);
     let session_id = session_id.to_string();
     std::thread::spawn(move || {
-        coding::end_session_best_effort(&trpc, &session_id);
+        if let Err(err) = api::sessions::end(&trpc, &session_id) {
+            log::debug!("[ui] sessions.end for {session_id} failed: {err}");
+        }
     });
 }
-
 // ---------------------------------------------------------------------------
 // StartCodingControl — the issue-detail header affordance (§7.1 / §4.2)
 // ---------------------------------------------------------------------------
+
+/// EXP-1294: the issue header's ONE Start button's label (the draft's
+/// white capsule with the play glyph).
+pub(crate) const START_LABEL: &str = "Start";
 
 /// `repositories.forIssue` probe state for the current issue.
 enum RepoProbe {
@@ -2148,10 +1118,6 @@ pub struct StartCodingControl {
     issue_id: Option<String>,
     probe: RepoProbe,
     probe_generation: u64,
-    /// EXP-760: stand down from the PRIMARY paint to the glass pill. Set by
-    /// the issue header while a PR is open, where Merge is the action the
-    /// user came for and two white pills side by side would name neither.
-    demoted: bool,
     /// EXP-1121: the board's `repository_id` the current probe answers for —
     /// a repo linked (or unlinked) under the open issue re-probes.
     probed_repo_id: Option<String>,
@@ -2175,21 +1141,15 @@ pub struct StartCodingControl {
 
 impl StartCodingControl {
     pub fn new(cx: &mut gpui::Context<Self>) -> Self {
-        // The hub (settings + doctor) and the local-session registry drive
-        // the enabled state — re-render whenever either moves. The synced
-        // coding_sessions collection drives the running↔in_review tone
-        // (EXP-194: the server flips the row when the agent's PR opens).
+        // The hub (settings + doctor) drives the enabled state — re-render
+        // whenever it moves.
         let hub = CodingHub::global(cx);
-        let sessions = LocalSessions::global(cx);
-        let synced_sessions = Store::global(cx).collections().coding_sessions.clone();
         // EXP-1121: the readiness rows tick live off the synced board (a repo
         // linked anywhere) and devices rows.
         let boards = Store::global(cx).collections().boards.clone();
         let devices = Store::global(cx).collections().devices.clone();
         let subscriptions = vec![
             cx.observe(&hub, |_, _, cx| cx.notify()),
-            cx.observe(&sessions, |_, _, cx| cx.notify()),
-            cx.observe(&synced_sessions, |_, _, cx| cx.notify()),
             cx.observe(&boards, |_, _, cx| cx.notify()),
             cx.observe(&devices, |_, _, cx| cx.notify()),
             // SLOP-7/25: the GitHub step's fixes finish in the browser — the
@@ -2221,7 +1181,6 @@ impl StartCodingControl {
             issue_id: None,
             probe: RepoProbe::Idle,
             probe_generation: 0,
-            demoted: false,
             probed_repo_id: None,
             github: crate::coding_readiness::GithubProbe::Idle,
             github_generation: 0,
@@ -2231,15 +1190,6 @@ impl StartCodingControl {
             repo_query: None,
             linking: false,
             _subscriptions: subscriptions,
-        }
-    }
-
-    /// See [`Self::demoted`]. Repaints only on a real change — this is
-    /// called from the header's render.
-    pub fn set_demoted(&mut self, demoted: bool, cx: &mut gpui::Context<Self>) {
-        if self.demoted != demoted {
-            self.demoted = demoted;
-            cx.notify();
         }
     }
 
@@ -2299,14 +1249,6 @@ impl StartCodingControl {
             RepoProbe::Ready(Some(repo)) => Some(repo),
             _ => None,
         }
-    }
-
-    /// Re-probe (the tiny retry next to the repo-less disabled state — a repo
-    /// link or App install can resolve without navigating away).
-    fn retry(&mut self, cx: &mut gpui::Context<Self>) {
-        self.probe = RepoProbe::Idle;
-        CodingHub::refresh_doctor(&CodingHub::global(cx), cx);
-        cx.notify();
     }
 
     /// The click: open the Agent page composer with this issue picked
@@ -2534,7 +1476,7 @@ impl StartCodingControl {
         .detach();
     }
 
-    /// The popover footer's Start coding — the control's own launch.
+    /// The popover footer's Start — the control's own launch.
     pub(crate) fn launch_from_readiness(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.readiness_open = false;
         self.launch(window, cx);
@@ -2758,237 +1700,56 @@ impl Render for StartCodingControl {
                 return self.render_readiness(&readiness, cx);
             }
             if readiness.loading {
-                return crate::surface::glass_pill_button(
-                    "start-coding",
-                    crate::surface::PillSize::Sm,
-                    cx,
-                )
+                let size = crate::work_header::header_action_size(false);
+                return crate::surface::glass_pill_button("start-coding", size, cx)
                 .icon(
                     Icon::new(registry::ACTION_RUN)
-                        .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                        .with_size(px(size.glyph()))
                         .text_color(cx.theme().muted_foreground),
                 )
-                .label(domain::coding_readiness::copy::START)
+                .label(START_LABEL)
                 .disabled(true)
                 .into_any_element();
             }
         }
 
-        // EXP-877: this control is ONLY the launcher. A live run of mine puts
-        // Stop in this slot and an ended resumable one Resume — the header
-        // derives that from the run state (`work_header::coding_action`)
-        // and never asks this control while it does.
+        // EXP-1294: this control is ONLY the launcher — no Stop or Resume
+        // ever takes its slot (a session is steered from its own view).
 
         // EXP-417: the primary action of the header's agent row — a solid
         // content-sized button; the repo-less retry sits beside it as a
         // compact icon.
-        // EXP-698: it sits INSIDE the property tray now, so it wears the ONE
-        // capsule at the tray's own `Sm` rung (24px, same as the chips beside
-        // it) in the primary paint — the single emphasised pill of the header.
-        // EXP-760: demoted (a PR is open) it wears the plain glass pill
-        // instead — Merge takes the white one.
-        let disabled = self.disabled_reason(cx);
-        let mut row = h_flex().gap_1().items_center();
-        let glyph_color = if disabled.is_some() || self.demoted {
-            cx.theme().muted_foreground
-        } else {
-            cx.theme().primary_foreground
+        // EXP-1294: it sits in the header bar, before pin + ⋯, at the bar's
+        // rung in the primary paint — the single emphasised pill of the header.
+        let size = crate::work_header::header_action_size(false);
+        // EXP-1294: Start never blocks on THIS machine's tools — it opens
+        // the composer, whose device pick + readiness row gate the start
+        // on the machine that will run it. A local problem only explains
+        // itself in the tooltip.
+        let tooltip: SharedString = match (self.disabled_reason(cx), &self.probe) {
+            (Some(reason), _) => reason,
+            (None, RepoProbe::Error(err)) => {
+                format!("Couldn't check the linked repository ({err}). Starting will retry.").into()
+            }
+            (None, _) => "Start an agent on this issue".into(),
         };
-        let button = if self.demoted {
-            crate::surface::glass_pill_button("start-coding", crate::surface::PillSize::Sm, cx)
-        } else {
-            crate::surface::glass_pill_button_primary(
-                "start-coding",
-                crate::surface::PillSize::Sm,
-            )
-        }
-        // The solid variant carries the emphasis now — a green glyph on
-        // the primary fill only muddies it.
-        .icon(
-            Icon::new(registry::ACTION_RUN)
-                .with_size(px(crate::surface::PillSize::Sm.glyph()))
-                .text_color(glyph_color),
-        )
-        .label("Start coding");
-        match disabled {
-            Some(reason) => {
-                // The disabled state ALWAYS explains itself — the
-                // exact §7 copy rides the tooltip; retry re-probes.
-                row = row.child(button.disabled(true).tooltip(reason));
-                if matches!(self.probe, RepoProbe::Ready(None)) {
-                    row = row.child(
-                        Button::new("start-coding-retry")
-                            .ghost()
-                            .web_icon_xs()
-                            .icon(
-                                Icon::new(registry::UI_UNDO)
-                                    .text_color(cx.theme().muted_foreground),
-                            )
-                            .tooltip("Re-check repository and tools")
-                            .on_click(cx.listener(|this, _, _, cx| this.retry(cx))),
-                    );
-                }
-            }
-            None => {
-                // A probe transport error stays clickable (never
-                // falsely block) but says so — the launch re-resolves the
-                // repo server-side and surfaces the real failure.
-                let tooltip: SharedString = match &self.probe {
-                    RepoProbe::Error(err) => format!(
-                        "Couldn't check the linked repository ({err}). Starting will retry."
-                    )
-                    .into(),
-                    _ => "Clone the linked repository and start an agent on this issue".into(),
-                };
-                row = row.child(
-                    button
-                        .tooltip(tooltip)
-                        .on_click(cx.listener(|this, _, window, cx| this.launch(window, cx))),
-                );
-            }
-        }
+        let row = h_flex().gap_1().items_center().child(
+            crate::surface::glass_pill_button_primary("start-coding", size)
+                .icon(
+                    Icon::new(registry::ACTION_RUN)
+                        .with_size(px(size.glyph()))
+                        .text_color(cx.theme().primary_foreground),
+                )
+                .label(START_LABEL)
+                .tooltip(tooltip)
+                .on_click(cx.listener(|this, _, window, cx| this.launch(window, cx))),
+        );
         row.into_any_element()
     }
 }
-
-/// FEED-47/57 — the device holding a LIVE batch run that covers `issue_id`
-/// (`batch_issue_ids`), off the synced rows. The per-issue probe
-/// ([`queries::live_session_device_for_issue`]) only reads `issue_id`, and a
-/// batch row has none, so an issue start beside a live batch on the same
-/// issue passed it and put a second agent on the work.
-pub(crate) fn live_batch_device_covering<'a>(
-    sessions: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    devices: impl Iterator<Item = &'a domain::rows::DeviceRow>,
-    issue_id: &str,
-    now_epoch: i64,
-) -> Option<String> {
-    let session = sessions
-        .filter(|session| session.issue_id.is_none())
-        .filter(|session| {
-            domain::batch_run::parse_batch_issue_ids(session.batch_issue_ids.as_ref())
-                .iter()
-                .any(|id| id == issue_id)
-        })
-        .find(|session| queries::coding_session_is_live(session, now_epoch))?;
-    Some(
-        queries::session_device_presentation(session, devices, now_epoch * 1_000)
-            .label
-            .unwrap_or_else(|| "another device".to_string()),
-    )
-}
-
-/// [`live_batch_device_covering`] against the global store.
-pub(crate) fn live_batch_device_for_issue(cx: &App, issue_id: &str, now_epoch: i64) -> Option<String> {
-    let collections = Store::global(cx).collections();
-    let sessions = collections.coding_sessions.read(cx);
-    let devices = collections.devices.read(cx);
-    live_batch_device_covering(sessions.iter(), devices.iter(), issue_id, now_epoch)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// EXP-1271: only a start made in THIS window takes it; every
-    /// background start (relay, remote resume, trigger) stays in Running.
-    #[test]
-    fn only_a_start_from_this_window_navigates() {
-        assert!(should_open_session(RunLanding::Composer(None)));
-        assert!(should_open_session(RunLanding::ThisWindow));
-        assert!(!should_open_session(RunLanding::Background));
-        assert!(!should_open_session(RunLanding::Rotation));
-    }
-
-    /// EXP-1284: a start that handed off its New session tab lands IN that
-    /// tab — as its THREAD once the placement is known (the start's handoff
-    /// picks the tab, never the window), else as the session; without a
-    /// handoff (a resume from the thread's reply) a session of the thread on
-    /// show stays there, and anything else is an ordinary open.
-    #[test]
-    fn a_landing_session_takes_its_thread_s_tab() {
-        use crate::navigation::Screen;
-        let thread = Screen::Thread { thread_id: "t1".into() };
-        assert_eq!(
-            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), None),
-            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
-        );
-        // Even while the thread itself is on show: the handed-off tab goes
-        // (sync_tabs then keeps the thread's existing tab and closes it).
-        assert_eq!(
-            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), Some(&thread)),
-            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
-        );
-        assert_eq!(
-            landing_plan("s1", None, Some("nr-1".into()), None),
-            LandingPlan::ReplaceTab {
-                target: Screen::Session { session_id: "s1".into() },
-                new_run: "nr-1".into()
-            }
-        );
-        assert_eq!(landing_plan("s1", Some("t1".into()), None, Some(&thread)), LandingPlan::Stay);
-        assert_eq!(
-            landing_plan("s1", Some("t1".into()), None, Some(&Screen::Thread { thread_id: "t2".into() })),
-            LandingPlan::Open
-        );
-        assert_eq!(landing_plan("s1", None, None, Some(&thread)), LandingPlan::Open);
-    }
-
-    /// EXP-1271: the toast names the chat builtin "Chat" and anything else
-    /// by the launch's own subject prefix.
-    #[test]
-    fn the_remote_start_subject() {
-        assert_eq!(remote_start_subject(Some(api::actions::BUILTIN_CHAT_ID), "web"), "Chat");
-        assert_eq!(remote_start_subject(Some("act-1"), "Tidy up"), "Tidy up");
-        assert_eq!(remote_start_subject(None, "EXP-42 +2"), "EXP-42 +2");
-    }
-
-    /// FEED-47/57: a live batch covering the issue holds it; an ended
-    /// batch, an issue row and a batch over other issues do not.
-    #[test]
-    fn a_live_batch_covering_the_issue_holds_it() {
-        let now = chrono::Utc::now();
-        let fresh = now.to_rfc3339();
-        let row = |id: &str, status: &str, issue: Option<&str>, batch: &[&str]| {
-            serde_json::from_value::<domain::rows::CodingSession>(serde_json::json!({
-                "id": id, "team_id": "t-1", "status": status,
-                "issue_id": issue, "batch_issue_ids": batch,
-                "device_label": "Studio", "updated_at": fresh,
-            }))
-            .unwrap()
-        };
-        let rows = vec![
-            row("s-ended", "ended", None, &["i-1"]),
-            row("s-issue", "running", Some("i-9"), &[]),
-            row("s-other", "running", None, &["i-2", "i-3"]),
-        ];
-        let epoch = now.timestamp();
-        assert_eq!(live_batch_device_covering(rows.iter(), std::iter::empty(), "i-1", epoch), None);
-        let mut rows = rows;
-        rows.push(row("s-live", "running", None, &["i-4", "i-1"]));
-        assert_eq!(
-            live_batch_device_covering(rows.iter(), std::iter::empty(), "i-1", epoch),
-            Some("Studio".to_string())
-        );
-    }
-
-    /// Build the claim list a branch's holders reduce to (`true` = that
-    /// holder IS a fix-conflicts run), labelled so a failure names the holder.
-    fn claims(holders: &[(&'static str, bool)]) -> Vec<BranchClaim<&'static str>> {
-        holders
-            .iter()
-            .map(|(label, is_fix_run)| BranchClaim {
-                is_fix_run: *is_fix_run,
-                handle: *label,
-            })
-            .collect()
-    }
-
-    fn closed(takeover: BranchTakeover<&'static str>) -> Vec<&'static str> {
-        match takeover {
-            BranchTakeover::Close(handles) => handles,
-            BranchTakeover::Refuse => panic!("expected a takeover, got a refusal"),
-        }
-    }
 
     /// EXP-758: ⌘Q waits for the ACP engines it just killed, on ONE shared
     /// budget, and never skips a wait outright, or the codex children the
@@ -3006,24 +1767,18 @@ mod tests {
             std::time::Duration::from_millis(500)
         );
         // An exhausted budget still leaves the floor.
-        assert_eq!(
-            quit_engine_wait(deadline, deadline),
-            QUIT_ENGINE_MIN_WAIT
-        );
+        assert_eq!(quit_engine_wait(deadline, deadline), QUIT_ENGINE_MIN_WAIT);
         assert_eq!(
             quit_engine_wait(deadline, deadline + std::time::Duration::from_secs(10)),
             QUIT_ENGINE_MIN_WAIT
         );
         // …and a remainder under the floor is raised to it.
         let nearly_spent = deadline - std::time::Duration::from_millis(5);
-        assert_eq!(
-            quit_engine_wait(deadline, nearly_spent),
-            QUIT_ENGINE_MIN_WAIT
-        );
+        assert_eq!(quit_engine_wait(deadline, nearly_spent), QUIT_ENGINE_MIN_WAIT);
     }
 
-    /// Trunk/scratch action runs record no branch — they must never read as
-    /// holders (of each other, or of a branch-less query).
+    /// Scratch runs record no branch — they must never read as holders (of
+    /// each other, or of a branch-less query).
     #[test]
     fn a_branchless_session_holds_nothing() {
         assert!(holds_branch("exp/EXP-1", "exp/EXP-1"));
@@ -3031,228 +1786,5 @@ mod tests {
         assert!(!holds_branch("", ""), "two scratch runs share no branch");
         assert!(!holds_branch("", "exp/EXP-1"));
         assert!(!holds_branch("exp/EXP-1", ""));
-    }
-
-    /// EXP-662: a resumed run registers under its SUBJECT, so the header's
-    /// Coding…/Stop flip and the one-session-per-issue guards see it — the
-    /// new row id keys only action/chat runs.
-    #[test]
-    fn a_resumed_issue_or_batch_registers_under_its_subject() {
-        let record = |extra: serde_json::Value| -> RunRecord {
-            let mut value = serde_json::json!({
-                "sessionId": "old-row", "accountId": "acct-1", "agent": "claude",
-                "cwd": "/tmp/wt", "recordedAt": 1,
-            });
-            for (key, field) in extra.as_object().expect("object") {
-                value[key] = field.clone();
-            }
-            serde_json::from_value(value).expect("record")
-        };
-        assert_eq!(
-            resume_subject(
-                &record(serde_json::json!({ "kind": "issue", "issueId": "i-1" })),
-                "new-row".to_string()
-            ),
-            SessionSubject::Issue("i-1".to_string())
-        );
-        assert_eq!(
-            resume_subject(
-                &record(serde_json::json!({ "kind": "batch", "batchId": "a1b2c3d4" })),
-                "new-row".to_string()
-            ),
-            SessionSubject::Batch("a1b2c3d4".to_string())
-        );
-        assert_eq!(
-            resume_subject(
-                &record(serde_json::json!({ "kind": "chat" })),
-                "new-row".to_string()
-            ),
-            SessionSubject::Action("new-row".to_string())
-        );
-        // A subject-less issue record (a downgrade/upgrade artifact) degrades
-        // to the row key rather than panicking or keying on an empty string.
-        assert_eq!(
-            resume_subject(
-                &record(serde_json::json!({ "kind": "issue" })),
-                "new-row".to_string()
-            ),
-            SessionSubject::Action("new-row".to_string())
-        );
-    }
-
-    #[test]
-    fn only_the_fix_conflicts_builtin_counts_as_a_fix_run() {
-        assert!(is_fix_conflicts_run(Some(
-            api::actions::BUILTIN_FIX_CONFLICTS_ID
-        )));
-        assert!(!is_fix_conflicts_run(None), "issue/batch session");
-        assert!(!is_fix_conflicts_run(Some("some-team-action")));
-    }
-
-    /// The launch proceeds (and closes nothing) when nobody holds the branch.
-    #[test]
-    fn an_unheld_branch_launches_with_nothing_to_close() {
-        assert!(closed(plan_branch_takeover(claims(&[]))).is_empty());
-    }
-
-    /// The regression: a branch is co-held by the issue's own session AND a
-    /// live fix run, and the fix run is NOT the first holder found (map
-    /// iteration order is arbitrary, and `by_issue` is chained first). The
-    /// duplicate must be refused whatever the order.
-    #[test]
-    fn any_live_fix_run_refuses_the_duplicate_whatever_the_order() {
-        for holders in [
-            vec![("issue-session", false), ("fix-run", true)],
-            vec![("fix-run", true), ("issue-session", false)],
-            vec![("fix-run", true)],
-        ] {
-            assert!(
-                matches!(
-                    plan_branch_takeover(claims(&holders)),
-                    BranchTakeover::Refuse
-                ),
-                "a live fix run must refuse the duplicate: {holders:?}"
-            );
-        }
-    }
-
-    /// The other half: EVERY non-fix holder is closed before the launch —
-    /// closing only the first left a second PTY sitting on the worktree the
-    /// run is about to rebase and force-push.
-    #[test]
-    fn every_non_fix_holder_is_closed_before_the_launch() {
-        let holders = [("issue-session", false), ("batch-session", false)];
-        assert_eq!(
-            closed(plan_branch_takeover(claims(&holders))),
-            vec!["issue-session", "batch-session"],
-        );
-    }
-
-    // ── EXP-818: following a remote start into its run ────────────────────
-
-    /// The subject a remote start waits for: a resume by `resumed_from_id`, a
-    /// single issue by its id, everything else by "any new row on that
-    /// machine" — and the row matcher agrees with each.
-    #[test]
-    fn a_remote_start_waits_for_its_own_row() {
-        use api::steer::StartSessionInput;
-        let row = |issue_id: Option<&str>, resumed_from: Option<&str>| {
-            domain::rows::CodingSession {
-                id: "s1".to_string(),
-                issue_id: issue_id.map(str::to_string),
-                resumed_from_id: resumed_from.map(str::to_string),
-                ..sample_session()
-            }
-        };
-        let resume = StartSessionInput {
-            resume_session_id: Some("old".to_string()),
-            device_id: "dev".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(
-            RemoteRunSubject::of(&resume),
-            RemoteRunSubject::Resume("old".to_string())
-        );
-        assert!(RemoteRunSubject::of(&resume).matches(&row(None, Some("old"))));
-        assert!(!RemoteRunSubject::of(&resume).matches(&row(None, Some("other"))));
-
-        let issue = StartSessionInput {
-            issue_id: Some("i1".to_string()),
-            device_id: "dev".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(
-            RemoteRunSubject::of(&issue),
-            RemoteRunSubject::Issue("i1".to_string())
-        );
-        assert!(RemoteRunSubject::of(&issue).matches(&row(Some("i1"), None)));
-        assert!(!RemoteRunSubject::of(&issue).matches(&row(Some("i2"), None)));
-
-        // A batch / action / chat start: the row says nothing we could match,
-        // so any new row on the target machine is it.
-        let batch = StartSessionInput {
-            issue_ids: Some(vec!["i1".to_string(), "i2".to_string()]),
-            device_id: "dev".to_string(),
-            ..Default::default()
-        };
-        assert_eq!(RemoteRunSubject::of(&batch), RemoteRunSubject::Any);
-        assert!(RemoteRunSubject::of(&batch).matches(&row(None, None)));
-    }
-
-    /// EXP-1259: a press mints its startId once and every send of that
-    /// intent (a Retry is a clone) carries it; a new press mints a new one;
-    /// a composer input that already names its draft id keeps it.
-    #[test]
-    fn a_press_mints_one_start_id_and_its_retry_reuses_it() {
-        use api::steer::StartSessionInput;
-        let input = || StartSessionInput {
-            resume_session_id: Some("old".to_string()),
-            device_id: "dev".to_string(),
-            ..Default::default()
-        };
-        let press = RemoteStartIntent::press(input());
-        assert_eq!(press.start_id().len(), 36);
-        assert_eq!(press.input().start_id.as_deref(), Some(press.start_id()));
-        let retry = press.clone();
-        assert_eq!(retry.input().start_id, press.input().start_id);
-        let again = RemoteStartIntent::press(input());
-        assert_ne!(again.start_id(), press.start_id());
-        let drafted = RemoteStartIntent::press(StartSessionInput {
-            start_id: Some("draft-1".to_string()),
-            ..input()
-        });
-        assert_eq!(drafted.start_id(), "draft-1");
-        let blank = RemoteStartIntent::press(StartSessionInput {
-            start_id: Some(" ".to_string()),
-            ..input()
-        });
-        assert_eq!(blank.start_id().len(), 36);
-    }
-
-    /// Recheck R3: unknown fate (no answer, an unreadable 2xx, a proxy's
-    /// bodiless 5xx, the server's relay timeout) may have delivered the
-    /// start, so it stays followed and its Retry repeats the startId; an
-    /// answer with an error body never did.
-    #[test]
-    fn a_failed_start_is_followed_only_when_it_may_have_arrived() {
-        let http = |status, message: &str| api::ApiError::Http {
-            status,
-            message: message.into(),
-        };
-        // The network: a transport error and the client's own timeout.
-        assert!(may_have_reached_device(&api::ApiError::Transport {
-            message: "connection reset".into(),
-            offline: false,
-        }));
-        assert!(may_have_reached_device(&api::ApiError::Transport {
-            message: "timed out".into(),
-            offline: true,
-        }));
-        // A 2xx whose body we could not read: the server forwarded it.
-        assert!(may_have_reached_device(&api::ApiError::Decode("ok".into())));
-        // The server's relay timeout (504 GATEWAY_TIMEOUT).
-        assert!(may_have_reached_device(&http(504, "Steer relay error (504)")));
-        assert!(may_have_reached_device(&http(502, "relay_timeout")));
-        // A proxy answered instead of the server: no error body.
-        assert!(may_have_reached_device(&http(502, "")));
-        assert!(may_have_reached_device(&http(
-            504,
-            "<html><body>504 Gateway Time-out</body></html>"
-        )));
-        // Definite: any other 5xx with an error body, any 4xx.
-        assert!(!may_have_reached_device(&http(500, "Steer relay error (502)")));
-        assert!(!may_have_reached_device(&http(500, "Internal server error")));
-        assert!(!may_have_reached_device(&http(504, "Steer relay error (500)")));
-        assert!(!may_have_reached_device(&http(412, "Device offline")));
-        assert!(!may_have_reached_device(&http(404, "")));
-        assert!(!may_have_reached_device(&http(429, "Too many requests")));
-        assert!(!may_have_reached_device(&api::ApiError::Unauthorized));
-        assert!(!may_have_reached_device(&api::ApiError::UpgradeRequired));
-    }
-
-    /// A bare row the subject matcher can vary one field of.
-    fn sample_session() -> domain::rows::CodingSession {
-        serde_json::from_value(serde_json::json!({ "id": "s1" }))
-            .expect("a row needs nothing but an id")
     }
 }

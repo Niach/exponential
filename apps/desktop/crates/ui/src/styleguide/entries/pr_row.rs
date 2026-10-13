@@ -65,7 +65,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 member("v88", "VAPP-88", "Exponential UI SwiftUI renderer", false),
             ],
             base_branch: SharedString::from("master"),
-            word: Some(SharedString::from(crate::reviews_view::STACK_WORD)),
+            word: Some(SharedString::from(crate::pr_rows::STACK_WORD)),
             // The styleguide pins one row's hover, so the ghost shows.
             hovered: Some("v98".to_string()),
             on_hover: None,

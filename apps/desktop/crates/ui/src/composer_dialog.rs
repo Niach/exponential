@@ -1,13 +1,14 @@
 //! EXP-1037 — the launcher composer in a DIALOG (the desktop half of the ×4
 //! rule).
 //!
-//! Every play button used to NAVIGATE to the Agent screen with a
+//! Every play button used to NAVIGATE to Home with a
 //! [`ChatSeed`], where the subject showed up as a small badge inside the
 //! composer card — so people did not realise a second press was still needed.
 //! A seed that carries a SUBJECT now opens the SAME composer, prefilled, in
 //! its own window: the headline says what is about to run and the send is the
-//! only thing left to do. A subject-less start (the Chat button, the rail's
-//! Agent entry) still opens the Agent screen.
+//! only thing left to do. A subject-less start (the rail's Home entry) still
+//! opens Home (EXP-1294: a sent dialog closes and lands its opener on the new
+//! session's root).
 //!
 //! This file is only the WINDOW HOST: the composer, its pickers, its launch
 //! options and its start paths are
@@ -20,13 +21,13 @@ use crate::chat_screen::{self, ChatScreenView};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::navigation::{self, ChatSeed};
 
-/// The dialog's content width — the Agent page's own composer column, so the
+/// The dialog's content width — Home's own composer column, so the
 /// card is the same width in both presentations.
 const DIALOG_W: f32 = 640.;
 /// Its opening height: the title bar, the headline, the card, the options row
 /// and one line of room for a note — the compact first frame. EXP-1155: from
 /// there the window FOLLOWS its content (`ChatScreenView::fit_dialog`): an
-/// action's typed input rows, a blocked-start question or an image strip grow
+/// action's typed input rows or an image strip grow
 /// it downward instead of hiding behind a scrollbar, up to
 /// [`DIALOG_MAX_FRACTION`] of the opener; past that only the parameter bands
 /// (issue chips, action inputs) scroll.

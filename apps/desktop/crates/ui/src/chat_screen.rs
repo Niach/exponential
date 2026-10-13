@@ -1,9 +1,7 @@
-//! EXP-772/EXP-825 — the Agent page (`Screen::Chat`), the desktop twin of the
-//! web `t/$teamSlug/agent` route. Since EXP-825 its composer is THE launcher:
-//! the one place a chat, a single-issue run, a batch or an action starts, on
-//! this machine or another. The three-tab Start-coding dialog and the
-//! Create-action dialog are gone; every play button navigates here with a
-//! [`navigation::ChatSeed`] instead.
+//! EXP-772/EXP-825 — HOME (`Screen::Home`), the desktop twin of the web
+//! `t/$teamSlug/agent` route. Its composer is THE launcher: the one place a
+//! session starts, on this machine or another. Every play button opens it
+//! with a [`navigation::ChatSeed`] (a seed with a subject in a dialog).
 //!
 //! One wide rounded composer, vertically centred:
 //!
@@ -13,50 +11,36 @@
 //! │ [the action's pick inputs]                     │
 //! │ the mention field (@ members, # issues, :emoji)│
 //! │ [pending images]                               │
-//! │ +                              ( Start batch · 2 ) │
+//! │ +                                          (↑) │
 //! └───────────────────────────────────────────────┘
-//!  Device ▾ · Account ▾ · Model ▾ · Plan ○ · Resume ○ · Repository ▾
+//!  Device ▾ · Account ▾ · Model ▾ · Plan ○ · Repository ▾
 //! ```
 //!
 //! EXP-1249: the "+" is the composer's ONE tool — a menu (Implement issue ›,
 //! Run action ›, Add file or image | Effort ›, Subagents ›, Ultracode |
-//! MCP servers ›, Computer use). "Implement issue", "Run action" and "MCP
-//! servers" open their searchable pickers anchored to the +.
+//! MCP servers ›, Computer use).
 //!
 //! **Subject by swap** (decision 2026-09-10): issue chips OR one action chip.
 //! Picking an issue while an action is picked replaces it, and the other way
-//! round; the chips make it visible, no control is ever disabled. **Free
-//! text** is the chat prompt with no subject, the Create-action builtin's
-//! request, and optional additional instructions beside a subject
-//! ([`chat_launch::text_required`]). **Images** ride the text as steer
-//! embeds, uploaded to the team route before the session exists.
+//! round. **Free text** is the prompt with no subject and optional additional
+//! instructions beside one. **Images** ride as attachments, uploaded to the
+//! team route before the session exists.
 //!
-//! **Options row B** under the card: Device, Account, Model, Plan on one
-//! muted line (+ Resume while a single issue has a resumable worktree, +
-//! Repository while no subject is picked); the rest of the run's options
-//! live in the "+" menu. The options are the ONE launch model every desktop
-//! surface uses ([`crate::launch_options::LaunchOptionsSection`]); plan mode
-//! reseeds when the subject flips (a chat is a conversation, OFF; a picked
-//! subject takes the agent's default).
+//! EXP-1294: a start is ONE `sessions.send` — a new root in the ACTIVE team
+//! on the picked device (this machine or another), linking 1..N issues or
+//! naming an action. The hosting device picks the row up from its shapes
+//! ([`crate::session_pickup`]); the page lands on the new root
+//! (`Screen::Thread`) the moment the send answers, a dialog closes and lands
+//! its opener there.
 //!
-//! EXP-696: WHERE the run happens is the Device pick — this machine first,
-//! then every ONLINE synced device advertising a runnable agent, only while
-//! `steer.config` says the instance runs a relay. Another machine swaps the
-//! launch for one `steer.startSession` with the same subject; an explicit
-//! pick is STICKY and blocks the launch while its machine is offline.
-//!
-//! EXP-1253 (EXP-1259 D1): the page is HOME (`fixtures/composer-home.json`):
-//! the disc mark + the day's greeting over the card ([`home_greeting`]),
-//! "What do you want to build?" with no subject, and NOTHING under the
-//! options line: recent sessions live behind the history button and the
-//! Agent › Recent sidebar. While the team has no board the Getting started
-//! block follows the composer. The suggestion rows and the watermark are
-//! gone. A New run tab
-//! (EXP-1255) hosts the same column and turns into its run's tab.
+//! FEED-100: the page wears the DAWN — the faint brand mark's top half over
+//! the composer — and nothing else of its own: no greeting, no history
+//! button. While the team has no board the Getting started block follows
+//! the composer.
 //!
 //! EXP-1271: after Start the send goes pending and the card's options line
 //! becomes the STARTING row (the mark, "Starting on <device>", elapsed)
-//! until the run lands, or the 30 s timeout toast offers Retry.
+//! until the send answers, or the 30 s timeout toast offers Retry.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -67,7 +51,7 @@ use std::rc::Rc;
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Entity,
     FocusHandle, Focusable, InteractiveElement as _, IntoElement, ParentElement, Render,
-    prelude::FluentBuilder as _, SharedString, Styled, Subscription,
+    SharedString, Styled, Subscription,
     Window,
 };
 use gpui_component::input::{InputEvent, TextareaState};
@@ -78,23 +62,19 @@ use gpui_component::{
 };
 use sync::Store;
 
-use coding::{
-    run_registry::RunRecord, LaunchOptions, LaunchOrigin, Prepared, PrepareRequest,
-    ResumeRunRequest,
-};
+use coding::LaunchOptions;
 
 use crate::action_inputs::ActionInputPicks;
-use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
-use crate::chat_launch::{self, DraftFingerprint, DraftSubject, RemoteSubject, RepoState, SubjectKind};
-use domain::blocked_start;
-use crate::coding_flow::{self, CodingHub, SessionSubject};
+use crate::action_run::{self, ActionRepoRow};
+use crate::chat_launch::{self, RepoState, StartSubject, SubjectKind};
+use crate::coding_flow::{self, CodingHub};
 use crate::composer_images::{self, PendingImages};
 use crate::device_readiness;
 use crate::icons::registry;
 use crate::picker::issue_picker::{self, IssueRow};
 use crate::launch_options::{self, inline_pin_trigger, LaunchOptionsSection};
 use crate::mention_input::MentionInput;
-use crate::navigation::{self, ChatSeed, Navigation};
+use crate::navigation::{self, ChatSeed, Navigation, Screen};
 use crate::queries;
 use crate::home_greeting;
 use crate::surface::{glass_pill, PillMode, PillSize};
@@ -108,9 +88,14 @@ const PROMPT_MAX_W: f32 = 640.;
 const CHIPS_MAX_H: f32 = 88.;
 const FIELDS_MAX_H: f32 = 280.;
 
-/// EXP-923: the history button's tooltip — the only word on the Agent page's
-/// own chrome, and the panel's own heading is the ×4 "Recent".
-const RECENT_RUNS_LABEL: &str = "Recent sessions";
+/// FEED-100 (EXP-1249's mark, restored): the DAWN above the page's composer
+/// column — the brand mark's edge, the half of it that shows (a clip of half
+/// its height, the logo aligned to the clip's top) and its ink (the
+/// foreground at ~2.5%). The column gap keeps it off the card.
+const PAGE_MARK_SIZE: f32 = 440.;
+const PAGE_MARK_ALPHA: f32 = 0.025;
+/// How many slices the half mark's fade is painted in (gpui has no mask).
+const PAGE_MARK_FADE_STEPS: usize = 12;
 
 /// EXP-1249: the composer "+" menu's words (web `launch-composer.tsx`'s
 /// menu, the styleguide `menu` entry's composer specimen).
@@ -220,31 +205,12 @@ struct IssueSubject {
     checked: HashSet<String>,
     /// issue id → probe state (LAZY: only checked issues probe).
     repos: HashMap<String, RepoState>,
-    /// issue id → the newest resumable run record for it (EXP-662 — probed
-    /// alongside the repo, `None` = nothing to resume).
-    resumables: HashMap<String, Option<RunRecord>>,
-    /// "Resume previous session" (EXP-202): only ACTIVE with exactly one
-    /// checked issue and a candidate; default-on so a re-launch resumes.
-    resume: bool,
 }
 
 /// The picked action and its input picks.
 struct ActionSubject {
     action_id: String,
     picks: ActionInputPicks,
-    /// EXP-1233: a merge refused by a REAL conflict opened the composer on
-    /// the Fix merge conflicts builtin (the seed's `conflict`), so its card
-    /// adds the refusal line — for THAT pull request only (its representative
-    /// issue id): a cleared or replaced pick never wears a refusal nobody
-    /// tried ([`conflict_note_shows`]). Lives on the subject, so any other
-    /// pick clears it.
-    refused_pr: Option<String>,
-}
-
-/// EXP-1233: whether the Fix merge conflicts card adds the "Merge refused"
-/// line — only while the picked PR is the one whose merge was refused.
-fn conflict_note_shows(refused_pr: Option<&str>, picked_pr: Option<&str>) -> bool {
-    matches!((refused_pr, picked_pr), (Some(refused), Some(picked)) if refused == picked)
 }
 
 /// EXP-868: what [`ChatScreenView::team_pool`] is valid for.
@@ -266,9 +232,8 @@ enum Subject {
 /// EXP-696: the machine the run starts on.
 #[derive(Default)]
 struct DevicePick {
-    /// `None` before the first settle. The routing switch is its candidate's
-    /// `is_own` flag: this machine takes the LOCAL launch paths, anything
-    /// else goes out as one `steer.startSession`.
+    /// `None` before the first settle. EXP-1294: this machine or another,
+    /// the start is the same `sessions.send` naming it.
     device_id: Option<String>,
     /// EXP-836: the machine a ▶ REQUESTED (`?device=`, `ChatSeed.device_id`).
     /// It outranks everything the moment it is a candidate — and keeps
@@ -290,8 +255,8 @@ struct DevicePick {
 /// EXP-825: the field's hint follows the subject — byte-identical to the web
 /// `composerPlaceholder` (components/launch-composer.tsx): a chat asks, a
 /// picked subject takes optional extra instructions, and a picked action
-/// with a non-blank `prompt_placeholder` (the synced column; the
-/// Create-action builtin carries its own) says what to type instead.
+/// with a non-blank `prompt_placeholder` (the synced column) says what to
+/// type instead.
 /// EXP-1019: both hints are the shared contract's, never local literals.
 /// EXP-1253: with no subject the field asks the home's question.
 const CHAT_PLACEHOLDER: &str = home_greeting::HOME_PLACEHOLDER;
@@ -318,160 +283,15 @@ fn placeholder_for_subject(
     SUBJECT_PLACEHOLDER.into()
 }
 
-/// EXP-1233 — one of the picked pull request's issues as a headline chip:
-/// THE issue chip the issues subject draws (status glyph · mono identifier ·
-/// title), id `chat-chip-issue-<IDENT>`, its ✕ titled "Clear the pull
-/// request" (the caller wires what it does). The styleguide draws it too.
-pub(crate) fn fix_conflicts_issue_chip(
-    issue: &domain::rows::Issue,
-    cx: &App,
-) -> crate::issue_chip::IssueChip {
-    crate::issue_chip::issue_chip(
-        SharedString::from(format!("chat-chip-issue-{}", issue.identifier)),
-        issue.identifier.clone(),
-        issue.title.clone(),
-    )
-    .status(queries::resolve_issue_status(cx, issue))
-    .max_title_width(px(220.))
-    .remove_tooltip("Clear the pull request")
-}
-
-/// EXP-1233 — the fix-conflicts card's PR ROW as a ghost [`Button`], so the
-/// composer can hang the `pr` dropdown on it. Its content is THE PR row
-/// ([`crate::pr_rows::pr_row`]: the open-PR node, `#n` as the mono
-/// identifier, `branch → base` as the title) with the dropdown chevron
-/// trailing; nothing picked = the contract's muted placeholder alone.
-pub(crate) fn fix_conflicts_pr_row(
-    id: impl Into<gpui::ElementId>,
-    pr: Option<&domain::fix_conflicts::FixConflictsPr>,
-    cx: &App,
-) -> Button {
-    let theme = cx.theme();
-    let chevron = Icon::new(registry::UI_CHEVRON_DOWN)
-        .size_3p5()
-        .text_color(theme.foreground.opacity(0.5));
-    let content = match pr {
-        // P32 ×4 (`@exp/ui` FixConflictsPrRow): the emerald pr-open glyph,
-        // the mono `#n`, then the branch glyph + the mono `branch → base`,
-        // the chevron trailing. No fixed identifier column.
-        Some(pr) => {
-            let line = pr.branch_line();
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .items_center()
-                .gap_3()
-                .px_3()
-                .py_2()
-                .text_sm()
-                .child(
-                    Icon::new(registry::PR_OPEN)
-                        .size_4()
-                        .flex_shrink_0()
-                        .text_color(theme::tokens::GREEN.to_hsla()),
-                )
-                .when_some(pr.pr_number, |row, number| {
-                    row.child(
-                        div()
-                            .flex_shrink_0()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .text_color(theme.foreground)
-                            .child(SharedString::from(format!("#{number}"))),
-                    )
-                })
-                .when(!line.is_empty(), |row| {
-                    row.child(
-                        h_flex()
-                            .min_w_0()
-                            .items_center()
-                            .gap_1p5()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .text_color(theme.foreground.opacity(0.7))
-                            .child(Icon::new(registry::UI_BRANCH).size_3p5().flex_shrink_0())
-                            .child(div().min_w_0().truncate().child(SharedString::from(line))),
-                    )
-                })
-                .child(div().ml_auto().flex_shrink_0().child(chevron))
-                .into_any_element()
-        }
-        None => h_flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .text_sm()
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .truncate()
-                    .text_color(theme.muted_foreground)
-                    .child(domain::contract::COMPOSER_UI_PR_PLACEHOLDER),
-            )
-            .child(div().ml_auto().flex_shrink_0().child(chevron))
-            .into_any_element(),
-    };
-    Button::new(id)
-        .ghost()
-        .cursor_pointer()
-        .w_full()
-        .h_auto()
-        .px_1()
-        .py_1()
-        .rounded_none()
-        .child(content)
-}
-
-/// EXP-1233 — the fix-conflicts card's SURFACE: the form ladder's glass
-/// group holding the PR `row` and, when `refused`, the refusal line under a
-/// hairline (the warning glyph + the contract's note, destructive tone).
-pub(crate) fn fix_conflicts_card(
-    id: impl Into<gpui::ElementId>,
-    row: AnyElement,
-    refused: bool,
-    cx: &App,
-) -> AnyElement {
-    let danger = cx.theme().danger;
-    crate::surface::glass_group()
-        .id(id)
-        .child(row)
-        .when(refused, |card| {
-            card.child(crate::surface::glass_row_divider(
-                h_flex()
-                    .id("chat-fix-conflicts-note")
-                    .w_full()
-                    .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .px_4()
-                    .py(px(10.))
-                    .text_sm()
-                    .text_color(danger)
-                    .child(Icon::new(registry::UI_WARNING).size_4().flex_shrink_0())
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .child(domain::contract::COMPOSER_UI_CONFLICT_NOTE),
-                    ),
-            ))
-        })
-        .into_any_element()
-}
-
 /// EXP-1037 — WHERE this composer is drawn. One view, one set of state, one
 /// `send`/`start`; only the chrome around the launcher differs.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Presentation {
-    /// The Agent screen (`Screen::Chat`) and a New run tab: HOME, the
-    /// greeting over the centred column and the "Recent sessions" button.
+    /// HOME (`Screen::Home`): the dawn over the centred column.
     Page,
     /// A dialog window opened by a play button ([`crate::composer_dialog`]):
     /// the launcher alone — headline, card, options, notes — and nothing of
-    /// the page's chrome. It always has a subject, so it never shows
-    /// the greeting.
+    /// the page's chrome.
     Dialog,
 }
 
@@ -481,10 +301,6 @@ pub(crate) struct ChatScreenView {
     /// EXP-1037: the dialog's seed, applied on the first render that has a
     /// team AND synced shapes (the page takes the same seed off the nav).
     dialog_seed: Option<ChatSeed>,
-    /// EXP-1037/EXP-897: the blocked-start question while the composer is in
-    /// a DIALOG — asked inside the dialog instead of as a nested alert (see
-    /// [`Self::prompt_blocked_start`]).
-    blocked: Option<PendingBlocked>,
     /// The team the page is scoped to; a switch resets every pick.
     team_id: Option<String>,
     input: Entity<TextareaState>,
@@ -493,39 +309,26 @@ pub(crate) struct ChatScreenView {
     /// EXP-790: the completion overlay (`@` / `#` / `:`) over `input`; the
     /// composer card draws the chrome, so the widget draws none of its own.
     mention: Entity<MentionInput>,
-    mention_team: Option<String>,
     subject: Subject,
     /// Stale-probe guard (old results must not land after a subject swap).
     probe_generation: u64,
-    /// The team's actions (builtins pinned first) — live off the synced
-    /// `actions` shape; `actions_ready` = the shape reached readiness.
+    /// The team's actions — live off the synced `actions` shape;
+    /// `actions_ready` = the shape reached readiness.
     actions: Vec<api::actions::Action>,
     actions_ready: bool,
-    /// A seed's action preselect, applied once the shape is ready, with its
-    /// PR (EXP-313) and icon (a suggestion's glyph) riding along.
+    /// A seed's action preselect, applied once the shape is ready.
     pending_action: Option<String>,
-    pending_pr: Option<String>,
-    pending_icon: Option<String>,
-    /// FEED-50: a Tidy up seed's board, filling the builtin's `board` input.
-    pending_board: Option<String>,
-    /// EXP-1233: the seed's `conflict` flag, riding the pending action to
-    /// [`Self::select_action`] (fix-conflicts builtin only).
-    pending_conflict: bool,
     /// Release review R5: the `#` picker's ranked list, memoised so a busy
-    /// run's 60 fps repaint never re-ranks the pool. EXP-1030: the picker's
-    /// QUERY and its keyboard cursor are the primitive's now — this memo is
-    /// all the host still holds.
+    /// repaint never re-ranks the pool. EXP-1030: the picker's QUERY and its
+    /// keyboard cursor are the primitive's now — this memo is all the host
+    /// still holds.
     issue_pick_memo: RefCell<issue_picker::VisibleRowsMemo>,
     /// EXP-868: the issue picker's pool while nothing is picked, keyed by the
-    /// team and the revisions of every collection it reads. The composer
-    /// renders on EVERY window redraw (a caret blink, a keystroke anywhere),
-    /// and rebuilding the pool each time made typing crawl.
+    /// team and the revisions of every collection it reads.
     team_pool: RefCell<Option<(TeamPoolKey, Rc<Vec<IssueRow>>)>>,
     /// EXP-946/EXP-1249: where the "+" tool actually painted, captured at
     /// prepaint (the `Popup` recipe). Its menu and the pickers it opens pick
-    /// the side with room and cap themselves to it — gpui-component's
-    /// `Popover` clamps but never flips, so a picker taller than the room
-    /// above ran off the window.
+    /// the side with room and cap themselves to it.
     plus_tool_bounds: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
     /// EXP-1249: the picker a "+" menu row opened (anchored to the +), until
     /// it closes itself.
@@ -533,21 +336,13 @@ pub(crate) struct ChatScreenView {
     /// The team's connected repos (`repositories.list`, one fetch per team).
     team_repos: Vec<ActionRepoRow>,
     repos_team: Option<String>,
-    /// EXP-822: the chat's optional repository anchor (no-subject only).
+    /// EXP-822: the session's optional repository anchor (no-subject only).
     chat_repo: Option<ActionRepoRow>,
     /// The ONE launch cluster's state (agent, model, effort, toggles, MCP,
     /// account). Built once the coding hub exists (the page can render
     /// before it does).
     launch: Option<LaunchOptionsSection>,
     device: DevicePick,
-    /// EXP-897: the blocked-issue dialog was answered "Start anyway" for the
-    /// ONE start it was opened for, so `start` runs straight through. Cleared
-    /// by [`Self::after_started`] and by every subject change.
-    blocked_confirmed: bool,
-    /// SLOP-3: a "Stacked PR" answer's issue to start (`run[0]` of the
-    /// plan, not necessarily the picked one). Taken by the ONE
-    /// [`Self::start`] pass it was given for.
-    stacked_issue: Option<String>,
     /// EXP-792: the team's MCP servers with the person's own connection to
     /// each, one fetch per team; `None` while the fetch is out.
     mcp: Option<Vec<api::mcp_servers::McpServerListEntry>>,
@@ -557,35 +352,15 @@ pub(crate) struct ChatScreenView {
     notice: Option<SharedString>,
     /// Images are uploading (the send is in flight).
     sending: bool,
-    /// The launch is preparing / the remote start is in flight.
-    launching: bool,
-    /// EXP-1255: the New run tab hosting this composer (`None` = the Agent
-    /// page or a dialog); its run lands IN that tab.
-    new_run_id: Option<String>,
-    /// EXP-1284: the thread every start from this composer JOINS ("Start a
-    /// run here", the thread's reply) — `LaunchOrigin::LocalThread` locally,
-    /// `threadId` on a remote start. `None` = the start's default thread.
-    thread_id: Option<String>,
-    /// EXP-1253: the greeting, computed once per mount (re-read only while
-    /// the draft is empty and the day's bucket moved, so it never flips
-    /// while you type), keyed by the bucket it was computed in.
-    greeting: Option<(SharedString, home_greeting::GreetingKey)>,
     /// EXP-1271: the send button's pending face and the card's STARTING row
-    /// (`crate::feedback`), from Start until the run lands.
+    /// (`crate::feedback`), from Start until the send answers.
     start_pending: crate::feedback::Pending,
     starting: Option<Starting>,
     starting_generation: u64,
-    /// Review #3: a REMOTE start whose 30 s deadline passed without its row:
-    /// the composer is idle again, the start is still followed (a late row
-    /// lands as if in time), and its Retry reuses the startId and the tab.
+    /// Review #3: a start whose 30 s deadline passed before its send
+    /// answered: the composer is idle again, and a late answer still lands
+    /// ([`Self::start_landed`]).
     late: Option<LateStart>,
-    /// Final review B3/B4: the startId of the CURRENT draft's start, bound
-    /// to the device + draft it was minted for (`feedback-states.json`
-    /// `starting.$comment`). Every Retry (timeout or failure toast) and every
-    /// later Start of the same draft on the same device reuses it, until a
-    /// session lands or the draft or device changes; a Retry never stores an
-    /// id of its own, so a stale one cannot ride an unrelated Start.
-    draft_start: Option<DraftStart>,
     /// Bumped whenever the draft is consumed ([`Self::after_started`]): an
     /// upload still running for that draft drops its result instead of
     /// starting the draft a second time.
@@ -595,8 +370,7 @@ pub(crate) struct ChatScreenView {
     spare_picks: ActionInputPicks,
     focus_handle: FocusHandle,
     /// EXP-923: the page's one scroll. It holds the composer and NOTHING
-    /// else — the live runs moved to the rail and the finished ones behind
-    /// the history button's panel, so the Agent page is a composer again.
+    /// else.
     page_scroll: gpui::ScrollHandle,
     /// EXP-1155: the two PARAMETER bands that scroll on their own once they
     /// pass their cap (the subject chips, the action's typed inputs), so the
@@ -645,8 +419,7 @@ impl ChatScreenView {
                 window,
                 |this, _, event: &InputEvent, window, cx| match event {
                     InputEvent::PressEnter { shift: false, .. } => this.send(window, cx),
-                    // The blocker (and the greeting's freeze) are functions
-                    // of the draft.
+                    // The blocker is a function of the draft.
                     InputEvent::Change => cx.notify(),
                     _ => {}
                 },
@@ -656,10 +429,8 @@ impl ChatScreenView {
         let collections = Store::global(cx).collections();
         let synced_devices = collections.devices.clone();
         let synced_actions = collections.actions.clone();
-        let synced_sessions = collections.coding_sessions.clone();
+        let synced_sessions = collections.sessions.clone();
         let synced_worktrees = collections.device_worktrees.clone();
-        let synced_threads = collections.threads.clone();
-        let synced_thread_items = collections.thread_items.clone();
         let steer_config = queries::steer_config(cx);
         subscriptions.push(cx.observe_in(&steer_config, window, |this: &mut Self, _, window, cx| {
             this.settle_device(window, cx);
@@ -682,9 +453,6 @@ impl ChatScreenView {
         let local_sessions = coding_flow::LocalSessions::global(cx);
         subscriptions.push(cx.observe(&local_sessions, |_: &mut Self, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&synced_sessions, |_: &mut Self, _, cx| cx.notify()));
-        // EXP-1284: Recent lists threads.
-        subscriptions.push(cx.observe(&synced_threads, |_: &mut Self, _, cx| cx.notify()));
-        subscriptions.push(cx.observe(&synced_thread_items, |_: &mut Self, _, cx| cx.notify()));
         // The doctor report lands after the window does — re-seed the agent
         // pick when it does, or the page would sit on "no agent" at first.
         if let Some(hub) = CodingHub::global_ref(cx) {
@@ -699,21 +467,15 @@ impl ChatScreenView {
             nav,
             presentation: Presentation::Page,
             dialog_seed: None,
-            blocked: None,
             team_id: None,
             input,
             placeholder: CHAT_PLACEHOLDER.into(),
             mention,
-            mention_team: None,
             subject: Subject::None,
             probe_generation: 0,
             actions: Vec::new(),
             actions_ready: false,
             pending_action: None,
-            pending_pr: None,
-            pending_icon: None,
-            pending_board: None,
-            pending_conflict: false,
             issue_pick_memo: RefCell::new(issue_picker::VisibleRowsMemo::default()),
             team_pool: RefCell::new(None),
             plus_tool_bounds: Rc::new(std::cell::Cell::new(gpui::Bounds::default())),
@@ -723,22 +485,15 @@ impl ChatScreenView {
             chat_repo: None,
             launch: None,
             device: DevicePick::default(),
-            blocked_confirmed: false,
-            stacked_issue: None,
             mcp: None,
             mcp_team: None,
             images: PendingImages::default(),
             notice: None,
             sending: false,
-            launching: false,
-            new_run_id: None,
-            thread_id: None,
-            greeting: None,
             start_pending: crate::feedback::Pending::default(),
             starting: None,
             starting_generation: 0,
             late: None,
-            draft_start: None,
             send_epoch: 0,
             spare_picks: ActionInputPicks::default(),
             focus_handle: cx.focus_handle(),
@@ -779,52 +534,9 @@ impl ChatScreenView {
         this
     }
 
-    /// EXP-1255 — the SAME home column, hosted by New run tab `id`: the run
-    /// it starts lands in that tab ([`coding_flow::hand_off_new_run_tab`]).
-    pub(crate) fn new_run_tab(id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let mut this = Self::new(window, cx);
-        this.new_run_id = Some(id);
-        // The "+" (or Cmd+T) is pressed to type: the field takes focus.
-        let field = this.input.read(cx).focus_handle(cx);
-        window.focus(&field, cx);
-        this
-    }
-
-    /// EXP-1284 — "Start a session here": this composer's starts join
-    /// `thread_id`, and `text` (the thread's unsent reply) lands on an empty
-    /// draft.
-    pub(crate) fn set_thread(
-        &mut self,
-        thread_id: String,
-        text: Option<String>,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.thread_id = Some(thread_id);
-        if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
-            if self.input.read(cx).value().trim().is_empty() {
-                self.mention
-                    .update(cx, |mention, cx| mention.insert_text(&text, window, cx));
-            }
-        }
-        cx.notify();
-    }
-
-    /// The origin a LOCAL start from this composer carries: a person's, in
-    /// its thread when it has one (EXP-1284).
-    fn launch_origin(&self) -> LaunchOrigin {
-        match &self.thread_id {
-            Some(thread_id) => LaunchOrigin::LocalThread {
-                thread_id: thread_id.clone(),
-            },
-            None => LaunchOrigin::Local,
-        }
-    }
-
-    /// Whether a start is in flight — the dialog's close gate (the view owns
-    /// the launch the prepare reports back to).
+    /// Whether a start is in flight — the dialog's close gate.
     pub(crate) fn starting(&self) -> bool {
-        self.launching || self.sending || self.starting.is_some()
+        self.sending || self.starting.is_some()
     }
 
     // ── starting (EXP-1271) ───────────────────────────────────────────────
@@ -836,81 +548,15 @@ impl ChatScreenView {
             .unwrap_or_else(coding::default_device_label)
     }
 
-    /// What the draft's start is bound to (final review B4, recheck R2:
-    /// feedback-states.json `starting.fingerprint`): the target device, the
-    /// text, the subject (issue ids, or the action and its input picks, or
-    /// the chat's repo), the staged attachments and every launch option as
-    /// the start sends them, the Resume toggle included.
-    fn draft_fingerprint(&self, cx: &App) -> DraftFingerprint {
-        let subject = match &self.subject {
-            Subject::None => DraftSubject::Chat {
-                repository_id: self.chat_repo.as_ref().map(|repo| repo.id.clone()),
-            },
-            Subject::Issues(issues) => DraftSubject::Issues(issues.checked.iter().cloned().collect()),
-            Subject::Action(subject) => DraftSubject::Action {
-                action_id: subject.action_id.clone(),
-                inputs: self
-                    .selected_action()
-                    .map(|action| subject.picks.collect(action))
-                    .unwrap_or_default(),
-            },
-        };
-        chat_launch::draft_fingerprint(
-            self.selected_device().map(|device| device.device_id.as_str()),
-            self.input.read(cx).value().as_ref(),
-            subject,
-            &self.images.keys(),
-            &self.options(cx),
-            self.resume_active(cx),
-        )
-    }
-
-    /// The `startId` of a Start of the draft as it is now: the one already
-    /// minted for this same draft on this same device (a Retry, or a second
-    /// Start after a timeout), else a fresh one bound to it.
-    fn draft_start_id(&mut self, cx: &App) -> String {
-        let fingerprint = self.draft_fingerprint(cx);
-        if let Some(draft) = self
-            .draft_start
-            .as_ref()
-            .filter(|draft| draft.fingerprint == fingerprint)
-        {
-            return draft.start_id.clone();
-        }
-        let start_id = api::steer::new_start_id();
-        self.draft_start = Some(DraftStart {
-            start_id: start_id.clone(),
-            fingerprint,
-        });
-        start_id
-    }
-
     /// Start pressed: the send goes pending and the card shows the STARTING
-    /// row. The start carries its draft's `startId` ([`Self::draft_start_id`]:
-    /// a Retry or a repeat Start of an unchanged draft reuses it); a New
-    /// session tab hands its slot to THIS start (review #1), so the landing
-    /// replaces the tab. Returns the start's generation for
-    /// [`Self::end_starting`]. Review #3: no deadline here — a remote start
-    /// arms it once the request is SENT ([`Self::arm_deadline`]), a local
-    /// start never has one.
+    /// row, with the [`crate::feedback::STARTING_TIMEOUT`] deadline armed.
+    /// Returns the start's generation.
     fn begin_starting(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> u64 {
-        let start_id = self.draft_start_id(cx);
-        let reused = self
-            .late
-            .take_if(|late| late.start_id == start_id);
-        if let Some(late) = &reused {
+        // A new start takes over: a late one, should it answer now, no
+        // longer lands.
+        if let Some(late) = self.late.take() {
             late.dismiss_toast(cx);
         }
-        // A NEW start while a late one is still followed takes the tab over:
-        // the late run, should it land, opens as an ordinary tab.
-        if let Some(handoff) = self.late.as_mut().and_then(|late| late.handoff.take()) {
-            coding_flow::take_back_new_run_tab(handoff, cx);
-        }
-        let handoff = match (&self.new_run_id, reused.and_then(|late| late.handoff)) {
-            (Some(_), Some(handoff)) if coding_flow::handoff_open(handoff, cx) => Some(handoff),
-            (Some(id), _) => Some(coding_flow::hand_off_new_run_tab(window, id.clone(), cx)),
-            (None, _) => None,
-        };
         self.starting_generation += 1;
         let generation = self.starting_generation;
         let device = self.start_device_label();
@@ -918,21 +564,14 @@ impl ChatScreenView {
             device,
             since: std::time::Instant::now(),
             generation,
-            start_id,
-            handoff,
         });
         self.start_pending.start(cx);
+        self.arm_deadline(generation, window, cx);
         cx.notify();
         generation
     }
 
-    /// The New session tab the start in flight lands in (its handoff).
-    fn start_handoff(&self) -> Option<coding_flow::StartHandoff> {
-        self.starting.as_ref().and_then(|starting| starting.handoff)
-    }
-
-    /// Review #3: remote start `generation` was SENT: the
-    /// [`crate::feedback::STARTING_TIMEOUT`] deadline counts from now.
+    /// Start `generation`'s deadline counts from now.
     fn arm_deadline(&mut self, generation: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor()
@@ -943,13 +582,10 @@ impl ChatScreenView {
         .detach();
     }
 
-    /// Remote start `generation` has not landed by its deadline: back to
+    /// Start `generation`'s send has not answered by its deadline: back to
     /// rest, and the timeout toast (`feedback-states.json`
-    /// `starting.timeoutToast`) whose Retry sends the draft again, under the
-    /// SAME startId while the draft and device are unchanged (the device
-    /// ignores a repeat). Nothing is aborted: the start stays followed and
-    /// its tab handed off, so a late row still lands
-    /// ([`Self::start_landed`]).
+    /// `starting.timeoutToast`) whose Retry sends the draft again. The send
+    /// is not aborted: a late answer still lands ([`Self::start_landed`]).
     fn time_out_start(&mut self, generation: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(starting) = self
             .starting
@@ -959,20 +595,23 @@ impl ChatScreenView {
             return;
         };
         let device = starting.device.clone();
-        let start_id = starting.start_id.clone();
-        let handoff = starting.handoff;
-        self.end_starting(generation, false, window, cx);
+        self.end_starting(generation, cx);
         let (title, description) = crate::feedback::starting_timeout_copy(&device);
         let toast = crate::toast::Toast::error(title)
             .description(description)
             .action(crate::feedback::RETRY, self.retry_send(cx));
         let toast = crate::toast::show_dismissible(toast, window, cx);
-        self.park_late(start_id, handoff, toast, cx);
+        let draft = self.input.read(cx).value().to_string();
+        if let Some(previous) = self.late.replace(LateStart {
+            generation,
+            draft,
+            toast: Some(toast),
+        }) {
+            previous.dismiss_toast(cx);
+        }
     }
 
-    /// A Retry: send the draft as it is NOW. Its startId is the draft's
-    /// ([`Self::draft_start_id`]), so an unchanged draft repeats the same
-    /// start and an edited one is a start of its own.
+    /// A Retry: send the draft as it is NOW.
     fn retry_send(&self, cx: &gpui::Context<Self>) -> impl Fn(&mut Window, &mut App) + 'static {
         let weak = cx.entity().downgrade();
         move |window, cx| {
@@ -980,74 +619,38 @@ impl ChatScreenView {
         }
     }
 
-    /// Start `start_id` is out of the composer's hands but may still land
-    /// (timed out, or failed where the frame may have reached the device):
-    /// remember it with its tab and the error toast its landing takes back.
-    fn park_late(
-        &mut self,
-        start_id: String,
-        handoff: Option<coding_flow::StartHandoff>,
-        toast: crate::toast::ShownToast,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if let Some(previous) = self.late.replace(LateStart {
-            start_id,
-            handoff,
-            toast: Some(toast),
-        }) {
-            previous.dismiss_toast(cx);
-        }
-    }
-
-    /// Review #3 + final review: the row of start `start_id` landed. Returns
-    /// whether the follower opens it (in that start's own tab).
+    /// Start `generation`'s send answered with `session_id`. Returns whether
+    /// the composer lands on it.
     ///
-    /// - In time (or a Retry of it in flight): the start settles, the draft
-    ///   clears, the run opens.
-    /// - LATE, draft unchanged since its send: the error clears, the draft
-    ///   clears, the run opens, as if in time.
-    /// - LATE, the person changed the draft (or started another one): the
-    ///   error clears and nothing else happens: the field stays exactly as
-    ///   left, no navigation (the run shows in Running).
-    fn start_landed(&mut self, start_id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) -> bool {
-        if let Some(late) = self.late.take_if(|late| late.start_id == start_id) {
-            late.dismiss_toast(cx);
-        }
-        let current = self
+    /// - In time: the start settles, the draft clears, the root opens.
+    /// - LATE, draft unchanged since its send and no other start in flight:
+    ///   the error clears, the draft clears, the root opens, as if in time.
+    /// - LATE otherwise: the error clears and nothing else happens (the
+    ///   session shows in Running).
+    fn start_landed(&mut self, generation: u64, window: &mut Window, cx: &mut gpui::Context<Self>) -> bool {
+        let in_time = self
             .starting
             .as_ref()
-            .filter(|starting| starting.start_id == start_id)
-            .map(|starting| starting.generation);
-        let unchanged = self.starting.is_none()
-            && self.draft_start.as_ref().is_some_and(|draft| {
-                draft.start_id == start_id && draft.fingerprint == self.draft_fingerprint(cx)
-            });
-        let open = if let Some(generation) = current {
-            // The follower opens the run in the start's tab: keep the
-            // handoff for it.
-            self.end_starting(generation, false, window, cx);
-            self.after_started(window, cx);
+            .is_some_and(|starting| starting.generation == generation);
+        let late = self.late.take_if(|late| late.generation == generation);
+        let open = if in_time {
+            self.end_starting(generation, cx);
             true
-        } else if unchanged {
-            self.after_started(window, cx);
-            true
+        } else if let Some(late) = late {
+            late.dismiss_toast(cx);
+            self.starting.is_none() && self.input.read(cx).value().as_ref() == late.draft
         } else {
             false
         };
-        if self
-            .draft_start
-            .as_ref()
-            .is_some_and(|draft| draft.start_id == start_id)
-        {
-            self.draft_start = None;
+        if open {
+            self.after_started(window, cx);
         }
         cx.notify();
         open
     }
 
     /// FEED-79: a start that failed (refused, unreachable, nothing to run
-    /// on) is the error toast; Retry sends the kept draft again (the same
-    /// startId while it is unchanged, [`Self::draft_start_id`]).
+    /// on) is the error toast; Retry sends the kept draft again.
     fn start_failed(&mut self, message: SharedString, cx: &mut gpui::Context<Self>) {
         crate::action_error::failed_action_with_retry(
             "start",
@@ -1061,49 +664,16 @@ impl ChatScreenView {
 
     /// The start `generation` settled (landed, failed or timed out): the
     /// send and the card return to rest. A later start's state survives.
-    /// `take_back`: a failed start keeps its tab, so the slot it handed off
-    /// is taken back (a landed one already used it); a TIMED-OUT remote
-    /// start keeps it for its late landing (review #3).
-    fn end_starting(
-        &mut self,
-        generation: u64,
-        take_back: bool,
-        _window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(starting) = self
+    fn end_starting(&mut self, generation: u64, cx: &mut gpui::Context<Self>) {
+        if self
             .starting
             .take_if(|starting| starting.generation == generation)
-        else {
+            .is_none()
+        {
             return;
-        };
-        self.start_pending.finish();
-        if let (true, Some(handoff)) = (take_back, starting.handoff) {
-            coding_flow::take_back_new_run_tab(handoff, cx);
         }
+        self.start_pending.finish();
         cx.notify();
-    }
-
-    /// An action's settled hook that ends start `generation`
-    /// ([`action_run::ActionSettledHook`]).
-    fn settled_hook(&self, generation: u64, window: &Window, cx: &gpui::Context<Self>) -> action_run::ActionSettledHook {
-        let weak = cx.entity().downgrade();
-        let handle = window.window_handle();
-        let handoff = self.start_handoff();
-        // Deferred: the launcher settles from INSIDE an update of the window
-        // the run lands in, which is usually this one.
-        Box::new(move |cx: &mut App, _started: bool| {
-            cx.defer(move |cx| {
-                let settled = handle.update(cx, |_, window, cx| {
-                    weak.update(cx, |this, cx| this.end_starting(generation, true, window, cx))
-                });
-                // The composer's window closed first: release the start's
-                // claim on its New session tab (nothing else will).
-                if let (false, Some(handoff)) = (matches!(settled, Ok(Ok(()))), handoff) {
-                    coding_flow::take_back_new_run_tab(handoff, cx);
-                }
-            });
-        })
     }
 
     fn in_dialog(&self) -> bool {
@@ -1123,11 +693,6 @@ impl ChatScreenView {
         self.subject = Subject::None;
         self.probe_generation += 1;
         self.pending_action = None;
-        self.pending_pr = None;
-        self.pending_icon = None;
-        self.pending_board = None;
-        self.pending_conflict = false;
-        self.mention_team = team_id.clone();
         self.mention.update(cx, |mention, _| {
             mention.set_source(team_id.clone().map(crate::markdown::store_completion_source));
         });
@@ -1178,15 +743,9 @@ impl ChatScreenView {
     /// a device seed is a sticky explicit pick, text lands on an EMPTY draft.
     fn apply_seed(&mut self, seed: ChatSeed, window: &mut Window, cx: &mut gpui::Context<Self>) {
         if let Some(action_id) = seed.action_id {
-            self.pending_conflict =
-                seed.conflict && action_id == api::actions::BUILTIN_FIX_CONFLICTS_ID;
             self.pending_action = Some(action_id);
-            self.pending_pr = seed.pr_issue_id;
-            self.pending_icon = seed.icon;
-            self.pending_board = seed.board_id;
             self.refresh_actions(window, cx);
         } else if !seed.issue_ids.is_empty() {
-            self.pending_conflict = false;
             self.set_issue_subject(seed.issue_ids.into_iter().collect(), cx);
         }
         if let Some(device_id) = seed.device_id {
@@ -1225,8 +784,6 @@ impl ChatScreenView {
             rows: Rc::new(rows),
             checked: checked.clone(),
             repos: HashMap::new(),
-            resumables: HashMap::new(),
-            resume: true,
         });
         if !had_subject {
             if let Some(launch) = self.launch.as_mut() {
@@ -1250,10 +807,8 @@ impl ChatScreenView {
 
     /// The `#` picker's toggle: check/uncheck an issue, swapping an action
     /// subject out for issues on the first check, and back to no subject on
-    /// the last uncheck (the label then reads "Start chat" again).
+    /// the last uncheck.
     fn toggle_issue(&mut self, issue_id: String, on: bool, _window: &mut Window, cx: &mut gpui::Context<Self>) {
-        // EXP-897: a different set of issues is a different question.
-        self.blocked_confirmed = false;
         match &mut self.subject {
             Subject::Issues(issues) => {
                 if on {
@@ -1272,13 +827,10 @@ impl ChatScreenView {
         cx.notify();
     }
 
-    /// Back to a plain chat: no chips, plan mode off.
+    /// Back to no subject: no chips, plan mode off.
     fn clear_subject(&mut self, cx: &mut gpui::Context<Self>) {
         self.subject = Subject::None;
         self.probe_generation += 1;
-        // EXP-897: the blocked-issue answer belongs to the subject it was
-        // given for — a new subject asks again.
-        self.blocked_confirmed = false;
         if let Some(launch) = self.launch.as_mut() {
             launch.reseed_plan_for_subject(false, cx);
         }
@@ -1287,8 +839,7 @@ impl ChatScreenView {
 
     /// Kick ONE `repositories.forIssue` probe for `issue_id` if it never ran
     /// (background executor, generation-guarded). Lazy by design: only
-    /// checked issues probe. EXP-662: the same hop reads the run registry
-    /// for the issue's newest resumable record.
+    /// checked issues probe.
     fn ensure_probe(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
         let Subject::Issues(issues) = &mut self.subject else {
             return;
@@ -1305,23 +856,10 @@ impl ChatScreenView {
         issues.repos.insert(issue_id.clone(), RepoState::Loading);
         let generation = self.probe_generation;
         let probe_id = issue_id.clone();
-        let data_dir = coding_flow::coding_data_dir(cx);
-        let account_id = queries::active_account(cx).map(|account| account.id);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move {
-                    let result = api::repositories::for_issue(&trpc, &probe_id);
-                    let resumable = match (&result, &account_id) {
-                        (Ok(Some(_)), Some(account_id)) => coding::run_registry::latest_for_issue(
-                            &data_dir,
-                            account_id,
-                            &probe_id,
-                        ),
-                        _ => None,
-                    };
-                    (result, resumable)
-                })
+                .spawn(async move { api::repositories::for_issue(&trpc, &probe_id) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.probe_generation != generation {
@@ -1330,7 +868,6 @@ impl ChatScreenView {
                 let Subject::Issues(issues) = &mut this.subject else {
                     return;
                 };
-                let (result, resumable) = result;
                 let state = match result {
                     Ok(repo) => RepoState::Ready(repo),
                     Err(err) => RepoState::Error(err.to_string()),
@@ -1339,70 +876,11 @@ impl ChatScreenView {
                 if !matches!(state, RepoState::Ready(Some(_))) {
                     issues.checked.remove(&issue_id);
                 }
-                issues.repos.insert(issue_id.clone(), state);
-                issues.resumables.insert(issue_id, resumable);
+                issues.repos.insert(issue_id, state);
                 cx.notify();
             });
         })
         .detach();
-    }
-
-    /// The one checked issue a resume could apply to at all.
-    fn resume_issue(&self) -> Option<&IssueRow> {
-        let Subject::Issues(issues) = &self.subject else {
-            return None;
-        };
-        if issues.checked.len() != 1 {
-            return None;
-        }
-        let issue_id = issues.checked.iter().next()?;
-        issues.rows.iter().find(|row| &row.issue_id == issue_id)
-    }
-
-    /// EXP-202/EXP-662: the single checked issue with a LOCAL resumable run
-    /// record. A remote target resumes off its own synced worktree instead.
-    fn resume_candidate(&self) -> Option<(&IssueRow, &RunRecord)> {
-        if self.remote_device().is_some() || self.offline_pick().is_some() {
-            return None;
-        }
-        let Subject::Issues(issues) = &self.subject else {
-            return None;
-        };
-        let row = self.resume_issue()?;
-        let record = issues.resumables.get(&row.issue_id)?.as_ref()?;
-        Some((row, record))
-    }
-
-    /// EXP-696 (web `resumeWorktree`): the REMOTE resume offer — the target
-    /// machine's synced `device_worktrees` row for the single checked issue.
-    fn remote_resume(&self, cx: &App) -> bool {
-        let Some(device) = self.remote_device() else {
-            return false;
-        };
-        let Some(row) = self.resume_issue() else {
-            return false;
-        };
-        let collections = Store::global(cx).collections();
-        let worktrees = collections.device_worktrees.read(cx);
-        queries::resume_worktree(
-            worktrees.iter(),
-            &device.row_id,
-            &row.identifier,
-            self.launch_ref().agent.id(),
-        )
-        .is_some()
-    }
-
-    fn resume_offered(&self, cx: &App) -> bool {
-        self.resume_candidate().is_some() || self.remote_resume(cx)
-    }
-
-    /// Whether the launch will actually RESUME (switch on + a candidate).
-    fn resume_active(&self, cx: &App) -> bool {
-        let Subject::Issues(issues) = &self.subject else {
-            return false;
-        };
-        issues.resume && self.resume_offered(cx)
     }
 
     // ── subject: action ───────────────────────────────────────────────────
@@ -1423,81 +901,26 @@ impl ChatScreenView {
                 self.select_action(pending, cx);
             }
         }
-        // A live edit to the selected action's binding may seed its repo.
-        self.seed_action_repo_inputs();
-    }
-
-    /// EXP-862 — the action this composer is SEEDED with, for the lists that
-    /// mark their own row: a pinned action row highlights while its run is
-    /// being composed, and the rail's Agent entry then reads as not-active
-    /// (web does the same off `?action=`). `None` for a chat or an issue
-    /// subject.
-    ///
-    /// The pending seed counts: a play button navigates here with an action
-    /// id that is only resolved once the `actions` shape has synced, and the
-    /// row must light up on the click, not a beat later.
-    pub(crate) fn active_action_id(&self) -> Option<&str> {
-        match &self.subject {
-            Subject::Action(subject) => Some(subject.action_id.as_str()),
-            _ => self.pending_action.as_deref(),
-        }
     }
 
     /// Pick an action: the subject becomes that ONE chip (issues, if any,
-    /// are dropped — the swap rule), its picks reset, the seed's PR and
-    /// icon applied.
+    /// are dropped — the swap rule), its picks reset.
     fn select_action(&mut self, action_id: String, cx: &mut gpui::Context<Self>) {
         let had_subject = !matches!(self.subject, Subject::None);
         self.probe_generation += 1;
-        let conflict_refused = std::mem::take(&mut self.pending_conflict)
-            && action_id == api::actions::BUILTIN_FIX_CONFLICTS_ID;
-        // The refusal belongs to the seed's PR: without one there is nothing
-        // the note could be about.
-        let refused_pr = conflict_refused.then(|| self.pending_pr.clone()).flatten();
         self.subject = Subject::Action(ActionSubject {
-            action_id: action_id.clone(),
+            action_id,
             picks: ActionInputPicks::default(),
-            refused_pr,
         });
         if !had_subject {
             if let Some(launch) = self.launch.as_mut() {
                 launch.reseed_plan_for_subject(true, cx);
             }
         }
-        self.seed_action_repo_inputs();
-        let pending_pr = self.pending_pr.take();
-        let pending_icon = self.pending_icon.take();
-        let pending_board = self.pending_board.take();
-        let Some(action) = self.selected_action().cloned() else {
-            return;
-        };
-        let Subject::Action(subject) = &mut self.subject else {
-            return;
-        };
-        if let Some(issue_id) = pending_pr {
-            let options = crate::action_inputs::pr_pick_options(cx, &action.team_id);
-            subject.picks.preselect_pr(&action, &issue_id, &options);
-        }
-        if let Some(icon) = pending_icon {
-            subject.picks.preselect_icon(&action, &icon);
-        }
-        // FEED-50: the board list's Tidy up button names its board; a board
-        // that no longer resolves in the team leaves the pick empty.
-        if let Some(board_id) = pending_board {
-            let name = Store::global(cx)
-                .collections()
-                .boards_in_team(&action.team_id, cx)
-                .into_iter()
-                .find(|board| board.id == board_id)
-                .map(|board| board.name);
-            if let Some(name) = name {
-                subject.picks.preselect_board(&action, &board_id, &name);
-            }
-        }
         cx.notify();
     }
 
-    /// The picked action's row, if the list holds it.
+    /// The picked action's row, if the list holds it.    /// The picked action's row, if the list holds it.
     fn selected_action(&self) -> Option<&api::actions::Action> {
         let Subject::Action(subject) = &self.subject else {
             return None;
@@ -1505,17 +928,6 @@ impl ChatScreenView {
         self.actions
             .iter()
             .find(|action| action.id == subject.action_id)
-    }
-
-    /// EXP-349: seed the picked action's `repo` inputs from its binding.
-    fn seed_action_repo_inputs(&mut self) {
-        let Some(action) = self.selected_action().cloned() else {
-            return;
-        };
-        let team_repos = self.team_repos.clone();
-        if let Subject::Action(subject) = &mut self.subject {
-            subject.picks.seed_repo_inputs(&action, &team_repos);
-        }
     }
 
     // ── fetches: repos, MCP ───────────────────────────────────────────────
@@ -1552,7 +964,6 @@ impl ChatScreenView {
                 }
                 this.chat_repo = action_run::preselect_repo(&rows);
                 this.team_repos = rows;
-                this.seed_action_repo_inputs();
                 cx.notify();
             });
         })
@@ -1736,7 +1147,8 @@ impl ChatScreenView {
             .find(|device| device.device_id == device_id)
     }
 
-    /// The settled machine when it is NOT this one — the remote-start route.
+    /// The settled machine when it is NOT this one (its synced row answers
+    /// the readiness questions this process cannot).
     fn remote_device(&self) -> Option<&queries::LaunchDevice> {
         self.selected_device().filter(|device| !device.is_own)
     }
@@ -1771,17 +1183,10 @@ impl ChatScreenView {
                 Some((row, Some((device.device_id.clone(), device.label.clone().into()))))
             }
             None => {
-                let agent = match self.resume_active(cx) {
-                    true => self
-                        .resume_candidate()
-                        .map(|(_, record)| record.agent)
-                        .unwrap_or(launch.agent),
-                    false => launch.agent,
-                };
                 let hub = CodingHub::global_ref(cx)?;
                 let hub = hub.read(cx);
                 let doctor = hub.doctor.device.as_ref()?;
-                Some((device_readiness::blocking_row(doctor, agent, true)?, None))
+                Some((device_readiness::blocking_row(doctor, launch.agent, true)?, None))
             }
         }
     }
@@ -1826,58 +1231,14 @@ impl ChatScreenView {
             Subject::Issues(issues) => SubjectKind::Issues {
                 count: issues.checked.len(),
             },
-            // EXP-1233: the Fix merge conflicts builtin with a PR picked
-            // wears its own verb and send.
-            Subject::Action(_) if self.fix_conflicts_pr_id().is_some() => SubjectKind::FixConflicts,
-            Subject::Action(action) => SubjectKind::Action {
-                id: action.action_id.clone(),
-            },
+            Subject::Action(_) => SubjectKind::Action,
         }
     }
 
-    /// EXP-1233: the representative issue id picked into the Fix merge
-    /// conflicts builtin's `pr` input; `None` for any other subject or while
-    /// nothing is picked.
-    fn fix_conflicts_pr_id(&self) -> Option<&str> {
-        let Subject::Action(subject) = &self.subject else {
-            return None;
-        };
-        if subject.action_id != api::actions::BUILTIN_FIX_CONFLICTS_ID {
-            return None;
-        }
-        subject.picks.pr_value(self.selected_action()?)
-    }
-
-    /// EXP-1233: the picked pull request off the synced issue rows (every
-    /// open issue it links — a batch PR — its number and branches).
-    fn fix_conflicts_pr(&self, cx: &App) -> Option<domain::fix_conflicts::FixConflictsPr> {
-        let pr_issue_id = self.fix_conflicts_pr_id()?;
-        let store = Store::try_global(cx)?;
-        let issues = store.collections().issues.read(cx);
-        domain::fix_conflicts::resolve_fix_conflicts_pr(Some(pr_issue_id), issues.iter())
-    }
-
-    /// EXP-1233: the headline chip's ✕ — clear the PR pick, keep the action.
-    fn clear_fix_conflicts_pr(&mut self, cx: &mut gpui::Context<Self>) {
-        let Some(action) = self.selected_action().cloned() else {
-            return;
-        };
-        if let Subject::Action(subject) = &mut self.subject {
-            subject.picks.clear_pr(&action);
-            // The refusal was about the PR just cleared; the next pick is
-            // one nobody tried to merge.
-            subject.refused_pr = None;
-        }
-        cx.notify();
-    }
-
-    /// Why the submit is disabled right now; `None` = launchable. The order
+    /// Why the submit is disabled right now;    /// Why the submit is disabled right now; `None` = launchable. The order
     /// is the deleted dialog's: the machine, then the tooling, then the
     /// picked MCP servers, then the subject's own rules.
     fn launch_blocker(&self, cx: &mut App) -> Option<SharedString> {
-        if self.launching {
-            return Some("Starting…".into());
-        }
         if self.sending {
             return Some("Uploading images…".into());
         }
@@ -1907,13 +1268,7 @@ impl ChatScreenView {
                 }
             }
             None => {
-                let gated_agent = match self.resume_active(cx) {
-                    true => self
-                        .resume_candidate()
-                        .map(|(_, record)| record.agent)
-                        .unwrap_or(launch.agent),
-                    false => launch.agent,
-                };
+                let gated_agent = launch.agent;
                 let report = CodingHub::global_ref(cx).and_then(|hub| hub.read(cx).doctor.report.clone());
                 match report.as_ref() {
                     None => return Some("Checking local tools…".into()),
@@ -1960,7 +1315,6 @@ impl ChatScreenView {
                 // EXP-202: only ONE session per issue — local registry and
                 // live synced rows alike.
                 let sessions = coding_flow::LocalSessions::global(cx);
-                let store = Store::global(cx);
                 let now = chrono::Utc::now().timestamp();
                 for row in issues.rows.iter() {
                     if !issues.checked.contains(&row.issue_id) {
@@ -1972,18 +1326,9 @@ impl ChatScreenView {
                                 .into(),
                         );
                     }
-                    let synced = store.collections().coding_sessions.read(cx);
-                    if let Some(session) = synced.iter().find(|session| {
-                        session.issue_id.as_deref() == Some(row.issue_id.as_str())
-                            && queries::coding_session_is_live(session, now)
-                    }) {
-                        let device = queries::session_device_presentation(
-                            session,
-                            store.collections().devices.read(cx).iter(),
-                            now * 1_000,
-                        )
-                        .label
-                        .unwrap_or_else(|| "another device".to_string());
+                    if let Some(device) =
+                        queries::live_session_device_for_issue(cx, &row.issue_id, now)
+                    {
                         return Some(
                             format!(
                                 "{} already has a live session on {device} (one session per issue).",
@@ -1998,21 +1343,16 @@ impl ChatScreenView {
         }
     }
 
-    /// The launch options as picked. A RESUME never re-enters plan mode.
-    /// FEED-73: a real action's run takes the action's own MCP list
-    /// (server-side), never the composer's pick.
+    /// The launch options as picked. EXP-1294: every subject (an action
+    /// too: actions are saved prompts) takes the composer's MCP pick.
     fn options(&self, cx: &App) -> LaunchOptions {
-        let mut options = self.launch_ref().options(self.resume_active(cx), cx);
-        if chat_launch::subject_owns_mcp_servers(&self.subject_kind()) {
-            options.mcp_server_ids.clear();
-        }
-        options
+        self.launch_ref().options(cx)
     }
 
     // ── send ──────────────────────────────────────────────────────────────
 
     /// The submit: upload the staged images to the TEAM route (sequential,
-    /// idempotent), fold them into the steer message shape, then start.
+    /// idempotent), then start.
     fn send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         // EXP-1271: pending = inert (an Enter mid-start sends nothing).
         if self.launch_blocker(cx).is_some() || self.sending || self.starting.is_some() {
@@ -2020,7 +1360,7 @@ impl ChatScreenView {
         }
         let text = self.input.read(cx).value().to_string();
         if self.images.is_empty() {
-            self.start(text, window, cx);
+            self.start(text, Vec::new(), window, cx);
             return;
         }
         let Some(team_id) = self.team_id.clone() else {
@@ -2046,8 +1386,8 @@ impl ChatScreenView {
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
-                // The draft this upload was for already landed (a late row
-                // of its earlier send): it is consumed, nothing to start.
+                // The draft this upload was for already landed (a late
+                // answer of its earlier send): it is consumed.
                 if this.send_epoch != epoch {
                     cx.notify();
                     return;
@@ -2055,22 +1395,27 @@ impl ChatScreenView {
                 match outcome {
                     Ok(resolved) => {
                         this.images.note_uploaded(&resolved);
-                        // The subject may have moved under the upload (an
-                        // action pick cleared, a 31st issue ticked, a probe
-                        // failed): the gate runs again, or the blocker is
-                        // bypassed. The uploads stay noted for the retry.
+                        // The subject may have moved under the upload: the
+                        // gate runs again. The uploads stay noted for the
+                        // retry.
                         if let Some(blocker) = this.launch_blocker(cx) {
                             this.notice = Some(blocker);
                             cx.notify();
                             return;
                         }
-                        let message = this.images.message(&text);
-                        this.start(message, window, cx);
+                        // The embeds name the uploads; the send carries the
+                        // text and the ids apart.
+                        let parsed = domain::image_message::parse_steer_message(
+                            &this.images.message(&text),
+                        );
+                        let mut attachment_ids = parsed.attachment_ids;
+                        attachment_ids.extend(parsed.files.into_iter().map(|file| file.id));
+                        this.start(parsed.text, attachment_ids, window, cx);
                     }
                     Err((resolved, error)) => {
                         // Keep what landed so a retry uploads only the rest.
                         this.images.note_uploaded(&resolved);
-                        log::warn!("[ui] chat composer upload failed: {error}");
+                        log::warn!("[ui] home composer upload failed: {error}");
                         // FEED-79: a failed upload is the error toast; Retry
                         // sends again (only the rest uploads).
                         let composer = cx.entity().downgrade();
@@ -2091,584 +1436,124 @@ impl ChatScreenView {
         .detach();
     }
 
-    /// Start the run for the composed `message` (text + embeds). Local
-    /// subjects take the same rails the deleted dialog took; a remote target
-    /// sends ONE `steer.startSession`.
-    fn start(&mut self, message: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+    /// EXP-1294: start the session — ONE `sessions.send` for a new root in
+    /// the ACTIVE team on the picked device, with the subject, the text, the
+    /// uploads and the options. The page lands on the root the send answers;
+    /// a dialog closes and lands its opener there.
+    fn start(
+        &mut self,
+        text: String,
+        attachment_ids: Vec<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         // EXP-1271: a start in flight keeps the send inert.
         if self.starting.is_some() {
             return;
         }
-        let generation = self.begin_starting(window, cx);
-        if !self.start_now(message, generation, window, cx) {
-            self.end_starting(generation, true, window, cx);
-        }
-    }
-
-    /// [`Self::start`]'s body: `true` once a launch is on its way (it ends
-    /// start `generation` itself when it settles), `false` when nothing was
-    /// launched (a refusal, or the blocked-start question asked first).
-    fn start_now(
-        &mut self,
-        message: String,
-        generation: u64,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> bool {
-        // SLOP-3: a Stacked PR answer starts THIS issue (run[0]) in place of
-        // the pick, on the same launcher, device and settings.
-        let stacked_issue = self.stacked_issue.take();
         let Some(team_id) = self.team_id.clone() else {
-            return false;
-        };
-        // EXP-897/EXP-980/SLOP-3: a pick that something OPEN blocks asks
-        // first: Cancel, Start anyway or Stacked PR. Asked once per subject;
-        // the answer rides `blocked_confirmed` into the second pass (a
-        // stacked answer only rewrites the message). A BATCH asks too, about
-        // the blockers outside it.
-        if !self.blocked_confirmed {
-            if let Some(blocked) = self.open_blockers(cx) {
-                self.prompt_blocked_start(message, blocked, window, cx);
-                return false;
-            }
-        }
-        let prompt = chat_launch::prompt_of(&message);
-        let options = self.options(cx);
-        if let Some(device) = self.remote_device() {
-            let device_id = device.device_id.clone();
-            let input = match &self.subject {
-                Subject::None => chat_launch::remote_start_input(
-                    &device_id,
-                    &options,
-                    RemoteSubject::Chat {
-                        team_id: &team_id,
-                        repository_id: self.chat_repo.as_ref().map(|repo| repo.id.as_str()),
-                    },
-                    prompt,
-                ),
-                Subject::Action(subject) => {
-                    let Some(action) = self.selected_action() else {
-                        return false;
-                    };
-                    let inputs = subject.picks.collect(action);
-                    chat_launch::remote_start_input(
-                        &device_id,
-                        &options,
-                        RemoteSubject::Action {
-                            action_id: &subject.action_id,
-                            team_id: &team_id,
-                            inputs: &inputs,
-                        },
-                        prompt,
-                    )
-                }
-                Subject::Issues(issues) => {
-                    let mut checked: Vec<String> = match &stacked_issue {
-                        Some(issue_id) => vec![issue_id.clone()],
-                        None => issues
-                            .rows
-                            .iter()
-                            .filter(|row| issues.checked.contains(&row.issue_id))
-                            .map(|row| row.issue_id.clone())
-                            .collect(),
-                    };
-                    let subject = match checked.len() {
-                        0 => return false,
-                        1 => RemoteSubject::Issue {
-                            issue_id: &checked.pop().expect("one checked"),
-                            resume: stacked_issue.is_none() && self.resume_active(cx),
-                        }
-                        .into_owned(),
-                        _ => RemoteSubject::Batch { issue_ids: checked }.into_owned(),
-                    };
-                    chat_launch::remote_start_input(&device_id, &options, subject.borrow(), prompt)
-                }
-            };
-            // EXP-1284: a start from a thread's composer joins that thread.
-            let mut input = input;
-            input.thread_id = self.thread_id.clone();
-            self.launch_remote(input, generation, window, cx);
-            return true;
-        }
-        match &self.subject {
-            Subject::None => {
-                // EXP-1037: a chat run's rails hang off the WINDOW — the
-                // session-bar host that owns the launch and the tab the run
-                // lands in. A dialog composer has neither, so the launch
-                // runs in the window that opened it (for the page, that IS
-                // this window, one tick later).
-                let target = navigation::deferred_open_window(window, cx);
-                if crate::session_bar::host_for_window_id(target.window_id(), cx).is_none() {
-                    self.start_failed("Open a team window to start a chat.".into(), cx);
-                    return false;
-                }
-                let repo = self
-                    .chat_repo
-                    .as_ref()
-                    .map(|repo| (repo.id.clone(), repo.full_name.clone()));
-                let settled = self.settled_hook(generation, window, cx);
-                let origin = self.launch_origin();
-                let handoff = self.start_handoff();
-                navigation::defer_in_result_window(window, cx, move |window, cx| {
-                    let Some(host) = crate::session_bar::host_for_window(window, cx) else {
-                        return;
-                    };
-                    host.update(cx, |host, cx| {
-                        host.launch_chat_run(options, repo, prompt, origin, Some(settled), handoff, window, cx);
-                    });
-                });
-                self.after_started(window, cx);
-                true
-            }
-            Subject::Action(subject) => {
-                let Some(action) = self.selected_action().cloned() else {
-                    return false;
-                };
-                let inputs = subject.picks.collect(&action);
-                let settled = self.settled_hook(generation, window, cx);
-                action_run::start_action_run(
-                    StartActionArgs {
-                        action_id: action.id,
-                        team_id,
-                        repo: ActionRepo::Resolve,
-                        options,
-                        origin: self.launch_origin(),
-                        inputs,
-                        // EXP-1037: the run's tab lands in the window the ▶
-                        // was pressed in — a dialog composer closes itself.
-                        target: Some(navigation::deferred_open_window(window, cx)),
-                        landing: coding_flow::RunLanding::Composer(self.start_handoff()),
-                        reservation: None,
-                        // A person pressed Run — never a trigger firing.
-                        trigger: None,
-                        trigger_id: None,
-                        prompt,
-                        on_settled: Some(settled),
-                        report: crate::steer_wiring::StartReport::none(),
-                    },
-                    cx,
-                );
-                self.after_started(window, cx);
-                true
-            }
-            Subject::Issues(issues) => {
-                if stacked_issue.is_some() || issues.checked.len() == 1 {
-                    let issue_id = match &stacked_issue {
-                        Some(issue_id) => issue_id.clone(),
-                        None => issues.checked.iter().next().cloned().expect("one checked"),
-                    };
-                    // EXP-662: an active resume relaunches the RECORDED run
-                    // exactly; only model/effort may be nudged, and only
-                    // while the pick sits on that same agent (D2). A stacked
-                    // start never resumes (the blocked question skips a
-                    // resume, and its issue may not be the pick).
-                    let record = (stacked_issue.is_none() && self.resume_active(cx))
-                        .then(|| self.resume_candidate().map(|(_, record)| record.clone()))
-                        .flatten();
-                    if let Some(record) = record {
-                        let same_agent = options.agent == record.agent;
-                        let Some(deps) = coding_flow::build_resume_deps(&record, cx) else {
-                            self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
-                            return false;
-                        };
-                        let request = ResumeRunRequest {
-                            record,
-                            device_label: coding::default_device_label(),
-                            origin: LaunchOrigin::Local,
-                            model: same_agent.then(|| options.model.clone()),
-                            effort: same_agent.then(|| options.effort.clone()),
-                            prompt,
-                            // EXP-849: the composer's account pick reaches a
-                            // resume too — picking another account on a
-                            // resumable issue continues it there.
-                            account: same_agent.then(|| options.account.clone()).flatten(),
-                        };
-                        // EXP-1158: an account picked for the resume is a
-                        // person's switch — it moves the last used login (a
-                        // LOCAL resume is also a rotation hop's shape, so the
-                        // launcher leaves this one to its caller).
-                        if let Some(account) = &request.account {
-                            coding::record_last_used(
-                                &coding_flow::coding_data_dir(cx),
-                                request.record.agent,
-                                Some(account),
-                            );
-                        }
-                        self.run_prepare(
-                            PrepareRequest::ResumeRun(request),
-                            deps,
-                            SessionSubject::Issue(issue_id),
-                            generation,
-                            window,
-                            cx,
-                        );
-                        return true;
-                    }
-                    let Some((request, deps)) = coding_flow::build_launch(
-                        &issue_id,
-                        self.launch_origin(),
-                        options,
-                        false,
-                        prompt,
-                        cx,
-                    ) else {
-                        self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
-                        return false;
-                    };
-                    self.run_prepare(
-                        PrepareRequest::Issue(request),
-                        deps,
-                        SessionSubject::Issue(issue_id),
-                        generation,
-                        window,
-                        cx,
-                    );
-                    return true;
-                }
-                let Some(mut request) = chat_launch::batch_request(
-                    &team_id,
-                    &issues.rows,
-                    &issues.checked,
-                    &issues.repos,
-                    options,
-                    prompt,
-                ) else {
-                    return false;
-                };
-                request.origin = self.launch_origin();
-                let batch_id = request.batch_id.clone();
-                let Some(deps) = coding_flow::build_batch_deps(cx) else {
-                    self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
-                    return false;
-                };
-                self.run_prepare(
-                    PrepareRequest::Batch(request),
-                    deps,
-                    SessionSubject::Batch(batch_id),
-                    generation,
-                    window,
-                    cx,
-                );
-                true
-            }
-        }
-    }
-
-    /// EXP-897/EXP-980 — the OPEN issues blocking the pick, or `None` when
-    /// the blocked-start question does not apply at all: no issue subject, a
-    /// resume (it re-enters an existing worktree, base included), or nothing
-    /// unfinished in the way.
-    ///
-    /// A BATCH asks about the blockers OUTSIDE the picked set only — a
-    /// blocker picked into the same batch is not in its way. "Unfinished" is
-    /// the ANCHOR status: `done`, `cancelled` and `duplicate` blockers are
-    /// history, everything else still has work to land.
-    fn open_blockers(&self, cx: &App) -> Option<BlockedStart> {
-        let Subject::Issues(issues) = &self.subject else {
-            return None;
-        };
-        if issues.checked.is_empty() || self.resume_active(cx) {
-            return None;
-        }
-        // The picker's order, so the dialog reads like the composer.
-        let picked: Vec<String> = issues
-            .rows
-            .iter()
-            .filter(|row| issues.checked.contains(&row.issue_id))
-            .map(|row| row.issue_id.clone())
-            .collect();
-        if picked.is_empty() {
-            return None;
-        }
-        let refs: Vec<&str> = picked.iter().map(String::as_str).collect();
-        let blockers = crate::issue_graph::open_blockers_outside(&refs, cx);
-        if blockers.is_empty() {
-            return None;
-        }
-        let (stack, stack_note) = stack_choice(&picked, cx);
-        Some(BlockedStart {
-            picked,
-            blockers,
-            stack,
-            stack_note,
-        })
-    }
-
-    /// EXP-897/EXP-980/SLOP-3: the blocked-start dialog: the sentence, the
-    /// transitive blocks GRAPH underneath it, and Cancel / Start anyway /
-    /// Stacked PR (primary). Both answers record the confirmation and
-    /// re-enter [`Self::start`]; Stacked PR only swaps the composed message
-    /// for [`BlockedStart::stacked_message`], so the two paths stay one code
-    /// path. Stacked PR is never hidden: without a stack base it is DISABLED
-    /// and its reason is captioned under the graph.
-    fn prompt_blocked_start(
-        &mut self,
-        message: String,
-        blocked: BlockedStart,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        // EXP-1037: in a dialog window there is no alert to open —
-        // `open_dialog_window` never nests (`dialog_open_here`), and closing
-        // this window to ask in the opener would drop the view holding the
-        // draft. The question takes over the dialog's body instead
-        // ([`Self::render_blocked_panel`]), answered by the same
-        // `blocked_confirmed` + `start` pair.
-        if self.in_dialog() {
-            self.blocked = Some(PendingBlocked { message, blocked });
-            cx.notify();
             return;
-        }
-        let refs: Vec<&str> = blocked.picked.iter().map(String::as_str).collect();
-        let graph = crate::issue_graph::graph_for(&refs, cx);
-        let stacked = blocked.stacked_start(&message);
-
-        let entity = cx.entity().downgrade();
-        let opener = window.window_handle();
-        let resume = move |message: String, stacked_issue: Option<String>, cx: &mut App| {
-            let entity = entity.clone();
-            let _ = opener.update(cx, move |_, window, cx| {
-                let _ = entity.update(cx, |this, cx| {
-                    this.blocked_confirmed = true;
-                    this.stacked_issue = stacked_issue;
-                    this.start(message, window, cx);
-                });
-            });
         };
-        let anyway = resume.clone();
-        let spec = blocked_start_alert(
-            &blocked,
-            graph,
-            move |_, cx| {
-                anyway(message.clone(), None, cx);
-                true
+        let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
+            self.start_failed("Pick a device to start the session on.".into(), cx);
+            return;
+        };
+        let subject = match &self.subject {
+            Subject::None => StartSubject {
+                repository_id: self.chat_repo.as_ref().map(|repo| repo.id.clone()),
+                ..Default::default()
             },
-            move |_, cx| {
-                if let Some((issue_id, message)) = stacked.clone() {
-                    resume(message, Some(issue_id), cx);
+            Subject::Issues(issues) => StartSubject {
+                // The picker's order: the session lists them as picked.
+                issue_ids: issues
+                    .rows
+                    .iter()
+                    .filter(|row| issues.checked.contains(&row.issue_id))
+                    .map(|row| row.issue_id.clone())
+                    .collect(),
+                repository_id: chat_launch::issues_repository(&issues.checked, &issues.repos),
+                ..Default::default()
+            },
+            Subject::Action(subject) => {
+                let Some(action) = self.selected_action() else {
+                    return;
+                };
+                StartSubject {
+                    action_id: Some(subject.action_id.clone()),
+                    inputs: subject.picks.collect(action),
+                    ..Default::default()
                 }
-                true
-            },
-        );
-        crate::native_dialog::open_alert(window, cx, spec);
-    }
-
-    /// EXP-696: hand the run to another machine; a refusal renders in the
-    /// error slot.
-    ///
-    /// EXP-818: it then FOLLOWS the run in — a remote start lands in the
-    /// session screen exactly as a local one does
-    /// ([`coding_flow::follow_composer_start`], which waits for the row the
-    /// other machine writes). EXP-1271: until then the card's STARTING row
-    /// names the machine; the draft clears only once the run landed.
-    /// Review #3: the request carries the start's `startId`, and the 30 s
-    /// deadline is armed once it is SENT.
-    fn launch_remote(
-        &mut self,
-        mut input: api::steer::StartSessionInput,
-        generation: u64,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
+            }
+        };
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.end_starting(generation, true, window, cx);
             self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
             return;
         };
-        let Some((start_id, handoff)) = self
-            .starting
-            .as_ref()
-            .filter(|starting| starting.generation == generation)
-            .map(|starting| (starting.start_id.clone(), starting.handoff))
-        else {
-            return;
-        };
-        input.start_id = Some(start_id.clone());
-        // EXP-1284: the thread the start joins — its landing opens there.
-        let thread_id = input.thread_id.clone();
-        let device_id = input.device_id.clone();
-        let subject = coding_flow::RemoteRunSubject::of(&input);
-        self.launching = true;
-        cx.notify();
+        let input = chat_launch::send_input(
+            &team_id,
+            &device_id,
+            &self.options(cx),
+            subject,
+            &text,
+            attachment_ids,
+        );
+        let generation = self.begin_starting(window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api::steer::start_session(&trpc, &input) })
+                .spawn(async move { api::sessions::send(&trpc, &input) })
                 .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.launching = false;
-                match result {
-                    Ok(()) => {
-                        // EXP-1271: the STARTING row stays until the other
-                        // machine's row lands (and opens, EXP-818), or the
-                        // deadline (from now) passes: the timeout toast
-                        // then, while the follower keeps watching.
-                        this.arm_deadline(generation, window, cx);
-                        this.follow_start(
-                            device_id,
-                            subject,
-                            start_id,
-                            handoff,
-                            thread_id.clone(),
-                            window,
-                            cx,
-                        );
+            let _ = this.update_in(cx, |this, window, cx| match result {
+                Ok(output) => {
+                    // Read before `start_landed` closes a dialog composer.
+                    let in_dialog = this.in_dialog();
+                    if this.start_landed(generation, window, cx) {
+                        let session_id = output.session_id;
+                        // A dialog has closed itself by now: the root opens
+                        // in the window its play button was pressed in, ON
+                        // TOP of what it showed (Back returns there); the
+                        // Home page gives way to the root it started.
+                        navigation::defer_in_result_window(window, cx, move |window, cx| {
+                            let screen = Screen::Thread { session_id };
+                            if in_dialog {
+                                navigation::navigate(window, cx, screen);
+                            } else {
+                                navigation::navigate_replace(window, cx, screen);
+                            }
+                        });
                     }
-                    Err(err) if coding_flow::may_have_reached_device(&err) => {
-                        // Final review B3: a relay timeout (REV-34) or a
-                        // lost answer may have delivered the frame anyway:
-                        // the failure toast, but the start stays followed
-                        // and keeps its tab like a timed-out one, so a late
-                        // row still lands and its Retry repeats the startId.
-                        this.end_starting(generation, false, window, cx);
-                        let toast = crate::action_error::failed_toast(
-                            "start",
-                            "the session",
-                            Some(err.user_message()),
-                        )
-                        .action(crate::feedback::RETRY, this.retry_send(cx));
-                        let toast = crate::toast::show_dismissible(toast, window, cx);
-                        this.park_late(start_id.clone(), handoff, toast, cx);
-                        this.follow_start(
-                            device_id,
-                            subject,
-                            start_id,
-                            handoff,
-                            thread_id.clone(),
-                            window,
-                            cx,
-                        );
+                }
+                Err(err) => {
+                    // A late failure after the timeout toast says nothing
+                    // more; an in-time one is the error toast.
+                    let in_time = this
+                        .starting
+                        .as_ref()
+                        .is_some_and(|starting| starting.generation == generation);
+                    if let Some(late) = this.late.take_if(|late| late.generation == generation) {
+                        late.dismiss_toast(cx);
                     }
-                    Err(err) => {
-                        this.end_starting(generation, true, window, cx);
+                    if in_time {
+                        this.end_starting(generation, cx);
                         this.start_failed(err.user_message().into(), cx);
                     }
                 }
-                cx.notify();
             });
         })
         .detach();
     }
 
-    /// Follow remote start `start_id` until its row lands (or the watch
-    /// window passes), in the window the start was made from; a DIALOG
-    /// composer settles in its own (its `after_started` closes that window,
-    /// never the opener). The landing asks [`Self::start_landed`] whether
-    /// to open the run. A start already followed (a Retry of it) spawns no
-    /// second follower: the first one lands it.
-    fn follow_start(
-        &mut self,
-        device_id: String,
-        subject: coding_flow::RemoteRunSubject,
-        start_id: String,
-        handoff: Option<coding_flow::StartHandoff>,
-        // EXP-1284: the thread the start joins — it lands there.
-        thread_id: Option<String>,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let weak = cx.entity().downgrade();
-        let own = window.window_handle();
-        let landed_id = start_id.clone();
-        let landed: Box<dyn FnOnce(String, &mut Window, &mut App) -> bool> =
-            Box::new(move |_session_id, window, cx| {
-                // The composer is gone: nothing of its draft to keep, the
-                // run lands as before.
-                let settle = move |window: &mut Window, cx: &mut App| {
-                    weak.update(cx, |this, cx| this.start_landed(&landed_id, window, cx))
-                        .unwrap_or(true)
-                };
-                if window.window_handle().window_id() == own.window_id() {
-                    settle(window, cx)
-                } else {
-                    own.update(cx, |_, window, cx| settle(window, cx))
-                        .unwrap_or(true)
-                }
-            });
-        coding_flow::follow_composer_start(
-            device_id,
-            subject,
-            coding_flow::ComposerStartWatch {
-                start_id,
-                handoff,
-                thread_id,
-                landed,
-            },
-            window,
-            cx,
-        );
-    }
-
-    /// Shared prepare→spawn tail: background [`coding::prepare`], then
-    /// `coding_flow::spawn_into_window` on THIS window; a `Disabled` reason
-    /// (or spawn error) renders inline and keeps the draft.
-    fn run_prepare(
-        &mut self,
-        request: PrepareRequest,
-        deps: coding::CodingDeps,
-        subject: SessionSubject,
-        generation: u64,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.launching = true;
-        cx.notify();
-        let handoff = self.start_handoff();
-        cx.spawn_in(window, async move |this, cx| {
-            let prepared = cx
-                .background_executor()
-                .spawn(async move { coding::prepare(&request, &deps) })
-                .await;
-            let settled = this.update_in(cx, |this, window, cx| {
-                this.launching = false;
-                // EXP-1255: the start settles AFTER the spawn — ending it
-                // first would take back the New run tab's handoff, and the
-                // run would open beside the tab instead of in it.
-                let outcome: Result<(), SharedString> = match prepared {
-                    Ok(Prepared::Ready(prepared)) => coding_flow::spawn_into_window(
-                        prepared,
-                        subject,
-                        coding_flow::RunLanding::Composer(this.start_handoff()),
-                        window,
-                        cx,
-                    )
-                    .map_err(SharedString::from),
-                    Ok(Prepared::Disabled(reason)) => Err(reason.message().into()),
-                    Err(err) => Err(err.to_string().into()),
-                };
-                this.end_starting(generation, true, window, cx);
-                match outcome {
-                    Ok(()) => this.after_started(window, cx),
-                    Err(message) => this.start_failed(message, cx),
-                }
-                cx.notify();
-            });
-            // The window closed while the prepare ran: nothing lands, so the
-            // start's claim on its New session tab is released here.
-            if let (Err(_), Some(handoff)) = (settled, handoff) {
-                gpui::AsyncApp::update(&**cx, |cx| coding_flow::take_back_new_run_tab(handoff, cx));
-            }
-        })
-        .detach();
-    }
-
-    /// The run is on its way: clear the draft, the images and the subject.
-    /// Navigating into the run is NOT this function's job — a local launch
-    /// lands there from `coding_flow::spawn_into_window`, a remote one from
-    /// `coding_flow::follow_remote_start` once the other machine's row syncs
-    /// (EXP-818: both paths open the session screen).
+    /// The session is on its way: clear the draft, the images and the
+    /// subject; a dialog composer closes itself.
     fn after_started(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         self.input
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.images.clear();
-        self.draft_start = None;
         self.send_epoch += 1;
         self.notice = None;
-        self.blocked_confirmed = false;
-        self.blocked = None;
         self.clear_subject(cx);
-        // EXP-1037: a dialog composer has done its one job — the run opens in
-        // the window the play button was pressed in (the navigation hands
+        // EXP-1037: a dialog composer has done its one job — the root opens
+        // in the window the play button was pressed in (the navigation hands
         // back through `navigation::owner_window_for`).
         if self.in_dialog() {
             clear_open_dialog(cx.entity().entity_id(), cx);
@@ -2746,32 +1631,11 @@ impl ChatScreenView {
 
     /// The subject chips: one per checked issue, or the action's one. They
     /// sit in the HEADLINE (EXP-1019), not in the card's leading slot.
-    /// EXP-1233: the Fix merge conflicts builtin with a PR picked shows the
-    /// PR's ISSUE chips instead (the ones "Implement" draws); their ✕ clears
-    /// the pick, never the action.
     fn render_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let muted = cx.theme().muted_foreground;
         let mut chips: Vec<AnyElement> = Vec::new();
-        let fix_pr = self.fix_conflicts_pr(cx);
         match &self.subject {
             Subject::None => return None,
-            Subject::Action(_) if fix_pr.is_some() => {
-                for issue in fix_pr.iter().flat_map(|pr| pr.issues.iter()) {
-                    chips.push(
-                        fix_conflicts_issue_chip(issue, cx)
-                            .on_remove(
-                                SharedString::from(format!(
-                                    "chat-chip-issue-{}-remove",
-                                    issue.identifier
-                                )),
-                                cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.clear_fix_conflicts_pr(cx);
-                                }),
-                            )
-                            .into_any_element(),
-                    );
-                }
-            }
             Subject::Issues(issues) => {
                 for (ix, row) in issues
                     .rows
@@ -2802,15 +1666,10 @@ impl ChatScreenView {
                     );
                 }
             }
-            Subject::Action(subject) => {
+            Subject::Action(_) => {
                 let (name, icon) = match self.selected_action() {
                     Some(action) => (action.name.clone(), action.icon.clone()),
-                    None => (
-                        api::actions::builtin_action_name(&subject.action_id)
-                            .unwrap_or("Action")
-                            .to_string(),
-                        api::actions::builtin_action_icon(&subject.action_id).map(str::to_string),
-                    ),
+                    None => ("Action".to_string(), None),
                 };
                 chips.push(
                     glass_pill("chat-chip-action", PillSize::Sm, PillMode::Readonly, cx)
@@ -2831,7 +1690,7 @@ impl ChatScreenView {
                 );
             }
         }
-        // EXP-1155: a 30-issue batch wraps into many chip rows; past the cap
+        // EXP-1155: 30 issue chips wrap into many rows; past the cap
         // they scroll in their own band beside the verb, never the dialog.
         Some(
             crate::scroll_pane::capped_v_scroll(
@@ -2851,9 +1710,7 @@ impl ChatScreenView {
         )
     }
 
-    /// The picked action's remaining typed inputs (repo/board/pr/icon).
-    /// EXP-1233: the Fix merge conflicts builtin's `pr` input is its CARD
-    /// ([`Self::render_fix_conflicts_card`]), not the generic dropdown.
+    /// The picked action's typed inputs (repo/board/pr/issue).
     fn render_action_fields(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let Subject::Action(subject) = &self.subject else {
             return None;
@@ -2863,13 +1720,8 @@ impl ChatScreenView {
             return None;
         }
         let team_id = action.team_id.clone();
-        let fix_conflicts = action.id == api::actions::BUILTIN_FIX_CONFLICTS_ID;
         let mut fields = v_flex().w_full().gap_2().px_1().py_1();
         for (ix, input) in action.inputs.iter().enumerate() {
-            if fix_conflicts && input.input_type == "pr" {
-                fields = fields.child(self.render_fix_conflicts_card(input, &team_id, cx));
-                continue;
-            }
             fields = fields.child(subject.picks.render_field(
                 "chat-input",
                 ix,
@@ -2894,38 +1746,7 @@ impl ChatScreenView {
         )
     }
 
-    /// EXP-1233 — the Fix merge conflicts CARD: a glass group whose first
-    /// row IS the `pr` picker (the open-PR glyph, `#n`, `branch → base`, the
-    /// chevron; the placeholder alone while nothing is picked) opening the
-    /// generic field's own dropdown ([`crate::action_inputs::pr_menu`]), and,
-    /// only when a refused merge opened the composer, the refusal line under
-    /// a hairline. Mirrors web `FixConflictsCard`.
-    fn render_fix_conflicts_card(
-        &self,
-        input: &api::actions::ActionInput,
-        team_id: &str,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let pr = self.fix_conflicts_pr(cx);
-        let refused_pr = match &self.subject {
-            Subject::Action(subject) => subject.refused_pr.as_deref(),
-            _ => None,
-        };
-        let refused = conflict_note_shows(refused_pr, self.fix_conflicts_pr_id());
-        let pulls = crate::action_inputs::pr_pick_options(cx, team_id);
-        let row = fix_conflicts_pr_row("chat-fix-conflicts-pr", pr.as_ref(), cx)
-            .dropdown_menu(crate::action_inputs::pr_menu(
-                cx.entity().downgrade(),
-                input.key.clone(),
-                !input.required,
-                pulls,
-                Self::picks_access,
-            ))
-            .into_any_element();
-        fix_conflicts_card("chat-fix-conflicts-card", row, refused && pr.is_some(), cx)
-    }
-
-    /// EXP-868: the open team pool behind the issue picker, rebuilt only when
+    /// EXP-868: the open team pool behind the issue picker    /// EXP-868: the open team pool behind the issue picker, rebuilt only when
     /// the team or one of the collections it reads has moved.
     fn team_pool(&self, team_id: &str, cx: &App) -> Rc<Vec<IssueRow>> {
         let collections = Store::global(cx).collections();
@@ -3076,7 +1897,7 @@ impl ChatScreenView {
             issue_picker::popover_fit(bounds, viewport, issue_picker::POPOVER_WANTED_HEIGHT);
         let options = self.launch.as_ref().map(|launch| launch.composer_menu(cx));
         // EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=implement-issue`): the
-        // Agent page opens its "+" menu once, on the first render that has
+        // home page opens its "+" menu once, on the first render that has
         // the full menu (the launch cluster), synced issues and a measured +.
         let dev_open = matches!(self.presentation, Presentation::Page)
             && options.is_some()
@@ -3197,10 +2018,10 @@ impl ChatScreenView {
         .into_any_element()
     }
 
-    /// EXP-993: the Repository pin (no-subject chats only), offered ONLY
+    /// EXP-993: the Repository pin (no subject only), offered ONLY
     /// while the team has more than one repo. One repo is not a choice (it is
     /// already pre-picked), and there is no "No repository" entry any more: a
-    /// chat runs somewhere the person can name, never in an unexplained
+    /// session runs somewhere the person can name, never in an unexplained
     /// scratch dir picked by default.
     fn repo_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         if self.team_repos.len() < 2 {
@@ -3240,48 +2061,7 @@ impl ChatScreenView {
         )
     }
 
-    /// EXP-202/EXP-662: the Resume switch, inline while a single checked
-    /// issue has a resumable run here or a worktree on the target machine.
-    fn resume_switch(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let Subject::Issues(issues) = &self.subject else {
-            return None;
-        };
-        if !self.resume_offered(cx) {
-            return None;
-        }
-        let muted = cx.theme().muted_foreground;
-        let hint: SharedString = match self.resume_candidate() {
-            Some((_, record)) => format!(
-                "Resumes the {} session exactly (its own transcript); a resume keeps the session's own agent.",
-                record.agent.label()
-            )
-            .into(),
-            None => "Resumes the worktree still on that machine.".into(),
-        };
-        Some(
-            h_flex()
-                .gap_1p5()
-                .items_center()
-                .px_1()
-                .text_xs()
-                .text_color(muted)
-                .child("Resume")
-                .child(
-                    crate::controls::web_switch("chat-resume")
-                        .checked(issues.resume)
-                        .tooltip(hint)
-                        .on_click(cx.listener(|this, on: &bool, _, cx| {
-                            if let Subject::Issues(issues) = &mut this.subject {
-                                issues.resume = *on;
-                            }
-                            cx.notify();
-                        })),
-                )
-                .into_any_element(),
-        )
-    }
-
-    /// EXP-991 — options row B: Device · Account · Model · Plan (· Resume ·
+    /// EXP-991 — options row B    /// EXP-991 — options row B: Device · Account · Model · Plan (·
     /// Repository).
     ///
     /// EXP-872 dropped the Agent pin: the ACCOUNT pin carries its agent, so
@@ -3309,7 +2089,6 @@ impl ChatScreenView {
                 .child(self.launch_ref().model_pin("chat", Self::launch_access, cx))
                 .children(self.launch_ref().plan_toggle("chat", Self::launch_access, cx));
         }
-        row = row.children(self.resume_switch(cx));
         if matches!(self.subject, Subject::None) {
             row = row.children(self.repo_pin(cx));
         }
@@ -3360,10 +2139,8 @@ impl ChatScreenView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let mcp = self.mcp_options();
-        let mcp_owned = chat_launch::subject_owns_mcp_servers(&self.subject_kind());
         if let Some(launch) = self.launch.as_mut() {
             launch.set_mcp_servers(mcp);
-            launch.set_mcp_owned_by_subject(mcp_owned);
         }
 
         let blocker = self.launch_blocker(cx);
@@ -3434,20 +2211,6 @@ impl ChatScreenView {
         };
         let muted = cx.theme().muted_foreground;
         let mut notes = v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs();
-        // EXP-1284: a composer that starts INTO a thread names it.
-        if let Some(thread_id) = &self.thread_id {
-            notes = notes.child(
-                h_flex()
-                    .gap_1()
-                    .items_center()
-                    .text_color(muted)
-                    .child(Icon::new(registry::ACTION_CHAT).xsmall())
-                    .child(SharedString::from(format!(
-                        "Starts in {}",
-                        crate::threads::thread_title(thread_id, cx)
-                    ))),
-            );
-        }
         if let Some(notice) = &self.notice {
             notes = notes.child(div().text_color(muted).child(notice.clone()));
         }
@@ -3460,7 +2223,7 @@ impl ChatScreenView {
         // filtered, and the one it drops is the empty composer telling the
         // reader to type into the composer they are looking at.
         let blocker_note = blocker
-            .filter(|_| !self.launching && !self.sending)
+            .filter(|_| !self.sending)
             .filter(|reason| chat_launch::note_for_blocker(Some(reason.as_ref())).is_some());
         let blocker_note = blocker_note.filter(|reason| Some(reason) != readiness_summary.as_ref());
         if let Some((row, target)) = readiness {
@@ -3496,27 +2259,12 @@ impl ChatScreenView {
             .into_any_element()
     }
 
-    /// EXP-923/EXP-1253 — the Agent SCREEN, HOME: the greeting headline and
-    /// the launcher, nothing under its options line but Getting started
-    /// while the team has no board, centred in the page's one scroll, with
-    /// the "Recent sessions" ghost button in the corner. A New run tab
-    /// draws the same.
-    ///
-    /// The composer IS the page, so it sits in the middle of it (web
-    /// `justify-center`) rather than pinned under the top edge.
-    ///
-    /// That button is the page's one piece of chrome: a ghost glyph in the
-    /// page's top-left corner, over the composer column rather than in it
-    /// (the column is centred; the button is not). EXP-1192: it ALWAYS
-    /// renders — the history glyph opens Recent runs as a second sidebar in
-    /// the card, and while that is up the same corner is Back, which puts it
-    /// away (the panel has no back row of its own).
+    /// HOME (`Screen::Home`, FEED-100): the DAWN over the launcher, nothing
+    /// under its options line but Getting started while the team has no
+    /// board, centred in the page's one scroll. The composer IS the page, so
+    /// it sits in the middle of it (web `justify-center`).
     fn render_page(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let launcher = self.render_launcher(window, cx);
-        // The greeting leads only while nothing is picked; a picked
-        // subject's own headline (inside the launcher) leads instead (web
-        // `subject === null`, composer-home.json).
-        let greeting = matches!(self.subject, Subject::None).then(|| self.render_greeting(cx));
         // EXP-1270: a team with no board yet gets the Getting started block
         // under the composer (its first step creates the board).
         let getting_started = self
@@ -3529,21 +2277,6 @@ impl ChatScreenView {
                     .is_empty()
             })
             .and_then(|team_id| crate::getting_started::inline_list(&team_id, cx));
-        let history_open = crate::navigation::recent_runs_open(window, cx);
-        let (icon, tooltip) = if history_open {
-            (registry::UI_BACK, "Back")
-        } else {
-            (registry::SETTINGS_SESSIONS, RECENT_RUNS_LABEL)
-        };
-        let history = Button::new("chat-recent-runs")
-            .ghost()
-            .cursor_pointer()
-            .small()
-            .icon(Icon::from(icon))
-            .tooltip(tooltip)
-            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                crate::navigation::toggle_recent_runs(window, cx);
-            }));
         // The stack must NOT shrink: inside the scroll column a
         // flex-shrinkable child gets squeezed to the viewport and its
         // trailing rows (options, the blocker note) clipped.
@@ -3553,12 +2286,6 @@ impl ChatScreenView {
             .max_w(px(PROMPT_MAX_W))
             .min_w_0()
             .flex_shrink_0()
-            .children(greeting.map(|greeting| {
-                v_flex()
-                    .w_full()
-                    .child(greeting)
-                    .child(div().h(px(home_greeting::HEADLINE_TO_CARD_PX)))
-            }))
             .child(launcher)
             .children(getting_started.map(|block| {
                 div()
@@ -3569,7 +2296,6 @@ impl ChatScreenView {
         v_flex()
             .size_full()
             .min_h_0()
-            .relative()
             .track_focus(&self.focus_handle)
             .child(crate::scroll_pane::v_scroll_pane(
                 "chat-page-scroll",
@@ -3579,59 +2305,20 @@ impl ChatScreenView {
                     .min_w_0()
                     .items_center()
                     .p_6()
+                    .gap_6()
                     .min_h_full()
                     .justify_center()
+                    .child(dawn(cx))
                     .child(column),
             ))
-            .child(div().absolute().top_2().left_2().child(history))
             .into_any_element()
     }
 
-    /// EXP-1253 — the home's HEADLINE: the disc mark and the day's greeting
-    /// in Inter semibold (`composer-home.json` geometry), centred over the
-    /// card. Computed once per mount: re-read only while the draft is empty
-    /// and the greeting's day or bucket moved, so it never flips mid-draft.
-    fn render_greeting(&mut self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let key = home_greeting::greeting_key_now();
-        let stale = self.greeting.as_ref().is_none_or(|(_, at)| *at != key);
-        if stale && (self.greeting.is_none() || self.input.read(cx).value().trim().is_empty()) {
-            let name = queries::active_account(cx).and_then(|account| {
-                Store::global(cx)
-                    .collections()
-                    .users
-                    .read(cx)
-                    .get(&account.user_id)
-                    .and_then(|user| user.name.clone())
-                    .or(account.name)
-            });
-            let text = home_greeting::home_greeting_now(name.as_deref());
-            self.greeting = Some((text.into(), key));
-        }
-        let text = self
-            .greeting
-            .as_ref()
-            .map(|(text, _)| text.clone())
-            .unwrap_or_default();
-        home_headline(text, cx)
-    }
-
     /// EXP-1037 — the composer in its DIALOG window: the launcher alone, in
-    /// the window's own scroll. No page scroll chrome, no "Recent sessions"
-    /// button, no suggestion band — a dialog always has a subject, and the
-    /// one thing left to decide is whether to send it.
-    ///
-    /// EXP-897: the blocked-start question is asked HERE rather than as a
-    /// nested alert. `native_dialog::open_dialog_window` refuses to open from
-    /// a dialog window at all (`dialog_open_here`), and closing this window
-    /// first would drop the view that owns the draft, the picks and the
-    /// in-flight start — so the same title, body, graph and three answers
-    /// take over the dialog's body instead.
+    /// the window's own scroll. No page chrome — a dialog always has a
+    /// subject, and the one thing left to decide is whether to send it.
     fn render_dialog(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let body = if let Some(blocked) = self.blocked.as_ref() {
-            self.render_blocked_panel(blocked, cx)
-        } else {
-            self.render_launcher(window, cx)
-        };
+        let body = self.render_launcher(window, cx);
         self.fit_dialog(window, cx);
         // EXP-1155: both boxes report at prepaint; a change repaints once so
         // the fit above reads this frame's heights (steady state: no notify).
@@ -3702,110 +2389,44 @@ impl ChatScreenView {
         );
     }
 
-    /// EXP-1037/EXP-897/SLOP-3: the blocked-start question drawn INSIDE the
-    /// composer dialog: the alert's own title, body, transitive blocks graph
-    /// and disabled-reason caption, with Cancel · Start anyway · Stacked PR.
-    /// Both answers run [`Self::answer_blocked`], the ONE code path the
-    /// alert's answers take on the page.
-    fn render_blocked_panel(
-        &self,
-        pending: &PendingBlocked,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let refs: Vec<&str> = pending.blocked.picked.iter().map(String::as_str).collect();
-        let graph = crate::issue_graph::graph_for(&refs, cx);
-        let title = pending.blocked.title();
-        let description = pending.blocked.description();
-        let note = pending.blocked.stack_note.clone();
-        let stackable = pending.blocked.stack.is_some();
-        let muted = cx.theme().muted_foreground;
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_3()
-            .child(
-                div()
-                    .text_lg()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(cx.theme().foreground)
-                    .child(SharedString::from(title)),
-            )
-            .child(div().text_sm().text_color(muted).child(SharedString::from(description)))
-            .child(crate::issue_graph::graph_in_dialog(
-                &graph,
-                BLOCKED_PANEL_GRAPH_W,
-                cx,
-            ))
-            .children(note.map(|note| {
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(note))
-            }))
-            .child(
-                h_flex()
-                    .w_full()
-                    .justify_end()
-                    .gap_2()
-                    .child(
-                        Button::new("chat-blocked-cancel")
-                            .outline()
-                            .cursor_pointer()
-                            .small()
-                            .label("Cancel")
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.blocked = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("chat-blocked-anyway")
-                            .outline()
-                            .cursor_pointer()
-                            .small()
-                            .label(blocked_start::START_ANYWAY)
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.answer_blocked(false, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("chat-blocked-stacked")
-                            .primary()
-                            .cursor_pointer()
-                            .small()
-                            .label(blocked_start::STACKED_PR)
-                            .disabled(!stackable)
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.answer_blocked(true, window, cx);
-                            })),
-                    ),
-            )
-            .into_any_element()
-    }
+}
 
-    /// Record the blocked-start answer and re-enter [`Self::start`]: Start
-    /// anyway with the SAME composed message, Stacked PR with
-    /// [`BlockedStart::stacked_message`] (the alert's closures, in-window).
-    fn answer_blocked(&mut self, stacked: bool, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(pending) = self.blocked.take() else {
-            return;
-        };
-        let (message, stacked_issue) = if stacked {
-            match pending.blocked.stacked_start(&pending.message) {
-                Some((issue_id, message)) => (message, Some(issue_id)),
-                // A disabled Stacked PR never answers.
-                None => {
-                    self.blocked = Some(pending);
-                    return;
-                }
-            }
-        } else {
-            (pending.message, None)
-        };
-        self.blocked_confirmed = true;
-        self.stacked_issue = stacked_issue;
-        self.start(message, window, cx);
-    }
+/// FEED-100 — the DAWN: the faint brand mark's TOP HALF above the card, the
+/// page only (never the dialog), with no hitbox so it never takes a click.
+/// The half FADES out toward the card (solid for its top third, transparent
+/// at the clip's bottom edge): gpui paints no alpha mask, so the clip is
+/// [`PAGE_MARK_FADE_STEPS`] horizontal slices, each the icon offset up by
+/// its row and inked a step fainter (web's `mask-image: linear-gradient(
+/// black 33%, transparent)`).
+pub(crate) fn dawn(cx: &App) -> AnyElement {
+    let slice_h = PAGE_MARK_SIZE / 2. / PAGE_MARK_FADE_STEPS as f32;
+    let foreground = cx.theme().foreground;
+    v_flex()
+        .id(home_greeting::TEST_ID_MARK)
+        .w(px(PAGE_MARK_SIZE))
+        .max_w_full()
+        .flex_shrink_0()
+        .overflow_hidden()
+        .children((0..PAGE_MARK_FADE_STEPS).map(|row| {
+            let top = (row as f32 + 0.5) / PAGE_MARK_FADE_STEPS as f32;
+            let fade = ((1. - top) / (1. - 0.33)).clamp(0., 1.);
+            div()
+                .w_full()
+                .h(px(slice_h))
+                .flex_shrink_0()
+                .overflow_hidden()
+                .flex()
+                .justify_center()
+                .items_start()
+                .child(
+                    Icon::from(crate::icons::ExpIcon::Logo)
+                        .size(px(PAGE_MARK_SIZE))
+                        .flex_shrink_0()
+                        .mt(px(-(row as f32) * slice_h))
+                        .text_color(foreground.opacity(PAGE_MARK_ALPHA * fade)),
+                )
+        }))
+        .into_any_element()
 }
 
 /// EXP-1037 — the composer that is currently open in a dialog window. WEAK:
@@ -3929,7 +2550,7 @@ pub(crate) fn plus_menu(
         }
     };
     let root = cx.entity().downgrade();
-    menu = menu.min_w(px(260.));
+    menu = search_list::search_submenu_parent(menu.min_w(px(260.)));
     for row in composer_menu_rows(options.map(ComposerMenuConditions::of)) {
         menu = match (row, options) {
             (ComposerMenuRow::Separator, _) => menu.separator(),
@@ -4234,9 +2855,8 @@ fn implement_issue_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_lis
     }
 }
 
-/// SLOP-28 — "+" → Run action ›: the team's actions (builtins first, Chat
-/// never listed) as icon + NAME rows, no descriptions; a pick sets the
-/// subject and closes the menu.
+/// SLOP-28 — "+" → Run action ›: the team's actions as icon + NAME rows,
+/// no descriptions; a pick sets the subject and closes the menu.
 fn run_action_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_list::MenuListSource {
     let rows_view = view.clone();
     let pick_view = view.clone();
@@ -4251,7 +2871,6 @@ fn run_action_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_list::Me
             view.read(cx)
                 .actions
                 .iter()
-                .filter(|action| action.id != api::actions::BUILTIN_CHAT_ID)
                 .filter(|action| needle.is_empty() || action.name.to_lowercase().contains(&needle))
                 .map(|action| search_list::MenuListRow {
                     id: action.id.clone(),
@@ -4315,298 +2934,20 @@ fn clear_open_dialog(view_id: gpui::EntityId, cx: &mut App) {
     }
 }
 
-/// EXP-862/EXP-1037 — the action the OPEN composer dialog is seeded with.
-/// `None` when no dialog is up. [`crate::screens::chat_action_id`] consults
-/// this before the window's own Agent screen: since EXP-1037 a pinned
-/// action's ▶ opens the dialog instead of navigating, and the row must still
-/// read as active while it is up.
-pub(crate) fn dialog_action_id(cx: &App) -> Option<String> {
-    let view = cx.try_global::<OpenComposerDialog>()?.0.upgrade()?;
-    let id = view.read(cx).active_action_id()?.to_string();
-    Some(id)
-}
-
-/// EXP-980 — what the blocked-start dialog is about: everything that was
-/// picked (the graph's subjects, and what "Start anyway" starts) plus the
-/// identifiers of the open issues blocking it from outside.
-pub(crate) struct BlockedStart {
-    pub(crate) picked: Vec<String>,
-    pub(crate) blockers: Vec<String>,
-    /// SLOP-3: what "Stacked PR" starts; `None` = the button is disabled,
-    /// captioned by `stack_note`.
-    pub(crate) stack: Option<StackedStart>,
-    /// The caption under the graph: the disabled reason, or (enabled, 2+
-    /// issues to run) the plan note.
-    pub(crate) stack_note: Option<String>,
-}
-
-/// SLOP-3: the stacked start's plan and the issue it starts: `run[0]`, the
-/// bottom of the line to build (NOT necessarily the picked issue).
-#[derive(Clone)]
-pub(crate) struct StackedStart {
-    pub(crate) issue_id: String,
-    pub(crate) plan: blocked_start::StackPlan,
-}
-
-/// The blocked-start alert: the title and the sentence, the blocks graph
-/// with the caption under it, and Cancel · Start anyway · Stacked PR (the
-/// primary, disabled without a stack). [`ChatScreenView::prompt_blocked_start`]
-/// opens it; the styleguide specimen draws the same spec.
-pub(crate) fn blocked_start_alert(
-    blocked: &BlockedStart,
-    graph: domain::issue_graph::IssueGraph,
-    on_anyway: impl Fn(&mut Window, &mut App) -> bool + 'static,
-    on_stacked: impl Fn(&mut Window, &mut App) -> bool + 'static,
-) -> crate::native_dialog::AlertSpec {
-    let note: Option<SharedString> = blocked.stack_note.clone().map(SharedString::from);
-    crate::native_dialog::AlertSpec::new(
-        blocked.title(),
-        blocked.description(),
-        blocked_start::STACKED_PR,
-    )
-    .height(gpui::px(BLOCKED_DIALOG_HEIGHT))
-    .secondary(blocked_start::START_ANYWAY, on_anyway)
-    .ok_disabled(blocked.stack.is_none())
-    .on_ok(on_stacked)
-    .content(move |_, cx| {
-        gpui_component::v_flex()
-            .min_w_0()
-            .gap_2()
-            .child(crate::issue_graph::graph_in_dialog(
-                &graph,
-                BLOCKED_DIALOG_GRAPH_W,
-                cx,
-            ))
-            .children(note.clone().map(|note| {
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(note)
-            }))
-            .into_any_element()
-    })
-}
-
-impl BlockedStart {
-    fn batch(&self) -> bool {
-        self.picked.len() > 1
-    }
-
-    fn title(&self) -> &'static str {
-        if self.batch() {
-            blocked_start::BATCH_TITLE
-        } else {
-            blocked_start::TITLE
-        }
-    }
-
-    /// The batch body, or the one-issue sentence whose suffix offers the
-    /// stacked start only while it is enabled.
-    pub(crate) fn description(&self) -> String {
-        if self.batch() {
-            blocked_start::BATCH_BODY.to_string()
-        } else {
-            blocked_start::body(&self.blockers, self.stack.is_some())
-        }
-    }
-
-    /// What a Stacked PR answer starts: `run[0]`'s issue id and its message,
-    /// [`blocked_start::stacked_start_prompt`] over the TYPED text, with the
-    /// composed attachments (image embeds AND file lines) kept attached, so
-    /// the launcher still binds every upload. The launcher and its settings
-    /// are exactly Start anyway's.
-    fn stacked_start(&self, message: &str) -> Option<(String, String)> {
-        let stack = self.stack.as_ref()?;
-        let parsed = domain::image_message::parse_steer_message(message);
-        let prompt = blocked_start::stacked_start_prompt(&stack.plan, &parsed.text);
-        let message = domain::image_message::build_steer_message(
-            &prompt,
-            &parsed.attachment_ids,
-            &parsed.files,
-        );
-        Some((stack.issue_id.clone(), message))
-    }
-}
-
-/// SLOP-3: the stacked start for `picked`, or why there is none: the line
-/// below the subject ([`blocked_start::stack_line`]) read off the synced
-/// relations, then [`blocked_start::stack_plan`]. A repository is the
-/// issue's BOARD's; a line member is `running` while it has a live run (the
-/// one-session-per-issue rule's own test) and no open pull request.
-fn stack_choice(picked: &[String], cx: &App) -> (Option<StackedStart>, Option<String>) {
-    use domain::issue_graph::{GraphIssue, GraphRelation};
-    let Some(store) = Store::try_global(cx) else {
-        return (None, None);
-    };
-    let collections = store.collections();
-    let issues = collections.issues.read(cx);
-    let boards = collections.boards.read(cx);
-    let relations = collections.issue_relations.read(cx);
-    let repository_of = |board_id: &str| {
-        boards
-            .get(board_id)
-            .and_then(|board| board.repository_id.clone())
-    };
-    let Some(subject_row) = picked.first().and_then(|id| issues.get(id)) else {
-        return (None, None);
-    };
-    let subject = blocked_start::StackSubject {
-        identifier: subject_row.identifier.clone(),
-        repository_id: repository_of(&subject_row.board_id),
-    };
-
-    let (line_ids, fork, cycle) = if picked.len() > 1 {
-        // A batch never stacks: the plan says so before it reads a line.
-        (Vec::new(), None, false)
-    } else {
-        let graph_issues: Vec<GraphIssue<'_>> = issues
-            .iter()
-            .map(|issue| GraphIssue {
-                id: &issue.id,
-                identifier: &issue.identifier,
-                status: issue.status.as_wire().unwrap_or_default(),
-            })
-            .collect();
-        let graph_relations: Vec<GraphRelation<'_>> = relations
-            .iter()
-            .map(|row| GraphRelation {
-                kind: row.kind.as_deref().unwrap_or_default(),
-                issue_id: &row.issue_id,
-                related_issue_id: &row.related_issue_id,
-            })
-            .collect();
-        let found = blocked_start::stack_line(&subject_row.id, &graph_relations, &graph_issues);
-        (
-            found
-                .line
-                .iter()
-                .map(|issue| issue.id.to_string())
-                .collect::<Vec<_>>(),
-            found.fork.map(str::to_string),
-            found.cycle,
-        )
-    };
-
-    let now = chrono::Utc::now().timestamp();
-    let local = coding_flow::LocalSessions::global_ref(cx);
-    let sessions = collections.coding_sessions.read(cx);
-    let has_live_run = |issue_id: &str| -> bool {
-        local
-            .as_ref()
-            .is_some_and(|local| local.read(cx).get(issue_id).is_some())
-            || sessions.iter().any(|session| {
-                let covers = session.issue_id.as_deref() == Some(issue_id)
-                    || domain::batch_run::parse_batch_issue_ids(session.batch_issue_ids.as_ref())
-                        .iter()
-                        .any(|id| id == issue_id);
-                covers && queries::coding_session_is_live(session, now)
-            })
-    };
-    let line: Vec<blocked_start::StackMember> = line_ids
-        .iter()
-        .filter_map(|id| issues.get(id))
-        .map(|issue| {
-            let pr_open = issue.pr_state.as_deref() == Some("open");
-            blocked_start::StackMember {
-                identifier: issue.identifier.clone(),
-                pr_state: issue.pr_state.clone(),
-                branch: issue.branch.clone(),
-                repository_id: repository_of(&issue.board_id),
-                running: !pr_open && has_live_run(&issue.id),
-            }
-        })
-        .collect();
-
-    let planned = blocked_start::stack_plan(picked.len(), &subject, &line, fork.as_deref(), cycle);
-    stack_outcome(planned, |first| {
-        if first == subject.identifier {
-            Some(subject_row.id.clone())
-        } else {
-            line_ids
-                .iter()
-                .find(|id| issues.get(id).is_some_and(|issue| issue.identifier == first))
-                .cloned()
-        }
-    })
-}
-
-/// What a plan means to the dialog: the stacked start (`run[0]`'s issue,
-/// resolved by `issue_id_of`) with its plan note, or no stack and the
-/// refusal's note. An unresolvable `run[0]` is no stack and no note.
-pub(crate) fn stack_outcome(
-    planned: Result<blocked_start::StackPlan, blocked_start::StackRefusal>,
-    issue_id_of: impl Fn(&str) -> Option<String>,
-) -> (Option<StackedStart>, Option<String>) {
-    match planned {
-        Ok(plan) => {
-            let first = plan.run.first().cloned().unwrap_or_default();
-            let Some(issue_id) = issue_id_of(&first) else {
-                return (None, None);
-            };
-            let note = blocked_start::stack_plan_note(&plan.run);
-            (Some(StackedStart { issue_id, plan }), note)
-        }
-        Err(refusal) => (None, Some(refusal.note())),
-    }
-}
-
-/// EXP-1037 — the blocked-start question while the composer lives in a
-/// dialog window: the composed message it was asked for and what it is
-/// about.
-/// EXP-1253 — the home's headline row: the disc mark and `text` in Inter
-/// semibold, centred (`composer-home.json` geometry). The styleguide's
-/// `agent-home` entry draws it too.
-pub(crate) fn home_headline(text: SharedString, cx: &App) -> AnyElement {
-    let foreground = cx.theme().foreground;
-    h_flex()
-        .id(home_greeting::TEST_ID_GREETING)
-        .w_full()
-        .min_w_0()
-        .justify_center()
-        .items_center()
-        .gap(px(home_greeting::GAP_PX))
-        .child(
-            div().id(home_greeting::TEST_ID_MARK).flex_shrink_0().child(
-                Icon::from(crate::icons::ExpIcon::Logo)
-                    .size(px(home_greeting::MARK_PX))
-                    .text_color(foreground),
-            ),
-        )
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_size(px(home_greeting::HEADLINE_PX))
-                .font_weight(gpui::FontWeight(home_greeting::HEADLINE_WEIGHT))
-                .text_color(foreground)
-                .child(text),
-        )
-        .into_any_element()
-}
-
 /// EXP-1271 — a start on its way (the composer's STARTING row): the device
-/// it went to, since when, and which start it is: its generation, its
-/// `startId` (review #3) and the New session tab it hands off (review #1).
+/// it went to, since when, and which start it is.
 struct Starting {
     device: String,
     since: std::time::Instant,
     generation: u64,
-    start_id: String,
-    handoff: Option<coding_flow::StartHandoff>,
 }
 
-/// The current draft's start: its `startId` and the draft it is bound to.
-struct DraftStart {
-    start_id: String,
-    fingerprint: DraftFingerprint,
-}
-
-/// Review #3 — a remote start out of the composer's hands but still
-/// followed (timed out, or failed where the frame may have arrived): its
-/// `startId`, its tab handoff and the error toast a late landing takes back.
+/// Review #3 — a start whose deadline passed before its send answered: its
+/// generation, the draft as it was then (a late answer lands only on an
+/// unchanged draft) and the timeout toast a late answer takes back.
 struct LateStart {
-    start_id: String,
-    handoff: Option<coding_flow::StartHandoff>,
+    generation: u64,
+    draft: String,
     toast: Option<crate::toast::ShownToast>,
 }
 
@@ -4614,60 +2955,6 @@ impl LateStart {
     fn dismiss_toast(&self, cx: &mut App) {
         if let Some(toast) = &self.toast {
             toast.dismiss(cx);
-        }
-    }
-}
-
-struct PendingBlocked {
-    message: String,
-    blocked: BlockedStart,
-}
-
-/// The blocked-start dialog is taller than a plain alert — it hosts the
-/// graph.
-const BLOCKED_DIALOG_HEIGHT: f32 = 460.;
-/// The graph's viewport inside it (the 416px alert minus its padding).
-const BLOCKED_DIALOG_GRAPH_W: f32 = 380.;
-/// EXP-1037: the same graph inside the composer DIALOG, which is the wider
-/// launcher window (640px content) rather than a 416px alert.
-const BLOCKED_PANEL_GRAPH_W: f32 = 560.;
-
-/// [`RemoteSubject`] borrows the ids it names; the issue arms need an owned
-/// carrier so the checked list can be built inside `start` and borrowed
-/// afterwards.
-enum OwnedRemoteSubject {
-    Issue {
-        issue_id: String,
-        resume: bool,
-    },
-    Batch {
-        issue_ids: Vec<String>,
-    },
-}
-
-impl OwnedRemoteSubject {
-    fn borrow(&self) -> RemoteSubject<'_> {
-        match self {
-            OwnedRemoteSubject::Issue { issue_id, resume } => RemoteSubject::Issue {
-                issue_id,
-                resume: *resume,
-            },
-            OwnedRemoteSubject::Batch { issue_ids } => RemoteSubject::Batch {
-                issue_ids: issue_ids.clone(),
-            },
-        }
-    }
-}
-
-impl RemoteSubject<'_> {
-    fn into_owned(self) -> OwnedRemoteSubject {
-        match self {
-            RemoteSubject::Issue { issue_id, resume } => OwnedRemoteSubject::Issue {
-                issue_id: issue_id.to_string(),
-                resume,
-            },
-            RemoteSubject::Batch { issue_ids } => OwnedRemoteSubject::Batch { issue_ids },
-            _ => unreachable!("only the issue arms are built here"),
         }
     }
 }
@@ -4774,7 +3061,6 @@ mod tests {
         let row = |id: &str, full_name: &str| ActionRepoRow {
             id: id.to_string(),
             full_name: full_name.to_string(),
-            default_branch: None,
         };
         let only = action_run::preselect_repo(&[row("repo-1", "niach/exponential")]);
         assert_eq!(only.map(|repo| repo.id), Some("repo-1".to_string()));
@@ -4787,23 +3073,10 @@ mod tests {
     }
 
     /// EXP-825: the field's hint follows the subject like the web
-    /// `composerPlaceholder`: a chat asks, a picked subject takes extra
-    /// instructions, and a picked action with a non-blank
-    /// `prompt_placeholder` shows that instead — the Create-action builtin's
-    /// own hint included; a blank hint, an unlisted action or an issue
-    /// subject fall back.
-    /// The "Merge refused" line belongs to the PR whose merge was refused:
-    /// the ✕ chip (no pick) and a replaced pick both drop it, and a seed
-    /// without a PR never shows it.
-    #[test]
-    fn conflict_note_shows_only_for_the_refused_pr() {
-        assert!(conflict_note_shows(Some("issue-1"), Some("issue-1")));
-        assert!(!conflict_note_shows(Some("issue-1"), None));
-        assert!(!conflict_note_shows(Some("issue-1"), Some("issue-2")));
-        assert!(!conflict_note_shows(None, Some("issue-1")));
-        assert!(!conflict_note_shows(None, None));
-    }
-
+    /// `composerPlaceholder`: no subject asks the home's question, a picked
+    /// subject takes extra instructions, and a picked action with a
+    /// non-blank `prompt_placeholder` shows that instead; a blank hint, an
+    /// unlisted action or an issue subject fall back.
     #[test]
     fn composer_placeholder_follows_the_subject_and_the_actions_hint() {
         // EXP-1253: no subject = the home's question.
@@ -4813,11 +3086,12 @@ mod tests {
             Subject::Action(ActionSubject {
                 action_id: id.to_string(),
                 picks: ActionInputPicks::default(),
-                refused_pr: None,
             })
         };
-        let mut action = api::actions::builtin_fix_conflicts_action("team-1");
-        action.id = "act-1".to_string();
+        let mut action: api::actions::Action = serde_json::from_value(serde_json::json!({
+            "id": "act-1", "teamId": "team-1", "name": "Triage",
+        }))
+        .expect("a minimal action row");
 
         // No subject: the home's hint, whatever row is offered.
         assert_eq!(
@@ -4846,55 +3120,15 @@ mod tests {
             placeholder_for_subject(&action_subject("act-1"), None),
             SUBJECT_PLACEHOLDER
         );
-        // The Create-action builtin's hint now comes from its OWN field —
-        // the old special case, byte for byte.
-        let create = api::actions::builtin_create_action("team-1");
-        assert_eq!(
-            placeholder_for_subject(
-                &action_subject(api::actions::BUILTIN_CREATE_ACTION_ID),
-                Some(&create)
-            ),
-            "Describe the action — what it should do, and its name if you have one…"
-        );
         // An issue subject never reads an action hint.
         let issues = Subject::Issues(IssueSubject {
             rows: Rc::default(),
             checked: HashSet::new(),
             repos: HashMap::new(),
-            resumables: HashMap::new(),
-            resume: false,
         });
         assert_eq!(
             placeholder_for_subject(&issues, Some(&action)),
             SUBJECT_PLACEHOLDER
-        );
-    }
-
-    /// The issue arms of the remote subject round-trip through the owned
-    /// carrier the start path needs.
-    #[test]
-    fn owned_remote_subject_round_trips() {
-        let issue = RemoteSubject::Issue {
-            issue_id: "i-1",
-            resume: true,
-        }
-        .into_owned();
-        assert_eq!(
-            issue.borrow(),
-            RemoteSubject::Issue {
-                issue_id: "i-1",
-                resume: true,
-            }
-        );
-        let batch = RemoteSubject::Batch {
-            issue_ids: vec!["a".into()],
-        }
-        .into_owned();
-        assert_eq!(
-            batch.borrow(),
-            RemoteSubject::Batch {
-                issue_ids: vec!["a".into()]
-            }
         );
     }
 }

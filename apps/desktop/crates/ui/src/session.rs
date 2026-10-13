@@ -117,7 +117,7 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             crate::trigger_host::start_trigger_host(account, cx);
             // EXP-1005: walled runs rotate to another account between turns.
             crate::account_rotation_host::start_account_rotation_host(cx);
-            // EXP-229: end the coding_sessions rows a crash / forced logout
+            // EXP-229: end the sessions rows a crash / forced logout
             // stranded `running` — this is the single choke point every
             // sign-in path (warm start, dev inject, OAuth, login form) runs
             // through, so orphans heal on the next connect instead of
@@ -177,7 +177,7 @@ fn claim_timezone(account: &api::Account, cx: &mut App) {
 /// collections cleared, session → `SignedOut` (§5.10 — the SQLite DB stays on
 /// disk for offline resume).
 ///
-/// EXP-229: the same background task first ENDS every coding_sessions row
+/// EXP-229: the same background task first ENDS every sessions row
 /// this process launched — sign-out used to strand them `running` (ghost
 /// "coding now" on every client) until the server's 2h sweep. Ordering is
 /// load-bearing: the ends must precede the revocation, and both use a
@@ -219,7 +219,7 @@ pub fn sign_out_active(cx: &mut App) {
                     Arc::new(api::StaticToken(token.clone())),
                 );
                 for id in session_ids {
-                    let result = api::coding_sessions::end(&trpc, &id);
+                    let result = api::sessions::end(&trpc, &id);
                     if let Err(err) = &result {
                         eprintln!(
                             "[exp-desktop] session: sign-out end of coding session {id} failed: {err}"

@@ -1,39 +1,18 @@
 //! ONE action as a page (SLOP-2) — the web `t/$teamSlug/actions/$actionId`
-//! page: the action's prompt, its triggers and its runs. The desktop is a
-//! WIDE layout, so the three read as SECTIONS of one scroller (a group band
-//! over flat hairline-divided rows), in this order and titled exactly
-//! `Prompt`, `Triggers`, `Runs`; phones draw the same three as tabs.
+//! page. EXP-1294: an action is a SAVED PROMPT, so the page is its header
+//! (back · glyph + name · pin · the owner's ⋯ · Run) over its Prompt section
+//! ([`crate::action_prompt_form`], which replaced the "Edit action" dialog).
+//! Run opens the composer with the action as its subject; triggers live on
+//! agents now and a run's sessions on its thread.
 //!
-//! It replaced two things: the "Edit action" dialog (its fields are the
-//! Prompt section, [`crate::action_prompt_form`]) and the Automations screen
-//! (a trigger IS a trigger of its action now, and "Recent automated runs"
-//! is this action's Runs). Triggers are LOCAL-ONLY: there is no server
-//! scheduler — the bound device selects its enabled triggers off the synced
-//! `actions` rows and self-starts ([`crate::trigger_host`]). This page is
-//! the owner's editing surface plus the answer to "did they fire?".
-//!
-//! Every trigger write is ONE `actions.update({id, triggers})`, a whole-array
-//! replace ([`crate::trigger_editor`]'s write shapes) built off the action's
-//! CURRENT triggers — the synced row's, or the last write's while its echo is
-//! still on the way. One write at a time: the rows' controls wait for it.
-//!
-//! EXP-832: `render` builds elements and NOTHING else — the joins (devices,
-//! pins, the run tree) happen once per data change in [`ActionView::refresh`].
+//! EXP-832: `render` builds elements and NOTHING else — the row is read once
+//! per data change in [`ActionView::refresh`].
 
-
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, AppContext as _, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
-    Subscription, Task, Window,
+    div, App, AppContext as _, ClickEvent, Entity, FontWeight, IntoElement, ParentElement, Render,
+    ScrollHandle, SharedString, Styled, Subscription, Window,
 };
-use gpui_component::{
-    button::Button,
-    menu::DropdownMenu as _,
-    ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
-
-use coding::triggers::ActionTrigger;
+use gpui_component::{button::Button, menu::DropdownMenu as _, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 
 use crate::action_prompt_form::ActionPromptForm;
 use crate::actions_view::page_scaffold;
@@ -41,14 +20,7 @@ use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
-use crate::queries;
-use crate::run_rows;
-use crate::surface::{glass_section_header, list_row};
-use crate::trigger_editor::{self, TRIGGER_REQUIRED_INPUTS_HINT};
-
-/// How many runs the Runs section lists before it stops (newest first) — the
-/// page is not virtualised, and a daily trigger alone adds a row a day.
-const RUNS_CAP: usize = 100;
+use crate::surface::glass_section_header;
 
 pub struct ActionView {
     nav: Entity<Navigation>,
@@ -59,13 +31,7 @@ pub struct ActionView {
     /// when the page is pointed at another action.
     prompt: Option<Entity<ActionPromptForm>>,
     derived: ActionDerived,
-    /// A trigger write is in flight — the switches and the ⋯ menus wait, so
-    /// two whole-array writes never overlap.
-    trigger_writing: bool,
     _subscriptions: Vec<Subscription>,
-    /// The Runs rows carry relative times and a liveness that expires, and a
-    /// trigger's device dot follows the clock — the sessions lists' 5s tick.
-    _tick: Task<()>,
 }
 
 /// The page's data, ready to draw.
@@ -76,35 +42,6 @@ struct ActionDerived {
     action: Option<api::actions::Action>,
     /// The `actions` shape's readiness.
     ready: bool,
-    /// One per READABLE trigger, in stored order, with its joins done.
-    triggers: Vec<TriggerRow>,
-    /// The action's runs as the session TREE every session list draws.
-    runs: Vec<RunRow>,
-}
-
-/// One Triggers row: the trigger plus everything the row would otherwise
-/// look up per render. Only the device's online dot (it follows the clock)
-/// is left to `render`.
-#[derive(Clone, Debug, PartialEq)]
-struct TriggerRow {
-    trigger: ActionTrigger,
-    /// `Daily at 09:00 (device time)`, `When an issue is created`, …
-    sentence: String,
-    /// The bound device's label — a device that isn't in this user's synced
-    /// rows (a teammate's private machine) keeps its raw id.
-    device_label: String,
-    device_last_seen_at: Option<String>,
-    /// `Claude Code · opus` when the trigger pinned anything.
-    pins: Option<String>,
-}
-
-/// One Runs row: a run or a group row, plus its place in the session tree
-/// (EXP-818/EXP-897/EXP-1061 — nested ×4; EXP-1248: children always show).
-#[derive(Clone, Debug, PartialEq)]
-struct RunRow {
-    depth: usize,
-    /// A run, titled by what started it ([`run_rows::action_run_title`]).
-    facts: run_rows::RunListFacts,
 }
 
 impl ActionDerived {
@@ -112,91 +49,12 @@ impl ActionDerived {
         let (Some(action_id), Some(store)) = (action_id, sync::Store::try_global(cx)) else {
             return Self::default();
         };
-        let collections = store.collections().clone();
-        let actions = collections.actions.read(cx);
+        let actions = store.collections().actions.read(cx);
         let ready = actions.is_ready();
-        let Some(row) = actions.get(action_id) else {
-            return Self { ready, ..Self::default() };
-        };
-        let devices = collections.devices.read(cx);
-        let triggers = coding::triggers::parse_action_triggers(row.triggers.as_ref())
-            .into_iter()
-            .map(|trigger| {
-                let device = devices
-                    .iter()
-                    .find(|device| device.device_id.as_deref() == Some(trigger.device_id.as_str()));
-                TriggerRow {
-                    sentence: trigger_editor::trigger_sentence(&trigger.when),
-                    device_label: device
-                        .and_then(|device| device.label.clone())
-                        .unwrap_or_else(|| trigger.device_id.clone()),
-                    device_last_seen_at: device.and_then(|device| device.last_seen_at.clone()),
-                    pins: launch_pins_label(&trigger),
-                    trigger,
-                }
-            })
-            .collect();
-
-        let now = chrono::Utc::now().timestamp();
-        let runs = queries::action_runs(cx, action_id);
-        // The cap is a RUN cap, applied BEFORE the tree (EXP-1061): a child
-        // whose parent fell off it is a top-level orphan. Then the ONE tree
-        // every session list draws.
-        let mut listed: Vec<&domain::rows::CodingSession> = runs.iter().collect();
-        listed.truncate(RUNS_CAP);
-        let runs = crate::sessions_section::flatten_session_tree(listed, |node| {
-            let session: &domain::rows::CodingSession = node.session();
-            // Every row here ran THIS action — the title says what started
-            // it instead of repeating the action's name.
-            run_rows::RunListFacts::derive(session, now, cx).with_title(
-                run_rows::action_run_title(session.started_reason.as_deref()),
-            )
-        })
-        .into_iter()
-        .map(|row| RunRow {
-            depth: row.depth,
-            facts: row.run,
-        })
-        .collect();
-
         Self {
-            action: Some(api::actions::from_row(row)),
+            action: actions.get(action_id).map(api::actions::from_row),
             ready,
-            triggers,
-            runs,
         }
-    }
-}
-
-/// `Claude Code · opus` — the agent and model a trigger pinned (either alone
-/// when only one is set), or `None` when it follows the bound machine's own
-/// launch defaults (the common case).
-fn launch_pins_label(trigger: &ActionTrigger) -> Option<String> {
-    // ×4 (web `action-triggers-section.tsx` `launch`): the caption is
-    // "{device} · {agent} · {model}" — the effort is the one launch detail
-    // the row leaves out.
-    let agent = trigger
-        .pins
-        .agent
-        .as_deref()
-        .filter(|agent| !agent.is_empty())
-        .map(|agent| {
-            coding::CodingAgent::parse(agent)
-                .map(|known| known.label().to_string())
-                // An agent this build predates still names itself.
-                .unwrap_or_else(|| agent.to_string())
-        });
-    let model = trigger
-        .pins
-        .model
-        .as_deref()
-        .filter(|model| !model.is_empty())
-        .map(str::to_string);
-    let parts: Vec<String> = agent.into_iter().chain(model).collect();
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join(" · "))
     }
 }
 
@@ -205,39 +63,24 @@ impl ActionView {
         let nav = nav_for_window(window, cx);
         let mut subscriptions =
             vec![cx.observe_in(&nav, window, |this, _, window, cx| this.sync_screen(window, cx))];
-        // The rows join actions (the row + its triggers), devices (label +
-        // online dot) and coding_sessions (the Runs), so all three drive it.
         let watched = sync::Store::try_global(cx).map(|store| {
             let collections = store.collections();
-            (
-                collections.actions.clone(),
-                collections.devices.clone(),
-                collections.coding_sessions.clone(),
-                collections.pins.clone(),
-            )
+            (collections.actions.clone(), collections.pins.clone())
         });
-        if let Some((actions, devices, sessions, pins)) = watched {
+        if let Some((actions, pins)) = watched {
             subscriptions.push(cx.observe_in(&actions, window, |this, _, window, cx| {
                 this.on_actions_changed(window, cx)
             }));
-            subscriptions.push(cx.observe(&devices, |this, _, cx| this.refresh(cx)));
-            subscriptions.push(cx.observe(&sessions, |this, _, cx| this.refresh(cx)));
             // EXP-778: the header's pin toggle reads the per-user pins rows.
             subscriptions.push(cx.observe(&pins, |_, _, cx| cx.notify()));
         }
-        // EXP-874: the live run rows' Merge circles paint the shared
-        // two-click state.
-        let merge_state = crate::pr_merge::MergeState::global(cx);
-        subscriptions.push(cx.observe(&merge_state, |_, _, cx| cx.notify()));
         let mut this = Self {
             nav,
             scroll: ScrollHandle::new(),
             action_id: None,
             prompt: None,
             derived: ActionDerived::default(),
-            trigger_writing: false,
             _subscriptions: subscriptions,
-            _tick: crate::sessions_section::tick(cx, |this: &mut Self, cx| this.tick_refresh(cx)),
         };
         this.sync_screen(window, cx);
         this
@@ -296,98 +139,7 @@ impl ActionView {
         cx.notify();
     }
 
-    /// The clock-driven refresh: repaint only when the Runs moved. The
-    /// triggers' device dots are read off the clock in `render`, so a quiet
-    /// page repaints for them at this cadence only while it has triggers.
-    fn tick_refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        let next = ActionDerived::compute(cx, self.action_id.as_deref());
-        if next.runs != self.derived.runs || !self.derived.triggers.is_empty() {
-            self.derived = next;
-            cx.notify();
-        }
-    }
-
-    // -- writes ---------------------------------------------------------------
-
-    /// ONE `actions.update({id, triggers})` — the whole array. A refusal
-    /// (required inputs, an incapable device, …) is the error toast in the
-    /// server's own words (FEED-79); the synced echo repaints everything
-    /// else.
-    fn write_triggers(&mut self, triggers: Vec<serde_json::Value>, cx: &mut gpui::Context<Self>) {
-        let (Some(action_id), Some(trpc)) = (self.action_id.clone(), queries::trpc_client(cx))
-        else {
-            return;
-        };
-        if self.trigger_writing {
-            return;
-        }
-        self.trigger_writing = true;
-        cx.notify();
-        let mut input = api::actions::ActionUpdate::new(action_id);
-        input.triggers = Some(triggers);
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::actions::update(&trpc, &input) })
-                .await;
-            // The returned array is the next write's base until the synced
-            // row shows it — recorded even if the page is gone by now.
-            if let Ok(action) = &result {
-                trigger_editor::note_triggers_written(action);
-            }
-            let _ = this.update(cx, |this, cx| {
-                this.trigger_writing = false;
-                if let Err(err) = result {
-                    log::warn!("actions: writing the triggers failed: {err}");
-                    crate::action_error::failed_action_err("update", "the triggers", &err, cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// Flip one trigger's switch. ONLY its `enabled` moves, so toggling can
-    /// never move the when-part's fingerprint and re-seed the host's state.
-    fn set_trigger_enabled(&mut self, trigger_id: &str, enabled: bool, cx: &mut gpui::Context<Self>) {
-        let Some(action_id) = self.action_id.clone() else {
-            return;
-        };
-        let current = trigger_editor::action_triggers(&action_id, cx);
-        self.write_triggers(
-            trigger_editor::triggers_with_enabled(&current, trigger_id, enabled),
-            cx,
-        );
-    }
-
-    fn delete_trigger(&mut self, trigger_id: &str, cx: &mut gpui::Context<Self>) {
-        let Some(action_id) = self.action_id.clone() else {
-            return;
-        };
-        let current = trigger_editor::action_triggers(&action_id, cx);
-        self.write_triggers(trigger_editor::triggers_without(&current, trigger_id), cx);
-    }
-
-    /// Destructive native actions confirm first: the prompts fixture's
-    /// `delete-trigger` (EXP-1230).
-    fn prompt_delete_trigger(
-        &mut self,
-        trigger_id: String,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let view = cx.entity().downgrade();
-        let spec = AlertSpec::from_prompt("Delete trigger", &domain::prompts::delete_trigger())
-        .on_ok(move |_, cx| {
-            if let Some(view) = view.upgrade() {
-                view.update(cx, |this, cx| this.delete_trigger(&trigger_id, cx));
-            }
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
-    }
-
-    /// The prompts fixture's `delete-action` (EXP-1230) behind the shared
+    /// The prompts fixture's `delete-action` (EXP-1230) behind the shared    /// The prompts fixture's `delete-action` (EXP-1230) behind the shared
     /// alert window. The page leaves for the list once the synced row is
     /// gone ([`Self::on_actions_changed`]).
     fn prompt_delete_action(
@@ -511,306 +263,6 @@ impl ActionView {
             .into_any_element()
     }
 
-    /// One trigger row: glyph · [sentence, device + pins, the locked hint] ·
-    /// the enabled switch · the owner ⋯ menu.
-    fn render_trigger_row(
-        &self,
-        index: usize,
-        row: &TriggerRow,
-        now_ms: i64,
-        is_owner: bool,
-        blocked_by_inputs: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let theme = cx.theme();
-        let muted = theme.muted_foreground;
-        let foreground = theme.foreground;
-        // EXP-811: the ONE row hover, `list_hover` (glass fillRow) on every client.
-        let row_hover = theme.list_hover;
-        let trigger = &row.trigger;
-        let Some(action_id) = self.action_id.clone() else {
-            return div().into_any_element();
-        };
-        // The dot follows the clock: a machine goes offline WITHOUT a row
-        // change, so this is the one join left to the render.
-        let device_online = crate::device_settings::row_is_online(
-            row.device_last_seen_at.as_deref(),
-            now_ms,
-        );
-        // A triggered run has nobody to fill required inputs, so the server
-        // refuses to ENABLE such a trigger — but one that is already on must
-        // stay switchable OFF.
-        let locked = blocked_by_inputs && !trigger.enabled;
-
-        let mut meta = gpui_component::h_flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_1p5()
-            .text_xs()
-            .text_color(muted)
-            .child(crate::surface::live_dot(
-                if device_online {
-                    theme::tokens::GREEN.to_hsla()
-                } else {
-                    muted.opacity(0.4)
-                },
-                false,
-            ))
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .child(SharedString::from(row.device_label.clone())),
-            );
-        // The pins, when the trigger set any — otherwise the run follows the
-        // machine's own launch defaults and there is nothing to say.
-        if let Some(pins) = row.pins.clone() {
-            meta = meta
-                .child(div().flex_shrink_0().child("·"))
-                .child(div().min_w_0().truncate().child(SharedString::from(pins)));
-        }
-
-        let mut middle = gpui_component::v_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_0p5()
-            .child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_sm()
-                    .font_weight(FontWeight::MEDIUM)
-                    .truncate()
-                    .text_color(foreground)
-                    .child(SharedString::from(row.sentence.clone())),
-            )
-            .child(meta);
-        if locked {
-            middle = middle.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(TRIGGER_REQUIRED_INPUTS_HINT),
-            );
-        }
-
-        let toggle_id = trigger.id.clone();
-        let mut switch = crate::controls::web_switch(("trigger-enabled", index))
-            .checked(trigger.enabled)
-            // Owner-only per the permissions model: members SEE the state (a
-            // disabled switch), owners flip it.
-            // … and one write at a time: the next starts from this one's result.
-            .disabled(!is_owner || locked || self.trigger_writing)
-            .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                this.set_trigger_enabled(&toggle_id, *on, cx);
-            }));
-        if locked {
-            switch = switch.tooltip(TRIGGER_REQUIRED_INPUTS_HINT);
-        }
-
-        let edit_action = action_id.clone();
-        let edit_trigger = trigger.id.clone();
-        let element = crate::surface::flat_row()
-            .id(SharedString::from(format!("trigger-row-{}", trigger.id)))
-            .flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2p5()
-            // The row's click is the trigger form — the same destination its
-            // ⋯ menu has, under the same owner gate. A member has no form to
-            // open, so the row stays inert.
-            .when(is_owner, |this| {
-                this.hover(move |this| this.bg(row_hover))
-                    .cursor_pointer()
-                    .on_click(move |_: &ClickEvent, window, cx| {
-                        crate::trigger_dialog::open_edit(
-                            window,
-                            cx,
-                            edit_action.clone(),
-                            edit_trigger.clone(),
-                        );
-                    })
-            })
-            .child(
-                Icon::from(if trigger.is_schedule() {
-                    registry::TRIGGER_SCHEDULE
-                } else {
-                    registry::TRIGGER_EVENT
-                })
-                .xsmall()
-                .flex_shrink_0()
-                .text_color(foreground.opacity(0.7)),
-            )
-            .child(middle)
-            .child(
-                // The switch and the menu are their own targets; the row's
-                // click must not fire underneath them (web parity).
-                gpui_component::h_flex()
-                    .id(("trigger-row-controls", index))
-                    .flex_shrink_0()
-                    .items_center()
-                    .gap_1()
-                    .on_click(|_: &ClickEvent, _, cx| cx.stop_propagation())
-                    .child(switch)
-                    .children(is_owner.then(|| self.render_trigger_menu(index, &action_id, trigger, cx))),
-            );
-        list_row(element, index).into_any_element()
-    }
-
-    /// The row's owner ⋯ menu: Edit (the trigger form) / Delete (confirmed).
-    fn render_trigger_menu(
-        &self,
-        index: usize,
-        action_id: &str,
-        trigger: &ActionTrigger,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let action_id = action_id.to_string();
-        let trigger_id = trigger.id.clone();
-        let view = cx.entity().downgrade();
-        div()
-            .flex_shrink_0()
-            .child(
-                // EXP-862: a row's "..." is a GHOST glyph, never a circle.
-                crate::controls::ghost_icon_button(
-                    ("trigger-menu", index),
-                    Icon::from(registry::UI_MORE),
-                    cx,
-                )
-                .disabled(self.trigger_writing)
-                .dropdown_menu(move |menu, _window, cx| {
-                    let (edit_action, edit_trigger) = (action_id.clone(), trigger_id.clone());
-                    let delete_view = view.clone();
-                    let delete_id = trigger_id.clone();
-                    menu.item(
-                        crate::controls::pointer_label_item("Edit", false)
-                            .icon(Icon::from(registry::UI_EDIT))
-                            .on_click(move |_, window, cx| {
-                                crate::trigger_dialog::open_edit(
-                                    window,
-                                    cx,
-                                    edit_action.clone(),
-                                    edit_trigger.clone(),
-                                );
-                            }),
-                    )
-                    .item(
-                        crate::controls::danger_menu_item(
-                            "Delete",
-                            Icon::from(registry::UI_DELETE),
-                            cx,
-                        )
-                        .on_click(move |_, window, cx| {
-                            let Some(view) = delete_view.upgrade() else {
-                                return;
-                            };
-                            let id = delete_id.clone();
-                            view.update(cx, |this, cx| {
-                                this.prompt_delete_trigger(id, window, cx);
-                            });
-                        }),
-                    )
-                }),
-            )
-            .into_any_element()
-    }
-
-    /// The Triggers section: the band (owners: "Add trigger") over one row
-    /// per readable trigger, in stored order.
-    fn render_triggers(
-        &self,
-        action: &api::actions::Action,
-        is_owner: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let blocked_by_inputs = action.inputs.iter().any(|input| input.required);
-
-        // Owner-only. No agent gate: authoring a trigger starts nothing.
-        let add = is_owner.then(|| {
-            let action_id = action.id.clone();
-            crate::surface::glass_pill_button("triggers-add", crate::surface::PillSize::Sm, cx)
-                .label("Add trigger")
-                .on_click(move |_, window, cx| {
-                    crate::trigger_dialog::open_new(window, cx, action_id.clone());
-                })
-                .into_any_element()
-        });
-        let mut section = gpui_component::v_flex()
-            .min_w_0()
-            .child(glass_section_header("Triggers", add, cx));
-        if self.derived.triggers.is_empty() {
-            section = section.child(crate::controls::empty_state_list(
-                gpui_component::Icon::new(crate::icons::registry::TRIGGER_EVENT),
-                crate::empty_state_copy::ACTION_TRIGGERS,
-                cx,
-            ));
-        } else {
-            let rows: Vec<gpui::AnyElement> = self
-                .derived
-                .triggers
-                .iter()
-                .enumerate()
-                .map(|(index, row)| {
-                    self.render_trigger_row(index, row, now_ms, is_owner, blocked_by_inputs, cx)
-                })
-                .collect();
-            section = section.children(rows);
-        }
-        section.into_any_element()
-    }
-
-    /// The Runs section: every run of this action, newest first, as the
-    /// session tree, each titled by what started it.
-    fn render_runs(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let mut section = gpui_component::v_flex()
-            .min_w_0()
-            .child(glass_section_header("Sessions", None, cx));
-        if self.derived.runs.is_empty() {
-            return section
-                .child(crate::controls::empty_state_list(
-                    gpui_component::Icon::new(crate::icons::registry::ACTION_RUN),
-                    crate::empty_state_copy::ACTION_RUNS,
-                    cx,
-                ))
-                .into_any_element();
-        }
-        // EXP-965/1248: children always show; the connector every nested
-        // row draws comes off the depth sequence.
-        let guides = domain::tree_guides::guides_for(
-            &self.derived.runs.iter().map(|row| row.depth).collect::<Vec<_>>(),
-        );
-        for (index, row) in self.derived.runs.iter().enumerate() {
-            let guides = guides.get(index).cloned().unwrap_or_default();
-            let open_id = row.facts.session_id().to_string();
-            // This page is context-free (no list to pin the run beside), so
-            // the run opens over the rail and its Back — the history —
-            // returns here.
-            let on_open: run_rows::RunRowAction = Box::new(move |_, window, cx| {
-                crate::session_screen::open_session(&open_id, window, cx);
-            });
-            let element = run_rows::run_row(
-                row.facts.clone().row_spec(
-                    "action-run",
-                    index,
-                    run_rows::RunRowSize::Big,
-                    guides,
-                    false,
-                    on_open,
-                ),
-                cx,
-            );
-            section = section.child(list_row(element, index));
-        }
-        section.into_any_element()
-    }
-
     /// The page while its action is not there: still syncing, or gone.
     fn render_missing(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
@@ -866,60 +318,11 @@ impl Render for ActionView {
             .min_w_0()
             .child(glass_section_header("Prompt", None, cx))
             .children(self.prompt.clone().map(|form| div().pt_1().child(form)));
-        let triggers = self.render_triggers(&action, is_owner, cx);
-        let runs = self.render_runs(cx);
-
         page_scaffold(
             "action-screen-scroll",
             &self.scroll,
-            gpui_component::v_flex()
-                .gap_6()
-                .child(header)
-                .child(prompt)
-                .child(triggers)
-                .child(runs),
+            gpui_component::v_flex().gap_6().child(header).child(prompt),
         )
         .into_any_element()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn trigger(element: serde_json::Value) -> ActionTrigger {
-        coding::triggers::parse_action_trigger(&element).expect("a readable trigger")
-    }
-
-    /// Line 2 of a Triggers row names the pinned agent and model, `agent ·
-    /// model` like the web (`action-triggers-section.tsx` `launch`) — and
-    /// says nothing when the trigger follows the device's own defaults.
-    #[test]
-    fn launch_pins_label_names_the_agent_and_model() {
-        let when = json!({"id": "t-1", "deviceId": "d-1",
-                          "kind": "schedule", "interval": "daily", "minuteOfDay": 540});
-        assert_eq!(launch_pins_label(&trigger(when.clone())), None);
-
-        let mut pinned = when.clone();
-        pinned["agent"] = json!("claude");
-        pinned["model"] = json!("opus");
-        // The effort is the one launch detail the row leaves out.
-        pinned["effort"] = json!("high");
-        let claude = coding::CodingAgent::parse("claude").expect("contract agent").label();
-        assert_eq!(launch_pins_label(&trigger(pinned)), Some(format!("{claude} · opus")));
-
-        // Either half stands alone.
-        let mut agent_only = when.clone();
-        agent_only["agent"] = json!("claude");
-        assert_eq!(launch_pins_label(&trigger(agent_only)), Some(claude.to_string()));
-        let mut model_only = when.clone();
-        model_only["model"] = json!("sonnet");
-        assert_eq!(launch_pins_label(&trigger(model_only)), Some("sonnet".to_string()));
-
-        // An agent this build predates still names itself.
-        let mut future = when;
-        future["agent"] = json!("moonshot");
-        assert_eq!(launch_pins_label(&trigger(future)), Some("moonshot".to_string()));
     }
 }

@@ -85,6 +85,7 @@ pub mod device_store;
 pub mod devices;
 pub mod repositories;
 pub mod session_device;
+pub mod sessions;
 pub mod settings_lock;
 pub mod statuses;
 pub mod steer;

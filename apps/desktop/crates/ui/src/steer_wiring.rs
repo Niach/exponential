@@ -1,6 +1,6 @@
 //! App-side wiring for the remote-steer subsystem (masterplan-v3 §08) — the
 //! ONE place that ties the `steer` crate, the `sync::kill_watch` own-row
-//! kill-switch, and the running `coding` sessions together. `steer` depends on
+//! kill-switch, and the hosted `coding` sessions together. `steer` depends on
 //! neither `sync` nor `ui`, and `coding` depends on neither `steer` nor `ui`
 //! (§3.1); this module is the intended meeting point ("the app/ui layer wires
 //! both", `steer::lib` docs).
@@ -9,35 +9,29 @@
 //!
 //! 1. **Control channel — starts with the app session.** [`install`] (from the
 //!    app bootstrap, `main.rs`) creates the single [`steer::SteerRuntime`],
-//!    installs the [`sync::KillWatch`], and stands up the remote-`start_session`
-//!    inbox + its foreground drain. [`start_control_channel`] (from
+//!    installs the [`sync::KillWatch`] and the session pickup
+//!    ([`crate::session_pickup`], EXP-1294: starts arrive as `sessions` rows,
+//!    never as relay frames). [`start_control_channel`] (from
 //!    `session::connect_account`, once per signed-in account) dials the
 //!    device-presence socket; [`stop_control_channel`] (from
-//!    `session::sign_out_active`) tears it down. A relay `start_session` frame
-//!    lands on the socket → the inbox → [`handle_remote_start`] → the §7
-//!    launcher on a shell window (the SAME `coding_flow` path the button
-//!    uses, `LaunchOrigin::Relay`).
+//!    `session::sign_out_active`) tears it down.
 //!
 //! 2. **Publisher — the ENGINE's (EXP-746 D14, EXP-773).** A coding session
 //!    runs in the in-process ACP engine, which owns its publisher, its
 //!    activity vocabulary and its `bye`. Nothing here attaches one.
 //!
-//! 3. **Kill-switch — the own-row Electric watch (§8.8).** Every session is
-//!    registered with the [`sync::KillWatch`]; when its `coding_sessions` row
-//!    flips to `ended` (a `steer.killSession` DB write that reaches us over
-//!    sync even when the relay is dead), [`register_kill_feed`] turns it into
-//!    an [`engine::KillFeed`] edge — the only kill path that survives a dead
+//! 3. **Kill-switch — the own-row Electric watch (§8.8).** Every hosted
+//!    session is registered with the [`sync::KillWatch`]; when its `sessions`
+//!    row flips to `ended` (a `sessions.end` that reaches us over sync even
+//!    when the relay is dead), [`register_kill_feed`] turns it into an
+//!    [`engine::KillFeed`] edge — the only kill path that survives a dead
 //!    relay.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use gpui::{App, AppContext as _, Entity, Global};
 
-use coding::{
-    prepare, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, Prepared,
-    PrepareRequest, RepoGroup, ResumeRunRequest,
-};
 use steer::{
     spawn_control_channel, ControlApi, ControlChannelHandle, DeviceIdentity, PublisherTickets,
     SteerRuntime, TrpcControlApi, TrpcPublisherTickets,
@@ -60,11 +54,6 @@ impl Global for SteerRuntimeGlobal {}
 /// The §8.8 own-row kill-switch entity.
 struct KillWatchGlobal(Entity<KillWatch>);
 impl Global for KillWatchGlobal {}
-
-/// Foreground inbox for relay `start_session` frames (the socket callback runs
-/// on the steer runtime; this hands the start request to the gpui foreground).
-struct RemoteStartGlobal(flume::Sender<steer::RemoteStart>);
-impl Global for RemoteStartGlobal {}
 
 /// The ONE steer tokio runtime, once [`install`] has stood it up. `None` on a
 /// build where it failed to start — every steer role (publisher, control
@@ -94,7 +83,7 @@ pub fn install(cx: &mut App) {
     }
 
     // §8.8 own-row Electric kill-switch: install the watch over the shared
-    // `coding_sessions` collection.
+    // `sessions` collection.
     let store = Store::global(cx).clone();
     let kill_watch = KillWatch::install(&store, cx);
     cx.set_global(KillWatchGlobal(kill_watch));
@@ -103,15 +92,9 @@ pub fn install(cx: &mut App) {
     // races the first coding session.
     let _ = ControlChannels::global(cx);
 
-    // §8.3 #4: relay `start_session` → foreground launcher.
-    let (tx, rx) = flume::unbounded::<steer::RemoteStart>();
-    cx.set_global(RemoteStartGlobal(tx));
-    cx.spawn(async move |cx| {
-        while let Ok(start) = rx.recv_async().await {
-            cx.update(|cx| handle_remote_start(start, cx));
-        }
-    })
-    .detach();
+    // EXP-1294: this machine picks its own `sessions` rows up from the
+    // shapes — the one start path.
+    crate::session_pickup::install(cx);
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +154,6 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     let settings2 = settings.clone();
     let device_id = steer::persistent_device_id(&auth.data_dir);
     let device_label = api::users::hostname();
-    let inbox = cx.global::<RemoteStartGlobal>().0.clone();
     let check_in = crate::device_sync::check_in_flag(cx);
     let account_id = account.id.clone();
     // EXP-773: the transcript store this account's runs write to, and the
@@ -261,9 +243,9 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
                 device_id,
                 device_label,
             };
-            let on_start: steer::control_channel::StartSessionFn = Arc::new(move |start| {
-                let _ = inbox.send(start);
-            });
+            // EXP-1294: starts are `sessions` rows the pickup reads off the
+            // shapes, so a relay start frame has nowhere to go.
+            let on_start: steer::control_channel::StartSessionFn = Arc::new(|_| {});
             // Non-blocking by contract: flip the flag — the device-sync
             // loop's next 1s tick beats immediately.
             let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
@@ -472,683 +454,6 @@ fn register_device(
         .detach();
 }
 
-/// Relay `start_session` → the §7 launcher on a shell window. The SAME
-/// sequence the Agent page composer runs (`coding::prepare` →
-/// `spawn_into_window`), only the [`LaunchOrigin`] differs (§7.1: there is no
-/// second, divergent remote-start implementation). Dispatches on the frame's
-/// subject: a single issue (`build_launch` → `PrepareRequest::Issue`) or a
-/// multi-issue batch (`PrepareRequest::Batch`, EXP-106).
-fn handle_remote_start(start: steer::RemoteStart, cx: &mut App) {
-    // FEED-63/67: success is observed purely via the synced `coding_sessions`
-    // row appearing; every refusal and failure below ALSO reaches the
-    // requester through `report`, when the frame named its `startId`.
-    let report = StartReport::new(start.start_id.clone());
-    match start.subject.clone() {
-        steer::RemoteStartSubject::Issue(issue_id) => {
-            remote_issue_start(issue_id, &start, report, cx)
-        }
-        steer::RemoteStartSubject::Batch {
-            issue_ids,
-            team_id,
-            repo,
-        } => remote_batch_start(issue_ids, team_id, repo, &start, report, cx),
-        steer::RemoteStartSubject::Action {
-            action_id,
-            team_id,
-            repo,
-            inputs,
-            ..
-        } => remote_action_start(action_id, team_id, repo, inputs, &start, report, cx),
-        // EXP-637: resume an ended run out of the local run registry (EXP-662:
-        // issue and batch sessions too) — no repo/inputs/options ride the
-        // frame (the record has them), so this is the shortest arm of the four.
-        //
-        // EXP-849: …except the ACCOUNT. A resume that NAMES one is a mid-run
-        // "switch account": the server lets it ride a run that is still LIVE,
-        // and this machine is the one that ends that run (`ended_by: client`)
-        // before re-entering it under the other login.
-        steer::RemoteStartSubject::Resume { session_id } => {
-            let origin = relay_origin(cx, &start);
-            match start.account.clone().filter(|id| !id.trim().is_empty()) {
-                Some(account) => {
-                    if !crate::account_switch::end_then_resume_on_account(
-                        session_id.clone(),
-                        account,
-                        None,
-                        origin,
-                        None,
-                        report.clone(),
-                        false,
-                        cx,
-                    ) {
-                        // Mid-turn: refused rather than truncating the very
-                        // output the requester is watching. The ×4 sentence
-                        // (`account_switch::REASON_BUSY`) is what that client's
-                        // own disabled row says.
-                        log::info!(
-                            "remote account switch for {session_id} ignored: {}",
-                            crate::account_switch::REASON_BUSY
-                        );
-                        report.fail(crate::account_switch::REASON_BUSY, cx);
-                    }
-                }
-                None => crate::action_run::resume_run_reporting(
-                    session_id,
-                    None,
-                    crate::coding_flow::RunLanding::Background,
-                    origin,
-                    None,
-                    None,
-                    report,
-                    cx,
-                ),
-            }
-        }
-    }
-}
-
-/// FEED-63/67: the requester's handle on one remote start: the frame's
-/// `startId`, when it carried one. [`StartReport::fail`] tells the server why
-/// the start did not happen (`steer.reportStartFailure`), so the requester
-/// reads the reason instead of a bare "no run within 10s". The CLI daemon
-/// reports the same way with the same reason strings (`steer`'s shared
-/// helpers). Local starts carry [`StartReport::none`], which reports nothing.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct StartReport(Option<String>);
-
-impl StartReport {
-    pub(crate) fn new(start_id: Option<String>) -> Self {
-        Self(start_id.filter(|id| !id.trim().is_empty()))
-    }
-
-    /// Nothing to report to (a local start, a pre-FEED-63 frame).
-    pub(crate) fn none() -> Self {
-        Self(None)
-    }
-
-    /// Report `reason` for this start, best-effort, off the foreground (an
-    /// HTTP round trip). A report without a start id, or while signed out,
-    /// is a no-op.
-    pub(crate) fn fail(&self, reason: impl Into<String>, cx: &App) {
-        let Some(start_id) = self.0.clone() else {
-            return;
-        };
-        let Some(trpc) = queries::trpc_client(cx) else {
-            log::warn!("remote start {start_id}: failure not reported (not signed in)");
-            return;
-        };
-        let reason = reason.into();
-        cx.background_executor()
-            .spawn(async move {
-                steer::report_start_failure(&trpc, Some(&start_id), &reason);
-            })
-            .detach();
-    }
-}
-
-/// EXP-505: in-flight remote ACTION start reservations — the GUI twin of the
-/// CLI daemon's REV-9 `StartReservations`. Starts are never acked, and
-/// `steer.startSession` gives up after 3s (REV-34 `relay_timeout`) even when
-/// the frame WAS delivered — so the requester retries, and the duplicate
-/// frame would run the same action twice: unlike issue starts (guarded by
-/// `LocalSessions` + the synced-row probe in `remote_issue_start`), action
-/// runs have no natural dedup key — concurrent runs of one action are a
-/// FEATURE locally. The claim covers exactly the blind window: taken on the
-/// frame's arrival, keyed on the action id, and released only when the launch
-/// pipeline finishes — by which point `spawn_into_window` has registered the
-/// session and its synced row tells the remote client the start took. Local
-/// (dialog) starts never claim: the user watching the dialog is the dedup.
-#[derive(Clone, Default)]
-pub(crate) struct StartReservations(Arc<Mutex<HashSet<String>>>);
-
-impl StartReservations {
-    /// All-or-nothing claim: `None` when the key is already held by an
-    /// in-flight start (the caller drops the duplicate frame).
-    pub(crate) fn claim(&self, key: String) -> Option<ReservationGuard> {
-        let mut held = match self.0.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if !held.insert(key.clone()) {
-            return None;
-        }
-        Some(ReservationGuard {
-            held: Arc::clone(&self.0),
-            key,
-        })
-    }
-}
-
-/// Releases its key on drop — every early return and failure path in the
-/// action-run pipeline frees the claim (a poisoned-lock release recovers via
-/// `into_inner`), so a failed start never wedges its action until restart.
-pub(crate) struct ReservationGuard {
-    held: Arc<Mutex<HashSet<String>>>,
-    key: String,
-}
-
-impl Drop for ReservationGuard {
-    fn drop(&mut self) {
-        let mut held = match self.held.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        held.remove(&self.key);
-    }
-}
-
-/// The process-wide claim set. EXP-530: the trigger host claims through
-/// the SAME set as the relay path — a scheduled firing and a remote start of
-/// one action must never both launch.
-pub(crate) fn action_start_reservations() -> &'static StartReservations {
-    static RESERVATIONS: std::sync::OnceLock<StartReservations> = std::sync::OnceLock::new();
-    RESERVATIONS.get_or_init(StartReservations::default)
-}
-
-/// Relay ACTION start (§08 / EXP-253): runs directly — EXP-268 removed the
-/// per-device trust gate (actions are team-owner-authored content), so an
-/// unattended desktop just launches. The frame's server-resolved repo group
-/// + input values ride through (the desktop syncs no repositories); the
-/// fresh body comes from the runner's own `actions.get`. EXP-257: the
-/// FULL option set is honored with the same per-agent normalization as an
-/// issue start (the server already validated the vocabulary).
-fn remote_action_start(
-    action_id: String,
-    team_id: String,
-    repo: Option<steer::StartRepoGroup>,
-    inputs: Vec<steer::StartInput>,
-    start: &steer::RemoteStart,
-    report: StartReport,
-    cx: &mut App,
-) {
-    // EXP-505: claim the frame's action id before launching — the only dedup
-    // a duplicate delivery (REV-34 relay_timeout + requester retry) can hit
-    // while the first start is still fetching/preparing. NOT a concurrency
-    // limit: once a run registers, its claim is gone and further starts run
-    // alongside it (batch precedent — concurrent repo-backed runs share the
-    // trunk cwd exactly like two shell tabs).
-    let Some(reservation) = action_start_reservations().claim(format!("action:{action_id}"))
-    else {
-        log::info!(
-            "steer: remote action start for {action_id} ignored — a start holding it is already in flight"
-        );
-        // EXP-758: and SAY so. A duplicate delivery is invisible either way,
-        // but a person pressing Run twice (or a schedule firing while they
-        // do) got nothing at all back from this machine, the same silence a
-        // start that was never picked up produces.
-        crate::action_run::notify_target_error(
-            None,
-            "That action is already starting on this machine.",
-            cx,
-        );
-        // FEED-63/67: and the requester hears it too.
-        report.fail(steer::START_DUPLICATE_REASON, cx);
-        return;
-    };
-    let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-    let options = LaunchOptions::remote(
-        &settings,
-        start.agent.as_deref(),
-        start.model.as_deref(),
-        start.effort.as_deref(),
-        start.ultracode,
-        start.plan_mode,
-        // EXP-849: the composer's account pick. EXP-792's `mcpServerIds` rode
-        // the frame unread until now — both land here, one normalizer each.
-        start.account.as_deref(),
-    )
-    .with_mcp_servers(start.mcp_server_ids.clone())
-    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
-    .with_computer_use(start.computer_use)
-    // EXP-981: the composer's claude-only subagent pick; absent leaves this
-    // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref());
-    let repo_group = repo.map(|repo| RepoGroup {
-        repository_id: repo.repository_id,
-        full_name: repo.full_name,
-        default_branch: repo.default_branch,
-    });
-    // Frame inputs → prompt values. A thinned entry degrades per-field:
-    // label falls back to the key, type to `text` (both presentation-only —
-    // the VALUE the server resolved is what the run consumes).
-    let inputs: Vec<coding::ActionInputValue> = inputs
-        .into_iter()
-        .map(|input| coding::ActionInputValue {
-            label: input.label.unwrap_or_else(|| input.key.clone()),
-            input_type: input.input_type.unwrap_or_else(|| "text".to_string()),
-            key: input.key,
-            value: input.value,
-            display: input.display,
-        })
-        .collect();
-    crate::action_run::start_action_run(
-        crate::action_run::StartActionArgs {
-            action_id,
-            team_id,
-            repo: crate::action_run::ActionRepo::Provided(repo_group),
-            options,
-            origin: relay_origin(cx, &start),
-            inputs,
-            target: None,
-            landing: crate::coding_flow::RunLanding::Background,
-            reservation: Some(reservation),
-            // A relay start is a PERSON's start — the trigger host is the
-            // only caller that fires these (EXP-530).
-            trigger: None,
-            trigger_id: None,
-            on_settled: None,
-            prompt: start.prompt.clone(),
-            report,
-        },
-        cx,
-    );
-}
-
-/// The §08 relay [`LaunchOrigin`] for the signed-in account: the persistent
-/// device id + the active account id (the session's audit surface, §7.1 — not
-/// a branch key). `started_by` is the frame's EXP-432 requester attribution —
-/// only `server`-kind devices can be shared, so on a desktop it stays `None`
-/// today; the plumbing is parity with the daemon (and EXP-444's foreign-host
-/// login suppression consumes it wherever it does arrive). `started_reason`
-/// is EXP-679's: `agent` when another coding session asked for this start,
-/// which makes the run unattended (it gets the close-out tool that ends it).
-/// `thread_id` is EXP-1284's: the thread the requester asked this start to
-/// join (already dropped on a resume frame), echoed into
-/// `codingSessions.start`.
-fn relay_origin(cx: &App, start: &steer::RemoteStart) -> LaunchOrigin {
-    let device_id = steer::persistent_device_id(&AuthContext::global(cx).data_dir);
-    let claimant = queries::active_account(cx)
-        .map(|account| account.id)
-        .unwrap_or_default();
-    LaunchOrigin::Relay {
-        device_id,
-        claimant,
-        started_by: start.started_by.clone(),
-        started_reason: start.started_reason.clone(),
-        thread_id: start.thread_id.clone(),
-        // EXP-1284 (T16): the frame's startId, echoed into the start.
-        start_id: start.start_id.clone(),
-    }
-}
-
-/// FEED-67: the reason a remote start reports when this desktop has no
-/// window open to run it in (the daemon has no such case).
-pub(crate) const NO_WINDOW_REASON: &str =
-    "remote start failed: the desktop app has no window open to run it in";
-
-/// The first shell window (one with a terminal dock). A relay start can't
-/// host a coding tab on a non-shell window (login), so `None` means no
-/// window is open to run in — the caller logs and drops the start.
-pub(crate) fn find_team_window(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
-    cx.windows().into_iter().find(|handle| {
-        handle
-            .update(cx, |_, window, cx| {
-                coding_flow::window_terminal_manager(window, cx).is_some()
-            })
-            .unwrap_or(false)
-    })
-}
-
-/// Relay single-issue start (§08) — the button's `build_launch` sequence with
-/// `LaunchOrigin::Relay`.
-fn remote_issue_start(
-    issue_id: String,
-    start: &steer::RemoteStart,
-    report: StartReport,
-    cx: &mut App,
-) {
-    // Dedup: never launch a second session for an issue this process is
-    // already coding. Without this, a relay `start_session` arriving while a
-    // session is live (a phone tapping "Start on my desktop" for an issue
-    // already coding locally, or two taps in a row) would spawn a second
-    // `claude` into the SAME `exp/<ID>` worktree and orphan the first — the
-    // first child keeps running, its row never ends on tab-close, and Stop
-    // only reaches the second. The button path is already guarded by its
-    // Coding…/Stop render state; this closes the relay entry (LocalSessions is
-    // process-global, so this covers every window).
-    let held_here = coding_flow::LocalSessions::global(cx)
-        .read(cx)
-        .get(&issue_id)
-        .map(|session| session.session_id.clone());
-    if let Some(session_id) = held_here {
-        log::warn!("steer: remote start for {issue_id} ignored — already coding this issue");
-        report.fail(steer::issue_held_here_reason(&session_id), cx);
-        return;
-    }
-    // REV2-24: the cross-device half of the same rule, mirroring the dialog's
-    // blocker. The remote client hides Start when it SEES a live session, but
-    // that view lags the launch (the row only exists once a desktop spins up
-    // and round-trips through Electric), so two devices dispatched inside that
-    // window would both pass the LocalSessions check and push to the same
-    // `exp/<ID>` branch.
-    let now = chrono::Utc::now().timestamp();
-    if let Some(device) = queries::live_session_device_for_issue(cx, &issue_id, now) {
-        log::warn!(
-            "steer: remote start for {issue_id} ignored — live session on {device} (one session per issue)"
-        );
-        report.fail(steer::issue_held_elsewhere_reason(&device, None), cx);
-        return;
-    }
-    // FEED-47/57: a live BATCH run covering the issue holds it too.
-    if let Some(device) = coding_flow::live_batch_device_for_issue(cx, &issue_id, now) {
-        log::warn!(
-            "steer: remote start for {issue_id} ignored — a batch run on {device} covers it (one session per issue)"
-        );
-        report.fail(steer::issue_held_elsewhere_reason(&device, None), cx);
-        return;
-    }
-
-    let origin = relay_origin(cx, &start);
-    // The remote client's composer choices (EXP-149), settings
-    // defaults for anything it didn't send. Plan mode stays OFF unless the
-    // client explicitly opted in (F7: an option-less start must never park
-    // at a native plan-approval TUI menu on an unattended desktop — nobody
-    // is at the keyboard to approve it).
-    let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-    let options = LaunchOptions::remote(
-        &settings,
-        start.agent.as_deref(),
-        start.model.as_deref(),
-        start.effort.as_deref(),
-        start.ultracode,
-        start.plan_mode,
-        // EXP-849: the composer's account pick. EXP-792's `mcpServerIds` rode
-        // the frame unread until now — both land here, one normalizer each.
-        start.account.as_deref(),
-    )
-    .with_mcp_servers(start.mcp_server_ids.clone())
-    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
-    .with_computer_use(start.computer_use)
-    // EXP-981: the composer's claude-only subagent pick; absent leaves this
-    // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref());
-    // EXP-481/EXP-662: honor the remote resume flag against the RUN REGISTRY
-    // — the newest resumable record for this issue on this account relaunches
-    // that exact transcript; with no record the flag degrades to a fresh
-    // session seeded with the resume prompt, so an optimistic flag is always
-    // safe. FEED-47: ONLY the explicit flag does; a fresh start on an issue
-    // with a recorded run is a NEW run in the reused worktree.
-    let data_dir = coding_flow::coding_data_dir(cx);
-    let account = start.resume.then(|| queries::active_account(cx)).flatten();
-    let resume_record = coding::launcher::recorded_run_for_start(start.resume, || {
-        coding::run_registry::latest_for_issue(&data_dir, &account?.id, &issue_id)
-    });
-    let Some((prepare_request, deps)) = (match resume_record {
-        Some(record) => coding_flow::build_resume_deps(&record, cx).map(|deps| {
-            (
-                PrepareRequest::ResumeRun(ResumeRunRequest {
-                    record,
-                    device_label: coding::default_device_label(),
-                    origin,
-                    // The recorded run keeps its own agent and options
-                    // (D2) — a remote resume nudges neither.
-                    model: None,
-                    effort: None,
-                    prompt: start.prompt.clone(),
-                    // EXP-849: …except the ACCOUNT. A remote "switch account"
-                    // is a resume naming a different login (already
-                    // normalized by `LaunchOptions::remote`).
-                    account: options.account.clone(),
-                }),
-                deps,
-            )
-        }),
-        None => coding_flow::build_launch(
-            &issue_id,
-            origin,
-            options,
-            start.resume,
-            start.prompt.clone(),
-            cx,
-        )
-        .map(|(request, deps)| (PrepareRequest::Issue(request), deps)),
-    }) else {
-        log::warn!("steer: remote start for {issue_id} ignored — not signed in / not synced");
-        report.fail(
-            "remote start failed: the issue is not synced on this device (or it is signed out)",
-            cx,
-        );
-        return;
-    };
-
-    let Some(target) = find_team_window(cx) else {
-        log::warn!("steer: remote start for {issue_id} — no shell window open");
-        report.fail(NO_WINDOW_REASON, cx);
-        return;
-    };
-
-    cx.spawn(async move |cx| {
-        let prepared = cx
-            .background_executor()
-            .spawn(async move { prepare(&prepare_request, &deps) })
-            .await;
-        let _ = target.update(cx, |_, window, cx| match prepared {
-            Ok(Prepared::Ready(prepared)) => {
-                if let Err(message) = coding_flow::spawn_into_window(
-                    prepared,
-                    coding_flow::SessionSubject::Issue(issue_id),
-                    coding_flow::RunLanding::Background,
-                    window,
-                    cx,
-                ) {
-                    log::warn!("steer: remote start spawn failed: {message}");
-                    report.fail(message, cx);
-                }
-            }
-            Ok(Prepared::Disabled(reason)) => {
-                log::warn!("steer: remote start disabled — {}", reason.message());
-                report.fail(steer::disabled_launch_reason(&reason.message()), cx);
-            }
-            Err(err) => {
-                log::warn!("steer: remote start prepare failed: {err}");
-                report.fail(err.to_string(), cx);
-            }
-        });
-    })
-    .detach();
-}
-
-/// Relay BATCH start (§08 / EXP-106) — ONE session over `issue_ids` on a
-/// fresh `exp/batch-<id8>` branch. The batch equivalent of the dialog's
-/// `batch_request` + `run_prepare` tail: resolve every issue from the local
-/// sync store (the desktop syncs no repositories collection, so the repo rides
-/// the frame), then `PrepareRequest::Batch` → `spawn_into_window`.
-fn remote_batch_start(
-    issue_ids: Vec<String>,
-    team_id: String,
-    repo: steer::StartRepoGroup,
-    start: &steer::RemoteStart,
-    report: StartReport,
-    cx: &mut App,
-) {
-    // No worktree dedup (unlike the issue branch): each batch run mints a
-    // fresh `exp/batch-<id8>` branch, so there is never a collision to guard
-    // against — but the EXP-202 one-session-per-issue rule still applies per
-    // MEMBER issue (REV2-24), otherwise a batch duplicates work an agent is
-    // already doing on `exp/<ID>` elsewhere and lands it in a second PR.
-
-    // Resolve the checked issues from sync. Unknown ids are skipped; a
-    // resolved issue whose board is outside the claimed team aborts the
-    // WHOLE batch — a remote client must never steer this desktop into coding
-    // issues from another team than the one it claimed. An issue already
-    // being coded (this process or, per the synced rows, any device) aborts
-    // the whole batch too, mirroring the dialog's blocker: silently dropping
-    // it would run a batch the requester never asked for.
-    let now = chrono::Utc::now().timestamp();
-    // EXP-712: the board the batch branch is cut from — the first resolved
-    // issue's. `steer.startSession` already refused a batch whose boards
-    // disagree on the base branch, so any of them names the same branch.
-    let mut batch_board: Option<String> = None;
-    let issues: Vec<BatchIssueSpec> = {
-        let store = Store::global(cx);
-        let issues_coll = store.collections().issues.read(cx);
-        let boards_coll = store.collections().boards.read(cx);
-        let local = coding_flow::LocalSessions::global_ref(cx);
-        let mut specs = Vec::new();
-        for issue_id in &issue_ids {
-            let Some(issue) = issues_coll.get(issue_id) else {
-                log::warn!("steer: remote batch start — unknown issue {issue_id}, skipped");
-                continue;
-            };
-            let issue_ws = boards_coll
-                .get(&issue.board_id)
-                .map(|board| board.team_id.as_str());
-            if issue_ws != Some(team_id.as_str()) {
-                log::warn!(
-                    "steer: remote batch start aborted — issue {} is not in team {team_id}",
-                    issue.identifier
-                );
-                report.fail(
-                    format!(
-                        "remote batch start refused: {} is not in the requested team",
-                        issue.identifier
-                    ),
-                    cx,
-                );
-                return;
-            }
-            let held_here = local.as_ref().and_then(|sessions| {
-                sessions
-                    .read(cx)
-                    .get(issue_id)
-                    .map(|session| session.session_id.clone())
-            });
-            if let Some(session_id) = held_here {
-                log::warn!(
-                    "steer: remote batch start aborted — already coding {} on this device",
-                    issue.identifier
-                );
-                report.fail(
-                    format!(
-                        "{}: {}",
-                        issue.identifier,
-                        steer::issue_held_here_reason(&session_id)
-                    ),
-                    cx,
-                );
-                return;
-            }
-            if let Some(device) = queries::live_session_device_for_issue(cx, issue_id, now)
-                .or_else(|| coding_flow::live_batch_device_for_issue(cx, issue_id, now))
-            {
-                log::warn!(
-                    "steer: remote batch start aborted — {} has a live session on {device}",
-                    issue.identifier
-                );
-                report.fail(
-                    format!(
-                        "{}: {}",
-                        issue.identifier,
-                        steer::issue_held_elsewhere_reason(&device, None)
-                    ),
-                    cx,
-                );
-                return;
-            }
-            batch_board.get_or_insert_with(|| issue.board_id.clone());
-            specs.push(BatchIssueSpec {
-                issue_id: issue.id.clone(),
-                issue_identifier: issue.identifier.clone(),
-                title: issue.title.clone(),
-                description: issue.description.clone(),
-                status: issue.status,
-            });
-        }
-        specs
-    };
-    if issues.is_empty() {
-        log::warn!("steer: remote batch start aborted — no issues resolved from sync");
-        report.fail(
-            "remote batch start failed: none of its issues is synced on this device",
-            cx,
-        );
-        return;
-    }
-
-    // Absent options fall to the settings defaults (EXP-206: same set as an
-    // issue start); plan mode stays OFF unless the remote client opted in
-    // (F7 — same unattended-desktop rule as the issue branch).
-    let settings = coding_flow::CodingHub::global(cx).read(cx).settings.clone();
-    let options = LaunchOptions::remote(
-        &settings,
-        start.agent.as_deref(),
-        start.model.as_deref(),
-        start.effort.as_deref(),
-        start.ultracode,
-        start.plan_mode,
-        // EXP-849: the composer's account pick. EXP-792's `mcpServerIds` rode
-        // the frame unread until now — both land here, one normalizer each.
-        start.account.as_deref(),
-    )
-    .with_mcp_servers(start.mcp_server_ids.clone())
-    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
-    .with_computer_use(start.computer_use)
-    // EXP-981: the composer's claude-only subagent pick; absent leaves this
-    // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref());
-
-    // Same field construction the dialog's `batch_request` uses (device_label
-    // from `coding::default_device_label()`, a fresh `coding::new_batch_id()`).
-    let batch_id = coding::new_batch_id();
-    let request = BatchLaunchRequest {
-        batch_id: batch_id.clone(),
-        team_id,
-        board_id: batch_board,
-        repo: RepoGroup {
-            repository_id: repo.repository_id,
-            full_name: repo.full_name,
-            default_branch: repo.default_branch,
-        },
-        issues,
-        device_label: coding::default_device_label(),
-        origin: relay_origin(cx, &start),
-        options,
-        prompt: start.prompt.clone(),
-    };
-
-    let Some(deps) = coding_flow::build_batch_deps(cx) else {
-        log::warn!("steer: remote batch start ignored — not signed in / not synced");
-        report.fail("remote batch start failed: this device is signed out", cx);
-        return;
-    };
-    let Some(target) = find_team_window(cx) else {
-        log::warn!("steer: remote batch start — no shell window open");
-        report.fail(NO_WINDOW_REASON, cx);
-        return;
-    };
-
-    let prepare_request = PrepareRequest::Batch(request);
-    cx.spawn(async move |cx| {
-        let prepared = cx
-            .background_executor()
-            .spawn(async move { prepare(&prepare_request, &deps) })
-            .await;
-        let _ = target.update(cx, |_, window, cx| match prepared {
-            Ok(Prepared::Ready(prepared)) => {
-                if let Err(message) = coding_flow::spawn_into_window(
-                    prepared,
-                    coding_flow::SessionSubject::Batch(batch_id),
-                    coding_flow::RunLanding::Background,
-                    window,
-                    cx,
-                ) {
-                    log::warn!("steer: remote batch start spawn failed: {message}");
-                    report.fail(message, cx);
-                }
-            }
-            Ok(Prepared::Disabled(reason)) => {
-                log::warn!("steer: remote batch start disabled — {}", reason.message());
-                report.fail(steer::disabled_launch_reason(&reason.message()), cx);
-            }
-            Err(err) => {
-                log::warn!("steer: remote batch start prepare failed: {err}");
-                report.fail(err.to_string(), cx);
-            }
-        });
-    })
-    .detach();
-}
-
 /// EXP-746 — the account facts the engine needs off the app state.
 ///
 /// REV2-17: the account's `expu_` personal key. It is the redactor's
@@ -1203,19 +508,19 @@ pub(crate) fn unwatch_kill(session_id: &str, cx: &mut App) {
 /// callback uses; the engine drops the feed FIRST in its end sequence, so the
 /// run's own `ended` flip cannot bounce back at it (EXP-283).
 ///
-/// The POLICY stays here too: [`ended_policy`] decides whether an ended row is
-/// a stop-now or the agent finishing its own close-out.
+/// EXP-1294: an ended row is always a stop-now — the row carries no
+/// close-out any more.
 pub(crate) fn register_kill_feed(session_id: &str, cx: &mut App) -> engine::KillFeed {
     let (kill_tx, kill_rx) = flume::unbounded::<engine::KillReason>();
     let (unwatch_tx, unwatch_rx) = flume::bounded::<()>(1);
     if let Some(kill_watch) = cx.try_global::<KillWatchGlobal>().map(|g| g.0.clone()) {
-        let own_user_id = queries::active_account(cx).map(|account| account.user_id);
+        let own_device_id = queries::own_device_id(cx);
         kill_watch.update(cx, |watch, cx| {
             watch.watch(
                 session_id.to_string(),
-                own_user_id,
-                Box::new(move |facts| {
-                    let _ = kill_tx.send(kill_reason(facts.ended_by.as_deref()));
+                Some(own_device_id),
+                Box::new(move |_facts| {
+                    let _ = kill_tx.send(engine::KillReason::Now);
                 }),
                 cx,
             );
@@ -1235,65 +540,4 @@ pub(crate) fn register_kill_feed(session_id: &str, cx: &mut App) -> engine::Kill
             let _ = unwatch_tx.send(());
         })),
     }
-}
-
-/// The engine's half of [`ended_policy`]: an agent-declared end lets the turn
-/// finish (`steer::STOP_GRACE` on the `TurnSignal`, waited out by the engine),
-/// everything else stops now.
-pub(crate) fn kill_reason(ended_by: Option<&str>) -> engine::KillReason {
-    match ended_policy(ended_by) {
-        EndPolicy::CloseAfterTurn => engine::KillReason::AfterTurn,
-        EndPolicy::CloseNow => engine::KillReason::Now,
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EndPolicy {
-    /// Tear the tab down at once — a kill, a client end, a merge, the sweep.
-    CloseNow,
-    /// The agent declared its own run over (`exponential_sessions_end`): let
-    /// the turn finish (it is still writing the close-out that call was
-    /// about), then close the tab. An unattended run calls it on its own
-    /// (EXP-673); since EXP-1222 a person-started run has the tool too and
-    /// calls it only when the person asks it to end the run — either way the
-    /// close-out reply finishes before the tab goes.
-    CloseAfterTurn,
-}
-
-/// The policy for one ended row.
-pub(crate) fn ended_policy(ended_by: Option<&str>) -> EndPolicy {
-    if ended_by == Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT) {
-        EndPolicy::CloseAfterTurn
-    } else {
-        EndPolicy::CloseNow
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// EXP-505: a duplicate remote action frame must fail the claim while
-    /// the first start is in flight; dropping the guard (the pipeline
-    /// finishing, on ANY path) frees the key for the next start.
-    #[test]
-    fn action_reservation_is_all_or_nothing_until_released() {
-        let reservations = StartReservations::default();
-        let first = reservations.claim(String::from("action:a"));
-        assert!(first.is_some());
-        assert!(
-            reservations.claim(String::from("action:a")).is_none(),
-            "duplicate frame must be dropped while the first is in flight"
-        );
-        assert!(
-            reservations.claim(String::from("action:b")).is_some(),
-            "an unrelated action must not contend"
-        );
-        drop(first);
-        assert!(
-            reservations.claim(String::from("action:a")).is_some(),
-            "a released claim must free the key"
-        );
-    }
-
 }

@@ -2665,12 +2665,15 @@ pub(crate) fn open_agent_link(href: &str, window: &mut Window, cx: &mut App) {
             }
         }
         AppLink::Session { session_id, .. } => {
-            crate::session_screen::open_session(&session_id, window, cx);
+            let screen = crate::navigation::session_screen_for(&session_id, cx);
+            crate::navigation::navigate(window, cx, screen);
         }
         AppLink::Thread { thread_id, .. } => crate::navigation::navigate(
             window,
             cx,
-            crate::navigation::Screen::Thread { thread_id },
+            crate::navigation::Screen::Thread {
+                session_id: thread_id,
+            },
         ),
         AppLink::Issue { team_slug, identifier, .. } => {
             let team_id = sync::Store::global(cx)

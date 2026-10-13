@@ -108,9 +108,10 @@ pub struct DiffOptions {
 }
 
 impl DiffOptions {
-    /// The Reviews screen: a stack of per-file cards, OPEN — a review is
-    /// read top to bottom, and the file list beside it is how a big PR is
-    /// navigated. Each card still folds on its own header.
+    /// A pull request's review (the Guide's section diff, [`crate::pr_diff`]):
+    /// a stack of per-file cards, OPEN — a review is read top to bottom, and
+    /// the file list beside it is how a big PR is navigated. Each card still
+    /// folds on its own header.
     pub fn review() -> Self {
         Self {
             collapsible: true,
@@ -122,8 +123,8 @@ impl DiffOptions {
         }
     }
 
-    /// The run's / issue's Changes face: the same cards, OPEN — a run's diff
-    /// is small and you came to read it.
+    /// The shared Changes pane ([`crate::diff_pane`]): the same cards, OPEN —
+    /// a session's diff is small and you came to read it.
     pub fn pane() -> Self {
         Self {
             collapsible: true,
@@ -205,6 +206,8 @@ pub(crate) enum RenderRow {
     /// The file's card header: status letter, dimmed dir + basename, counts,
     /// chevron.
     FileHeader {
+        /// The full path — the tests key header rows by it.
+        #[allow(dead_code)]
         path: SharedString,
         /// The basename, at full weight.
         name: SharedString,
@@ -214,7 +217,6 @@ pub(crate) enum RenderRow {
         status: DiffStatus,
         additions: u32,
         deletions: u32,
-        binary: bool,
     },
     /// What a file with no hunks says instead of rows (web `noHunksNote`),
     /// and the transcript card's trailing "… N more lines".
@@ -501,7 +503,6 @@ pub(crate) fn file_header_only(file: &DiffFile) -> RenderRow {
         status: file.status,
         additions: file.additions,
         deletions: file.deletions,
-        binary: file.binary,
     }
 }
 
@@ -786,7 +787,7 @@ pub fn build_pr_diff(
 }
 
 /// [`build_diff`] from the desktop's own `git diff` (`coding::scm`) — the
-/// Source Control screen and the session's Changes face.
+/// Source Control screen.
 pub fn build_scm_diff(
     files: &[DiffFile],
     theme: &HighlightTheme,
@@ -1598,7 +1599,6 @@ mod tests {
                 status: DiffStatus::Modified,
                 additions: 1,
                 deletions: 0,
-                binary: false,
             },
             RenderRow::HunkHeader { header: "@@".into() },
             line(),

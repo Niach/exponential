@@ -1,5 +1,5 @@
 //! EXP-1241 (EXP-1259 D14): `comment-call-card` (Special components): the comment
-//! an `exponential_comments_create` call posted, as the run thread draws it —
+//! an `exponential_comments_create` call posted, as the session view draws it —
 //! "Commented on" over the REAL thread comment card
 //! (`crate::comments::thread_comment_card`): the agent's mark, the author,
 //! the muted meta, the body clamped to three lines with Show more.

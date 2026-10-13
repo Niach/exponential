@@ -75,7 +75,6 @@ use gpui_component::{
 use std::collections::HashMap;
 use sync::Store;
 
-use coding::branch_name;
 use coding::git_worktree::{sanitize_branch_for_path, worktrees_dir};
 use coding::CodingAgent;
 
@@ -247,7 +246,7 @@ impl LocalReposPane {
         // pane working even in a window whose file tree was never built.
         file_tree::ensure_actions_registered(cx);
         // The repos root lives in the coding hub (Coding pane edits it); the
-        // running-session gate reads the synced coding_sessions collection.
+        // running-session gate reads the synced sessions collection.
         let hub = CodingHub::global(cx);
         let collections = Store::global(cx).collections().clone();
         let local_sessions = LocalSessions::global(cx);
@@ -257,7 +256,7 @@ impl LocalReposPane {
             cx.observe(&hub, |_, _, cx| cx.notify()),
             // The busy gates read the synced rows (incl. OTHER devices'
             // sessions, which never move a local worktree) — notify only.
-            cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            cx.observe(&collections.sessions, |_, _, cx| cx.notify()),
             // EXP-490: worktrees this pane doesn't own appear and vanish —
             // launcher creates, the 120s auto-prune, remote device commands.
             // Every one of them lands in the synced inventory this machine
@@ -988,7 +987,6 @@ impl Render for LocalReposPane {
         self.ensure_scanned(root.clone(), cx);
         self.ensure_resolver(window, cx);
         let hub = CodingHub::global(cx);
-        let prefix = hub.read(cx).settings.branch_prefix.clone();
         let installed: Vec<CodingAgent> = hub
             .read(cx)
             .doctor
@@ -1085,7 +1083,7 @@ impl Render for LocalReposPane {
                 // Snapshot (clone + in-use gates, repo AND per worktree) so
                 // the manager/collection borrows end before the row listeners
                 // borrow `cx`.
-                let live = live_session_branches(&prefix, cx);
+                let live = live_session_branches(cx);
                 let rows: Vec<(RepoEntry, bool, Vec<bool>)> = repos
                     .iter()
                     .map(|repo| {
@@ -1100,7 +1098,7 @@ impl Render for LocalReposPane {
                             })
                             .collect();
                         // A held worktree holds its clone too, even when the
-                        // branch→dir mapping didn't resolve (batch/action runs).
+                        // branch→dir mapping didn't resolve.
                         let in_use = clone_in_use(&repo.clone_path, &live)
                             || worktrees_used.iter().any(|used| *used);
                         (repo.clone(), in_use, worktrees_used)
@@ -1179,35 +1177,25 @@ impl Render for LocalReposPane {
 // Foreground helpers (synced-collection reads)
 // ---------------------------------------------------------------------------
 
-/// The branches held by a live coding session ANYWHERE: a synced
-/// `running`/`in_review` session mapped through its issue to
-/// `<prefix><IDENTIFIER>`. Includes other devices' sessions; batch
-/// and action runs have no issue row to map through and are covered by
-/// [`local_session_on_branch`] instead.
-fn live_session_branches(prefix: &str, cx: &App) -> HashSet<String> {
-    let collections = Store::global(cx).collections();
-    let issues = collections.issues.read(cx);
-    collections
-        .coding_sessions
+/// The branches held by a live session ANYWHERE: every synced session that
+/// is queued or running and names its `branch` (EXP-1294: the branch lives on
+/// the session row). Includes other devices' sessions; an idle or ended one
+/// holds nothing.
+fn live_session_branches(cx: &App) -> HashSet<String> {
+    Store::global(cx)
+        .collections()
+        .sessions
         .read(cx)
         .iter()
-        .filter(|session| {
-            matches!(
-                session.status.as_deref(),
-                Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
-                    | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-            )
-        })
-        .filter_map(|session| session.issue_id.as_deref())
-        .filter_map(|issue_id| issues.get(issue_id))
-        .map(|issue| branch_name(prefix, &issue.identifier))
+        .filter(|session| crate::session_data::session_is_working(session))
+        .filter_map(|session| session.branch.clone())
+        .filter(|branch| !branch.is_empty())
         .collect()
 }
 
 /// Whether THIS process is running a session on `branch` — the same
-/// [`LocalSessions::session_on_branch`] source of truth the fix-conflicts
-/// launch uses, which (unlike the synced rows) also covers batch and action
-/// runs.
+/// [`LocalSessions::session_on_branch`] source of truth, which (unlike the
+/// synced rows) covers a launch whose row has not echoed back yet.
 fn local_session_on_branch(branch: &str, cx: &App) -> bool {
     LocalSessions::global_ref(cx)
         .is_some_and(|sessions| sessions.read(cx).session_on_branch(branch).is_some())

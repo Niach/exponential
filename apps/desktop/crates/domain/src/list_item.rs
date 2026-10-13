@@ -9,8 +9,8 @@
 //! [`MARK`] wide on EVERY row, so marks and titles at one depth align
 //! exactly and a child's connector elbow ends at its own lead.
 //!
-//! The big session row's caption is [`crate::session_row`]; this module
-//! holds the geometry, the PR lead's states and the fixture replay.
+//! This module holds the geometry, the PR lead's states and the fixture
+//! replay (EXP-1294: session rows carry no caption any more).
 
 /// The base inset of a depth-0 lead.
 pub const BASE: f32 = 12.;
@@ -81,17 +81,12 @@ impl PrNodeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session_row::{
-        list_elapsed, session_row_caption, SessionRowCaptionInput, SessionRowState,
-    };
     use serde::Deserialize;
 
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Fixture {
         geometry: Geometry,
-        elapsed: Vec<Elapsed>,
-        captions: Vec<Caption>,
         pr_nodes: Vec<PrNodeCase>,
     }
     #[derive(Deserialize)]
@@ -109,32 +104,6 @@ mod tests {
         rail: f32,
     }
     #[derive(Deserialize)]
-    struct Elapsed {
-        name: String,
-        ms: i64,
-        expected: String,
-    }
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Caption {
-        name: String,
-        ended: bool,
-        paused: bool,
-        state: String,
-        device: Option<String>,
-        started_at: Option<String>,
-        updated_at: Option<String>,
-        ended_at: Option<String>,
-        blocked_label: Option<String>,
-        now: String,
-        expected: Expected,
-    }
-    #[derive(Deserialize)]
-    struct Expected {
-        text: String,
-        tone: String,
-    }
-    #[derive(Deserialize)]
     struct PrNodeCase {
         name: String,
         state: String,
@@ -147,27 +116,6 @@ mod tests {
             "../../../../../packages/domain-contract/fixtures/list-item.json"
         ))
         .expect("list-item.json parses")
-    }
-
-    /// `YYYY-MM-DDTHH:MM:SSZ` → epoch ms; anything else is unparsable (the
-    /// UI parses real columns with chrono; the fixture only needs this form).
-    fn iso_ms(value: &str) -> Option<i64> {
-        let bytes = value.as_bytes();
-        if bytes.len() != 20 || bytes[10] != b'T' || bytes[19] != b'Z' {
-            return None;
-        }
-        let num = |range: std::ops::Range<usize>| value.get(range)?.parse::<i64>().ok();
-        let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
-        let (hh, mm, ss) = (num(11..13)?, num(14..16)?, num(17..19)?);
-        // Howard Hinnant's days-from-civil.
-        let y = if m <= 2 { y - 1 } else { y };
-        let era = y.div_euclid(400);
-        let yoe = y - era * 400;
-        let mp = (m + 9) % 12;
-        let doy = (153 * mp + 2) / 5 + d - 1;
-        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        let days = era * 146_097 + doe - 719_468;
-        Some(((days * 24 + hh) * 60 + mm) * 60_000 + ss * 1_000)
     }
 
     #[test]
@@ -186,71 +134,6 @@ mod tests {
         // The lead box is one indent level, so a child's elbow ends at it.
         assert_eq!(MARK, INDENT);
         assert_eq!(lead_x(2), 40.);
-    }
-
-    /// Web `describe('listElapsed')`, one case per fixture `name`.
-    #[test]
-    fn list_elapsed_matches_the_fixture() {
-        let cases = fixture().elapsed;
-        assert!(!cases.is_empty());
-        for case in cases {
-            assert_eq!(list_elapsed(case.ms), case.expected, "{}", case.name);
-        }
-    }
-
-    /// Web `describe('sessionRowCaption')`, one case per fixture `name`.
-    #[test]
-    fn session_row_caption_matches_the_fixture() {
-        let cases = fixture().captions;
-        assert!(!cases.is_empty());
-        for case in cases {
-            let state = SessionRowState::parse(&case.state)
-                .unwrap_or_else(|| panic!("{}: unknown state", case.name));
-            let (text, tone) = session_row_caption(SessionRowCaptionInput {
-                ended: case.ended,
-                paused: case.paused,
-                state,
-                device: case.device.as_deref(),
-                started_ms: case.started_at.as_deref().and_then(iso_ms),
-                updated_ms: case.updated_at.as_deref().and_then(iso_ms),
-                ended_ms: case.ended_at.as_deref().and_then(iso_ms),
-                blocked_label: case.blocked_label.as_deref(),
-                now_ms: iso_ms(&case.now).expect("now parses"),
-            });
-            assert_eq!(text, case.expected.text, "{}", case.name);
-            assert_eq!(tone.as_str(), case.expected.tone, "{}", case.name);
-        }
-    }
-
-    /// Web `paints every live state in session-display.json's statusTone`.
-    #[test]
-    fn paints_every_live_state_in_session_display_json_s_status_tone() {
-        let display: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/session-display.json"
-        ))
-        .expect("session-display.json parses");
-        let cases = display["cases"].as_array().expect("cases");
-        assert!(!cases.is_empty());
-        for case in cases {
-            if case["status"].as_str() == Some("ended") {
-                continue;
-            }
-            let name = case["name"].as_str().unwrap_or_default();
-            let state = SessionRowState::parse(case["state"].as_str().unwrap_or_default())
-                .unwrap_or_else(|| panic!("{name}: unknown state"));
-            let (_, tone) = session_row_caption(SessionRowCaptionInput {
-                ended: false,
-                paused: false,
-                state,
-                device: Some("mint"),
-                started_ms: None,
-                updated_ms: None,
-                ended_ms: None,
-                blocked_label: None,
-                now_ms: 0,
-            });
-            assert_eq!(tone.as_str(), case["statusTone"].as_str().unwrap(), "{name}");
-        }
     }
 
     /// Web PrNode cases, one per fixture `prNodes[].name`.

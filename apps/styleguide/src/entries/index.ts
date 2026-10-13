@@ -30,8 +30,6 @@ import { entry as readinessChecklist } from "./readiness-checklist.tsx"
 import { entry as deviceReadiness } from "./device-readiness.tsx"
 import { entry as resultsGuide } from "./results-guide.tsx"
 import { entry as mcpAppViews } from "./mcp-app-views.tsx"
-import { entry as runStatusRow } from "./run-status-row.tsx"
-import { entry as sessionThread } from "./session-thread.tsx"
 import { entry as composerOptions } from "./composer-options.tsx"
 import { entry as workCard } from "./work-card.tsx"
 import { entry as threadParts } from "./thread-parts.tsx"
@@ -41,7 +39,6 @@ import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
 import { entry as voiceCallOverlay } from "./voice-call-overlay.tsx"
 import { entry as feedbackStates } from "./feedback-states.tsx"
 import { entry as agentHome } from "./agent-home.tsx"
-import { entry as workTabsStrip } from "./work-tabs-strip.tsx"
 import { entry as searchList } from "./search-list.tsx"
 import { entry as menuSubmenu } from "./menu-submenu.tsx"
 import { entry as gettingStarted } from "./getting-started.tsx"
@@ -80,8 +77,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   deviceReadiness,
   resultsGuide,
   mcpAppViews,
-  runStatusRow,
-  sessionThread,
   composerOptions,
   workCard,
   threadParts,
@@ -90,7 +85,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   teamAgentsSettings,
   voiceCallOverlay,
   agentHome,
-  workTabsStrip,
   gettingStarted,
 ]
 

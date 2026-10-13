@@ -82,6 +82,9 @@ pub(crate) mod copy {
     pub const BOARD_CREATE: &str = "Create board";
 
     pub const INVITE_TITLE: &str = "Invite your teammates";
+    /// Undrawn (web parity: the Invite step carries its title alone); kept
+    /// for the ×4 copy drift test.
+    #[allow(dead_code)]
     pub const INVITE_SUBTITLE: &str = "Teammates share boards, reviews and the inbox. You can also invite people later from team settings.";
     pub const INVITE_GENERATE: &str = "Generate invite link";
     pub const INVITE_COPY: &str = "Copy link";

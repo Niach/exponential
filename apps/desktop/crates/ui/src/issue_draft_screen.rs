@@ -530,7 +530,7 @@ impl IssueDraftView {
         // that opened this fresh draft.
         let thread_id = row
             .as_ref()
-            .and_then(|row| row.thread_id.clone())
+            .and_then(|row| row.session_id.clone())
             .or_else(|| crate::thread_screen::draft_thread(&draft_id, cx));
 
         self.title.update(cx, |title, cx| {
@@ -1097,7 +1097,7 @@ impl IssueDraftView {
                 true if capture.target.thread_id.is_some() => {
                     let thread_id = capture.target.thread_id.clone().unwrap_or_default();
                     crate::thread_screen::request_thread_child(&thread_id, &issue_id, cx);
-                    crate::navigation::navigate_replace(window, cx, Screen::Thread { thread_id });
+                    crate::navigation::navigate_replace(window, cx, Screen::Thread { session_id: thread_id });
                 }
                 true => {
                     crate::navigation::set_active_board(
