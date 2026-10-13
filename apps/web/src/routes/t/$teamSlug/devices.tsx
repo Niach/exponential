@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
 import { SkeletonRows } from "@exp/ui"
 import { MyMachines } from "@/components/my-machines"
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import { useRemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"

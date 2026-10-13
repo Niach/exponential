@@ -22,7 +22,7 @@ const composerCalls = vi.hoisted(
   () => [] as { teamId: string; seed: unknown }[]
 )
 
-vi.mock(`@/components/agent-session`, () => ({
+vi.mock(`@/hooks/use-steer-config`, () => ({
   useSteerConfig: () => ({ enabled: steerEnabled.value }),
 }))
 vi.mock(`@/hooks/use-team-permissions`, () => ({

@@ -17,7 +17,7 @@ import {
 import type { Team } from "@/db/schema"
 import { actionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import {
   ActionPromptForm,
   type ActionRepoOption,

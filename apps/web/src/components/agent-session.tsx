@@ -112,7 +112,6 @@ import {
 } from "@/lib/session-turn-events"
 import { runHasEnded } from "@/lib/past-runs"
 import type { CodingSession } from "@/db/schema"
-import { trpc } from "@/lib/trpc-client"
 import {
   mergeTargetProps,
   type SessionMergeTarget,
@@ -367,37 +366,7 @@ function transcriptGapClass(prev: RowClass | null, cur: RowClass): string {
 
 // ── steer.config, fetched once per app lifetime (env-derived, static) ─────────
 
-interface SteerConfig {
-  enabled: boolean
-  relayUrl: string | null
-}
-
-let steerConfigPromise: Promise<SteerConfig> | null = null
-
-function fetchSteerConfigOnce(): Promise<SteerConfig> {
-  steerConfigPromise ??= trpc.steer.config.query().catch((error) => {
-    steerConfigPromise = null
-    throw error
-  })
-  return steerConfigPromise
-}
-
-// Exported for the team Agents page, which gates its Watch controls on
-// the same relay availability signal.
-export function useSteerConfig(): SteerConfig | null {
-  const [config, setConfig] = useState<SteerConfig | null>(null)
-  useEffect(() => {
-    let active = true
-    fetchSteerConfigOnce()
-      .then((c) => active && setConfig(c))
-      // Treat an unreachable config proc as "steer off" — the badge still shows.
-      .catch(() => active && setConfig({ enabled: false, relayUrl: null }))
-    return () => {
-      active = false
-    }
-  }, [])
-  return config
-}
+import { useSteerConfig } from "@/hooks/use-steer-config"
 
 // ── The agent-session view: structured activity feed over the relay ─────────
 

@@ -29,7 +29,7 @@ import {
 } from "@/lib/steer-devices"
 import { useNow } from "@/hooks/use-now"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 
 export type ReadinessRepoList = Awaited<
   ReturnType<typeof trpc.repositories.list.query>

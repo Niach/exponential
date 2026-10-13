@@ -20,7 +20,7 @@ import {
   type MenuEntry,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import type { TeamAction } from "@/components/action-prompt-form"
 import { TriggerGlyph } from "@/components/action-triggers-section"
 import { useOpenComposerInTeam } from "@/hooks/use-open-composer"

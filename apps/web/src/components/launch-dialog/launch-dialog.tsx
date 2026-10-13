@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@exp/ui"
 
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import { LaunchComposer } from "@/components/launch-composer"
 import { launchHeadlineText } from "@/components/launch-dialog/launch-headline"
 import type { Team } from "@/db/schema"

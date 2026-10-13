@@ -17,7 +17,7 @@ import {
   homeGreeting,
   localWallClock,
 } from "@exp/domain-contract/home-greeting"
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import { SessionsList } from "@/components/agent-shell"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"

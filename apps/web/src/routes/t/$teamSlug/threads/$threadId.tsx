@@ -19,7 +19,7 @@ import {
   useIsMobile,
   type ThreadStripEntry,
 } from "@exp/ui"
-import { useSteerConfig } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import { Empty } from "@/components/empty"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"

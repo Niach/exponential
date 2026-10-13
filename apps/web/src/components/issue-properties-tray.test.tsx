@@ -7,7 +7,7 @@ import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 // The tray's Merge pill on an open PR.
 
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
-vi.mock(`@/components/agent-session`, () => ({
+vi.mock(`@/hooks/use-steer-config`, () => ({
   useSteerConfig: () => ({ enabled: true }),
 }))
 vi.mock(`@/hooks/use-team-statuses`, () => ({

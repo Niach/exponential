@@ -37,7 +37,8 @@ import {
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useWorkTabs } from "@/hooks/use-work-tabs"
 import type { CodingSession, Issue } from "@/db/schema"
-import { renderResultText, useSteerConfig } from "@/components/agent-session"
+import { renderResultText } from "@/components/agent-session"
+import { useSteerConfig } from "@/hooks/use-steer-config"
 import { BoardNotFound } from "@/components/board-not-found"
 import {
   GuideBody,
