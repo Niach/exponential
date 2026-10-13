@@ -21,7 +21,7 @@ enum class ThreadsCaptureKind(val testId: String) {
 
 /**
  * EXP-1296: the Threads tab as a capture-only screen — the REAL
- * [ThreadsContent] over the draft's data (8-phones panel 2) built through
+ * [ThreadsContent] over the seed's tree (EXP-1302) built through
  * the real domain model ([SessionTree.partitionThreads],
  * [SessionTree.listAgents], [threadRowMeta]).
  */
@@ -40,7 +40,7 @@ fun ThreadsCaptures(kind: ThreadsCaptureKind) {
                         teams = listOf(SampleTeam),
                         rowMeta = threadRowMeta(
                             groups, SampleSessions, SampleLinks, SampleIssues,
-                            SampleSessions.associate { it.id to "claude" },
+                            SampleSessions.associate { it.id to if (it.id == "s-group") "codex" else "claude" },
                         ),
                         onOpenThread = {},
                         modifier = Modifier.statusBarsPadding(),
@@ -64,6 +64,7 @@ private val SampleTeam = TeamEntity(
 private fun session(
     id: String,
     kind: String = DomainContract.sessionKindThread,
+    parentId: String? = null,
     status: String = DomainContract.sessionStatusIdle,
     busy: Boolean = false,
     needsInput: Boolean = false,
@@ -77,8 +78,8 @@ private fun session(
 ) = SessionTree.Session(
     id = id,
     teamId = TEAM,
-    parentId = null,
-    rootId = id,
+    parentId = parentId,
+    rootId = parentId ?: id,
     kind = kind,
     userId = "u-alex",
     status = status,
@@ -99,50 +100,64 @@ private fun session(
     updatedAt = updatedAt,
 )
 
+/**
+ * EXP-1302: the seed's tree (seedSessionTree in
+ * apps/web/scripts/seed-screenshots.ts, live state per
+ * apps/web/scripts/lib/demo-live-sessions.ts), so this list reads like the
+ * web and desktop `threads` shots: the three idle agents, the cold-start
+ * thread waiting on a person through its child, three running roots and two
+ * recent ones.
+ */
 private val SampleSessions = listOf(
     session(
-        "a-triage", kind = DomainContract.sessionKindAgent, status = DomainContract.sessionStatusRunning,
-        needsInput = true, name = "Triage", icon = "sparkles", color = "#8b5cf6", sortOrder = 0.0,
-        updatedAt = "2026-10-13T09:40:00.000Z",
+        "a-triage", kind = DomainContract.sessionKindAgent, name = "Triage", icon = "bug",
+        color = "#a855f7", sortOrder = 1.0, updatedAt = "2026-10-13T07:14:40.000Z",
     ),
     session(
         "a-designer", kind = DomainContract.sessionKindAgent, name = "Designer", icon = "palette",
-        color = "#ec4899", sortOrder = 1.0, updatedAt = "2026-10-13T09:00:00.000Z",
+        color = "#ec4899", sortOrder = 2.0, updatedAt = "2026-10-13T07:14:40.000Z",
     ),
     session(
-        "a-release", kind = DomainContract.sessionKindAgent, status = DomainContract.sessionStatusRunning,
-        busy = true, name = "Release", icon = "rocket", color = "#22c55e", sortOrder = 2.0,
-        updatedAt = "2026-10-13T09:35:00.000Z",
+        "a-release", kind = DomainContract.sessionKindAgent, name = "Release", icon = "package",
+        color = "#22c55e", sortOrder = 3.0, updatedAt = "2026-10-13T07:14:40.000Z",
     ),
     session(
-        "s-labels", status = DomainContract.sessionStatusRunning, needsInput = true,
-        title = "Batch-edit labels on many issues", updatedAt = "2026-10-13T09:45:00.000Z",
+        "s-cold", status = DomainContract.sessionStatusRunning, updatedAt = "2026-10-13T09:40:00.000Z",
+    ),
+    session(
+        "s-profile", parentId = "s-cold", status = DomainContract.sessionStatusRunning, needsInput = true,
+        title = "Profile the launch path", updatedAt = "2026-10-13T09:41:00.000Z",
+    ),
+    session(
+        "s-offline", status = DomainContract.sessionStatusRunning, shared = false,
+        title = "Spike: offline queue", updatedAt = "2026-10-13T09:41:00.000Z",
+    ),
+    session(
+        "s-reports", status = DomainContract.sessionStatusRunning, busy = true,
+        title = "Sort today's widget reports", updatedAt = "2026-10-13T09:40:30.000Z",
     ),
     session(
         "s-group", status = DomainContract.sessionStatusRunning, busy = true,
-        title = "Group board issues by assignee", updatedAt = "2026-10-13T09:44:00.000Z",
+        updatedAt = "2026-10-13T09:40:00.000Z",
     ),
+    session("s-labels", updatedAt = "2026-10-13T08:03:00.000Z"),
     session(
-        "s-offline", status = DomainContract.sessionStatusRunning, busy = true, shared = false,
-        title = "Spike: offline queue", updatedAt = "2026-10-13T09:30:00.000Z",
-    ),
-    session(
-        "s-cold", status = DomainContract.sessionStatusEnded,
-        title = "Reduce cold start below 800 ms", updatedAt = "2026-10-13T08:30:00.000Z",
-    ),
-    session(
-        "s-keyboard", title = "iOS keyboard and model picker", updatedAt = "2026-10-13T08:10:00.000Z",
+        "s-scroll", status = DomainContract.sessionStatusEnded, updatedAt = "2026-10-13T05:41:00.000Z",
     ),
 )
 
 private val SampleIssues = listOf(
-    SessionTree.Issue("i-15", "APP-15", "Batch-edit labels on many issues"),
-    SessionTree.Issue("i-14", "APP-14", "Group board issues by assignee"),
     SessionTree.Issue("i-5", "APP-5", "Reduce cold start below 800 ms"),
+    SessionTree.Issue("i-14", "APP-14", "Group board issues by assignee"),
+    SessionTree.Issue("i-15", "APP-15", "Batch-edit labels from the board"),
+    SessionTree.Issue("i-16", "APP-16", "Fix flaky scroll restore on the issue list"),
+    SessionTree.Issue("i-fb9", "FB-9", "Screenshots attached to feedback are cut off on Android"),
 )
 
 private val SampleLinks = listOf(
-    SessionTree.SessionIssue("s-labels", "i-15", 0.0),
-    SessionTree.SessionIssue("s-group", "i-14", 0.0),
     SessionTree.SessionIssue("s-cold", "i-5", 0.0),
+    SessionTree.SessionIssue("s-group", "i-14", 0.0),
+    SessionTree.SessionIssue("s-reports", "i-fb9", 0.0),
+    SessionTree.SessionIssue("s-labels", "i-15", 0.0),
+    SessionTree.SessionIssue("s-scroll", "i-16", 0.0),
 )

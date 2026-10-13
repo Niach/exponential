@@ -75,7 +75,7 @@ fun ThreadCaptures(kind: ThreadCaptureKind) {
                         pullRequests = emptyList(),
                         now = ChannelNow,
                     ),
-                    agent = ThreadAgent(name = "Triage", icon = "bug", color = "#a78bfa"),
+                    agent = ThreadAgent(name = "Triage", icon = "bug", color = "#a855f7"),
                     placeholder = "Message Triage",
                 )
                 ThreadCaptureKind.SessionCards -> Column(
