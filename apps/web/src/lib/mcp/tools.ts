@@ -5194,7 +5194,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a session on an ONLINE device (exponential_devices_list). One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended session; + account = switch a live claude session's account). threadId = start it in that thread. account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). A follow-up session bases on your branch: name it in \`prompt\`, the child opens with \`pr_open{base}\`. Track it with exponential_sessions_get. A child started from a session is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
+      description: `Start a session on an ONLINE device (exponential_devices_list). One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (builtins: teamId defaults to your session's team; inputs) or resumeSessionId (ended session; + account = switch a live claude session's account). threadId = start it in that thread. account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). A follow-up session bases on your branch: name it in \`prompt\`, the child opens with \`pr_open{base}\`. Track it with exponential_sessions_get. A child started from a session is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -5240,6 +5240,9 @@ export function registerExponentialTools(
         }
         let issueId: string | undefined
         let issueIds: string[] | undefined
+        // A builtin start's team: the explicit one, else the thread's, else
+        // the CALLING session's (an agent never has to guess its team).
+        let teamId = input.teamId
         // The row the device will create, by subject — what the poll below
         // keys on besides user, device and freshness.
         let match: SQL | undefined
@@ -5267,9 +5270,13 @@ export function registerExponentialTools(
           if (isBuiltinActionId(input.actionId)) {
             // The router requires teamId here; a builtin run is an issue-less
             // row carrying the action name snapshot but no action FK.
-            if (input.teamId) assertTeamFullyGranted(access, input.teamId)
+            if (requestedThread && teamId && teamId !== requestedThread.teamId) {
+              throw new Error(`teamId must be the thread's team`)
+            }
+            teamId ??= requestedThread?.teamId ?? (await loadCallerSession())?.teamId ?? undefined
+            if (teamId) assertTeamFullyGranted(access, teamId)
             match = and(
-              input.teamId ? eq(codingSessions.teamId, input.teamId) : undefined,
+              teamId ? eq(codingSessions.teamId, teamId) : undefined,
               isNull(codingSessions.issueId),
               isNotNull(codingSessions.actionName)
             )
@@ -5306,6 +5313,7 @@ export function registerExponentialTools(
 
         const started = await caller(user, request).steer.startSession({
           ...input,
+          teamId,
           issueId,
           issueIds,
           // EXP-679: a run started from inside a run is that run's child.
