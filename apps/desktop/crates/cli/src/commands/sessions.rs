@@ -2,8 +2,8 @@
 //! device (EXP-1292: the `sessions` tree — threads, team agents and their
 //! sub-sessions):
 //!
-//! - `sessions [list] [--device <label|id>] [--status s] [--all] [--limit n]`
-//! - `sessions show <id>`: one session, its device, branch and issues
+//! - `sessions [list] [--device <label|id>] [--status s] [--agents] [--limit n]`
+//! - `sessions show <id>`: one session, its device, branch and its thread's issues
 //! - `sessions log <id> [--follow]`: the transcript, over the steer relay
 //! - `sessions message <id> <text…>` / `sessions stop <id>` / `sessions end <id>`
 //!
@@ -16,8 +16,8 @@
 //! republish an ended run's journal (`history_request`). Viewing a LIVE run
 //! is owner-only (EXP-312) — the mint says no for anyone else.
 //!
-//! Every `<id>` may be a unique prefix of the session UUID (the list prints
-//! eight characters).
+//! Every `<id>` may be a unique prefix of a root session's UUID (the list
+//! prints eight characters; the list tool reads roots only).
 
 use std::io::Read as _;
 use std::process::ExitCode;
@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context as _};
-use api::mcp_tools::{self, RemoteSession, SessionsQuery};
+use api::mcp_tools::{self, RemoteSession, RemoteSessionTree, SessionsQuery};
 
 use super::{reject_unknown_flags, take_flag, take_value, CommandResult};
 use crate::context::{self, Ctx};
@@ -33,15 +33,15 @@ use crate::context::{self, Ctx};
 const USAGE: &str = "\
 Usage: exponential sessions [<command>]
 
-  [list] [--device <label|id>] [--status queued|running|idle|ended] [--all] [--limit n]
-                         Sessions, newest first (yours; --all adds teammates')
-  show <id>              One session: status, device, branch, issues
+  [list] [--device <label|id>] [--status queued|running|idle|ended] [--agents] [--limit n]
+                         Threads you can see, newest first (--agents: the team agents)
+  show <id>              One session: status, device, branch, its thread's issues
   log <id> [--follow]    Print the transcript (--follow keeps streaming a live session)
   message <id> <text…>   Message a session; an idle one wakes up (`-` reads stdin)
   stop <id>              Interrupt the session's current turn (it stays, idle)
   end <id>               End the session (and its sub-sessions)
 
-<id> = the session UUID or a unique prefix of it.
+<id> = the session UUID, or a unique prefix of a thread's or agent's.
 ";
 
 const STATUSES: &[&str] = domain::contract::SESSION_STATUS_VALUES;
@@ -74,7 +74,7 @@ pub fn run(args: &[String]) -> CommandResult {
 struct ListArgs {
     device: Option<String>,
     status: Option<String>,
-    all: bool,
+    agents: bool,
     limit: u32,
 }
 
@@ -90,7 +90,7 @@ fn parse_list_args(args: &[String]) -> anyhow::Result<ListArgs> {
             .ok_or_else(|| anyhow!("--limit takes 1-{}", mcp_tools::MAX_PAGE))?,
         None => 50,
     };
-    let all = take_flag(&mut args, "--all");
+    let agents = take_flag(&mut args, "--agents");
     reject_unknown_flags(&args)?;
     if let Some(extra) = args.first() {
         bail!("unexpected argument `{extra}`");
@@ -103,7 +103,7 @@ fn parse_list_args(args: &[String]) -> anyhow::Result<ListArgs> {
     Ok(ListArgs {
         device,
         status,
-        all,
+        agents,
         limit,
     })
 }
@@ -111,28 +111,32 @@ fn parse_list_args(args: &[String]) -> anyhow::Result<ListArgs> {
 fn list(args: &[String]) -> CommandResult {
     let parsed = parse_list_args(args)?;
     let ctx = context::load()?;
-    // A device filter narrows AFTER the page: the tool has no device filter,
-    // so a filtered list reads the widest page instead.
+    // The tool filters on liveness only: a device or status filter narrows
+    // AFTER the page, so a filtered list reads the widest page instead.
+    let filtered = parsed.device.is_some() || parsed.status.is_some();
     let query = SessionsQuery {
-        status: parsed.status.clone(),
-        mine: !parsed.all,
-        limit: if parsed.device.is_some() {
-            mcp_tools::MAX_PAGE
-        } else {
-            parsed.limit
-        },
+        kind: parsed.agents.then(|| "agent".to_string()),
+        live: parsed
+            .status
+            .as_deref()
+            .is_some_and(|status| status != "ended")
+            .then_some(true),
+        limit: if filtered { mcp_tools::MAX_PAGE } else { parsed.limit },
         ..Default::default()
     };
     let mut rows = mcp_tools::sessions_list(&ctx.trpc, &query)
         .map_err(super::devices::tool_error)
         .context("list sessions")?;
+    if let Some(status) = &parsed.status {
+        rows.retain(|row| &row.status == status);
+    }
     if let Some(selector) = &parsed.device {
         let devices = mcp_tools::devices_list(&ctx.trpc, None)
             .map_err(super::devices::tool_error)
             .context("list devices")?;
         rows = filter_by_device(rows, &devices, selector)?;
-        rows.truncate(parsed.limit as usize);
     }
+    rows.truncate(parsed.limit as usize);
     if rows.is_empty() {
         println!("No sessions.");
         return Ok(ExitCode::SUCCESS);
@@ -143,7 +147,7 @@ fn list(args: &[String]) -> CommandResult {
 
 /// Keep the rows of one device: one of the caller's own (label or id, via
 /// the shared resolver), else — a teammate's shared server is not in the
-/// caller's own list — a row whose recorded device id or label matches.
+/// caller's own list — a row whose recorded device id matches.
 fn filter_by_device(
     rows: Vec<RemoteSession>,
     devices: &[api::mcp_tools::RemoteDevice],
@@ -156,16 +160,9 @@ fn filter_by_device(
             .filter(|row| row.device_id.as_deref() == Some(id.as_str()))
             .collect());
     }
-    let wanted = selector.trim().to_lowercase();
     let matched: Vec<RemoteSession> = rows
         .into_iter()
-        .filter(|row| {
-            row.device_id.as_deref() == Some(selector.trim())
-                || row
-                    .device_label
-                    .as_deref()
-                    .is_some_and(|label| label.trim().to_lowercase() == wanted)
-        })
+        .filter(|row| row.device_id.as_deref() == Some(selector.trim()))
         .collect();
     if matched.is_empty() {
         // Surface the resolver's own miss (it lists the known devices).
@@ -174,25 +171,14 @@ fn filter_by_device(
     Ok(matched)
 }
 
-/// What a row is ABOUT: its thread's issues, else its title, else a team
-/// agent's name.
+/// What a row is ABOUT: its title (a list row's is the server's derived
+/// one: title, action, agent name, first issue, first message), else a
+/// tree root's derived title, its action, a team agent's name.
 pub fn subject(row: &RemoteSession) -> String {
     let named = |value: &Option<String>| value.clone().filter(|value| !value.trim().is_empty());
-    if let Some((first, rest)) = row.issues.split_first() {
-        let mut out = first
-            .identifier
-            .clone()
-            .unwrap_or_else(|| "issue".to_string());
-        if !rest.is_empty() {
-            out.push_str(&format!(" +{}", rest.len()));
-        }
-        if let Some(title) = named(&row.title).or_else(|| named(&first.title)) {
-            out.push(' ');
-            out.push_str(&title);
-        }
-        return out;
-    }
     named(&row.title)
+        .or_else(|| named(&row.display_title))
+        .or_else(|| named(&row.action_name))
         .or_else(|| named(&row.name))
         .unwrap_or_else(|| match row.kind.as_deref() {
             Some("agent") => "agent".to_string(),
@@ -244,23 +230,19 @@ fn render_sessions(rows: &[RemoteSession]) -> String {
                 row.id.chars().take(8).collect(),
                 status_cell(row),
                 format!("{indent}{}", truncate(&subject(row), 48)),
-                row.cli.clone().unwrap_or_default(),
-                row.device_label.clone().unwrap_or_default(),
-                row.started_at
+                row.device_id.clone().unwrap_or_default(),
+                row.created_at
                     .as_deref()
                     .map(local_time)
                     .unwrap_or_default(),
             ]
         })
         .collect();
-    super::devices::render_table(
-        &["ID", "STATUS", "SUBJECT", "AGENT", "DEVICE", "STARTED"],
-        &cells,
-    )
+    super::devices::render_table(&["ID", "STATUS", "SUBJECT", "DEVICE", "CREATED"], &cells)
 }
 
-/// Resolve `<id>`: a full UUID as-is, else a unique prefix among the
-/// sessions the caller can see (newest 200, teammates' included).
+/// Resolve `<id>`: a full UUID as-is, else a unique prefix among the roots
+/// the caller can see (the newest 200 threads and the team agents).
 fn resolve_session_id(ctx: &Ctx, raw: &str) -> anyhow::Result<String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -269,14 +251,19 @@ fn resolve_session_id(ctx: &Ctx, raw: &str) -> anyhow::Result<String> {
     if uuid::Uuid::parse_str(raw).is_ok() {
         return Ok(raw.to_string());
     }
-    let query = SessionsQuery {
-        mine: false,
-        limit: mcp_tools::MAX_PAGE,
-        ..Default::default()
-    };
-    let rows = mcp_tools::sessions_list(&ctx.trpc, &query)
-        .map_err(super::devices::tool_error)
-        .context("list sessions")?;
+    let mut rows = Vec::new();
+    for kind in ["thread", "agent"] {
+        let query = SessionsQuery {
+            kind: Some(kind.to_string()),
+            limit: mcp_tools::MAX_PAGE,
+            ..Default::default()
+        };
+        rows.extend(
+            mcp_tools::sessions_list(&ctx.trpc, &query)
+                .map_err(super::devices::tool_error)
+                .context("list sessions")?,
+        );
+    }
     match_prefix(&rows, raw)
 }
 
@@ -290,7 +277,7 @@ fn match_prefix(rows: &[RemoteSession], prefix: &str) -> anyhow::Result<String> 
         .collect();
     match hits.as_slice() {
         [one] => Ok(one.id.clone()),
-        [] => bail!("no session matches `{prefix}` (see `exponential sessions --all`)"),
+        [] => bail!("no session matches `{prefix}` (see `exponential sessions`)"),
         _ => bail!("session id prefix `{prefix}` is ambiguous — type more of it"),
     }
 }
@@ -307,19 +294,22 @@ fn show(args: &[String]) -> CommandResult {
     let raw = one_id(args, "exponential sessions show <id>")?;
     let ctx = context::load()?;
     let id = resolve_session_id(&ctx, &raw)?;
-    let row = mcp_tools::sessions_get(&ctx.trpc, &id)
+    let tree = mcp_tools::sessions_get(&ctx.trpc, &id)
         .map_err(super::devices::tool_error)
         .context("load the session")?;
-    print!("{}", render_detail(&row));
+    print!("{}", render_detail(&tree, &id));
     Ok(ExitCode::SUCCESS)
 }
 
-/// The `show` block, also the header `log` prints (pure, unit-tested).
-fn render_detail(row: &RemoteSession) -> String {
+/// The `show` block, also the header `log` prints (pure, unit-tested):
+/// the tree member `id` names (the root when it is not in the tree) and
+/// its thread's issues.
+fn render_detail(tree: &RemoteSessionTree, id: &str) -> String {
+    let row = tree.session(id).unwrap_or(&tree.root);
     let mut out = String::new();
     let mut line = |key: &str, value: &str| out.push_str(&format!("{key:<10}{value}\n"));
     line("Session", &row.id);
-    line("Subject", &subject(row));
+    line("Subject", &subject(if row.parent_id.is_none() { row } else { &tree.root }));
     line("Status", &status_cell(row));
     if row.kind.as_deref() == Some("agent") {
         line("Kind", "team agent");
@@ -336,14 +326,14 @@ fn render_detail(row: &RemoteSession) -> String {
     if let Some(model) = &row.model {
         line("Model", model);
     }
-    if let Some(device) = row.device_label.as_ref().or(row.device_id.as_ref()) {
+    if let Some(device) = &row.device_id {
         line("Device", device);
     }
     if let Some(branch) = &row.branch {
         line("Branch", branch);
     }
-    for issue in &row.issues {
-        let identifier = issue.identifier.as_deref().unwrap_or(&issue.id);
+    for issue in &tree.issues {
+        let identifier = issue.identifier.as_deref().unwrap_or(&issue.issue_id);
         let text = match issue.title.as_deref().filter(|title| !title.is_empty()) {
             Some(title) => format!("{identifier} {title}"),
             None => identifier.to_string(),
@@ -432,12 +422,12 @@ fn log(args: &[String]) -> CommandResult {
     let raw = one_id(&args, "exponential sessions log <id> [--follow]")?;
     let ctx = context::load()?;
     let id = resolve_session_id(&ctx, &raw)?;
-    let row = mcp_tools::sessions_get(&ctx.trpc, &id)
+    let tree = mcp_tools::sessions_get(&ctx.trpc, &id)
         .map_err(super::devices::tool_error)
         .context("load the session")?;
-    print!("{}", render_detail(&row));
+    print!("{}", render_detail(&tree, &id));
     println!();
-    stream_transcript(&ctx, &row, follow)
+    stream_transcript(&ctx, tree.session(&id).unwrap_or(&tree.root), follow)
 }
 
 /// How long a non-follow `log` waits for the replay to complete. The relay
@@ -558,14 +548,14 @@ mod tests {
                 "build box",
                 "--status",
                 "ended",
-                "--all",
+                "--agents",
                 "--limit=5"
             ]))
             .unwrap(),
             ListArgs {
                 device: Some("build box".into()),
                 status: Some("ended".into()),
-                all: true,
+                agents: true,
                 limit: 5,
             }
         );
@@ -600,7 +590,7 @@ mod tests {
 
     fn issue(identifier: &str, title: &str) -> api::mcp_tools::RemoteSessionIssue {
         api::mcp_tools::RemoteSessionIssue {
-            id: format!("id-{identifier}"),
+            issue_id: format!("id-{identifier}"),
             identifier: Some(identifier.to_string()),
             title: Some(title.to_string()),
         }
@@ -609,17 +599,16 @@ mod tests {
     #[test]
     fn subjects_and_status_cells() {
         let mut thread = row("s1");
-        thread.issues = vec![issue("EXP-42", "Fix login")];
+        thread.title = Some("Fix login".into());
         thread.needs_input = true;
-        assert_eq!(subject(&thread), "EXP-42 Fix login");
+        assert_eq!(subject(&thread), "Fix login");
         assert_eq!(status_cell(&thread), "running (needs input)");
 
-        let mut batch = row("s2");
-        batch.issues = vec![issue("EXP-1", "One"), issue("EXP-2", "Two")];
-        batch.title = Some("Cleanup".into());
-        batch.blocked = Some(serde_json::json!({"window": "session"}));
-        assert_eq!(subject(&batch), "EXP-1 +1 Cleanup");
-        assert_eq!(status_cell(&batch), "running (usage wall)");
+        let mut tree_root = row("s2");
+        tree_root.display_title = Some("Cleanup".into());
+        tree_root.blocked = Some(serde_json::json!({"window": "session"}));
+        assert_eq!(subject(&tree_root), "Cleanup");
+        assert_eq!(status_cell(&tree_root), "running (usage wall)");
 
         let mut agent = row("s3");
         agent.kind = Some("agent".into());
@@ -638,10 +627,9 @@ mod tests {
     fn the_session_table_indents_children() {
         let mut parent = row("aaaaaaaa-1111");
         parent.title = Some("Chat".into());
-        parent.cli = Some("claude".into());
-        parent.device_label = Some("box".into());
+        parent.device_id = Some("box".into());
         let mut child = row("bbbbbbbb-2222");
-        child.issues = vec![issue("EXP-7", "")];
+        child.title = Some("EXP-7".into());
         child.depth = 1;
         let table = render_sessions(&[parent, child]);
         let lines: Vec<&str> = table.lines().collect();
@@ -657,29 +645,38 @@ mod tests {
     }
 
     #[test]
-    fn a_device_filter_falls_back_to_the_rows_label() {
+    fn a_device_filter_falls_back_to_the_rows_device_id() {
         let mut shared = row("s1");
         shared.device_id = Some("teammate-box".into());
-        shared.device_label = Some("Team Box".into());
         let mine = row("s2");
-        let kept = filter_by_device(vec![shared, mine], &[], "team box").unwrap();
+        let kept = filter_by_device(vec![shared, mine], &[], "teammate-box").unwrap();
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].id, "s1");
         assert!(filter_by_device(vec![row("s3")], &[], "nope").is_err());
     }
 
     #[test]
-    fn the_detail_block_names_the_runner_and_issues() {
-        let mut detail = row("s1");
-        detail.cli = Some("codex".into());
-        detail.branch = Some("exp/EXP-42".into());
-        detail.parent_id = Some("p1".into());
-        detail.issues = vec![issue("EXP-42", "Fix login")];
-        let text = render_detail(&detail);
+    fn the_detail_block_names_the_runner_and_the_threads_issues() {
+        let mut root = row("r1");
+        root.display_title = Some("Fix login".into());
+        let mut child = row("s1");
+        child.cli = Some("codex".into());
+        child.branch = Some("exp/EXP-42".into());
+        child.parent_id = Some("r1".into());
+        let tree = RemoteSessionTree {
+            root,
+            children: vec![child],
+            issues: vec![issue("EXP-42", "Fix login")],
+        };
+        let text = render_detail(&tree, "s1");
+        assert!(text.contains("Session   s1\n"), "{text}");
+        assert!(text.contains("Subject   Fix login\n"), "{text}");
         assert!(text.contains("Agent     codex\n"), "{text}");
         assert!(text.contains("Branch    exp/EXP-42\n"), "{text}");
-        assert!(text.contains("Parent    p1\n"), "{text}");
+        assert!(text.contains("Parent    r1\n"), "{text}");
         assert!(text.contains("Issue     EXP-42 Fix login\n"), "{text}");
+        // An id outside the tree shows the root.
+        assert!(render_detail(&tree, "zz").contains("Session   r1\n"));
     }
 
     /// The `--status` filter takes exactly the contract's session statuses.

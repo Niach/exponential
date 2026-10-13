@@ -90,7 +90,7 @@ Commands:
   code <ISSUE> [options]                  Start a session on an issue
   run <action> [options]                  Run a team action (a saved prompt)
   devices [--team <team-id>]              Your devices: online, agents, running sessions
-  sessions [--device <d>] [--status <s>] [--all]
+  sessions [--device <d>] [--status <s>] [--agents]
                                           Sessions, newest first
   sessions show|log|message|stop|end <id> Inspect, tail (--follow), message, interrupt or end one
   mcp list|connect|set-secret|disconnect  Team MCP servers + your connection to each

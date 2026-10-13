@@ -6823,8 +6823,8 @@ mod tests {
             "content": [{ "type": "text", "text": answer }],
         });
         let fields = tool_result_fields(
-            "mcp__exponential__exponential_sessions_show",
-            &json!({ "file": "/work/tree/shot.png", "text": "The header" }),
+            "mcp__exponential__exponential_attachments_upload",
+            &json!({ "file": "/work/tree/shot.png" }),
             &block,
             None,
             false,
@@ -6855,7 +6855,7 @@ mod tests {
         assert_eq!(fields.raw_output, Some(structured));
         let string = json!({ "tool_use_id": "t1", "content": answer });
         let fields = tool_result_fields(
-            "mcp__exponential__exponential_sessions_show",
+            "mcp__exponential__exponential_attachments_upload",
             &Value::Null,
             &string,
             None,

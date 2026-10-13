@@ -231,19 +231,22 @@ pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
 // projection of the `sessions` tree)
 // ---------------------------------------------------------------------------
 
-/// One issue linked to a session's root (the thread's issues).
+/// One issue linked to a tree's root (`exponential_sessions_get` `issues`).
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSessionIssue {
-    pub id: String,
+    pub issue_id: String,
     #[serde(default)]
     pub identifier: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
 }
 
-/// One `sessions` row as the MCP v2 session tools project it. Tolerant:
-/// every field but `id` defaults, so a server addition never breaks a read.
+/// One `sessions` row as the MCP v2 session tools project it: a
+/// `exponential_sessions_list` row (roots only, `title` = the server's
+/// derived title) or a `exponential_sessions_get` tree member (the public
+/// row; the root adds `displayTitle`). Tolerant: every field but `id`
+/// defaults, so either projection (and a server addition) decodes.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteSession {
@@ -261,18 +264,22 @@ pub struct RemoteSession {
     /// Contract `sessionKind` (`thread` | `agent` on a root).
     #[serde(default)]
     pub kind: Option<String>,
-    /// The thread title (or the CLI's auto-title).
+    /// The row's title (a list row: the derived one).
     #[serde(default)]
     pub title: Option<String>,
+    /// A tree root's derived title (`exponential_sessions_get`).
+    #[serde(default)]
+    pub display_title: Option<String>,
     /// A team agent's display name (`kind = agent` roots only).
     #[serde(default)]
     pub name: Option<String>,
+    /// The action a thread runs, by name.
+    #[serde(default)]
+    pub action_name: Option<String>,
     #[serde(default)]
     pub user_id: Option<String>,
     #[serde(default)]
     pub device_id: Option<String>,
-    #[serde(default)]
-    pub device_label: Option<String>,
     /// The agent CLI the row runs on (`claude` | `codex`).
     #[serde(default)]
     pub cli: Option<String>,
@@ -296,14 +303,34 @@ pub struct RemoteSession {
     #[serde(default)]
     pub branch: Option<String>,
     #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
     pub started_at: Option<String>,
     #[serde(default)]
     pub last_turn_at: Option<String>,
     #[serde(default)]
     pub ended_at: Option<String>,
-    /// The ROOT's linked issues, link order.
+}
+
+/// `exponential_sessions_get`: ONE session tree (any member id resolves to
+/// its root) — the root, its sub-sessions and the root's issues.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteSessionTree {
+    pub root: RemoteSession,
+    #[serde(default, deserialize_with = "null_vec")]
+    pub children: Vec<RemoteSession>,
     #[serde(default, deserialize_with = "null_vec")]
     pub issues: Vec<RemoteSessionIssue>,
+}
+
+impl RemoteSessionTree {
+    /// The tree member `id` names (the root or one of its children).
+    pub fn session(&self, id: &str) -> Option<&RemoteSession> {
+        std::iter::once(&self.root)
+            .chain(self.children.iter())
+            .find(|row| row.id == id)
+    }
 }
 
 /// `null` → `[]` (a `Vec` field rejects `null` even with `default`, which
@@ -316,21 +343,23 @@ where
     Ok(<Option<Vec<T>> as Deserialize>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-/// `exponential_sessions_list` filters.
+/// `exponential_sessions_list` filters: the roots of one kind the caller may
+/// see (shared ones and their own), newest activity first.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionsQuery {
+    /// `thread` (the server's default) | `agent`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub team_id: Option<String>,
-    /// `queued` | `running` | `idle` | `ended`.
+    /// `true` = not ended.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-    /// Only sessions the caller started or hosts.
-    pub mine: bool,
+    pub live: Option<bool>,
     pub limit: u32,
 }
 
-/// `exponential_sessions_list` — newest first.
+/// `exponential_sessions_list` — root sessions, newest activity first.
 pub fn sessions_list(
     trpc: &TrpcClient,
     query: &SessionsQuery,
@@ -339,12 +368,13 @@ pub fn sessions_list(
     call_typed(trpc, "exponential_sessions_list", &arguments)
 }
 
-/// `exponential_sessions_get` — one session row.
-pub fn sessions_get(trpc: &TrpcClient, session_id: &str) -> Result<RemoteSession, ApiError> {
+/// `exponential_sessions_get` — the tree `session_id` belongs to (no
+/// messages: the CLI never prints them).
+pub fn sessions_get(trpc: &TrpcClient, session_id: &str) -> Result<RemoteSessionTree, ApiError> {
     call_typed(
         trpc,
         "exponential_sessions_get",
-        &serde_json::json!({ "sessionId": session_id }),
+        &serde_json::json!({ "id": session_id, "messages": 0 }),
     )
 }
 
@@ -379,6 +409,9 @@ pub struct SessionsSendInput {
     pub computer_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ultracode: Option<bool>,
+    /// The team MCP servers the run gets (EXP-792); absent = the device's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_server_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -420,22 +453,14 @@ pub fn sessions_send(
 /// `exponential_sessions_stop` — interrupt the session's current turn; it
 /// stays live and goes idle (`sessions.stop`).
 pub fn sessions_stop(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    call_tool(
-        trpc,
-        "exponential_sessions_stop",
-        &serde_json::json!({ "sessionId": session_id }),
-    )?;
+    call_tool(trpc, "exponential_sessions_stop", &serde_json::json!({ "id": session_id }))?;
     Ok(())
 }
 
 /// `exponential_sessions_end` — end a session explicitly (status `ended`;
-/// ending a root ends its whole tree; agents refuse).
+/// ending a root ends its whole tree; agents never end).
 pub fn sessions_end(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    call_tool(
-        trpc,
-        "exponential_sessions_end",
-        &serde_json::json!({ "sessionId": session_id }),
-    )?;
+    call_tool(trpc, "exponential_sessions_end", &serde_json::json!({ "id": session_id }))?;
     Ok(())
 }
 
@@ -579,7 +604,7 @@ mod tests {
             let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(
                 request.ends_with(&format!(
-                    r#""params":{{"name":"{tool}","arguments":{{"sessionId":"s1"}}}}}}"#
+                    r#""params":{{"name":"{tool}","arguments":{{"id":"s1"}}}}}}"#
                 )),
                 "{request}"
             );
@@ -589,19 +614,45 @@ mod tests {
     #[test]
     fn sessions_rows_decode_with_nulls() {
         let row: RemoteSession = serde_json::from_str(
-            r#"{"id":"s1","parentId":null,"rootId":"s1","kind":"thread","title":null,"status":"idle","deviceId":"d1","cli":"claude","busy":false,"needsInput":false,"blocked":null,"issues":null,"depth":0}"#,
+            r#"{"id":"s1","parentId":null,"rootId":"s1","kind":"thread","title":null,"status":"idle","deviceId":"d1","cli":"claude","busy":false,"needsInput":false,"blocked":null,"depth":0}"#,
         )
         .unwrap();
         assert_eq!(row.status, "idle");
         assert_eq!(row.kind.as_deref(), Some("thread"));
         assert_eq!(row.depth, 0);
         assert!(row.blocked.is_none());
-        assert!(row.issues.is_empty());
-        let linked: RemoteSession = serde_json::from_str(
-            r#"{"id":"s2","status":"running","issues":[{"id":"i1","identifier":"EXP-1","title":"Fix"}]}"#,
-        )
-        .unwrap();
-        assert_eq!(linked.issues[0].identifier.as_deref(), Some("EXP-1"));
     }
 
+    #[test]
+    fn sessions_get_reads_the_tree_by_id() {
+        let tree = r#"{\"root\":{\"id\":\"r1\",\"status\":\"idle\",\"displayTitle\":\"Fix\"},\"issues\":[{\"issueId\":\"i1\",\"identifier\":\"EXP-1\",\"title\":\"Fix\",\"status\":\"backlog\"}],\"pullRequests\":[],\"guide\":[],\"children\":[{\"id\":\"c1\",\"parentId\":\"r1\",\"depth\":1,\"status\":\"running\"}],\"messages\":[]}"#;
+        let (base, captured) = one_shot_server(
+            200,
+            Box::leak(
+                format!(r#"{{"jsonrpc":"2.0","id":1,"result":{{"content":[{{"type":"text","text":"{tree}"}}]}}}}"#)
+                    .into_boxed_str(),
+            ),
+        );
+        let tree = sessions_get(&client(&base), "c1").unwrap();
+        assert_eq!(tree.root.display_title.as_deref(), Some("Fix"));
+        assert_eq!(tree.issues[0].identifier.as_deref(), Some("EXP-1"));
+        assert_eq!(tree.session("c1").map(|row| row.depth), Some(1));
+        assert!(tree.session("nope").is_none());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#""params":{"name":"exponential_sessions_get","arguments":{"id":"c1","messages":0}}}"#
+            ),
+            "{request}"
+        );
+    }
+
+    #[test]
+    fn the_list_query_speaks_the_v2_filters() {
+        let query = SessionsQuery { kind: Some("agent".into()), live: Some(true), limit: 50, ..Default::default() };
+        assert_eq!(
+            serde_json::to_string(&query).unwrap(),
+            r#"{"kind":"agent","live":true,"limit":50}"#
+        );
+    }
 }

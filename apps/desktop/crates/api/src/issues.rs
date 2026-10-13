@@ -13,30 +13,12 @@
 //!    `IssueStatus::Unknown` / `IssuePriority::Unknown` — they serialize as
 //!    `"unknown"` and the server's schema rejects them.
 //!
-//! 2. **The `issues.prFiles` query** (masterplan-v3 §7.8) — the data source
-//!    of the desktop diff view.
+//! 2. **[`PrFiles`]** — the changed-files shape `repositories.branchDiff`
+//!    answers with (the desktop diff view). EXP-1291: the PR procedures left
+//!    this router (`pullRequests.*`, [`crate::pull_requests`]).
 //!
-//! Wire shape verified against `apps/web/src/lib/trpc/issues.ts` (`prFiles`)
-//! and `apps/web/src/lib/integrations/github-pr.ts` (`PullFile`):
-//!
-//! ```ts
-//! // input
-//! { issueId: string /* uuid */ }
-//! // output
-//! { repo: string | null, prNumber: number | null, files: PullFile[] }
-//! interface PullFile { filename: string; status: string; additions: number;
-//!                      deletions: number; patch?: string }
-//! ```
-//!
-//! An issue without a linked PR returns `repo: null, prNumber: null,
-//! files: []` (NOT an error); a GitHub-side failure surfaces as tRPC
-//! `BAD_GATEWAY` → [`crate::ApiError::Http`] with the server's message.
-//!
-//! §7.8 forward-compat: the brief also names `sha` and `previousFilename` on
-//! `PullFile` for rename-stable anchoring. The server does not send them yet
-//! (the additive `fetchPullFiles` change is pending); they are decoded as
-//! `Option` + `#[serde(default)]` so this wrapper works before and after that
-//! server change without another client release.
+//! `PullFile` forward-compat (§7.8): `sha` and `previousFilename` decode as
+//! `Option` + `#[serde(default)]`; the server does not send them yet.
 
 use serde::{Deserialize, Serialize};
 
@@ -114,11 +96,11 @@ pub struct IssuesCreateInput {
     /// `/api/attachments/{id}` URL owned by that draft.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_id: Option<String>,
-    /// EXP-1284: "New issue in this thread" — the server links the new issue
-    /// into that thread (source `user`) in the create's transaction. Skipped
-    /// when absent, so every thread-less create's wire is byte-identical.
+    /// EXP-1284 → EXP-1291: "New issue in this thread" — the server links
+    /// the new issue into that session's thread root (source `user`) in the
+    /// create's transaction. Skipped when absent.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
+    pub session_id: Option<String>,
 }
 
 impl IssuesCreateInput {
@@ -135,7 +117,7 @@ impl IssuesCreateInput {
             label_ids: None,
             parent_id: None,
             draft_id: None,
-            thread_id: None,
+            session_id: None,
         }
     }
 }
@@ -356,136 +338,6 @@ pub fn issues_bulk_delete(
 }
 
 // ---------------------------------------------------------------------------
-// issues.mergePr
-// ---------------------------------------------------------------------------
-
-/// Output of `issues.mergePr` — `{"merged":
-/// true}` on success. The server is idempotent: an already-merged PR also
-/// returns `merged: true` (no error). A merge GitHub's merge queue only
-/// ENQUEUED answers `{"merged": false, "queued": true}` (EXP-1165).
-#[derive(Debug, Deserialize)]
-pub struct MergeResult {
-    pub merged: bool,
-    #[serde(default)]
-    pub queued: bool,
-}
-
-impl MergeResult {
-    /// The pull request is in: merged and not merely queued.
-    pub fn landed(&self) -> bool {
-        self.merged && !self.queued
-    }
-}
-
-/// `issues.mergePr` — squash-merges the issue's open PR server-side through
-/// the GitHub App installation token (the desktop never touches `gh`/git for
-/// this). Guard failures (no linked PR, PR not open, no repo, App not
-/// installed, GitHub-side rejection) surface as [`ApiError::Http`] with the
-/// server's user-facing message. Blocking; background executor only (§3.5).
-///
-/// EXP-498: merge always ends the issue's live coding sessions — the server
-/// enforces it unconditionally, and the desktop tears down off the resulting
-/// kill-watch echo (or its own local tab close).
-///
-/// EXP-1145: `merge_stack` merges the open `pr_base_branch` chain bottom-up
-/// THROUGH `issue_id` (the stack dialog passes the top member for "Merge
-/// stack", the merged member for "Merge this pull request" above the
-/// bottom). The flag is serialized LAST and only when set, so an ordinary
-/// merge's wire frame stays byte-identical.
-pub fn merge_pr(
-    trpc: &TrpcClient,
-    issue_id: &str,
-    merge_stack: bool,
-) -> Result<MergeResult, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        issue_id: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        merge_stack: Option<bool>,
-    }
-    trpc.mutation(
-        "issues.mergePr",
-        &Input {
-            issue_id,
-            merge_stack: merge_stack.then_some(true),
-        },
-    )
-}
-
-// ---------------------------------------------------------------------------
-// issues.closePr (EXP-100)
-// ---------------------------------------------------------------------------
-
-/// Output of `issues.closePr` — `{"closed": true}` on success. The server is
-/// idempotent: an already-closed PR also returns `closed: true` (no error).
-#[derive(Debug, Deserialize)]
-pub struct CloseResult {
-    pub closed: bool,
-}
-
-/// `issues.closePr` — closes the issue's open PR WITHOUT merging, server-side
-/// through the GitHub App installation token (the Reviews "reject" path).
-/// Guard failures surface as [`ApiError::Http`] with the server's user-facing
-/// message, like [`merge_pr`]. Blocking; background executor only (§3.5).
-pub fn close_pr(trpc: &TrpcClient, issue_id: &str) -> Result<CloseResult, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        issue_id: &'a str,
-    }
-    trpc.mutation("issues.closePr", &Input { issue_id })
-}
-
-// ---------------------------------------------------------------------------
-// issues.prepareConflictFix (EXP-324)
-// ---------------------------------------------------------------------------
-
-/// Output of `issues.prepareConflictFix` — the LIVE rebase target for a
-/// fix-conflicts run on the issue's PR. The server reads the PR fresh from
-/// GitHub (the DB deliberately persists no base branch), classifies the base
-/// (stacked on an open parent / stale after a squash-merged parent / …), and
-/// retargets a dead base onto the repo default before returning. The launcher
-/// only needs `rebase_onto`; the rest is context for logs/UI.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrepareConflictFix {
-    pub repo: String,
-    pub pr_number: i64,
-    pub head_ref: String,
-    pub base_ref: String,
-    /// Classification token ("default" / "open-parent" / "merged-parent" /
-    /// "closed-parent" / "custom-branch" / "missing-branch"). Kept as a
-    /// string per the §5.5 tolerant-decode posture — a new kind must never
-    /// fail the launch.
-    pub base_kind: String,
-    /// The ref the run must rebase onto (post-retarget when one applied).
-    pub rebase_onto: String,
-    /// True when the server just retargeted the PR onto the default branch.
-    pub retargeted: bool,
-    #[serde(default)]
-    pub default_branch: Option<String>,
-}
-
-/// `issues.prepareConflictFix` — mutation (it may retarget the PR on GitHub).
-/// Guard failures (no linked PR, PR not open, App not installed, GitHub
-/// unreachable) surface as [`ApiError::Http`] with the server's user-facing
-/// message; an OLD server without the procedure answers 404, which the
-/// launcher maps to the legacy default-branch behavior. Blocking; background
-/// executor only (§3.5).
-pub fn prepare_conflict_fix(
-    trpc: &TrpcClient,
-    issue_id: &str,
-) -> Result<PrepareConflictFix, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        issue_id: &'a str,
-    }
-    trpc.mutation("issues.prepareConflictFix", &Input { issue_id })
-}
-
-// ---------------------------------------------------------------------------
 // issues.search (EXP-3)
 // ---------------------------------------------------------------------------
 
@@ -590,11 +442,11 @@ pub fn issues_get(client: &TrpcClient, id: &str) -> Result<IssueGetResult, ApiEr
 }
 
 // ---------------------------------------------------------------------------
-// issues.prFiles (§7.8)
+// The changed-files shape (§7.8; `repositories.branchDiff`)
 // ---------------------------------------------------------------------------
 
-/// One changed file of the issue's PR (GitHub "list pull request files" row,
-/// as forwarded by `issues.prFiles`).
+/// One changed file (GitHub "list pull request files" row, as forwarded by
+/// `repositories.branchDiff`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PullFile {
@@ -626,95 +478,14 @@ pub struct PullFile {
     pub previous_filename: Option<String>,
 }
 
-/// Output of `issues.prFiles`. `repo` is `owner/name`; both `repo` and
-/// `pr_number` are `None` when the issue has no linked PR.
+/// The changed-files answer. `repo` is `owner/name`; both `repo` and
+/// `pr_number` are `None` when there is no PR.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PrFiles {
     pub repo: Option<String>,
     pub pr_number: Option<i64>,
     pub files: Vec<PullFile>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PrFilesInput<'a> {
-    issue_id: &'a str,
-}
-
-/// Fetch the changed files of the issue's PR (`issues.prFiles`). Blocking —
-/// call from a background executor, never the foreground (§3.5).
-pub fn pr_files(client: &TrpcClient, issue_id: &str) -> Result<PrFiles, ApiError> {
-    client.query_with_input("issues.prFiles", &PrFilesInput { issue_id })
-}
-
-// ---------------------------------------------------------------------------
-// issues.prDescription + issues.updatePr (EXP-1139)
-// ---------------------------------------------------------------------------
-
-/// Output of `issues.prDescription` — the PR's title and body as GitHub holds
-/// them (never a synced column). Every field is `None` when the issue has no
-/// linked PR. `state` is `open`/`closed`/`merged`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrDescription {
-    pub repo: Option<String>,
-    pub pr_number: Option<i64>,
-    pub url: Option<String>,
-    pub title: Option<String>,
-    pub body: Option<String>,
-    pub state: Option<String>,
-}
-
-/// Fetch the title + body of the issue's PR (`issues.prDescription`).
-/// Blocking — background executor only (§3.5).
-pub fn pr_description(client: &TrpcClient, issue_id: &str) -> Result<PrDescription, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        issue_id: &'a str,
-    }
-    client.query_with_input("issues.prDescription", &Input { issue_id })
-}
-
-/// Output of `issues.updatePr` — `{"updated": true, url, number}`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdatePrResult {
-    pub updated: bool,
-    pub url: String,
-    pub number: i64,
-}
-
-/// `issues.updatePr` — rewrite the title and/or body of the issue's OPEN PR
-/// on GitHub through the App (the Reviews description card's Edit; the same
-/// procedure the MCP `exponential_pr_update` tool uses). An omitted field
-/// keeps its value; the server refuses a call with neither. Guard failures
-/// surface as [`ApiError::Http`] with the server's message, like
-/// [`close_pr`]. Blocking; background executor only (§3.5).
-pub fn update_pr(
-    trpc: &TrpcClient,
-    issue_id: &str,
-    title: Option<&str>,
-    body: Option<&str>,
-) -> Result<UpdatePrResult, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        issue_id: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        title: Option<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        body: Option<&'a str>,
-    }
-    trpc.mutation(
-        "issues.updatePr",
-        &Input {
-            issue_id,
-            title,
-            body,
-        },
-    )
 }
 
 #[cfg(test)]
@@ -729,30 +500,25 @@ mod tests {
         TrpcClient::new(base, Arc::new(StaticToken("tok-1".to_string())))
     }
 
+    fn files(json: &str) -> PrFiles {
+        serde_json::from_str(json).expect("the changed-files shape decodes")
+    }
+
     #[test]
-    fn decodes_pr_files_and_sends_camel_case_input() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"repo":"acme/widgets","prNumber":42,"files":[
+    fn decodes_pr_files() {
+        let out = files(
+            r#"{"repo":"acme/widgets","prNumber":42,"files":[
                 {"filename":"src/a.ts","status":"modified","additions":3,"deletions":1,"patch":"@@ -1 +1,3 @@\n-a\n+b\n+c\n+d"},
                 {"filename":"img/logo.png","status":"added","additions":0,"deletions":0}
-            ]}}}"#,
+            ]}"#,
         );
-        let out = pr_files(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
         assert_eq!(out.repo.as_deref(), Some("acme/widgets"));
         assert_eq!(out.pr_number, Some(42));
         assert_eq!(out.files.len(), 2);
-        assert_eq!(out.files[0].filename, "src/a.ts");
         assert!(out.files[0].patch.as_deref().unwrap().starts_with("@@ -1"));
         // Binary file: no patch field → None, never a decode error.
         assert_eq!(out.files[1].patch, None);
         assert_eq!(out.files[1].status, "added");
-
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        // GET query, camelCase issueId in the percent-encoded raw-JSON input.
-        assert!(request.starts_with("GET /api/trpc/issues.prFiles?input="));
-        assert!(request.contains("%22issueId%22"));
-        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
     }
 
     /// EXP-912: a NEGATIVE count decodes. The shared diff fixture locks
@@ -761,25 +527,19 @@ mod tests {
     /// `domain::diff::from_pull_file`, which takes `i64`.
     #[test]
     fn decodes_a_negative_count_instead_of_failing_the_whole_response() {
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"repo":"a/b","prNumber":7,"files":[
+        let out = files(
+            r#"{"repo":"a/b","prNumber":7,"files":[
                 {"filename":"src/a.ts","status":"modified","additions":-3,"deletions":2},
                 {"filename":"src/b.ts","status":"modified","additions":4294967296,"deletions":0}
-            ]}}}"#,
+            ]}"#,
         );
-        let out = pr_files(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
         assert_eq!((out.files[0].additions, out.files[0].deletions), (-3, 2));
         assert_eq!(out.files[1].additions, 4_294_967_296, "wider than a u32, too");
     }
 
     #[test]
     fn decodes_no_pr_as_nulls_and_empty_files() {
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"repo":null,"prNumber":null,"files":[]}}}"#,
-        );
-        let out = pr_files(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
+        let out = files(r#"{"repo":null,"prNumber":null,"files":[]}"#);
         assert_eq!(out.repo, None);
         assert_eq!(out.pr_number, None);
         assert!(out.files.is_empty());
@@ -787,14 +547,12 @@ mod tests {
 
     #[test]
     fn decodes_forward_compat_sha_and_previous_filename_both_casings() {
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"repo":"a/b","prNumber":1,"files":[
+        let out = files(
+            r#"{"repo":"a/b","prNumber":1,"files":[
                 {"filename":"new.rs","status":"renamed","additions":0,"deletions":0,"sha":"abc123","previousFilename":"old.rs"},
                 {"filename":"new2.rs","status":"renamed","additions":0,"deletions":0,"previous_filename":"old2.rs"}
-            ]}}}"#,
+            ]}"#,
         );
-        let out = pr_files(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
         assert_eq!(out.files[0].sha.as_deref(), Some("abc123"));
         assert_eq!(out.files[0].previous_filename.as_deref(), Some("old.rs"));
         assert_eq!(out.files[1].previous_filename.as_deref(), Some("old2.rs"));
@@ -971,41 +729,6 @@ mod tests {
     }
 
     #[test]
-    fn prepare_conflict_fix_posts_and_decodes_the_rebase_target() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"repo":"owner/repo","prNumber":241,"headRef":"exp/EXP-320","baseRef":"exp/EXP-314","baseKind":"merged-parent","rebaseOnto":"master","retargeted":true,"defaultBranch":"master"}}}"#,
-        );
-        let out = prepare_conflict_fix(&client(&base), "i-1").unwrap();
-        assert_eq!(out.repo, "owner/repo");
-        assert_eq!(out.pr_number, 241);
-        assert_eq!(out.base_ref, "exp/EXP-314");
-        assert_eq!(out.base_kind, "merged-parent");
-        assert_eq!(out.rebase_onto, "master");
-        assert!(out.retargeted);
-        assert_eq!(out.default_branch.as_deref(), Some("master"));
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/issues.prepareConflictFix HTTP/1.1"));
-        assert!(request.ends_with(r#"{"issueId":"i-1"}"#));
-    }
-
-    #[test]
-    fn prepare_conflict_fix_surfaces_guard_failures_with_the_server_message() {
-        let (base, _captured) = one_shot_server(
-            412,
-            r#"{"error":{"message":"This issue has no linked pull request","code":-32000,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
-        );
-        let err = prepare_conflict_fix(&client(&base), "i-1").unwrap_err();
-        match err {
-            ApiError::Http { status, message } => {
-                assert_eq!(status, 412);
-                assert!(message.contains("no linked pull request"));
-            }
-            other => panic!("expected Http error, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn bulk_update_serializes_only_touched_fields() {
         let (base, captured) =
             one_shot_server(200, r#"{"result":{"data":{"txId":21,"updated":2}}}"#);
@@ -1080,162 +803,4 @@ mod tests {
         assert!(request.ends_with(r#"{"id":"i-1","boardId":"p-2"}"#));
     }
 
-    /// EXP-498: merge always closes, server-side — the input carries the
-    /// issue id and nothing else.
-    #[test]
-    fn merge_pr_posts_camel_case_input_and_decodes_result() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
-        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", false).unwrap();
-        assert!(out.merged);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
-        assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
-        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
-    }
-
-    /// EXP-1145: `mergeStack` rides LAST and ONLY when set, so an ordinary
-    /// merge's frame is byte-identical to the one above.
-    #[test]
-    fn merge_pr_with_merge_stack_posts_the_flag_last() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
-        let out = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", true).unwrap();
-        assert!(out.merged);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/issues.mergePr HTTP/1.1"));
-        assert!(request.ends_with(
-            r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000","mergeStack":true}"#
-        ));
-    }
-
-    #[test]
-    fn merge_pr_guard_failure_surfaces_the_server_message() {
-        // The server maps merge guards to PRECONDITION_FAILED with a
-        // user-facing message — the panel shows it verbatim.
-        let (base, _captured) = one_shot_server(
-            412,
-            r#"{"error":{"message":"This issue has no linked pull request","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
-        );
-        let result = merge_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000", false);
-        match result {
-            Err(ApiError::Http { status, message }) => {
-                assert_eq!(status, 412);
-                assert!(message.contains("no linked pull request"));
-            }
-            other => panic!("expected Http error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn close_pr_posts_camel_case_input_and_decodes_result() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"closed":true}}}"#);
-        let out = close_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
-        assert!(out.closed);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/issues.closePr HTTP/1.1"));
-        assert!(request.ends_with(r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000"}"#));
-        assert!(crate::trpc::tests::has_header(&request, "Authorization: Bearer tok-1"));
-    }
-
-    #[test]
-    fn close_pr_guard_failure_surfaces_the_server_message() {
-        // Same guard mapping as mergePr — PRECONDITION_FAILED with a
-        // user-facing message the panel shows verbatim.
-        let (base, _captured) = one_shot_server(
-            412,
-            r#"{"error":{"message":"The pull request is merged. Only open pull requests can be closed.","code":-32603,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
-        );
-        let result = close_pr(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000");
-        match result {
-            Err(ApiError::Http { status, message }) => {
-                assert_eq!(status, 412);
-                assert!(message.contains("Only open pull requests can be closed"));
-            }
-            other => panic!("expected Http error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn github_failure_surfaces_as_http_error_with_message() {
-        // Server wraps GitHub failures in BAD_GATEWAY (issues.ts prFiles).
-        let (base, _captured) = one_shot_server(
-            502,
-            r#"{"error":{"message":"GitHub returned 404 for acme/widgets#42","code":-32603,"data":{"code":"BAD_GATEWAY","httpStatus":502}}}"#,
-        );
-        let result = pr_files(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000");
-        match result {
-            Err(ApiError::Http { status, message }) => {
-                assert_eq!(status, 502);
-                assert!(message.contains("GitHub returned 404"));
-            }
-            other => panic!("expected Http error, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn decodes_pr_description_and_nulls_without_a_pr() {
-        let (base, request) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"repo":"acme/widgets","prNumber":42,"url":"https://github.com/acme/widgets/pull/42","title":"EXP-1: Fix","body":"Closes #EXP-1","state":"open"}}}"#,
-        );
-        let out = pr_description(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
-        assert_eq!(out.pr_number, Some(42));
-        assert_eq!(out.title.as_deref(), Some("EXP-1: Fix"));
-        assert_eq!(out.body.as_deref(), Some("Closes #EXP-1"));
-        assert_eq!(out.state.as_deref(), Some("open"));
-        let request = request.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("GET /api/trpc/issues.prDescription?input="));
-        assert!(request.contains("%22issueId%22"));
-
-        let (base, _) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"repo":null,"prNumber":null,"url":null,"title":null,"body":null,"state":null}}}"#,
-        );
-        let out = pr_description(&client(&base), "1f7f6f9e-0000-4000-8000-000000000000").unwrap();
-        assert_eq!(out, PrDescription { repo: None, pr_number: None, url: None, title: None, body: None, state: None });
-    }
-
-    #[test]
-    fn update_pr_sends_only_the_given_fields() {
-        let (base, request) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"updated":true,"url":"https://github.com/acme/widgets/pull/42","number":42}}}"#,
-        );
-        let out = update_pr(
-            &client(&base),
-            "1f7f6f9e-0000-4000-8000-000000000000",
-            None,
-            Some("Closes #EXP-1\n\nNow with tests."),
-        )
-        .unwrap();
-        assert!(out.updated);
-        assert_eq!(out.number, 42);
-        let request = request.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/issues.updatePr HTTP/1.1"));
-        // An omitted title is ABSENT, not null: null would be refused by the
-        // server's `z.string()` and the caller would read "invalid input".
-        assert!(request.ends_with(
-            r#"{"issueId":"1f7f6f9e-0000-4000-8000-000000000000","body":"Closes #EXP-1\n\nNow with tests."}"#
-        ));
-    }
-
-    #[test]
-    fn update_pr_surfaces_the_servers_refusal() {
-        let (base, _) = one_shot_server(
-            412,
-            r#"{"error":{"message":"The pull request is merged. Only open pull requests can be edited.","code":-32000,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
-        );
-        let result = update_pr(
-            &client(&base),
-            "1f7f6f9e-0000-4000-8000-000000000000",
-            Some("New title"),
-            None,
-        );
-        match result {
-            Err(ApiError::Http { status, message }) => {
-                assert_eq!(status, 412);
-                assert!(message.contains("Only open pull requests"));
-            }
-            other => panic!("expected an Http error, got {other:?}"),
-        }
-    }
 }

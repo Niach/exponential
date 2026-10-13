@@ -315,13 +315,8 @@ pub struct LiveRegistry {
     /// (a session limit) → the row's `updated_at` then: explained once, not
     /// re-claimed until the row changes.
     claim_refused: std::sync::Mutex<HashMap<String, Option<String>>>,
-    /// Freshly launched sessions → their brief's `## Request` text: the
-    /// `messages` row the start's text became is the seed turn already, so
-    /// the pickup consumes it instead of delivering it a second time.
-    seeds: std::sync::Mutex<HashMap<String, String>>,
-    /// Person message ids the pickup consumes itself (a seed, or one the
-    /// session's previous engine handed over but could not report) — never
-    /// delivered.
+    /// Person message ids the pickup consumes itself (ones the session's
+    /// previous engine handed over but could not report) — never delivered.
     consuming: std::sync::Mutex<HashSet<String>>,
 }
 
@@ -514,63 +509,21 @@ impl LiveRegistry {
             .insert(session_id.to_string(), pending.iter().map(|m| m.id.clone()).collect());
     }
 
-    /// Take the ids the pickup consumes itself out of `pending` (oldest
-    /// first): the session's seed message — its fresh launch's brief
-    /// already carried that text — and `owed` (handed by a previous engine
-    /// that ended before its consume landed). Returns the ids, newly marked
-    /// [`LiveRegistry::consuming`].
-    fn take_covered(
-        &self,
-        session_id: &str,
-        pending: &mut Vec<&MessageRow>,
-        owed: &[String],
-    ) -> Vec<String> {
-        let mut covered = Vec::new();
-        {
-            let mut seeds = locked(&self.seeds);
-            if let (Some(request), Some(first)) = (seeds.get(session_id), pending.first()) {
-                if request_covers(request, first.body.as_deref().unwrap_or_default()) {
-                    covered.push(first.id.clone());
-                }
-                // The start's message is the session's oldest: once a pending
-                // one shows, the seed has been judged either way.
-                seeds.remove(session_id);
-            }
-        }
-        covered.extend(pending.iter().filter(|m| owed.contains(&m.id)).map(|m| m.id.clone()));
+    /// Take the ids the pickup consumes itself out of `pending`: `owed`
+    /// (handed by a previous engine that ended before its consume landed),
+    /// plus any already being consumed. Returns the ids newly marked
+    /// [`LiveRegistry::consuming`]. EXP-1292: the start's own message needs
+    /// no such care — `sessions.claim` consumes it (the brief's Request
+    /// carries it).
+    fn take_owed(&self, pending: &mut Vec<&MessageRow>, owed: &[String]) -> Vec<String> {
+        let mut covered: Vec<String> =
+            pending.iter().filter(|m| owed.contains(&m.id)).map(|m| m.id.clone()).collect();
         let mut consuming = locked(&self.consuming);
         pending.retain(|m| !covered.contains(&m.id) && !consuming.contains(&m.id));
         covered.retain(|id| consuming.insert(id.clone()));
         covered
     }
 }
-
-/// The brief's `## Request` section text (the person's start message), the
-/// seed a fresh launch already sent.
-fn brief_request(brief: &str) -> Option<String> {
-    brief
-        .strip_prefix(BRIEF_REQUEST_HEADING)
-        .map(str::to_string)
-        .filter(|request| !request.trim().is_empty())
-}
-
-/// `session-brief.json`'s first heading: `## Request` + a blank line.
-const BRIEF_REQUEST_HEADING: &str = "## Request\n\n";
-
-/// Whether a person message is the brief's request: its trimmed text opens
-/// the section (compared on a bounded prefix — the brief is cut at its byte
-/// cap and may end the section in a `…` line).
-fn request_covers(request: &str, body: &str) -> bool {
-    let body = body.trim();
-    if body.is_empty() {
-        return false;
-    }
-    let head: String = body.chars().take(REQUEST_MATCH_CHARS).collect();
-    request.starts_with(&head)
-}
-
-/// How much of a message's text must open the brief's request.
-const REQUEST_MATCH_CHARS: usize = 512;
 
 /// The `## Issues` section's identifiers (`- <IDENTIFIER> <title>` lines,
 /// link order) — the root's linked issues as the server saw them at the
@@ -786,7 +739,6 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
             return Err(reason);
         }
     };
-    let seed = brief_request(&brief.brief);
     // The brief names the root's issues as the server saw them at the claim;
     // the host's shapes may not have them yet.
     let mut issue_identifiers = brief_issue_identifiers(&brief.brief);
@@ -805,9 +757,6 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
         Ok(Prepared::Ready(prepared)) => {
             deps.live.settle(&row.id);
             spawn(&row.id, row.is_agent(), prepared, claim, false, deps)?;
-            if let Some(seed) = seed {
-                locked(&deps.live.seeds).insert(row.id.clone(), seed);
-            }
             Ok(LaunchQueued::Launched { session_id: row.id.clone() })
         }
         Ok(Prepared::Disabled(reason)) => {
@@ -879,24 +828,19 @@ fn deliver(
         if !engine.is_done() {
             let handed = deps.live.handed(session_id);
             pending.retain(|m| !handed.contains(&m.id));
-            // The start's own message: its brief was the seed turn.
-            let covered = deps.live.take_covered(session_id, &mut pending, &[]);
-            deps.live.mark_handed(session_id, &covered);
-            consume_off_thread(deps, session_id, covered.clone(), || {});
-            let mut delivered = covered;
-            delivered.extend(hand(&*engine, session_id, &pending, deps));
-            return Ok(delivered);
+            deps.live.take_owed(&mut pending, &[]);
+            return Ok(hand(&*engine, session_id, &pending, deps));
         }
         // Its process exited (an agent idles out, a thread ended): wake it.
         deps.live.remove(session_id);
     }
     // EXP-1292: what the session's previous engine handed over but could
-    // not report consumed before it ended (`engine::outbox`), and a seed its
-    // fresh launch already sent, are consumed — never delivered again.
+    // not report consumed before it ended (`engine::outbox`) is consumed —
+    // never delivered again.
     let owed = crate::run_registry::get(&deps.coding.data_dir, session_id)
         .map(|record| record.pending_consumes())
         .unwrap_or_default();
-    let covered = deps.live.take_covered(session_id, &mut pending, &owed);
+    let covered = deps.live.take_owed(&mut pending, &owed);
     if !covered.is_empty() {
         let data_dir = deps.coding.data_dir.clone();
         let settled_session = session_id.to_string();
@@ -950,9 +894,6 @@ fn deliver(
         message_id: Some(first.id.clone()),
     });
     let seeded = resume.is_some();
-    // A fresh start from the brief (no record here) seeds with the brief,
-    // which carries the start's own text: that message must not go twice.
-    let fresh_seed = if seeded { None } else { brief_request(&brief.brief) };
     let mut options = deps.options.clone();
     // On a resume a named account is a SWITCH (EXP-849); an ordinary wake
     // keeps the recorded login.
@@ -985,12 +926,6 @@ fn deliver(
                 deps.live.mark_handed(session_id, std::slice::from_ref(&first.id));
                 delivered.push(first.id.clone());
                 rest.remove(0);
-            } else if let Some(seed) = fresh_seed {
-                locked(&deps.live.seeds).insert(session_id.to_string(), seed);
-                let seeded = deps.live.take_covered(session_id, &mut rest, &[]);
-                deps.live.mark_handed(session_id, &seeded);
-                consume_off_thread(deps, session_id, seeded.clone(), || {});
-                delivered.extend(seeded);
             }
             delivered.extend(hand(&*engine, session_id, &rest, deps));
             Ok(delivered)
@@ -1923,7 +1858,7 @@ mod tests {
         assert!(ClaimLock::try_acquire(&dir.0, "s1").unwrap().is_some());
     }
 
-    // ---- EXP-1292 fix pass: seeds, transient failures, refusals ----
+    // ---- EXP-1292 fix pass: start messages, transient failures, refusals ----
 
     const CONSUME_OK: &str = r#"{"result":{"data":{"txid":"3"}}}"#;
     const BRIEF_REQUEST: &str = r###"{"result":{"data":{"brief":"## Request\n\nMake login faster.\n\n## Issues\n\n- EXP-12 Login is slow","teamPrompt":null,"agentInstructions":null,"parentBranch":null}}}"###;
@@ -1939,17 +1874,16 @@ mod tests {
         false
     }
 
-    /// The start's text is the brief's `## Request` (the seed turn), so its
-    /// `messages` row is consumed, never delivered a second time; a later
-    /// message is delivered as usual.
+    /// EXP-1292: `sessions.claim` consumes the start's own message (the
+    /// brief's Request carries it), so a fresh launch just delivers what is
+    /// still pending — no device-side matching, no consume of its own.
     #[test]
-    fn a_fresh_launchs_start_message_is_consumed_not_delivered() {
+    fn a_fresh_launch_delivers_what_the_claim_left_pending() {
         let dir = temp_dir("pickup-seed");
         let (base, requests) = canned_server_recording(vec![
             (200, CLAIM_OK.to_string()),
             (200, BRIEF_REQUEST.to_string()),
             (200, RESOLVE_NONE.to_string()),
-            (200, CONSUME_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         let row = session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z");
@@ -1960,14 +1894,12 @@ mod tests {
 
         let start = MessageRow {
             body: Some("Make login faster.".to_string()),
-            ..message("m1", "sess-1", "2026-10-02T00:00:01Z")
+            ..consumed(message("m1", "sess-1", "2026-10-02T00:00:01Z"))
         };
         let rows = vec![start, message("m2", "sess-1", "2026-10-02T00:00:02Z")];
-        assert_eq!(deliver_messages("sess-1", &rows, &host.deps).unwrap(), vec!["m1", "m2"]);
+        assert_eq!(deliver_messages("sess-1", &rows, &host.deps).unwrap(), vec!["m2"]);
         assert_eq!(host.engine.delivered_ids(), vec!["m2"]);
-        assert!(wait_for(&requests, "sessions.consume"));
-        let consume = requests.lock().unwrap()[3].clone();
-        assert!(consume.ends_with(r#"{"sessionId":"sess-1","messageIds":["m1"]}"#), "{consume}");
+        assert!(!procedures(&requests).iter().any(|p| p == "sessions.consume"));
         // Handed: the next pass delivers nothing again.
         assert!(deliver_messages("sess-1", &rows, &host.deps).unwrap().is_empty());
     }
@@ -2076,8 +2008,5 @@ mod tests {
         assert_eq!(brief_issue_identifiers("## Issues\n\n- APP-7 First"), vec!["APP-7".to_string()]);
         assert!(brief_issue_identifiers("## Request\n\nFix it.").is_empty());
         assert!(brief_issue_identifiers("## Issues\n\n- not-an-id x").is_empty());
-        assert!(request_covers("Make login faster.\n\n## Issues", " Make login faster. "));
-        assert!(!request_covers("Make login faster.", "Something else"));
-        assert!(!request_covers("Make login faster.", "  "));
     }
 }

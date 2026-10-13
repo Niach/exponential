@@ -3464,7 +3464,7 @@ mod tests {
         let append = &prepared.acp.system_append;
         let note = "## Team MCP connections\n\
 linear = your connection (Danny). linear_as_chris = acts as Chris (shared).\n\
-Not shared: Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them with exponential_notifications_send.";
+Not shared: Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them by @email in your reply.";
         assert!(append.ends_with(&format!("\n\n{note}")), "{append}");
         let before = append.strip_suffix(&format!("\n\n{note}")).unwrap();
         // EXP-1236: every launch carries the code-mode server, so its

@@ -57,7 +57,7 @@ const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// in ~DOCTOR_RECHECK + this instead of two full periods.
 const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// EXP-746 (D9): the caps this daemon advertises — ONE list, owned by
-/// [`coding::doctor::DEVICE_CAPS`] + [`coding::doctor::ACTION_CAPS`] and
+/// [`coding::doctor::DEVICE_CAPS`] + [`coding::doctor::RUN_CAPS`] and
 /// shared with the desktop (`ui::steer_wiring`). They used to be hand-synced
 /// copies here and there, and a one-sided edit silently made one host
 /// un-targetable for the new feature.
@@ -4011,8 +4011,8 @@ mod tests {
         for cap in coding::DEVICE_CAPS {
             assert!(caps.contains(&cap.to_string()), "missing build cap {cap}");
         }
-        for cap in coding::ACTION_CAPS {
-            assert!(caps.contains(&cap.to_string()), "missing action cap {cap}");
+        for cap in coding::RUN_CAPS {
+            assert!(caps.contains(&cap.to_string()), "missing run cap {cap}");
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));

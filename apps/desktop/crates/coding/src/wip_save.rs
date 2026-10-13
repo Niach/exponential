@@ -1,6 +1,6 @@
 //! FEED-63: save a STOPPED run's uncommitted work as a local WIP commit.
 //!
-//! A run ended by a person (a web/mobile Stop, MCP `exponential_sessions_kill`)
+//! A run ended by a person (an explicit End, MCP `exponential_sessions_end`)
 //! used to leave its worktree dirty and nothing else: the next start or the
 //! prune could lose it, and nobody was told. The host now commits whatever
 //! the run left behind (tracked changes and untracked files alike) on the

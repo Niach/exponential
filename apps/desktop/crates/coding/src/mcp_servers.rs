@@ -467,7 +467,7 @@ pub fn delegation_note(members: &[McpMember], servers: &[McpServerWire]) -> Opti
         last.push_str(&format!("Not shared: {}. ", not_shared.join(", ")));
     }
     last.push_str(
-        "Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them with exponential_notifications_send.",
+        "Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them by @email in your reply.",
     );
     Some(format!("## Team MCP connections\n{}\n{last}", wired.join(" ")))
 }
@@ -945,7 +945,7 @@ mod tests {
             Some(concat!(
                 "## Team MCP connections\n",
                 "linear = your connection (Danny). linear_as_chris = acts as Chris (shared).\n",
-                "Not shared: Alex (connected), Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them with exponential_notifications_send."
+                "Not shared: Alex (connected), Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them by @email in your reply."
             ))
         );
     }

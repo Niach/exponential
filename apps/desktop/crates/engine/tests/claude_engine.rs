@@ -392,8 +392,8 @@ fn settle_of(sink: &RecordingSink, id: &str) -> Option<serde_json::Value> {
 /// EXP-1202 / EXP-1220: a CLAUDE run publishes an Exponential tool's preview
 /// like a codex one does. The CLI hands an MCP answer over as a `tool_result`
 /// whose content is the server's `[{type:"text",text:"<json>"}]` envelope; the
-/// adapter forwards it as the settle's `raw_output`, so `sessions_show`
-/// settles with `preview.id` = the attachment every client renders inline.
+/// adapter forwards it as the settle's `raw_output`, so `attachments_upload`
+/// settles with `preview.id` = the uploaded attachment.
 /// A FAILED call settles with no preview, even when its text parses as a row.
 ///
 /// The side finding: a `Bash` settle's wire `output` is what the command
@@ -414,7 +414,7 @@ fn a_claude_exponential_call_publishes_its_preview() {
     assert_eq!(
         shown["preview"]["id"],
         serde_json::json!("7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99"),
-        "the settle carries the shown attachment: {shown}"
+        "the settle carries the uploaded attachment: {shown}"
     );
 
     let failed = settle_of(&harness.sink, "toolu_thefailedcall").expect("the failed call settled");

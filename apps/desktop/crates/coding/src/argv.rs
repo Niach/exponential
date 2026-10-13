@@ -41,7 +41,7 @@ pub const MCP_SESSION_ID_ENV: &str = "EXP_MCP_SESSION_ID";
 /// and the whole turn wedges: every later steer message is enqueued and never
 /// dequeued, and the run sits "running" for hours. With the variable set, a
 /// lost response surfaces as an ordinary tool error the model recovers from.
-/// Generous against everything `/api/mcp` does (`sessions_start` polls 10 s,
+/// Generous against everything `/api/mcp` does (a PR merge waits on GitHub,
 /// GitHub-backed diffs take seconds); a user's own value in the host env
 /// wins ([`crate::launcher`] only fills the gap).
 pub const CLAUDE_MCP_TOOL_TIMEOUT_ENV: &str = "MCP_TOOL_TIMEOUT";

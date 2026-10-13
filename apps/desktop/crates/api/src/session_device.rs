@@ -171,14 +171,6 @@ pub enum ReplyCard {
         #[serde(skip_serializing_if = "Option::is_none")]
         summary: Option<String>,
     },
-    Picture {
-        #[serde(rename = "attachmentId")]
-        attachment_id: String,
-        width: Option<u32>,
-        height: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        caption: Option<String>,
-    },
 }
 
 #[derive(Serialize)]
@@ -471,19 +463,10 @@ mod tests {
             }),
             r#"{"kind":"subagent","title":"Review","status":"failed","summary":"No access"}"#
         );
-        // width/height are `number | null` on the card: always present.
-        assert_eq!(
-            json(&ReplyCard::Picture {
-                attachment_id: "a-1".to_string(),
-                width: Some(800),
-                height: None,
-                caption: Some("Home".to_string()),
-            }),
-            r#"{"kind":"picture","attachmentId":"a-1","width":800,"height":null,"caption":"Home"}"#
-        );
         for card in [
             ReplyCard::Plan { plan: String::new(), question_id: String::new() },
-            ReplyCard::Picture { attachment_id: String::new(), width: None, height: None, caption: None },
+            ReplyCard::Question { question: String::new(), options: vec![], question_id: String::new() },
+            ReplyCard::Subagent { title: String::new(), status: String::new(), summary: None },
         ] {
             let value = serde_json::to_value(&card).unwrap();
             let kind = value["kind"].as_str().unwrap();

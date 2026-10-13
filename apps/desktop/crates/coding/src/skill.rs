@@ -113,8 +113,8 @@ Verify with `verify_state` or a fresh snapshot; an unverifiable effect is not su
 refusal justifies `delivery_mode: \"foreground\"` or a desktop target (`get_desktop_state`, \
 `{kind: \"desktop\", display_id: \"primary\"}`): say so in your reply first, because that takes \
 over their pointer and keyboard.
-- Show the person a frame that matters: `screenshot_out_file` on a state tool, then \
-`exponential_sessions_show` with that `file`.
+- Show the person a frame that matters: `screenshot_out_file` on a state tool, then file it as \
+a `label`ed picture on a Guide topic (`exponential_guide_write`, through its returned upload line).
 - Drive the screen from SUBAGENTS on model `{model}` (the `Agent` tool's `model`, a fast one by \
 design): one window per subagent, several at once when the task has several, each verifying its \
 own effects; keep the plan and the final check in this conversation. Background delivery drives \

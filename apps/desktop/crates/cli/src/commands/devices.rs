@@ -58,15 +58,20 @@ pub fn tool_error(err: api::ApiError) -> anyhow::Error {
     }
 }
 
-/// Every live run the caller can see (own + teammates'), newest first.
+/// Every running thread the caller can see (own + shared), newest first.
+/// The list tool reads ROOTS only (`exponential_sessions_list`), so a
+/// sub-session counts through its thread.
 pub fn running_sessions(ctx: &Ctx) -> anyhow::Result<Vec<RemoteSession>> {
     let query = SessionsQuery {
-        status: Some("running".to_string()),
-        mine: false,
+        live: Some(true),
         limit: mcp_tools::MAX_PAGE,
         ..Default::default()
     };
-    mcp_tools::sessions_list(&ctx.trpc, &query).map_err(tool_error)
+    let rows = mcp_tools::sessions_list(&ctx.trpc, &query).map_err(tool_error)?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| row.status == coding::session_rows::SESSION_STATUS_RUNNING)
+        .collect())
 }
 
 /// Live runs per device id.

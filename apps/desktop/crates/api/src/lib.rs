@@ -39,8 +39,8 @@
 //!   team action prompts (`actions.*` CRUD — saved prompts since EXP-1292).
 //!
 //! Phase-3 surface (§4.1/§4.2): typed per-router mutation mirrors of
-//! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 `prFiles`
-//! query), [`boards`], [`teams`] (+ members + invites), [`labels`]
+//! `apps/web/src/lib/trpc/*` — [`issues`] (also carries the §7.8 changed-files
+//! shape), [`pull_requests`] (EXP-1291: merge/close/files by PR id), [`boards`], [`teams`] (+ members + invites), [`labels`]
 //! (+ issueLabels), [`relations`] (EXP-736), [`pins`] (EXP-778),
 //! [`comments`], [`notifications`],
 //! [`attachments`]
@@ -77,6 +77,7 @@ pub mod onboarding;
 pub mod opener;
 pub mod patch;
 pub mod pins;
+pub mod pull_requests;
 pub mod relations;
 pub mod boards;
 pub mod device_identity;

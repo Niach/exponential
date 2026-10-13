@@ -110,10 +110,11 @@ pub fn start(
         );
         return Ok(ExitCode::SUCCESS);
     }
-    let row = mcp_tools::sessions_get(&ctx.trpc, &started.session_id)
+    let tree = mcp_tools::sessions_get(&ctx.trpc, &started.session_id)
         .map_err(super::devices::tool_error)
         .context("load the session")?;
-    super::sessions::stream_transcript(ctx, &row, true)
+    let row = tree.session(&started.session_id).unwrap_or(&tree.root);
+    super::sessions::stream_transcript(ctx, row, true)
 }
 
 #[cfg(test)]

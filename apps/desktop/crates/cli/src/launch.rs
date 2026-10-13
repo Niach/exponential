@@ -213,11 +213,12 @@ pub fn start_foreground(
     let sent = mcp_tools::sessions_send(&ctx.trpc, &input)
         .map_err(crate::commands::devices::tool_error)
         .context("start the session")?;
-    let remote = mcp_tools::sessions_get(&ctx.trpc, &sent.session_id)
+    let tree = mcp_tools::sessions_get(&ctx.trpc, &sent.session_id)
         .map_err(crate::commands::devices::tool_error)
         .context("load the session")?;
-    let row = session_row_from_remote(&remote, &input);
-    let identifiers: Vec<String> = remote
+    let remote = tree.session(&sent.session_id).unwrap_or(&tree.root);
+    let row = session_row_from_remote(remote, &input);
+    let identifiers: Vec<String> = tree
         .issues
         .iter()
         .filter_map(|issue| issue.identifier.clone())
@@ -418,7 +419,11 @@ fn foreground_pass(store: &sync::store::ShapeStore, deps: &PickupDeps, session_i
 /// The end half without shapes: an `ended` row kills the run.
 fn poll_for_end(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
     match mcp_tools::sessions_get(&ctx.trpc, session_id) {
-        Ok(remote) if remote.status == coding::session_rows::SESSION_STATUS_ENDED => {
+        Ok(tree)
+            if tree.session(session_id).is_some_and(|remote| {
+                remote.status == coding::session_rows::SESSION_STATUS_ENDED
+            }) =>
+        {
             log::info!("session {session_id} was ended — stopping it");
             let kill = coding::pickup::PickupAction::Kill { session_id: session_id.to_string() };
             if let Err(err) = coding::pickup::execute(&kill, deps) {

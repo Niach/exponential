@@ -1580,27 +1580,6 @@ impl Mapper {
         &self.turn_reply
     }
 
-    /// EXP-1292: a settled Exponential call whose answer is a PICTURE
-    /// (contract result kind `picture`) and names its attachment becomes a
-    /// picture card. No id, no card: the Conversation cannot render one.
-    fn note_picture(&mut self, tool_id: &str, preview: &steer::ToolPreview, out: &mut MapOut) {
-        let Some(attachment_id) = preview.id.clone().filter(|id| !id.is_empty()) else {
-            return;
-        };
-        let Some(state) = self.tools.get(tool_id) else { return };
-        let picture = steer::exp_tool_display(&state.title, true)
-            .is_some_and(|display| display.result == steer::exp_tool::result::PICTURE);
-        if !picture || !self.carded.insert(format!("picture:{tool_id}")) {
-            return;
-        }
-        out.replies.push(Reply::card(api::session_device::ReplyCard::Picture {
-            attachment_id,
-            width: None,
-            height: None,
-            caption: preview.title.clone().filter(|caption| !caption.trim().is_empty()),
-        }));
-    }
-
     /// EXP-1292: an answered Conversation card (`messages.card` with
     /// `answer`, or a plan's `decision` + `feedback`) as the answer the open
     /// ask takes. A question's answer matches an option by label (or key),
@@ -2279,9 +2258,6 @@ impl Mapper {
         };
         if status.is_none() && diff.is_none() && preview.is_none() && output.is_none() {
             return;
-        }
-        if let (Some(ToolUpdateStatus::Completed), Some(preview)) = (status, &preview) {
-            self.note_picture(id, preview, out);
         }
         let event = match ActivityEvent::tool_update(id, status, diff) {
             ActivityEvent::ToolUpdate { id, status, diff, at, .. } => {
@@ -4980,19 +4956,18 @@ mod tests {
 
     /// EXP-1202 / EXP-1220: the CLAUDE adapter's settle of an Exponential
     /// call — the answer text as content AND the `{content:[…]}` envelope as
-    /// `raw_output` — publishes `sessions_show`'s attachment as `preview.id`,
-    /// the inline picture every client renders; a failed one, which carries
-    /// no `raw_output`, publishes no preview.
+    /// `raw_output` — publishes the answer's id as `preview.id`; a failed
+    /// one, which carries no `raw_output`, publishes no preview.
     #[test]
-    fn a_claude_shaped_sessions_show_settle_publishes_the_picture() {
+    fn a_claude_shaped_exp_tool_settle_publishes_the_answer_id() {
         let mut mapper = mapper();
-        let title = "mcp__exponential__exponential_sessions_show";
-        let answer = r#"{"id":"7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99","topic":"Progress","label":"web"}"#;
+        let title = "mcp__exponential__exponential_attachments_upload";
+        let answer = r#"{"id":"7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99","fileName":"shot.png"}"#;
         for id in ["tc-show-1", "tc-show-2"] {
             let call = ToolCall::new(ToolCallId::new(id), title)
                 .kind(ToolKind::Other)
                 .status(ToolCallStatus::InProgress)
-                .raw_input(json!({"file": "/work/tree/shot.png", "text": "The header"}));
+                .raw_input(json!({"file": "/work/tree/shot.png"}));
             mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut MapOut::default());
         }
         let text = vec![ToolCallContent::from(answer.to_string())];
@@ -6789,49 +6764,5 @@ mod conversation_tests {
                 }),
             }]
         );
-    }
-
-    #[test]
-    fn a_shown_picture_is_a_picture_card_and_a_failed_show_is_none() {
-        let mut mapper = live();
-        let title = "mcp__exponential__exponential_sessions_show";
-        let answer = r#"{"id":"7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99","topic":"Progress"}"#;
-        for id in ["tc-show-1", "tc-show-2"] {
-            let call = ToolCall::new(ToolCallId::new(id), title)
-                .kind(ToolKind::Other)
-                .status(ToolCallStatus::InProgress);
-            mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut MapOut::default());
-        }
-        let mut out = MapOut::default();
-        mapper.on_update(
-            &notify(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
-                ToolCallId::new("tc-show-1"),
-                ToolCallUpdateFields::new()
-                    .status(ToolCallStatus::Completed)
-                    .raw_output(json!({"content": [{"type": "text", "text": answer}]})),
-            ))),
-            &mut out,
-        );
-        assert_eq!(
-            out.replies,
-            vec![Reply {
-                body: String::new(),
-                card: Some(ReplyCard::Picture {
-                    attachment_id: "7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99".into(),
-                    width: None,
-                    height: None,
-                    caption: None,
-                }),
-            }]
-        );
-        let mut failed = MapOut::default();
-        mapper.on_update(
-            &notify(SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
-                ToolCallId::new("tc-show-2"),
-                ToolCallUpdateFields::new().status(ToolCallStatus::Failed),
-            ))),
-            &mut failed,
-        );
-        assert!(failed.replies.is_empty());
     }
 }
