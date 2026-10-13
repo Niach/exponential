@@ -2061,7 +2061,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(
         `AgentRunMark / AgentWorkingMark / ClaudeSpinner`,
         `packages/ui/src/agent-brand-mark.tsx`,
-        `the state is sessionState() in @exp/domain-contract/session-tree; the spark steps a CSS steps(8) sprite (claude-spinner.tsx)`
+        `state = sessionState() (@exp/domain-contract/session-tree); the spark is a CSS steps(8) sprite (claude-spinner.tsx)`
       ),
       desktop: ok(
         `coding_selects::run_lead`,
@@ -2250,14 +2250,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `detail-chrome.tsx holds CollapsedTitle and the DETAIL_EDGE_* layers the phone header and bar also draw`
       ),
       desktop: ok(
-        `work_header::render_work_header`,
+        `work_header::scrolling_title_rows`,
         `apps/desktop/crates/ui/src/work_header.rs`,
         `gpui cannot blur in-window content: the edges are the scrim fade alone (surface.rs)`
       ),
       ios: ok(
         `WorkTitle`,
         `apps/ios/Exponential/UI/Work/WorkTitle.swift`,
-        `the system nav bar's .toolbar (WorkScreen.swift) over workHeaderBand; properties stay a row of the issue face`
+        `the system nav bar's .toolbar over workHeaderBand; properties stay a row of the issue face`
       ),
       android: ok(
         `WorkTopBar`,
@@ -2350,11 +2350,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
-      ios: leftover(
-        `WorkScreen toolbar Button (changes-github-action)`,
-        `apps/ios/Exponential/UI/Work/WorkScreen.swift`,
-        `inline on the Guide face's toolbar; RunChangesView.swift holds a second copy under the same accessibility id`
-      ),
+      ios: na(`EXP-1295: the Work screen and its Guide toolbar are gone; no Open on GitHub control yet`),
       android: ok(
         `GithubHeaderAction`,
         `apps/android/app/src/main/java/com/exponential/app/ui/work/WorkTopBar.kt`,
