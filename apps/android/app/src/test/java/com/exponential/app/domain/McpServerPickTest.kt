@@ -40,10 +40,7 @@ class McpServerPickTest {
     }
 
     @Test
-    fun `a real action owns its MCP list, a builtin does not`() {
-        assertTrue(subjectOwnsMcpServers("a-1"))
-        assertFalse(subjectOwnsMcpServers(DomainContract.builtinChatId))
-        assertFalse(subjectOwnsMcpServers(null))
+    fun `the MCP pick value counts the picked servers`() {
         assertNull(mcpPickValue(0))
         assertEquals("2", mcpPickValue(2))
     }

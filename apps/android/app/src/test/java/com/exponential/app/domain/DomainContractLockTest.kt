@@ -168,7 +168,7 @@ class DomainContractLockTest {
      */
     @Test
     fun actionInputTypesAreTheFourPickTypes() {
-        assertEquals(listOf("repo", "board", "pr", "icon"), DomainContract.actionInputTypeValues)
+        assertEquals(listOf("repo", "board", "pr", "issue"), DomainContract.actionInputTypeValues)
         assertTrue("text" !in DomainContract.actionInputTypeValues)
         assertTrue("textarea" !in DomainContract.actionInputTypeValues)
         // The start prompt caps the composer reads (web MAX_START_PROMPT / MAX_STEER_IMAGES).

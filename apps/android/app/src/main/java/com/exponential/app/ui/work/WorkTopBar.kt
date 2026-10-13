@@ -34,20 +34,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.exponential.app.domain.DetailChrome
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.DoneBlue
-import com.exponential.app.ui.issue.LiveGreen
-import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.issue.PulsingDot
-import com.exponential.app.ui.issue.ReviewGreen
-import com.exponential.app.ui.issue.StaticDot
-import com.exponential.app.ui.session.LostGray
 import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-893: the Work screen's top bar — IDENTICAL across its faces, so it
@@ -234,17 +226,5 @@ fun GithubHeaderAction(prUrl: String, modifier: Modifier = Modifier) {
         // circle is left to the primary actions.
         borderless = true,
     )
-    }
-}
-
-/** The ×4 session-dot palette (`SessionDotTone`) as the list rows draw it. */
-@Composable
-fun SessionToneDot(tone: SessionDotTone, busy: Boolean) {
-    when (tone) {
-        SessionDotTone.Running -> if (busy) PulsingDot() else StaticDot(LiveGreen)
-        SessionDotTone.Review -> StaticDot(ReviewGreen)
-        SessionDotTone.NeedsInput -> StaticDot(NeedsInputAmber)
-        SessionDotTone.Done -> StaticDot(DoneBlue)
-        SessionDotTone.Muted -> StaticDot(LostGray)
     }
 }

@@ -40,12 +40,12 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.ui.components.picker.IssuePickerIssue
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.FeedbackMark
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.rememberDelayedFlag
 import kotlinx.coroutines.delay
-import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.imageNumberAt
 import com.exponential.app.domain.insertImageMarker
@@ -100,14 +100,6 @@ internal fun AgentComposer(
     boards: List<StartBoardOption>,
     pullRequests: List<StartPullRequestOption>,
     onInputChange: (key: String, value: String) -> Unit,
-    /**
-     * EXP-1233: the subject is the Fix merge conflicts builtin — its pick row
-     * is [FixConflictsCard] ([fixConflictsPr] picked, [conflictRefused] = a
-     * refused merge opened the page) instead of the generic field.
-     */
-    fixConflictsActive: Boolean,
-    fixConflictsPr: FixConflictsPr?,
-    conflictRefused: Boolean,
     pendingImages: List<PendingAttachment>,
     imageError: String?,
     sending: Boolean,
@@ -124,6 +116,8 @@ internal fun AgentComposer(
     canSubmit: Boolean,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
+    /** EXP-1291: the team's issues, for an action's `issue` inputs. */
+    issues: List<IssuePickerIssue> = emptyList(),
 ) {
     // Each newly picked image inserts its own `[Image #k]` marker at the
     // caret, so the writer can say "crop [Image #2]" without typing the
@@ -151,18 +145,7 @@ internal fun AgentComposer(
         // by the page above this card). What stays here are the picked
         // action's typed pick rows, which belong with the field they are
         // filled next to.
-        leading = if (fixConflictsActive) {
-            {
-                FixConflictsCard(
-                    pr = fixConflictsPr,
-                    conflictRefused = conflictRefused,
-                    pullRequests = pullRequests,
-                    value = inputValues[FIX_CONFLICTS_PR_KEY].orEmpty(),
-                    onSelect = { onInputChange(FIX_CONFLICTS_PR_KEY, it) },
-                )
-                Spacer(Modifier.height(4.dp))
-            }
-        } else if (inputDefs.isNotEmpty()) {
+        leading = if (inputDefs.isNotEmpty()) {
             {
                 ActionInputFields(
                     defs = inputDefs,
@@ -171,6 +154,7 @@ internal fun AgentComposer(
                     boards = boards,
                     pullRequests = pullRequests,
                     onValueChange = onInputChange,
+                    issues = issues,
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -271,11 +255,6 @@ private fun ChipClose(
 }
 
 /**
- * EXP-1233: the Fix merge conflicts builtin with a picked pull request heads
- * the page as "Fix merge conflicts" + the PR's ISSUE chips (the page passes
- * them as [issueChips] with no [actionChip]); unpicked it is the plain "Run"
- * + action chip.
- *
  * EXP-1038: the composer's HEADLINE — the run's subject as the page's main
  * element rather than a chip buried in the card. The contract verb
  * ([AgentComposerPrompt.headline], ×4: "Run" · "Implement") reads straight
@@ -294,9 +273,7 @@ internal fun AgentComposerHeadline(
     onRemoveIssue: (String) -> Unit,
     actionChip: ActionDto?,
     /**
-     * EXP-1233: the ✕'s name per issue chip — "Remove APP-3" for the issues
-     * subject; the Fix merge conflicts builtin's PR chips say "Clear the pull
-     * request" (their ✕ clears the PICK, not the action).
+     * The ✕'s name per issue chip ("Remove APP-3").
      */
     removeIssueDescription: (IssueOption) -> String = { "Remove ${it.identifier}" },
     onClearAction: () -> Unit,

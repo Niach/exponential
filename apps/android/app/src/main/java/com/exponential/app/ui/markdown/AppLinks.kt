@@ -134,7 +134,12 @@ fun rememberAppLinkHandler(): AppLinkHandler? {
         val host = runCatching { URI(origin).host }.getOrNull().orEmpty()
         AppLinkHandler(origin) { link, url ->
             when (link) {
-                is AppLink.Session -> bus.openSession(link.sessionId)
+                // EXP-1291: a root opens its thread (Guide on `?view=guide`),
+                // resolved in AppNavHost against the synced row.
+                is AppLink.Session -> bus.openSessionLink(
+                    link.sessionId,
+                    guide = runCatching { Uri.parse(url).getQueryParameter("view") }.getOrNull() == "guide",
+                )
                 is AppLink.Thread -> bus.openThread(link.threadId)
                 is AppLink.Issue -> {
                     bus.openWebIssueRef(

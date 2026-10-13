@@ -12,7 +12,6 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.SessionInvalidator
 import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.AttachmentEntity
-import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
@@ -28,8 +27,11 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.IssueDraftEntity
 import com.exponential.app.data.db.PinEntity
-import com.exponential.app.data.db.ThreadEntity
-import com.exponential.app.data.db.ThreadItemEntity
+import com.exponential.app.data.db.MessageEntity
+import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.PullRequestIssueEntity
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.SessionIssueEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
@@ -408,14 +410,16 @@ class SyncManager @Inject constructor(
         val notificationDao = db.notificationDao()
         val issueSubscriberDao = db.issueSubscriberDao()
         val issueEventDao = db.issueEventDao()
-        val codingSessionDao = db.codingSessionDao()
         val actionDao = db.actionDao()
         val deviceDao = db.deviceDao()
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
         val issueDraftDao = db.issueDraftDao()
-        val threadDao = db.threadDao()
-        val threadItemDao = db.threadItemDao()
+        val sessionDao = db.sessionDao()
+        val sessionIssueDao = db.sessionIssueDao()
+        val messageDao = db.messageDao()
+        val pullRequestDao = db.pullRequestDao()
+        val pullRequestIssueDao = db.pullRequestIssueDao()
 
         val shapes = listOf(
             launchShape(
@@ -554,15 +558,6 @@ class SyncManager @Inject constructor(
                 onRefetch = { issueSubscriberDao.clear() },
             ),
             launchShape(
-                shape = "coding_sessions", path = "/api/shapes/coding-sessions", tableName = "coding_sessions",
-                serializer = CodingSessionEntity.serializer(),
-                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("coding_sessions"),
-                onInsert = { codingSessionDao.upsert(it) },
-                onDelete = { codingSessionDao.deleteById(it.id) },
-                onRefetch = { codingSessionDao.clear() },
-            ),
-            launchShape(
                 shape = "actions", path = "/api/shapes/actions", tableName = "actions",
                 serializer = ActionEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
@@ -611,28 +606,56 @@ class SyncManager @Inject constructor(
                 onDelete = { issueDraftDao.deleteById(it.id) },
                 onRefetch = { issueDraftDao.clear() },
             ),
-            // EXP-1284: threads (the unit of work) — team-scoped, no board and
-            // no trash predicate; the Guide (`results`) rides the row.
+            // EXP-1291 Threads v2: the session tree (threads, agents and their
+            // sub-sessions) — `shared OR user_id = me` inside the member teams.
             launchShape(
-                shape = "threads", path = "/api/shapes/threads", tableName = "threads",
-                serializer = ThreadEntity.serializer(),
+                shape = "sessions", path = "/api/shapes/sessions", tableName = "sessions",
+                serializer = SessionEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("threads"),
-                onInsert = { threadDao.upsert(it) },
-                onDelete = { threadDao.deleteById(it.id) },
-                onRefetch = { threadDao.clear() },
+                reporter = reporter("sessions"),
+                onInsert = { sessionDao.upsert(it) },
+                onDelete = { sessionDao.deleteById(it.id) },
+                onRefetch = { sessionDao.clear() },
             ),
-            // EXP-1284: a thread's issue | run items — team-scoped with the
-            // static board trash/archive predicates (issue items of a hidden
-            // board never arrive; run items always do).
+            // A thread's issues (on the ROOT), hidden with the issue's board.
             launchShape(
-                shape = "thread_items", path = "/api/shapes/thread-items", tableName = "thread_items",
-                serializer = ThreadItemEntity.serializer(),
+                shape = "session_issues", path = "/api/shapes/session-issues", tableName = "session_issues",
+                serializer = SessionIssueEntity.serializer(),
                 offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
-                reporter = reporter("thread_items"),
-                onInsert = { threadItemDao.upsert(it) },
-                onDelete = { threadItemDao.deleteById(it.id) },
-                onRefetch = { threadItemDao.clear() },
+                reporter = reporter("session_issues"),
+                onInsert = { sessionIssueDao.upsert(it) },
+                onDelete = { sessionIssueDao.deleteById(it.id) },
+                onRefetch = { sessionIssueDao.clear() },
+            ),
+            // The Conversation of every visible session.
+            launchShape(
+                shape = "messages", path = "/api/shapes/messages", tableName = "messages",
+                serializer = MessageEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("messages"),
+                onInsert = { messageDao.upsert(it) },
+                onDelete = { messageDao.deleteById(it.id) },
+                onRefetch = { messageDao.clear() },
+            ),
+            // Every PR of the member teams (all PR + branch state).
+            launchShape(
+                shape = "pull_requests", path = "/api/shapes/pull-requests", tableName = "pull_requests",
+                serializer = PullRequestEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("pull_requests"),
+                onInsert = { pullRequestDao.upsert(it) },
+                onDelete = { pullRequestDao.deleteById(it.id) },
+                onRefetch = { pullRequestDao.clear() },
+            ),
+            // Which issues a PR closes (team-scoped, board trash/archive).
+            launchShape(
+                shape = "pull_request_issues", path = "/api/shapes/pull-request-issues", tableName = "pull_request_issues",
+                serializer = PullRequestIssueEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("pull_request_issues"),
+                onInsert = { pullRequestIssueDao.upsert(it) },
+                onDelete = { pullRequestIssueDao.deleteById(it.id) },
+                onRefetch = { pullRequestIssueDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

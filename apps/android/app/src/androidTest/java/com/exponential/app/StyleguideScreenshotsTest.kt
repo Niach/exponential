@@ -1,5 +1,8 @@
 package com.exponential.app
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -22,7 +25,6 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import com.exponential.app.domain.AgentHome
-import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.SearchList
 import androidx.activity.compose.setContent
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
@@ -31,12 +33,23 @@ import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
 import com.exponential.app.ui.styleguide.ThreadCardsScreen
-import com.exponential.app.ui.styleguide.ThreadScreenKind
-import com.exponential.app.ui.styleguide.ThreadScreensScreen
 import com.exponential.app.ui.theme.ExponentialTheme
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
+import androidx.compose.runtime.Composable
+import com.exponential.app.ui.styleguide.AgentsCaptureKind
+import com.exponential.app.ui.styleguide.AgentsCaptures
+import com.exponential.app.ui.styleguide.HomeCaptureKind
+import com.exponential.app.ui.styleguide.HomeCaptures
+import com.exponential.app.ui.styleguide.SessionCaptureKind
+import com.exponential.app.ui.styleguide.SessionCaptures
+import com.exponential.app.ui.styleguide.ThreadCaptureKind
+import com.exponential.app.ui.styleguide.ThreadCaptures
+import com.exponential.app.ui.styleguide.ThreadsCaptureKind
+import com.exponential.app.ui.styleguide.ThreadsCaptures
 import org.junit.After
+import org.junit.Assume.assumeFalse
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.ClassRule
@@ -73,9 +86,16 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_thread-runs
  *
- * EXP-1284 added the last two (the thread screen, drafts 1/3 and 2) as
- * capture-only screens at the end of the walk, and moved sg_session-row
- * there too: the Recent sheet it photographed lists threads now.
+ * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
+ * walks the live app against the seeded backend; [captureOnlyScreens] needs NO
+ * server and NO sign-in: each screen of the session-tree model is drawn by its
+ * real composables over fixture data (the ui/styleguide Captures files) and set as
+ * the activity's content — sg_agent-home, sg_chat-issues, sg_chat-action,
+ * sg_composer-menu, sg_reviews (the Threads tab), sg_thread, sg_thread-runs
+ * (an agent's channel), sg_session-row (the session cards), sg_action-create,
+ * the feedback states and the thread cards. It also writes Guide-only
+ * extras under NON-catalog names (`x_*`, never imported) through [extra].
+ * A scoped run (`shots:`) naming only capture shots skips the live walk.
  *
  * EXP-1259 added the last four (iOS parity): the Agent HOME the app lands on
  * (the greeting, the composer, Recent), the `#` typeahead's search-list
@@ -118,6 +138,19 @@ class StyleguideScreenshotsTest {
         // `locales` list; must be a @ClassRule so it wraps the activity launch.
         @ClassRule @JvmField
         val localeTestRule = LocaleTestRule()
+
+        /** The catalog shots [captureOnlyScreens] owns (no server, no sign-in). */
+        private val CAPTURE_SHOTS = setOf(
+            "sg_agent-home", "sg_chat-issues", "sg_chat-action", "sg_composer-menu",
+            "sg_reviews", "sg_thread", "sg_thread-runs", "sg_session-row",
+            "sg_action-create", "sg_feedback-states", "sg_work-card",
+            "sg_script-card", "sg_comment-call-card",
+        )
+
+        /** Guide-only extras: NOT catalog views (the importer ignores them). */
+        private val EXTRA_SHOTS = setOf(
+            "x_session-view", "x_issue-start", "x_agent-settings", "x_agents-list",
+        )
 
         // APP-5 — the only seeded issue with a comment thread.
         private const val SHOWCASE_ISSUE_TITLE = ScreenshotFlow.SHOWCASE_ISSUE_TITLE
@@ -207,6 +240,9 @@ class StyleguideScreenshotsTest {
     /** Set at the very end of the walk — see [assertRequestedShotsWereReached]. */
     private var finished = false
 
+    /** The ids this test method owns; the typo check only looks at those. */
+    private var ownsShot: (String) -> Boolean = { true }
+
     @Before
     fun setUp() {
         ScreenshotFlow.useUiAutomatorScreenshots()
@@ -221,7 +257,7 @@ class StyleguideScreenshotsTest {
     @After
     fun assertRequestedShotsWereReached() {
         if (!finished) return
-        val missing = ScreenshotFlow.unreachedShots()
+        val missing = ScreenshotFlow.unreachedShots().filter(ownsShot)
         assertTrue(
             "EXP-642 shots: ${missing.joinToString(", ")} — no such shot in this suite",
             missing.isEmpty(),
@@ -230,6 +266,10 @@ class StyleguideScreenshotsTest {
 
     @Test
     fun captureStyleguideScreenshots() {
+        // The capture-only shots are [captureOnlyScreens]' — a run scoped to
+        // them alone needs no backend, so the live walk steps aside.
+        ownsShot = { it !in CAPTURE_SHOTS && it !in EXTRA_SHOTS }
+        assumeFalse(ScreenshotFlow.requestedOnlyAmong(CAPTURE_SHOTS + EXTRA_SHOTS))
         // --- sg_sign-in: the pre-login server chooser. [sessionRule] drops
         // every account before launch (EXP-1267: no reinstall any more), so the
         // cold launch always lands on the untouched chooser (cloud buttons +
@@ -249,12 +289,11 @@ class StyleguideScreenshotsTest {
             flow.submitLogin()
         }
 
-        // --- sg_agent-home: the Agent page the app lands on (EXP-1253) — the
-        // disc mark + the greeting over the composer, nothing beneath its
-        // options line.
-        flow.waitFor(hasTestTag(AgentHome.GREETING_TEST_ID), FIRST_SYNC_TIMEOUT)
+        // The app lands on the Agent page (EXP-1253); sg_agent-home is the
+        // capture-only screen now ([captureOnlyScreens]), this only gates the
+        // first sync.
+        flow.waitFor(hasTestTag(AgentHome.HOME_TEST_ID), FIRST_SYNC_TIMEOUT)
         flow.settle()
-        flow.screenshot("sg_agent-home")
 
         // The app lands on the Agent tab; the board shots start on Issues.
         flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
@@ -445,65 +484,6 @@ class StyleguideScreenshotsTest {
         // (sg_session-row moved to the capture-only screens at the end: the
         // Recent sheet behind the history glyph lists THREADS since EXP-1284.)
 
-        // EXP-1249: the "+" is the composer's ONE tool — its sheet of the
-        // composer-menu.json rows is sg_composer-menu (iOS parity). SLOP-28:
-        // Implement issue › PUSHES its search-list page inside the same sheet,
-        // whose `Implement N issues` button closes the menu.
-        composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
-        flow.waitFor(hasTestTag("agent-composer-menu"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("agent-composer-menu-implement-issue"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_composer-menu")
-        composeRule.onNode(hasTestTag("agent-composer-menu-implement-issue")).performClick()
-        flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
-        // SLOP-28: the page is THE search list (no cap, a lazy list), so a row
-        // below the fold is not composed yet — type its title to bring it up,
-        // then pick the row (never the input, which now carries the same text).
-        for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
-            composeRule.onNode(hasTestTag(SearchList.INPUT_TEST_ID)).performTextReplacement(title)
-            val row = hasText(title, substring = true) and !hasSetTextAction()
-            flow.waitFor(row, SYNC_TIMEOUT)
-            composeRule.onAllNodes(row).onFirst().performClick()
-        }
-        composeRule.onNode(hasTestTag(SearchList.INPUT_TEST_ID)).performTextReplacement("")
-        // The footer reads "Implement 2 issues" (composer-menu.json
-        // `implementButton`) and only closes: the chips are on the composer already.
-        flow.waitFor(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID), NAV_TIMEOUT)
-        flow.waitFor(hasText(ComposerMenu.implementButtonLabel(2)), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)).performClick()
-        flow.waitForGone(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
-        flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
-        flow.waitFor(hasContentDescription("Start batch · 2"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_chat-issues")
-
-        composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
-        flow.waitFor(hasTestTag("agent-composer-menu-run-action"), NAV_TIMEOUT)
-        composeRule.onNode(hasTestTag("agent-composer-menu-run-action")).performClick()
-        flow.waitFor(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
-        flow.waitFor(hasText(FIX_CONFLICTS_ACTION_NAME), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasText(FIX_CONFLICTS_ACTION_NAME)).onFirst().performClick()
-        flow.waitForGone(hasTestTag("agent-composer-actions-picker"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
-        flow.waitFor(hasContentDescription("Run action"), NAV_TIMEOUT)
-        // EXP-1233: the builtin draws its own card; picking the seeded open
-        // PR (APP-14) completes it into the Fix merge conflicts look — the
-        // verb + the PR's issue chip, the card's PR row, "Fix conflicts".
-        flow.waitFor(hasTestTag("agent-composer-fix-conflicts"), NAV_TIMEOUT)
-        // The row is matched INSIDE the picker sheet: the Agent page behind it
-        // lists APP-14's live run too, and that row (first in the tree) opens
-        // the run instead of picking the pull request.
-        composeRule.onNode(hasTestTag("agent-composer-fix-conflicts-pr")).performClick()
-        val prRow = hasText(FIX_CONFLICTS_PR_IDENTIFIER, substring = true) and
-            hasAnyAncestor(hasTestTag("agent-composer-fix-conflicts-picker"))
-        flow.waitFor(prRow, SYNC_TIMEOUT)
-        composeRule.onAllNodes(prRow).onFirst().performClick()
-        flow.waitForGone(hasTestTag("agent-composer-fix-conflicts-picker"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("agent-composer-chip-issue-$FIX_CONFLICTS_PR_IDENTIFIER"), NAV_TIMEOUT)
-        flow.waitFor(hasContentDescription("Fix conflicts"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_chat-action")
-
         // --- sg_search-list: the `#` typeahead's sheet (SLOP-28). Typing `#`
         // in the composer opens THE search list as a bottom sheet, its input
         // focused and prefilled with the token after the `#`.
@@ -550,148 +530,13 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasTestTag("tab-actions")).performClick()
         flow.waitFor(hasText(SEEDED_ACTION_NAME, substring = true), SYNC_TIMEOUT)
 
-        // --- Create action: "New action" rides the "Actions · count" section
-        // header (EXP-574). EXP-825: it pushes the Agent page on the "Create
-        // action" builtin (the chip proves it). Only photographed, never
-        // submitted — creating would start a real builtin run on somebody's
-        // machine.
-        composeRule.onNode(hasTestTag("new-action")).performClick()
-        flow.waitFor(hasTestTag("agent-composer"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("agent-composer-chip-action"), NAV_TIMEOUT)
-        flow.waitFor(hasContentDescription("Run action"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_action-create")
-        // A pushed detail: back pops to the Actions tab.
-        Espresso.pressBack()
-        flow.waitForGone(hasTestTag("agent-page"), NAV_TIMEOUT)
-        flow.settle(longer = true)
-
-        // --- The action page (SLOP-2): a row opens ONE action — Prompt |
-        // Triggers | Runs on a pager. The seeded action is the one the list
-        // was gated on above.
+        // --- The action page: a row opens ONE action (EXP-1291: a saved
+        // prompt, no tabs). A pushed detail: back pops to the Actions tab.
         composeRule.onAllNodes(hasText(SEEDED_ACTION_NAME, substring = true)).onFirst().performClick()
-        flow.waitFor(hasTestTag("action-tabs"), NAV_TIMEOUT)
-
-        // --- Triggers tab: gated on the tab's OWN content rather than on a
-        // seeded trigger — `actions.triggers` is newer than this suite, so an
-        // older seed shows the empty line, which is still a legitimate capture
-        // of this surface (unlike a half-synced list).
-        composeRule.onNode(hasTestTag("action-tab-triggers")).performClick()
-        if (!flow.waitForOptional(hasTestTag("trigger-row"), SYNC_TIMEOUT)) {
-            android.util.Log.w(
-                "SLOP-2",
-                "sg_action-triggers: no trigger rows — reseed with `bun run seed:screenshots`",
-            )
-            flow.waitFor(hasText("No triggers.", substring = true), NAV_TIMEOUT)
-        }
-        flow.settle()
-        flow.screenshot("sg_action-triggers")
-
-        // --- Trigger editor: the owner-only "Add trigger" entry, present over
-        // the populated list and the empty line alike.
-        composeRule.onNode(hasTestTag("add-trigger")).performClick()
-        flow.waitFor(hasTestTag("trigger-form-sheet"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_trigger-editor")
-        // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
-        // dismisses.
+        flow.waitFor(hasTestTag("action-detail-title"), NAV_TIMEOUT)
         Espresso.pressBack()
-        flow.waitForGone(hasTestTag("trigger-form-sheet"), NAV_TIMEOUT)
+        flow.waitForGone(hasTestTag("action-detail-title"), NAV_TIMEOUT)
         flow.settle(longer = true)
-
-        // --- Runs tab: every run of this action; the seed's triggered run
-        // reads "Scheduled run". Same optional gate as Triggers.
-        composeRule.onNode(hasTestTag("action-tab-runs")).performClick()
-        if (!flow.waitForOptional(hasTestTag("session-row"), SYNC_TIMEOUT)) {
-            android.util.Log.w(
-                "SLOP-2",
-                "sg_action-runs: no run rows — reseed with `bun run seed:screenshots`",
-            )
-            flow.waitFor(hasText("No sessions yet", substring = true), NAV_TIMEOUT)
-        }
-        flow.settle()
-        flow.screenshot("sg_action-runs")
-        // A pushed detail: back pops to the Actions tab.
-        Espresso.pressBack()
-        flow.waitForGone(hasTestTag("action-tabs"), NAV_TIMEOUT)
-        flow.settle(longer = true)
-
-        // --- Reviews: the cross-board open-PR queue; the seed leaves four open
-        // PRs, of which APP-15 is the stable anchor.
-        composeRule.onNode(hasContentDescription("Reviews")).performClick()
-        flow.waitFor(hasText("Reviews"), NAV_TIMEOUT)
-        flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_reviews")
-
-        // --- sg_pr-row: THE pull-request row (EXP-1248). The same queue IS
-        // the PrRow surface: one line per PR, a tree nested with guides, a
-        // stack on its rail over the base-branch row.
-        flow.waitFor(hasTestTag("pr-list"), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_pr-row")
-
-        // --- sg_guide / sg_guide-section: the Work screen's Guide (EXP-1251).
-        // A Reviews row opens its issue on the Guide face: APP-14's real PR has
-        // no report, so its whole diff is ONE Changes section; that row opens
-        // the section page. Both pop back to Reviews for sg_run-changes.
-        val wantsGuide = ScreenshotFlow.isShotWanted("sg_guide")
-        val wantsGuideSection = ScreenshotFlow.isShotWanted("sg_guide-section")
-        if (wantsGuide || wantsGuideSection) {
-            composeRule.onAllNodes(hasText(GUIDE_ISSUE_TITLE, substring = true)).onFirst().performClick()
-            if (flow.waitForOptional(hasTestTag("work-face-guide"), NAV_TIMEOUT)) {
-                composeRule.onNode(hasTestTag("work-face-guide")).performClick()
-            }
-            flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_guide")
-            // At rest the Changes row can sit under the floating Merge capsule
-            // (APP-14 is a stack member: `Merge stack`), and a centre click
-            // would land on the capsule. Scroll it clear of the bar first.
-            // performScrollToNode would not move it (the row is already
-            // inside the viewport, which reaches under the bar): swipe the
-            // Guide to its end, where the bottom inset lifts every row clear.
-            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
-            flow.settle()
-            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
-            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_guide-section")
-            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
-            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
-            composeRule.onNode(hasContentDescription("Back")).performClick()
-            flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
-            flow.settle()
-        }
-
-        // --- Run changes (EXP-1194/1204): the "Agent runs" band lists Jonas's
-        // finished chat run whose own pull request is open; its row opens
-        // RunChangesScreen, fed by codingSessions.prFiles — a real public PR
-        // the seed points the run at (SCREENSHOT_RUN_PR_URL), so there are
-        // actual files to show. EXP-1251: the screen opens on the Guide (no
-        // report = ONE Changes row); that row opens the section page, where
-        // the file cards draw. Back twice: the section, then the screen.
-        // A detour no later shot needs (it pops back to Reviews), so a scoped
-        // run that did not ask for it skips it whole, like the Guide pair —
-        // its GitHub fetch is the walk's one network dependency.
-        if (ScreenshotFlow.isShotWanted("sg_run-changes")) {
-            flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
-            composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
-            flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
-            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
-            flow.settle()
-            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
-            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
-            flow.waitFor(hasTestTag("changes-file-row"), NETWORK_TIMEOUT)
-            flow.waitFor(hasText("unchanged line", substring = true), NETWORK_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_run-changes")
-            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
-            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
-            composeRule.onNode(hasContentDescription("Back")).performClick()
-            flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
-            flow.settle()
-        }
 
         // --- Settings root: the gear lives on the board root, not on a profile
         // menu. Header matches keep ignoreCase so they hold whichever case
@@ -852,30 +697,85 @@ class StyleguideScreenshotsTest {
             flow.screenshot("sg_onboarding-devices")
         }
 
+        finished = true
+    }
+
+    /**
+     * EXP-1296: the capture-only screens — no backend, no sign-in. Each is
+     * drawn by its real composables over fixture data and set as the
+     * activity's content, so any one of them is reachable alone.
+     */
+    @Test
+    fun captureOnlyScreens() {
+        ownsShot = { it in CAPTURE_SHOTS || it in EXTRA_SHOTS }
+        assumeTrue(ScreenshotFlow.anyRequested(*(CAPTURE_SHOTS + EXTRA_SHOTS).toTypedArray()))
+
+        fun show(testId: String, content: @Composable () -> Unit) {
+            composeRule.runOnUiThread {
+                composeRule.activity.setContent {
+                    ExponentialTheme {
+                        // The app's screens sit in a Scaffold that provides the
+                        // content colour; a capture's bare Text needs the same.
+                        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+                            content()
+                        }
+                    }
+                }
+            }
+            flow.waitFor(hasTestTag(testId), NAV_TIMEOUT)
+            flow.settle()
+        }
+        fun show(kind: HomeCaptureKind) = show(kind.testId) { HomeCaptures(kind) }
+        fun show(kind: ThreadCaptureKind) = show(kind.testId) { ThreadCaptures(kind) }
+        fun show(kind: AgentsCaptureKind) = show(kind.testId) { AgentsCaptures(kind) }
+        fun show(kind: SessionCaptureKind) = show(kind.testId) { SessionCaptures(kind) }
+
+        // --- sg_agent-home: the Agent page — the dawn mark behind the title,
+        // the composer at the top of the page.
+        show(HomeCaptureKind.Home)
+        flow.screenshot("sg_agent-home")
+
+        // --- sg_chat-issues · sg_chat-action: the composer carrying two issue
+        // chips, then a saved action with its inputs filled.
+        show(HomeCaptureKind.ChatIssues)
+        flow.screenshot("sg_chat-issues")
+        show(HomeCaptureKind.ChatAction)
+        flow.screenshot("sg_chat-action")
+
+        // --- sg_composer-menu: the composer's "+" menu sheet, every row.
+        show(HomeCaptureKind.ComposerMenu)
+        flow.screenshot("sg_composer-menu")
+
+        // --- sg_reviews: the Threads tab (it replaced Reviews; the shot name
+        // is the cross-platform contract) — agents band + Needs you · Running
+        // · Recent.
+        show(ThreadsCaptureKind.Threads.testId) { ThreadsCaptures(ThreadsCaptureKind.Threads) }
+        flow.screenshot("sg_reviews")
+
+        // --- sg_thread · sg_thread-runs · sg_session-row: a thread's
+        // Conversation, an agent's channel, one session card per state.
+        show(ThreadCaptureKind.Thread)
+        flow.screenshot("sg_thread")
+        show(ThreadCaptureKind.AgentChannel)
+        flow.screenshot("sg_thread-runs")
+        show(ThreadCaptureKind.SessionCards)
+        flow.screenshot("sg_session-row")
+
+        // --- sg_action-create: the saved-prompt editor in its create sheet.
+        show(AgentsCaptureKind.ActionCreate)
+        flow.screenshot("sg_action-create")
+
         // --- sg_feedback-states: the six feedback kinds (EXP-1275). A
         // capture-only screen, every kind drawn by its real primitive and the
-        // error toast raised on appear — set as the activity's content last,
-        // so nothing after it needs the app.
-        composeRule.runOnUiThread {
-            composeRule.activity.setContent {
-                ExponentialTheme { FeedbackStatesScreen() }
-            }
-        }
-        flow.waitFor(hasTestTag(FeedbackStatesScreenTestId), NAV_TIMEOUT)
-        flow.settle()
+        // error toast raised on appear.
+        show(FeedbackStatesScreenTestId) { FeedbackStatesScreen() }
         flow.screenshot("sg_feedback-states")
 
         // --- sg_work-card · sg_script-card · sg_comment-call-card: the run
         // thread's cards (EXP-1240 / EXP-1279 / EXP-1241), each drawn by its
         // real composable on a capture-only screen.
         fun showThreadCards(kind: ThreadCardsKind) {
-            composeRule.runOnUiThread {
-                composeRule.activity.setContent {
-                    ExponentialTheme { ThreadCardsScreen(kind) }
-                }
-            }
-            flow.waitFor(hasTestTag(kind.testId), NAV_TIMEOUT)
-            flow.settle()
+            show(kind.testId) { ThreadCardsScreen(kind) }
         }
         showThreadCards(ThreadCardsKind.Work)
         flow.screenshot("sg_work-card")
@@ -884,31 +784,25 @@ class StyleguideScreenshotsTest {
         showThreadCards(ThreadCardsKind.Comment)
         flow.screenshot("sg_comment-call-card")
 
-        // --- sg_session-row · sg_thread · sg_thread-runs (EXP-1284): THE
-        // session row in both sizes (EXP-1248), and the THREAD screen — the
-        // child strip as pager tabs, Run blocks, the agent's link rows, the
-        // parallel card, the reply box and (thread-runs) a child's menu —
-        // each drawn by the real composables over the shared model fed the
-        // drafts' rows ([ThreadScreensScreen]).
-        fun showThreadScreen(kind: ThreadScreenKind) {
-            composeRule.runOnUiThread {
-                composeRule.activity.setContent {
-                    ExponentialTheme { ThreadScreensScreen(kind) }
-                }
-            }
-            flow.waitFor(hasTestTag(kind.testId), NAV_TIMEOUT)
-            flow.settle()
-        }
-        showThreadScreen(ThreadScreenKind.SessionRows)
-        flow.screenshot("sg_session-row")
-        showThreadScreen(ThreadScreenKind.Thread)
-        flow.screenshot("sg_thread")
-        showThreadScreen(ThreadScreenKind.ThreadRuns)
-        flow.waitFor(hasTestTag("thread-menu"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_thread-runs")
+        // --- Guide-only extras (never catalog views): the session view, an
+        // issue with its Start circle, the agent settings page and list.
+        show(SessionCaptureKind.Session)
+        extra("x_session-view")
+        show(SessionCaptureKind.IssueStart)
+        extra("x_issue-start")
+        show(AgentsCaptureKind.AgentPage)
+        extra("x_agent-settings")
+        show(AgentsCaptureKind.AgentsList)
+        extra("x_agents-list")
 
         finished = true
+    }
+
+    /** A Guide-only extra: through the same allowlisted wrapper, under a name
+     *  the catalog gate (which reads the literal shot-name calls) never sees. */
+    private fun extra(name: String) {
+        check(name in EXTRA_SHOTS) { "unknown extra shot $name" }
+        flow.screenshot(name)
     }
 
     /**

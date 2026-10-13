@@ -1,5 +1,8 @@
 package com.exponential.app.ui.thread
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,17 +15,13 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,258 +30,229 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.data.db.CodingSessionEntity
-import com.exponential.app.data.db.DeviceEntity
-import com.exponential.app.domain.AgentComposerSeed
-import com.exponential.app.domain.AgentFeedItem
-import com.exponential.app.domain.CodingSessionDisplayState
+import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.Diff
-import com.exponential.app.domain.GuideSectionKey
-import com.exponential.app.domain.Prompts
-import com.exponential.app.domain.RunRowState
-import com.exponential.app.domain.ThreadItem
-import com.exponential.app.domain.ThreadPage
-import com.exponential.app.domain.ThreadView
-import com.exponential.app.domain.codingSessionDisplayState
-import com.exponential.app.domain.guideSectionPage
-import com.exponential.app.domain.lastToolLine
-import com.exponential.app.domain.parseSessionResultGroups
-import com.exponential.app.domain.resolveSessionDevice
-import com.exponential.app.domain.runRowCaption
-import com.exponential.app.domain.runRowState
-import com.exponential.app.domain.sessionThread
-import com.exponential.app.domain.EmptyStateCopy
-import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.FailedActionToast
-import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.PillSize
-import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.domain.ToastAction
 import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.GuideSectionKey
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.ToastAction
+import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.domain.guideSectionPage
+import com.exponential.app.domain.parseSessionResultGroups
+import com.exponential.app.ui.agent.ComposerPick
+import com.exponential.app.ui.agent.readComposerPick
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
-import com.exponential.app.ui.components.LocalDetailHaze
-import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.TabPager
+import com.exponential.app.ui.components.LocalDetailHaze
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.failedAction
+import com.exponential.app.ui.components.TabPager
+import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.CommentThreadViewModel
 import com.exponential.app.ui.issue.IssueDetailViewModel
 import com.exponential.app.ui.issue.IssueFace
-import com.exponential.app.ui.issue.compactRelativeTime
 import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.IssueSearchSheet
-import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
-import com.exponential.app.ui.session.AgentSessionViewModel
-import com.exponential.app.ui.session.RunStatusRow
-import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.work.ChangesLoadState
 import com.exponential.app.ui.work.ChangesMergeControl
-import com.exponential.app.ui.work.ChangesSource
 import com.exponential.app.ui.work.ChangesViewModel
 import com.exponential.app.ui.work.GuideFace
 import com.exponential.app.ui.work.GuideSectionDiff
 import com.exponential.app.ui.work.LocalTitleCollapse
+import com.exponential.app.ui.work.PullRequestStack
 import com.exponential.app.ui.work.TitleCollapseState
-import com.exponential.app.ui.work.guideSectionParam
-import com.exponential.app.ui.work.parseGuideSectionParam
 import dev.chrisbanes.haze.rememberHazeState
-import kotlinx.coroutines.flow.MutableStateFlow
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 /**
- * EXP-1284: the phone THREAD screen (draft 3) — the unit of work holding n
- * issues and m runs. The header names it; the child strip IS the pager's
- * tabs (Conversation · each issue · Guide, the "+" trailing); the
- * Conversation is every run as a `Run N` block with the issues its agent
- * linked and its parallel children as one card, over the `Reply in this
- * thread` box; an issue tab is that issue's own Issue face; the Guide is the
- * THREAD's Guide with the Merge of its PR. The "+" and an issue tab's
- * long-press open THE menu: Link an issue (THE search list), New issue in
- * this thread, Start a session here, Unlink.
+ * EXP-1296 Threads v2 (Model v3): THE conversation screen for a thread root
+ * OR an agent root (`thread/{sessionId}`), `session-thread.json`.
+ *
+ * A thread: the title (long-press renames), then ONE tab strip = the phone
+ * pager — Conversation · one chip per linked issue · "+" (link / file an
+ * issue) · Guide. Conversation = the root's rows (THE session card per
+ * session, the person's bubbles, the agent's prose, question / plan cards
+ * answered in place, subagent / picture / event rows) over THE composer box;
+ * an issue page = that issue's own Issue face; Guide = the root's Guide with
+ * the Merge capsule of its PR. An AGENT channel is the same screen with the
+ * agent's icon + name (settings affordance) and the conversation only, its
+ * messages as comment rows. Stop / End live in the session view.
  */
 @Composable
 fun ThreadScreen(
     onBack: () -> Unit,
-    /** Another issue's own Work screen (a chip outside the thread). */
-    onOpenIssue: (String) -> Unit,
-    /** A run's own screen (`steer/{id}`): a block header, a parallel row. */
-    onOpenRun: (String) -> Unit,
-    /** The composer with a seed (Start a session here, a reply that starts). */
-    onOpenAgent: (AgentComposerSeed) -> Unit,
-    /** The New issue page on [boardId], filed into the thread. */
-    onNewIssue: (boardId: String, threadId: String) -> Unit,
-    /** `thread/{id}?child=` — `guide` or an issue id; null = Conversation. */
-    initialChild: String? = null,
-    /** Another thread (an issue tab's `Threads` row). */
-    onOpenThread: (String) -> Unit = {},
-    /** The `thread-not-found` state's "Go to Agent". */
-    onGoToAgent: () -> Unit = onBack,
-    viewModel: ThreadScreenViewModel = hiltViewModel(),
+    onOpenSession: (sessionId: String) -> Unit,
+    onOpenIssue: (issueId: String) -> Unit,
+    onOpenThread: (rootSessionId: String) -> Unit,
+    onOpenAgentSettings: (agentSessionId: String) -> Unit,
+    /** The "+"'s New issue: the New issue page on [boardId], linked to this
+     *  root on create. Null hides the row. */
+    onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
+    viewModel: ThreadViewModel = hiltViewModel(),
 ) {
-    val bundle by viewModel.bundle.collectAsStateWithLifecycle()
+    val view by viewModel.view.collectAsStateWithLifecycle()
+    val root by viewModel.root.collectAsStateWithLifecycle()
+    val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val users by viewModel.users.collectAsStateWithLifecycle()
+    val me by viewModel.currentUserId.collectAsStateWithLifecycle()
     val statuses by viewModel.statuses.collectAsStateWithLifecycle()
-    val viewerId by viewModel.currentUserId.collectAsStateWithLifecycle()
-    val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
-    val devices by viewModel.devices.collectAsStateWithLifecycle()
+    val issues by viewModel.issues.collectAsStateWithLifecycle()
+    val sending by viewModel.sending.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val images by viewModel.images.collectAsStateWithLifecycle()
+    val imageError by viewModel.imageError.collectAsStateWithLifecycle()
     val linkCandidates by viewModel.linkCandidates.collectAsStateWithLifecycle()
     val newIssueBoardId by viewModel.newIssueBoardId.collectAsStateWithLifecycle()
-    val missing by viewModel.missing.collectAsStateWithLifecycle()
+    val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
+    val guide by viewModel.guide.collectAsStateWithLifecycle()
+    val teamPullRequests by viewModel.teamPullRequests.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
-    val view = bundle?.view
-    var selectedKey by rememberSaveable {
-        mutableStateOf(
-            when (initialChild) {
-                null, "" -> "conversation"
-                "guide" -> "guide"
-                else -> "issue:$initialChild"
-            },
-        )
-    }
-    // A child that left the strip (unlinked elsewhere) falls back to the
-    // conversation, like web `selectedThreadChild`.
-    val pages = view?.strip?.filter { it != ThreadView.Child.Add } ?: listOf(ThreadView.Child.Conversation)
-    val selected = pages.firstOrNull { threadChildKey(it) == selectedKey } ?: ThreadView.Child.Conversation
-
-    // First-render stamps per issue item: a child linked moments before the
-    // viewer first saw it fades in with a ring, once per mount. Stamped in an
-    // effect so composition never writes state; until it runs, `fresh` reads
-    // "now" — the same instant the effect stamps.
-    val firstSeen = remember { mutableStateMapOf<String, Long>() }
-    val itemCreatedAt = bundle?.items?.filter { it.issueId != null }?.associate { it.issueId!! to it.createdAt }.orEmpty()
-    LaunchedEffect(itemCreatedAt.keys) {
-        val now = System.currentTimeMillis()
-        itemCreatedAt.keys.forEach { id -> if (id !in firstSeen) firstSeen[id] = now }
-    }
-
+    var selectedKey by rememberSaveable { mutableStateOf(viewModel.initialTab ?: "conversation") }
+    var draft by rememberSaveable { mutableStateOf("") }
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
 
-    val statusById = remember(bundle, statuses) {
-        bundle?.issues?.associate { it.id to com.exponential.app.domain.IssueStatusResolver.resolve(it, statuses) }.orEmpty()
-    }
-    val hazeState = rememberHazeState()
-
-    ProvideMarkdownToolbar {
-        CompositionLocalProvider(LocalDetailHaze provides hazeState) {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    Column(modifier = Modifier.statusBarsPadding()) {
-                        ThreadHeader(
-                            title = view?.title.orEmpty(),
-                            caption = view?.headerCaption.orEmpty(),
-                            onBack = onBack,
-                            onRename = { renameOpen = true },
-                        )
-                        if (view != null) {
-                            ThreadChildTabs(
-                                strip = view.strip,
-                                selectedKey = threadChildKey(selected),
-                                onSelect = { selectedKey = threadChildKey(it) },
-                                onAdd = { menuFor = ThreadMenuTarget(null) },
-                                issueStatus = { statusById[it] },
-                                onIssueMenu = { menuFor = ThreadMenuTarget(it) },
-                                fresh = { id ->
-                                    ThreadPage.isFreshChild(itemCreatedAt[id], firstSeen[id] ?: System.currentTimeMillis())
-                                },
-                            )
-                        }
-                    }
-                },
-            ) { padding ->
-                val current = bundle
-                if (current == null) {
-                    Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
-                        // EXP-1284: the ×4 `thread-not-found` page state, once
-                        // the store answered without the thread.
-                        if (!missing) {
-                            // T14/T-N9: the skeleton while the store, a synced
-                            // item or the one `threads.get` may still bring it.
-                            SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).testTag("thread-skeleton"))
-                        } else {
-                            EmptyState(
-                                EmptyStateCopy.threadNotFound,
-                                modifier = Modifier.testTag("thread-not-found"),
-                                action = {
-                                    GlassPill(
-                                        EmptyStateCopy.threadNotFound.action!!,
-                                        size = PillSize.Md,
-                                        primary = true,
-                                        onClick = onGoToAgent,
-                                    )
-                                },
-                            )
-                        }
-                    }
-                    return@Scaffold
-                }
-                TabPager(
-                    pages = pages,
-                    selected = selected,
-                    onSelect = { selectedKey = threadChildKey(it) },
-                    key = { threadChildKey(it) },
-                    modifier = Modifier.fillMaxSize(),
-                ) { child ->
-                    when (child) {
-                        ThreadView.Child.Conversation -> ThreadConversationPage(
-                            bundle = current,
-                            padding = padding,
-                            viewerId = viewerId,
-                            canSteer = steerEnabled == true,
-                            devices = devices,
-                            statusOf = { statusById[it] },
-                            onOpenIssueChild = { id -> selectedKey = "issue:$id" },
-                            onOpenRun = onOpenRun,
-                            onStart = { text -> onOpenAgent(AgentComposerSeed(text = text, threadId = current.thread.id)) },
-                        )
-                        is ThreadView.Child.IssueChild -> ThreadIssuePage(
-                            issueId = child.issueId,
-                            padding = padding,
-                            onBack = onBack,
-                            onOpenIssue = { id ->
-                                if (id in current.view.issueIds) selectedKey = "issue:$id" else onOpenIssue(id)
-                            },
-                            onOpenGuide = { selectedKey = "guide" },
-                            onOpenThread = { id -> if (id != current.thread.id) onOpenThread(id) },
-                        )
-                        is ThreadView.Child.Guide -> ThreadGuidePage(bundle = current, padding = padding)
-                        ThreadView.Child.Add -> Unit
-                    }
-                }
+    // The composer's "+": the system document picker (any type), one pick at
+    // a time through the VM so the steer caps apply (the Agent page's rule).
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
+                is ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+                is ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
             }
+        }
+    }
+
+    val statusById = remember(issues, statuses) {
+        issues.associate { it.id to IssueStatusResolver.resolve(it, statuses) }
+    }
+    val messagesById = remember(messages) { messages.associateBy { it.id } }
+    val metaFor: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta? = { row ->
+        val user = row.authorId?.let { users[it] }
+        ThreadRowMeta(
+            authorName = if (row.author == "user") userDisplayName(user, row.authorId) else "",
+            time = messagesById[row.id]?.createdAt?.let(::clockTime).orEmpty(),
+            user = user,
+        )
+    }
+    val rootRow = root
+    val agent = if (isAgent && rootRow != null) {
+        ThreadAgent(
+            name = rootRow.name?.takeIf { it.isNotBlank() } ?: SessionTree.ListCopy.AGENTS,
+            icon = rootRow.icon,
+            color = rootRow.color,
+        )
+    } else {
+        null
+    }
+    val placeholder = agent?.let { ThreadUiCopy.messageAgent(it.name) }
+        ?: view?.composer?.placeholder
+        ?: SessionTree.ThreadCopy.PLACEHOLDER
+
+    val hazeState = rememberHazeState()
+    val titleCollapse = remember { TitleCollapseState() }
+    ProvideMarkdownToolbar {
+        CompositionLocalProvider(
+            LocalDetailHaze provides hazeState,
+            LocalTitleCollapse provides titleCollapse,
+        ) {
+            ThreadContent(
+                view = view,
+                agent = agent,
+                selectedKey = selectedKey,
+                onSelectKey = { selectedKey = it },
+                issueStatus = { statusById[it] },
+                meta = metaFor,
+                onOpenCard = { card ->
+                    // A `thread_started` card names ANOTHER root: open that
+                    // thread; every other card opens its raw session view.
+                    if (viewModel.isOtherRoot(card.sessionId)) onOpenThread(card.sessionId) else onOpenSession(card.sessionId)
+                },
+                onAnswer = viewModel::answer,
+                onDecidePlan = { id, approved -> viewModel.decidePlan(id, approved) },
+                canUnqueue = { row -> row.authorId != null && row.authorId == me },
+                onUnqueue = viewModel::unqueue,
+                onBack = onBack,
+                onRename = { renameOpen = true },
+                onAdd = { menuFor = ThreadMenuTarget(null) },
+                onIssueMenu = { menuFor = ThreadMenuTarget(it) },
+                onAgentSettings = { onOpenAgentSettings(viewModel.rootId) },
+                composer = { modifier ->
+                    ThreadComposerBox(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        placeholder = placeholder,
+                        pendingImages = images,
+                        imageError = imageError,
+                        sending = sending,
+                        onAdd = { filePicker.launch(arrayOf("*/*")) },
+                        onRemoveImage = viewModel::removeImage,
+                        onSend = { viewModel.sendDraft(draft) { draft = "" } },
+                        modifier = modifier,
+                    )
+                },
+                issuePage = { issueId, padding ->
+                    ThreadIssuePage(
+                        issueId = issueId,
+                        padding = padding,
+                        onBack = onBack,
+                        onOpenIssue = { id ->
+                            if (statusById.containsKey(id)) selectedKey = "issue:$id" else onOpenIssue(id)
+                        },
+                        onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
+                    )
+                },
+                guidePage = { padding ->
+                    ThreadGuidePage(
+                        guideRaw = guide,
+                        pullRequests = pullRequests,
+                        teamPullRequests = teamPullRequests,
+                        padding = padding,
+                        onFixConflicts = { number -> viewModel.send(fixConflictsMessage(number)) },
+                    )
+                },
+            )
         }
     }
 
     menuFor?.let { target ->
         ThreadMenuSheet(
             issue = target.issue,
-            canStart = steerEnabled == true,
-            canFile = newIssueBoardId != null,
+            canFile = onNewIssue != null && newIssueBoardId != null,
             onLink = {
                 menuFor = null
                 linkPickerOpen = true
             },
             onNewIssue = {
                 menuFor = null
-                newIssueBoardId?.let { onNewIssue(it, viewModel.threadId) }
-            },
-            onStartRun = {
-                menuFor = null
-                onOpenAgent(AgentComposerSeed(threadId = viewModel.threadId))
+                val board = newIssueBoardId
+                if (board != null) onNewIssue?.invoke(board, viewModel.rootId)
             },
             onUnlink = { issue ->
                 menuFor = null
@@ -293,7 +263,7 @@ fun ThreadScreen(
         )
     }
     if (linkPickerOpen) {
-        val linked = bundle?.view?.issueIds?.toSet().orEmpty()
+        val linked = issues.map { it.id }.toSet()
         val handler = remember(linkCandidates, linked) {
             IssueRefHandler(
                 candidates = linkCandidates.filter { it.issueId !in linked },
@@ -305,64 +275,182 @@ fun ThreadScreen(
             initialQuery = "",
             onPick = { target ->
                 linkPickerOpen = false
-                viewModel.linkIssue(target.issueId)
+                viewModel.linkIssues(listOf(target.issueId))
             },
             onDismiss = { linkPickerOpen = false },
         )
     }
     if (renameOpen) {
         ThreadRenameSheet(
-            initial = if (view?.titleDerived == false) view.title else "",
+            initial = if (view?.titleDerived == false) view?.title.orEmpty() else "",
             placeholder = view?.title.orEmpty(),
             onSave = { title ->
                 renameOpen = false
-                viewModel.rename(title)
+                viewModel.setTitle(title.trim().ifEmpty { null })
             },
             onDismiss = { renameOpen = false },
         )
     }
 }
 
-/** What THE menu acts on: the "+" (null) or an issue tab. */
-private data class ThreadMenuTarget(val issue: ThreadView.Child.IssueChild?)
+/** A wire timestamp as the local `HH:mm` a message row shows. */
+internal fun clockTime(wire: String): String? {
+    val ms = WireTimestamps.parseEpochMs(wire) ?: return null
+    return Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"))
+}
+
+/** The message a refused (conflicting) merge offers to send to the root. */
+internal fun fixConflictsMessage(number: Int?): String =
+    "Rebase ${number?.let { "PR #$it" } ?: "the pull request"} onto its base, resolve the merge conflicts and push."
 
 /**
- * THE menu, as a phone sheet: Link an issue, New issue in this thread, Start
- * a session here, and on an issue tab Unlink <IDENT>.
+ * The thread screen's whole layout, stateless: the header, the tab strip
+ * (none on an agent channel) and the pager. The issue + Guide pages come in
+ * as slots, so the styleguide captures draw this over fake data.
  */
 @Composable
-internal fun ThreadMenuSheet(
-    issue: ThreadView.Child.IssueChild?,
-    canStart: Boolean,
+fun ThreadContent(
+    view: SessionTree.ThreadView?,
+    agent: ThreadAgent?,
+    selectedKey: String,
+    onSelectKey: (String) -> Unit,
+    issueStatus: (String) -> ResolvedIssueStatus?,
+    meta: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta?,
+    onOpenCard: (SessionTree.SessionCard) -> Unit,
+    onAnswer: (messageId: String, answer: String) -> Unit,
+    onDecidePlan: (messageId: String, approved: Boolean) -> Unit,
+    canUnqueue: (SessionTree.ThreadRow.MessageRow) -> Boolean,
+    onUnqueue: (messageId: String) -> Unit,
+    onBack: (() -> Unit)?,
+    onRename: (() -> Unit)?,
+    onAdd: (() -> Unit)?,
+    onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
+    onAgentSettings: (() -> Unit)?,
+    composer: @Composable (Modifier) -> Unit,
+    issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
+    guidePage: @Composable (padding: PaddingValues) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // An agent channel is the conversation only.
+    val pages = if (agent != null || view == null) {
+        listOf<SessionTree.ThreadTab>(SessionTree.ThreadTab.Conversation)
+    } else {
+        view.tabs.filter { it != SessionTree.ThreadTab.Add }
+    }
+    // A tab that left the strip (an issue unlinked elsewhere) falls back to
+    // the conversation.
+    val selected = pages.firstOrNull { threadTabKey(it) == selectedKey } ?: SessionTree.ThreadTab.Conversation
+    Scaffold(
+        modifier = modifier,
+        containerColor = Color.Transparent,
+        topBar = {
+            Column(modifier = Modifier.statusBarsPadding()) {
+                if (agent != null) {
+                    AgentChannelHeader(
+                        name = agent.name,
+                        icon = agent.icon,
+                        color = agent.color,
+                        onBack = onBack,
+                        onSettings = onAgentSettings,
+                    )
+                } else {
+                    ThreadHeader(
+                        title = view?.title.orEmpty(),
+                        private = view?.private == true,
+                        onBack = onBack,
+                        onRename = onRename,
+                    )
+                    if (view != null) {
+                        ThreadTabStrip(
+                            tabs = view.tabs,
+                            selectedKey = threadTabKey(selected),
+                            onSelect = { onSelectKey(threadTabKey(it)) },
+                            onAdd = onAdd,
+                            issueStatus = issueStatus,
+                            onIssueMenu = onIssueMenu,
+                        )
+                    }
+                }
+            }
+        },
+    ) { padding ->
+        if (view == null) {
+            Box(Modifier.padding(padding).fillMaxSize()) {
+                SkeletonRows(modifier = Modifier.align(Alignment.TopCenter).padding(16.dp).testTag("thread-skeleton"))
+            }
+            return@Scaffold
+        }
+        TabPager(
+            pages = pages,
+            selected = selected,
+            onSelect = { onSelectKey(threadTabKey(it)) },
+            key = { threadTabKey(it) },
+            modifier = Modifier.fillMaxSize(),
+        ) { tab ->
+            when (tab) {
+                SessionTree.ThreadTab.Conversation -> Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = padding.calculateTopPadding()),
+                ) {
+                    ThreadConversation(
+                        rows = view.rows,
+                        rootId = view.rootId,
+                        meta = meta,
+                        onOpenCard = onOpenCard,
+                        onAnswer = onAnswer,
+                        onDecidePlan = onDecidePlan,
+                        canUnqueue = canUnqueue,
+                        onUnqueue = onUnqueue,
+                        agent = agent,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+                    )
+                    composer(
+                        Modifier
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+                is SessionTree.ThreadTab.IssueTab -> issuePage(tab.issueId, padding)
+                is SessionTree.ThreadTab.Guide -> guidePage(padding)
+                SessionTree.ThreadTab.Add -> Unit
+            }
+        }
+    }
+}
+
+/** What THE menu acts on: the "+" (null) or an issue tab. */
+private data class ThreadMenuTarget(val issue: SessionTree.ThreadTab.IssueTab?)
+
+/** The "+" / an issue tab's menu as a phone sheet: Link an issue, New
+ *  issue, and on an issue tab Unlink <IDENT>. */
+@Composable
+private fun ThreadMenuSheet(
+    issue: SessionTree.ThreadTab.IssueTab?,
     canFile: Boolean,
     onLink: () -> Unit,
     onNewIssue: () -> Unit,
-    onStartRun: () -> Unit,
-    onUnlink: (ThreadView.Child.IssueChild) -> Unit,
+    onUnlink: (SessionTree.ThreadTab.IssueTab) -> Unit,
     onDismiss: () -> Unit,
 ) {
     GlassSheet(title = issue?.identifier, onDismiss = onDismiss, modifier = Modifier.testTag("thread-menu")) {
         val iconTint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
         GlassSheetRow(
-            label = ThreadCopy.LINK_ISSUE,
+            label = ThreadUiCopy.LINK_ISSUE,
             onClick = onLink,
             leading = { Icon(ExpIcons.navSearch, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
         )
         GlassSheetRow(
-            label = ThreadCopy.NEW_ISSUE,
+            label = ThreadUiCopy.NEW_ISSUE,
             onClick = onNewIssue,
             enabled = canFile,
-            leading = { Icon(ExpIcons.uiAdd, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
-        )
-        GlassSheetRow(
-            label = ThreadCopy.START_RUN,
-            onClick = onStartRun,
-            enabled = canStart,
-            leading = { Icon(ExpIcons.actionRun, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
+            leading = { Icon(ExpIcons.navCreateIssue, contentDescription = null, tint = iconTint, modifier = Modifier.size(18.dp)) },
         )
         if (issue != null) {
             GlassSheetRow(
-                label = ThreadCopy.unlink(issue.identifier),
+                label = ThreadUiCopy.unlink(issue.identifier),
                 onClick = { onUnlink(issue) },
                 labelColor = MaterialTheme.colorScheme.error,
                 leading = {
@@ -382,311 +470,32 @@ private fun ThreadRenameSheet(
     onDismiss: () -> Unit,
 ) {
     var value by remember { mutableStateOf(initial) }
-    GlassSheet(title = "Rename thread", onDismiss = onDismiss) {
+    GlassSheet(title = ThreadUiCopy.RENAME, onDismiss = onDismiss) {
         GlassTextField(
             value = value,
-            onValueChange = { value = it },
+            onValueChange = { value = it.take(SessionTree.ThreadCopy.TITLE_MAX) },
             placeholder = placeholder,
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("thread-rename-field"),
         )
         GlassSubmitButton(
-            label = "Save",
+            label = ThreadUiCopy.SAVE,
             onClick = { onSave(value) },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         )
     }
 }
 
-// ── Conversation ────────────────────────────────────────────────────────────
+// ── Issue page ──────────────────────────────────────────────────────────────
 
-@Composable
-private fun ThreadConversationPage(
-    bundle: ThreadPage.Bundle,
-    padding: PaddingValues,
-    viewerId: String?,
-    canSteer: Boolean,
-    devices: List<DeviceEntity>,
-    statusOf: (String) -> com.exponential.app.domain.ResolvedIssueStatus?,
-    onOpenIssueChild: (String) -> Unit,
-    onOpenRun: (String) -> Unit,
-    onStart: (String) -> Unit,
-) {
-    val runsById = remember(bundle.runs) { bundle.runs.associateBy { it.id } }
-    val issuesById = remember(bundle.issues) { bundle.issues.associateBy { it.id } }
-    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            kotlinx.coroutines.delay(30_000)
-            nowMs = System.currentTimeMillis()
-        }
-    }
-    val namesById = remember(bundle.view) {
-        bundle.view.conversation.flatMap { block ->
-            when (block) {
-                is ThreadView.ParallelBlock -> block.runs.map { it.runId to it.name }
-                is ThreadView.RunBlock -> emptyList()
-            }
-        }.toMap()
-    }
-    // The model's own names (the run identity) for the folded line.
-    val modelRuns = remember(bundle, nowMs) {
-        bundle.runs.map { run -> ThreadPage.toRun(run, "", null, nowMs) }
-    }
-    val replyTarget = ThreadPage.replyTarget(modelRuns, viewerId, canSteer)
-    var reply by rememberSaveable { mutableStateOf("") }
-    // A reply waiting for its run: a resume in flight, or a connection that
-    // is not up yet. Sent once the target run can take it.
-    var pending by rememberSaveable { mutableStateOf<String?>(null) }
-    // Whether the held reply waits on a RESUME (else a connection).
-    var pendingResume by rememberSaveable { mutableStateOf(false) }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        ThreadConversation(
-            view = bundle.view,
-            runMeta = { id ->
-                runsById[id]?.let { run ->
-                    ThreadRunMeta(
-                        agent = run.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
-                        busy = run.agentBusy,
-                        name = namesById[id] ?: com.exponential.app.domain.pastRunTitle(
-                            run,
-                            run.issueId?.let(issuesById::get),
-                        ),
-                    )
-                }
-            },
-            issueStatus = statusOf,
-            onOpenIssue = onOpenIssueChild,
-            onOpenRun = onOpenRun,
-            parallelCaption = { row ->
-                listOfNotNull(
-                    row.deviceLabel?.takeIf { it.isNotBlank() },
-                    compactRelativeTime(row.startedAt, nowMs).takeIf { it.isNotEmpty() },
-                ).joinToString(" · ")
-            },
-            issueTitle = { id -> issuesById[id]?.let { it.identifier to it.title } },
-            runLead = { block ->
-                val run = runsById[block.runId]
-                if (run != null && run.userId == viewerId && block.state != ThreadView.RunState.Ended) {
-                    OwnRunLead(run)
-                }
-            },
-            runBody = { block, expanded ->
-                runsById[block.runId]?.let { run ->
-                    ThreadRunBody(
-                        run = run,
-                        // T-N3: the block shows only what THIS session wrote.
-                        guide = ThreadPage.sessionGuide(run, bundle.thread, bundle.view.runIds.firstOrNull()),
-                        state = block.state,
-                        own = run.userId == viewerId,
-                        expanded = expanded,
-                        devices = devices,
-                        nowMs = nowMs,
-                    )
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = padding.calculateTopPadding() + 12.dp,
-                bottom = padding.calculateBottomPadding() + 96.dp,
-            ),
-        )
-        if (replyTarget != null) {
-            // The send/resume target's connection, kept for the reply.
-            val targetRunId = when (replyTarget) {
-                is ThreadPage.ReplyTarget.Send -> replyTarget.runId
-                is ThreadPage.ReplyTarget.Resume -> replyTarget.runId
-                ThreadPage.ReplyTarget.Start -> null
-            }
-            val runVm: AgentSessionViewModel? = targetRunId?.let { id ->
-                hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(key = "session:$id") { it.create(id) }
-            }
-            val connected by (runVm?.connected ?: remember { MutableStateFlow(false) }).collectAsStateWithLifecycle()
-            val resumeTarget by (runVm?.resumeTarget ?: remember { MutableStateFlow(null) }).collectAsStateWithLifecycle()
-            LaunchedEffect(runVm, replyTarget is ThreadPage.ReplyTarget.Send) {
-                if (replyTarget is ThreadPage.ReplyTarget.Send) runVm?.ensureConnected()
-            }
-            // The held reply goes out the moment a live session of mine can take it.
-            LaunchedEffect(pending, connected, replyTarget) {
-                val text = pending ?: return@LaunchedEffect
-                if (replyTarget is ThreadPage.ReplyTarget.Send && connected && runVm?.sendCommand(text) == true) {
-                    pending = null
-                }
-            }
-            val toaster = LocalToaster.current
-            // T9/T-N4: the reply's ONE path. A live session of mine takes it;
-            // my latest (heartbeat-dead) session is resumed when its machine
-            // can; otherwise the thread gets a NEW session — a reply never
-            // dead-ends.
-            lateinit var sendReply: (String) -> Unit
-            sendReply = { text ->
-                when (val target = replyTarget) {
-                    is ThreadPage.ReplyTarget.Send -> {
-                        reply = ""
-                        if (runVm?.sendCommand(text) != true) {
-                            pending = text
-                            pendingResume = false
-                            runVm?.ensureConnected()
-                        }
-                    }
-                    is ThreadPage.ReplyTarget.Resume -> {
-                        val resume = resumeTarget
-                        reply = ""
-                        if (resume == null) {
-                            // Its machine is gone or unknown: say so, and start
-                            // a new session in this thread with the text.
-                            toaster.info(THREAD_SESSION_ENDED)
-                            onStart(text)
-                        } else {
-                            pending = text
-                            pendingResume = true
-                            runVm?.resumeRun(resume)
-                        }
-                    }
-                    ThreadPage.ReplyTarget.Start -> {
-                        reply = ""
-                        onStart(text)
-                    }
-                    null -> Unit
-                }
-            }
-            // T-N4: a held reply times out like the composer's start: the
-            // text comes back and `Couldn't resume the session` offers Retry.
-            LaunchedEffect(pending) {
-                val text = pending ?: return@LaunchedEffect
-                kotlinx.coroutines.delay(FeedbackStates.STARTING_TIMEOUT_MS)
-                if (pending == text) {
-                    pending = null
-                    if (reply.isBlank()) reply = text
-                    toaster.error(
-                        if (pendingResume) {
-                            FeedbackStates.errorTitle("resume", "the session")
-                        } else {
-                            FeedbackStates.errorTitle("send", "the message")
-                        },
-                        action = ToastAction(FeedbackStates.RETRY) { sendReply(reply.ifBlank { text }.trim()) },
-                    )
-                }
-            }
-            ThreadReplyBar(
-                value = reply,
-                onValueChange = { reply = it },
-                sending = pending != null,
-                onSend = {
-                    val text = reply.trim()
-                    if (text.isNotEmpty()) sendReply(text)
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = padding.calculateBottomPadding())
-                    .navigationBarsPadding()
-                    .imePadding(),
-            )
-        }
-    }
-}
-
-/** The owner's opening message of a live run (its feed's first message). */
-@Composable
-private fun OwnRunLead(run: CodingSessionEntity) {
-    val vm = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(key = "session:${run.id}") {
-        it.create(run.id)
-    }
-    LaunchedEffect(vm) { vm.ensureConnected() }
-    val activity by vm.activity.collectAsStateWithLifecycle()
-    val first = remember(activity.feed) {
-        activity.feed.firstNotNullOfOrNull { (it as? AgentFeedItem.UserMessage)?.text?.takeIf { text -> text.isNotBlank() } }
-    }
-    first?.let { ThreadMessageBubble(it) }
-}
-
-/**
- * A run block's body: what the run published (its thread items and the
- * Summary as the reply) and, while it runs, the Run face's status row. A
- * LIVE run's content stays the owner's (EXP-312): teammates see the row.
- */
-@Composable
-private fun ThreadRunBody(
-    run: CodingSessionEntity,
-    /** This session's own slice of the thread Guide (`sessionGuideEntries`). */
-    guide: String?,
-    state: ThreadView.RunState,
-    own: Boolean,
-    expanded: Boolean,
-    devices: List<DeviceEntity>,
-    nowMs: Long,
-) {
-    val live = state != ThreadView.RunState.Ended
-    val thread = remember(guide) { sessionThread(guide) }
-    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (own || !live || expanded) {
-            thread.items.forEach { item ->
-                if (item is ThreadItem.Text) {
-                    Text(
-                        item.topic,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                    MarkdownView(markdown = item.text, softBreaksAsNewlines = true)
-                }
-            }
-            thread.reply?.let { MarkdownView(markdown = it, softBreaksAsNewlines = true) }
-        }
-        if (live) {
-            val device = remember(run, devices, nowMs) { resolveSessionDevice(run, devices, nowMs) }
-            val display = codingSessionDisplayState(run, run.prState)
-            val rowState = runRowState(
-                paused = device.isPaused(display, run.status),
-                ended = false,
-                awaitingInput = false,
-                working = run.agentBusy,
-                display = display,
-            )
-            val caption = runRowCaption(rowState, device.displayLabel, run.startedAt, run.endedAt ?: run.updatedAt, nowMs)
-            val toolLine = if (own) ownToolLine(run.id) else null
-            RunStatusRow(
-                agent = run.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
-                markState = when (rowState) {
-                    RunRowState.Paused, RunRowState.Ended -> null
-                    RunRowState.NeedsInput -> CodingSessionDisplayState.NeedsInput
-                    RunRowState.Working -> CodingSessionDisplayState.Working
-                    RunRowState.Review -> CodingSessionDisplayState.Review
-                    RunRowState.Done -> CodingSessionDisplayState.Done
-                },
-                ended = false,
-                caption = caption.text,
-                tone = caption.tone,
-                toolLine = toolLine,
-                showWork = false,
-                onToggle = null,
-            )
-        }
-    }
-}
-
-/** The owner's newest tool line, off the run's relay feed. */
-@Composable
-private fun ownToolLine(runId: String): String? {
-    val vm = hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(key = "session:$runId") {
-        it.create(runId)
-    }
-    val activity by vm.activity.collectAsStateWithLifecycle()
-    return remember(activity.feed) { lastToolLine(activity.feed) }
-}
-
-// ── Issue child ─────────────────────────────────────────────────────────────
-
-/** An issue child = that issue's own Issue face, embedded. */
+/** An issue tab = that issue's own Issue face, embedded (no Start circle:
+ *  starts live in the composer). */
 @Composable
 private fun ThreadIssuePage(
     issueId: String,
     padding: PaddingValues,
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
-    onOpenGuide: () -> Unit,
     onOpenThread: (String) -> Unit,
 ) {
     val issueVm = hiltViewModel<IssueDetailViewModel, IssueDetailViewModel.Factory>(key = "issue:$issueId") {
@@ -694,76 +503,90 @@ private fun ThreadIssuePage(
     }
     val commentVm: CommentThreadViewModel = hiltViewModel(key = "comments:$issueId")
     val controller = rememberIssueFaceController()
-    val collapse = remember { TitleCollapseState() }
-    CompositionLocalProvider(LocalTitleCollapse provides collapse) {
-        IssueFace(
-            viewModel = issueVm,
-            commentViewModel = commentVm,
-            controller = controller,
-            padding = padding,
-            onBack = onBack,
-            onOpenIssue = onOpenIssue,
-            onOpenChanges = onOpenGuide,
-            trailingBarSlot = { Spacer(Modifier.size(0.dp)) },
-            onOpenThread = onOpenThread,
-        )
-    }
+    IssueFace(
+        viewModel = issueVm,
+        commentViewModel = commentVm,
+        controller = controller,
+        padding = padding,
+        onBack = onBack,
+        onOpenIssue = onOpenIssue,
+        trailingBarSlot = { Spacer(Modifier.size(0.dp)) },
+        onOpenThread = onOpenThread,
+    )
 }
 
-// ── Guide child ─────────────────────────────────────────────────────────────
+// ── Guide page ──────────────────────────────────────────────────────────────
 
 /**
- * The THREAD's Guide (`threads.results`, else its newest run's) with the
- * Merge of the thread's PR — its newest run's, else the URL its issues share.
+ * The root's Guide (`sessions.guide`) with the Merge capsule of its PR — the
+ * newest OPEN one, else none. When that PR sits in an open stack the capsule
+ * is THE `Merge stack` control (the issue screen's [PullRequestStack] rule):
+ * it targets the stack's top and lands the whole chain with `stack = true`,
+ * since the server refuses a plain merge of any open-stack member.
+ * A section's Changes row opens its diff page. A merge refused by a conflict
+ * offers to message the root to fix it.
  */
 @Composable
-private fun ThreadGuidePage(bundle: ThreadPage.Bundle, padding: PaddingValues) {
-    val newestRun = bundle.runs.lastOrNull()
-    val raw = ThreadPage.guideResults(newestRun?.results, bundle.thread.results)
-    val groups = remember(raw) { parseSessionResultGroups(raw) }
-    val prUrl = ThreadPage.prUrl(bundle.runs, bundle.issues)
-    val prIssue = prUrl?.let { url -> bundle.issues.firstOrNull { it.prUrl == url } }
-    val prRun = prUrl?.let { url -> bundle.runs.lastOrNull { it.prUrl == url } }
-    val source: ChangesSource? = when {
-        prIssue != null -> ChangesSource.Issue(prIssue.id)
-        prRun != null -> prRun.issueId?.let { ChangesSource.Issue(it) } ?: ChangesSource.Session(prRun.id)
-        else -> null
+private fun ThreadGuidePage(
+    guideRaw: String?,
+    pullRequests: List<PullRequestEntity>,
+    teamPullRequests: List<PullRequestEntity>,
+    padding: PaddingValues,
+    onFixConflicts: (prNumber: Int?) -> Unit,
+) {
+    val groups = remember(guideRaw) { parseSessionResultGroups(guideRaw) }
+    val newest = pullRequests.lastOrNull { it.state == DomainContract.prStateOpen } ?: pullRequests.lastOrNull()
+    val stackPool = remember(pullRequests, teamPullRequests) {
+        (teamPullRequests + pullRequests).distinctBy { it.id }
     }
-    val changesVm: ChangesViewModel? = source?.let { src ->
-        val key = when (src) {
-            is ChangesSource.Issue -> "thread-changes:issue:${src.id}"
-            is ChangesSource.Session -> "thread-changes:run:${src.id}"
-        }
-        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = key) { it.create(src) }
+    val stack = remember(newest, stackPool) { newest?.let { PullRequestStack.stackConfirm(it, stackPool) } }
+    val pr = stack?.throughId?.let { id -> stackPool.firstOrNull { it.id == id } } ?: newest
+    val changesVm: ChangesViewModel? = pr?.let { row ->
+        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${row.id}") { it.create(row.id) }
     }
-    val load by (changesVm?.load ?: remember { MutableStateFlow<ChangesLoadState?>(null) }).collectAsStateWithLifecycle()
-    val merging by (changesVm?.merging ?: remember { MutableStateFlow(false) }).collectAsStateWithLifecycle()
-    val actionError by (changesVm?.actionError ?: remember { MutableStateFlow(null) }).collectAsStateWithLifecycle()
-    val files: List<Diff.File>? = remember(load) {
-        (load as? ChangesLoadState.Loaded)?.files?.map { it.toDiffFile() }
-    }
-    val prOpen = (prIssue?.prState ?: prRun?.prState) == DomainContract.prStateOpen
-    val merge = if (changesVm != null && prOpen) {
+    val load by (changesVm?.load ?: remember { kotlinx.coroutines.flow.MutableStateFlow<ChangesLoadState?>(null) })
+        .collectAsStateWithLifecycle()
+    val merging by (changesVm?.merging ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
+        .collectAsStateWithLifecycle()
+    val actionError by (changesVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
+        .collectAsStateWithLifecycle()
+    val conflict by (changesVm?.actionErrorIsConflict ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
+        .collectAsStateWithLifecycle()
+    val linkedCount by (changesVm?.linkedIssueCount ?: remember { kotlinx.coroutines.flow.MutableStateFlow(0) })
+        .collectAsStateWithLifecycle()
+    val files = remember(load) { (load as? ChangesLoadState.Loaded)?.files?.map { it.toDiffFile() } }
+    val merge = if (changesVm != null && pr.state == DomainContract.prStateOpen) {
         ChangesMergeControl(
-            label = DomainContract.diffUiMergePr,
+            label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
             loading = merging,
             error = actionError,
-            confirmPrompt = if (source is ChangesSource.Session) {
-                Prompts.MergeRunPr.prompt(prRun?.prNumber)
+            confirmPrompt = if (linkedCount > 0) {
+                Prompts.MergeIssuePr.prompt(pr.number, linkedCount)
             } else {
-                Prompts.MergeIssuePr.prompt(prIssue?.prNumber, bundle.issues.count { it.prUrl == prUrl }.coerceAtLeast(1))
+                Prompts.MergeRunPr.prompt(pr.number)
             },
             onConfirm = { changesVm.mergePr() },
+            stackConfirm = stack,
+            onMergeStack = { changesVm.mergePr(stack = true) },
         )
     } else {
         null
     }
     val toaster = LocalToaster.current
-    LaunchedEffect(actionError) {
-        actionError?.let { toaster.failedAction("merge", "the PR", it) }
+    LaunchedEffect(actionError, conflict) {
+        val message = actionError ?: return@LaunchedEffect
+        if (conflict) {
+            toaster.error(
+                FeedbackStates.errorTitle("merge", "the PR"),
+                description = message,
+                action = ToastAction(FIX_CONFLICTS) { onFixConflicts(pr?.number) },
+            )
+        } else {
+            toaster.failedAction("merge", "the PR", message)
+        }
     }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
-    val section = parseGuideSectionParam(sectionName)
+    val section = sectionName?.let(::parseSectionKey)
     if (section != null) {
         GuideSectionDiff(
             padding = padding,
@@ -781,7 +604,7 @@ private fun ThreadGuidePage(bundle: ThreadPage.Bundle, padding: PaddingValues) {
             numbered = true,
             merge = merge,
             onOpenSection = if (changesVm != null) {
-                { key: GuideSectionKey -> sectionName = guideSectionParam(key) }
+                { key: GuideSectionKey -> sectionName = sectionKeyName(key) }
             } else {
                 null
             },
@@ -789,5 +612,19 @@ private fun ThreadGuidePage(bundle: ThreadPage.Bundle, padding: PaddingValues) {
     }
 }
 
-/** T9: the reply's note when the session it would resume cannot come back. */
-internal const val THREAD_SESSION_ENDED = "That session ended. Your reply starts a new session in this thread."
+/** The merge-conflict toast's action (contract `diffUi` has no word). */
+private const val FIX_CONFLICTS = "Fix conflicts"
+
+private fun sectionKeyName(key: GuideSectionKey): String = when (key) {
+    is GuideSectionKey.Numbered -> key.index.toString()
+    GuideSectionKey.Lead -> "lead"
+    GuideSectionKey.Other -> "other"
+    GuideSectionKey.All -> "all"
+}
+
+private fun parseSectionKey(name: String): GuideSectionKey? = when (name) {
+    "lead" -> GuideSectionKey.Lead
+    "other" -> GuideSectionKey.Other
+    "all" -> GuideSectionKey.All
+    else -> name.toIntOrNull()?.let { GuideSectionKey.Numbered(it) }
+}

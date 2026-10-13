@@ -38,14 +38,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.TriggerBadge
-import com.exponential.app.domain.TriggerBadges
-import com.exponential.app.domain.triggerBadges
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamSectionHeader
@@ -72,9 +71,8 @@ import com.exponential.app.ui.theme.glassRow
 // no back button, and its lists clear the floating bar.
 //
 // EXP-1270: the Suggestions segment is gone (the seeds left every client), so
-// the screen is the one list. SLOP-2: an action CARRIES its triggers — a row
-// wears a glyph per trigger kind beside its name, and tapping it opens the
-// action page ([ActionDetailScreen]: Prompt | Triggers | Runs).
+// the screen is the one list. EXP-1291: an action is a saved prompt; tapping a
+// row opens its page ([ActionDetailScreen]).
 
 @Composable
 fun ActionsScreen(
@@ -89,23 +87,25 @@ fun ActionsScreen(
     // EXP-1186: cross-team — one band per team once there are several.
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val multiTeam = teams.size > 1
-    // FEED-79: the list loads on its own, so a failed load is quiet (the
-    // empty state), never a toast.
-    // EXP-1186: with several teams each team band carries its own "New
-    // action", creating in THAT team (web + iOS parity).
-    val newActionPill: @Composable (teamId: String?) -> Unit = { teamId ->
-        GlassPill(
-            "New action",
-            icon = ExpIcons.actionCreate,
-            enabled = (teamId ?: selectedTeamId) != null,
-            onClick = {
-                teamId?.let(viewModel::selectTeam)
-                onOpenAgent(AgentComposerSeed(actionId = DomainContract.builtinCreateActionId))
+    // EXP-1296: `New action` = the saved-prompt form in a sheet (owner of
+    // the selected team only; the create lands there).
+    val canCreate by viewModel.canCreate.collectAsStateWithLifecycle()
+    val creating by viewModel.creating.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    var showCreate by remember { mutableStateOf(false) }
+    FailedActionToast(failure, onShown = viewModel::clearFailure)
+    if (showCreate) {
+        ActionCreateSheet(
+            busy = creating,
+            onCreate = { fields ->
+                viewModel.create(fields) { id ->
+                    showCreate = false
+                    onOpenAction(id)
+                }
             },
-            modifier = Modifier.testTag(if (teamId == null) "new-action" else "new-action-$teamId"),
+            onDismiss = { showCreate = false },
         )
     }
-
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // The root screens' header (AgentsScreen / SearchScreen parity):
@@ -122,6 +122,15 @@ fun ActionsScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
+                if (canCreate && selectedTeamId != null) {
+                    GlassPill(
+                        NEW_ACTION_TITLE,
+                        icon = ExpIcons.actionCreate,
+                        size = PillSize.Sm,
+                        onClick = { showCreate = true },
+                        modifier = Modifier.testTag("actions-new"),
+                    )
+                }
             }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {
@@ -141,7 +150,7 @@ fun ActionsScreen(
                         // control.
                         if (!multiTeam) {
                             item(key = "__actions_header__") {
-                                SectionHeader(title = "Actions") { newActionPill(null) }
+                                SectionHeader(title = "Actions")
                             }
                         }
                         // Server order (sort_order, then name) — since
@@ -151,7 +160,7 @@ fun ActionsScreen(
                         teamBands(state.actions, teams) { it.teamId }.forEach { band ->
                             band.team?.let { team ->
                                 item(key = "__actions_team_${team.id}__") {
-                                    TeamSectionHeader(team) { newActionPill(team.id) }
+                                    TeamSectionHeader(team)
                                 }
                             }
                             items(band.items, key = { it.id }) { action ->
@@ -184,7 +193,6 @@ private fun ActionRow(
     onOpen: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    val badges = remember(action.triggers) { triggerBadges(action.parsedTriggers) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -217,7 +225,6 @@ private fun ActionRow(
                     // Yield to the glyphs instead of pushing them off the row.
                     modifier = Modifier.weight(1f, fill = false),
                 )
-                TriggerBadgeGlyphs(badges)
             }
             val description = action.description
             if (!description.isNullOrBlank()) {
@@ -239,9 +246,7 @@ private fun ActionRow(
             onClick = onRun,
             modifier = Modifier.padding(start = 8.dp),
         )
-        // Builtins are shipped prompts with no team row to edit (the list
-        // carries none today — the guard keeps it that way).
-        if (!action.isBuiltin) {
+        run {
             Box {
                 // EXP-698: every trailing row action is the one 32dp glass
                 // circle — a bare glyph in an M3 touch box read as a hitbox,
@@ -266,27 +271,4 @@ private fun ActionRow(
             }
         }
     }
-}
-
-/**
- * The trigger glyphs beside a name (SLOP-2): the schedule clock and/or the
- * event bolt, each drawn when the subject has a trigger of that kind and
- * MUTED while none of that kind is enabled. No text, no count.
- */
-@Composable
-private fun TriggerBadgeGlyphs(badges: TriggerBadges) {
-    badges.schedule?.let { TriggerBadgeGlyph(ExpIcons.triggerSchedule, it, "trigger-badge-schedule") }
-    badges.event?.let { TriggerBadgeGlyph(ExpIcons.triggerEvent, it, "trigger-badge-event") }
-}
-
-@Composable
-private fun TriggerBadgeGlyph(icon: ImageVector, badge: TriggerBadge, tag: String) {
-    Icon(
-        icon,
-        contentDescription = null,
-        modifier = Modifier.size(12.dp).testTag(tag),
-        tint = MaterialTheme.colorScheme.onSurface.copy(
-            alpha = if (badge.active) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-        ),
-    )
 }

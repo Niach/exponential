@@ -25,12 +25,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.DomainContract
+import androidx.compose.ui.platform.testTag
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.work.ChangesMergeControl
+import com.exponential.app.ui.work.MergePill
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.GlassTokens
@@ -61,25 +63,33 @@ private val PrOpenGreen = DesignTokens.Semantic.Green
 private val PrMergedBlue = DesignTokens.Semantic.Blue
 private val PrClosedRed = DesignTokens.Semantic.Red
 
+/**
+ * EXP-1291: the issue's pull requests (`pull_requests` ⋈
+ * `pull_request_issues`, newest first) — one full-width row each; renders
+ * nothing without one. A tap opens that PR ([onOpenPullRequest]).
+ */
 @Composable
 fun AgentPrCard(
-    issue: IssueEntity,
-    onOpenChanges: () -> Unit,
+    pullRequests: List<PullRequestEntity>,
+    onOpenPullRequest: (PullRequestEntity) -> Unit,
+    /** EXP-1291: an OPEN row's Merge control (the trailing pill); null = none. */
+    mergeControlFor: ((PullRequestEntity) -> ChangesMergeControl?)? = null,
 ) {
-    val hasPr = !issue.prUrl.isNullOrBlank()
-    val hasBranch = !hasPr && !issue.branch.isNullOrBlank()
-    if (!hasPr && !hasBranch) return
-
-    // No card wrapper (EXP-246): the PR/branch chips render full width against
-    // the screen background, matching iOS.
+    if (pullRequests.isEmpty()) return
+    // No card wrapper (EXP-246): the PR rows render full width against the
+    // screen background, matching iOS.
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        if (hasPr) {
-            PrRow(prState = issue.prState, prNumber = issue.prNumber, onOpenChanges = onOpenChanges)
-        } else {
-            BranchRow(branch = issue.branch!!, onOpenChanges = onOpenChanges)
+        pullRequests.forEach { pr ->
+            PrRow(
+                prState = pr.state,
+                prNumber = pr.number,
+                title = pr.title,
+                onOpenChanges = { onOpenPullRequest(pr) },
+                merge = if (pr.state == DomainContract.prStateOpen) mergeControlFor?.invoke(pr) else null,
+            )
         }
     }
 }
@@ -89,7 +99,13 @@ fun AgentPrCard(
 // state word on the right, tapping into Changes. It used to hug its content as
 // a small capsule, which read as a stray chip rather than a link to the code.
 @Composable
-private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
+private fun PrRow(
+    prState: String?,
+    prNumber: Int?,
+    title: String?,
+    onOpenChanges: () -> Unit,
+    merge: ChangesMergeControl? = null,
+) {
     val tint = when (prState) {
         DomainContract.prStateMerged -> PrMergedBlue
         DomainContract.prStateClosed -> PrClosedRed
@@ -111,57 +127,24 @@ private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
             tint = tint,
         )
         Text(
-            prNumber?.let { "PR #$it" } ?: "Pull request",
+            listOfNotNull(prNumber?.let { "PR #$it" } ?: "Pull request", title?.takeIf { it.isNotBlank() })
+                .joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (!prState.isNullOrBlank()) {
+        if (merge != null) {
+            // EXP-1291: the row's Merge (confirm / stack confirm inside).
+            MergePill(merge = merge, modifier = Modifier.testTag("issue-pr-merge"))
+        } else if (!prState.isNullOrBlank()) {
             Text(
                 prState.replaceFirstChar { it.uppercase() },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
             )
         }
-        Icon(
-            ExpIcons.uiChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
-    }
-}
-
-// Pushed branch, no PR yet: the same full-width row shape as [PrRow] (they
-// occupy the same slot, so they must look alike) with the indigo branch icon +
-// mono name, tapping into Changes.
-@Composable
-private fun BranchRow(branch: String, onOpenChanges: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpenChanges)
-            .glassRow()
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(
-            ExpIcons.uiBranch,
-            contentDescription = null,
-            modifier = Modifier.size(14.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Text(
-            branch,
-            style = MaterialTheme.typography.labelMedium.copy(fontFamily = FontFamily.Monospace),
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
         Icon(
             ExpIcons.uiChevronRight,
             contentDescription = null,

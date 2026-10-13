@@ -5,7 +5,7 @@ import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.STEER_CLIENT
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -87,8 +87,8 @@ class SteerConnectionStore @Inject constructor(
                     codingSessionId = codingSessionId,
                     transport = KtorSteerTransport(auth, steerApi, client),
                     sessionFlow = accountDatabaseFlow(auth, holder)
-                        .scopedQuery<CodingSessionEntity?>(null) {
-                            it.codingSessionDao().observeById(codingSessionId)
+                        .scopedQuery<SessionEntity?>(null) {
+                            it.sessionDao().observeById(codingSessionId)
                         },
                     json = json,
                     issueImagesApi = issueImagesApi,
