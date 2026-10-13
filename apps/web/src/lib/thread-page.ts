@@ -156,7 +156,8 @@ export type ThreadReplyTarget =
   | { kind: `start` }
 
 export function threadReplyTarget(input: {
-  runs: readonly Pick<ThreadViewRun, `id` | `userId` | `status` | `startedAt`>[]
+  runs: readonly (Pick<ThreadViewRun, `id` | `userId` | `status` | `startedAt`> &
+    Partial<Pick<ThreadViewRun, `parentSessionId` | `resumedFromId`>>)[]
   viewerId: string | null | undefined
   canSteer: boolean
 }): ThreadReplyTarget | null {
@@ -165,7 +166,15 @@ export function threadReplyTarget(input: {
   const ordered = [...input.runs].sort(
     (a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt) || b.id.localeCompare(a.id)
   )
-  const live = ordered.find((run) => run.userId === viewerId && run.status !== `ended`)
+  const ids = new Set(ordered.map((run) => run.id))
+  // A parallel child (spawned by a session in this thread, not a resume)
+  // carries its parent's userId: the reply goes to the PARENT that is
+  // orchestrating it, which is the block on screen, not the child inside
+  // the one parallel card.
+  const isChild = (run: (typeof ordered)[number]) =>
+    Boolean(run.parentSessionId && ids.has(run.parentSessionId) && !run.resumedFromId)
+  const mineLive = ordered.filter((run) => run.userId === viewerId && run.status !== `ended`)
+  const live = mineLive.find((run) => !isChild(run)) ?? mineLive[0]
   if (live) return { kind: `send`, runId: live.id }
   const latest = ordered[0]
   if (latest && latest.userId === viewerId) return { kind: `resume`, runId: latest.id }

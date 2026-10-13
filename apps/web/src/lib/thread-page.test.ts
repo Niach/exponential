@@ -137,6 +137,32 @@ describe(`threadReplyTarget`, () => {
     ).toEqual({ kind: `send`, runId: `r2` })
   })
 
+  it(`sends to the orchestrating parent, not the parallel child it spawned`, () => {
+    expect(
+      threadReplyTarget({
+        runs: [
+          { ...run(`r1`, `me`, `running`, -30), parentSessionId: null, resumedFromId: null },
+          { ...run(`r2`, `me`, `running`, -5), parentSessionId: `r1`, resumedFromId: null },
+          { ...run(`r3`, `me`, `running`, -4), parentSessionId: `r1`, resumedFromId: null },
+        ],
+        viewerId: `me`,
+        canSteer: true,
+      })
+    ).toEqual({ kind: `send`, runId: `r1` })
+    // A resume of a child is a session of its own; a child whose parent is
+    // not in the thread is one too.
+    expect(
+      threadReplyTarget({
+        runs: [
+          { ...run(`r1`, `me`, `ended`, -30), parentSessionId: null, resumedFromId: null },
+          { ...run(`r2`, `me`, `running`, -5), parentSessionId: `elsewhere`, resumedFromId: null },
+        ],
+        viewerId: `me`,
+        canSteer: true,
+      })
+    ).toEqual({ kind: `send`, runId: `r2` })
+  })
+
   it(`resumes the viewer's ended run when it is the latest`, () => {
     expect(
       threadReplyTarget({

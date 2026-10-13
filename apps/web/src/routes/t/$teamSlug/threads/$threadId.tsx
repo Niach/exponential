@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   createFileRoute,
@@ -151,18 +151,27 @@ function ThreadPage() {
   })
   const fetchFor = fetchState.id === threadId ? fetchState.state : `idle`
   const settled = Boolean(team && currentUserId && isReady)
+  // The in-flight id lives in a ref, NOT in the effect's deps: the
+  // `idle → pending` write below re-rendered the route, and with `fetchFor`
+  // as a dep the effect re-ran and its cleanup dropped the reply before it
+  // landed, so a missing thread showed the skeleton forever.
+  const fetching = useRef<string | null>(null)
   useEffect(() => {
-    if (bundle || !settled || fetchFor !== `idle`) return
+    if (bundle || !settled || fetchFor !== `idle` || fetching.current === threadId) return
     let live = true
+    fetching.current = threadId
     setFetchState({ id: threadId, state: `pending` })
     trpc.threads.get
       .query({ id: threadId })
       .then(() => live && setFetchState({ id: threadId, state: `found` }))
       .catch(() => live && setFetchState({ id: threadId, state: `missing` }))
+      .finally(() => {
+        if (fetching.current === threadId) fetching.current = null
+      })
     return () => {
       live = false
     }
-  }, [bundle, settled, fetchFor, threadId])
+  }, [bundle, settled, threadId])
   const [graceOverFor, setGraceOverFor] = useState<string | null>(null)
   const waiting = !bundle && (fetchFor === `found` || itemNamesIt)
   useEffect(() => {
@@ -379,6 +388,8 @@ function ThreadScreen({
       userId: run.userId,
       status: threadRunStatus(run, now),
       startedAt: iso(run.startedAt),
+      parentSessionId: run.parentSessionId ?? null,
+      resumedFromId: run.resumedFromId ?? null,
     })),
     viewerId: currentUserId,
     canSteer: steerEnabled,
