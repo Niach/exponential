@@ -459,80 +459,6 @@ final class SessionResultsTests: XCTestCase {
         XCTAssertEqual(groups.map(\.prUrl), ["https://github.com/o/r/pull/2"])
     }
 
-    private func turnItems(_ items: [SessionThread.Item]) -> [[String: String]] {
-        items.map { item in
-            switch item {
-            case let .text(topic, text): return ["kind": "text", "topic": topic, "text": text]
-            case let .picture(entry): return ["kind": "picture", "attachmentId": entry.attachmentId]
-            }
-        }
-    }
-
-    private func turnEvents(_ value: Any?) -> [SessionTurnEvent]? {
-        (value as? [[String: Any]])?.compactMap { event in
-            let at = (event["at"] as? NSNumber)?.doubleValue ?? .nan
-            if event["kind"] as? String == "user_message" {
-                return .userMessage(
-                    at: at,
-                    text: event["text"] as? String ?? "",
-                    images: event["images"] as? [String] ?? []
-                )
-            }
-            return .turn(started: event["state"] as? String == "started", at: at)
-        }
-    }
-
-    private func assertTurns(_ name: String) throws {
-        let block = try XCTUnwrap(try fixture()["turns"] as? [String: Any])
-        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
-        let testCase = try XCTUnwrap(cases.first { $0["name"] as? String == name }, name)
-        let turns = sessionTurns(try rawString(testCase["raw"]), feed: turnEvents(testCase["feed"]))
-        let expected = try XCTUnwrap(testCase["expected"] as? [String: Any])
-        XCTAssertEqual(turns.perTurn, expected["perTurn"] as? Bool, name)
-        let want = try XCTUnwrap(expected["turns"] as? [[String: Any]])
-        XCTAssertEqual(turns.turns.count, want.count, name)
-        for (turn, expect) in zip(turns.turns, want) {
-            if let message = expect["message"] as? [String: Any] {
-                XCTAssertEqual(turn.message?.text, message["text"] as? String, name)
-                XCTAssertEqual(turn.message?.at, (message["at"] as? NSNumber)?.doubleValue, name)
-                XCTAssertEqual(turn.message?.images, message["images"] as? [String], name)
-            } else {
-                XCTAssertNil(turn.message, name)
-            }
-            XCTAssertEqual(turn.startedAt, (expect["startedAt"] as? NSNumber)?.doubleValue, name)
-            XCTAssertEqual(turn.endedAt, (expect["endedAt"] as? NSNumber)?.doubleValue, name)
-            XCTAssertEqual(turnItems(turn.items), expect["items"] as? [[String: String]], name)
-            XCTAssertEqual(turn.reply, expect["reply"] as? String, name)
-        }
-    }
-
-    func testEveryTurnsCaseHasATest() throws {
-        let block = try XCTUnwrap(try fixture()["turns"] as? [String: Any])
-        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
-        XCTAssertEqual(Set(cases.compactMap { $0["name"] as? String }), [
-            "no feed keeps the single thread",
-            "two turns and the person's bubble",
-            "a message sent mid-turn cuts the running turn",
-            "unstamped results land in the first turn, a waiting message has no start",
-        ])
-    }
-
-    func testNoFeedKeepsTheSingleThread() throws {
-        try assertTurns("no feed keeps the single thread")
-    }
-
-    func testTwoTurnsAndThePersonsBubble() throws {
-        try assertTurns("two turns and the person's bubble")
-    }
-
-    func testAMessageSentMidTurnCutsTheRunningTurn() throws {
-        try assertTurns("a message sent mid-turn cuts the running turn")
-    }
-
-    func testUnstampedResultsLandInTheFirstTurnAWaitingMessageHasNoStart() throws {
-        try assertTurns("unstamped results land in the first turn, a waiting message has no start")
-    }
-
     func testTextEntriesDoNotCountTowardThe60PictureCap() {
         var rows: [String] = [#"{"topic":"Summary","text":"Report"}"#]
         for index in 0..<70 {
@@ -543,43 +469,6 @@ final class SessionResultsTests: XCTestCase {
         XCTAssertEqual(groups.map(\.topic), ["Summary", "t", "late"])
         XCTAssertEqual(sessionResultPictures(groups).count, maxSessionResults)
         XCTAssertEqual(groups.last?.text, "after the cap")
-    }
-
-    func testPicksTheIssueResultsRunPerTheFixture() throws {
-        let block = try XCTUnwrap(try fixture()["issueResultsRun"] as? [String: Any])
-        let now = try XCTUnwrap(WireTimestamps.parse(try XCTUnwrap(block["now"] as? String)))
-        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
-        XCTAssertFalse(cases.isEmpty)
-        for testCase in cases {
-            let name = try XCTUnwrap(testCase["name"] as? String)
-            let rows = try XCTUnwrap(testCase["rows"] as? [[String: Any]]).map { row in
-                CodingSessionEntity(
-                    id: row["id"] as? String ?? "",
-                    issueId: row["issueId"] as? String,
-                    teamId: "team-1",
-                    userId: row["userId"] as? String ?? "",
-                    deviceLabel: nil,
-                    status: row["status"] as? String ?? "ended",
-                    results: try rawString(row["results"]),
-                    startedAt: row["startedAt"] as? String ?? "",
-                    endedAt: nil,
-                    createdAt: row["startedAt"] as? String ?? "",
-                    updatedAt: row["updatedAt"] as? String ?? ""
-                )
-            }
-            XCTAssertEqual(
-                WorkFaces.issueResultsRun(
-                    rows,
-                    issueId: try XCTUnwrap(testCase["issueId"] as? String),
-                    boundId: testCase["boundId"] as? String,
-                    me: testCase["me"] as? String,
-                    now: now,
-                    issuePrUrl: testCase["prUrl"] as? String
-                )?.id,
-                testCase["expected"] as? String,
-                name
-            )
-        }
     }
 
     // MARK: EXP-1172 — inline pictures (`session-inline.json`), same case
@@ -661,25 +550,50 @@ final class SessionResultsTests: XCTestCase {
         }
     }
 
-    // MARK: EXP-1175 — the Run face's thread (`thread` cases ×4).
+    // MARK: EXP-1251 — the Guide's section pages, mirrors web `guideSectionPage`.
 
-    func testReadsTheSessionThreadPerTheFixture() throws {
-        let block = try XCTUnwrap(try fixture()["thread"] as? [String: Any])
-        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
-        XCTAssertFalse(cases.isEmpty)
-        for testCase in cases {
-            let name = try XCTUnwrap(testCase["name"] as? String)
-            let expected = try XCTUnwrap(testCase["expected"] as? [String: Any], name)
-            let thread = sessionThread(try rawString(testCase["raw"]))
-            let items: [[String: String]] = thread.items.map { item in
-                switch item {
-                case let .text(topic, text): return ["kind": "text", "topic": topic, "text": text]
-                case let .picture(entry): return ["kind": "picture", "attachmentId": entry.attachmentId]
-                }
-            }
-            let expectedItems = try XCTUnwrap(expected["items"] as? [[String: String]], name)
-            XCTAssertEqual(items, expectedItems, name)
-            XCTAssertEqual(thread.reply, expected["reply"] as? String, name)
-        }
+    private let sectionFiles = [
+        Diff.File(path: "a.ts", additions: 3, deletions: 1),
+        Diff.File(path: "b.ts", previousPath: "old-b.ts", additions: 5, deletions: 0),
+        Diff.File(path: "c.ts", additions: 1, deletions: 1),
+    ]
+    private let sectionGroups = [
+        SessionResultGroup(topic: "Summary", entries: [], files: []),
+        SessionResultGroup(topic: "Model", entries: [], files: ["a.ts"]),
+        SessionResultGroup(topic: "Paint", entries: [], files: ["old-b.ts"]),
+    ]
+
+    func testOpensANumberedSectionWithItsCaptionAndCoveredFiles() {
+        let page = guideSectionPage(sectionGroups, files: sectionFiles, section: .section(2))
+        XCTAssertEqual(page?.caption, "02 / 02")
+        XCTAssertEqual(page?.title, "Paint")
+        XCTAssertEqual(page?.files.map(\.path), ["b.ts"])
+        XCTAssertEqual(page?.additions, 5)
+        XCTAssertEqual(page?.deletions, 0)
+        XCTAssertEqual(page.map(guideSectionSummary), "+5 \u{2212}0 · 1 file")
+    }
+
+    func testOpensOtherChangesAndTheCompleteDiff() {
+        let other = guideSectionPage(sectionGroups, files: sectionFiles, section: .other)
+        XCTAssertEqual(other?.files.map(\.path), ["c.ts"])
+        XCTAssertEqual(other?.title, "Other changes")
+        let all = guideSectionPage(sectionGroups, files: sectionFiles, section: .all)
+        XCTAssertEqual(all?.files.count, 3)
+        XCTAssertNil(all?.caption)
+        XCTAssertEqual(all?.additions, 9)
+        XCTAssertEqual(all?.deletions, 2)
+    }
+
+    func testIsNullForAStaleSectionOrWhileTheDiffLoads() {
+        XCTAssertNil(guideSectionPage(sectionGroups, files: sectionFiles, section: .section(7)))
+        XCTAssertNil(guideSectionPage(sectionGroups, files: nil, section: .section(1)))
+        XCTAssertNil(guideSectionPage(
+            [SessionResultGroup(topic: "Model", entries: [], files: ["a.ts", "b.ts", "c.ts"])],
+            files: sectionFiles, section: .other
+        ))
+    }
+
+    func testWithNoReportTheWholeDiffIsOneChangesSection() {
+        XCTAssertEqual(guideSectionPage([], files: sectionFiles, section: .other)?.title, "Changes")
     }
 }

@@ -13,9 +13,8 @@ struct NestedIssueRow: Identifiable {
     var id: String { issue.id }
 }
 
-/// EXP-980 — the ONE blocks-graph surface on iOS, used in three places: the
-/// list row's badge, the Work header overlay's Issue face (where it replaced
-/// the flat "Blocked by" chip section) and the blocked-start sheet.
+/// EXP-980 — the ONE blocks-graph surface on iOS: the list row's badge
+/// opens it (`IssueGraphSheet`).
 ///
 /// EXP-1057: it draws the SAME grid web, desktop and Android draw — the shared
 /// ExpUI `IssueGraphPopover` (vertical: wave rows × lane columns, chip boxes, cubic edges, red on a

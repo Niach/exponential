@@ -5,8 +5,8 @@ import Foundation
 /// `components/launch-dialog/composer-menu.ts`, desktop `chat_screen.rs`,
 /// Android `AgentComposer.kt`): which rows show for the picked agent / device
 /// / subject, in what order, with which concept glyph and copy. Phones open it
-/// as a bottom sheet, submenus as pushed pages. The page around the card (no
-/// suggestion rows, no brand-mark watermark) is `HomeGreeting`'s.
+/// as a bottom sheet, submenus as pushed pages (`ComposerPlusMenu`). The
+/// page around the card is `composer-home.json`'s.
 public enum ComposerMenu {
     public enum RowId: String, Equatable, Sendable, CaseIterable {
         case implementIssue = "implement-issue"

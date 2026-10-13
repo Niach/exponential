@@ -1,0 +1,140 @@
+import XCTest
+@testable import ExpCore
+
+// EXP-1291: the `sessions.*` / `pullRequests.*` wire payloads. `sessions.send`
+// takes ONE flat object whose present keys pick the form, so every nil must
+// be OMITTED (the router's fields are `.optional()`, never `.nullable()`),
+// and each form carries only its own keys.
+final class SessionsApiWireTests: XCTestCase {
+    private func json(_ value: some Encodable) throws -> [String: Any] {
+        let data = try JSONEncoder().encode(value)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    func testNewThreadCarriesTheRootFacetsAndOmitsEveryNil() throws {
+        let bare = try json(SessionsSendInput.newThread(teamId: "t-1", deviceId: "dev-1", text: "Go"))
+        XCTAssertEqual(bare.keys.sorted(), ["deviceId", "teamId", "text"])
+
+        let full = try json(SessionsSendInput.newThread(
+            teamId: "t-1",
+            deviceId: "dev-1",
+            options: SessionLaunchOptions(
+                cli: "claude", account: "p-1", model: "fable", effort: "",
+                planMode: true, computerUse: false, ultracode: true, mcpServerIds: ["m-1"]
+            ),
+            text: "Fix it",
+            attachmentIds: ["att-1"],
+            issueIds: ["i-1", "i-2"],
+            actionId: "a-1",
+            inputs: ["repo": "r-1"],
+            repositoryId: "r-1"
+        ))
+        XCTAssertEqual(
+            full.keys.sorted(),
+            ["account", "actionId", "attachmentIds", "cli", "computerUse", "deviceId", "effort",
+             "inputs", "issueIds", "mcpServerIds", "model", "planMode", "repositoryId", "teamId",
+             "text", "ultracode"]
+        )
+        XCTAssertEqual(full["issueIds"] as? [String], ["i-1", "i-2"])
+        XCTAssertEqual(full["inputs"] as? [String: String], ["repo": "r-1"])
+        XCTAssertEqual(full["effort"] as? String, "")
+        XCTAssertEqual(full["planMode"] as? Bool, true)
+        XCTAssertEqual(full["computerUse"] as? Bool, false)
+    }
+
+    func testNewAgentNestsItsFacetsWithWholeTriggers() throws {
+        let daily = TriggerWhen.schedule(ScheduleTrigger(interval: "daily", minuteOfDay: 540))
+        let object = try json(SessionsSendInput.newAgent(
+            teamId: "t-1",
+            deviceId: "dev-1",
+            options: SessionLaunchOptions(account: "p-1"),
+            agent: AgentFacetsInput(
+                name: "Caretaker", icon: "bot", color: "#4f46e5",
+                instructions: "Keep the board tidy",
+                triggers: [AgentTriggerInput(when: daily)]
+            )
+        ))
+        XCTAssertEqual(object.keys.sorted(), ["account", "agent", "deviceId", "teamId"])
+        let agent = try XCTUnwrap(object["agent"] as? [String: Any])
+        XCTAssertEqual(
+            agent.keys.sorted(), ["color", "icon", "instructions", "name", "triggers"]
+        )
+        let trigger = try XCTUnwrap((agent["triggers"] as? [[String: Any]])?.first)
+        XCTAssertNil(trigger["id"])
+        XCTAssertEqual(trigger["kind"] as? String, "schedule")
+        XCTAssertEqual(trigger["minuteOfDay"] as? Int, 540)
+        XCTAssertEqual(trigger["enabled"] as? Bool, true)
+    }
+
+    func testChildAndMessageFormsCarryOnlyTheirKeys() throws {
+        let child = try json(SessionsSendInput.child(parentId: "s-1", deviceId: "dev-2", text: "Part two"))
+        XCTAssertEqual(child.keys.sorted(), ["deviceId", "parentId", "text"])
+
+        let message = try json(SessionsSendInput.message(sessionId: "s-1", text: "Ship it"))
+        XCTAssertEqual(message.keys.sorted(), ["sessionId", "text"])
+        let files = try json(SessionsSendInput.message(sessionId: "s-1", attachmentIds: ["att-1"]))
+        XCTAssertEqual(files.keys.sorted(), ["attachmentIds", "sessionId"])
+    }
+
+    func testSendResultDecodesWithAndWithoutAMessage() throws {
+        let withMessage = try JSONDecoder().decode(
+            SessionsSendResult.self,
+            from: Data(#"{"sessionId":"s-1","messageId":"m-1","txid":42}"#.utf8)
+        )
+        XCTAssertEqual(withMessage, SessionsSendResult(sessionId: "s-1", messageId: "m-1"))
+        let start = try JSONDecoder().decode(
+            SessionsSendResult.self,
+            from: Data(#"{"sessionId":"s-2","messageId":null,"txid":43}"#.utf8)
+        )
+        XCTAssertNil(start.messageId)
+    }
+
+    func testAnswerOmitsTheUnusedHalf() throws {
+        let question = try json(AnswerMessageInput(
+            messageId: "m-1", answer: "Board A", decision: nil, feedback: nil
+        ))
+        XCTAssertEqual(question.keys.sorted(), ["answer", "messageId"])
+        let plan = try json(AnswerMessageInput(
+            messageId: "m-2", answer: nil, decision: .rejected, feedback: "Smaller steps"
+        ))
+        XCTAssertEqual(plan.keys.sorted(), ["decision", "feedback", "messageId"])
+        XCTAssertEqual(plan["decision"] as? String, "rejected")
+    }
+
+    // Omit keeps, an explicit null clears (`account` / `model` only), and an
+    // empty trigger array still travels.
+    func testUpdateAgentOmitVersusNull() throws {
+        let empty = try json(UpdateAgentInput(sessionId: "ag-1", patch: AgentPatch()))
+        XCTAssertEqual(empty.keys.sorted(), ["sessionId"])
+        XCTAssertTrue(AgentPatch().isEmpty)
+
+        let cleared = try json(UpdateAgentInput(
+            sessionId: "ag-1",
+            patch: AgentPatch(name: "Renamed", triggers: [], account: .some(nil), model: .some(nil))
+        ))
+        XCTAssertEqual(cleared.keys.sorted(), ["account", "model", "name", "sessionId", "triggers"])
+        XCTAssertTrue(cleared["account"] is NSNull)
+        XCTAssertTrue(cleared["model"] is NSNull)
+        XCTAssertEqual((cleared["triggers"] as? [Any])?.count, 0)
+
+        let moved = try json(UpdateAgentInput(
+            sessionId: "ag-1", patch: AgentPatch(deviceId: "dev-2", account: .some("p-2"), sortOrder: 3)
+        ))
+        XCTAssertEqual(moved["deviceId"] as? String, "dev-2")
+        XCTAssertEqual(moved["account"] as? String, "p-2")
+        XCTAssertEqual(moved["sortOrder"] as? Double, 3)
+    }
+
+    func testPullRequestMergeOmitsAnUnsetStack() throws {
+        let single = try json(MergePullRequestInput(pullRequestId: "pr-1", stack: nil))
+        XCTAssertEqual(single.keys.sorted(), ["pullRequestId"])
+        let stack = try json(MergePullRequestInput(pullRequestId: "pr-1", stack: true))
+        XCTAssertEqual(stack["stack"] as? Bool, true)
+
+        let result = try JSONDecoder().decode(
+            PullRequestMergeResult.self,
+            from: Data(#"{"merged":false,"error":"Conflicts","txid":1}"#.utf8)
+        )
+        XCTAssertEqual(result, PullRequestMergeResult(merged: false, error: "Conflicts"))
+    }
+}

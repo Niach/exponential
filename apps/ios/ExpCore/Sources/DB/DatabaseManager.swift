@@ -2420,7 +2420,169 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v68 (EXP-1291 Threads v2): ONE session tree replaces runs and
+        // threads. HARD BREAK, no data carried over: `coding_sessions`,
+        // `threads` and `thread_items` drop with their cursors, and the five
+        // new shapes get brand-new tables (no offset row yet, so they
+        // snapshot from scratch — the v27/v66 precedent). PR and branch
+        // state left `issues` (it lives on `pull_requests`) and actions lost
+        // their repository, triggers and description, so those columns drop in place (no
+        // index covers them; SQLite >= 3.35, the v60 precedent) — surviving
+        // rows keep their cursors. Guarded so fresh installs and re-runs
+        // converge.
+        migrator.registerMigration("v68_session_tree") { db in
+            for table in ["thread_items", "threads", "coding_sessions"] {
+                try db.execute(sql: "DROP TABLE IF EXISTS \"\(table)\"")
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    DELETE FROM "electric_offsets"
+                    WHERE "shape" IN ('coding-sessions', 'threads', 'thread-items')
+                    """)
+            }
+            // `issue_drafts.thread_id` (v67) became `session_id` (the root
+            // session); the drafts re-snapshot so synced rows carry it.
+            if try db.tableExists("issue_drafts") {
+                let existing = Set(try db.columns(in: "issue_drafts").map(\.name))
+                if existing.contains("thread_id") {
+                    try db.alter(table: "issue_drafts") { t in
+                        t.rename(column: "thread_id", to: "session_id")
+                    }
+                } else if !existing.contains("session_id") {
+                    try db.alter(table: "issue_drafts") { t in
+                        t.add(column: "session_id", .text)
+                    }
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = 'issue-drafts'
+                        """)
+                }
+            }
+            let deadColumns = [
+                "issues": ["pr_url", "pr_number", "pr_state", "branch", "pr_merged_at", "pr_base_branch"],
+                "actions": ["repository_id", "triggers", "description"],
+            ]
+            for (table, columns) in deadColumns {
+                guard try db.tableExists(table) else { continue }
+                let existing = Set(try db.columns(in: table).map(\.name))
+                for column in columns where existing.contains(column) {
+                    try db.alter(table: table) { t in
+                        t.drop(column: column)
+                    }
+                }
+            }
+            try createSessionTreeTables(db)
+        }
+
         return migrator
+    }
+
+    /// EXP-1291: the five session-tree tables, mirroring the shape
+    /// allowlists (`/api/shapes/{sessions,session-issues,messages,
+    /// pull-requests,pull-request-issues}`). jsonb columns (guide, triggers,
+    /// blocked, action_inputs, card) are stored as their JSON text; every
+    /// bool is `.boolean` so partial updates coerce the wire's "t"/"f".
+    static func createSessionTreeTables(_ db: Database) throws {
+        try db.create(table: "sessions", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("parent_id", .text).indexed()
+            t.column("root_id", .text).notNull().indexed()
+            t.column("depth", .integer).notNull().defaults(to: 0)
+            // thread | agent (contract sessionKind).
+            t.column("kind", .text).notNull().defaults(to: "thread")
+            t.column("user_id", .text).notNull()
+            t.column("device_id", .text).notNull()
+            t.column("cli", .text)
+            t.column("account", .text)
+            t.column("model", .text)
+            t.column("effort", .text)
+            t.column("plan_mode", .boolean).notNull().defaults(to: false)
+            t.column("computer_use", .boolean).notNull().defaults(to: false)
+            t.column("ultracode", .boolean).notNull().defaults(to: false)
+            t.column("repository_id", .text)
+            t.column("branch", .text)
+            // queued | running | idle | ended (contract sessionStatus).
+            t.column("status", .text).notNull().defaults(to: "queued")
+            t.column("busy", .boolean).notNull().defaults(to: false)
+            t.column("needs_input", .boolean).notNull().defaults(to: false)
+            t.column("blocked", .text)
+            t.column("started_at", .text)
+            t.column("last_turn_at", .text)
+            t.column("ended_at", .text)
+            t.column("shared", .boolean).notNull().defaults(to: false)
+            t.column("title", .text)
+            t.column("guide", .text)
+            t.column("action_id", .text)
+            t.column("action_name", .text)
+            t.column("action_inputs", .text)
+            t.column("spawned_by_session_id", .text)
+            t.column("name", .text)
+            t.column("icon", .text)
+            t.column("color", .text)
+            t.column("triggers", .text).notNull().defaults(to: "[]")
+            t.column("sort_order", .double).notNull().defaults(to: 0)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "session_issues", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            // The ROOT session.
+            t.column("session_id", .text).notNull().indexed()
+            t.column("issue_id", .text).notNull().indexed()
+            t.column("team_id", .text).notNull().indexed()
+            // user | agent (contract sessionIssueSource).
+            t.column("source", .text).notNull().defaults(to: "user")
+            t.column("added_by", .text)
+            t.column("added_by_session_id", .text)
+            t.column("sort_order", .double).notNull().defaults(to: 0)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "messages", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("session_id", .text).notNull().indexed()
+            t.column("root_id", .text).notNull().indexed()
+            t.column("team_id", .text).notNull().indexed()
+            // user | agent | system (contract messageAuthorKind).
+            t.column("author_kind", .text).notNull()
+            t.column("author_id", .text)
+            t.column("body", .text).notNull().defaults(to: "")
+            t.column("card", .text)
+            t.column("answered_at", .text)
+            t.column("consumed_at", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "pull_requests", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("root_session_id", .text).indexed()
+            t.column("session_id", .text)
+            t.column("repository_id", .text).notNull()
+            t.column("number", .integer).notNull()
+            t.column("url", .text).notNull()
+            t.column("title", .text)
+            t.column("head", .text).notNull()
+            t.column("base", .text).notNull()
+            t.column("base_pull_request_id", .text)
+            // open | closed | merged (contract prState).
+            t.column("state", .text).notNull().defaults(to: "open")
+            t.column("merged_at", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
+        try db.create(table: "pull_request_issues", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("pull_request_id", .text).notNull().indexed()
+            t.column("issue_id", .text).notNull().indexed()
+            t.column("team_id", .text).notNull().indexed()
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// EXP-1082: the `workflow_events` table — shared by the v1 base schema
@@ -2446,15 +2608,17 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.
             try db.execute(sql: "DELETE FROM issue_drafts")
-            // EXP-1284: thread items point at issues/sessions — child before
-            // its thread, both before the rows they reference.
-            try db.execute(sql: "DELETE FROM thread_items")
-            try db.execute(sql: "DELETE FROM threads")
+            // EXP-1291: the session tree's children before the sessions they
+            // hang off, all before the issues they reference.
+            try db.execute(sql: "DELETE FROM pull_request_issues")
+            try db.execute(sql: "DELETE FROM pull_requests")
+            try db.execute(sql: "DELETE FROM messages")
+            try db.execute(sql: "DELETE FROM session_issues")
+            try db.execute(sql: "DELETE FROM sessions")
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")
             try db.execute(sql: "DELETE FROM actions")
-            try db.execute(sql: "DELETE FROM coding_sessions")
             try db.execute(sql: "DELETE FROM notifications")
             try db.execute(sql: "DELETE FROM issue_events")
             try db.execute(sql: "DELETE FROM issue_subscribers")

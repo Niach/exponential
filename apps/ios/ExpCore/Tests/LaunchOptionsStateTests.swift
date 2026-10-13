@@ -115,4 +115,29 @@ final class LaunchOptionsStateTests: XCTestCase {
         state.reconcile(device: mac)
         XCTAssertEqual(state.model, "sonnet")
     }
+
+    // EXP-1291: the options in `sessions.send` form — the agent rides as
+    // `cli`, the claude-only toggle stays claude-only, nothing picked = no
+    // MCP list, and an untouched computer-use flip stays off the wire.
+    func testBuildOptionsIsTheSendForm() {
+        let state = LaunchOptionsState()
+        state.planMode = true
+        state.ultracode = true
+        let claude = state.buildOptions()
+        XCTAssertEqual(claude.cli, "claude")
+        XCTAssertEqual(claude.planMode, true)
+        XCTAssertEqual(claude.ultracode, true)
+        XCTAssertNil(claude.mcpServerIds)
+        XCTAssertNil(claude.computerUse)
+        XCTAssertNil(claude.account)
+
+        state.selectAgent("codex", device: device(id: "mac", agents: ["claude", "codex"]))
+        state.mcpServerIds = ["m-1"]
+        state.computerUse = false
+        let codex = state.buildOptions()
+        XCTAssertEqual(codex.cli, "codex")
+        XCTAssertNil(codex.ultracode)
+        XCTAssertEqual(codex.mcpServerIds, ["m-1"])
+        XCTAssertEqual(codex.computerUse, false)
+    }
 }

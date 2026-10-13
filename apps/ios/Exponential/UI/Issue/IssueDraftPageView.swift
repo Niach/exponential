@@ -3,7 +3,7 @@ import ExpCore
 import SwiftUI
 
 /// EXP-1170 — the New issue page: a DRAFT in the phone issue face's layout
-/// (`IssueFaceView` as hosted by `WorkScreen`), identical ×4. The differences
+/// (`IssueFaceView` as hosted by `IssueScreen`), identical ×4. The differences
 /// are the whole spec: the header's identifier slot reads
 /// `IssueDraftPage.header` (collapsing over the typed title), the trailing
 /// cluster is `Create` alone (EXP-1239: no `×` beside the Back), and the body is
@@ -354,18 +354,18 @@ struct IssueDraftPageView: View {
 
                     // EXP-1284: a "New issue in this thread" draft names
                     // its thread (kept across leave + reopen from Drafts).
-                    if let threadTitle = vm.threadTitle {
+                    if let thread = vm.thread {
                         HStack(spacing: 6) {
-                            Text(ThreadViews.inThreadPrefix)
+                            Text(draftInThreadPrefix)
                                 .font(.footnote)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                                 .fixedSize()
-                            ThreadChip(title: threadTitle, live: false) {}
+                            IssueThreadChip(thread: thread) {}
                                 .allowsHitTesting(false)
                             Spacer(minLength: 0)
                         }
                         .accessibilityElement(children: .combine)
-                        .accessibilityLabel(ThreadViews.inThreadLabel(threadTitle))
+                        .accessibilityLabel("\(draftInThreadPrefix) \(thread.title)")
                         .accessibilityIdentifier("issue-draft-thread")
                     }
 
@@ -451,3 +451,7 @@ struct IssueDraftPageView: View {
         }
     }
 }
+
+/// EXP-1284: the lead word of a draft's `In <thread>` line (web + Android
+/// read the same word).
+private let draftInThreadPrefix = "In"

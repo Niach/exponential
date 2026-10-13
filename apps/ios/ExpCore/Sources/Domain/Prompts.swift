@@ -8,8 +8,8 @@ import Foundation
 /// filled value into the card's row.
 ///
 /// Prompts locked elsewhere keep their own mirror (`IssueDraftPage`,
-/// `BlockedStart`, `PrStack`, `ClosePrCopy`, the steer `/clear` confirm,
-/// `AgentAccountsRows`, `GithubCopy`).
+/// `ClosePrCopy`, the steer `/clear` confirm, `AgentAccountsRows`,
+/// `GithubCopy`, `AgentSettings.Copy.deleteConfirm`).
 
 /// An answer's role (fixture `roles`).
 public enum PromptRole: String, CaseIterable, Sendable {

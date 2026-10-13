@@ -37,9 +37,7 @@ struct InboxListContent: View {
                     ForEach(viewModel.entries) { entry in
                         switch entry {
                         case .issue(let group):
-                            // EXP-933: an agent's message on the issue (its
-                            // report) opens the issue's Results face.
-                            NavigationLink(value: issueRoute(group)) {
+                            NavigationLink(value: AppRoute.issue(accountId: accountId, id: group.issue.id)) {
                                 streamRow(group)
                             }
                             .buttonStyle(.plain)
@@ -58,9 +56,9 @@ struct InboxListContent: View {
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("notification-row")
                         case .blockedRun(let entry):
-                            // A blocked run (EXP-980) opens the RUN. A row
-                            // whose session has been pruned has nowhere to go,
-                            // so it only marks itself read.
+                            // A blocked session (EXP-980) opens the SESSION. A
+                            // row whose session has been pruned has nowhere to
+                            // go, so it only marks itself read.
                             if let sessionId = entry.sessionId {
                                 NavigationLink(
                                     value: AppRoute.agentSession(
@@ -92,12 +90,6 @@ struct InboxListContent: View {
             // row was fully hidden under it before.
             .tabBarBottomInset()
         }
-    }
-
-    private func issueRoute(_ group: InboxViewModel.Group) -> AppRoute {
-        let face = NotificationRouting.issueFace(latestType: group.latest?.type)
-        if face == .issue { return .issue(accountId: accountId, id: group.issue.id) }
-        return .issueFace(accountId: accountId, id: group.issue.id, face: face)
     }
 
     private func streamRow(_ group: InboxViewModel.Group) -> some View {

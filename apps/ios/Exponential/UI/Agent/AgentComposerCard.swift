@@ -15,12 +15,12 @@ import UIKit
 ///   (the host mounts `EditorAutocompleteMenu` under the card);
 /// - strip: the pending images (the steer composer's tiles + markers) and,
 ///   since wave D, the pending files (a file tile each);
-/// - tools: EXP-1249 — the ONE "+" (`ComposerPlusMenu`, a bottom sheet of the
-///   `composer-menu.json` rows: Implement issue › · Run action › (SLOP-28:
-///   pushed search-list pages) · Add file or image | Effort › · Subagents ›
-///   · Ultracode | MCP servers › · Computer use); the submit is the round send GLYPH (EXP-827: icon-only
-///   on every client), whose contract title ("Start chat" / "Start coding" /
-///   "Start batch · N" / "Run action") is its accessibility name.
+/// - tools: EXP-1249 — the ONE "+" (`ComposerPlusMenu`, a bottom sheet:
+///   Implement issue › · Run action › (SLOP-28: pushed search-list pages) ·
+///   Add file or image | Effort › · Ultracode | MCP servers › · Computer
+///   use); the submit is the round send GLYPH (EXP-827: icon-only on every
+///   client), whose contract title ("Start chat" / "Start coding" / "Run
+///   action") is its accessibility name.
 struct AgentComposerCard: View {
     let model: AgentComposerModel
     /// Where the composer routes a tapped `#EXP-1` chip.
@@ -40,7 +40,6 @@ struct AgentComposerCard: View {
     @State private var showMenu = false
     @State private var menuPick: ComposerMenu.RowId?
     @State private var showEffortPicker = false
-    @State private var showSubagentPicker = false
     @State private var showMcpPicker = false
     /// The team's MCP servers (`mcpServers.list`), read once per team.
     @State private var mcpServers: [McpServerRow] = []
@@ -113,7 +112,6 @@ struct AgentComposerCard: View {
                 )
             }
             .background { effortPicker }
-            .background { subagentPicker }
             .background { mcpPicker }
             .photosPicker(
                 isPresented: $showPhotoPicker,
@@ -148,15 +146,15 @@ struct AgentComposerCard: View {
         } submit: {
             // EXP-827: the round send GLYPH, icon-only ×4 — the subject chips
             // already say what a send starts, and the contract's per-subject
-            // label (`Start coding` / `Start batch · 3` / `Run action`) stays
+            // label (`Start coding` / `Run action`) stays
             // the button's NAME for VoiceOver. Same
             // `GlassComposerSubmitButton` the comment and steer composers wear.
             GlassComposerSubmitButton(
                 AppIcons.uiSubmit,
                 accessibilityLabel: model.submitTitle,
                 enabled: model.canSubmit,
-                // EXP-1271 (D8 PENDING): from the press until the run lands.
-                pending: model.sending || model.starting != nil
+                // EXP-1271 (D8 PENDING): from the press until the send answers.
+                pending: model.sending
             ) {
                 model.submit()
             }
@@ -188,10 +186,9 @@ struct AgentComposerCard: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) { showAttachMenu = true }
         case .effort: showEffortPicker = true
-        case .subagents: showSubagentPicker = true
         case .mcpServers: showMcpPicker = true
         // Implement issue and Run action are pages of the sheet itself.
-        case .implementIssue, .runAction, .ultracode, .computerUse: break
+        case .implementIssue, .runAction, .subagents, .ultracode, .computerUse: break
         }
     }
 
@@ -212,23 +209,6 @@ struct AgentComposerCard: View {
             open: $showEffortPicker,
             hideTrigger: true,
             sheetIdentifier: "agent-effort-picker",
-            trigger: { EmptyView() }
-        )
-    }
-
-    private var subagentPicker: some View {
-        let launch = model.launch
-        return GlassPicker(
-            items: LaunchVocabulary.subagentModelValues().map {
-                PickerItem(value: $0, label: LaunchVocabulary.subagentModelLabel($0))
-            },
-            mode: .single,
-            value: [launch.subagentModel],
-            onChange: { picked in if let value = picked.first { launch.subagentModel = value } },
-            title: "Subagents",
-            open: $showSubagentPicker,
-            hideTrigger: true,
-            sheetIdentifier: "agent-subagent-picker",
             trigger: { EmptyView() }
         )
     }
@@ -261,7 +241,7 @@ struct AgentComposerCard: View {
     @ViewBuilder
     private var leading: some View {
         // EXP-1271 (EXP-1259 D11): after Start the card LEADS with the
-        // starting row until the run's row lands (after the pending delay).
+        // starting row until the send answers (after the pending delay).
         if let starting = model.starting, startingShown {
             ComposerStartingRow(starting: starting)
                 .padding(.horizontal, 12)
@@ -395,19 +375,12 @@ struct ComposerStartingRow: View {
 /// identifiers (`agent-composer-chip-action`,
 /// `agent-composer-chip-issue-<IDENT>`), so a pick still proves itself where
 /// the screenshot suites look for it; only their place changed.
-///
-/// EXP-1233: the Fix merge conflicts builtin with a PICKED pull request is
-/// the third verb — "Fix merge conflicts" leads and the chips are the PR's
-/// OWN issue chips (the ones "Implement" draws, a batch PR's several), so a
-/// refused merge lands on a headline that names the work. Their ✕ clears the
-/// PICK (back to "Run" + the action chip, the card's picker), never the action.
 struct AgentComposerHeadline: View {
     let model: AgentComposerModel
 
     var body: some View {
         let issues = model.checkedOptions
         let action = model.selectedAction
-        let fixPr = model.fixConflictsPr
         HStack(alignment: .center, spacing: 8) {
             Text(model.headline)
                 .font(.title2.weight(.semibold))
@@ -417,12 +390,10 @@ struct AgentComposerHeadline: View {
                 .accessibilityIdentifier("agent-composer-headline-verb")
             if action != nil || !issues.isEmpty {
                 // Several issue chips scroll sideways rather than wrapping —
-                // a batch must not push the field off the first screen.
+                // several issues must not push the field off the first screen.
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        if let fixPr {
-                            ForEach(fixPr.issues) { prIssueChip($0) }
-                        } else if let action {
+                        if let action {
                             actionChip(action)
                         } else {
                             ForEach(issues) { issueChip($0) }
@@ -448,21 +419,6 @@ struct AgentComposerHeadline: View {
             title: option.title,
             status: IssueStatus.from(option.status),
             onRemove: { model.toggleIssue(option.id) }
-        )
-        .accessibilityIdentifier(id)
-    }
-
-    /// EXP-1233: one of the picked pull request's issues — the SAME chip and
-    /// identifiers as a checked issue's; the ✕ clears the pull request.
-    private func prIssueChip(_ issue: FixConflictsPr.Issue) -> some View {
-        let id = "agent-composer-chip-issue-\(issue.identifier ?? issue.id)"
-        return IssueChip(
-            identifier: issue.identifier,
-            title: issue.title,
-            status: IssueStatus.from(issue.status),
-            onRemove: { model.clearPullRequest() },
-            removeLabel: "Clear the pull request",
-            removeIdentifier: "\(id)-remove"
         )
         .accessibilityIdentifier(id)
     }

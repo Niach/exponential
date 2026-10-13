@@ -290,14 +290,24 @@ struct DeviceSettingsSheet: View {
         }
         return AgentDraft(
             model: model,
-            subagentModel: LaunchOptionsState.seedSubagentModel(
-                advertised?.subagentModel, for: agent
-            ),
+            subagentModel: seedSubagentModel(advertised?.subagentModel, for: agent),
             effort: effort,
             ultracode: agent == "claude" && (advertised?.ultracode ?? false),
             planMode: LaunchVocabulary.supportsPlanMode(agent) && (advertised?.planMode ?? false),
             autoRotateAccounts: advertised?.autoRotateAccounts
         )
+    }
+
+    /// EXP-981: an advertised subagent model; blank, unknown or an agent
+    /// without the field = the "CLI default" row.
+    private static func seedSubagentModel(_ value: String?, for agent: String) -> String {
+        guard LaunchVocabulary.supportsSubagentModel(agent),
+              let value, !value.isEmpty,
+              DomainContract.codingModelValues.contains(value)
+        else {
+            return LaunchVocabulary.cliDefault
+        }
+        return value
     }
 
     // MARK: - Name

@@ -98,7 +98,9 @@ final class GettingStartedProgress {
             // team: the step is done for everyone, not only for whoever
             // linked it.
             next.model.githubInstalled = boards.contains { $0.repositoryId != nil }
-            next.model.hasCodingSession = try CodingSessionEntity.fetchAll(db).contains { $0.teamId == teamId }
+            next.model.hasCodingSession = try SessionEntity
+                .filter(Column("team_id") == teamId)
+                .fetchCount(db) > 0
             let members = try TeamMemberEntity.fetchAll(db).filter { $0.teamId == teamId }
             let invites = try TeamInviteEntity.fetchAll(db).filter { $0.teamId == teamId }
             next.model.hasInvitedTeam = members.count > 1 || !invites.isEmpty

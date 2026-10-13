@@ -1,49 +1,8 @@
 import Foundation
 
 // Mirrors apps/web/src/lib/trpc/repositories.ts. Repositories are server-only
-// (NOT an Electric shape) — read on demand for the native "Start coding"
-// launcher: resolve the issue's repo, then mint a short-lived push token.
-
-/// The repo backing an issue's board (v4: the board's `repositoryId`).
-public struct RepoForIssue: Decodable, Sendable {
-    public let repositoryId: String
-    public let fullName: String
-    public let defaultBranch: String
-
-    public init(repositoryId: String, fullName: String, defaultBranch: String) {
-        self.repositoryId = repositoryId
-        self.fullName = fullName
-        self.defaultBranch = defaultBranch
-    }
-}
-
-/// A short-lived GitHub App installation token for a repo (never persisted).
-public struct InstallationToken: Decodable, Sendable {
-    public let token: String
-    public let fullName: String
-    public let defaultBranch: String
-    /// Server-reported expiry; not consumed client-side (the token is used
-    /// immediately and re-minted per session). Tolerates string or numeric JSON.
-    public let expiresAt: String?
-
-    enum CodingKeys: String, CodingKey {
-        case token, fullName, defaultBranch, expiresAt
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        token = try c.decode(String.self, forKey: .token)
-        fullName = try c.decode(String.self, forKey: .fullName)
-        defaultBranch = try c.decode(String.self, forKey: .defaultBranch)
-        if let s = try? c.decode(String.self, forKey: .expiresAt) {
-            expiresAt = s
-        } else if let n = try? c.decode(Double.self, forKey: .expiresAt) {
-            expiresAt = String(n)
-        } else {
-            expiresAt = nil
-        }
-    }
-}
+// (NOT an Electric shape) — read on demand by the settings registry and the
+// repo pickers.
 
 /// A board backed by a repo (v4 `repositories.list().boards[]`). Powers the
 /// settings "used by" chips and mobile repo pickers.
@@ -112,74 +71,6 @@ public struct RepoBranches: Decodable, Sendable {
     }
 }
 
-/// EXP-1244: one open pull request listed live from GitHub
-/// (`repositories.openPulls`), the Reviews queue's repository bands.
-public struct OpenPull: Decodable, Sendable, Equatable, Identifiable {
-    public let number: Int
-    public let url: String
-    public let title: String
-    public let branch: String
-    public let baseBranch: String
-    public let draft: Bool
-    public let authorLogin: String?
-    public let authorAvatarUrl: String?
-    public let createdAt: String?
-
-    public var id: String { url }
-
-    public init(
-        number: Int, url: String, title: String = "", branch: String = "",
-        baseBranch: String = "", draft: Bool = false, authorLogin: String? = nil,
-        authorAvatarUrl: String? = nil, createdAt: String? = nil
-    ) {
-        self.number = number
-        self.url = url
-        self.title = title
-        self.branch = branch
-        self.baseBranch = baseBranch
-        self.draft = draft
-        self.authorLogin = authorLogin
-        self.authorAvatarUrl = authorAvatarUrl
-        self.createdAt = createdAt
-    }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        number = try c.decode(Int.self, forKey: .number)
-        url = try c.decode(String.self, forKey: .url)
-        title = (try? c.decode(String.self, forKey: .title)) ?? ""
-        branch = (try? c.decode(String.self, forKey: .branch)) ?? ""
-        baseBranch = (try? c.decode(String.self, forKey: .baseBranch)) ?? ""
-        draft = (try? c.decode(Bool.self, forKey: .draft)) ?? false
-        authorLogin = try? c.decodeIfPresent(String.self, forKey: .authorLogin)
-        authorAvatarUrl = try? c.decodeIfPresent(String.self, forKey: .authorAvatarUrl)
-        createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case number, url, title, branch, baseBranch, draft, authorLogin, authorAvatarUrl, createdAt
-    }
-}
-
-/// One team repo's open pull requests (`repositories.openPulls` `repos[]`).
-public struct OpenPullsRepo: Decodable, Sendable, Equatable {
-    public let repositoryId: String
-    public let fullName: String
-    public let pulls: [OpenPull]
-
-    public init(repositoryId: String, fullName: String, pulls: [OpenPull]) {
-        self.repositoryId = repositoryId
-        self.fullName = fullName
-        self.pulls = pulls
-    }
-}
-
-private struct OpenPullsResult: Decodable { let repos: [OpenPullsRepo] }
-private struct MergePullInput: Encodable {
-    let repositoryId: String
-    let prNumber: Int
-}
-
 /// `repositories.add` returns the upserted registry row; only its id matters.
 private struct AddRepoResult: Decodable {
     let repository: AddedRepo?
@@ -187,7 +78,6 @@ private struct AddRepoResult: Decodable {
     struct AddedRepo: Decodable { let id: String }
 }
 
-private struct IssueIdInput: Encodable { let issueId: String }
 private struct RepositoryIdInput: Encodable { let repositoryId: String }
 private struct RepoTeamIdInput: Encodable { let teamId: String }
 private struct AddRepoInput: Encodable {
@@ -202,28 +92,6 @@ public final class RepositoriesApi: Sendable {
 
     public init(trpc: TrpcClient) {
         self.trpc = trpc
-    }
-
-    /// Resolve the repo backing an issue's board (v4: the board's
-    /// `repositoryId`). `repositories.forIssue` is a `.query`, so this uses the
-    /// input-bearing GET helper. `nil` only for dangling data (a valid issue
-    /// always has a backing repo).
-    public func forIssue(accountId: String, issueId: String) async throws -> RepoForIssue? {
-        try await trpc.query(
-            accountId: accountId,
-            path: "repositories.forIssue",
-            input: IssueIdInput(issueId: issueId)
-        )
-    }
-
-    /// Mint a short-lived, repo-scoped GitHub App installation token (session-
-    /// gated mutation). Used to build the worktree's token-embedded push remote.
-    public func installationToken(accountId: String, repositoryId: String) async throws -> InstallationToken {
-        try await trpc.mutation(
-            accountId: accountId,
-            path: "repositories.installationToken",
-            input: RepositoryIdInput(repositoryId: repositoryId)
-        )
     }
 
     // MARK: - Team registry (settings surface, masterplan §6)
@@ -283,41 +151,6 @@ public final class RepositoriesApi: Sendable {
             accountId: accountId,
             path: "repositories.remove",
             input: RepositoryIdInput(repositoryId: repositoryId)
-        )
-    }
-
-    /// Middle tier of remote Changes visibility (§4.8, L18): the issue's
-    /// `exp/<IDENTIFIER>` branch compared against the repo default branch,
-    /// returned in the shared `prFiles` shape so the diff renderer is reused.
-    /// `nil` ⇒ the branch was never pushed (or no repo/PR yet). `.query`, so
-    /// this uses the GET-with-input helper.
-    public func branchDiff(accountId: String, issueId: String) async throws -> PrFilesResult? {
-        try await trpc.query(
-            accountId: accountId,
-            path: "repositories.branchDiff",
-            input: IssueIdInput(issueId: issueId)
-        )
-    }
-
-    /// EXP-1244: every team repo's open pull requests, live from GitHub
-    /// (server-cached ~60s). The Reviews queue drops the ones an issue or
-    /// run links (`ReviewsQueue.build`).
-    public func openPulls(accountId: String, teamId: String) async throws -> [OpenPullsRepo] {
-        let result: OpenPullsResult = try await trpc.query(
-            accountId: accountId,
-            path: "repositories.openPulls",
-            input: RepoTeamIdInput(teamId: teamId)
-        )
-        return result.repos
-    }
-
-    /// EXP-1244: squash-merge a pull request no issue or run links
-    /// (`repositories.mergePull`); throws when GitHub refuses it.
-    public func mergePull(accountId: String, repositoryId: String, prNumber: Int) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "repositories.mergePull",
-            input: MergePullInput(repositoryId: repositoryId, prNumber: prNumber)
         )
     }
 }

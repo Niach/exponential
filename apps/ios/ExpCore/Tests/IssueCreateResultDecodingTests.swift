@@ -20,8 +20,7 @@ final class IssueCreateResultDecodingTests: XCTestCase {
         "identifier":"EXP-42","title":"Mobile create","description":"lands on it",
         "status":"backlog","statusId":"status-1","priority":"none","assigneeId":"user-1",
         "creatorId":"user-1","source":"user","dueDate":"2026-08-22","sortOrder":1024,
-        "completedAt":null,"duplicateOfId":null,"prUrl":null,"prNumber":null,
-        "prState":null,"branch":null,"prMergedAt":null,
+        "completedAt":null,"duplicateOfId":null,
         "createdAt":"2026-08-22T07:00:00.000Z","updatedAt":"2026-08-22T07:00:00.000Z"},
         "txId":"1234","mentionedUserIds":[]}
         """)
@@ -58,7 +57,6 @@ final class IssueCreateResultDecodingTests: XCTestCase {
         "title":"With images","description":"stripped","status":"in_progress","statusId":null,
         "priority":"high","assigneeId":null,"creatorId":"user-1","source":"user",
         "dueDate":null,"sortOrder":null,"completedAt":null,"duplicateOfId":null,
-        "prUrl":null,"prNumber":null,"prState":null,"branch":null,"prMergedAt":null,
         "createdAt":"2026-08-22T07:00:00.000Z","updatedAt":"2026-08-22T07:00:00.000Z"}}
         """)
         let patched = try XCTUnwrap(result.issue).entity()

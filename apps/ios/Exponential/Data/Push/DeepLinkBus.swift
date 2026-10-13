@@ -1,5 +1,6 @@
 import ExpCore
 import Foundation
+import GRDB
 
 @Observable
 final class DeepLinkBus: @unchecked Sendable {
@@ -13,9 +14,6 @@ final class DeepLinkBus: @unchecked Sendable {
     // EXP-92 — where the account is known from the URL-host match, not a
     // userId). Wins over the userId mapping when set.
     var pendingIssueAccountId: String?
-    // EXP-933: the Work face the issue link opens on — `.guide` for an
-    // agent's targeted message (its report), `.issue` otherwise.
-    var pendingIssueFace: WorkFaceKind = .issue
     // A Stack card member tap: SWAP the issue on top of the stack instead of
     // pushing (web + desktop parity), so Back never walks the stack.
     var pendingIssueReplacesTop = false
@@ -28,16 +26,19 @@ final class DeepLinkBus: @unchecked Sendable {
     // server user id like the other push kinds.
     var pendingInbox = false
     var pendingInboxUserId: String?
-    // A session_blocked push tap (EXP-980): the run that hit a rate limit.
+    // A session_blocked push tap (EXP-980): the session that hit a rate limit.
     // Carries the recipient's server user id like the other push kinds, so a
     // multi-account device opens it under the account it was delivered to.
     var pendingSessionId: String?
     var pendingSessionUserId: String?
-    // EXP-1284: a tapped thread link in agent prose, under the account the
-    // prose belongs to.
+    // EXP-1284: a tapped thread link (EXP-1291: a root session's id), under
+    // the account it belongs to.
     var pendingThreadId: String?
     var pendingThreadAccountId: String?
-    // EXP-825: a `/t/{team}/agent` universal link — the team's Agent page,
+    // The page the thread opens on (a PR body's `?view=guide` → `.guide`);
+    // nil = its Conversation.
+    var pendingThreadPage: ThreadPage?
+    // EXP-825: a `/t/{team}/agent` universal link — Home in that team,
     // under the signed-in account whose host matched the URL.
     var pendingAgentTeamSlug: String?
     var pendingAgentAccountId: String?
@@ -47,20 +48,17 @@ final class DeepLinkBus: @unchecked Sendable {
     // link and would re-open itself in a loop.
     var pendingExternalUrl: URL?
 
-    func navigateToIssue(_ issueId: String, userId: String? = nil, face: WorkFaceKind = .issue) {
+    func navigateToIssue(_ issueId: String, userId: String? = nil) {
         pendingIssueUserId = userId
         pendingIssueAccountId = nil
-        pendingIssueFace = face
         pendingIssueId = issueId
     }
 
     func navigateToIssue(
-        _ issueId: String, accountId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false,
-        commentId: String? = nil
+        _ issueId: String, accountId: String, replacingTop: Bool = false, commentId: String? = nil
     ) {
         pendingIssueUserId = nil
         pendingIssueAccountId = accountId
-        pendingIssueFace = face
         pendingIssueReplacesTop = replacingTop
         pendingIssueCommentId = commentId
         pendingIssueId = issueId
@@ -80,18 +78,37 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingSessionId = sessionId
     }
 
-    func navigateToThread(_ threadId: String, accountId: String) {
+    func navigateToThread(_ threadId: String, accountId: String, page: ThreadPage? = nil) {
         pendingThreadAccountId = accountId
+        pendingThreadPage = page
         pendingThreadId = threadId
     }
 
-    func consumeThread() -> (threadId: String, accountId: String)? {
+    /// EXP-1291: a `/t/{team}/sessions/{id}` link (the PR body footer, agent
+    /// prose). A ROOT opens its thread — on the Guide with `?view=guide` —
+    /// and so does an id this account has not synced (the thread screen
+    /// resolves or says not found); a CHILD opens its raw session.
+    func navigateToSessionLink(
+        _ sessionId: String, account: ServerAccount, guide: Bool, db: DatabaseManager
+    ) {
+        let row = (try? db.pool(forAccountId: account.id).read { db in
+            try SessionQueries.session(db: db, id: sessionId)
+        }) ?? nil
+        if let row, !row.isRoot {
+            navigateToSession(sessionId, userId: account.userId)
+        } else {
+            navigateToThread(sessionId, accountId: account.id, page: guide ? .guide : nil)
+        }
+    }
+
+    func consumeThread() -> (threadId: String, accountId: String, page: ThreadPage?)? {
         defer {
             pendingThreadId = nil
             pendingThreadAccountId = nil
+            pendingThreadPage = nil
         }
         guard let threadId = pendingThreadId else { return nil }
-        return (threadId, pendingThreadAccountId ?? "")
+        return (threadId, pendingThreadAccountId ?? "", pendingThreadPage)
     }
 
     func navigateToAgent(teamSlug: String, accountId: String) {
@@ -108,7 +125,6 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingIssueId = nil
         pendingIssueUserId = nil
         pendingIssueAccountId = nil
-        pendingIssueFace = .issue
         pendingIssueReplacesTop = false
         pendingIssueCommentId = nil
         return id

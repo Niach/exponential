@@ -1,23 +1,19 @@
 import Foundation
 
 // EXP-933: where a notification TAP lands — the push payload and the inbox
-// row read the same rules. An `agent_message` that names an issue is the
-// agent's REPORT on that issue, so it opens the issue's Work screen on its
-// Results face; an issue-less one stays an inbox row (EXP-801).
+// row read the same rules. An `agent_message` that names an issue opens that
+// issue; an issue-less one stays an inbox row (EXP-801). A blocked session
+// opens that session.
 
 public enum NotificationRouting {
-    /// The push payload's face hint for the Results face.
-    public static let resultsFaceHint = "results"
-
     /// Where a push tap goes.
     public enum PushTarget: Equatable, Sendable {
-        /// A blocked run (EXP-980).
+        /// A blocked session (EXP-980).
         case session(id: String)
-        /// My Work → Inbox (an issue-less agent message, or a blocked run
+        /// My Work → Inbox (an issue-less agent message, or a blocked session
         /// whose row was pruned).
         case inbox
-        /// An issue's Work screen, on `face`.
-        case issue(id: String, face: WorkFaceKind)
+        case issue(id: String)
         /// Nothing to open.
         case none
     }
@@ -36,22 +32,9 @@ public enum NotificationRouting {
             if let sessionId = nonEmpty(userInfo["sessionId"]) { return .session(id: sessionId) }
             return .inbox
         }
-        if type == DomainContract.notificationTypeAgentMessage {
-            // EXP-933: a targeted message carries its issue (and
-            // `face: results`); an issue-less one renders in the inbox alone.
-            guard let issueId = nonEmpty(userInfo["issueId"]) else { return .inbox }
-            return .issue(id: issueId, face: .guide)
-        }
-        if let issueId = nonEmpty(userInfo["issueId"]) {
-            let face: WorkFaceKind = userInfo["face"] as? String == resultsFaceHint ? .guide : .issue
-            return .issue(id: issueId, face: face)
-        }
+        if let issueId = nonEmpty(userInfo["issueId"]) { return .issue(id: issueId) }
+        // An issue-less agent message renders in the inbox alone.
+        if type == DomainContract.notificationTypeAgentMessage { return .inbox }
         return .none
-    }
-
-    /// The face an issue inbox row opens on, by its LATEST notification's
-    /// type: an agent's message → Results, everything else → Issue.
-    public static func issueFace(latestType: String?) -> WorkFaceKind {
-        latestType == DomainContract.notificationTypeAgentMessage ? .guide : .issue
     }
 }

@@ -54,6 +54,11 @@ import XCTest
 final class DatabaseMigrationTests: XCTestCase {
     private var tempDir: URL!
 
+    /// The last migration before v68 dropped `coding_sessions` / `threads` /
+    /// `thread_items` and the issue PR + action trigger columns — the tests of
+    /// the migrations that shaped them stop there.
+    private static let preSessionTree = "v67_issue_draft_thread"
+
     override func setUpWithError() throws {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("db-migration-tests-\(UUID().uuidString)", isDirectory: true)
@@ -126,7 +131,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread"]
+             "v67_issue_draft_thread", "v68_session_tree"]
         )
     }
 
@@ -179,7 +184,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread"]
+             "v67_issue_draft_thread", "v68_session_tree"]
         )
     }
 
@@ -313,7 +318,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let actionCols = try columnNames(pool, "actions")
         XCTAssertTrue(actionCols.contains("triggers"))
         XCTAssertFalse(actionCols.contains("trigger"))
@@ -344,7 +349,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(retired, 0)
         // Idempotent: a second pass is a no-op, never a duplicate column.
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v65 (SLOP-17): a store migrated through v64 carries
@@ -377,7 +382,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let sessionCols = try columnNames(pool, "coding_sessions")
         XCTAssertTrue(sessionCols.contains("trigger_id"))
         XCTAssertFalse(sessionCols.contains("automation_id"))
@@ -408,7 +413,7 @@ final class DatabaseMigrationTests: XCTestCase {
             )
         }
         XCTAssertEqual(retired, 0)
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v52 (EXP-630): a store migrated through v51 carries `issues` without
@@ -703,7 +708,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread"]
+             "v67_issue_draft_thread", "v68_session_tree"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -804,7 +809,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v61_one_path", "v62_device_doctor",
              "v63_issue_draft_id", "v64_attachment_as_file",
              "v65_trigger_id", "v66_threads",
-             "v67_issue_draft_thread"]
+             "v67_issue_draft_thread", "v68_session_tree"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1110,7 +1115,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let sessionCols = try pool.read { db in try db.columns(in: "coding_sessions") }
         for column in ["action_id", "action_name"] {
             let added = sessionCols.first { $0.name == column }
@@ -1317,7 +1322,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("device_id"))
         let deviceIdColumn = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "device_id" }
@@ -1369,7 +1374,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let columns = try columnNames(pool, "coding_sessions")
         // v38 (EXP-864) drops `summary` again at the end of the chain.
         XCTAssertFalse(columns.contains("summary"), "summary must be dropped by v38")
@@ -1423,7 +1428,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "issue_drafts"),
             ["id", "user_id", "team_id", "board_id", "title", "description",
              "status_id", "priority", "assignee_id", "label_ids", "due_date",
-             "created_at", "updated_at", "thread_id"]
+             "created_at", "updated_at", "session_id"]
         )
         let indexed = try pool.read { db in
             Set(try db.indexes(on: "issue_drafts").map(\.columns))
@@ -1472,7 +1477,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let column = try pool.read { db in
             try db.columns(in: "issues").first { $0.name == "pr_base_branch" }
         }
@@ -1546,7 +1551,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         XCTAssertTrue(try pool.read { db in try db.tableExists("threads") })
         XCTAssertTrue(try pool.read { db in try db.tableExists("thread_items") })
         XCTAssertEqual(
@@ -1596,6 +1601,87 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(untouched?["handle"] as String?, "h")
         XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false)
         // Idempotent: a re-run converges (ifNotExists everywhere).
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
+    }
+
+    // v68 (EXP-1291 Threads v2): a store migrated through v67 drops
+    // `coding_sessions` / `threads` / `thread_items` with their cursors (hard
+    // break, no data carried over), drops the issue PR + action trigger
+    // columns in place keeping the rows and their cursors, and gains the five
+    // empty session-tree tables. A re-run converges.
+    func testSessionTreeReplacesRunsAndThreads() throws {
+        let pool = try makePool("session-tree")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: Self.preSessionTree)
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "issues" ("id", "board_id", "title", "status", "priority",
+                    "pr_url", "pr_number", "pr_state", "branch", "pr_base_branch",
+                    "created_at", "updated_at")
+                VALUES ('i-1', 'b-1', 'Kept', 'backlog', 'none',
+                    'https://github.com/acme/repo/pull/1', 1, 'open', 'exp/EXP-1', 'main', '', '')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "actions" ("id", "team_id", "name", "repository_id", "triggers",
+                    "created_at", "updated_at")
+                VALUES ('a-1', 't-1', 'Ship', 'r-1', '[]', '', '')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "threads" ("id", "team_id", "created_at", "updated_at")
+                VALUES ('th-1', 't-1', '', '')
+                """)
+            try db.execute(sql: """
+                INSERT INTO "issue_drafts" ("id", "user_id", "team_id", "board_id", "title", "thread_id")
+                VALUES ('d-1', 'u-1', 't-1', 'b-1', 'Draft', 'th-1')
+                """)
+            for shape in ["coding-sessions", "threads", "thread-items", "issues", "actions", "issue-drafts"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        try pool.read { db in
+            for table in ["coding_sessions", "threads", "thread_items"] {
+                XCTAssertFalse(try db.tableExists(table), "\(table) must be gone")
+            }
+            for table in ["sessions", "session_issues", "messages", "pull_requests", "pull_request_issues"] {
+                XCTAssertTrue(try db.tableExists(table), "missing \(table)")
+            }
+            let shapes = try String.fetchAll(db, sql: "SELECT \"shape\" FROM \"electric_offsets\" ORDER BY 1")
+            XCTAssertEqual(shapes, ["actions", "issue-drafts", "issues"])
+            let handles = try String.fetchAll(
+                db, sql: "SELECT \"handle\" FROM \"electric_offsets\" ORDER BY \"shape\""
+            )
+            // `issue_drafts.thread_id` → `session_id` re-snapshots the drafts.
+            XCTAssertEqual(handles, ["h", "", "h"])
+            XCTAssertEqual(
+                try String.fetchOne(db, sql: "SELECT \"session_id\" FROM \"issue_drafts\" WHERE \"id\" = 'd-1'"),
+                "th-1"
+            )
+            XCTAssertEqual(
+                try String.fetchOne(db, sql: "SELECT \"title\" FROM \"issues\" WHERE \"id\" = 'i-1'"),
+                "Kept"
+            )
+            XCTAssertEqual(
+                try String.fetchOne(db, sql: "SELECT \"name\" FROM \"actions\" WHERE \"id\" = 'a-1'"),
+                "Ship"
+            )
+        }
+        let issueCols = try columnNames(pool, "issues")
+        for column in ["pr_url", "pr_number", "pr_state", "branch", "pr_merged_at", "pr_base_branch"] {
+            XCTAssertFalse(issueCols.contains(column), "issues.\(column)")
+        }
+        let actionCols = try columnNames(pool, "actions")
+        XCTAssertFalse(actionCols.contains("repository_id"))
+        XCTAssertFalse(actionCols.contains("triggers"))
+        XCTAssertFalse(actionCols.contains("description"))
+        XCTAssertFalse(try columnNames(pool, "issue_drafts").contains("thread_id"))
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
@@ -1624,7 +1710,7 @@ final class DatabaseMigrationTests: XCTestCase {
             }
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let column = try pool.read { db in
             try db.columns(in: "issue_drafts").first { $0.name == "thread_id" }
         }
@@ -1653,7 +1739,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(untouched?["handle"] as String?, "h")
         XCTAssertEqual(untouched?["needs_refetch"] as Bool?, false)
         // Idempotent: the guard makes a re-run a no-op.
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     func testFreshStoreHasIssueDraftId() throws {
@@ -1668,17 +1754,19 @@ final class DatabaseMigrationTests: XCTestCase {
         for table in ["teams", "boards", "issues", "labels", "issue_labels",
                       "users", "team_members", "team_invites", "comments",
                       "attachments", "notifications", "issue_subscribers",
-                      "issue_events", "coding_sessions", "actions",
-                      "issue_statuses", "pins", "issue_drafts",
-                      "threads", "thread_items", "electric_offsets"] {
+                      "issue_events", "actions", "issue_statuses", "pins",
+                      "issue_drafts", "sessions", "session_issues", "messages",
+                      "pull_requests", "pull_request_issues", "electric_offsets"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertTrue(exists, "missing table \(table)")
         }
         // The renamed-away tables must be gone on a fresh install.
         // SLOP-2: `automations` too — triggers live on their action now.
-        // SLOP-3: and the workflow tables.
+        // SLOP-3: and the workflow tables. EXP-1291: runs and threads became
+        // the session tree.
         for table in ["workspaces", "projects", "workspace_members", "workspace_invites", "releases",
-                      "automations", "workflows", "workflow_nodes", "workflow_events"] {
+                      "automations", "workflows", "workflow_nodes", "workflow_events",
+                      "coding_sessions", "threads", "thread_items"] {
             let exists = try pool.read { db in try db.tableExists(table) }
             XCTAssertFalse(exists, "legacy table \(table) must not exist")
         }
@@ -1694,17 +1782,17 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(try columnNames(pool, "issues").contains("project_id"))
         for table in ["boards", "labels", "issue_labels", "team_members", "team_invites",
                       "comments", "attachments", "issue_subscribers", "issue_events",
-                      "coding_sessions"] {
+                      "sessions"] {
             let cols = try columnNames(pool, table)
             XCTAssertTrue(cols.contains("team_id"), "\(table) missing team_id")
             XCTAssertFalse(cols.contains("workspace_id"), "\(table) still has workspace_id")
         }
-        XCTAssertTrue(try columnNames(pool, "coding_sessions").contains("board_id"))
-        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("project_id"))
 
         XCTAssertTrue(try columnNames(pool, "issues").contains("duplicate_of_id"))
-        // EXP-897: the stack edge rides the issues shape.
-        XCTAssertTrue(try columnNames(pool, "issues").contains("pr_base_branch"))
+        // EXP-1291: PR and branch state left `issues` for `pull_requests`.
+        for column in ["pr_url", "pr_number", "pr_state", "branch", "pr_merged_at", "pr_base_branch"] {
+            XCTAssertFalse(try columnNames(pool, "issues").contains(column), "issues.\(column)")
+        }
         // EXP-630: story points ride the issues shape, the scale the teams one.
         XCTAssertTrue(try columnNames(pool, "issues").contains("estimate"))
         XCTAssertTrue(try columnNames(pool, "teams").contains("estimation_type"))
@@ -1721,7 +1809,6 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertFalse(try columnNames(pool, "users").contains("is_agent"))
         // The deleted releases/recurrence features never existed in this schema.
         XCTAssertFalse(try columnNames(pool, "issues").contains("release_id"))
-        XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("release_id"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_interval"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("recurrence_unit"))
         // Due date is date-only (REV2-49): the time-of-day columns are deleted
@@ -1729,21 +1816,6 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(try columnNames(pool, "issues").contains("due_date"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("due_time"))
         XCTAssertFalse(try columnNames(pool, "issues").contains("end_time"))
-        // coding_sessions.issue_id stays nullable (issueless batch sessions).
-        let sessionIssueId = try pool.read { db in
-            try db.columns(in: "coding_sessions").first { $0.name == "issue_id" }
-        }
-        XCTAssertNotNil(sessionIssueId)
-        XCTAssertFalse(sessionIssueId?.isNotNull ?? true)
-        // Action run linkage (EXP-253): both nullable ride-alongs exist.
-        let sessionCols = try columnNames(pool, "coding_sessions")
-        XCTAssertTrue(sessionCols.contains("action_id"))
-        XCTAssertTrue(sessionCols.contains("action_name"))
-        // EXP-549/550: the host machine's steer deviceId ride-along.
-        XCTAssertTrue(sessionCols.contains("device_id"))
-        // EXP-583 (SLOP-17 renamed it): which trigger fired the run.
-        XCTAssertTrue(sessionCols.contains("trigger_id"))
-        XCTAssertFalse(sessionCols.contains("automation_id"))
 
         // The synced actions table (EXP-268, 15th shape) deliberately has NO
         // body column — the shape's allowlist excludes the ≤64KB prompt; tRPC
@@ -1753,14 +1825,10 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(actionCols.contains("inputs"))
         XCTAssertFalse(actionCols.contains("body"))
 
-        // SLOP-2: an action carries its triggers (a jsonb array stored as
-        // text, never NULL); the dead singular `trigger` column is gone.
-        XCTAssertTrue(actionCols.contains("triggers"))
-        XCTAssertFalse(actionCols.contains("trigger"))
-        let triggersColumn = try pool.read { db in
-            try db.columns(in: "actions").first { $0.name == "triggers" }
+        // EXP-1291: actions are saved prompts — no triggers, no repository.
+        for column in ["triggers", "trigger", "repository_id"] {
+            XCTAssertFalse(actionCols.contains(column), "actions.\(column)")
         }
-        XCTAssertTrue(triggersColumn?.isNotNull ?? false)
 
         // EXP-778: pins are per-user (21st shape) — team_id + kind + the
         // three nullable target columns, exactly one of which is set.
@@ -1779,7 +1847,7 @@ final class DatabaseMigrationTests: XCTestCase {
             draftCols,
             ["id", "user_id", "team_id", "board_id", "title", "description",
              "status_id", "priority", "assignee_id", "label_ids", "due_date",
-             "created_at", "updated_at", "thread_id"]
+             "created_at", "updated_at", "session_id"]
         )
 
         // status_id is NULLABLE: NULL means the team's Backlog builtin.
@@ -1789,22 +1857,46 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNotNil(draftStatusId)
         XCTAssertFalse(draftStatusId?.isNotNull ?? true)
 
-        // EXP-1284: threads (22nd shape) carry their Guide as jsonb TEXT, the
-        // items (23rd) the shape's allowlist — never the server-only board
-        // trash/archive mirrors.
+        // EXP-1291: the session tree's five tables carry exactly the shape
+        // allowlists — never the server-only visibility/board mirrors.
         XCTAssertEqual(
-            try columnNames(pool, "threads"),
-            ["id", "team_id", "title", "created_by", "results", "created_at", "updated_at"]
+            try columnNames(pool, "sessions"),
+            ["id", "team_id", "parent_id", "root_id", "depth", "kind", "user_id",
+             "device_id", "cli", "account", "model", "effort", "plan_mode",
+             "computer_use", "ultracode", "repository_id", "branch", "status", "busy",
+             "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
+             "shared", "title", "guide", "action_id", "action_name", "action_inputs",
+             "spawned_by_session_id", "name", "icon", "color", "triggers",
+             "sort_order", "created_at", "updated_at"]
         )
-        let threadItemCols = try columnNames(pool, "thread_items")
         XCTAssertEqual(
-            threadItemCols,
-            ["id", "thread_id", "kind", "issue_id", "session_id", "team_id", "board_id",
-             "added_by", "added_by_session_id", "source", "sort_order",
-             "created_at", "updated_at"]
+            try columnNames(pool, "session_issues"),
+            ["id", "session_id", "issue_id", "team_id", "source", "added_by",
+             "added_by_session_id", "sort_order", "created_at", "updated_at"]
         )
-        XCTAssertFalse(threadItemCols.contains("board_deleted_at"))
-        XCTAssertFalse(threadItemCols.contains("board_archived_at"))
+        XCTAssertEqual(
+            try columnNames(pool, "messages"),
+            ["id", "session_id", "root_id", "team_id", "author_kind", "author_id",
+             "body", "card", "answered_at", "consumed_at", "created_at", "updated_at"]
+        )
+        XCTAssertEqual(
+            try columnNames(pool, "pull_requests"),
+            ["id", "team_id", "root_session_id", "session_id", "repository_id",
+             "number", "url", "title", "head", "base", "base_pull_request_id",
+             "state", "merged_at", "created_at", "updated_at"]
+        )
+        XCTAssertEqual(
+            try columnNames(pool, "pull_request_issues"),
+            ["id", "pull_request_id", "issue_id", "team_id", "created_at", "updated_at"]
+        )
+        // Every bool is declared BOOLEAN so partial updates coerce "t"/"f".
+        let sessionBools = try pool.read { db in
+            Set(try db.columns(in: "sessions").filter { $0.type.uppercased().contains("BOOL") }.map(\.name))
+        }
+        XCTAssertEqual(
+            sessionBools,
+            ["plan_mode", "computer_use", "ultracode", "busy", "needs_input", "shared"]
+        )
 
         // Custom issue statuses (EXP-314, 16th shape): the team-scoped table
         // plus the nullable `status_id` on issues. `issues.status` STAYS as the
@@ -1988,7 +2080,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let deviceColumns = try columnNames(pool, "devices")
         for column in ["agent_accounts", "agent_usage", "agent_usage_at"] {
             XCTAssertTrue(deviceColumns.contains(column), "missing \(column)")
@@ -2042,7 +2134,7 @@ final class DatabaseMigrationTests: XCTestCase {
             }
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let columns = try columnNames(pool, "coding_sessions")
         XCTAssertFalse(columns.contains("outcome"))
         XCTAssertFalse(columns.contains("summary"), "summary must be dropped by v38")
@@ -2116,7 +2208,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 """)
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let columns = try pool.read { db in try db.columns(in: "coding_sessions") }
         for name in ["pr_url", "pr_number", "pr_state"] {
             let added = columns.first { $0.name == name }
@@ -2317,7 +2409,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("agent_busy"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let added = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "agent_busy" }
         }
@@ -2334,7 +2426,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v37 (EXP-850 §8): a store created before `coding_sessions.agent_caption`
@@ -2357,7 +2449,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("agent_caption"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let added = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "agent_caption" }
         }
@@ -2373,7 +2465,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v41 (EXP-879 session results): a store created before
@@ -2396,7 +2488,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("results"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let added = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "results" }
         }
@@ -2412,7 +2504,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v42 (EXP-876 batch run names): a store created before
@@ -2437,7 +2529,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("batch_issue_ids"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let added = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "batch_issue_ids" }
         }
@@ -2453,7 +2545,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v43 (EXP-909 the run's account): a store created before
@@ -2478,7 +2570,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("agent_account"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let added = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "agent_account" }
         }
@@ -2494,7 +2586,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v44 (EXP-905): a store created before `coding_sessions.agent_title`
@@ -2518,7 +2610,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertFalse(try columnNames(pool, "coding_sessions").contains("agent_title"))
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
         let added = try pool.read { db in
             try db.columns(in: "coding_sessions").first { $0.name == "agent_title" }
         }
@@ -2534,7 +2626,7 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(reset, true)
         // Re-running converges without a duplicate-column throw.
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: Self.preSessionTree))
     }
 
     // v45 (EXP-924): a store created before `devices.icon` existed must gain

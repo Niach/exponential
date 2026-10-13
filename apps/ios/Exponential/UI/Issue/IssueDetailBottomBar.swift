@@ -6,10 +6,9 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// What the bar's right-hand circle does (EXP-240, EXP-893). Computed by the
-/// Work screen from the view model's steer state so the bar stays dumb.
-/// EXP-1150: the faces moved to the tab strip, so the Start circle is the
-/// ONLY trailing candidate — drawn whenever the issue can be started.
+/// What the bar's right-hand circle does (EXP-240). Computed by the host
+/// from the readiness model so the bar stays dumb. EXP-1295: the Start
+/// circle is the ONLY trailing candidate — the issue's one way into a session.
 enum IssueBarTrailing: Equatable {
     case hidden
     /// EXP-1121: Start coding, always drawn for a member while remote start
@@ -45,10 +44,6 @@ struct IssueDetailBottomBar: View {
     /// by the detail view model). A reporter EMAIL on it offers the "Reply to
     /// reporter" pill; its name fills the placeholder.
     var widgetSubmission: WidgetSubmissionRow? = nil
-    /// EXP-1191: the Work screen's Merge PR circle (`WorkMergePill`, circle
-    /// style), right of the Comment capsule and before the Start circle;
-    /// gone with the collapsed bar while the composer is expanded. nil = none.
-    var mergeCircle: AnyView? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -190,9 +185,6 @@ struct IssueDetailBottomBar: View {
 
     @ViewBuilder
     private var trailingSlot: some View {
-        if let mergeCircle {
-            mergeCircle
-        }
         switch trailing {
         case .hidden:
             EmptyView()
@@ -540,10 +532,9 @@ struct IssueDetailBottomBar: View {
     }
 }
 
-/// EXP-1121: the Start coding circle in its three looks — the Issue face's
-/// trailing circle and (EXP-1150) the Run face's once the shown run ended for
-/// good. The tap always reaches the host (`onStart`), which starts when ready
-/// and opens the checklist otherwise; while loading the circle is inert.
+/// EXP-1121: the Start circle in its three looks — the issue bar's trailing
+/// circle. The tap always reaches the host (`onStart`), which starts when
+/// ready and opens the checklist otherwise; while loading the circle is inert.
 struct StartCodingCircle: View {
     let readiness: CodingReadiness.Readiness
     let onStart: () -> Void

@@ -235,7 +235,7 @@ private struct SessionResultTile: View {
     }
 }
 
-/// EXP-1172: the shown run's raw synced `coding_sessions.results` — what a
+/// EXP-1172: the shown session's raw synced Guide (`sessions.guide`) — what a
 /// settled `sessions_show` row looks its picture up in (`preview.id`). Set by
 /// `AgentSessionView` off its LIVE row, so a picture that syncs after the call
 /// settled appears under it; nil elsewhere (the row then draws no tile).
@@ -243,19 +243,7 @@ private struct SessionResultsRawKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
 
-/// EXP-933: switches the enclosing Work screen to its Guide face (EXP-1251) —
-/// what the inline `sessions_guide` card's `Open Guide` button calls. nil
-/// outside a Work screen (the card then draws no button).
-private struct OpenResultsFaceKey: EnvironmentKey {
-    nonisolated(unsafe) static let defaultValue: (() -> Void)? = nil
-}
-
 extension EnvironmentValues {
-    var openResultsFace: (() -> Void)? {
-        get { self[OpenResultsFaceKey.self] }
-        set { self[OpenResultsFaceKey.self] = newValue }
-    }
-
     var sessionResultsRaw: String? {
         get { self[SessionResultsRawKey.self] }
         set { self[SessionResultsRawKey.self] = newValue }

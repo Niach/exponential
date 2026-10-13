@@ -51,40 +51,6 @@ public enum DeviceFreshness {
     }
 }
 
-// MARK: - WorktreeResume
-
-public enum WorktreeResume {
-    /// The synced worktree row that makes "Resume previous session" offerable
-    /// for (device, issue, agent): same device row, `issue_identifier` equal
-    /// (case-insensitive — identifiers are server-uppercased but device
-    /// branch parsing may differ), and the .exp-agents marker either absent
-    /// (nil `agents` = any agent may resume) or containing the chosen agent.
-    public static func match(
-        worktrees: [DeviceWorktreeEntity],
-        deviceRowId: String?,
-        issueIdentifier: String?,
-        agent: String
-    ) -> DeviceWorktreeEntity? {
-        guard let deviceRowId, let issueIdentifier else { return nil }
-        return worktrees.first { row in
-            guard row.deviceRowId == deviceRowId,
-                  let rowIdentifier = row.issueIdentifier,
-                  rowIdentifier.caseInsensitiveCompare(issueIdentifier) == .orderedSame
-            else { return false }
-            guard let agents = row.agentIds else { return true }
-            return agents.contains(agent)
-        }
-    }
-}
-
-public extension DeviceWorktreeEntity {
-    /// The .exp-agents marker as ids; nil = pre-marker worktree (any agent).
-    var agentIds: [String]? {
-        guard let agents else { return nil }
-        return try? JSONDecoder().decode([String].self, from: Data(agents.utf8))
-    }
-}
-
 // MARK: - SteerDevice mapping
 
 public extension SteerDevice {
