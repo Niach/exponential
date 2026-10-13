@@ -230,6 +230,11 @@ pub(crate) fn close_dialog_window(window: &mut Window, cx: &mut App) {
 /// (best-effort — the opener may already be gone). This is the result path
 /// back to the surface that opened the dialog: navigation after a create,
 /// notifications, terminal-tab spawns.
+///
+/// The closed dialog's registry row goes NOW, not at its `on_release` (a
+/// later effect flush): `f` may open the next dialog (Add account → the
+/// remote sign-in dialog), and the never-stack guard would otherwise find
+/// the dying window still "live", raise it and open nothing.
 pub(crate) fn close_then(
     window: &mut Window,
     cx: &mut App,
@@ -239,6 +244,11 @@ pub(crate) fn close_then(
     let handle = window.window_handle();
     cx.defer(move |cx| {
         let _ = handle.update(cx, |_, window, _| window.remove_window());
+        if let Some(registry) = registry(cx) {
+            registry.update(cx, |registry, _| {
+                registry.openers.remove(&handle.window_id());
+            });
+        }
         if let Some(opener) = opener {
             let _ = opener.update(cx, |_, window, cx| {
                 f(window, cx);
