@@ -1146,6 +1146,9 @@ pub(crate) struct ThreadScreenView {
     reply: Entity<TextareaState>,
     mention: Entity<crate::mention_input::MentionInput>,
     mention_team: Option<String>,
+    /// The reply's staged images and their notice.
+    pending: crate::composer_images::PendingImages,
+    notice: Option<SharedString>,
     sending: bool,
     /// The inline rename field while the title is being edited.
     rename: Option<Entity<InputState>>,
@@ -1159,6 +1162,17 @@ pub(crate) struct ThreadScreenView {
     _ring_tick: Option<Task<()>>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
+}
+
+impl crate::composer::SessionReply for ThreadScreenView {
+    fn reply(&mut self) -> crate::composer::ReplyParts<'_> {
+        crate::composer::ReplyParts {
+            input: &self.reply,
+            images: &mut self.pending,
+            notice: &mut self.notice,
+            sending: &mut self.sending,
+        }
+    }
 }
 
 impl ThreadScreenView {
@@ -1202,6 +1216,8 @@ impl ThreadScreenView {
             reply,
             mention,
             mention_team: None,
+            pending: Default::default(),
+            notice: None,
             sending: false,
             rename: None,
             first_seen: HashMap::new(),
@@ -1317,36 +1333,8 @@ impl ThreadScreenView {
     /// routes it (a live root takes it, an idle one resumes, an ended one
     /// continues in a new child).
     fn send_reply(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let text = self.reply.read(cx).value().trim().to_string();
-        if text.is_empty() || self.sending {
-            return;
-        }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            crate::action_error::failed_action("send", "the message", None, cx);
-            return;
-        };
-        self.sending = true;
-        self.reply.update(cx, |input, cx| input.set_value("", window, cx));
-        cx.notify();
-        let input = api::sessions::SendInput::message(&self.root_id, &text, Vec::new());
-        cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.sending = false;
-                if let Err(err) = result {
-                    // The draft comes back so nothing typed is lost.
-                    if this.reply.read(cx).value().trim().is_empty() {
-                        this.reply.update(cx, |input, cx| input.set_value(text.clone(), window, cx));
-                    }
-                    crate::action_error::failed_action_err("send", "the message", &err, cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        let root_id = self.root_id.clone();
+        crate::composer::send_session_reply(self, &root_id, window, cx);
     }
 
     // ── rename ───────────────────────────────────────────────────────────
@@ -1588,7 +1576,7 @@ impl ThreadScreenView {
             .pb_8()
             .gap_5()
             .children(rows);
-        let empty = self.reply.read(cx).value().trim().is_empty();
+        let empty = !crate::composer::reply_has_content(self, cx);
         let this = cx.entity().downgrade();
         let submit = crate::composer::SessionComposerSubmit::send(
             SharedString::from(THREAD.test_ids.composer.clone()),
@@ -1598,8 +1586,13 @@ impl ThreadScreenView {
             },
         )
         .loading(self.sending);
+        let paste = cx.listener(crate::composer::on_reply_paste::<Self>);
         let composer = crate::composer::session_composer_box(
-            crate::composer::SessionComposerBox::new(self.mention.clone(), submit),
+            crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
+                .strip(crate::composer::reply_strip(self, "thread-pending-remove", cx))
+                .tool(crate::composer::reply_attach_tool("thread-attach", self.sending, cx))
+                .footer(crate::composer::reply_notice(self, cx))
+                .card_hook(move |card| card.capture_action(paste)),
             cx,
         );
         v_flex()

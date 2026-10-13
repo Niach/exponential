@@ -600,11 +600,15 @@ impl AgentDetailPane {
             .unwrap_or_default();
         let current = current_account(&options, agent.account.as_deref(), agent.cli.as_deref()).cloned();
         let control = match current {
-            // No machine bound (or nothing it reports): the row states it.
-            None => div()
-                .text_color(cx.theme().muted_foreground)
-                .child("—")
-                .into_any_element(),
+            // The machine reports no logins (offline, another member's
+            // box): the stored pin reads as-is, else the row states it.
+            None => match agent.account.as_deref().filter(|account| !account.is_empty()) {
+                Some(account) => div().child(SharedString::from(account.to_string())).into_any_element(),
+                None => div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("—")
+                    .into_any_element(),
+            },
             Some(current) => {
                 let alone = options.len() < 2;
                 let trigger = trigger_editor::picker_trigger_bare(

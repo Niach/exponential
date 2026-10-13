@@ -37,7 +37,6 @@ use gpui::{
     SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
     h_flex,
     input::InputState,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
@@ -47,7 +46,6 @@ use terminal::TerminalManager;
 
 use coding::{run_doctor, CodingDeps, DoctorReport, Settings};
 
-use crate::controls::WebControl as _;
 use crate::queries;
 use crate::session::AuthContext;
 use crate::session_bar::SessionBar;
@@ -1253,14 +1251,6 @@ impl StartCodingControl {
         }
     }
 
-    /// Re-probe (the tiny retry next to the repo-less disabled state — a repo
-    /// link or App install can resolve without navigating away).
-    fn retry(&mut self, cx: &mut gpui::Context<Self>) {
-        self.probe = RepoProbe::Idle;
-        CodingHub::refresh_doctor(&CodingHub::global(cx), cx);
-        cx.notify();
-    }
-
     /// The click: open the Agent page composer with this issue picked
     /// (EXP-825 — it owns the model/effort/plan-mode choices AND the
     /// prepare→spawn task).
@@ -1732,59 +1722,28 @@ impl Render for StartCodingControl {
         // EXP-1294: it sits in the header bar, before pin + ⋯, at the bar's
         // rung in the primary paint — the single emphasised pill of the header.
         let size = crate::work_header::header_action_size(false);
-        let disabled = self.disabled_reason(cx);
-        let mut row = h_flex().gap_1().items_center();
-        let glyph_color = if disabled.is_some() {
-            cx.theme().muted_foreground
-        } else {
-            cx.theme().primary_foreground
+        // EXP-1294: Start never blocks on THIS machine's tools — it opens
+        // the composer, whose device pick + readiness row gate the start
+        // on the machine that will run it. A local problem only explains
+        // itself in the tooltip.
+        let tooltip: SharedString = match (self.disabled_reason(cx), &self.probe) {
+            (Some(reason), _) => reason,
+            (None, RepoProbe::Error(err)) => {
+                format!("Couldn't check the linked repository ({err}). Starting will retry.").into()
+            }
+            (None, _) => "Start an agent on this issue".into(),
         };
-        let button = crate::surface::glass_pill_button_primary("start-coding", size)
-        // The solid variant carries the emphasis now — a green glyph on
-        // the primary fill only muddies it.
-        .icon(
-            Icon::new(registry::ACTION_RUN)
-                .with_size(px(size.glyph()))
-                .text_color(glyph_color),
-        )
-        .label(START_LABEL);
-        match disabled {
-            Some(reason) => {
-                // The disabled state ALWAYS explains itself — the
-                // exact §7 copy rides the tooltip; retry re-probes.
-                row = row.child(button.disabled(true).tooltip(reason));
-                if matches!(self.probe, RepoProbe::Ready(None)) {
-                    row = row.child(
-                        Button::new("start-coding-retry")
-                            .ghost()
-                            .web_icon_xs()
-                            .icon(
-                                Icon::new(registry::UI_UNDO)
-                                    .text_color(cx.theme().muted_foreground),
-                            )
-                            .tooltip("Re-check repository and tools")
-                            .on_click(cx.listener(|this, _, _, cx| this.retry(cx))),
-                    );
-                }
-            }
-            None => {
-                // A probe transport error stays clickable (never
-                // falsely block) but says so — the launch re-resolves the
-                // repo server-side and surfaces the real failure.
-                let tooltip: SharedString = match &self.probe {
-                    RepoProbe::Error(err) => format!(
-                        "Couldn't check the linked repository ({err}). Starting will retry."
-                    )
-                    .into(),
-                    _ => "Clone the linked repository and start an agent on this issue".into(),
-                };
-                row = row.child(
-                    button
-                        .tooltip(tooltip)
-                        .on_click(cx.listener(|this, _, window, cx| this.launch(window, cx))),
-                );
-            }
-        }
+        let row = h_flex().gap_1().items_center().child(
+            crate::surface::glass_pill_button_primary("start-coding", size)
+                .icon(
+                    Icon::new(registry::ACTION_RUN)
+                        .with_size(px(size.glyph()))
+                        .text_color(cx.theme().primary_foreground),
+                )
+                .label(START_LABEL)
+                .tooltip(tooltip)
+                .on_click(cx.listener(|this, _, window, cx| this.launch(window, cx))),
+        );
         row.into_any_element()
     }
 }

@@ -180,7 +180,10 @@ impl Render for ComposerDemo {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
         let submit = crate::composer::SessionComposerSubmit::send("sg-thread-composer", true, |_, _, _| {});
         crate::composer::session_composer_box(
-            crate::composer::SessionComposerBox::new(self.mention.clone(), submit),
+            crate::composer::SessionComposerBox::new(self.mention.clone(), submit).tool(
+                crate::composer::composer_tool("sg-thread-attach", crate::icons::registry::UI_ADD, cx)
+                    .tooltip("Add file or image"),
+            ),
             cx,
         )
     }

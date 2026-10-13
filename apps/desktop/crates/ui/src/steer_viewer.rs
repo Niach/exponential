@@ -6585,18 +6585,28 @@ impl SteerSessionView {
                         .capture_action(tab)
                 })
                 .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
+                // EXP-698: the attach tool is ALWAYS offered — steer images
+                // upload to the session route. EXP-850 §13: `ui-add` ×4.
+                // EXP-1294: inside the card, Home's "+" slot.
+                .tool(
+                    crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
+                        .tooltip("Add file or image")
+                        .disabled(self.sending)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.pick_images(window, cx);
+                        })),
+                )
                 .card_hook(move |card| card.capture_action(paste))
                 .footer(Some(self.render_composer_footer(cx))),
             cx,
         )
     }
 
-    /// EXP-877 — the row UNDER the composer card. Left: the plan-mode read
-    /// and the attach button. Right: which model the run is on, and how full
-    /// its context window is. Everything here is ABOUT the run rather than
-    /// part of the message, which is why none of it is inside the card any
-    /// more (EXP-790 kept the attach glyph in there and wrapped the row onto
-    /// its own line on a narrow pane; a footer never wraps).
+    /// EXP-877 — the row UNDER the composer card. Left: the plan-mode read.
+    /// Right: which model the run is on, and how full its context window is.
+    /// Everything here is ABOUT the run rather than part of the message
+    /// (EXP-1294: the attach "+" is part of the message, so it sits inside
+    /// the card in Home's tool slot).
     fn render_composer_footer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         h_flex()
@@ -6616,19 +6626,6 @@ impl SteerSessionView {
                     .text_color(theme::tokens::BLUE.to_hsla())
                     .child(SharedString::from(PLAN_MODE_FOOTER))
             }))
-            // EXP-698: the attach tool is ALWAYS offered — steer images upload
-            // to the session route, so a session with no issue attaches
-            // exactly like an issue's. EXP-850 §13: its glyph is
-            // `ui-add` on every steer composer ×4; `editor-image` stayed with
-            // the comment and description editors.
-            .child(
-                crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
-                    .tooltip("Add file or image")
-                    .disabled(self.sending)
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.pick_images(window, cx);
-                    })),
-            )
             .child(div().flex_1().min_w_0())
             .children(self.render_model_pin(cx))
             .children(self.render_context_ring(cx))

@@ -66,10 +66,24 @@ pub struct AgentScreenView {
     mention_team: Option<String>,
     /// The name the placeholder was built for.
     placeholder_name: Option<String>,
+    /// The composer's staged images and their notice.
+    pending: crate::composer_images::PendingImages,
+    notice: Option<SharedString>,
     sending: bool,
     scroll: ScrollHandle,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
+}
+
+impl crate::composer::SessionReply for AgentScreenView {
+    fn reply(&mut self) -> crate::composer::ReplyParts<'_> {
+        crate::composer::ReplyParts {
+            input: &self.input,
+            images: &mut self.pending,
+            notice: &mut self.notice,
+            sending: &mut self.sending,
+        }
+    }
 }
 
 impl AgentScreenView {
@@ -111,6 +125,8 @@ impl AgentScreenView {
             mention,
             mention_team: None,
             placeholder_name: name,
+            pending: Default::default(),
+            notice: None,
             sending: false,
             scroll: ScrollHandle::new(),
             focus_handle: cx.focus_handle(),
@@ -162,35 +178,8 @@ impl AgentScreenView {
 
     /// `sessions.send({sessionId: agent, text})`.
     fn send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let text = self.input.read(cx).value().trim().to_string();
-        if text.is_empty() || self.sending {
-            return;
-        }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            crate::action_error::failed_action("send", "the message", None, cx);
-            return;
-        };
-        self.sending = true;
-        self.input.update(cx, |input, cx| input.set_value("", window, cx));
-        cx.notify();
-        let input = api::sessions::SendInput::message(&self.agent_id, &text, Vec::new());
-        cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::sessions::send(&trpc, &input) })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                this.sending = false;
-                if let Err(err) = result {
-                    if this.input.read(cx).value().trim().is_empty() {
-                        this.input.update(cx, |input, cx| input.set_value(text.clone(), window, cx));
-                    }
-                    crate::action_error::failed_action_err("send", "the message", &err, cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        let agent_id = self.agent_id.clone();
+        crate::composer::send_session_reply(self, &agent_id, window, cx);
     }
 
     /// The agent's mark in the 24px gutter disc.
@@ -332,14 +321,19 @@ impl Render for AgentScreenView {
             .pb_8()
             .gap_4()
             .children(rows);
-        let empty = self.input.read(cx).value().trim().is_empty();
+        let empty = !crate::composer::reply_has_content(self, cx);
         let this = cx.entity().downgrade();
         let submit = crate::composer::SessionComposerSubmit::send("agent-send", empty, move |_, window, cx| {
             let _ = this.update(cx, |this, cx| this.send(window, cx));
         })
         .loading(self.sending);
+        let paste = cx.listener(crate::composer::on_reply_paste::<Self>);
         let composer = crate::composer::session_composer_box(
-            crate::composer::SessionComposerBox::new(self.mention.clone(), submit),
+            crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
+                .strip(crate::composer::reply_strip(self, "agent-pending-remove", cx))
+                .tool(crate::composer::reply_attach_tool("agent-attach", self.sending, cx))
+                .footer(crate::composer::reply_notice(self, cx))
+                .card_hook(move |card| card.capture_action(paste)),
             cx,
         );
         v_flex()
