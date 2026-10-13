@@ -1,5 +1,8 @@
 package com.exponential.app
 
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -709,7 +712,15 @@ class StyleguideScreenshotsTest {
 
         fun show(testId: String, content: @Composable () -> Unit) {
             composeRule.runOnUiThread {
-                composeRule.activity.setContent { ExponentialTheme { content() } }
+                composeRule.activity.setContent {
+                    ExponentialTheme {
+                        // The app's screens sit in a Scaffold that provides the
+                        // content colour; a capture's bare Text needs the same.
+                        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+                            content()
+                        }
+                    }
+                }
             }
             flow.waitFor(hasTestTag(testId), NAV_TIMEOUT)
             flow.settle()

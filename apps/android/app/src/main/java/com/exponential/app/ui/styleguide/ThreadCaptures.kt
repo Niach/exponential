@@ -73,7 +73,7 @@ fun ThreadCaptures(kind: ThreadCaptureKind) {
                         issues = ThreadIssues,
                         messages = TriageMessages,
                         pullRequests = emptyList(),
-                        now = CaptureNow,
+                        now = ChannelNow,
                     ),
                     agent = ThreadAgent(name = "Triage", icon = "bug", color = "#a78bfa"),
                     placeholder = "Message Triage",
@@ -137,6 +137,9 @@ private fun ThreadCapture(view: SessionTree.ThreadView, agent: ThreadAgent?, pla
 // ── fake data (the drafts: Acme, APP-5, Triage) ──────────────────────────────
 
 private const val CaptureNow = "2026-10-13T20:04:00.000Z"
+
+/** The Triage channel is photographed mid-morning, minutes after its last reply. */
+private const val ChannelNow = "2026-10-13T09:20:00.000Z"
 private const val CaptureTeam = "t-acme"
 private const val Alex = "u-alex"
 
