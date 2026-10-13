@@ -7,7 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.DevicesApi
+import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentUsageRefreshCommand
@@ -17,6 +19,7 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.SessionIssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
@@ -37,6 +40,8 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.QueuedMessage
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SessionConfigState
@@ -136,6 +141,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val issuesApi: IssuesApi,
     private val sessionsApi: SessionsApi,
     private val devicesApi: DevicesApi,
+    private val issueImagesApi: IssueImagesApi,
     private val store: SteerConnectionStore,
     stats: SyncStats,
 ) : ViewModel() {
@@ -511,8 +517,82 @@ class AgentSessionViewModel @AssistedInject constructor(
     val history: StateFlow<HistoryState?> = connection.history
 
     val pendingImages: StateFlow<List<PendingAttachment>> = connection.pendingImages
-    val steerSending: StateFlow<Boolean> = connection.steerSending
-    val steerImageError: StateFlow<String?> = connection.steerImageError
+
+    /** EXP-1291: a `sessions.send` in flight (uploads included). */
+    private val _sending = MutableStateFlow(false)
+    val steerSending: StateFlow<Boolean> = _sending
+
+    /** A refused pick (the connection's caps) or a failed upload — the text
+     *  and the thumbnails survive, so the send is retryable. */
+    private val _uploadError = MutableStateFlow<String?>(null)
+    val steerImageError: StateFlow<String?> = combine(_uploadError, connection.steerImageError) { own, relay ->
+        own ?: relay
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** A failed `sessions.send` / `sessions.unqueue` — FEED-79: the error
+     *  toast `Couldn't send the message`, raised once by the screen. */
+    private val _sendError = MutableStateFlow<String?>(null)
+    val sendError: StateFlow<String?> = _sendError
+    fun clearSendError() {
+        _sendError.value = null
+    }
+
+    /** The session's ROOT id (the thread it belongs to). */
+    private val rootId: Flow<String?> = session
+        .map { row -> row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id }
+        .distinctUntilChanged()
+
+    /**
+     * EXP-1291: the header's back row — the THREAD's title
+     * ([SessionTree.threadTitle]: stored, action, first issue, first request
+     * line, `Untitled`) — and this session's own card name (`Session N` in
+     * the tree's creation order when untitled).
+     */
+    data class Header(val threadTitle: String, val sessionName: String)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val header: StateFlow<Header?> = rootId
+        .flatMapLatest { root ->
+            if (root == null) {
+                flowOf(null)
+            } else {
+                combine(
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
+                    dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(root) },
+                    issues,
+                    session,
+                ) { tree, messages, linked, row ->
+                    val me = row ?: return@combine null
+                    val sessions = tree.map(SessionTree::session)
+                    val rootRow = sessions.firstOrNull { it.id == root } ?: SessionTree.session(me)
+                    val title = SessionTree.threadTitle(
+                        rootRow,
+                        linked.map(SessionTree::issue),
+                        messages.map(SessionTree::message),
+                    ).title
+                    val ordered = SessionTree.treeOrder(sessions)
+                    val ordinal = ordered.indexOfFirst { it.id == me.id }.let { if (it < 0) 1 else it + 1 }
+                    val name = me.title?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: me.name?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: if (me.id == root) title else "${SessionTree.CardCopy.SESSION} $ordinal"
+                    Header(threadTitle = title, sessionName = name)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-1291: the viewer's OWN messages the server still holds for this
+     * session (`consumed_at` NULL) — the queue bar; X = [unqueueMessage].
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val queuedMessages: StateFlow<List<QueuedMessage>> = combine(
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeQueued(codingSessionId) },
+        auth.userId,
+    ) { rows, me ->
+        rows.filter { me != null && it.authorId == me }
+            .map { QueuedMessage(id = it.id, text = it.body) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The composer's typed text — held by the connection, so it survives a
      *  reconnect, a back-tap and a rotation alike. */
@@ -593,14 +673,89 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     fun setDraft(text: String) = connection.setDraft(text)
 
-    /** Send the composed message. The draft and the thumbnails clear only if
-     *  it actually goes out. */
-    fun sendDraft() = connection.sendDraft()
+    /**
+     * EXP-1291: send the composed message as `sessions.send({sessionId})` —
+     * the server holds it until the device takes it (an idle session resumes,
+     * an ended one continues). Picked files upload against the session first
+     * and ride as `attachmentIds`. The draft and the thumbnails clear only
+     * once the server took it.
+     */
+    fun sendDraft() {
+        val text = draft.value
+        val images = pendingImages.value
+        if (text.isBlank() && images.isEmpty()) return
+        if (_sending.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _sending.value = true
+            _uploadError.value = null
+            try {
+                val ids = mutableListOf<String>()
+                for (image in images) {
+                    val id = image.uploadedId ?: try {
+                        issueImagesApi.uploadSessionImage(
+                            accountId,
+                            codingSessionId,
+                            image.bytes,
+                            image.filename,
+                            image.contentType,
+                        ).also { connection.stampPendingUpload(image, it.id, it.filename) }.id
+                    } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
+                        _uploadError.value = trpcErrorMessage(
+                            t,
+                            if (image.isImage) "The image could not be uploaded" else "The file could not be uploaded",
+                        )
+                        return@launch
+                    }
+                    ids += id
+                }
+                try {
+                    sessionsApi.send(
+                        accountId,
+                        SessionsSendInput.message(codingSessionId, text, ids.takeIf { it.isNotEmpty() }),
+                    )
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    _sendError.value = trpcErrorMessage(t, "")
+                    return@launch
+                }
+                for (index in images.indices.reversed()) connection.removePendingImage(index)
+                connection.setDraft("")
+            } finally {
+                _sending.value = false
+            }
+        }
+    }
 
     /** EXP-893: send a command line (`/model opus`) as a plain message
      *  WITHOUT touching the draft — the composer footer's model picker rides
      *  this, so a half-typed message is never clobbered by a pick. */
-    fun sendCommand(text: String): Boolean = connection.sendMessage(text)
+    fun sendCommand(text: String): Boolean {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.send(accountId, SessionsSendInput.message(codingSessionId, text))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _sendError.value = trpcErrorMessage(t, "")
+            }
+        }
+        return true
+    }
+
+    /** EXP-1291: revoke one of the viewer's held messages (`sessions.unqueue`). */
+    fun unqueueMessage(messageId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.unqueue(accountId, messageId)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _sendError.value = trpcErrorMessage(t, "")
+            }
+        }
+    }
 
     fun addPendingImage(uri: Uri, bytes: ByteArray, filename: String, mime: String) =
         connection.addPendingImage(uri, bytes, filename, mime)
@@ -638,7 +793,9 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /** EXP-790: interrupt the turn in flight — the composer's Stop glyph.
      *  Fire-and-forget like [setMode]; the feed shows the agent stopping. */
-    fun interrupt() = connection.interrupt()
+    fun interrupt() {
+        if (connected.value) connection.interrupt() else stopSession()
+    }
 
     /** EXP-861: revoke a message the device is holding for the next turn —
      *  the queue bar's X. Fire-and-forget; the next `queue` event confirms. */

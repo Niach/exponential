@@ -21,7 +21,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.AgentTrigger
 import com.exponential.app.ui.agent.AgentLaunchDataViewModel
+import com.exponential.app.domain.Prompts
+import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.PromptAlert
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.components.SheetHeight
 import com.exponential.app.ui.components.SheetPrimaryAction
 
@@ -40,6 +45,8 @@ fun TriggerFormSheet(
     onDismiss: () -> Unit,
     /** The trigger being edited; null = add a new one. */
     editing: AgentTrigger? = null,
+    /** Non-null = a Delete under the form (asks first, `Prompts.DeleteTrigger`). */
+    onDelete: (() -> Unit)? = null,
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // EXP-1021: the label/status filter rows carry a colour and a resolved
     // glyph, which the launcher's id+name input options do not.
@@ -49,6 +56,21 @@ fun TriggerFormSheet(
     val labelOptions by filterViewModel.labels.collectAsStateWithLifecycle()
     val statusOptions by filterViewModel.statuses.collectAsStateWithLifecycle()
 
+    var confirmDelete by remember { mutableStateOf(false) }
+    if (confirmDelete && onDelete != null) {
+        PromptAlert(
+            prompt = Prompts.DeleteTrigger.prompt(),
+            onDismiss = { confirmDelete = false },
+            handlers = Prompts.DeleteTrigger.prompt().actions
+                .filter { it.role != Prompts.Role.Cancel }
+                .associate { action ->
+                    action.id to {
+                        confirmDelete = false
+                        onDelete()
+                    }
+                },
+        )
+    }
     var draft by remember { mutableStateOf(triggerDraftFor(editing?.whenPart)) }
 
     val whenPart = triggerDraftToWhen(draft)
@@ -88,6 +110,19 @@ fun TriggerFormSheet(
                 statuses = statusOptions,
                 onChange = { draft = it },
             )
+            if (onDelete != null) {
+                Spacer(Modifier.height(16.dp))
+                GlassPill(
+                    "Delete trigger",
+                    icon = ExpIcons.uiDelete,
+                    onClick = { confirmDelete = true },
+                    contentColor = DesignTokens.Semantic.Red,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .fillMaxWidth()
+                        .testTag("trigger-form-delete"),
+                )
+            }
             Spacer(Modifier.height(24.dp))
         }
     }

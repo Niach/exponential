@@ -1,5 +1,9 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.threads.ThreadsViewModel
+import com.exponential.app.ui.threads.ThreadListRow
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,6 +65,18 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.domain.ComposerMenuConditions
+import com.exponential.app.domain.ComposerMenuRowId
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import com.exponential.app.domain.mcpPickValue
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -127,9 +143,10 @@ import kotlinx.coroutines.launch
  * EXP-825: the team's AGENT page — the ONE launcher on every client. The
  * composer card ([AgentComposer]: subject chips, the message, images, the
  * labelled submit), the `@`/`#`/`:` candidate menu under it, the options line
- * ([AgentOptionsRow]), the start captions, then the caller's Running and
- * Recent THREADS ([agentThreadsList], EXP-1284; moved here from the Devices tab, which keeps
- * machines only — web parity, EXP-818).
+ * ([AgentOptionsRow]) and the start captions, under the dawn
+ * ([AgentPageFrame], FEED-100). The "+" opens THE composer menu
+ * ([ComposerPlusMenuSheet], composer-menu.json). EXP-1291: a send is ONE
+ * `sessions.send` new root in the current team; the page lands on it.
  *
  * Two mounts: the Agent TAB (the bar's chat arm and the app's landing
  * screen; empty seed, no back button, the floating bar overlays it — [onBack]
@@ -155,7 +172,12 @@ fun AgentScreen(
     onLandInThread: (threadId: String) -> Unit = onOpenThread,
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
+    threadsViewModel: ThreadsViewModel = hiltViewModel(),
 ) {
+    // composer-home.json: phones keep their Running list (live OWN threads)
+    // under the column on the TAB mount; never Recent.
+    val runningThreads by threadsViewModel.running.collectAsStateWithLifecycle()
+    val runningMeta by threadsViewModel.rowMeta.collectAsStateWithLifecycle()
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
@@ -176,13 +198,13 @@ fun AgentScreen(
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val pool by viewModel.startCandidates.collectAsStateWithLifecycle()
+    // EXP-1291: an action's `issue` inputs pick from the team's issues.
+    val inputIssues by viewModel.inputIssues.collectAsStateWithLifecycle()
     // EXP-1249: the "+" menu's MCP servers pick and per-run computer use.
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
     val computerUse by viewModel.computerUse.collectAsStateWithLifecycle()
-    // EXP-1253: the home around the card — the greeting's name and whether
-    // Getting started still follows it (no board yet).
-    val userName by viewModel.userName.collectAsStateWithLifecycle()
+    // EXP-1270: whether Getting started still follows the card (no board yet).
     val teamHasBoard by viewModel.teamHasBoard.collectAsStateWithLifecycle()
     // EXP-1271: the start in flight, until its row lands or it times out.
     val starting by viewModel.starting.collectAsStateWithLifecycle()
@@ -204,11 +226,6 @@ fun AgentScreen(
         viewModel.consumeStartedSession()
         onLandInThread(sessionId)
     }
-    // EXP-1253: computed ONCE per mount (it never flips while you type); the
-    // name fills in when the user row syncs.
-    val greetingClock = remember { AgentHome.localWallClock(LocalDateTime.now()) }
-    val greeting = remember(userName) { AgentHome.homeGreeting(greetingClock, userName) }
-
     // ── Subject resolution ──────────────────────────────────────────────────
     val actionSubject = subject as? ComposerSubject.Action
     val issueSubject = subject as? ComposerSubject.Issues
@@ -479,46 +496,16 @@ fun AgentScreen(
     }
 
     // ── Sheets + dialogs ────────────────────────────────────────────────────
-    // The pickers the options open (a picker sheet IS the pushed page).
+    // EXP-1249: the "+" menu and the pickers its submenu rows open (a picker
+    // sheet IS the pushed page: two stacked sheets are a dead end here).
+    var plusMenuOpen by remember { mutableStateOf(false) }
     var effortPickerOpen by remember { mutableStateOf(false) }
     var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
-    // EXP-1291: the composer column sits in the MIDDLE of the page (the
-    // threads live on their own tab now).
-    val emptyRuns = true
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Agent") },
-                navigationIcon = { onBack?.let { TopBarBackButton(onClick = it) } },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
-            )
-        },
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("agent-page"),
-            // As a tab the floating bar overlays the page: the last row (and a
-            // centred composer) must sit above the pill, not under it.
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 4.dp,
-                bottom = if (onBack == null) BottomBarInset else 24.dp,
-            ),
-            verticalArrangement = if (emptyRuns) {
-                Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
-            } else {
-                Arrangement.spacedBy(6.dp)
-            },
-        ) {
+    AgentPageFrame(onBack = onBack) {
             when (steerEnabled) {
-                // Web parity: without the relay nothing here can be started —
-                // the page still lists the sessions that synced in.
+                // Web parity: without the relay nothing here can be started.
                 false -> item(key = "__relay_off__") {
                     Row(
                         modifier = Modifier
@@ -535,7 +522,7 @@ fun AgentScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up below.",
+                            "Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up in Threads.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
@@ -550,22 +537,6 @@ fun AgentScreen(
                     // (web `LaunchHeadline` returns null, ×4): the field's
                     // placeholder already says "Ask the agent…", and the same
                     // sentence twice is not a heading.
-                    // EXP-1253: with nothing picked the HOME headline leads
-                    // (the disc mark + the time-of-day greeting); a picked
-                    // subject's own headline leads instead.
-                    if (promptSubject == AgentComposerPrompt.Subject.None) {
-                        item(key = "__home_headline__") {
-                            HomeHeadline(
-                                greeting = greeting,
-                                modifier = Modifier.padding(
-                                    top = 8.dp,
-                                    // The column's 6dp gap makes up the rest of
-                                    // `headlineToCard`.
-                                    bottom = (AgentHome.HEADLINE_TO_CARD - 6).dp,
-                                ),
-                            )
-                        }
-                    }
                     if (promptSubject != AgentComposerPrompt.Subject.None) {
                         item(key = "__composer_headline__") {
                             AgentComposerHeadline(
@@ -639,11 +610,12 @@ fun AgentScreen(
                             imageError = imageError,
                             sending = sending || starting != null,
                             starting = starting,
-                            onOpenMenu = { filePicker.launch(arrayOf("*/*")) },
+                            onOpenMenu = { plusMenuOpen = true },
                             onRemoveImage = viewModel::removeImage,
                             submitLabel = submitLabel,
                             canSubmit = canSubmit,
                             onSubmit = { viewModel.submit(selectedAction, resumeCandidate != null) },
+                            issues = inputIssues,
                         )
                     }
                     if (menuOpen) {
@@ -743,10 +715,81 @@ fun AgentScreen(
                 }
                 null -> Unit
             }
-        }
-        }
+            if (onBack == null && runningThreads.isNotEmpty()) {
+                item(key = "__home_running__") {
+                    Column(modifier = Modifier.padding(top = 18.dp).testTag("agent-home-running")) {
+                        SectionHeader(SessionTree.ListCopy.GROUPS.getValue(SessionTree.ThreadsGroupKey.Running))
+                        runningThreads.forEach { row ->
+                            ThreadListRow(
+                                row = row,
+                                meta = runningMeta[row.sessionId],
+                                onClick = { onOpenThread(row.sessionId) },
+                            )
+                        }
+                    }
+                }
+            }
     }
 
+    if (plusMenuOpen) {
+        val claude = launch.agent == DEFAULT_AGENT
+        ComposerPlusMenuSheet(
+            layout = ComposerMenu.composerMenuLayout(
+                ComposerMenuConditions(
+                    subagentModel = supportsSubagentModel(launch.agent),
+                    ultracode = claude,
+                    // EXP-1291: actions no longer carry their own MCP list, so
+                    // no subject owns it — the team's servers alone decide.
+                    mcp = mcpServers.isNotEmpty(),
+                    computerUse = device?.canToggleComputerUse == true,
+                ),
+            ),
+            codex = launch.agent == "codex",
+            effortValue = effortLabel(launch.effort),
+            effortEnabled = !(claude && launch.ultracode),
+            subagentsValue = subagentModelLabel(launch.subagentModel),
+            ultracode = launch.ultracode,
+            mcpValue = mcpPickValue(mcpServerIds.size),
+            computerUse = computerUse,
+            canAttach = images.count { it.isImage } < MAX_STEER_IMAGES ||
+                images.count { !it.isImage } < MAX_STEER_FILES,
+            onRow = { row ->
+                plusMenuOpen = false
+                when (row) {
+                    // SLOP-28: these two push their search-list page inside
+                    // the menu ([ComposerPlusMenuSheet]) and never land here.
+                    ComposerMenuRowId.ImplementIssue, ComposerMenuRowId.RunAction -> Unit
+                    ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
+                    ComposerMenuRowId.Effort -> effortPickerOpen = true
+                    ComposerMenuRowId.Subagents -> subagentPickerOpen = true
+                    ComposerMenuRowId.McpServers -> mcpPickerOpen = true
+                    ComposerMenuRowId.Ultracode, ComposerMenuRowId.ComputerUse -> Unit
+                }
+            },
+            onUltracodeChange = viewModel::setUltracode,
+            onComputerUseChange = viewModel::setComputerUse,
+            onDismiss = { plusMenuOpen = false },
+            issuePage = { close ->
+                AgentIssuePickerPage(
+                    issues = pool,
+                    checkedIds = issueSubject?.ids?.toSet().orEmpty(),
+                    onToggle = viewModel::toggleIssue,
+                    onDone = close,
+                )
+            },
+            actionPage = { close ->
+                AgentActionPickerPage(
+                    actions = actionsState.actions,
+                    error = actionsState.error,
+                    selectedId = actionSubject?.id,
+                    onPick = { id ->
+                        viewModel.pickAction(id)
+                        close()
+                    },
+                )
+            },
+        )
+    }
     if (effortPickerOpen) {
         Picker(
             items = (listOf(CLI_DEFAULT_EFFORT) + effortValuesFor(launch.agent)).map { PickerItem(it, effortLabel(it)) },
@@ -782,31 +825,92 @@ fun AgentScreen(
 }
 
 /**
- * EXP-1253 (composer-home.json `geometry`, phones): the disc mark at
- * `markPhone` + ONE line of Inter semibold at `headlinePhone`, centred, never
- * a subtitle.
+ * The Agent page's frame: the restored DAWN (FEED-100) — the big Exponential
+ * mark, dim, glowing behind the top of the page and fading out toward the
+ * composer — under the transparent "Agent" top bar, and the page's one
+ * column ([content]) from the top down. Stateless, so the styleguide
+ * captures draw the same frame over fake data.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AgentPageFrame(
+    onBack: (() -> Unit)?,
+    content: LazyListScope.() -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        AgentHomeDawn(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = DAWN_TOP.dp),
+        )
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { Text("Agent") },
+                    navigationIcon = { onBack?.let { TopBarBackButton(onClick = it) } },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+                )
+            },
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .testTag("agent-page"),
+                // As a tab the floating bar overlays the page: the last row
+                // must sit above the pill, not under it. The top gap lets the
+                // dawn's upper half show above the card.
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = DAWN_TO_CARD.dp,
+                    bottom = if (onBack == null) BottomBarInset else 24.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                content = content,
+            )
+        }
+    }
+}
+
+/** The dawn's geometry (dp): the mark's diameter, its top under the status
+ *  bar, and the gap above the composer column (the card covers the lower half). */
+private const val DAWN_MARK = 168
+private const val DAWN_TOP = 8
+private const val DAWN_TO_CARD = 28
+
+/**
+ * FEED-100: the dawn — [ExponentialMark] in the foreground colour at a low
+ * alpha, its visible upper half fading to nothing toward the card (solid for
+ * the top third, transparent at the mark's middle).
  */
 @Composable
-private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth().testTag(AgentHome.HOME_TEST_ID),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AgentHome.GAP.dp, Alignment.CenterHorizontally),
+internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .testTag(AgentHome.HOME_TEST_ID)
+            .graphicsLayer {
+                alpha = 0.09f
+                compositingStrategy = CompositingStrategy.Offscreen
+            }
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0f to Color.Black,
+                        0.18f to Color.Black,
+                        0.62f to Color.Transparent,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
     ) {
         ExponentialMark(
-            size = AgentHome.MARK_PHONE.dp,
+            size = DAWN_MARK.dp,
             tint = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.testTag(AgentHome.MARK_TEST_ID),
-        )
-        Text(
-            greeting,
-            fontSize = AgentHome.HEADLINE_PHONE.sp,
-            lineHeight = (AgentHome.HEADLINE_PHONE + 6).sp,
-            fontWeight = FontWeight(AgentHome.HEADLINE_WEIGHT),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false).testTag(AgentHome.GREETING_TEST_ID),
         )
     }
 }

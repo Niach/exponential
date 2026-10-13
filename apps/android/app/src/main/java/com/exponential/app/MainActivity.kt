@@ -140,6 +140,14 @@ class MainActivity : ComponentActivity() {
                     teamSlug = parsed.teamSlug,
                     threadId = parsed.threadId,
                 )
+                // EXP-1291: the PR body footer's `/t/{team}/sessions/{id}`.
+                is WebLinks.Parsed.SessionRef -> deepLinkBus.openWebThreadRef(
+                    uri = data,
+                    host = data.host ?: return,
+                    teamSlug = parsed.teamSlug,
+                    threadId = parsed.sessionId,
+                    sessionPath = true,
+                )
                 is WebLinks.Parsed.Invite -> deepLinkBus.openInvite(parsed.token)
                 // EXP-825: the Agent page, on the active account.
                 is WebLinks.Parsed.Agent -> deepLinkBus.openAgent()

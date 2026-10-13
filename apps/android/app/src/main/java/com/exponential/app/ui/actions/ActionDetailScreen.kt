@@ -103,6 +103,7 @@ fun ActionDetailScreen(
             action == null -> EmptyState(EmptyStateCopy.actionUnavailable, modifier = Modifier.padding(padding))
             else -> ActionPromptTab(
                 actionId = action.id,
+                onDeleted = onBack,
                 modifier = Modifier
                     .padding(padding)
                     .consumeWindowInsets(padding)

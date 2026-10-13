@@ -21,6 +21,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WireTimestamps
 import com.exponential.app.domain.parseAgentTriggers
+import com.exponential.app.domain.unreadableAgentTriggers
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.steer.SessionSender
 import com.exponential.app.ui.steer.steerDeviceFlow
@@ -96,11 +97,16 @@ class AgentSettingsViewModel @Inject constructor(
             userId != null && members.firstOrNull { it.userId == userId }?.role == DomainContract.teamRoleOwner
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** The Device picker: the caller's machines + the team's shared servers,
-     *  ONLINE OR NOT (an agent outlives a machine's uptime). null = loading. */
-    val devices: StateFlow<List<SteerDevice>?> =
-        steerDeviceFlow(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }, auth.userId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    /** The Device picker (`agent-settings.json`): the ONLINE devices of the
+     *  team the caller may start on (the caller's machines + the team's shared
+     *  servers), plus the agent's CURRENT device even while it is offline so
+     *  the field still shows its value. null = loading. */
+    val devices: StateFlow<List<SteerDevice>?> = combine(
+        steerDeviceFlow(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }, auth.userId),
+        agent,
+    ) { list, row ->
+        list?.filter { it.online || it.deviceId == row?.deviceId }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _instructions = MutableStateFlow<String?>(null)
     /** The server-only instructions (`sessions.getAgent`); null = not loaded. */
@@ -156,6 +162,8 @@ class AgentSettingsViewModel @Inject constructor(
         instructions: String,
         triggers: List<AgentTrigger>,
         onCreated: (String) -> Unit,
+        /** The picked login's agent (an account key's `<agent>:` half). */
+        cli: String? = null,
     ) {
         val team = teamId.value ?: return
         write("create", "the agent") {
@@ -164,6 +172,7 @@ class AgentSettingsViewModel @Inject constructor(
                     teamId = team,
                     deviceId = deviceId,
                     account = account,
+                    cli = cli,
                     agent = AgentFacetsInput(
                         name = name.trim(),
                         icon = icon,
@@ -213,7 +222,8 @@ class AgentSettingsViewModel @Inject constructor(
         val id = sessionId ?: return
         write("update", "the schedule") { accountId ->
             val next = build(triggers.value)
-            val wire: List<JsonObject> = next.map { it.toWireJson() }
+            val wire: List<JsonObject> = next.map { it.toWireJson() } +
+                unreadableAgentTriggers(agent.value?.triggers)
             sessionsApi.updateAgent(accountId, id, UpdateAgentPatch(triggers = wire))
             lastWritten.value = System.currentTimeMillis() to next
             onDone()

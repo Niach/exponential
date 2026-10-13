@@ -44,9 +44,6 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.ui.platform.LocalLayoutDirection
 import com.exponential.app.ui.components.detailHazeSource
-import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -78,7 +75,6 @@ import com.exponential.app.domain.guideCoverage
 import com.exponential.app.domain.guideFileCountLabel
 import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.guideSectionCaption
-import com.exponential.app.domain.prDescriptionGroup
 import com.exponential.app.domain.sessionResultsGuide
 import com.exponential.app.domain.SessionResultGroup
 import com.exponential.app.domain.SESSION_RESULTS_EARLIER_LABEL
@@ -109,24 +105,13 @@ import com.exponential.app.ui.theme.TextEmphasis
 // section bands: text, ONE `Changes · N files +A −D ›` row (the files the
 // topic names, by path or rename source — `guideCoverage`), tiles, Earlier]
 // [the automatic `Other changes` band] [the hairline `Show complete diff`
-// row]. A Changes row opens its section page ([GuideSectionDiff]). An open PR
-// with no run report leads with the PR's GitHub body; no report at all = one
-// `Changes` section over the whole diff. The floating bar carries the white
+// row]. A Changes row opens its section page ([GuideSectionDiff]). No report
+// at all = one `Changes` section over the whole diff. The floating bar carries the white
 // Merge capsule alone (`Merge stack` while stacked).
 
 /** The horizontal content padding the page reserves on each side. */
 private val HorizontalPadding = 16.dp
 private val TileShape = RoundedCornerShape(10.dp)
-
-/** EXP-1154 (web `prDescriptionGroups`): a LOADED PR body as ONE Guide group
- *  claiming every diff path ([prDescriptionGroup]); empty until loaded. */
-fun prDescriptionGroups(state: PrDescriptionState?, files: List<Diff.File>?): List<SessionResultGroup> =
-    when (state) {
-        is PrDescriptionState.Loaded -> listOf(
-            prDescriptionGroup(state.description.title, state.description.body, files),
-        )
-        else -> emptyList()
-    }
 
 @Composable
 fun GuideFace(
@@ -135,10 +120,6 @@ fun GuideFace(
     /** The diff the Guide counts (the run's live diff, else the PR / branch
      *  files); null while it is not loaded: no Changes rows yet. */
     files: List<Diff.File>?,
-    /** EXP-1154: the open PR's GitHub body fetch, drawn (its spinner or its
-     *  refusal) only while [groups] is empty; once loaded the caller passes it
-     *  IN [groups] ([prDescriptionGroups]). */
-    prFallback: PrDescriptionState? = null,
     /** False for the PR-body group (one band, no `01 / 01`), web `numbered`. */
     numbered: Boolean = true,
     /** The bar's white Merge; null = no bar. */
@@ -176,11 +157,6 @@ fun GuideFace(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Web M8 ×4: a loaded PR body arrives as a group ([prDescriptionGroups])
-            // that claims EVERY diff path; only its spinner / refusal draws here.
-            if (groups.isEmpty() && prFallback != null && prFallback !is PrDescriptionState.Loaded) {
-                item(key = "__pr_fallback__") { PrFallbackSection(state = prFallback) }
-            }
             coverage.lead?.let { lead ->
                 item(key = "__lead__") {
                     Column(
@@ -414,26 +390,6 @@ private fun GuideRow(
             }
         }
         if (!hairlineAbove) HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
-    }
-}
-
-/**
- * EXP-1154: an open PR with no run report while its GitHub body loads
- * (skeleton rows, EXP-1275) or after the fetch failed (FEED-79: the fetch
- * runs on open, so the empty state, never a toast). The loaded body is a
- * Guide group ([prDescriptionGroups]).
- */
-@Composable
-private fun PrFallbackSection(state: PrDescriptionState) {
-    Column(
-        modifier = Modifier.testTag("results-pr-fallback"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        when (state) {
-            PrDescriptionState.Loading -> SkeletonRows(dot = false)
-            is PrDescriptionState.Failed -> EmptyState(EmptyStateCopy.changedFiles)
-            is PrDescriptionState.Loaded -> Unit
-        }
     }
 }
 

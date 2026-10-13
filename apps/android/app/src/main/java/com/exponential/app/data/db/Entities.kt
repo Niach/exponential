@@ -624,10 +624,11 @@ data class IssueDraftEntity(
     // `YYYY-MM-DD` — the date-only due date (no time of day, REV2-49).
     @ColumnInfo(name = "due_date") @SerialName("due_date") @JsonNames("dueDate")
     val dueDate: String? = null,
-    // EXP-1284: "New issue in this thread" — the thread the issue files into
-    // (create links it), so the draft keeps it across leave and reopen.
+    // EXP-1291: "New issue" from a thread — the thread ROOT session the issue
+    // files into (create links it), so the draft keeps it across leave and
+    // reopen. Synced as `session_id` (the local column keeps its v86 name).
     // SET NULL server-side: a deleted thread leaves a plain draft.
-    @ColumnInfo(name = "thread_id") @SerialName("thread_id") @JsonNames("threadId")
+    @ColumnInfo(name = "thread_id") @SerialName("session_id") @JsonNames("sessionId", "thread_id", "threadId")
     val threadId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",

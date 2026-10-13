@@ -39,6 +39,8 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
+import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.ui.components.picker.IssuePickerIssue
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.FeedbackMark
 import com.exponential.app.ui.components.FieldError
@@ -107,13 +109,15 @@ internal fun AgentComposer(
      * seconds since the press) until the run's row lands.
      */
     starting: ComposerStarting? = null,
-    /** The "+" — attaches a file (EXP-1291: the composer menu is gone). */
+    /** EXP-1249: the "+" — opens the composer menu. */
     onOpenMenu: () -> Unit,
     onRemoveImage: (Int) -> Unit,
     submitLabel: String,
     canSubmit: Boolean,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
+    /** EXP-1291: the team's issues, for an action's `issue` inputs. */
+    issues: List<IssuePickerIssue> = emptyList(),
 ) {
     // Each newly picked image inserts its own `[Image #k]` marker at the
     // caret, so the writer can say "crop [Image #2]" without typing the
@@ -150,6 +154,7 @@ internal fun AgentComposer(
                     boards = boards,
                     pullRequests = pullRequests,
                     onValueChange = onInputChange,
+                    issues = issues,
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -185,10 +190,10 @@ internal fun AgentComposer(
             // EXP-1249 ×4: the "+" is the composer's ONLY tool.
             ComposerToolButton(
                 ExpIcons.uiAdd,
-                contentDescription = "Add",
+                contentDescription = ComposerMenu.PLUS_LABEL,
                 onClick = onOpenMenu,
                 enabled = !sending,
-                modifier = Modifier.testTag("agent-composer-plus-button"),
+                modifier = Modifier.testTag(ComposerMenu.PLUS_TEST_ID),
             )
         },
         submit = {
@@ -250,11 +255,6 @@ private fun ChipClose(
 }
 
 /**
- * EXP-1233: the Fix merge conflicts builtin with a picked pull request heads
- * the page as "Fix merge conflicts" + the PR's ISSUE chips (the page passes
- * them as [issueChips] with no [actionChip]); unpicked it is the plain "Run"
- * + action chip.
- *
  * EXP-1038: the composer's HEADLINE — the run's subject as the page's main
  * element rather than a chip buried in the card. The contract verb
  * ([AgentComposerPrompt.headline], ×4: "Run" · "Implement") reads straight
@@ -273,9 +273,7 @@ internal fun AgentComposerHeadline(
     onRemoveIssue: (String) -> Unit,
     actionChip: ActionDto?,
     /**
-     * EXP-1233: the ✕'s name per issue chip — "Remove APP-3" for the issues
-     * subject; the Fix merge conflicts builtin's PR chips say "Clear the pull
-     * request" (their ✕ clears the PICK, not the action).
+     * The ✕'s name per issue chip ("Remove APP-3").
      */
     removeIssueDescription: (IssueOption) -> String = { "Remove ${it.identifier}" },
     onClearAction: () -> Unit,

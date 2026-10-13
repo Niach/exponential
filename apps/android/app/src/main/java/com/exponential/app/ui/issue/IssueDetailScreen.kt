@@ -253,6 +253,8 @@ fun IssueFace(
     onOpenIssue: (String) -> Unit,
     /** EXP-1291: a pull request row's tap (null = rows inert). */
     onOpenPullRequest: ((com.exponential.app.data.db.PullRequestEntity) -> Unit)? = null,
+    /** EXP-1291: an open PR row's Merge (null = no control on that row). */
+    prMergeControl: ((com.exponential.app.data.db.PullRequestEntity) -> com.exponential.app.ui.work.ChangesMergeControl?)? = null,
     /** The bar's right circle — the host's Start play, else empty. */
     trailingBarSlot: @Composable () -> Unit,
     /** EXP-1191: the bar's Merge circle, directly right of the Comment
@@ -740,6 +742,7 @@ fun IssueFace(
                     AgentPrCard(
                         pullRequests = pullRequests,
                         onOpenPullRequest = { pr -> onOpenPullRequest?.invoke(pr) },
+                        mergeControlFor = prMergeControl,
                     )
                 }
 
@@ -1131,14 +1134,44 @@ private fun IssueThreadsRow(viewModel: IssueDetailViewModel, onOpen: (String) ->
     val threads by viewModel.threads.collectAsStateWithLifecycle()
     if (threads.isEmpty()) return
     Spacer(Modifier.height(12.dp))
-    Column(modifier = Modifier.fillMaxWidth().testTag("issue-threads-row")) {
-        threads.forEach { thread ->
-            androidx.compose.material3.TextButton(onClick = { onOpen(thread.rootId) }) {
-                Text(
+    IssueThreadsChips(threads = threads, onOpen = onOpen)
+}
+
+/**
+ * EXP-1291 (draft 7): the muted `Threads` label, then one glass chip per
+ * thread holding this issue — its title, led by the live dot (pulsing while
+ * it works) while any session in it runs. Stateless for the capture.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun IssueThreadsChips(threads: List<IssueDetailViewModel.IssueThread>, onOpen: (String) -> Unit) {
+    if (threads.isEmpty()) return
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("issue-threads-row"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            com.exponential.app.domain.SessionTree.ListCopy.TITLE,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            threads.forEach { thread ->
+                com.exponential.app.ui.components.GlassPill(
                     thread.title,
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    size = com.exponential.app.ui.components.PillSize.Sm,
+                    onClick = { onOpen(thread.rootId) },
+                    leading = if (thread.live) {
+                        { LiveDot(busy = thread.busy, size = 6.dp) }
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.testTag("issue-thread-chip"),
                 )
             }
         }

@@ -54,11 +54,15 @@ object WebLinks {
 
         /** EXP-1288: `/t/{team}/threads/{id}` — a thread (EXP-1284). */
         data class ThreadRef(val teamSlug: String, val threadId: String) : Parsed
+
+        /** EXP-1291: `/t/{team}/sessions/{id}` — the PR body footer's link; a
+         *  root opens its thread, a child its session view. */
+        data class SessionRef(val teamSlug: String, val sessionId: String) : Parsed
     }
 
     /**
      * Inverse of [issueUrl] and [agentUrl] plus the invite and thread routes —
-     * the only four shapes the manifest's autoVerify filter claims. Takes the already-decoded path
+     * the only five shapes the manifest's autoVerify filter claims. Takes the already-decoded path
      * (Uri.getPath) rather than a Uri so it stays JVM-unit-testable; empty
      * segments are dropped (trailing slash tolerated) and deeper paths fail
      * the exact-length match — the app only claims what it can render.
@@ -84,6 +88,8 @@ object WebLinks {
             // ([AppLink.Thread]); resolved against the link host's account.
             parts.size == 4 && parts[0] == "t" && parts[2] == "threads" ->
                 Parsed.ThreadRef(parts[1], parts[3])
+            parts.size == 4 && parts[0] == "t" && parts[2] == "sessions" ->
+                Parsed.SessionRef(parts[1], parts[3])
             else -> null
         }
     }

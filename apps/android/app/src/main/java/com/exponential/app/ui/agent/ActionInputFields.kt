@@ -19,6 +19,8 @@ import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PickerValueRow
 import com.exponential.app.ui.components.picker.BoardPicker
 import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.components.picker.IssuePicker
+import com.exponential.app.ui.components.picker.IssuePickerIssue
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -26,8 +28,8 @@ import com.exponential.app.ui.theme.TextEmphasis
  * EXP-825: the picked action's typed inputs, rendered INSIDE the composer
  * card under its chip (the card is the chrome, so these are bare rows with
  * hairlines rather than a grouped card of their own). Only PICK types exist
- * since the ONE launcher: repo/board/pr → a picker row over the team registry
- * / synced boards / the team's open pull requests; icon (EXP-273) → the
+ * since the ONE launcher: repo/board/pr/issue → a picker row over the team
+ * registry / synced boards / the team's open pull requests / its issues; icon (EXP-273) → the
  * curated swatch grid the create-board form draws. The stored value is the
  * picked id or the glyph name; a cleared optional picker stores "" which the
  * submit path drops. A def of any other type — `text`/`textarea` from an
@@ -43,6 +45,8 @@ internal fun ActionInputFields(
     pullRequests: List<StartPullRequestOption>,
     onValueChange: (key: String, value: String) -> Unit,
     modifier: Modifier = Modifier,
+    /** EXP-1291: the team's issues, for an `issue` input's picker. */
+    issues: List<IssuePickerIssue> = emptyList(),
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         if (ActionInputValues.hasUnsupportedType(defs)) {
@@ -62,6 +66,7 @@ internal fun ActionInputFields(
                 repos = repos,
                 boards = boards,
                 pullRequests = pullRequests,
+                issues = issues,
                 onValueChange = { onValueChange(def.key, it) },
             )
         }
@@ -75,6 +80,7 @@ private fun ActionInputField(
     repos: List<TeamRepo>,
     boards: List<StartBoardOption>,
     pullRequests: List<StartPullRequestOption>,
+    issues: List<IssuePickerIssue>,
     onValueChange: (String) -> Unit,
 ) {
     val label = if (def.required) def.label else "${def.label} (optional)"
@@ -162,6 +168,32 @@ private fun ActionInputField(
                     }
                 },
                 onSelect = onValueChange,
+            )
+        }
+        // EXP-1291: one issue of the team (the value is its id) — the shared
+        // issue picker sheet; an optional pick clears by tapping it again.
+        "issue" -> {
+            val picked = issues.firstOrNull { it.id == value }
+            IssuePicker(
+                issues = issues,
+                value = setOfNotNull(value.takeIf { it.isNotEmpty() }),
+                onChange = { ids ->
+                    val next = ids.firstOrNull()
+                    if (next != null) onValueChange(next) else if (!def.required) onValueChange("")
+                },
+                title = def.label,
+                trigger = { open ->
+                    PickerValueRow(
+                        label = label,
+                        value = when {
+                            value.isEmpty() && def.required -> "Select"
+                            value.isEmpty() -> "None"
+                            picked != null -> "${picked.identifier} ${picked.title}"
+                            else -> value
+                        },
+                        onClick = open,
+                    )
+                },
             )
         }
         // EXP-273: the curated icon set. The value is a glyph NAME, so there

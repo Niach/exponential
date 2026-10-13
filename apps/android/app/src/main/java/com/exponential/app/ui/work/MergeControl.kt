@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.icons.ExpIcons
 
@@ -40,6 +42,11 @@ data class ChangesMergeControl(
      *  no issue linked) `merge-run-pr`. */
     val confirmPrompt: Prompts.Prompt,
     val onConfirm: () -> Unit,
+    /** EXP-1248/EXP-1291: non-null = the PR is a member of an open stack —
+     *  Merge asks the ONE stack confirm ([StackMergeDialog]) and lands the
+     *  whole open chain through [onMergeStack]. */
+    val stackConfirm: PullRequestStack.Confirm? = null,
+    val onMergeStack: () -> Unit = {},
 )
 
 /**
@@ -110,6 +117,26 @@ fun MergeCircle(merge: ChangesMergeControl, tag: String, modifier: Modifier = Mo
 }
 
 /**
+ * EXP-1291: an issue's PR row's Merge — the small glass pill trailing the
+ * row (an issue can list several PRs, so the control rides each open one).
+ * Same confirm / stack flow as [MergeCapsule]; spins while merging.
+ */
+@Composable
+fun MergePill(merge: ChangesMergeControl, modifier: Modifier = Modifier) {
+    MergeTrigger(merge) { onClick ->
+        GlassPill(
+            merge.label,
+            icon = ExpIcons.prMerged,
+            size = PillSize.Sm,
+            loading = merge.loading,
+            enabled = !merge.loading,
+            onClick = onClick,
+            modifier = modifier,
+        )
+    }
+}
+
+/**
  * The ONE tap behaviour both Merge shapes share: a merge asks first
  * ([MergeConfirmDialog], the stack choice included). A refusal toasts ONCE in the host (WorkScreen), never per
  * control: the pager keeps neighbouring faces composed.
@@ -137,6 +164,11 @@ const val MergeCapsuleTag = "work-merge-pr"
  */
 @Composable
 private fun MergeConfirmDialog(merge: ChangesMergeControl, onDismiss: () -> Unit) {
+    val stack = merge.stackConfirm
+    if (stack != null) {
+        StackMergeDialog(confirm = stack, onConfirm = merge.onMergeStack, onDismiss = onDismiss)
+        return
+    }
     PromptAlert(
         prompt = merge.confirmPrompt,
         onDismiss = onDismiss,

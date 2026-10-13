@@ -14,8 +14,12 @@ object Routes {
     const val HOME = MainTabs.AGENT
     const val THREADS = MainTabs.THREADS
 
-    const val THREAD_PATTERN = "thread/{sessionId}"
-    fun thread(rootSessionId: String): String = "thread/$rootSessionId"
+    /** `tab` = the tab the thread opens on (`guide` for a `?view=guide`
+     *  link); absent = the Conversation. */
+    const val THREAD_PATTERN = "thread/{sessionId}?tab={tab}"
+    const val THREAD_TAB_GUIDE = "guide"
+    fun thread(rootSessionId: String, tab: String? = null): String =
+        if (tab == null) "thread/$rootSessionId" else "thread/$rootSessionId?tab=$tab"
 
     const val SESSION_PATTERN = "session/{sessionId}"
     fun session(sessionId: String): String = "session/$sessionId"

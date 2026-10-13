@@ -37,8 +37,8 @@ import kotlinx.serialization.json.Json
 // The launcher's LOOKUP data (EXP-257, renamed from StartCodingSheetViewModel
 // in EXP-825 when the three-tab sheet became the Agent page composer): the
 // selected team's actions LIVE from the synced actions shape (EXP-268 — the
-// local Room flow, body-less by design; the virtual builtin rows are prepended
-// client-side) plus the sources the typed input fields render from — the team
+// local Room flow, body-less by design; EXP-1291: saved prompts only, no
+// builtins) plus the sources the typed input fields render from — the team
 // repo registry for `repo` inputs, the synced boards for `board` inputs, the
 // open pull requests for `pr` inputs — and the worktree inventory behind the
 // Resume offer. Owned by a dedicated ViewModel so the composer, the action
@@ -124,12 +124,6 @@ class AgentLaunchDataViewModel @Inject constructor(
     private val scope = combine(auth.activeAccountId, teamId) { accountId, teamId ->
         accountId to teamId
     }
-
-    /**
-     * The selected team — the hidden "Chat" builtin (EXP-615) is constructed
-     * locally by the composer, and every builtin start has to carry its
-     * teamId (there is no DB row for the server to derive it from).
-     */
 
     /**
      * The selected team's saved prompts (actions), in server order. EXP-1291:

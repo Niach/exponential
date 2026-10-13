@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.ui.components.toPickerIssue
 import com.exponential.app.data.api.ActionInputDto
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.McpServersApi
@@ -188,7 +189,7 @@ class AgentComposerViewModel @Inject constructor(
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     /**
-     * The team: the pools, the builtins' teamId, the upload scope. The
+     * The team: the pools, the start's teamId, the upload scope. The
      * SELECTED team, unless the seed names a team-owned subject (EXP-1186: a
      * cross-team Actions/Reviews row starts in ITS team, [routeTeamIdFlow]).
      */
@@ -294,6 +295,22 @@ class AgentComposerViewModel @Inject constructor(
     val teamHasBoard: StateFlow<Boolean?> = combine(dbFlow, allBoards, teamId) { db, boards, team ->
         if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-1291: an action's `issue` input picks ONE issue of the team (any
+     * status), newest first, as shared issue-picker rows.
+     */
+    val inputIssues: StateFlow<List<com.exponential.app.ui.components.picker.IssuePickerIssue>> =
+        combine(allIssues, allBoards, teamId) { issues, boards, team ->
+            if (team == null) {
+                emptyList()
+            } else {
+                val teamBoardIds = boards.filter { it.teamId == team && it.deletedAt == null }.map { it.id }.toSet()
+                issues.filter { it.boardId in teamBoardIds }
+                    .sortedByDescending { it.createdAt }
+                    .map { it.toPickerIssue() }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-323: the PR an action's `pr` input should open pre-picked on —
      * consumed by the screen once the options pool resolves it. */
@@ -543,11 +560,10 @@ class AgentComposerViewModel @Inject constructor(
     // ── Seed ────────────────────────────────────────────────────────────────
 
     /**
-     * Apply a preselection: `action` wins over `issues` (the hidden Chat
-     * builtin is the no-subject state, not a chip); text lands only in an
-     * EMPTY draft; a `pr` seed waits for the options pool; a device seed is a
-     * PREFERENCE (sticky until the user picks). EXP-1233: a `conflict` seed
-     * on the Fix merge conflicts builtin raises the card's refusal line.
+     * Apply a preselection: `action` wins over `issues` (no subject = a
+     * plain message); text lands only in an EMPTY draft; a `pr` seed waits
+     * for the options pool; a device seed is a PREFERENCE (sticky until the
+     * user picks).
      */
     fun applySeed(seed: AgentComposerSeed) {
         val actionId = seed.actionId
@@ -833,13 +849,18 @@ class AgentComposerViewModel @Inject constructor(
             inputs = (subject as? ComposerSubject.Action)?.let { picked ->
                 ActionInputValues.wireValues(action?.inputs.orEmpty(), picked.inputs)
             },
+            // EXP-993: a chat (no subject) runs in the picked repo, never a
+            // scratch dir by accident; a subject resolves its own repo.
+            repositoryId = _chatRepoId.value.takeIf { subject == null && it.isNotEmpty() },
             cli = agent,
             account = draft.wireAccount,
             model = draft.model.takeIf { it.isNotEmpty() },
             effort = draft.effort.takeIf { it.isNotEmpty() },
             planMode = if (supportsPlanMode(agent)) draft.planMode else null,
             ultracode = if (agent == DEFAULT_AGENT && draft.ultracode) true else null,
-            computerUse = _computerUsePick.value?.takeIf { device.value?.canToggleComputerUse == true },
+            // The row stores what was sent (NOT NULL, default off), so send the
+            // SHOWN value, device default included, not only an explicit flip.
+            computerUse = computerUse.value.takeIf { device.value?.canToggleComputerUse == true },
             mcpServerIds = _mcpServerIds.value,
         )
     }

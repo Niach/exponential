@@ -282,3 +282,16 @@ fun parseAgentTriggers(raw: String?): List<AgentTrigger> {
         ?: return emptyList()
     return array.mapNotNull(::parseAgentTrigger)
 }
+
+/**
+ * The stored trigger objects this build CANNOT read (an event or interval
+ * from a newer client or MCP). `triggers` is a whole-array replace, so every
+ * write sends these back unchanged, appended — an edit here never erases
+ * them on the server.
+ */
+fun unreadableAgentTriggers(raw: String?): List<JsonObject> {
+    if (raw.isNullOrBlank()) return emptyList()
+    val array = runCatching { triggersJson.parseToJsonElement(raw) }.getOrNull() as? JsonArray
+        ?: return emptyList()
+    return array.filterIsInstance<JsonObject>().filter { parseAgentTrigger(it) == null }
+}

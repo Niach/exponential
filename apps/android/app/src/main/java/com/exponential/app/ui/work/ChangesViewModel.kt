@@ -2,7 +2,6 @@ package com.exponential.app.ui.work
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.api.PrDescription
 import com.exponential.app.data.api.PullFile
 import com.exponential.app.data.api.PullRequestsApi
 import com.exponential.app.data.api.trpcErrorMessage
@@ -34,13 +33,6 @@ sealed interface ChangesLoadState {
     data object Loading : ChangesLoadState
     data class Failed(val message: String) : ChangesLoadState
     data class Loaded(val files: List<PullFile>) : ChangesLoadState
-}
-
-/** EXP-1154: the Guide's PR-body fallback state (the GitHub title + body). */
-sealed interface PrDescriptionState {
-    data object Loading : PrDescriptionState
-    data class Failed(val message: String) : PrDescriptionState
-    data class Loaded(val description: PrDescription) : PrDescriptionState
 }
 
 @HiltViewModel(assistedFactory = ChangesViewModel.Factory::class)

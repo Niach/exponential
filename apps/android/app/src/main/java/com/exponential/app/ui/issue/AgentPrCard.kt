@@ -29,7 +29,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.DomainContract
+import androidx.compose.ui.platform.testTag
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.work.ChangesMergeControl
+import com.exponential.app.ui.work.MergePill
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.GlassTokens
@@ -69,6 +72,8 @@ private val PrClosedRed = DesignTokens.Semantic.Red
 fun AgentPrCard(
     pullRequests: List<PullRequestEntity>,
     onOpenPullRequest: (PullRequestEntity) -> Unit,
+    /** EXP-1291: an OPEN row's Merge control (the trailing pill); null = none. */
+    mergeControlFor: ((PullRequestEntity) -> ChangesMergeControl?)? = null,
 ) {
     if (pullRequests.isEmpty()) return
     // No card wrapper (EXP-246): the PR rows render full width against the
@@ -78,7 +83,13 @@ fun AgentPrCard(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         pullRequests.forEach { pr ->
-            PrRow(prState = pr.state, prNumber = pr.number, onOpenChanges = { onOpenPullRequest(pr) })
+            PrRow(
+                prState = pr.state,
+                prNumber = pr.number,
+                title = pr.title,
+                onOpenChanges = { onOpenPullRequest(pr) },
+                merge = if (pr.state == DomainContract.prStateOpen) mergeControlFor?.invoke(pr) else null,
+            )
         }
     }
 }
@@ -88,7 +99,13 @@ fun AgentPrCard(
 // state word on the right, tapping into Changes. It used to hug its content as
 // a small capsule, which read as a stray chip rather than a link to the code.
 @Composable
-private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
+private fun PrRow(
+    prState: String?,
+    prNumber: Int?,
+    title: String?,
+    onOpenChanges: () -> Unit,
+    merge: ChangesMergeControl? = null,
+) {
     val tint = when (prState) {
         DomainContract.prStateMerged -> PrMergedBlue
         DomainContract.prStateClosed -> PrClosedRed
@@ -110,14 +127,18 @@ private fun PrRow(prState: String?, prNumber: Int?, onOpenChanges: () -> Unit) {
             tint = tint,
         )
         Text(
-            prNumber?.let { "PR #$it" } ?: "Pull request",
+            listOfNotNull(prNumber?.let { "PR #$it" } ?: "Pull request", title?.takeIf { it.isNotBlank() })
+                .joinToString(" · "),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        if (!prState.isNullOrBlank()) {
+        if (merge != null) {
+            // EXP-1291: the row's Merge (confirm / stack confirm inside).
+            MergePill(merge = merge, modifier = Modifier.testTag("issue-pr-merge"))
+        } else if (!prState.isNullOrBlank()) {
             Text(
                 prState.replaceFirstChar { it.uppercase() },
                 style = MaterialTheme.typography.labelSmall,

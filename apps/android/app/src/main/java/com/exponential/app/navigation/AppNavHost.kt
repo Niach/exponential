@@ -180,6 +180,22 @@ fun AppNavHost() {
             is DeepLinkBus.Target.Thread -> guarded {
                 navController.navigateDeepLink(Routes.thread(target.id))
             }
+            // EXP-1291: `/t/{team}/sessions/{id}` in prose (the PR body
+            // footer): a synced root IS a thread, so it opens there (on the
+            // Guide for `?view=guide`); a child or unsynced row opens the
+            // raw session view.
+            is DeepLinkBus.Target.SessionLink -> {
+                val isRoot = webLinkResolver.isLocalRoot(target.id) == true
+                guarded {
+                    navController.navigateDeepLink(
+                        if (isRoot) {
+                            Routes.thread(target.id, Routes.THREAD_TAB_GUIDE.takeIf { target.guide })
+                        } else {
+                            Routes.session(target.id)
+                        },
+                    )
+                }
+            }
             // EXP-825: the web's `/t/{team}/agent` — the composer, empty,
             // which IS the Agent tab.
             DeepLinkBus.Target.Agent -> guarded {
@@ -215,7 +231,14 @@ fun AppNavHost() {
                         if (resolution.accountId != state.activeAccountId) {
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        navController.navigateDeepLink(Routes.thread(resolution.id))
+                        navController.navigateDeepLink(
+                            when {
+                                !resolution.isRoot -> Routes.session(resolution.id)
+                                target.sessionPath && target.uri.getQueryParameter("view") == Routes.THREAD_TAB_GUIDE ->
+                                    Routes.thread(resolution.id, Routes.THREAD_TAB_GUIDE)
+                                else -> Routes.thread(resolution.id)
+                            },
+                        )
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -692,7 +715,11 @@ private fun AuthenticatedNav(
             ServerDetailScreen(accountId = accountId, onBack = { navController.popBackStack() })
         }
         composable("team-settings") {
-            TeamSettingsScreen(onBack = { navController.popBackStack() })
+            TeamSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
+                onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
+            )
         }
         composable("share-compose") {
             // Single-screen share composer: the prefilled create form with the
@@ -810,7 +837,16 @@ private fun AuthenticatedNav(
                 onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
             )
         }
-        composable(Routes.THREAD_PATTERN) {
+        composable(
+            Routes.THREAD_PATTERN,
+            arguments = listOf(
+                navArgument("tab") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) {
             // EXP-1291: a thread root OR an agent root — ONE conversation screen.
             ThreadScreen(
                 onBack = { navController.popBackStack() },
@@ -818,6 +854,8 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
+                // The "+"'s New issue: filed + linked to this root on create.
+                onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, threadId = rootId) },
             )
         }
         composable(Routes.AGENTS_SETTINGS) {

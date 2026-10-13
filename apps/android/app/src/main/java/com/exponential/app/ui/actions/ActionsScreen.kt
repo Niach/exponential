@@ -43,6 +43,8 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamSectionHeader
@@ -85,6 +87,25 @@ fun ActionsScreen(
     // EXP-1186: cross-team — one band per team once there are several.
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val multiTeam = teams.size > 1
+    // EXP-1296: `New action` = the saved-prompt form in a sheet (owner of
+    // the selected team only; the create lands there).
+    val canCreate by viewModel.canCreate.collectAsStateWithLifecycle()
+    val creating by viewModel.creating.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    var showCreate by remember { mutableStateOf(false) }
+    FailedActionToast(failure, onShown = viewModel::clearFailure)
+    if (showCreate) {
+        ActionCreateSheet(
+            busy = creating,
+            onCreate = { fields ->
+                viewModel.create(fields) { id ->
+                    showCreate = false
+                    onOpenAction(id)
+                }
+            },
+            onDismiss = { showCreate = false },
+        )
+    }
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // The root screens' header (AgentsScreen / SearchScreen parity):
@@ -101,6 +122,15 @@ fun ActionsScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
+                if (canCreate && selectedTeamId != null) {
+                    GlassPill(
+                        NEW_ACTION_TITLE,
+                        icon = ExpIcons.actionCreate,
+                        size = PillSize.Sm,
+                        onClick = { showCreate = true },
+                        modifier = Modifier.testTag("actions-new"),
+                    )
+                }
             }
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 when {

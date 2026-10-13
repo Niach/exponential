@@ -22,7 +22,15 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.AgentComposerSeed
+import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.CodingReadiness
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.Prompts
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
+import com.exponential.app.ui.work.ChangesMergeControl
+import com.exponential.app.ui.work.PullRequestStack
+import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.work.LocalTitleCollapse
@@ -107,6 +115,49 @@ fun IssueScreen(
         }
     }
 
+    // ── EXP-1291: the PR rows' Merge / the menu's Close PR ──────────────────
+    val teamPullRequests by issueVm.teamPullRequests.collectAsStateWithLifecycle()
+    val prIssueCounts by issueVm.pullRequestIssueCounts.collectAsStateWithLifecycle()
+    val prBusyId by issueVm.prBusyId.collectAsStateWithLifecycle()
+    val issuePullRequests by issueVm.pullRequests.collectAsStateWithLifecycle()
+    val prMergeControl: (PullRequestEntity) -> ChangesMergeControl? = { pr ->
+        if (!permissions.isMember) {
+            null
+        } else {
+            val stack = PullRequestStack.stackConfirm(pr, teamPullRequests)
+            ChangesMergeControl(
+                label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
+                loading = prBusyId == pr.id,
+                // Refusals toast through the face's mutation-error slot.
+                error = null,
+                confirmPrompt = Prompts.MergeIssuePr.prompt(pr.number, prIssueCounts[pr.id] ?: 1),
+                onConfirm = { issueVm.mergePullRequest(pr) },
+                stackConfirm = stack,
+                onMergeStack = {
+                    val through = stack?.throughId?.let { id -> teamPullRequests.firstOrNull { it.id == id } } ?: pr
+                    issueVm.mergePullRequest(through, stack = true)
+                },
+            )
+        }
+    }
+    // EXP-1233: a REAL conflict opens the composer seeded to fix it.
+    LaunchedEffect(issueVm) {
+        issueVm.mergeConflicts.collect { pr ->
+            onOpenAgent(
+                AgentComposerSeed(
+                    issueIds = listOf(issueId),
+                    prIssueId = issueId,
+                    conflict = true,
+                    text = fixConflictsPrompt(pr),
+                ),
+            )
+        }
+    }
+    // EXP-1154: Close PR (the `…` menu) acts on the newest OPEN pull request.
+    val closablePr = issuePullRequests.firstOrNull { it.state == DomainContract.prStateOpen }
+        ?.takeIf { permissions.isMember }
+    var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
+
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {
@@ -126,7 +177,13 @@ fun IssueScreen(
                         verb = null,
                         verbEnabled = false,
                         onVerb = {},
-                        menu = { IssueMenuActions(viewModel = issueVm, controller = controller) },
+                        menu = {
+                            IssueMenuActions(
+                                viewModel = issueVm,
+                                controller = controller,
+                                onClosePr = closablePr?.let { pr -> { closePrConfirm = pr } },
+                            )
+                        },
                     )
                 },
             ) { padding ->
@@ -138,6 +195,7 @@ fun IssueScreen(
                     onBack = onBack,
                     onOpenIssue = onOpenIssue,
                     onOpenPullRequest = openPullRequest,
+                    prMergeControl = prMergeControl,
                     trailingBarSlot = {
                         val ui = startUi
                         if (ui != null) StartCircle(ui = ui, onClick = { startCoding() }) else Spacer(Modifier.size(0.dp))
@@ -150,6 +208,28 @@ fun IssueScreen(
                 )
             }
         }
+    }
+
+    closePrConfirm?.let { pr ->
+        val others = ((prIssueCounts[pr.id] ?: 1) - 1).coerceAtLeast(0)
+        GlassAlert(
+            title = ClosePr.TITLE,
+            body = ClosePr.body(others),
+            onDismiss = { closePrConfirm = null },
+            trailing = listOf(
+                GlassAlertAction(STACK_CONFIRM_CANCEL_LABEL, onClick = { closePrConfirm = null }),
+                GlassAlertAction(
+                    ClosePr.CONFIRM,
+                    destructive = true,
+                    testTag = "close-pr-confirm",
+                    onClick = {
+                        closePrConfirm = null
+                        issueVm.closePullRequest(pr)
+                    },
+                ),
+            ),
+            defaultAction = 0,
+        )
     }
 
     // EXP-1121: the "Ready to code?" checklist behind a not-ready Start.
@@ -184,4 +264,15 @@ fun IssueScreen(
             onDismiss = { readinessSheetOpen = false },
         )
     }
+}
+
+/**
+ * EXP-1233/EXP-1291: the composer text a conflict-refused merge seeds — the
+ * agent rebases the PR's branch onto its base, resolves, force-pushes and
+ * merges (the retired Fix merge conflicts builtin's job, now plain words).
+ */
+internal fun fixConflictsPrompt(pr: PullRequestEntity): String {
+    val name = pr.number?.let { "PR #$it" } ?: "the pull request"
+    return "Fix the merge conflicts on $name (`${pr.head}` into `${pr.base}`): rebase onto its base, " +
+        "resolve the conflicts, force-push, then merge it."
 }

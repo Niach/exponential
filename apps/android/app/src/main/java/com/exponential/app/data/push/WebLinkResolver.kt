@@ -23,21 +23,39 @@ class WebLinkResolver @Inject constructor(
 ) {
     sealed interface Resolution {
         /** [id] = the local issue id ([resolve]) or thread id ([resolveThread]). */
-        data class Found(val id: String, val accountId: String) : Resolution
+        data class Found(
+            val id: String,
+            val accountId: String,
+            /** Thread links only: the synced row is a ROOT (`parent_id IS
+             *  NULL`); a child of a `/sessions/` link opens its session view. */
+            val isRoot: Boolean = true,
+        ) : Resolution
         data object NotFound : Resolution
     }
 
     suspend fun resolve(target: DeepLinkBus.Target.WebIssueRef): Resolution =
-        poll(target.host) { db -> db.issueDao().findIdByTeamRef(target.teamSlug, target.identifier) }
+        poll(target.host) { db -> db.issueDao().findIdByTeamRef(target.teamSlug, target.identifier)?.let { it to true } }
 
-    /** EXP-1288: a `/t/{team}/threads/{id}` link → the synced thread ROOT
-     *  session (EXP-1291: a thread IS a root session). */
+    /** EXP-1288: a `/t/{team}/threads/{id}` (or EXP-1291 `/sessions/{id}`)
+     *  link → the synced session (a thread IS a root session); [Found.isRoot]
+     *  tells a root from a child. */
     suspend fun resolveThread(target: DeepLinkBus.Target.WebThreadRef): Resolution =
-        poll(target.host) { db -> db.sessionDao().findIdByTeamRef(target.teamSlug, target.threadId) }
+        poll(target.host) { db ->
+            db.sessionDao().findIdByTeamRef(target.teamSlug, target.threadId)?.let { id ->
+                id to (db.sessionDao().getById(id)?.isRoot ?: true)
+            }
+        }
+
+    /** EXP-1291: whether the in-app session [sessionId] is a synced ROOT on
+     *  the ACTIVE account; null when the row is not synced (yet). */
+    suspend fun isLocalRoot(sessionId: String): Boolean? {
+        val accountId = auth.activeAccountId.value ?: return null
+        return runCatching { dbHolder.database(accountId).sessionDao().getById(sessionId)?.isRoot }.getOrNull()
+    }
 
     private suspend fun poll(
         host: String,
-        lookup: suspend (com.exponential.app.data.db.ExponentialDatabase) -> String?,
+        lookup: suspend (com.exponential.app.data.db.ExponentialDatabase) -> Pair<String, Boolean>?,
     ): Resolution {
         // Signed-in accounts on the link's instance — active account first,
         // then most recently used (several accounts can share a host).
@@ -52,8 +70,8 @@ class WebLinkResolver @Inject constructor(
 
         repeat(POLL_ATTEMPTS) { attempt ->
             for (account in candidates) {
-                val id = runCatching { lookup(dbHolder.database(account.id)) }.getOrNull()
-                if (id != null) return Resolution.Found(id, account.id)
+                val hit = runCatching { lookup(dbHolder.database(account.id)) }.getOrNull()
+                if (hit != null) return Resolution.Found(hit.first, account.id, isRoot = hit.second)
             }
             if (attempt < POLL_ATTEMPTS - 1) delay(POLL_INTERVAL_MS)
         }

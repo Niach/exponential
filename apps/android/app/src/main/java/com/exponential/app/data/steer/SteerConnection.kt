@@ -1173,6 +1173,15 @@ class SteerConnection internal constructor(
         _steerImageError.value = message
     }
 
+    /** Stamp [entry]'s landed upload (EXP-1291 `sessions.send` path), so a
+     *  retry after a failed send uploads only what has not landed. Matched by
+     *  identity: a removal mid-send never stamps the wrong entry. */
+    fun stampPendingUpload(entry: PendingAttachment, id: String, name: String?) {
+        _pendingImages.value = _pendingImages.value.map {
+            if (it === entry) it.copy(uploadedId = id, uploadedName = name) else it
+        }
+    }
+
     fun removePendingImage(index: Int) {
         val current = _pendingImages.value
         if (index !in current.indices) return
