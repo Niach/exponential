@@ -47,7 +47,6 @@ import { IssuePreviewCard } from "@/components/issue-preview-card"
 import { IssueChip } from "@/components/issue-chip"
 import { StatusIcon, statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import { useTeamRepos } from "@/hooks/use-team-repos"
 import { useSessionCard, useTreeSessions } from "@/hooks/use-session-tree"
 import type { SessionRow, SessionState } from "@/lib/session-tree"
 import { useNow } from "@/hooks/use-now"
@@ -211,25 +210,13 @@ function BoardCard({ board }: { board: Board }) {
 
 function ActionCard({ action }: { action: Action }) {
   const Icon = getActionIcon(action)
-  const repos = useTeamRepos(action.teamId, action.repositoryId !== null)
-  const repo = repos?.find((row) => row.id === action.repositoryId) ?? null
   const inputs = Array.isArray(action.inputs) ? action.inputs.length : 0
   return (
     <EntityPreviewCard
       icon={<Icon className="size-3.5" />}
       eyebrow={nounEyebrow(`action`)}
       title={action.name}
-      body={action.description}
-      facts={
-        <>
-          {action.repositoryId && (
-            <Pill size="sm" leading={kindGlyph({ kind: `repository`, id: `` }, `size-3`)}>
-              {repo?.fullName ?? `Repository`}
-            </Pill>
-          )}
-          <Pill size="sm">{`${inputs} ${inputs === 1 ? `input` : `inputs`}`}</Pill>
-        </>
-      }
+      facts={<Pill size="sm">{`${inputs} ${inputs === 1 ? `input` : `inputs`}`}</Pill>}
       testId="entity-preview-action"
     />
   )

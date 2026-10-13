@@ -70,19 +70,23 @@ function useTitleContext(teamIds: readonly string[]) {
         : undefined,
     [key]
   )
+  // The issues shape never streams its `team_id` scope: resolve the linked
+  // ids instead.
+  const issueIds = [...new Set(((links ?? []) as SessionIssueRow[]).map((link) => link.issueId))]
+  const issueKey = issueIds.sort().join(`,`)
   const { data: issues } = useLiveQuery(
     (query) =>
-      teamIds.length > 0
+      issueIds.length > 0
         ? query
             .from({ issues: issueCollection })
-            .where(({ issues }) => inArray(issues.teamId, [...teamIds]))
+            .where(({ issues }) => inArray(issues.id, issueIds))
             .select(({ issues }) => ({
               id: issues.id,
               identifier: issues.identifier,
               title: issues.title,
             }))
         : undefined,
-    [key]
+    [issueKey]
   )
   const { data: messages } = useLiveQuery(
     (query) =>

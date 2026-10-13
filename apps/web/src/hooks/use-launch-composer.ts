@@ -90,16 +90,6 @@ export const START_SYNC_WAIT_MS = 4_000
 // statuses anchor into this set automatically.
 const CODEABLE_STATUSES = new Set<string>([`backlog`, `in_progress`, `in_review`])
 
-// EXP-349: an action bound to a repository pre-fills its repo-typed inputs.
-function repoInputSeed(action: ComposerAction): Record<string, string> {
-  if (!action.repositoryId) return {}
-  const seed: Record<string, string> = {}
-  for (const def of action.inputs) {
-    if (def.type === `repo`) seed[def.key] = action.repositoryId
-  }
-  return seed
-}
-
 /** The submit's label per subject (its aria-label + tooltip). */
 export function submitLabelFor(subject: LaunchSubject): string {
   if (subject === null) return `Start session`
@@ -273,9 +263,6 @@ export function useLaunchComposer({
   const [repoId, setRepoId] = useState(``)
   const [seedPrIssueId, setSeedPrIssueId] = useState<string | undefined>()
   const [sending, setSending] = useState(false)
-  // EXP-349: the action whose repo inputs were seeded (a latch, so a manual
-  // re-pick is never re-seeded when the actions rows update).
-  const seededRepoActionId = useRef<string | null>(null)
   const imagesRef = useRef(images)
   imagesRef.current = images
 
@@ -420,7 +407,6 @@ export function useLaunchComposer({
     if (!seed) return
     // `action` wins over `issues` when both arrive.
     if (seed.actionId) {
-      seededRepoActionId.current = null
       setSubject({ kind: `action`, id: seed.actionId, inputs: {} })
       setSeedPrIssueId(seed.prIssueId)
     } else if (seed.issueIds.length > 0) {
@@ -437,23 +423,6 @@ export function useLaunchComposer({
     onSeedConsumed()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed])
-
-  // Seed repo-typed inputs from the selected action's bound repository, once
-  // per selection (EXP-349); current-wins so picks are never stomped.
-  useEffect(() => {
-    if (subject?.kind !== `action`) return
-    if (seededRepoActionId.current === subject.id) return
-    if (!selectedAction) return
-    seededRepoActionId.current = subject.id
-    const seeded = repoInputSeed(selectedAction)
-    if (Object.keys(seeded).length > 0) {
-      setSubject((current) =>
-        current?.kind === `action` && current.id === selectedAction.id
-          ? { ...current, inputs: { ...seeded, ...current.inputs } }
-          : current
-      )
-    }
-  }, [subject, selectedAction])
 
   // ── Subject actions ───────────────────────────────────────────────────────
 

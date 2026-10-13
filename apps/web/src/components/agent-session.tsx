@@ -477,7 +477,6 @@ export function AgentSessionView({
   /** EXP-549/550: the host machine per the synced devices row. */
   const device = useSessionDevice({
     deviceId: session.deviceId,
-    deviceLabel: null,
     userId: session.userId,
   })
   const usageNow = useNow(30_000)

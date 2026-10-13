@@ -151,7 +151,7 @@ function identifierOf(sessionId: string): string | null {
 function ThreadsList() {
   return (
     <div className="flex max-w-3xl flex-col gap-6" data-testid="threads-list">
-      <section>
+      <div>
         <GlassSectionHeader
           label={listFixture.copy.agents}
           leading={<BoardGlyph board={{ icon: `bot` }} className="size-3.5 text-muted-foreground" />}
@@ -169,9 +169,9 @@ function ThreadsList() {
           title="Designer"
           onOpen={noop}
         />
-      </section>
+      </div>
       {LIST.map((group) => (
-        <section key={group.key}>
+        <div key={group.key}>
           <GlassSectionHeader label={group.title} leading={GROUP_GLYPH[group.key]} />
           {group.rows.map((row) => {
             const word = WORDS[row.sessionId]
@@ -200,7 +200,7 @@ function ThreadsList() {
               />
             )
           })}
-        </section>
+        </div>
       ))}
     </div>
   )

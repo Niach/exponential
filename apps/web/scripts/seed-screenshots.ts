@@ -1746,25 +1746,21 @@ async function main() {
   // Team actions (EXP-253) so the Actions screenshot lists real saved
   // actions. EXP-1293: an action is a saved prompt (name, icon, body, inputs,
   // placeholder) — no builtins, no triggers (those moved onto agents). Bodies
-  // are short but plausible: the list shows name + description.
+  // are short but plausible: the list shows the name.
   const actionRows = await db
     .insert(actions)
     .values([
       {
         teamId: ws.id,
-        repositoryId: repo.id,
         name: `Update dependencies`,
-        description: `Bump every package to the latest compatible release and open a PR.`,
         icon: `package`,
         body: `Update all dependencies to their latest compatible versions. Run the full test suite, fix any breakage the bumps cause, and open a PR summarizing notable upgrades.`,
         sortOrder: 0,
       },
       {
         teamId: ws.id,
-        repositoryId: repo.id,
         id: DEMO_ACTION_ID,
         name: `Nightly test triage`,
-        description: `Investigate failing or flaky tests and file issues for real bugs.`,
         icon: `flask-conical`,
         body: `Run the test suite three times. For every failure, decide flaky vs real: quarantine and file an issue for flaky tests, fix trivial breakage directly, and file detailed issues for anything deeper.`,
         sortOrder: 10,
@@ -1772,7 +1768,6 @@ async function main() {
       {
         teamId: ws.id,
         name: `Draft release notes`,
-        description: `Summarize merged PRs since the last release into user-facing notes.`,
         icon: `sparkles`,
         body: `Collect the PRs merged since the last release tag and draft concise, user-facing release notes grouped by feature, fix, and performance. Post the draft as a comment for review.`,
         sortOrder: 20,

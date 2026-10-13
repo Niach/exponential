@@ -11,24 +11,11 @@
  * a capture moved goes back to its seeded status, and `started_at` is
  * re-anchored to the current clock so "1h 00m" reads the same on the last lane
  * as on the first.
- *
- * TEMP until EXP-1291's server half moves `steer.mintTicket` to `sessions`:
- * the viewer ticket for the raw session view still validates against
- * `coding_sessions`, so ONE legacy row under DEMO_SESSION_ID is upserted here
- * too — re-asserted because the coding-session staleness sweep deletes a
- * `running` row nobody heartbeats.
  */
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { boards, codingSessions, issues, sessions, teams } from "@/db/schema"
-import {
-  DEMO_DEVICE_ID,
-  DEMO_DEVICE_LABEL,
-  DEMO_SESSION_ID,
-  DEMO_THREAD_IDS,
-  DEMO_USER_ID,
-  TEAM_SLUG,
-} from "../screenshot-demo"
+import { sessions, teams } from "@/db/schema"
+import { DEMO_SESSION_ID, DEMO_THREAD_IDS, TEAM_SLUG } from "../screenshot-demo"
 
 export interface LiveSessionSpec {
   id: string
@@ -87,47 +74,5 @@ export async function assertDemoLiveSessions(now: number = Date.now()): Promise<
     written += rows.length
   }
 
-  await assertSteerTicketRow(team.id, now)
   return written
-}
-
-/**
- * TEMP until EXP-1291's server half moves mintTicket to sessions: the one
- * legacy `coding_sessions` row `steer.mintTicket` validates the raw session
- * view's viewer ticket against (owner = the demo user, on APP-5).
- */
-async function assertSteerTicketRow(teamId: string, now: number): Promise<void> {
-  const [issue] = await db
-    .select({ id: issues.id })
-    .from(issues)
-    .innerJoin(boards, eq(boards.id, issues.boardId))
-    .where(
-      and(
-        eq(boards.teamId, teamId),
-        eq(boards.slug, `mobile-app`),
-        inArray(issues.identifier, [`APP-5`])
-      )
-    )
-    .limit(1)
-  if (!issue) return
-  const spec = DEMO_LIVE_SESSIONS.find((entry) => entry.id === DEMO_SESSION_ID)!
-  const values = {
-    issueId: issue.id,
-    teamId,
-    userId: DEMO_USER_ID,
-    deviceId: DEMO_DEVICE_ID,
-    deviceLabel: DEMO_DEVICE_LABEL,
-    agent: `claude`,
-    status: `running` as const,
-    needsInput: demoNeedsInput(spec),
-    startedAt: new Date(now - spec.startedMinutesAgo * 60_000),
-    endedAt: null,
-    endedBy: null,
-    updatedAt: new Date(now),
-  }
-  // TEMP until EXP-1291's server half moves mintTicket to sessions
-  await db
-    .insert(codingSessions)
-    .values({ id: DEMO_SESSION_ID, ...values })
-    .onConflictDoUpdate({ target: codingSessions.id, set: values })
 }

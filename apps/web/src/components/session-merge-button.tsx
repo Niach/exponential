@@ -98,7 +98,13 @@ export function PullRequestMergePill({
         failedAction(`merge`, what, result.error)
         return
       }
-      // `merging` holds until the echo flips the row off `open`.
+      // `merging` holds until the echo flips the row off `open`; a merge
+      // that wrote nothing (queued behind a merge queue) carries no txid,
+      // so nothing will echo and the pill frees at once.
+      if (result.txid === undefined) {
+        setMerging(false)
+        return
+      }
       await pullRequestCollection.utils.awaitTxId(result.txid).catch(() => undefined)
     } catch (error) {
       const failure = mergeFailure(error, `The pull request could not be merged`)
@@ -171,7 +177,9 @@ export function usePullRequestClose(
     try {
       const result = await trpc.pullRequests.close.mutate({ pullRequestId: pr.id }, SKIP_ERROR_TOAST)
       setOpen(false)
-      await pullRequestCollection.utils.awaitTxId(result.txid).catch(() => undefined)
+      if (result.txid !== undefined) {
+        await pullRequestCollection.utils.awaitTxId(result.txid).catch(() => undefined)
+      }
     } catch (error) {
       failedAction(`close`, `the PR`, mergeFailure(error, `The pull request could not be closed`).message)
     } finally {

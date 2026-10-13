@@ -144,11 +144,6 @@ function ActionRow({
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           <span className="truncate font-medium">{action.name}</span>
         </div>
-        {action.description && (
-          <div className="line-clamp-2 text-xs text-muted-foreground">
-            {action.description}
-          </div>
-        )}
       </div>
       <Button
         variant="glass"

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   row: { current: null as Record<string, unknown> | null },
   isReady: { current: true },
+  search: { current: {} as Record<string, unknown> },
   stop: vi.fn(),
 }))
 
@@ -15,7 +16,24 @@ vi.mock(`@tanstack/react-router`, () => ({
   createFileRoute: () => (options: Record<string, unknown>) => ({
     ...options,
     useParams: () => ({ teamSlug: `acme`, sessionId: `s2` }),
+    useSearch: () => mocks.search.current,
   }),
+  Navigate: ({
+    to,
+    params,
+    search,
+  }: {
+    to: string
+    params: Record<string, string>
+    search?: Record<string, string>
+  }) => (
+    <div
+      data-testid="navigate"
+      data-to={to}
+      data-thread={params.threadId}
+      data-tab={search?.tab}
+    />
+  ),
   Link: ({
     children,
     params,
@@ -84,6 +102,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   mocks.row.current = row()
   mocks.isReady.current = true
+  mocks.search.current = {}
   mocks.stop.mockReset()
   mocks.stop.mockResolvedValue({})
 })
@@ -118,5 +137,16 @@ describe(`the session page`, () => {
     render(<Page />)
     expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
     expect(screen.getByText(`Session not found`)).toBeTruthy()
+  })
+
+  // EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`.
+  it(`opens the thread's Guide for ?view=guide`, () => {
+    mocks.search.current = { view: `guide` }
+    render(<Page />)
+    const target = screen.getByTestId(`navigate`)
+    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/threads/$threadId`)
+    expect(target.getAttribute(`data-thread`)).toBe(`s1`)
+    expect(target.getAttribute(`data-tab`)).toBe(`guide`)
+    expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
   })
 })

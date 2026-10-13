@@ -153,7 +153,7 @@ describe(`useIssueDraftEditor autosave`, () => {
       assigneeId: null,
       labelIds: [],
       dueDate: null,
-      threadId: null,
+      sessionId: null,
     })
   })
 
@@ -165,20 +165,20 @@ describe(`useIssueDraftEditor autosave`, () => {
     )
     act(() => fresh.result.current.setTitle(`In the thread`))
     await advance(ISSUE_DRAFT_AUTOSAVE_MS)
-    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ threadId: `thread-1` })
+    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ sessionId: `thread-1` })
     fresh.unmount()
     await settle()
 
     mocks.upsert.mockClear()
     const reopened = renderHook(() =>
       useIssueDraftEditor(
-        options({ draft: existingDraft({ threadId: `thread-2` } as Partial<IssueDraft>) })
+        options({ draft: existingDraft({ sessionId: `thread-2` }) })
       )
     )
     expect(reopened.result.current.threadId).toBe(`thread-2`)
     act(() => reopened.result.current.setTitle(`Edited`))
     await advance(ISSUE_DRAFT_AUTOSAVE_MS)
-    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ threadId: `thread-2` })
+    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ sessionId: `thread-2` })
   })
 
   it(`never creates a row for a chip alone`, async () => {

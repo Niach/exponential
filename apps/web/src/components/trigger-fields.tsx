@@ -2,12 +2,12 @@ import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   MAX_TRIGGER_FILTER_IDS,
-  actionTriggerEventValues,
+  agentTriggerEventValues,
   type EventTriggerFilters,
-  type ActionScheduleInterval,
+  type AgentScheduleInterval,
   type ScheduleTriggerWhen,
   type TriggerWhen,
-  type ActionTriggerEvent,
+  type AgentTriggerEvent,
   type IssuePriority,
 } from "@exp/db-schema/domain"
 import { AGENT_SETTINGS_COPY } from "@/lib/session-tree"
@@ -51,12 +51,12 @@ import { cn } from "@/lib/utils"
 
 export interface TriggerDraft {
   kind: `schedule` | `event`
-  interval: ActionScheduleInterval
+  interval: AgentScheduleInterval
   /** `HH:MM` wall-clock string, straight off the time input. */
   time: string
   weekday: number
   dayOfMonth: number
-  event: ActionTriggerEvent
+  event: AgentTriggerEvent
   boardIds: string[]
   labelIds: string[]
   priorities: IssuePriority[]
@@ -147,7 +147,7 @@ export function draftToTrigger(draft: TriggerDraft): TriggerWhen {
   }
 }
 
-const INTERVAL_LABELS: Record<ActionScheduleInterval, string> = {
+const INTERVAL_LABELS: Record<AgentScheduleInterval, string> = {
   daily: `Day`,
   weekly: `Week`,
   monthly: `Month`,
@@ -196,11 +196,11 @@ export function TriggerWhenFields({
             value={draft.interval}
             onChange={(value) => {
               if (value !== null) {
-                set({ interval: value as ActionScheduleInterval })
+                set({ interval: value as AgentScheduleInterval })
               }
             }}
             items={(
-              Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]
+              Object.keys(INTERVAL_LABELS) as AgentScheduleInterval[]
             ).map((interval) => ({
               value: interval,
               label: INTERVAL_LABELS[interval],
@@ -251,9 +251,9 @@ export function TriggerWhenFields({
             mobileTitle="When"
             value={draft.event}
             onChange={(value) => {
-              if (value !== null) set({ event: value as ActionTriggerEvent })
+              if (value !== null) set({ event: value as AgentTriggerEvent })
             }}
-            items={actionTriggerEventValues.map((event) => ({
+            items={agentTriggerEventValues.map((event) => ({
               value: event,
               label: (AGENT_SETTINGS_COPY.events as Record<string, string>)[event] ?? event,
             }))}

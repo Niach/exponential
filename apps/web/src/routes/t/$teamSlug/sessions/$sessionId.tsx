@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { createFileRoute, Link, redirect } from "@tanstack/react-router"
+import { createFileRoute, Link, Navigate, redirect } from "@tanstack/react-router"
 import {
   Button,
   conceptIcon,
@@ -38,8 +38,17 @@ const StopIcon = conceptIcon(`coding-stop`)
 // shape's: a shared session syncs to every member, a private one to its
 // starter alone, so whoever can see it may post, answer and Stop.
 
+// EXP-1291: the PR body's footer links `sessions/<rootId>?view=guide`; that
+// URL opens the thread's Guide tab (replace) once the row resolves. `from`
+// = where it was opened from (the shell's Back target), passed through.
+type SessionSearch = { view?: `guide`; from?: string }
+
 export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   head: () => ({ meta: [{ title: pageTitle(`Session`) }] }),
+  validateSearch: (search: Record<string, unknown>): SessionSearch => ({
+    ...(search.view === `guide` ? { view: `guide` as const } : {}),
+    ...(typeof search.from === `string` && search.from ? { from: search.from } : {}),
+  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -53,6 +62,7 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
+  const { view } = Route.useSearch()
   const team = useTeamBySlug(teamSlug)
   const { row, isReady } = useSessionRow(sessionId)
 
@@ -78,6 +88,17 @@ function SessionPage() {
           </Button>
         </Empty>
       </div>
+    )
+  }
+
+  if (view === `guide`) {
+    return (
+      <Navigate
+        to="/t/$teamSlug/threads/$threadId"
+        params={{ teamSlug, threadId: row.rootId ?? row.id }}
+        search={{ tab: `guide` }}
+        replace
+      />
     )
   }
 

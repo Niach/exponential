@@ -149,7 +149,11 @@ export function useOpenPrOptions(teamId: string): PrOption[] {
     (q) =>
       q
         .from({ issues: issueCollection })
-        .where(({ issues }) => eq(issues.teamId, teamId))
+        // The issues shape never streams `team_id`: scope by the team's boards.
+        .innerJoin({ boards: boardCollection }, ({ issues, boards }) =>
+          eq(issues.boardId, boards.id)
+        )
+        .where(({ boards }) => eq(boards.teamId, teamId))
         .select(({ issues }) => ({ id: issues.id, identifier: issues.identifier })),
     [teamId]
   )
@@ -244,7 +248,10 @@ function IssueInputField({
     (q) =>
       q
         .from({ issues: issueCollection })
-        .where(({ issues }) => eq(issues.teamId, teamId))
+        .innerJoin({ boards: boardCollection }, ({ issues, boards }) =>
+          eq(issues.boardId, boards.id)
+        )
+        .where(({ boards }) => eq(boards.teamId, teamId))
         .select(({ issues }) => ({
           id: issues.id,
           identifier: issues.identifier,

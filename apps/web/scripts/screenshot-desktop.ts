@@ -653,7 +653,7 @@ async function main() {
       }),
     onFrame: (frame) => {
       if (frame.t === `start_session`) {
-        // A real desktop would launch an agent and insert the coding_sessions
+        // A real desktop would launch an agent and claim the `sessions`
         // row. The capture only opens the dialog and cancels, so acknowledging
         // it in the log is enough — and a stray tap can't corrupt the seed.
         console.log(`[control] ignoring start_session:`, JSON.stringify(frame))

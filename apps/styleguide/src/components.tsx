@@ -2061,7 +2061,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(
         `AgentRunMark / AgentWorkingMark / ClaudeSpinner`,
         `packages/ui/src/agent-brand-mark.tsx`,
-        `the derivation is apps/web/src/lib/coding-session-display.ts; the spark steps a CSS steps(8) sprite (claude-spinner.tsx)`
+        `the state is sessionState() in @exp/domain-contract/session-tree; the spark steps a CSS steps(8) sprite (claude-spinner.tsx)`
       ),
       desktop: ok(
         `coding_selects::run_lead`,
