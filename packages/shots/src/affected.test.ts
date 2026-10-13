@@ -118,18 +118,15 @@ describe(`desktop attribution`, () => {
   })
 
   test(`a surface with several subjects claims every one of them`, () => {
-    // The ONE Agent composer screen draws the empty prompt, the issue chips,
-    // the action chip and the Create action builtin (EXP-825 retired the
-    // create-action dialog), so matching only the exact stem would leave
-    // three of the four stale. EXP-1259: the Agent home is that same page
-    // (`agent-home` shares `chat`'s drive), and so is its open "+" menu
-    // (`composer-menu`).
+    // The ONE Agent composer screen draws the empty prompt and the issue
+    // chips, so matching only the exact stem would leave the chipped one
+    // stale. EXP-1259: the Agent home is that same page (`agent-home` shares
+    // `chat`'s drive), and so is its open "+" menu (`composer-menu`).
+    // EXP-1293 retired the action-chip and Create action views.
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
-      `action-create`,
       `agent-home`,
       `chat`,
-      `chat-action`,
       `chat-issues`,
       `composer-menu`,
     ])
@@ -138,11 +135,10 @@ describe(`desktop attribution`, () => {
   test(`the session screen narrows to the session it draws`, () => {
     // `_screen` is a wrapper suffix like `_dialog`: `session_screen.rs` is the
     // steering view's own module, not the auth glue `session.rs` names.
-    // EXP-1204: `run-changes` is the same screen on its Diff face, and
     // EXP-1259's `work-card`, `script-card` and `comment-call-card` are its
-    // transcript with Show work on, so they ride along; nothing else does.
+    // feed's cards, so they ride along; nothing else does.
     const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
-    expect(views(result, `desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`, `run-changes`])
+    expect(views(result, `desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -705,10 +701,9 @@ describe(`fail-safe`, () => {
       includeMissing: false,
     })
     expect(named.broad).toEqual([])
-    // EXP-1204: the two ui modules also draw `run-changes` (the run's Diff
-    // face) and EXP-1259's transcript cards (Show work on); the engine and
-    // feed files alone claim the feed-drawn shots.
-    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`, `run-changes`])
+    // The two ui modules also draw EXP-1259's feed cards; the engine and
+    // feed files alone claim the same feed-drawn shots.
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`])
     const feedOnly = affectedScope({
       changedFiles: [
         `apps/desktop/crates/steer/src/viewer.rs`,

@@ -29,7 +29,6 @@ import {
   DEMO_FEED_QUESTION,
   DEMO_NAME,
   DEMO_PASSWORD,
-  DEMO_USER_ID,
   TEAM_SLUG,
 } from "../screenshot-demo"
 
@@ -467,24 +466,6 @@ async function recipeOpenComposerMenuImplement(page: Page): Promise<void> {
 }
 
 /**
- * EXP-1175: put the steered session's Run face on its transcript (Show work),
- * the per-user localStorage pref (`exp.showWork:<userId>`, show-work-pref.ts)
- * set and the page reloaded so it opens that way. The key is removed again
- * once the transcript is up: the module keeps the value for this page's life,
- * and the next view (`steering`) must open on the THREAD.
- */
-async function showWork(page: Page): Promise<void> {
-  const key = `exp.showWork:${DEMO_USER_ID}`
-  await page.evaluate((storageKey) => localStorage.setItem(storageKey, `true`), key)
-  await page.reload()
-  await page
-    .getByRole(`button`, { name: `Hide work`, exact: true })
-    .first()
-    .waitFor({ timeout: 30_000 })
-  await page.evaluate((storageKey) => localStorage.removeItem(storageKey), key)
-}
-
-/**
  * Bring one transcript card to the middle of the frame. The transcript is
  * bottom-anchored, so a card above the fold needs the scroll; centring it
  * keeps the rows around it (what the card sits in) in the shot.
@@ -496,12 +477,12 @@ async function centreCard(page: Page, testId: string): Promise<void> {
   await page.waitForTimeout(400)
 }
 
-/** The transcript with its Work cards (EXP-1240, work-card.json): the last
- *  subagent's card centred in the transcript, the task list's card pinned in
- *  the strip under it. (The strip's card is the LAST `work-card` in the DOM
- *  and always on screen, so the scroll target is the subagent one.) */
-async function recipeShowWorkCards(page: Page): Promise<void> {
-  await showWork(page)
+/** The raw session view's Work cards (EXP-1240, work-card.json): the last
+ *  subagent's card centred in the feed, the task list's card pinned in the
+ *  strip under it. (The strip's card is the LAST `work-card` in the DOM and
+ *  always on screen, so the scroll target is the subagent one.) EXP-1293: the
+ *  feed always shows the work, so there is no Show work toggle to flip. */
+async function recipeScrollToWorkCards(page: Page): Promise<void> {
   const subagents = page
     .getByTestId(`work-card`)
     .filter({ visible: true })
@@ -513,15 +494,13 @@ async function recipeShowWorkCards(page: Page): Promise<void> {
   await page.waitForTimeout(400)
 }
 
-/** The transcript at the code-mode call's Script card (EXP-1279). */
-async function recipeShowScriptCard(page: Page): Promise<void> {
-  await showWork(page)
+/** The feed at the code-mode call's Script card (EXP-1279). */
+async function recipeScrollToScriptCard(page: Page): Promise<void> {
   await centreCard(page, `script-card`)
 }
 
-/** The transcript at the agent's comment, drawn as the comment (EXP-1241). */
-async function recipeShowCommentCard(page: Page): Promise<void> {
-  await showWork(page)
+/** The feed at the agent's comment, drawn as the comment (EXP-1241). */
+async function recipeScrollToCommentCard(page: Page): Promise<void> {
   await centreCard(page, `comment-call-row`)
 }
 
@@ -679,25 +658,7 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
  * test parses this literal, so keep it a flat name-to-function table with the
  * closing brace in column 0.
  */
-/**
- * EXP-1284: open a thread's child menu (Link an issue · New issue in this
- * thread · Start a session here · Unlink <IDENT>) on its LAST issue tab — the
- * `thread-runs` view's draft shows it open. A right-click on md+; the phone
- * pager's tab takes the same gesture (the menu opens as its sheet).
- */
-async function recipeOpenThreadChildMenu(page: Page): Promise<void> {
-  const tabs = page.locator(`[data-testid="thread-strip"] [data-menu="thread-child"]`)
-  await tabs.first().waitFor({ timeout: 20_000 })
-  await tabs.last().click({ button: `right` })
-  await page
-    .getByText(/^Unlink /)
-    .filter({ visible: true })
-    .first()
-    .waitFor({ timeout: 15_000 })
-}
-
 export const RECIPES: Record<string, Recipe> = {
-  openThreadChildMenu: recipeOpenThreadChildMenu,
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
@@ -716,7 +677,7 @@ export const RECIPES: Record<string, Recipe> = {
   openGettingStarted: recipeOpenGettingStarted,
   typeIssueRef: recipeTypeIssueRef,
   openComposerMenuImplement: recipeOpenComposerMenuImplement,
-  showWorkCards: recipeShowWorkCards,
-  showScriptCard: recipeShowScriptCard,
-  showCommentCard: recipeShowCommentCard,
+  scrollToWorkCards: recipeScrollToWorkCards,
+  scrollToScriptCard: recipeScrollToScriptCard,
+  scrollToCommentCard: recipeScrollToCommentCard,
 }

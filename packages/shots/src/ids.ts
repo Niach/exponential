@@ -4,7 +4,7 @@
  * The catalog is written against the seed but never hardcodes a uuid, because a
  * uuid only exists after `seed:screenshots` has run and changes on every reseed.
  * Desktop drives therefore carry PLACEHOLDERS — `issue:$APP-5`, `issue:$APP-14?face=changes`,
- * `session:$steeredSession`, `thread:$thread`, `thread:$threadRuns`, `$emptyBoard`,
+ * `session:$steeredSession`, `thread:$thread`, `$emptyBoard`,
  * `chat?issues=$issueA,$issueB` — and this module
  * is the lookup that turns them into the `EXP_DEV_*` values the app actually
  * parses.
@@ -43,26 +43,18 @@ export interface DemoIds {
   actionId?: string
   deviceId?: string
   /**
-   * The seeded showcase coding session — `$steeredSession`, the row the
-   * `steering` view is photographed on (EXP-732). Absent when the seed planted
-   * no such row, and the view skips rather than photographing the default
-   * screen under its filename.
+   * EXP-1293: the seeded session-tree rows. `$session` / `$steeredSession`
+   * (the old name, same id) = the cold-start thread's child session, the raw
+   * session view the `steering` and `session` views photograph; `$thread` =
+   * that thread's root; `$guideThread` = APP-15's thread with a Guide;
+   * `$agent` = the Triage agent. Absent = the views naming them skip rather
+   * than photographing the default screen under their filename.
    */
+  sessionId?: string
   steeredSessionId?: string
-  /**
-   * EXP-1204: the seeded chat run holding an open PR of its own —
-   * `$runChangesSession`, the row the `run-changes` view is photographed on
-   * (a teammate's, so no relay is involved). Absent = the view skips.
-   */
-  runChangesSessionId?: string
-  /**
-   * EXP-1284: the two seeded threads — `$thread` (the `thread` view: the
-   * showcase run with a linked and a filed issue) and `$threadRuns` (the
-   * `thread-runs` view: four runs, two of them live children). Absent = the
-   * view skips.
-   */
   threadId?: string
-  threadRunsId?: string
+  guideThreadId?: string
+  agentId?: string
 }
 
 /**
@@ -72,10 +64,11 @@ export interface DemoIds {
 const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   action: (ids) => ids.actionId,
   device: (ids) => ids.deviceId,
-  steeredSession: (ids) => ids.steeredSessionId,
-  runChangesSession: (ids) => ids.runChangesSessionId,
+  session: (ids) => ids.sessionId ?? ids.steeredSessionId,
+  steeredSession: (ids) => ids.steeredSessionId ?? ids.sessionId,
   thread: (ids) => ids.threadId,
-  threadRuns: (ids) => ids.threadRunsId,
+  guideThread: (ids) => ids.guideThreadId,
+  agent: (ids) => ids.agentId,
   issueA: (ids) => ids.issueAId,
   issueB: (ids) => ids.issueBId,
   prIssue: (ids) => ids.prIssueId,
@@ -109,10 +102,11 @@ export function parseDemoIds(stdout: string): DemoIds {
     supportToken: parsed.supportToken,
     actionId: parsed.actionId,
     deviceId: parsed.deviceId,
+    sessionId: parsed.sessionId,
     steeredSessionId: parsed.steeredSessionId,
-    runChangesSessionId: parsed.runChangesSessionId,
     threadId: parsed.threadId,
-    threadRunsId: parsed.threadRunsId,
+    guideThreadId: parsed.guideThreadId,
+    agentId: parsed.agentId,
   }
 }
 
@@ -134,8 +128,9 @@ export async function fetchDemoIds(): Promise<DemoIds> {
 /**
  * Substitute `$NAME` placeholders in a `DesktopDrive.value`.
  *
- * A handful of names (`$thread`, `$threadRuns`, `$action`, `$device`, `$board`,
- * `$emptyBoard`, `$team`, `$steeredSession`, `$issueA`, `$issueB`, `$prIssue`)
+ * A handful of names (`$thread`, `$guideThread`, `$agent`, `$session`,
+ * `$steeredSession`, `$action`, `$device`, `$board`, `$emptyBoard`, `$team`,
+ * `$issueA`, `$issueB`, `$prIssue`)
  * point at one well-known seeded row;
  * anything else is looked up as an issue IDENTIFIER (`$APP-5`). The same
  * substitution runs over a view's `desktop.env` values, so

@@ -250,11 +250,12 @@ const BROAD: { test: RegExp; platforms: readonly Platform[]; why: string }[] = [
  * of the markdown editor/renderer family on every client (EXP-657). A generous
  * superset on purpose: `board`/`board-*`/`search` are in because issue rows
  * strip markdown for their preview line through the same helpers, `steering`
- * because the agent's question renders as markdown, and the action editor
+ * and `session` because the agent's question renders as markdown, `thread` and
+ * `agent-channel` (EXP-1293) because their message rows are GFM, and the action editor
  * because the web renders GFM there even where the natives do not yet. Being too tight here silently commits a stale shot; being too
  * wide costs a handful of extra captures.
  */
-const MARKDOWN_VIEWS = /^(issue-|board$|board-|search$|steering$|action-editor$|action-create$)/
+const MARKDOWN_VIEWS = /^(issue-|board$|board-|search$|steering$|session$|thread$|agent-channel$|action-editor$)/
 
 /**
  * Desktop PATHS that narrow to a view family, in match order.
@@ -288,22 +289,19 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // draw the tab (`session_screen.rs` renders it, `steer_viewer.rs` is the
     // relay-fed feed behind it when this process hosts no engine — which is
     // exactly how the shot is captured, EXP-732). EXP-1259: `work-card`,
-    // `script-card` and `comment-call-card` are the same session's
-    // transcript (Show work on), their cards built off the same feed.
+    // `script-card` and `comment-call-card` are the same session's feed,
+    // their cards built off it; EXP-1293's `session` is that same raw view.
     test: /^apps\/desktop\/crates\/(engine\/src\/|steer\/src\/(viewer|feed|frames|journal)\.rs)/,
-    views: /^(steering|work-card|script-card|comment-call-card)$/,
+    views: /^(steering|session|work-card|script-card|comment-call-card)$/,
     why: `the coding-session screen and its feed`,
   },
   {
-    // The two ui modules that draw the session tab. EXP-1204: `run-changes`
-    // is the SAME screen on its Diff face (`steer_viewer.rs`'s
-    // `load_pr_changes` fetches an issue-less run's PR files, `session_screen`
-    // frames it), so a change to either claims both shots; the engine and the
-    // feed above never reach that face. EXP-1259: the transcript's cards
-    // (Show work on) are drawn by the same two modules.
+    // The two ui modules that draw the session tab (`session_screen.rs`
+    // renders it, `steer_viewer.rs` feeds it). EXP-1259: the feed's cards are
+    // drawn by the same two modules; EXP-1293's `session` is that raw view.
     test: /^apps\/desktop\/crates\/ui\/src\/(session_screen|steer_viewer)\.rs/,
-    views: /^(steering|run-changes|work-card|script-card|comment-call-card)$/,
-    why: `the coding-session screen on both its faces`,
+    views: /^(steering|session|work-card|script-card|comment-call-card)$/,
+    why: `the coding-session screen and its cards`,
   },
   {
     // The rest of the steer crate that DRAWS: the grid pickers (permission,
@@ -779,8 +777,8 @@ function desktopMatches(path: RepoPath): string[] {
   const candidates = new Set([...segments, segments.join(`_`)])
   // The wrapper-stripped FULL path, matched as a family PREFIX so a file that
   // draws one surface in several states claims every state: `chat_screen.rs`
-  // renders chat, chat-issues and chat-action (one composer, three subjects),
-  // and matching only the exact stem would drop two of them. Bare segments
+  // renders chat and chat-issues (one composer, several subjects), and
+  // matching only the exact stem would drop the others. Bare segments
   // never get the prefix treatment — that would turn `settings/account.rs`
   // into all thirteen settings views.
   const stem = segments
@@ -819,12 +817,15 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   { dir: `actions`, views: /^(agents|actions-mobile|action-|trigger-)/ },
   // The coding family: the Agent composer, the agents surface, the machine
   // dialogs and the steering screen all live in one folder on both platforms
-  // and share their view models. EXP-1259: the Agent home and the run
-  // thread's cards (Work, Script, Comment) draw from the same folder.
-  { dir: `session`, views: /^(steering|chat|agents|machine-settings|add-server|agent-home|work-card|script-card|comment-call-card)/ },
-  { dir: `steer`, views: /^(steering|chat)/ },
-  // EXP-1284: the native thread screens (ui/thread, UI/Thread).
+  // and share their view models. EXP-1259: the Agent home and the session
+  // feed's cards (Work, Script, Comment) draw from the same folder; EXP-1293:
+  // so do the raw session view and a team agent's channel.
+  { dir: `session`, views: /^(steering|session$|chat|agents|agent-channel|machine-settings|add-server|agent-home|work-card|script-card|comment-call-card)/ },
+  { dir: `steer`, views: /^(steering|session$|chat)/ },
+  // EXP-1284/1293: the native thread screens (ui/thread, UI/Thread) and the
+  // Threads list.
   { dir: `thread`, views: /^thread/ },
+  { dir: `threads`, views: /^thread/ },
 ]
 
 /** Role suffixes a screen's filename carries on one platform or the other. */

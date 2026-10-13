@@ -1,189 +1,133 @@
 /**
- * The seeded LIVE coding sessions, as one re-assertable spec (EXP-913).
+ * The seeded LIVE sessions, as one re-assertable spec (EXP-913, EXP-1293).
  *
- * Three rows are live on purpose: the demo user's running claude showcase on
- * APP-5 (the `steering` view), Mira's running row on APP-4 and the demo user's
- * in_review codex row on APP-14. A live row is exactly what the server's
- * staleness sweep reaps (lib/coding-session-sweep.ts): `running`/`in_review`
- * with `updated_at` older than contract `codingSession.staleHours` (2h), and
- * since no seeded device advertises `stale-end` it DELETES them. A full
- * five-lane refresh runs for hours; the stand-in desktop only heartbeated the
- * demo user's rows while it was up, and Mira's never, so the rows vanished
- * mid-wave and a rerun's stub died on "no running coding session for demo@".
+ * Five `sessions` rows are live on purpose: the cold-start thread's root and
+ * its child "Profile the launch path" (the `thread`, `session` and `steering`
+ * views; the child waits on a question), the APP-14 thread (busy), the FB-9
+ * thread the Triage agent started (busy) and the private offline-queue spike.
+ * A full five-lane refresh runs for hours, and a capture may stop or answer a
+ * session, so the seed writes their state through this spec and the stub
+ * (screenshot-desktop.ts) re-asserts it at boot and on every heartbeat: a row
+ * a capture moved goes back to its seeded status, and `started_at` is
+ * re-anchored to the current clock so "1h 00m" reads the same on the last lane
+ * as on the first.
  *
- * So the seed writes these rows through `assertDemoLiveSessions`, and the stub
- * (screenshot-desktop.ts) calls it again at boot and on every heartbeat: a row
- * the sweep already took comes back under its pinned id, a row a capture ended
- * goes back to its seeded status, and `started_at` is re-anchored to the
- * current clock so "started 1h ago" reads the same on the last lane as on the
- * first.
+ * TEMP until EXP-1291's server half moves `steer.mintTicket` to `sessions`:
+ * the viewer ticket for the raw session view still validates against
+ * `coding_sessions`, so ONE legacy row under DEMO_SESSION_ID is upserted here
+ * too — re-asserted because the coding-session staleness sweep deletes a
+ * `running` row nobody heartbeats.
  */
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { boards, codingSessions, issues, teams, threadItems } from "@/db/schema"
-import { getThread, joinThreadForStart, linkRunToThread } from "@/lib/threads"
+import { boards, codingSessions, issues, sessions, teams } from "@/db/schema"
 import {
   DEMO_DEVICE_ID,
   DEMO_DEVICE_LABEL,
-  DEMO_SESSION_IDS,
-  DEMO_STEERED_SESSION_ID,
-  DEMO_THREAD_ID,
+  DEMO_SESSION_ID,
+  DEMO_THREAD_IDS,
   DEMO_USER_ID,
   TEAM_SLUG,
 } from "../screenshot-demo"
 
-/** The board the three live rows' issues sit on (`APP-*`). */
-const BOARD_SLUG = `mobile-app`
-
-interface LiveSessionSpec {
+export interface LiveSessionSpec {
   id: string
-  identifier: string
-  userId: string
-  status: `running` | `in_review`
+  status: `running` | `idle`
+  /** Device-written turn state: the list spinner. */
+  busy: boolean
   startedMinutesAgo: number
-  deviceId: string | null
-  deviceLabel: string
-  agent: `claude` | `codex` | null
-  /** EXP-1284: the pinned thread the run sits in (absent = its issue's). */
-  threadId?: string
   /** The stub's feed for this row ends on an unanswered question
-   *  (screenshot-desktop.ts), so the row says so the way a real device
-   *  stamps it: `needs_input`, the ×4 list state (session-display.json). */
+   *  (screenshot-desktop.ts) and the thread carries the question card, so
+   *  the row says so the way a real device stamps it: `needs_input`. */
   asks?: boolean
 }
 
 export const DEMO_LIVE_SESSIONS: readonly LiveSessionSpec[] = [
-  // EXP-733: the demo user's own rows name the MACHINE and the AGENT the way a
-  // real launch stamps them — `sessionAgentUsage` (×4) joins on both.
-  {
-    id: DEMO_STEERED_SESSION_ID,
-    identifier: `APP-5`,
-    userId: DEMO_USER_ID,
-    status: `running`,
-    startedMinutesAgo: 60,
-    deviceId: DEMO_DEVICE_ID,
-    deviceLabel: DEMO_DEVICE_LABEL,
-    agent: `claude`,
-    threadId: DEMO_THREAD_ID,
-    asks: true,
-  },
-  // Mira's row stays bare: her machine never registers.
-  {
-    id: DEMO_SESSION_IDS.miraRunning,
-    identifier: `APP-4`,
-    userId: `demo-mira`,
-    status: `running`,
-    startedMinutesAgo: 20,
-    deviceId: null,
-    deviceLabel: `Mira's Mac mini`,
-    agent: null,
-  },
-  {
-    id: DEMO_SESSION_IDS.reviewCodex,
-    identifier: `APP-14`,
-    userId: DEMO_USER_ID,
-    status: `in_review`,
-    startedMinutesAgo: 180,
-    deviceId: DEMO_DEVICE_ID,
-    deviceLabel: DEMO_DEVICE_LABEL,
-    agent: `codex`,
-  },
+  { id: DEMO_THREAD_IDS.coldStart, status: `running`, busy: false, startedMinutesAgo: 60 },
+  { id: DEMO_SESSION_ID, status: `running`, busy: false, startedMinutesAgo: 52, asks: true },
+  { id: DEMO_THREAD_IDS.groupByAssignee, status: `running`, busy: true, startedMinutesAgo: 25 },
+  { id: DEMO_THREAD_IDS.sortReports, status: `running`, busy: true, startedMinutesAgo: 8 },
+  { id: DEMO_THREAD_IDS.offlineSpike, status: `running`, busy: false, startedMinutesAgo: 40 },
 ]
 
+/** A capture that opts out of the closing ask (SCREENSHOT_FEED_NO_QUESTION)
+ *  has nothing pending, so the row is not waiting either. */
+export function demoNeedsInput(spec: LiveSessionSpec): boolean {
+  return spec.asks === true && process.env.SCREENSHOT_FEED_NO_QUESTION !== `1`
+}
+
 /**
- * Upsert the live rows against the seeded team. Returns how many were written;
- * 0 means the demo team (or its issues) is not seeded, which the caller
+ * Put the live rows back to their seeded state. Returns how many `sessions`
+ * rows it found; 0 means the demo team is not seeded, which the caller
  * reports rather than this module guessing at a fix.
  */
-export async function assertDemoLiveSessions(
-  now: number = Date.now(),
-  /** EXP-1284: put a run whose thread item is gone back into its thread.
-   *  The seed passes false: it places every run itself, afterwards. */
-  options: { relinkThreads?: boolean } = {}
-): Promise<number> {
+export async function assertDemoLiveSessions(now: number = Date.now()): Promise<number> {
   const [team] = await db
     .select({ id: teams.id })
     .from(teams)
     .where(eq(teams.slug, TEAM_SLUG))
     .limit(1)
   if (!team) return 0
-  const rows = await db
-    .select({ id: issues.id, identifier: issues.identifier })
-    .from(issues)
-    .innerJoin(boards, eq(boards.id, issues.boardId))
-    .where(
-      and(
-        eq(boards.teamId, team.id),
-        eq(boards.slug, BOARD_SLUG),
-        inArray(
-          issues.identifier,
-          DEMO_LIVE_SESSIONS.map((spec) => spec.identifier)
-        )
-      )
-    )
-  const issueIds = new Map(rows.map((row) => [row.identifier, row.id]))
 
   let written = 0
   for (const spec of DEMO_LIVE_SESSIONS) {
-    const issueId = issueIds.get(spec.identifier)
-    if (!issueId) continue
-    const values = {
-      issueId,
-      teamId: team.id,
-      userId: spec.userId,
-      deviceId: spec.deviceId,
-      deviceLabel: spec.deviceLabel,
-      agent: spec.agent,
-      status: spec.status,
-      // A capture that opts out of the closing ask (SCREENSHOT_FEED_NO_QUESTION)
-      // has nothing pending, so the row is not waiting either.
-      needsInput: spec.asks === true && process.env.SCREENSHOT_FEED_NO_QUESTION !== `1`,
-      startedAt: new Date(now - spec.startedMinutesAgo * 60_000),
-      endedAt: null,
-      endedBy: null,
-      updatedAt: new Date(now),
-    }
-    await db
-      .insert(codingSessions)
-      .values({ id: spec.id, ...values })
-      .onConflictDoUpdate({ target: codingSessions.id, set: values })
-    if (options.relinkThreads !== false) {
-      await assertThreadItem(spec, { teamId: team.id, issueId })
-    }
-    written += 1
+    const rows = await db
+      .update(sessions)
+      .set({
+        status: spec.status,
+        busy: spec.busy,
+        needsInput: demoNeedsInput(spec),
+        startedAt: new Date(now - spec.startedMinutesAgo * 60_000),
+        endedAt: null,
+        lastTurnAt: new Date(now),
+        updatedAt: new Date(now),
+      })
+      .where(and(eq(sessions.id, spec.id), eq(sessions.teamId, team.id)))
+      .returning({ id: sessions.id })
+    written += rows.length
   }
+
+  await assertSteerTicketRow(team.id, now)
   return written
 }
 
 /**
- * EXP-1284: a run sits in exactly one thread, and its item CASCADES away with
- * a row the sweep deleted — so a re-inserted row goes back into its pinned
- * thread (else its issue's, the way a start joins one). A row that kept its
- * item is left alone.
+ * TEMP until EXP-1291's server half moves mintTicket to sessions: the one
+ * legacy `coding_sessions` row `steer.mintTicket` validates the raw session
+ * view's viewer ticket against (owner = the demo user, on APP-5).
  */
-async function assertThreadItem(
-  spec: LiveSessionSpec,
-  ctx: { teamId: string; issueId: string }
-): Promise<void> {
-  const [item] = await db
-    .select({ id: threadItems.id })
-    .from(threadItems)
-    .where(eq(threadItems.sessionId, spec.id))
-    .limit(1)
-  if (item) return
-  const run = { id: spec.id, teamId: ctx.teamId }
-  const pinned = spec.threadId ? await getThread(db, spec.threadId) : null
-  if (pinned) {
-    await linkRunToThread(
-      db,
-      { id: pinned.id, teamId: pinned.teamId },
-      run,
-      { userId: spec.userId, source: `user` }
+async function assertSteerTicketRow(teamId: string, now: number): Promise<void> {
+  const [issue] = await db
+    .select({ id: issues.id })
+    .from(issues)
+    .innerJoin(boards, eq(boards.id, issues.boardId))
+    .where(
+      and(
+        eq(boards.teamId, teamId),
+        eq(boards.slug, `mobile-app`),
+        inArray(issues.identifier, [`APP-5`])
+      )
     )
-    return
+    .limit(1)
+  if (!issue) return
+  const spec = DEMO_LIVE_SESSIONS.find((entry) => entry.id === DEMO_SESSION_ID)!
+  const values = {
+    issueId: issue.id,
+    teamId,
+    userId: DEMO_USER_ID,
+    deviceId: DEMO_DEVICE_ID,
+    deviceLabel: DEMO_DEVICE_LABEL,
+    agent: `claude`,
+    status: `running` as const,
+    needsInput: demoNeedsInput(spec),
+    startedAt: new Date(now - spec.startedMinutesAgo * 60_000),
+    endedAt: null,
+    endedBy: null,
+    updatedAt: new Date(now),
   }
-  await joinThreadForStart(db, {
-    session: { id: spec.id, teamId: ctx.teamId, userId: spec.userId },
-    subject: { kind: `issue`, issueId: ctx.issueId },
-  })
+  // TEMP until EXP-1291's server half moves mintTicket to sessions
+  await db
+    .insert(codingSessions)
+    .values({ id: DEMO_SESSION_ID, ...values })
+    .onConflictDoUpdate({ target: codingSessions.id, set: values })
 }
