@@ -1815,10 +1815,13 @@ impl ThreadScreenView {
                     }
                     let view = crate::session_screen::guide_run_view(&run_id, window, cx);
                     cx.observe(&view, |_, _, cx| cx.notify()).detach();
+                    // ONCE, when built: `set_run_face` closes an open
+                    // section-diff page, and this render runs on every
+                    // notify of the view, including the one that opened it.
+                    view.update(cx, |view, cx| view.set_run_face(crate::screens::RunFace::Guide, cx));
                     self.guide_view = Some((run_id, view));
                 }
                 let view = self.guide_view.as_ref().map(|(_, view)| view.clone()).expect("built above");
-                view.update(cx, |view, cx| view.set_run_face(crate::screens::RunFace::Guide, cx));
                 div().flex_1().min_h_0().w_full().child(view).into_any_element()
             }
             _ => div()
