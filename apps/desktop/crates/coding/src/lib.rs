@@ -73,6 +73,7 @@ pub mod mcp_json;
 pub mod mcp_servers;
 pub mod process;
 pub mod prompt;
+pub mod pickup;
 pub mod prune;
 pub mod remote_admin;
 pub mod reaper;
@@ -82,6 +83,7 @@ pub mod scratch;
 pub mod scm;
 pub mod wip_save;
 pub mod session_retention;
+pub mod session_rows;
 pub mod settings;
 pub mod skill;
 #[cfg(test)]

@@ -474,7 +474,7 @@ impl ThreadItemRow {
     /// agree), else `None`.
     pub fn issue(&self) -> Option<&str> {
         match self.kind.as_deref() {
-            Some(crate::contract::THREAD_ITEM_KIND_ISSUE) => self.issue_id.as_deref(),
+            Some("issue") => self.issue_id.as_deref(),
             _ => None,
         }
     }
@@ -482,14 +482,14 @@ impl ThreadItemRow {
     /// The linked run's session id when this is a RUN item, else `None`.
     pub fn run(&self) -> Option<&str> {
         match self.kind.as_deref() {
-            Some(crate::contract::THREAD_ITEM_KIND_RUN) => self.session_id.as_deref(),
+            Some("run") => self.session_id.as_deref(),
             _ => None,
         }
     }
 
     /// Whether an agent (not a person) linked this item.
     pub fn added_by_agent(&self) -> bool {
-        self.source.as_deref() == Some(crate::contract::THREAD_ITEM_SOURCE_AGENT)
+        self.source.as_deref() == Some("agent")
     }
 }
 
