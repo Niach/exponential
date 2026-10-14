@@ -195,15 +195,14 @@ impl Screen {
     }
 
     /// EXP-851: whether this screen can carry the LIST it was opened from —
-    /// an issue, a thread and a session of it. EXP-1246: only the Inbox lends
-    /// one ([`Self::list_origin`]); what it buys is the second sidebar in the
-    /// content card ([`second_sidebar_for`]). Home, an agent's channel and the
-    /// New issue page carry nothing; a terminal never did (EXP-791/870).
+    /// an issue alone. EXP-1246: only the Inbox lends one
+    /// ([`Self::list_origin`]); what it buys is the second sidebar in the
+    /// content card ([`second_sidebar_for`]). A thread, a session of it and
+    /// an agent's channel show full width whatever opened them (web parity:
+    /// the Inbox's list-detail holds issues only); Home and the New issue
+    /// page carry nothing; a terminal never did (EXP-791/870).
     pub(crate) fn carries_list(&self) -> bool {
-        matches!(
-            self,
-            Screen::IssueDetail { .. } | Screen::Session { .. } | Screen::Thread { .. }
-        )
+        matches!(self, Screen::IssueDetail { .. })
     }
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
@@ -307,7 +306,8 @@ pub(crate) fn derive_origin(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SecondSidebar {
     /// The notification stream (+ My Issues) — always up on the Inbox, and
-    /// beside every detail opened from it.
+    /// beside an issue opened from it (never a thread or a session: those
+    /// show full width, like the web).
     Inbox,
 }
 
@@ -2326,8 +2326,8 @@ mod tests {
     }
 
     /// EXP-1294: the capture lane's `thread:<uuid>` and `agent:<uuid>`
-    /// drives open that root's tab; a thread can carry the Inbox beside it
-    /// (a notification opened it), an agent's channel carries nothing.
+    /// drives open that root's tab; neither a thread nor an agent's channel
+    /// carries a list (full width, whatever opened them).
     #[test]
     fn dev_screen_parses_a_thread_and_an_agent_id() {
         let thread = Screen::Thread {
@@ -2336,7 +2336,7 @@ mod tests {
         assert_eq!(parse_dev_screen("thread:5d7a"), Some(thread.clone()));
         assert_eq!(parse_dev_screen("thread"), None);
         assert!(thread.is_detail());
-        assert!(thread.carries_list());
+        assert!(!thread.carries_list());
         assert!(!thread.undockable());
         let agent = Screen::Agent {
             session_id: "a1".into(),
@@ -2514,15 +2514,15 @@ mod tests {
         assert!(!holds_leave(true, None, Some(&issue)));
     }
 
-    /// EXP-1192: only an issue, a thread and a session carry a list — the
+    /// EXP-1192: only an issue carries a list — a thread, a session, the
     /// New issue page, Home, an agent's channel and a terminal never do.
     #[test]
-    fn only_an_issue_and_a_run_carry_a_list() {
+    fn only_an_issue_carries_a_list() {
         assert!(Screen::IssueDetail {
             issue_id: "i1".into()
         }
         .carries_list());
-        assert!(Screen::Session {
+        assert!(!Screen::Session {
             session_id: "s1".into()
         }
         .carries_list());
@@ -2652,20 +2652,23 @@ mod tests {
             derive_origin(Some(&inbox_screen), None, &issue),
             Some(inbox.clone())
         );
-        // … → its coding run: inherited, one layer at a time.
+        // … → its coding run: a session shows full width, nothing is
+        // handed on.
         assert_eq!(
             derive_origin(Some(&issue), Some(inbox.clone()), &session),
-            Some(inbox.clone())
+            None
         );
         // EXP-1294: the Threads page → a thread: full width, no list.
         let thread = Screen::Thread {
             session_id: "t1".into(),
         };
         assert_eq!(derive_origin(Some(&Screen::Threads), None, &thread), None);
-        // The Inbox → a thread → one of its sessions: inherited.
+        // The Inbox → a thread (a notification, or the composer sent from
+        // there): full width, and its sessions inherit nothing.
+        assert_eq!(derive_origin(Some(&inbox_screen), None, &thread), None);
         assert_eq!(
             derive_origin(Some(&thread), Some(inbox.clone()), &session),
-            Some(inbox.clone())
+            None
         );
         // A detail with no list of its own hands on nothing.
         assert_eq!(derive_origin(Some(&issue), None, &session), None);
@@ -2738,8 +2741,9 @@ mod tests {
         let rows: [(Option<&Screen>, Option<&TabOrigin>, Option<SecondSidebar>); 11] = [
             (Some(&inbox_screen), None, Some(SecondSidebar::Inbox)),
             (Some(&issue), inbox.as_ref(), Some(SecondSidebar::Inbox)),
-            (Some(&session), inbox.as_ref(), Some(SecondSidebar::Inbox)),
-            (Some(&thread), inbox.as_ref(), Some(SecondSidebar::Inbox)),
+            // A thread or a session never carries the Inbox beside it.
+            (Some(&session), inbox.as_ref(), None),
+            (Some(&thread), inbox.as_ref(), None),
             // A board-opened (or rail-opened) detail: none.
             (Some(&issue), None, None),
             (Some(&session), None, None),

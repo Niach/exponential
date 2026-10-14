@@ -678,12 +678,21 @@ pub(crate) fn thread_text_resolver(team_id: &str) -> RefResolver {
 }
 
 /// A message body as read-only chat markdown, `#IDENT` / bare `ABC-12` /
-/// `@email` pills scoped to `team_id` ([`thread_text_resolver`]).
-pub(crate) fn message_markdown(id: SharedString, body: &str, team_id: Option<&str>) -> MarkdownView {
+/// `@email` pills scoped to `team_id` ([`thread_text_resolver`]). `images`
+/// is the screen's one [`ImageCache`]: a person's `![..](/api/attachments/..)`
+/// embed (the composer's pictures) fetches through it — a view without one
+/// paints every picture as "Image unavailable" without a fetch.
+pub(crate) fn message_markdown(
+    id: SharedString,
+    body: &str,
+    team_id: Option<&str>,
+    images: &Entity<ImageCache>,
+) -> MarkdownView {
     let mut view = MarkdownView::new(id, body.to_string())
         .chat(true)
         .selectable(true)
         .autolink(true)
+        .images(images.clone())
         .on_open_link(crate::markdown::open_agent_link);
     if let Some(team_id) = team_id {
         let team = team_id.to_string();
@@ -1007,7 +1016,7 @@ pub(crate) fn card_row(
             answered,
         } => question_card(
             id,
-            message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id),
+            message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id, images),
             options,
             answer.as_deref(),
             *answered || answering(id, cx),
@@ -1015,7 +1024,7 @@ pub(crate) fn card_row(
         ),
         SessionThreadRow::Plan { id, plan, decision } => plan_card(
             id,
-            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id),
+            message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id, images),
             decision.as_deref(),
             cx,
         ),
@@ -1642,7 +1651,12 @@ impl ThreadScreenView {
             queued,
         } = row
         {
-            let markdown = message_markdown(SharedString::from(format!("thread-message-{id}")), body, team_id);
+            let markdown = message_markdown(
+                SharedString::from(format!("thread-message-{id}")),
+                body,
+                team_id,
+                &self.images,
+            );
             return match author.as_str() {
                 domain::contract::MESSAGE_AUTHOR_KIND_USER => {
                     let at = model.messages.get(id).and_then(|message| message.created_at.as_deref());
