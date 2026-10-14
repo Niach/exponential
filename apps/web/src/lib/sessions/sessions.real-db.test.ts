@@ -484,13 +484,22 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
       code: `CONFLICT`,
     })
 
-    // The answer is a queued person message; its author may revoke it.
-    const [reply] = await db
+    // The answer lives IN the card: no person message is posted for it.
+    const posted = await db
       .select()
       .from(messages)
       .where(and(eq(messages.sessionId, sent.sessionId), eq(messages.body, `b`)))
-    await expect(caller(w.owner).unqueue({ messageId: reply!.id })).rejects.toMatchObject({ code: `CONFLICT` })
-    await caller(w.mate).unqueue({ messageId: reply!.id })
+    expect(posted).toEqual([])
+
+    // A queued person message; only its author may revoke it.
+    const queued = await sendSession({
+      userId: w.mate,
+      input: { sessionId: sent.sessionId, text: `one more thing` },
+    })
+    await expect(caller(w.owner).unqueue({ messageId: queued.messageId! })).rejects.toMatchObject({
+      code: `CONFLICT`,
+    })
+    await caller(w.mate).unqueue({ messageId: queued.messageId! })
 
     await host.report({ sessionId: sent.sessionId, status: `idle`, busy: false, title: `Auto` })
     expect(await row(sent.sessionId)).toMatchObject({ status: `idle`, title: `Auto` })
