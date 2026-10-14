@@ -4,10 +4,8 @@
 //! so the pane shows commit diffs from the sidebar History, and a dirty tree
 //! is an ANOMALY that only surfaces a slim count/discard strip), plus (in
 //! conflict mode) the rebase/merge banner with "Open terminal" / "Abort" /
-//! "Discard & reset" (EXP-259 deleted the claude-task "Fix conflicts with
-//! Claude" button — PR merge conflicts are fixed by the builtin "Fix merge
-//! conflicts" ACTION run from the Reviews list / actions surfaces; a trunk
-//! rebase/merge conflict is a manual-recovery anomaly). The editor is
+//! "Discard & reset" (a trunk rebase/merge conflict is a manual-recovery
+//! anomaly). The editor is
 //! view-only — changes arrive via PRs, and the trunk is kept fresh by the
 //! headless [`crate::trunk_sync`] engine. TWO write affordances, both behind
 //! explicit confirms (EXP-509): discard local changes via
@@ -1569,27 +1567,27 @@ impl HistoryList {
 // EXP-537 squash links — closing merged PR lanes back into the trunk
 // ---------------------------------------------------------------------------
 
-/// PR number → branch for every synced MERGED PR on `full_name` — the store
-/// side of the squash-link join (the git side is `scm::remote_branch_tips`).
-/// Matching rides the `pr_url` (`…/{owner}/{name}/pull/{n}`), so only PRs of
-/// THIS repo qualify no matter how many teams/boards are synced.
+/// PR number → head branch for every synced MERGED pull request on
+/// `full_name` — the store side of the squash-link join (the git side is
+/// `scm::remote_branch_tips`). Matching rides the PR `url`
+/// (`…/{owner}/{name}/pull/{n}`), so only PRs of THIS repo qualify no matter
+/// how many teams are synced (EXP-1294: the `pull_requests` rows).
 fn merged_pr_branches(cx: &App, full_name: Option<&str>) -> Vec<(i64, String)> {
     let Some(full_name) = full_name else {
         return Vec::new();
     };
     let marker = format!("/{}/pull/", full_name.to_ascii_lowercase());
     let collections = Store::global(cx).collections().clone();
-    let issues = collections.issues.read(cx);
-    issues
+    let pulls = collections.pull_requests.read(cx);
+    pulls
         .iter()
-        .filter(|issue| issue.pr_state.as_deref() == Some("merged"))
-        .filter(|issue| {
-            issue
-                .pr_url
+        .filter(|pull| pull.is_merged())
+        .filter(|pull| {
+            pull.url
                 .as_deref()
                 .is_some_and(|url| url.to_ascii_lowercase().contains(&marker))
         })
-        .filter_map(|issue| Some((issue.pr_number?, issue.branch.clone()?)))
+        .filter_map(|pull| Some((pull.number?, pull.head.clone()?)))
         .collect()
 }
 

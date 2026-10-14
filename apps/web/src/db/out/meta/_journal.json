@@ -1191,6 +1191,27 @@
       "when": 1791841165480,
       "tag": "0169_issue_events_origin_and_title",
       "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1791921393762,
+      "tag": "0170_auth_sessions_rename",
+      "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1791921397762,
+      "tag": "0171_session_tree",
+      "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1791922182885,
+      "tag": "0172_session_tree_cutover",
+      "breakpoints": true
     }
   ]
 }

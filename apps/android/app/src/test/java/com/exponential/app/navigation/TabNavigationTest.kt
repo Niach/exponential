@@ -27,18 +27,18 @@ class TabNavigationTest {
     fun `a detail pushed inside a tab keeps that tab`() {
         assertEquals(
             MainTabs.ISSUES,
-            MainTabs.current(listOf(null, "agent-tab", "home", "board/{boardId}", "issue/{issueId}?face={face}")),
+            MainTabs.current(listOf(null, "agent-tab", "home", "board/{boardId}", "issue/{issueId}?comment={comment}")),
         )
         assertEquals(
             MainTabs.AGENT,
-            MainTabs.current(listOf(null, "agent-tab", "steer/{codingSessionId}")),
+            MainTabs.current(listOf(null, "agent-tab", "session/{sessionId}")),
         )
     }
 
     @Test
     fun `the tab on the Agent root wins over the Agent tab`() {
-        val present = setOf("agent-tab", "reviews")
-        assertEquals(MainTabs.REVIEWS, MainTabs.current { it in present })
+        val present = setOf("agent-tab", "threads")
+        assertEquals(MainTabs.THREADS, MainTabs.current { it in present })
         assertEquals(MainTabs.AGENT, MainTabs.current { it == "agent-tab" })
         assertNull(MainTabs.current { false })
     }
@@ -52,7 +52,7 @@ class TabNavigationTest {
     @Test
     fun `the tab routes are the bar's six destinations`() {
         assertEquals(
-            setOf("agent-tab", "home", "personal", "agents", "reviews", "actions"),
+            setOf("agent-tab", "home", "personal", "agents", "threads", "actions"),
             MainTabs.routes,
         )
     }
@@ -60,9 +60,9 @@ class TabNavigationTest {
     @Test
     fun `only tab root to tab root is a swap`() {
         assertTrue(MainTabs.isRootSwap("agent-tab", "home"))
-        assertTrue(MainTabs.isRootSwap("reviews", "agent-tab"))
+        assertTrue(MainTabs.isRootSwap("threads", "agent-tab"))
         // A push from a tab root and Back to it keep the slide.
-        assertFalse(MainTabs.isRootSwap("home", "issue/{issueId}?face={face}"))
+        assertFalse(MainTabs.isRootSwap("home", "issue/{issueId}?comment={comment}"))
         assertFalse(MainTabs.isRootSwap("board/{boardId}", "home"))
         assertFalse(MainTabs.isRootSwap(null, "home"))
     }

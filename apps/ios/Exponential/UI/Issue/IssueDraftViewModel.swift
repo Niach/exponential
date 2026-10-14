@@ -88,13 +88,13 @@ final class IssueDraftViewModel {
     private(set) var boardId: String
     let parentId: String?
     /// EXP-1284: the thread the issue is filed INTO (the thread's "New issue
-    /// in this thread", `issues.create({threadId})`); nil = none. The route
+    /// in this thread", `issues.create({sessionId})`); nil = none. The route
     /// seeds it; a draft reopened from Drafts restores it off its row
-    /// (`issue_drafts.thread_id`), and every upsert carries it.
+    /// (`issue_drafts.session_id`), and every upsert carries it.
     private(set) var threadId: String?
-    /// The thread's display title (`ThreadViews.build`), the page's
+    /// The thread (its title and state, `IssueThreadLink`), the page's
     /// `In <thread>` line; nil while unresolved or with no thread.
-    private(set) var threadTitle: String?
+    private(set) var thread: IssueThreadLink?
     /// The route's pre-picked status row (nil = the team's Backlog builtin).
     private let initialStatusId: String?
 
@@ -303,7 +303,7 @@ final class IssueDraftViewModel {
                 ? Array(labelIds)
                 : Array(labelIds.filter { id in labels.contains { $0.id == id } }),
             dueDate: dueDate,
-            threadId: threadId
+            sessionId: threadId
         )
     }
 
@@ -344,7 +344,7 @@ final class IssueDraftViewModel {
                 labelIds = Set(row.labelIds)
                 dueDate = row.dueDate
                 // EXP-1284: the route's thread wins; else the row's.
-                if threadId == nil { threadId = row.threadId }
+                if threadId == nil { threadId = row.sessionId }
                 seededStatusId = row.statusId
                 if let files = try? await deps.issueDraftsApi.listAttachments(
                     accountId: accountId, id: draftId
@@ -377,8 +377,8 @@ final class IssueDraftViewModel {
 
         // EXP-1284: name the thread the issue files into.
         if let threadId {
-            threadTitle = (try? await pool.read { db in
-                try ThreadRows.load(db: db, threadId: threadId)?.view.title
+            thread = (try? await pool.read { db in
+                try IssueThreadLink.load(db: db, rootId: threadId)
             }) ?? nil
         }
 
@@ -923,7 +923,7 @@ final class IssueDraftViewModel {
             // row inside the create's transaction.
             draftId: rowExists && !defersUploads ? draftId : nil,
             parentId: parentId,
-            threadId: threadId
+            sessionId: threadId
         )
 
         do {

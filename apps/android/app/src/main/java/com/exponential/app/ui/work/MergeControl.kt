@@ -14,10 +14,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.icons.ExpIcons
 
@@ -41,13 +43,11 @@ data class ChangesMergeControl(
      *  no issue linked) `merge-run-pr`. */
     val confirmPrompt: Prompts.Prompt,
     val onConfirm: () -> Unit,
-    /** EXP-1248: non-null = the PR is a member of an open stack, so Merge
-     *  lands the whole open chain behind ONE confirm ([PrStack.stackMergeConfirm],
-     *  mode Stack). */
-    val stackConfirm: PrStack.StackMergeConfirm? = null,
-    /** EXP-1248: `issues.mergePr({ issueId, mergeStack: true })` — merge
-     *  through that member (it and every open PR beneath it). */
-    val onMergeStack: (issueId: String) -> Unit = {},
+    /** EXP-1248/EXP-1291: non-null = the PR is a member of an open stack —
+     *  Merge asks the ONE stack confirm ([StackMergeDialog]) and lands the
+     *  whole open chain through [onMergeStack]. */
+    val stackConfirm: PullRequestStack.Confirm? = null,
+    val onMergeStack: () -> Unit = {},
 )
 
 /**
@@ -64,11 +64,12 @@ fun MergeCapsule(
     merge: ChangesMergeControl,
     modifier: Modifier = Modifier,
     /**
-     * Every pager page keeps its own capsule composed, so only the Guide
-     * face's carries the bare `work-merge-pr` (the store slide's pop-out rect
-     * reads the first match); the others suffix their face, like iOS.
+     * Every pager page keeps its own capsule composed, so only the thread
+     * Guide's carries the fixture's `thread-guide-merge` (EXP-1307,
+     * session-thread.json `testIds.guideMerge`); the Guide's section page
+     * suffixes [MergeCapsuleTag], like iOS.
      */
-    tag: String = MergeCapsuleTag,
+    tag: String = SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE,
 ) {
     MergeTrigger(merge) { onClick ->
         BarSolidPill(
@@ -118,6 +119,26 @@ fun MergeCircle(merge: ChangesMergeControl, tag: String, modifier: Modifier = Mo
 }
 
 /**
+ * EXP-1291: an issue's PR row's Merge — the small glass pill trailing the
+ * row (an issue can list several PRs, so the control rides each open one).
+ * Same confirm / stack flow as [MergeCapsule]; spins while merging.
+ */
+@Composable
+fun MergePill(merge: ChangesMergeControl, modifier: Modifier = Modifier) {
+    MergeTrigger(merge) { onClick ->
+        GlassPill(
+            merge.label,
+            icon = ExpIcons.prMerged,
+            size = PillSize.Sm,
+            loading = merge.loading,
+            enabled = !merge.loading,
+            onClick = onClick,
+            modifier = modifier,
+        )
+    }
+}
+
+/**
  * The ONE tap behaviour both Merge shapes share: a merge asks first
  * ([MergeConfirmDialog], the stack choice included). A refusal toasts ONCE in the host (WorkScreen), never per
  * control: the pager keeps neighbouring faces composed.
@@ -134,7 +155,7 @@ private fun MergeTrigger(
     }
 }
 
-/** The Guide face's capsule tag; the other faces append `-issue`/`-run`. */
+/** The Merge tag stem the Guide's section page suffixes (`-section`). */
 const val MergeCapsuleTag = "work-merge-pr"
 
 /**

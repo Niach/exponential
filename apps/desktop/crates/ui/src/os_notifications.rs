@@ -39,9 +39,10 @@
 //!
 //! Click routing reuses the rail Inbox's own paths: an issue-anchored row
 //! opens the issue detail fully scoped on its board (switching the window's
-//! team when needed; SLOP-4: a `reporter_reply` row is one of those), an
-//! issue-less `session_blocked` row opens its run, a bundle opens the Inbox
-//! tab. With every shell window closed
+//! team when needed; SLOP-4: a `reporter_reply` row is one of those), a
+//! `session_blocked` / `agent_message` row naming its session opens that
+//! session's screen (EXP-1294: its thread, or the session inside it), a
+//! bundle opens the Inbox tab. With every shell window closed
 //! (macOS dock-resident app) the host's open-window hook is asked for one
 //! first. Mark-read stays what it is — the rail rows mark on click; a toast
 //! click lands on the surface that does.
@@ -175,35 +176,33 @@ fn parse_created_at(row: &Notification) -> Option<DateTime<FixedOffset>> {
 enum Route {
     /// Issue detail, scoped on the issue's board.
     Issue { issue_id: String },
-    /// EXP-933: an agent's message about an issue — that issue's RESULTS
-    /// (`work_header::open_issue_results`), scoped like [`Route::Issue`].
-    IssueResults { issue_id: String },
     /// The Inbox tab (bundles, and rows whose issue is not synced).
     Inbox,
-    /// EXP-856: a session-level alert (the duplicate-agent warning) — opens
-    /// the run it happened in.
+    /// EXP-856/EXP-1294: a session-level row (a blocked session, an agent's
+    /// message, the duplicate-agent warning) — opens the screen that session
+    /// is ([`navigation::session_screen_for`]).
     Session { session_id: String },
 }
 
 fn route_for(row: &Notification) -> Route {
-    if let Some(issue_id) = &row.issue_id {
-        if row.kind.as_deref() == Some(NOTIFICATION_TYPE_AGENT_MESSAGE) {
-            return Route::IssueResults {
-                issue_id: issue_id.clone(),
-            };
-        }
-        return Route::Issue {
-            issue_id: issue_id.clone(),
-        };
-    }
-    // EXP-980: a blocked run opens the run it is about; a row whose run has
-    // been pruned falls back to the inbox.
-    if row.kind.as_deref() == Some(NOTIFICATION_TYPE_SESSION_BLOCKED) {
+    // EXP-980/EXP-1294: a blocked session and an agent's message open the
+    // session they are about; a row whose session has been pruned falls back
+    // to its issue, else the inbox.
+    let session_kind = matches!(
+        row.kind.as_deref(),
+        Some(NOTIFICATION_TYPE_SESSION_BLOCKED) | Some(NOTIFICATION_TYPE_AGENT_MESSAGE)
+    );
+    if session_kind {
         if let Some(session_id) = row.session_id.as_deref().filter(|id| !id.is_empty()) {
             return Route::Session {
                 session_id: session_id.to_string(),
             };
         }
+    }
+    if let Some(issue_id) = &row.issue_id {
+        return Route::Issue {
+            issue_id: issue_id.clone(),
+        };
     }
     Route::Inbox
 }
@@ -603,20 +602,24 @@ fn land(route: Route, window: &mut Window, cx: &mut App) {
 
 fn land_now(route: Route, window: &mut Window, cx: &mut App) {
     match route {
-        Route::Issue { issue_id } => land_issue(issue_id, false, window, cx),
-        Route::IssueResults { issue_id } => land_issue(issue_id, true, window, cx),
+        Route::Issue { issue_id } => land_issue(issue_id, window, cx),
         Route::Inbox => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
+        // EXP-1294: beside the Inbox, like an issue the toast opens.
         Route::Session { session_id } => {
-            crate::session_screen::open_session(&session_id, window, cx)
+            let screen = navigation::session_screen_for(&session_id, cx);
+            match inbox_origin() {
+                Some(origin) => navigation::navigate_from(window, cx, screen, origin),
+                None => navigation::navigate(window, cx, screen),
+            }
         }
     }
 }
 
 /// An issue route, scoped on the issue's board when that board is in the
 /// window's team (another team's issue opens as an Inbox row does, with the
-/// window's team and board untouched); `results` = open it on its Guide
-/// (EXP-933). An issue that has not synced yet opens the Inbox.
-fn land_issue(issue_id: String, results: bool, window: &mut Window, cx: &mut App) {
+/// window's team and board untouched). An issue that has not synced yet
+/// opens the Inbox.
+fn land_issue(issue_id: String, window: &mut Window, cx: &mut App) {
     let target = {
         let collections = Store::global(cx).collections();
         let issues = collections.issues.read(cx);
@@ -633,18 +636,10 @@ fn land_issue(issue_id: String, results: bool, window: &mut Window, cx: &mut App
     };
     let nav = navigation::nav_for_window(window, cx);
     let same_team = team_id.is_some() && navigation::active_team_id(&nav, cx) == team_id;
-    let id = issue_id.clone();
-    let open = move |window: &mut Window, cx: &mut App| {
-        if same_team {
-            navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
-        } else {
-            crate::issue_list::open_issue_from_list(window, cx, issue_id, inbox_origin());
-        }
-    };
-    if results {
-        crate::work_header::open_issue_results(&id, window, cx, open);
+    if same_team {
+        navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
     } else {
-        open(window, cx);
+        crate::issue_list::open_issue_from_list(window, cx, issue_id, inbox_origin());
     }
 }
 
@@ -735,33 +730,37 @@ mod tests {
         }
     }
 
-    /// EXP-933: an agent's message about an issue opens that issue's
-    /// Results; an issue-less one (EXP-801) still lands in the Inbox.
+    /// EXP-1294: an agent's message opens the session it names; without
+    /// one it falls back to its issue, and an issue-less, session-less one
+    /// (EXP-801) still lands in the Inbox.
     #[test]
-    fn an_agent_message_with_an_issue_routes_to_its_results() {
+    fn an_agent_message_routes_to_its_session() {
         let message = Notification {
             kind: Some(NOTIFICATION_TYPE_AGENT_MESSAGE.to_string()),
+            session_id: Some("s-m".to_string()),
             ..row("m", "2026-08-27T10:00:00+00:00")
         };
         assert_eq!(
             route_for(&message),
-            Route::IssueResults {
-                issue_id: "issue-m".to_string()
+            Route::Session {
+                session_id: "s-m".to_string()
             }
         );
-        let issueless = Notification {
-            issue_id: None,
+        let session_less = Notification {
+            session_id: None,
             ..message.clone()
         };
-        assert_eq!(route_for(&issueless), Route::Inbox);
-        // A burst of them about one issue still goes straight there.
-        let toast = compose(&[message.clone(), Notification { id: "m2".into(), ..message }]).unwrap();
         assert_eq!(
-            toast.route,
-            Route::IssueResults {
+            route_for(&session_less),
+            Route::Issue {
                 issue_id: "issue-m".to_string()
             }
         );
+        let bare = Notification {
+            issue_id: None,
+            ..session_less
+        };
+        assert_eq!(route_for(&bare), Route::Inbox);
     }
 
     #[test]

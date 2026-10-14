@@ -131,6 +131,18 @@ describe(`appOnScreen`, () => {
   })
 })
 
+describe(`appOnScreen: the app's own popup`, () => {
+  const popup = `  mCurrentFocus=Window{7b u0 Pop-Up Window}`
+  test(`a popup over the app's own activity = ok (the popover specimen)`, () => {
+    const dumpsys = `${popup}\n  mFocusedApp=ActivityRecord{8726 u0 ${APP}/.MainActivity t347}`
+    expect(appOnScreen(APP, { pidof: `4242`, dumpsys })).toEqual({ ok: true })
+  })
+  test(`a popup over another app is refused`, () => {
+    const dumpsys = `${popup}\n  mFocusedApp=ActivityRecord{1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t2}`
+    expect(appOnScreen(APP, { pidof: `4242`, dumpsys }).ok).toBe(false)
+  })
+})
+
 describe(`specimenState`, () => {
   test(`ready once the cold pass is logged`, () => {
     expect(

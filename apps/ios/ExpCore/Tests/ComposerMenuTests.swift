@@ -92,33 +92,6 @@ final class ComposerMenuTests: XCTestCase {
         }
     }
 
-    // The pinned payload keys (`computerUse` beside `mcpServerIds`) ride every
-    // start subject and stay ABSENT when unset.
-    func testThePerRunComputerUseAndMcpServersRideTheStartPayload() throws {
-        func json(_ value: some Encodable) throws -> [String: Any] {
-            try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any])
-        }
-        let issue = try json(StartSessionInput(
-            issueId: "i", deviceId: "d", agent: nil, model: nil, subagentModel: nil, effort: nil,
-            ultracode: nil, planMode: nil, resume: nil, account: nil, prompt: nil,
-            mcpServerIds: ["m1", "m2"], computerUse: false
-        ))
-        XCTAssertEqual(issue["mcpServerIds"] as? [String], ["m1", "m2"])
-        XCTAssertEqual(issue[ComposerMenu.computerUsePayloadKey] as? Bool, false)
-        let batch = try json(StartBatchSessionInput(
-            issueIds: ["a", "b"], deviceId: "d", agent: nil, model: nil, subagentModel: nil,
-            effort: nil, ultracode: nil, planMode: nil, account: nil, prompt: nil, computerUse: true
-        ))
-        XCTAssertEqual(batch["computerUse"] as? Bool, true)
-        XCTAssertNil(batch.index(forKey: "mcpServerIds"))
-        let action = try json(StartActionSessionInput(
-            actionId: "x", teamId: nil, deviceId: "d", agent: nil, model: nil, subagentModel: nil,
-            effort: nil, ultracode: nil, planMode: nil, inputs: nil, account: nil, prompt: nil
-        ))
-        XCTAssertNil(action.index(forKey: "computerUse"))
-        XCTAssertNil(action.index(forKey: "mcpServerIds"))
-    }
-
     func testMcpServerRowsReadinessAndPreselect() throws {
         let rows = try JSONDecoder().decode([McpServerRow].self, from: Data("""
             [{"id":"a","name":"Linear","url":"https://mcp.linear.app/sse","enabledByDefault":true,"connection":{"status":"connected"}},

@@ -18,8 +18,8 @@
 //!   moved to another profile with headroom on the window it hit — after a
 //!   FORCED usage read of every profile
 //!   ([`crate::agent_usage::collect_now`]), never off cached numbers — as a
-//!   RESUME naming the target (the same switch a person makes; the server
-//!   inherits `started_reason` and the parent from the predecessor). EXP-1107: ONE forced read per AGENT per
+//!   RESUME of the same row naming the target (the same switch a person
+//!   makes; EXP-1292: no new row, nothing to inherit). EXP-1107: ONE forced read per AGENT per
 //!   beat ([`RotationTracker::plan_beat`], [`InflightProbes`]), however many
 //!   of its runs are walled, and every one of them decided off that one
 //!   result ([`RotationTracker::decide_batch`]) — N per-run probes raced the

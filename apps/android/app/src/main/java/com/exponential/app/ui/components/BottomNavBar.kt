@@ -41,7 +41,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 
 // Linear-style floating bottom navigation: a dark pill with the top-level
 // destinations (Issues, Inbox — the merged Inbox + My Issues personal tab,
-// with an unread dot — Devices — the machines surface — Reviews — and
+// with an unread dot — Devices — the machines surface — Threads — and
 // Actions, a top-level tab since EXP-1187; Settings = the Issues gear) plus a detached launcher on the right: the Chat arm that
 // switches to the Agent page — the app's landing screen and a top-level
 // destination like the tabs, so the arm wears the SELECTED state while it is
@@ -78,12 +78,11 @@ class BottomBarSuppression {
 val LocalBottomBarSuppression = staticCompositionLocalOf<BottomBarSuppression?> { null }
 
 // EXP-214 dot colors: the Agent launcher's dot escalates to amber while a
-// session waits on a plan approval / question; the Reviews dot is the review
-// green (the in_review issue-status tint). EXP-699: the live dot shares the
-// semantic green — every platform's live dot is the same color now.
+// session waits on a plan approval / question; the Threads dot is amber
+// while a thread needs a person. EXP-699: the live dot shares the semantic
+// green — every platform's live dot is the same color now.
 private val AgentsLiveGreen = DesignTokens.Semantic.Green
 private val AgentsNeedsInputAmber = DesignTokens.Semantic.Yellow
-private val ReviewsGreen = DesignTokens.Semantic.Green
 
 @Composable
 fun BottomNavBar(
@@ -97,31 +96,26 @@ fun BottomNavBar(
     /** EXP-1187: lit while the Actions route is up. */
     actionsActive: Boolean,
     personalActive: Boolean,
-    reviewsActive: Boolean,
+    /** EXP-1291: lit while the Threads tab (it replaced Reviews) is up. */
+    threadsActive: Boolean,
     unreadCount: Int,
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
-    /** EXP-1244: [com.exponential.app.domain.ReviewsNav.dot] — the Reviews queue is non-empty. */
-    reviewsOpen: Boolean,
+    /** EXP-1291: an amber dot on Threads while a thread needs a person. */
+    threadsNeedYou: Boolean,
     /** EXP-973: whether New issue has a board to file onto (it always shows). */
     composeEnabled: Boolean,
     onIssues: () -> Unit,
     onDevices: () -> Unit,
     onActions: () -> Unit,
     onPersonal: () -> Unit,
-    onReviews: () -> Unit,
+    onThreads: () -> Unit,
     onCompose: () -> Unit,
     onChat: () -> Unit,
     modifier: Modifier = Modifier,
-    /**
-     * EXP-1105/EXP-1244: [com.exponential.app.domain.ReviewsNav.shows] — false
-     * while EVERY member team runs in yolo mode and the Reviews queue is empty
-     * (agents merge their own work); an open PR = a failed auto-merge.
-     */
-    showsReviews: Boolean = true,
 ) {
-    // Four fixed tabs (Issues, Inbox, Devices, Actions) + Reviews.
-    val tabCount = 4 + (if (showsReviews) 1 else 0)
+    // Five fixed tabs (Issues, Inbox, Devices, Threads, Actions).
+    val tabCount = 5
     // Every count must still fit a 360dp screen beside the compose circle:
     // the outer padding pulls in with the count. The tab itself is the shared
     // 44dp square on every count (EXP-698).
@@ -169,21 +163,17 @@ fun BottomNavBar(
                 active = devicesActive,
                 onClick = onDevices,
             )
-            // Reviews (EXP-147/EXP-152/EXP-686) — the same open-PR
-            // glyph the Reviews rows use. Green dot while open PRs await
-            // review (EXP-214). Hidden in yolo mode until a PR is open
-            // (EXP-1105).
-            if (showsReviews) {
-                TabItem(
-                    icon = ExpIcons.navReviews,
-                    contentDescription = "Reviews",
-                    testTag = "tab-reviews",
-                    active = reviewsActive,
-                    showDot = reviewsOpen,
-                    dotColor = ReviewsGreen,
-                    onClick = onReviews,
-                )
-            }
+            // EXP-1291: Threads (it replaced Reviews) — the thread list;
+            // amber dot while one of them needs a person.
+            TabItem(
+                icon = ExpIcons.navThreads,
+                contentDescription = "Threads",
+                testTag = "tab-threads",
+                active = threadsActive,
+                showDot = threadsNeedYou,
+                dotColor = AgentsNeedsInputAmber,
+                onClick = onThreads,
+            )
             // EXP-1187: Actions is a top-level tab (the More menu is gone;
             // Settings stays behind the Issues header's gear).
             TabItem(

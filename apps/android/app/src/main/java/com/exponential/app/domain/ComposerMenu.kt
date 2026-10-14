@@ -6,8 +6,10 @@ package com.exponential.app.domain
 // which rows show for the picked agent / device / subject, in what order,
 // with which concept glyph and copy. Phones open it as a bottom sheet of the
 // same rows, submenus as pushed pages (`AgentComposer.kt` binds the ids).
-// EXP-1259: the suggestion rows and the brand-mark watermark are gone
-// (`composer-home.json` owns the page around the card).
+// EXP-1259: the suggestion rows are gone (`composer-home.json` owns the page
+// around the card). EXP-1291: Run action lists the team's SAVED actions only
+// (no builtins), and since actions no longer carry their own MCP list no
+// subject owns it: the `mcp` condition = the team has a server.
 
 enum class ComposerMenuRowId(val wire: String) {
     ImplementIssue("implement-issue"),

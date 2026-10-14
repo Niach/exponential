@@ -104,22 +104,10 @@ data class IssueEntity(
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double,
     @ColumnInfo(name = "completed_at") @SerialName("completed_at") @JsonNames("completedAt") val completedAt: String? = null,
     @ColumnInfo(name = "duplicate_of_id") @SerialName("duplicate_of_id") @JsonNames("duplicateOfId") val duplicateOfId: String? = null,
-    // PR fields stay: merge detection (webhook + polling) still populates these.
-    @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,
-    @ColumnInfo(name = "pr_number") @SerialName("pr_number") @JsonNames("prNumber") val prNumber: Int? = null,
-    @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
-    val branch: String? = null,
-    // EXP-897: the branch this issue's pull request is BASED on, the stack
-    // edge (`child.pr_base_branch == lower.branch`). NULL on an ordinary PR
-    // cut from the board's default branch. SLOP-3 keeps it: the related-work
-    // badge and the stack merge dialog read it
-    // ([com.exponential.app.domain.PrStack]).
-    @ColumnInfo(name = "pr_base_branch") @SerialName("pr_base_branch") @JsonNames("prBaseBranch") val prBaseBranch: String? = null,
     // EXP-1231: the draft this issue was created from (`issues.create({draftId})`
     // stamps it). An open draft page that sees an issue carrying its draft id
     // replaces itself with that issue ([com.exponential.app.domain.IssueDraftPage.fate]).
     @ColumnInfo(name = "draft_id") @SerialName("draft_id") @JsonNames("draftId") val draftId: String? = null,
-    @ColumnInfo(name = "pr_merged_at") @SerialName("pr_merged_at") @JsonNames("prMergedAt") val prMergedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") override val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") override val updatedAt: String,
     // EXP-892: the ONE issue-search engine ranks these rows directly (Search
@@ -319,139 +307,6 @@ val CommentEntity.isToReporter: Boolean
 // tolerant decode maps any legacy value to Regular.
 fun commentKindOf(raw: String?): CommentKind = CommentKind.Regular
 
-// A coding session against an issue (synced via the coding_sessions shape): a
-// real user driving a coding agent from a desktop device. Replaces agent_runs.
-@Entity(
-    tableName = "coding_sessions",
-    indices = [Index("issue_id"), Index("team_id")],
-)
-@Serializable
-data class CodingSessionEntity(
-    @PrimaryKey val id: String,
-    // Nullable for batch multi-issue runs (a desktop batch spans issues, so the
-    // session isn't tied to a single one).
-    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
-    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    // Denormalized issue→board id (v7 server trigger); NULL for
-    // batch sessions (a batch run spans boards).
-    @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
-    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String,
-    @ColumnInfo(name = "device_label") @SerialName("device_label") @JsonNames("deviceLabel") val deviceLabel: String? = null,
-    // EXP-549/550: the host machine's steer deviceId (= devices.device_id),
-    // stamped at start. Joins the row to its LIVE devices row, so the list
-    // shows the machine's CURRENT label (device_label is only the start-time
-    // snapshot) and a session whose machine went offline renders as paused
-    // instead of forever "starting". NULL on rows started before the stamp.
-    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String? = null,
-    val status: String = "running",
-    // EXP-545: the batch↔PR linkage — the PR's head branch (`exp/batch-<id8>`),
-    // stamped by the server's pr_open batch flip alongside the in_review
-    // status. Ties a batch row's Merge shortcut to its OWN PR; null on
-    // issue-scoped sessions, on action rows, and on batch rows whose PR
-    // isn't open yet (or that were flipped before the stamp existed).
-    val branch: String? = null,
-    // EXP-484: the coding agent this run launched with (contract `codingAgent`
-    // values, a documented varchar server-side). NULL on every pre-EXP-484 row
-    // and on any starter that omits it — the usage bar simply doesn't render.
-    val agent: String? = null,
-    // EXP-909: the agent ACCOUNT PROFILE this run spends — `system` = the
-    // machine's ambient login, else a device-local profile id matching
-    // `agentAccounts[agent].profiles[].id` on the devices row. NULL/absent =
-    // UNKNOWN, which is NOT the ambient login: the usage overlay then falls
-    // back to the machine's reported email, then its active profile.
-    @ColumnInfo(name = "agent_account") @SerialName("agent_account") @JsonNames("agentAccount") val agentAccount: String? = null,
-    // EXP-637: who ended the run — `agent` (sessions_end), `user`
-    // (killSession), `client` (exit/tab close/quit), `merge` (a PR merge) or
-    // `system` (the sweep). NULL on rows ended before the stamp existed.
-    @ColumnInfo(name = "ended_by") @SerialName("ended_by") @JsonNames("endedBy") val endedBy: String? = null,
-    // EXP-637: the ended run this one continues (Resume) — FK SET NULL. The
-    // post-send start watch matches a resumed run by it (StartedRunMatch).
-    @ColumnInfo(name = "resumed_from_id") @SerialName("resumed_from_id") @JsonNames("resumedFromId") val resumedFromId: String? = null,
-    // EXP-818: the run that spawned this one through `exponential_sessions_start`
-    // (FK SET NULL); null on a top-level run. The session lists nest a child
-    // under its parent (SessionTree).
-    @ColumnInfo(name = "parent_session_id") @SerialName("parent_session_id") @JsonNames("parentSessionId") val parentSessionId: String? = null,
-    // Desktop-written attention flag (EXP-214): the agent is parked on a
-    // plan-approval / AskUserQuestion picker and waits for a human.
-    @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
-    // EXP-848: the agent is MID-TURN right now, written by the device on every
-    // turn edge exactly like needsInput (and cleared by every server end path).
-    // Orthogonal to `status`: a live run sits at false between turns, which is
-    // why the session lists pulse on THIS and never on status = running.
-    @ColumnInfo(name = "agent_busy") @SerialName("agent_busy") @JsonNames("agentBusy") val agentBusy: PgBool = false,
-    // EXP-850 (S8): what the run is DOING right now in one line — today the
-    // caption of the newest running workflow, written by the device (throttled,
-    // on change) and cleared by every server end path. NULL = nothing to say,
-    // which is every run that is not inside a workflow. Session list rows
-    // render it as their SECOND line, before the device byline.
-    @ColumnInfo(name = "agent_caption") @SerialName("agent_caption") @JsonNames("agentCaption") val agentCaption: String? = null,
-    // EXP-905: the title the agent CLI (Claude Code / codex) auto-named the
-    // run with, device-written like agentCaption. A CHAT run's subject
-    // (`chatRunSubject`); NULL = the agent has not named it (yet).
-    @ColumnInfo(name = "agent_title") @SerialName("agent_title") @JsonNames("agentTitle") val agentTitle: String? = null,
-    // EXP-804: the agent's usage wall as row state, kept as the raw jsonb
-    // TEXT off the wire (`{kind, agent, window, resetsAt, since}`) exactly
-    // like DeviceEntity.agentUsage; NULL = not blocked. Orthogonal to
-    // `status` the way needsInput is — a blocked run still reads `running`
-    // and stays live and killable, so a client ignoring this shows a silently
-    // walled run as healthy. Parsed for display by AgentUsagePresentation.
-    @ColumnInfo(name = "blocked") @SerialName("blocked")
-    @Serializable(with = JsonAsStringSerializer::class) val blocked: String? = null,
-    // EXP-1082: the question the run asked its starter and still waits on
-    // (`{question, askedAt}`), raw jsonb TEXT like `blocked`; NULL = none open.
-    @ColumnInfo(name = "pending_question") @SerialName("pending_question") @JsonNames("pendingQuestion")
-    @Serializable(with = JsonAsStringSerializer::class) val pendingQuestion: String? = null,
-    // EXP-879: the run's published RESULTS — the screenshots the agent filed
-    // with `exponential_sessions_results` while it worked, kept as the raw
-    // jsonb TEXT off the wire exactly like `blocked`. A FLAT, ORDERED array of
-    // `{topic, label, attachmentId, width, height}` capped at 60 server-side;
-    // NULL or `[]` = nothing published, which is why the Results face is a
-    // sub-face of Run rather than a permanent tab. Parsed for display by
-    // SessionResults.
-    @ColumnInfo(name = "results") @SerialName("results")
-    @Serializable(with = JsonAsStringSerializer::class) val results: String? = null,
-    // EXP-876: the issues a BATCH run covers, in the order the composer listed
-    // them — the raw jsonb TEXT off the wire like `results`, and the only
-    // thing that can NAME such a row (every batch used to read "Batch run").
-    // NULL / `[]` on every other subject and on batch rows started by a client
-    // too old to send it. Parsed for display by `batchRunIssueIds`.
-    @ColumnInfo(name = "batch_issue_ids") @SerialName("batch_issue_ids")
-    @Serializable(with = JsonAsStringSerializer::class) val batchIssueIds: String? = null,
-    // Action run linkage (EXP-253): set on a session started from a team
-    // action. action_id nulls if the action is later deleted (server FK SET
-    // NULL) while action_name — a display snapshot — keeps labeling the run.
-    // Both null on ordinary issue/batch sessions.
-    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
-    @ColumnInfo(name = "action_name") @SerialName("action_name") @JsonNames("actionName") val actionName: String? = null,
-    // EXP-530: which kind of trigger started this run (`schedule` | `event`);
-    // NULL on every user-started session. Titles the row on an
-    // action page's Runs and keeps triggered rows out of the post-send start
-    // watch (StartedRunMatch).
-    @ColumnInfo(name = "started_reason") @SerialName("started_reason") @JsonNames("startedReason") val startedReason: String? = null,
-    // EXP-583 / SLOP-2 / SLOP-17: the id of the TRIGGER that fired this run
-    // (an element of its action's `triggers`), NULL on every user-started
-    // session. An action can carry several triggers, so the action_id link
-    // alone does not identify which one ran.
-    @ColumnInfo(name = "trigger_id") @SerialName("trigger_id") val triggerId: String? = null,
-    // EXP-734/SLOP-3: the run's OWN pull request — every run that opened a PR
-    // carries it here. An issue run still merges through its issue; an
-    // issue-less run (batch, chat, action) merges this PR through
-    // `codingSessions.mergePr` (MergeTarget). The server flips pr_state to
-    // `merged` after a merge, so a client settles one by watching this row
-    // rather than writing anything locally.
-    @ColumnInfo(name = "pr_url") @SerialName("pr_url") @JsonNames("prUrl") val prUrl: String? = null,
-    @ColumnInfo(name = "pr_number")
-    @SerialName("pr_number")
-    @JsonNames("prNumber")
-    @Serializable(with = PgIntSerializer::class)
-    val prNumber: Int? = null,
-    @ColumnInfo(name = "pr_state") @SerialName("pr_state") @JsonNames("prState") val prState: String? = null,
-    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String,
-    @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
-    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
-    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
-)
-
 // A team action prompt (EXP-253, synced via the actions shape since EXP-268).
 // The shape deliberately EXCLUDES the ≤64KB markdown `body` — mobile is
 // view + run only, and the desktop fetches the body via tRPC `actions.get`
@@ -464,8 +319,6 @@ data class CodingSessionEntity(
 data class ActionEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String,
-    // Null for repo-less actions (the desktop runs those in a scratch dir).
-    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
     val name: String,
     val description: String? = null,
     // EXP-273: curated registry icon name (same set as boards.icon); null =
@@ -474,11 +327,6 @@ data class ActionEntity(
     // jsonb array of typed run-input defs ({key,label,type,required,placeholder}
     // — EXP-257), kept as its raw JSON string and parsed at the consumer.
     @Serializable(with = JsonAsStringSerializer::class) val inputs: String? = null,
-    // SLOP-2: the action's triggers — a jsonb array of {id, enabled, deviceId,
-    // agent pins, when-part}, kept as its raw JSON string and parsed
-    // tolerantly at the consumer (`parseActionTriggers` — an unreadable
-    // element is skipped, never a crash). Absent/NULL = no triggers.
-    @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,
     // EXP-825: the composer's field hint while this action is picked (≤200
     // chars, server-trimmed); null = the generic "Additional instructions
     // (optional)…" prompt. Absent on rows synced before the column existed.
@@ -776,78 +624,186 @@ data class IssueDraftEntity(
     // `YYYY-MM-DD` — the date-only due date (no time of day, REV2-49).
     @ColumnInfo(name = "due_date") @SerialName("due_date") @JsonNames("dueDate")
     val dueDate: String? = null,
-    // EXP-1284: "New issue in this thread" — the thread the issue files into
-    // (create links it), so the draft keeps it across leave and reopen.
+    // EXP-1291: "New issue" from a thread — the thread ROOT session the issue
+    // files into (create links it), so the draft keeps it across leave and
+    // reopen. Synced as `session_id` (the local column keeps its v86 name).
     // SET NULL server-side: a deleted thread leaves a plain draft.
-    @ColumnInfo(name = "thread_id") @SerialName("thread_id") @JsonNames("threadId")
+    @ColumnInfo(name = "thread_id") @SerialName("session_id") @JsonNames("sessionId", "thread_id", "threadId")
     val threadId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
-// One thread (EXP-1284, the `threads` shape): the unit of work — n issues
-// and m runs (its `thread_items`), linked by the person or by the agent over
-// MCP. TEAM-scoped and member-visible: the shape is `team_id IN (member
-// teams)` with no board and no trash predicate. Every field but the PK
-// defaults: a column absent on the wire must never drop the row (the
-// attachments.uploader_id lesson).
+// EXP-1291 Threads v2: ONE session tree (the `sessions` shape). A thread IS a
+// root session (`kind = thread`, `parent_id` NULL); a team agent is a root of
+// `kind = agent`; children are sub-sessions (kind `thread`, `parent_id` /
+// `root_id` / `depth`). Visible = `shared OR user_id = me` inside the member
+// teams. jsonb columns stay their raw TEXT off the wire (parsed at the
+// consumer, tolerant). Every field but the PK defaults: a column absent on
+// the wire must never drop the row. An agent's `instructions` are
+// server-only (`sessions.getAgent`).
 @Entity(
-    tableName = "threads",
-    indices = [Index("team_id")],
+    tableName = "sessions",
+    indices = [Index("team_id"), Index("root_id"), Index("parent_id")],
 )
 @Serializable
-data class ThreadEntity(
+data class SessionEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
-    // Agent-editable; NULL = derived for display (the first issue's title,
-    // else the first run's name).
+    @ColumnInfo(name = "parent_id") @SerialName("parent_id") @JsonNames("parentId") val parentId: String? = null,
+    // The root's id (its own on a root).
+    @ColumnInfo(name = "root_id") @SerialName("root_id") @JsonNames("rootId") val rootId: String = "",
+    @Serializable(with = PgIntSerializer::class) val depth: Int? = 0,
+    // Contract `sessionKind`: thread | agent.
+    val kind: String = com.exponential.app.domain.DomainContract.sessionKindThread,
+    // The STARTER (visibility keys on it).
+    @ColumnInfo(name = "user_id") @SerialName("user_id") @JsonNames("userId") val userId: String = "",
+    // The steer deviceId of the machine that runs it.
+    @ColumnInfo(name = "device_id") @SerialName("device_id") @JsonNames("deviceId") val deviceId: String = "",
+    // The agent CLI (contract `codingAgent`), its account profile, model, effort.
+    val cli: String? = null,
+    val account: String? = null,
+    val model: String? = null,
+    val effort: String? = null,
+    @ColumnInfo(name = "plan_mode") @SerialName("plan_mode") @JsonNames("planMode") val planMode: PgBool = false,
+    @ColumnInfo(name = "computer_use") @SerialName("computer_use") @JsonNames("computerUse") val computerUse: PgBool = false,
+    val ultracode: PgBool = false,
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String? = null,
+    // The session's working branch (device-written at claim).
+    val branch: String? = null,
+    // Contract `sessionStatus`: queued → running ⇄ idle → ended.
+    val status: String = com.exponential.app.domain.DomainContract.sessionStatusQueued,
+    // Device-written turn state: the ONLY list-spinner input ×4.
+    val busy: PgBool = false,
+    // A question/plan card waits for a person (the "Needs you" group).
+    @ColumnInfo(name = "needs_input") @SerialName("needs_input") @JsonNames("needsInput") val needsInput: PgBool = false,
+    // EXP-804: the usage wall (`{kind, agent, window, resetsAt, since}`), raw
+    // jsonb TEXT; NULL = not blocked. A blocked session stays live.
+    @ColumnInfo(name = "blocked") @SerialName("blocked")
+    @Serializable(with = JsonAsStringSerializer::class) val blocked: String? = null,
+    @ColumnInfo(name = "started_at") @SerialName("started_at") @JsonNames("startedAt") val startedAt: String? = null,
+    @ColumnInfo(name = "last_turn_at") @SerialName("last_turn_at") @JsonNames("lastTurnAt") val lastTurnAt: String? = null,
+    @ColumnInfo(name = "ended_at") @SerialName("ended_at") @JsonNames("endedAt") val endedAt: String? = null,
+    // Stamped at creation: the device is shared with the team.
+    val shared: PgBool = false,
+    // A root's title (NULL = derived for display, `SessionTree.threadTitle`);
+    // on a child the CLI's auto-name.
     val title: String? = null,
-    // SET NULL server-side: the thread outlives its creator's account.
-    @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy")
-    val createdBy: String? = null,
-    // THE thread's Guide (ONE per thread): the same `CodingSessionResult[]`
-    // jsonb as `coding_sessions.results`, kept as the raw TEXT off the wire
-    // exactly like it (that column stays a mirror for clients that predate
-    // threads). NULL or `[]` = nothing published.
-    @ColumnInfo(name = "results") @SerialName("results")
-    @Serializable(with = JsonAsStringSerializer::class) val results: String? = null,
-    // Bumped on every link/unlink — the activity sort.
+    // The thread's ONE Guide (the PR body), raw jsonb TEXT of
+    // `CodingSessionResult[]`; NULL or `[]` = nothing published.
+    @ColumnInfo(name = "guide") @SerialName("guide")
+    @Serializable(with = JsonAsStringSerializer::class) val guide: String? = null,
+    // The saved prompt (action) this thread ran, a name snapshot and its picks.
+    @ColumnInfo(name = "action_id") @SerialName("action_id") @JsonNames("actionId") val actionId: String? = null,
+    @ColumnInfo(name = "action_name") @SerialName("action_name") @JsonNames("actionName") val actionName: String? = null,
+    @ColumnInfo(name = "action_inputs") @SerialName("action_inputs") @JsonNames("actionInputs")
+    @Serializable(with = JsonAsStringSerializer::class) val actionInputs: String? = null,
+    @ColumnInfo(name = "spawned_by_session_id") @SerialName("spawned_by_session_id") @JsonNames("spawnedBySessionId")
+    val spawnedBySessionId: String? = null,
+    // ── agent facets (roots of kind agent) ──
+    val name: String? = null,
+    val icon: String? = null,
+    val color: String? = null,
+    // The agent's triggers (contract `agentTrigger`), raw jsonb TEXT.
+    @ColumnInfo(name = "triggers") @SerialName("triggers")
+    @Serializable(with = JsonAsStringSerializer::class) val triggers: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+) {
+    val isRoot: Boolean get() = parentId == null
+    val isAgent: Boolean get() = kind == com.exponential.app.domain.DomainContract.sessionKindAgent
+    val isEnded: Boolean get() = status == com.exponential.app.domain.DomainContract.sessionStatusEnded
+}
+
+// EXP-1291: a thread's issues (n ↔ n), always on the ROOT session. Hidden
+// with the issue's board server-side (static trash/archive predicates).
+@Entity(
+    tableName = "session_issues",
+    indices = [Index("session_id"), Index("issue_id"), Index("team_id")],
+)
+@Serializable
+data class SessionIssueEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String = "",
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    // Contract `sessionIssueSource`: user | agent.
+    val source: String = com.exponential.app.domain.DomainContract.sessionIssueSourceUser,
+    @ColumnInfo(name = "added_by") @SerialName("added_by") @JsonNames("addedBy") val addedBy: String? = null,
+    @ColumnInfo(name = "added_by_session_id") @SerialName("added_by_session_id") @JsonNames("addedBySessionId")
+    val addedBySessionId: String? = null,
+    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
-// One child of a thread (EXP-1284, the `thread-items` shape): `kind` (contract
-// `threadItemKind`: issue | run) names which of issue_id / session_id is set.
-// An issue may sit in several threads; a run in exactly ONE (linking it
-// elsewhere MOVES it). Board-scoped like every issue child — the shape is
-// team-scoped with the static trash/archive predicates, so an issue item
-// whose board is trashed or archived never arrives; run items carry no
-// board and always sync. Every field but the PK defaults.
+// EXP-1291: the Conversation — one row per person message, agent turn reply
+// and card. `consumed_at` NULL on a person's message = still queued (the
+// queue bar ×4). `card` = raw jsonb TEXT (`{kind, …}`, contract
+// `messageCardKind`); unknown kinds render nothing.
 @Entity(
-    tableName = "thread_items",
-    indices = [Index("thread_id"), Index("issue_id"), Index("session_id"), Index("team_id")],
+    tableName = "messages",
+    indices = [Index("session_id"), Index("root_id"), Index("team_id")],
 )
 @Serializable
-data class ThreadItemEntity(
+data class MessageEntity(
     @PrimaryKey val id: String,
-    @ColumnInfo(name = "thread_id") @SerialName("thread_id") @JsonNames("threadId") val threadId: String = "",
-    // Contract `threadItemKind`; an unknown value (a newer server) renders
-    // nothing rather than dropping the row.
-    val kind: String = "",
-    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String? = null,
-    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String = "",
+    @ColumnInfo(name = "root_id") @SerialName("root_id") @JsonNames("rootId") val rootId: String = "",
     @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
-    // Issue items only (trigger-derived from the issue); null on run items.
-    @ColumnInfo(name = "board_id") @SerialName("board_id") @JsonNames("boardId") val boardId: String? = null,
-    // Who linked it, and the run when an agent did (source `agent`). Both
-    // SET NULL server-side: the link outlives either.
-    @ColumnInfo(name = "added_by") @SerialName("added_by") @JsonNames("addedBy") val addedBy: String? = null,
-    @ColumnInfo(name = "added_by_session_id") @SerialName("added_by_session_id") @JsonNames("addedBySessionId")
-    val addedBySessionId: String? = null,
-    // Contract `threadItemSource`: user | agent.
-    val source: String = com.exponential.app.domain.DomainContract.threadItemSourceUser,
-    // Ascending = display order (a Postgres double).
-    @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    // Contract `messageAuthorKind`: user | agent | system.
+    @ColumnInfo(name = "author_kind") @SerialName("author_kind") @JsonNames("authorKind")
+    val authorKind: String = com.exponential.app.domain.DomainContract.messageAuthorKindSystem,
+    @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String? = null,
+    val body: String = "",
+    @ColumnInfo(name = "card") @SerialName("card")
+    @Serializable(with = JsonAsStringSerializer::class) val card: String? = null,
+    @ColumnInfo(name = "answered_at") @SerialName("answered_at") @JsonNames("answeredAt") val answeredAt: String? = null,
+    @ColumnInfo(name = "consumed_at") @SerialName("consumed_at") @JsonNames("consumedAt") val consumedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// EXP-1291: a pull request (all PR + branch state lives here, never on
+// issues). Team-visible. `base_pull_request_id` = the open PR this one is
+// stacked on (native GitHub stacks).
+@Entity(
+    tableName = "pull_requests",
+    indices = [Index("team_id"), Index("root_session_id"), Index("session_id")],
+)
+@Serializable
+data class PullRequestEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    @ColumnInfo(name = "root_session_id") @SerialName("root_session_id") @JsonNames("rootSessionId") val rootSessionId: String? = null,
+    @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
+    @ColumnInfo(name = "repository_id") @SerialName("repository_id") @JsonNames("repositoryId") val repositoryId: String = "",
+    @Serializable(with = PgIntSerializer::class) val number: Int? = null,
+    val url: String = "",
+    val title: String? = null,
+    val head: String = "",
+    val base: String = "",
+    @ColumnInfo(name = "base_pull_request_id") @SerialName("base_pull_request_id") @JsonNames("basePullRequestId")
+    val basePullRequestId: String? = null,
+    // Contract `prState`: open | merged | closed.
+    val state: String = com.exponential.app.domain.DomainContract.prStateOpen,
+    @ColumnInfo(name = "merged_at") @SerialName("merged_at") @JsonNames("mergedAt") val mergedAt: String? = null,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// EXP-1291: which issues a PR closes (n ↔ n).
+@Entity(
+    tableName = "pull_request_issues",
+    indices = [Index("pull_request_id"), Index("issue_id"), Index("team_id")],
+)
+@Serializable
+data class PullRequestIssueEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "pull_request_id") @SerialName("pull_request_id") @JsonNames("pullRequestId") val pullRequestId: String = "",
+    @ColumnInfo(name = "issue_id") @SerialName("issue_id") @JsonNames("issueId") val issueId: String = "",
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

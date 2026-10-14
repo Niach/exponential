@@ -13,7 +13,7 @@ import { and, arrayContains, eq, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import { endForeignHostedSessions } from "@/lib/coding-session-kill"
+import { endForeignHostedSessions } from "@/lib/sessions/lifecycle"
 import { deletePlaceholderIfOrphaned } from "@/lib/placeholder-members"
 
 // v7: the self-service `join` procedure is gone with public teams —

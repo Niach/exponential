@@ -78,20 +78,6 @@ class DevicesWireFormatTest {
         )
     }
 
-    @Test
-    fun `startSession input carries resume only when set`() {
-        val without = json.encodeToString(
-            StartSessionInput.serializer(),
-            StartSessionInput(issueId = "issue-1", deviceId = "dev-1"),
-        )
-        assertFalse(without.contains("resume"))
-
-        val with = json.encodeToString(
-            StartSessionInput.serializer(),
-            StartSessionInput(issueId = "issue-1", deviceId = "dev-1", resume = true),
-        )
-        assertTrue(with.contains(""""resume":true"""))
-    }
 
     @Test
     fun `command dto decodes terminal states`() {

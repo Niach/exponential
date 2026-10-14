@@ -21,14 +21,16 @@ import androidx.room.TypeConverters
         NotificationEntity::class,
         IssueSubscriberEntity::class,
         IssueEventEntity::class,
-        CodingSessionEntity::class,
         ActionEntity::class,
         DeviceEntity::class,
         DeviceWorktreeEntity::class,
         PinEntity::class,
         IssueDraftEntity::class,
-        ThreadEntity::class,
-        ThreadItemEntity::class,
+        SessionEntity::class,
+        SessionIssueEntity::class,
+        MessageEntity::class,
+        PullRequestEntity::class,
+        PullRequestIssueEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -401,8 +403,15 @@ import androidx.room.TypeConverters
     // v86 (EXP-1284): issue_drafts.thread_id — the thread a draft files into.
     //      Explicit [MIGRATION_85_86] adds the nullable column and refetches
     //      only the issue-drafts shape.
+    // v87 (EXP-1291 Threads v2): ONE session tree. `coding_sessions`,
+    //      `threads` and `thread_items` (and their offsets) drop; `sessions`,
+    //      `session_issues`, `messages`, `pull_requests` and
+    //      `pull_request_issues` are created empty for their new shapes; the
+    //      issues table loses its pr_* / branch columns and actions their
+    //      triggers / repository_id (both rebuilt in place, rows kept).
+    //      Explicit [MIGRATION_86_87].
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 86,
+    version = 87,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -422,13 +431,15 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun issueSubscriberDao(): IssueSubscriberDao
     abstract fun issueEventDao(): IssueEventDao
-    abstract fun codingSessionDao(): CodingSessionDao
     abstract fun actionDao(): ActionDao
     abstract fun deviceDao(): DeviceDao
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
     abstract fun issueDraftDao(): IssueDraftDao
-    abstract fun threadDao(): ThreadDao
-    abstract fun threadItemDao(): ThreadItemDao
+    abstract fun sessionDao(): SessionDao
+    abstract fun sessionIssueDao(): SessionIssueDao
+    abstract fun messageDao(): MessageDao
+    abstract fun pullRequestDao(): PullRequestDao
+    abstract fun pullRequestIssueDao(): PullRequestIssueDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

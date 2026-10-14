@@ -11,12 +11,12 @@ import SwiftUI
 struct BoardSwitcherSheet: View {
     let boardLoader: MultiAccountBoardLoader?
     let currentBoard: CurrentBoardRef?
-    /// EXP-1075: the caller's own LIVE runs per team (TeamState), passed IN
+    /// EXP-1075: the caller's own LIVE sessions per team (TeamState), passed IN
     /// rather than read from the environment — a sheet is presented off the
     /// host node and one explicit value beats depending on that propagation.
     /// The team headers wear a dot for the teams that have some; the ACTIVE
-    /// team's runs already light the Agents tab, so it never does.
-    var liveRunsByTeam: [String: CodingSessionOwnership.TeamLiveRuns] = [:]
+    /// team's sessions already light the launcher, so it never does.
+    var liveRunsByTeam: [String: SessionTree.TeamLiveSessions] = [:]
     var activeTeamId: String?
     let onSelect: (_ accountId: String, _ boardId: String) -> Void
     /// EXP-698 r5 (Android parity): creating a board and creating a team are
@@ -118,15 +118,14 @@ struct BoardSwitcherSheet: View {
         }
     }
 
-    /// Amber when a live run of the caller's in THIS team wants them, else
-    /// green — the Agents tab dot's tone rule (`CodingSessionDisplayState`).
-    /// A dot, never a count: the switcher answers "where", the Agents surface
-    /// answers "how many".
+    /// Amber when a live session of the caller's in THIS team wants them,
+    /// else green — the launcher dot's tone rule. A dot, never a count: the
+    /// switcher answers "where", the Threads tab answers "how many".
     @ViewBuilder
     private func liveRunsDot(teamId: String) -> some View {
-        if teamId != activeTeamId, let runs = liveRunsByTeam[teamId], runs.count > 0 {
+        if teamId != activeTeamId, let runs = liveRunsByTeam[teamId], runs.count > 0 || runs.needsInput {
             Circle()
-                .fill(SessionStateDot.color(runs.needsInput ? .needsInput : .running))
+                .fill(runs.needsInput ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green)
                 .frame(width: 6, height: 6)
                 .accessibilityLabel("Live sessions")
         }

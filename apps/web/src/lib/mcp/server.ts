@@ -10,7 +10,7 @@ import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
 
 export type McpUser = typeof users.$inferSelect
 
-// `sessionId` (EXP-637) is the coding_sessions row this request runs inside,
+// `sessionId` (EXP-637) is the `sessions` row this request runs inside,
 // parsed from the launcher-injected X-Exp-Session-Id header. Null for every
 // caller that is not a launched agent (a human's MCP client, a bare api key);
 // tools that need it say so instead of guessing. `gates` (EXP-660) is what
@@ -35,11 +35,10 @@ export function createExponentialMcpServer(
     // the EXP-496 registration check in tools.ts exactly.
     {
       instructions: mcpServerInstructions({
-        sessionsEnd: gates.sessionsEnd,
+        inSession: gates.inSession,
         unattended: gates.unattended,
-        askParent: gates.askParent,
+        agent: gates.agent,
         reportBug: Boolean(buildRuntimeConfig().feedbackWidget?.widgetKey),
-        sessionResults: gates.sessionResults,
       }),
     }
   )

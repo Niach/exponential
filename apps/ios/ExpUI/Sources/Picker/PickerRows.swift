@@ -91,14 +91,12 @@ public extension DevicePickerDevice {
 public extension ActionPickerAction {
     /// An action row: its curated glyph resolved ONCE (`ActionIconDisplay` —
     /// an unset or unknown name falls back to the generic action mark, never
-    /// to a hole), its name, and its description under it. The composer's ▶
-    /// tool and the trigger form build their rows here.
+    /// to a hole) and its name. The composer's ▶ tool builds its rows here.
     init(_ action: ActionDto) {
         self.init(
             id: action.id,
             name: action.name,
-            icon: ActionIconDisplay.iconName(for: action.icon),
-            description: action.description
+            icon: ActionIconDisplay.iconName(for: action.icon)
         )
     }
 }

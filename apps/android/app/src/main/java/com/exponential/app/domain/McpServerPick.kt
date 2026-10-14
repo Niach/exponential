@@ -39,10 +39,5 @@ fun preselectMcpServerIds(servers: List<McpServerOption>, saved: List<String>?):
     return ready.filter { it.enabledByDefault }.map { it.id }
 }
 
-/** A REAL action owns its MCP list (its own pick rides the run); a builtin
- *  (`builtin:*`), an issue or a chat does not. */
-fun subjectOwnsMcpServers(actionId: String?): Boolean =
-    actionId != null && !actionId.startsWith("builtin:")
-
 /** The `MCP servers` row's value: the number picked, none at zero. */
 fun mcpPickValue(count: Int): String? = if (count > 0) count.toString() else null

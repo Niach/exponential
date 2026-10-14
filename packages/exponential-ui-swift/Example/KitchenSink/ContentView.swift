@@ -38,7 +38,7 @@ struct LaunchOptions {
 /// host hands the renderer its own icon registry (the Exponential app's
 /// Lucide set); the example keeps the SDK free of one.
 let symbolIcons: [String: String] = [
-    "nav-boards": "square.grid.2x2", "nav-inbox": "tray", "nav-reviews": "checkmark.rectangle", "nav-search": "magnifyingglass",
+    "nav-boards": "square.grid.2x2", "nav-inbox": "tray", "pr-open": "checkmark.rectangle", "nav-search": "magnifyingglass",
     "ui-folder": "folder", "ui-archive": "archivebox", "ui-send": "paperplane", "ui-issue": "circle.dashed", "ui-pin": "pin",
     "ui-success": "checkmark.circle", "ui-assignee": "person", "ui-device": "laptopcomputer", "settings-statuses": "circle.lefthalf.filled",
     "editor-bold": "bold", "editor-italic": "italic", "ui-warning": "exclamationmark.triangle", "ui-info": "info.circle",

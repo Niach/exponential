@@ -7,12 +7,12 @@
 // reads it back.
 //
 // In memory only (a reload starts clean, like the composer always did),
-// grouped per OWNER = the work tab's identity (`issue:<id>` / `run:<id>`,
+// grouped per OWNER = the work tab's identity (`issue:<id>` / `session:<id>`,
 // `tabKey`), forgotten when that tab closes (`use-work-tabs.ts`) and bounded
 // by a least-recently-used cap for views that never had a tab. Pure: no
 // React, no DOM — the hooks wrap it.
 
-import type { WorkTab } from "@/lib/work-tabs"
+import { tabSessionId, type WorkTab } from "@/lib/work-tabs"
 
 /** Owners kept at most — far past any real strip, small enough to never
  *  matter. The least recently touched owner goes first. */
@@ -27,9 +27,10 @@ export function issueMemoryOwner(issueId: string): string {
   return `issue:${issueId}`
 }
 
-/** The memory owner of a run view. */
-export function runMemoryOwner(runId: string): string {
-  return `run:${runId}`
+/** The memory owner of a session view (a thread, an agent's channel, one
+ *  raw session: each is a `sessions` row). */
+export function sessionMemoryOwner(sessionId: string): string {
+  return `session:${sessionId}`
 }
 
 function touch(owner: string, create: boolean): Slots | undefined {
@@ -77,22 +78,13 @@ export function forgetTabMemory(owner: string): void {
   owners.delete(owner)
 }
 
-/** The owners a tab's memory lives under: its issue and/or its run. */
+/** The owners a tab's memory lives under: its issue or its session row. */
 export function tabMemoryOwners(tab: WorkTab): string[] {
-  switch (tab.kind) {
-    case `issue`:
-      return tab.runId
-        ? [issueMemoryOwner(tab.issueId), runMemoryOwner(tab.runId)]
-        : [issueMemoryOwner(tab.issueId)]
-    case `run`:
-      return [runMemoryOwner(tab.runId)]
-    // EXP-1284: a thread tab remembers through the run it is bound to.
-    case `thread`:
-      return tab.runId ? [runMemoryOwner(tab.runId)] : []
-    // EXP-1255: the New run tab owns no work item yet.
-    case `new`:
-      return []
-  }
+  const sessionId = tabSessionId(tab)
+  if (sessionId) return [sessionMemoryOwner(sessionId)]
+  if (tab.kind === `issue`) return [issueMemoryOwner(tab.issueId)]
+  // EXP-1255: the New session tab owns no work item.
+  return []
 }
 
 /** Forget the memory of every tab in `before` that is gone from `after` —

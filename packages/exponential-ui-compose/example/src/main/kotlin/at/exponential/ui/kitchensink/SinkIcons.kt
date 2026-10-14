@@ -91,7 +91,7 @@ private val issues = outline("issues", "M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20z
 val sinkIcons: Map<String, ImageVector> = mapOf(
     "nav-boards" to grid,
     "nav-inbox" to Icons.Outlined.Email,
-    "nav-reviews" to Icons.Outlined.CheckCircle,
+    "pr-open" to Icons.Outlined.CheckCircle,
     "nav-search" to Icons.Outlined.Search,
     "ui-folder" to folder,
     "ui-archive" to archive,

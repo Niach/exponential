@@ -246,8 +246,7 @@ export function deviceReadyForRuns(device: SteerDevice): boolean {
 export function capsRunTriggers(caps: readonly string[] | null | undefined): boolean {
   const list = caps ?? []
   return (
-    list.includes(contract.actionTrigger.deviceCap) ||
-    list.includes(contract.actionTrigger.legacyDeviceCap)
+    list.includes(`triggers`) || list.includes(`automations`)
   )
 }
 

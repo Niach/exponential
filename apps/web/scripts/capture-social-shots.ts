@@ -30,7 +30,7 @@ import { fileURLToPath } from "node:url"
 import {
   DEMO_EMAIL,
   DEMO_FEED_QUESTION,
-  DEMO_STEERED_SESSION_ID,
+  DEMO_SESSION_ID,
   TEAM_SLUG,
 } from "./screenshot-demo"
 import { launchContext, login, settle, shot } from "./lib/capture-web"
@@ -66,7 +66,7 @@ const SHOTS: SocialShot[] = [
   // photographs a "Reconnecting…" state when the relay is unreachable.
   {
     name: `steering`,
-    route: `${T}/sessions/${DEMO_STEERED_SESSION_ID}`,
+    route: `${T}/sessions/${DEMO_SESSION_ID}`,
     anchor: DEMO_FEED_QUESTION.slice(-40),
     anchorTimeoutMs: 30_000,
   },

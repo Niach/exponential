@@ -1,100 +1,291 @@
 import { useMemo, useState } from "react"
-import { PrGithubButton, parseSessionResultGroups, useIsMobile } from "@exp/ui"
-import type { CodingSession, Issue } from "@/db/schema"
+import { useNavigate } from "@tanstack/react-router"
+import { contract } from "@exp/domain-contract"
+import {
+  Button,
+  conceptIcon,
+  GlassSectionHeader,
+  Menu,
+  type MenuEntry,
+  parseSessionResultGroups,
+  StackRail,
+  useIsMobile,
+} from "@exp/ui"
 import { GuideBody, guideFilesOf } from "@/components/guide-face"
-import { GuideSectionDiff } from "@/components/guide-section-diff"
-import { MergeCapsule } from "@/components/session-merge-button"
-import { renderResultText } from "@/components/agent-session"
-import { mergeTargetProps } from "@/hooks/use-agents-data"
-import { useReviewFiles, useSessionPrFiles } from "@/hooks/use-review-files"
-import { guideSectionPage, type GuideSectionKey } from "@/lib/work-faces"
-import { threadPrUrl } from "@/lib/thread-page"
-import type { ThreadBundle } from "@/hooks/use-threads"
+import {
+  GuideSectionDiff,
+  guideSectionPage,
+  type GuideSectionKey,
+} from "@/components/guide-section-diff"
+import { PullRequestMergePill, usePullRequestClose } from "@/components/session-merge-button"
+import { StackMergeConfirmDialog } from "@/components/stack-merge-choice-dialog"
+import { renderThreadText } from "@/components/thread/thread-markdown"
+import { usePullRequestFiles } from "@/hooks/use-review-files"
+import {
+  usePullRequestStackConfirm,
+  usePullRequestStackView,
+} from "@/hooks/use-stack-merge-choice"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { pullRequestCollection } from "@/lib/collections"
+import { mergeFailure } from "@/lib/merge-failure"
+import {
+  guideMenuEntries,
+  guidePullRequest,
+  THREAD_COPY,
+  THREAD_TEST_IDS,
+  type PullRequestRow,
+  type SessionRow,
+} from "@/lib/session-tree"
+import { trpc } from "@/lib/trpc-client"
 
-// EXP-1284: the thread's GUIDE child — the existing Guide (`GuideBody`, its
-// section pages) fed the THREAD's Guide (`threads.results`, else the newest
-// run's own), over the diff of the thread's PR (the PR of its newest run
-// with one, else the one its issues share), with that PR's white Merge
-// capsule and its GitHub button.
+// EXP-1293 Threads v2 / EXP-1306: the Guide tab = the ROOT's ONE Guide
+// (`sessions.guide`, every PR body) over ONE pull request, `guidePullRequest`
+// (session-thread.json, ×4): its files feed the Guide's Changes rows (a row
+// opens that section's diff as a page under the Guide, `?section=`). When
+// that PR sits in a linear open stack, the Stack band + THE StackRail lead
+// the Guide (a row opens that PR's thread, a hovered row merges through);
+// the route closes the tab with THE bottom Merge capsule. No PR rows.
+// EXP-1307: Open on GitHub + Close PR = the header's `…` on the Guide.
+
+const PrStackIcon = conceptIcon(`pr-stack`)
+const MoreIcon = conceptIcon(`ui-more`)
+const GithubIcon = conceptIcon(`ui-github`)
+
+/** The base row's label when the bottom PR's base is unknown: never an
+ *  assumed `main` (default branches resolve live). */
+const STACK_BASE_FALLBACK = `default branch`
+
+/** The Guide's PR (`guidePullRequest` over the root's synced rows). */
+export function threadGuidePullRequest(
+  pullRequests: readonly PullRequestRow[]
+): PullRequestRow | null {
+  const byId = new Map(pullRequests.map((pr) => [pr.id, pr]))
+  const picked = guidePullRequest(
+    pullRequests.map((pr) => ({
+      id: pr.id,
+      number: pr.number,
+      state: pr.state,
+      createdAt: new Date(pr.createdAt).toISOString(),
+    }))
+  )
+  return picked ? (byId.get(picked.id) ?? null) : null
+}
+
+/** Merge through a stack member: the ONE stack confirm in `through` mode. */
+function MergeThroughConfirm({
+  pr,
+  onDone,
+}: {
+  pr: PullRequestRow | null
+  onDone: () => void
+}) {
+  const stack = usePullRequestStackConfirm(pr, `through`)
+  const [merging, setMerging] = useState(false)
+  const merge = async (pullRequestId: string) => {
+    setMerging(true)
+    try {
+      const result = await trpc.pullRequests.merge.mutate(
+        { pullRequestId, stack: true },
+        SKIP_ERROR_TOAST
+      )
+      if (result.error) {
+        failedAction(`merge`, `the stack`, result.error)
+      } else if (result.txid !== undefined) {
+        await pullRequestCollection.utils.awaitTxId(result.txid).catch(() => undefined)
+      }
+    } catch (error) {
+      failedAction(`merge`, `the stack`, mergeFailure(error, `The pull request could not be merged`).message)
+    } finally {
+      setMerging(false)
+      onDone()
+    }
+  }
+  return (
+    <StackMergeConfirmDialog
+      confirm={pr ? stack.confirm : null}
+      busy={merging}
+      onCancel={onDone}
+      onConfirm={(input) => void merge(input.issueId)}
+    />
+  )
+}
+
+function GuideStackCard({
+  pr,
+  teamSlug,
+  canMerge,
+}: {
+  pr: PullRequestRow
+  teamSlug: string
+  canMerge: boolean
+}) {
+  const navigate = useNavigate()
+  const view = usePullRequestStackView(pr)
+  const [through, setThrough] = useState<PullRequestRow | null>(null)
+  if (!view) return null
+  const members = view.rows.map((row) => ({
+    key: row.issueId,
+    identifier: row.identifier,
+    title: row.title,
+    current: row.isCurrent,
+  }))
+  return (
+    <div className="flex flex-col" data-testid={THREAD_TEST_IDS.guideStack}>
+      <GlassSectionHeader
+        label={THREAD_COPY.stack}
+        leading={<PrStackIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+      />
+      <StackRail
+        members={members}
+        baseBranch={view.baseBranch ?? STACK_BASE_FALLBACK}
+        onOpen={(member) => {
+          if (member.current) return
+          const rootId = pullRequestCollection.get(member.key)?.rootSessionId
+          if (!rootId) return
+          void navigate({
+            to: `/t/$teamSlug/threads/$threadId`,
+            params: { teamSlug, threadId: rootId },
+            search: { tab: `guide` },
+          })
+        }}
+        onMergeThrough={
+          canMerge
+            ? (member) => setThrough(pullRequestCollection.get(member.key) ?? null)
+            : undefined
+        }
+      />
+      <MergeThroughConfirm pr={through} onDone={() => setThrough(null)} />
+    </div>
+  )
+}
+
+/** The thread header's `…` on the Guide (`guideMenuEntries`, ×4): Open on
+ *  GitHub, then Close PR while the PR is open and the viewer is a member. */
+export function ThreadGuideMenu({
+  pr,
+  canClose,
+  className,
+}: {
+  pr: PullRequestRow
+  canClose: boolean
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const close = usePullRequestClose(pr, canClose)
+  const entries = guideMenuEntries({ state: pr.state, member: canClose }).flatMap(
+    (id): MenuEntry[] => {
+      if (id === `close-pr`) return close.entry ? [close.entry] : []
+      return [
+        {
+          kind: `item`,
+          id,
+          label: contract.diffUi.openOnGithub,
+          icon: GithubIcon,
+          onSelect: () => window.open(pr.url, `_blank`, `noopener,noreferrer`),
+        },
+      ]
+    }
+  )
+  if (entries.length === 0) return null
+  return (
+    <>
+      <Menu
+        open={open}
+        onOpenChange={setOpen}
+        align="end"
+        aria-label={`#${pr.number}`}
+        title={`#${pr.number}`}
+        contentClassName="w-64"
+        entries={entries}
+        trigger={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="More"
+            data-testid={THREAD_TEST_IDS.guideMenu}
+            className={className}
+          >
+            <MoreIcon />
+          </Button>
+        }
+      />
+      {close.dialog}
+    </>
+  )
+}
+
+/** THE white bottom Merge capsule of the Guide's open PR. */
+export function ThreadGuideMerge({
+  pr,
+  canMerge,
+}: {
+  pr: PullRequestRow | null
+  canMerge: boolean
+}) {
+  if (!pr || pr.state !== `open` || !canMerge) return null
+  return (
+    <div
+      className="flex shrink-0 justify-center px-4 pt-2 pb-4"
+      data-testid={THREAD_TEST_IDS.guideMerge}
+    >
+      <PullRequestMergePill pr={pr} canMerge={canMerge} />
+    </div>
+  )
+}
 
 export function ThreadGuide({
-  bundle,
+  root,
+  pullRequest,
+  teamSlug,
   section,
   file,
   onSection,
   canMerge,
-  steerEnabled,
 }: {
-  bundle: ThreadBundle
+  root: Pick<SessionRow, `guide`>
+  /** `threadGuidePullRequest` of the root's PRs. */
+  pullRequest: PullRequestRow | null
+  teamSlug: string
   section: GuideSectionKey | undefined
   file: string | null
-  onSection: (section: GuideSectionKey | undefined) => void
+  onSection: (section: GuideSectionKey | undefined, file?: string | null) => void
   /** A member may merge (the server re-checks). */
   canMerge: boolean
-  steerEnabled: boolean
 }) {
   const isMobile = useIsMobile()
-  const results = useMemo(() => {
-    if (bundle.thread.results != null) return bundle.thread.results
-    const newest = [...bundle.runs].reverse().find((run) => run.results != null)
-    return newest?.results ?? null
-  }, [bundle])
-  const groups = useMemo(() => parseSessionResultGroups(results), [results])
-  const prUrl = threadPrUrl(bundle.runs, bundle.issues)
-  const prIssue: Issue | null =
-    (prUrl && bundle.issues.find((issue) => issue.prUrl === prUrl)) || null
-  const prRun: CodingSession | null =
-    prIssue || !prUrl
-      ? null
-      : ([...bundle.runs].reverse().find((run) => run.prUrl === prUrl) ?? null)
-  const issueFiles = useReviewFiles(prIssue, { enabled: Boolean(prIssue) })
-  const runFiles = useSessionPrFiles(prRun, { enabled: Boolean(prRun) })
-  const filesState = prIssue ? issueFiles.state : prRun ? runFiles.state : null
-  const files = guideFilesOf(filesState)
-  const reload = prIssue ? issueFiles.reload : runFiles.reload
-  const [selected, setSelected] = useState<string | null>(file)
-  const page =
-    section !== undefined ? guideSectionPage(groups, files, section) : null
+  const groups = useMemo(() => parseSessionResultGroups(root.guide ?? null), [root.guide])
+  const files = usePullRequestFiles(pullRequest?.id ?? null)
+  const diff = pullRequest ? guideFilesOf(files.state) : null
+  const page = section !== undefined ? guideSectionPage(groups, diff, section) : null
 
-  const merge = prIssue
-    ? mergeTargetProps({ kind: `issue`, issue: prIssue })
-    : prRun
-      ? mergeTargetProps({ kind: `session`, session: prRun })
-      : null
-  const mergeable = canMerge && merge?.prState === `open`
+  if (page) {
+    return (
+      <GuideSectionDiff
+        page={page}
+        selected={file}
+        onSelect={(path) => onSection(section, path)}
+        onBack={() => onSection(undefined)}
+        isMobile={isMobile}
+      />
+    )
+  }
 
   return (
-    <div className="relative flex min-h-full flex-col" data-testid="thread-guide">
-      {prUrl && !page && (
-        <div className="flex justify-end px-4 pt-3 md:px-5">
-          <PrGithubButton prUrl={prUrl} />
-        </div>
-      )}
-      <div className="flex-1">
-        {page ? (
-          <GuideSectionDiff
-            page={page}
-            selected={selected}
-            onSelect={setSelected}
-            onBack={() => onSection(undefined)}
-            isMobile={isMobile}
-          />
-        ) : (
-          <GuideBody
-            groups={groups}
-            files={files}
-            filesState={filesState}
-            onOpenChanges={(target) => onSection(target.section)}
-            onRetry={() => void reload()}
-            renderText={renderResultText}
-          />
-        )}
-      </div>
-      {mergeable && merge && (
-        <div className="sticky bottom-4 mt-6 flex justify-center pb-4">
-          <MergeCapsule {...merge} steerEnabled={steerEnabled} />
-        </div>
-      )}
+    <div className="flex min-h-full flex-col" data-testid="thread-guide">
+      <GuideBody
+        groups={groups}
+        files={diff}
+        filesState={pullRequest ? files.state : { kind: `none` }}
+        stack={
+          pullRequest ? (
+            <GuideStackCard pr={pullRequest} teamSlug={teamSlug} canMerge={canMerge} />
+          ) : null
+        }
+        onOpenChanges={(target) => onSection(target.section as GuideSectionKey)}
+        onRetry={files.reload}
+        renderText={renderThreadText}
+      />
     </div>
   )
 }

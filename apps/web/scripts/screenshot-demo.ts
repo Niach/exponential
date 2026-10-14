@@ -302,15 +302,100 @@ export const DEMO_SHOWCASE_COMMENT_HOURS_AGO = {
 export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-load the markdown editor too, or open the PR with what we have?`
 
 /**
- * The `coding_sessions` row the `steering` view is photographed on.
+ * EXP-1293 (Threads v2): the session tree's capture-addressable rows, pinned
+ * fixed v4 UUIDs so a route can name them BEFORE the seed runs and a reseed is
+ * byte-stable. A thread IS a root `sessions` row (kind `thread`); a team agent
+ * a root of kind `agent`; children are sub-sessions (`parent_id`).
  *
- * EXP-740 gave a session its own route (`/t/$teamSlug/sessions/$sessionId`),
- * and a route needs an id the capturer can write down BEFORE the seed runs —
- * so the seed stamps this fixed v4 UUID on the demo user's running showcase
- * session instead of letting the database mint one. Pinned like every other
- * capture-addressable id here; changing it re-shoots the view.
+ *   DEMO_THREAD_ID   the `thread` view: "Reduce cold start below 800 ms"
+ *                    (APP-5 + APP-10 + FB-3), waiting on a person through its
+ *                    child.
+ *   DEMO_SESSION_ID  the `session` / `steering` views: that thread's child
+ *                    "Profile the launch path" (running, needs input). The
+ *                    raw session view's feed is relay-fed by
+ *                    `screenshot-desktop.ts`, keyed by this id. Kept at the
+ *                    value the EXP-740 steered session had, so every lane's
+ *                    `/sessions/<id>` address survives the rename.
+ *   DEMO_AGENT_ID    the `agent-channel` / `settings-team-agent` views: the
+ *                    Triage agent's root.
  */
-export const DEMO_STEERED_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
+export const DEMO_THREAD_ID = `5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13`
+export const DEMO_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
+export const DEMO_AGENT_ID = `6530c2d7-ed10-46b0-ac66-c78020fd73d9`
+
+/**
+ * The session the relay stub publishes its scripted feed for (the `steering`
+ * view's anchor is that feed's closing question). Since EXP-1293 it IS the
+ * thread's child session — an alias, not a second row.
+ */
+export const DEMO_STEERED_SESSION_ID = DEMO_SESSION_ID
+
+/** The other two team agents (the rail's Agents section reads Triage ·
+ *  Designer · Release, by `sort_order`). */
+export const DEMO_AGENT_IDS = {
+  triage: DEMO_AGENT_ID,
+  designer: `671f2227-1090-4a41-87ec-0ab2138358de`,
+  release: `efb92a14-ee7c-4da6-ab07-6697d706ee62`,
+} as const
+
+/**
+ * The other thread roots, one per Threads-list state:
+ *
+ *   groupByAssignee  APP-14, running + busy, its open PR STACKED on
+ *                    batchLabels' open PR (Running, "stack").
+ *   sortReports      FB-9, running, spawned by the Triage agent (the
+ *                    agent channel's "started a thread" card opens it).
+ *   offlineSpike     no issue, PRIVATE (not shared), running (the lock).
+ *   batchLabels      APP-15, idle, an open PR ready to merge + a Guide
+ *                    (the `guide` view's thread).
+ *   scrollRestore    APP-16, ended, its PR merged (Recent, "merged"). Its
+ *                    `ended_at` is the re-clock anchor (lib/demo-reclock.ts).
+ */
+export const DEMO_THREAD_IDS = {
+  coldStart: DEMO_THREAD_ID,
+  groupByAssignee: `9d3d6bab-3fe7-40bd-b8e7-b5eaef137aaf`,
+  sortReports: `be4bcc34-92de-4ea0-a87f-c4f1d160348c`,
+  offlineSpike: `373e1d40-91a5-4b4e-9cd9-0a5cd82df514`,
+  batchLabels: `f30a7f02-f45e-44a5-ab23-9d2d916d6f3a`,
+  scrollRestore: `39cb3777-33f9-4201-84e4-220da9cd0bce`,
+} as const
+
+/** The thread the `guide` view opens on its Guide tab (`?tab=guide`). */
+export const DEMO_GUIDE_THREAD_ID = DEMO_THREAD_IDS.batchLabels
+
+/** The thread whose PR carries the REAL GitHub diff (APP-14's, stacked on
+ *  batchLabels): the `review-diff` and `guide-section` pages under its Guide
+ *  (EXP-1308: APP-15's Guide draws no Changes row, as on iOS + Android). */
+export const DEMO_DIFF_THREAD_ID = DEMO_THREAD_IDS.groupByAssignee
+
+/**
+ * The seeded `pull_requests` rows (EXP-1293: PR state lives there, never on
+ * `issues`). `groupByAssignee` is the real GitHub PR (REVIEW_PR_URL in the
+ * seed) stacked on `batchLabels`.
+ */
+export const DEMO_PULL_REQUEST_IDS = {
+  batchLabels: `0187423a-5120-426a-a403-5880abc5473d`,
+  groupByAssignee: `d321ca2f-1ebc-4cd8-8c37-8cc79aac62e5`,
+  scrollRestore: `1d43befb-d260-420e-a7d5-854decaf32da`,
+  heicFix: `3310b3c1-dda2-49d4-a555-d119faec9a22`,
+  thumbnails: `2e73ddc0-c684-4ee3-8401-f202bd28cd19`,
+} as const
+
+/**
+ * The Triage agent's channel as the `agent-channel` view photographs it.
+ * Message rows print a TIME OF DAY (`09:02`), so their instants are pinned
+ * like `DEMO_PINNED_PAST_DATES`: a relative stamp would move the printed
+ * minute on every seed. 07:02Z = 09:02 in DEMO_TIMEZONE (CEST).
+ */
+export const DEMO_AGENT_CHANNEL_TIMES = {
+  report: new Date(`2026-10-12T07:02:00Z`),
+  threadStarted: new Date(`2026-10-12T07:02:20Z`),
+  request: new Date(`2026-10-12T07:14:00Z`),
+  reply: new Date(`2026-10-12T07:14:40Z`),
+} as const
+
+/** The person message the `agent-channel` view anchors on. */
+export const DEMO_AGENT_REQUEST = `Label the Android ones too, and check the board every hour.`
 
 /**
  * The comment the steered session's scripted `exponential_comments_create`
@@ -326,76 +411,16 @@ export const DEMO_AGENT_COMMENT_ID = `3e8a1c7d-2b4f-4d96-8a15-9c0e7f2b6d43`
 export const DEMO_AGENT_COMMENT_MINUTES_AGO = 20
 
 /**
- * The action the `action-*` views are photographed on ("Nightly test triage")
- * and the triggers the seed hangs on the actions. Pinned for the same reason
- * as the session above: the action page is a route (`actions/$actionId`), and
- * a trigger's id is also its legacy mirror row's key.
+ * The action the `action-page` view is photographed on ("Nightly test
+ * triage"), pinned like the sessions above: the action page is a route
+ * (`actions/$actionId`). EXP-1293: actions are saved prompts only; triggers
+ * moved onto agents (DEMO_AGENT_TRIGGER_ID).
  */
 export const DEMO_ACTION_ID = `2b6e4f1c-8a3d-4c7e-9f52-6d1a0b3c7e85`
-export const DEMO_TRIGGER_IDS = {
-  nightlyTriage: `4c9a7e2b-1d56-4f38-a0c4-8e2b5d7f1a63`,
-  updateDeps: `6e1b3d5f-9c74-4a2e-b8d6-0f4a7c2e9b51`,
-  releaseNotes: `8a5c2e7d-3f19-4b6c-9d04-1c7e5a3f8b29`,
-} as const
 
-/**
- * The other seeded `coding_sessions` ids (EXP-913), pinned like the showcase
- * run's so a reseed is byte-stable and `lib/demo-live-sessions.ts` can
- * re-assert the LIVE ones by id before a lane photographs them.
- */
-export const DEMO_SESSION_IDS = {
-  /** Mira's running row on APP-4. */
-  miraRunning: `3d8e5b1a-2c47-4f0e-8b6d-91a4c2e7f305`,
-  /** The demo user's in_review codex row on APP-14. */
-  reviewCodex: `5a2f9c3e-7b18-4d6a-a0e4-6c3b8d1f2a97`,
-  /** The finished chat the `chat` view lists (EXP-739). */
-  pastChat: `8b4d1e6f-3a92-4c5b-9f07-2e8a6d4c1b53`,
-  /** The two finished automated runs (EXP-663). */
-  nightlyTriageRun: `1f6a3c8d-5e24-4b9a-8d13-7c0e2f5a9b46`,
-  updateDepsRun: `9e3b7d2a-4c61-4f8e-b5a2-3d9f1c6e8a04`,
-  /**
-   * EXP-1204: Jonas's finished chat run holding an OPEN pull request of its
-   * own — the `run-changes` view's row (EXP-1194: an issue-less run's PR diff,
-   * opened from the Reviews "Agent runs" band). A teammate's run on purpose:
-   * the web page is `TeammateRunChanges` (no steer ticket, no relay), and
-   * the natives' RunChanges screen reads the same `codingSessions.prFiles`.
-   */
-  runChanges: `4e7b2a9c-6d13-4f85-b0e7-9a2c5d8f1b36`,
-  /**
-   * EXP-1284: the four runs of `DEMO_THREAD_RUNS_ID` (the `thread-runs` view),
-   * all Jonas's: Run 1 = his ended chat, Run 2 = its ended RESUME, Runs 3 and 4
-   * = two LIVE children Run 2 started (one per issue, on two machines), which
-   * the thread draws as ONE parallel card "Runs 3 and 4 · started by Run 2".
-   * A teammate's on purpose: his live runs never reach the demo user's own
-   * Running section.
-   */
-  threadRunsChat: `0c6a2982-fc09-4165-a9dc-832bb8d6ac41`,
-  threadRunsResume: `ce5df2f0-1c12-4df6-90e0-2c1952fd87ca`,
-  threadRunsLaptopChild: `b3e29fef-39ad-4b7d-878d-4854cb78727e`,
-  threadRunsServerChild: `b76d65ff-3c59-4398-bb63-4265f1adfe09`,
-} as const
-
-/**
- * EXP-1284: the two seeded THREADS the `thread` / `thread-runs` views are
- * photographed on (`/t/$teamSlug/threads/$threadId`, desktop `thread:<id>`),
- * pinned like the session ids so the routes can name them before the seed
- * runs.
- *
- *   DEMO_THREAD_ID       the showcase run (DEMO_STEERED_SESSION_ID) as Run 1,
- *                        its subject APP-5, an older issue its agent LINKED
- *                        and one it FILED and linked; untitled (derived).
- *   DEMO_THREAD_RUNS_ID  Jonas's titled thread: an ended chat, its resume,
- *                        two live children of the resume on two machines,
- *                        three issues and a Guide.
- *
- * Every other seeded run sits in a thread of its own, placed the way the
- * migration backfill (0166_threads.sql) placed existing runs.
- */
-export const DEMO_THREAD_ID = `5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13`
-export const DEMO_THREAD_RUNS_ID = `9e3b6d14-7a25-4f80-b1c9-3d4e5f6a7b82`
-
-/** EXP-1284: the stored title of `DEMO_THREAD_RUNS_ID`. */
-export const DEMO_THREAD_RUNS_TITLE = `Offline sync plan`
+/** The Triage agent's one schedule trigger (the settings page's Schedule
+ *  row), pinned so a reseed writes the same `triggers` jsonb. */
+export const DEMO_AGENT_TRIGGER_ID = `4c9a7e2b-1d56-4f38-a0c4-8e2b5d7f1a63`
 
 /**
  * The one seeded `blocks` edge, by seed issue title: `[blocker, blocked]`.

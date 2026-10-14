@@ -9,8 +9,8 @@ import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import { useSession } from "@/hooks/use-session"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import {
-  useReviewsNav,
   useAgentsRunningCount,
+  useThreadsNav,
 } from "@/hooks/use-nav-counts"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { ACTIONS_LABEL } from "@/components/team/sidebar-nav-entries"
@@ -22,7 +22,7 @@ const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
 const NavIssuesIcon = conceptIcon(`nav-issues`)
-const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavActionsIcon = conceptIcon(`nav-actions`)
 
 // Bottom padding for every scroll container that sits under the floating
@@ -48,8 +48,8 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
     fuzzy: true,
   })
-  // EXP-740/EXP-739: the two session pages are full-screen steering views
-  // with their own back header — the native apps push them bar-less too.
+  // EXP-740/EXP-739: a raw session is a full-screen view with its own back
+  // header — the native apps push it bar-less too.
   const onSessionDetail = matchRoute({
     to: `/t/$teamSlug/sessions/$sessionId`,
     fuzzy: true,
@@ -64,20 +64,24 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/actions/$actionId`,
     fuzzy: true,
   })
-  // EXP-1284: a thread is the Work screen of n issues and m runs — its own
-  // back header, its pager under it.
+  // EXP-1293: a thread (its pager under its own header) and an agent's
+  // channel are details too.
   const onThreadDetail = matchRoute({
     to: `/t/$teamSlug/threads/$threadId`,
     fuzzy: true,
   })
-  // EXP-851: the Agent page is a LIST screen again (composer over Running /
-  // Recent in one scroller), so it keeps the standard phone chrome.
+  const onAgentChannel = matchRoute({
+    to: `/t/$teamSlug/agents/$agentId`,
+    fuzzy: true,
+  })
+  // The Agent page (HOME) and the Threads list keep the standard chrome.
   return (
     !onIssueDetail &&
     !onSessionDetail &&
     !onActionDetail &&
     !onDraftPage &&
-    !onThreadDetail
+    !onThreadDetail &&
+    !onAgentChannel
   )
 }
 
@@ -110,19 +114,17 @@ function InboxDot() {
   return <TabDot className="bg-primary" />
 }
 
-// Review green (EXP-214): open PRs are "stuff to do", colored like the
-// in_review issue status. green-500/yellow-400 match the natives'
-// semantic tokens (EXP-699). EXP-1186: across every member team — the
-// phone's Reviews is cross-team like the inbox.
-function ReviewsDot({ dot }: { dot: boolean }) {
-  if (!dot) return null
-  return <TabDot className="bg-green-500" />
+// EXP-1293: the Threads tab's dot — green while a thread runs, amber while
+// one needs you (green-500/yellow-400 = the natives' semantic tokens,
+// EXP-699). EXP-1186: across every member team, like the inbox.
+function ThreadsDot({ teamIds }: { teamIds: readonly string[] }) {
+  const { live, needsYou } = useThreadsNav(teamIds)
+  if (!live) return null
+  return <TabDot className={needsYou ? `bg-yellow-400` : `bg-green-500`} />
 }
 
-// Any of MY live coding sessions, on the Chat launcher — the Agent page holds
-// the sessions list (EXP-818), so the dot rides its button. Amber while one
-// waits on a plan approval / question (EXP-214). EXP-1186: in ANY member team
-// on the phone, matching the Agent page's cross-team Running list.
+// Any of MY live sessions, on the Chat launcher. Amber while one waits on a
+// plan approval / question (EXP-214). EXP-1186: in ANY member team.
 function AgentDot({ teamIds }: { teamIds: readonly string[] }) {
   const { data: session } = useSession()
   const { count, needsInput } = useAgentsRunningCount(teamIds, session?.user?.id)
@@ -147,7 +149,7 @@ function TabDot({ className }: { className: string }) {
 // same way the circle does, never `3.25rem`.
 // EXP-973: it is the SAME capsule on every tab-bar route. EXP-827 drew it
 // only on a board and left a lone chat circle everywhere else, so filing a
-// bug from Devices or Reviews meant a trip back to a board first. With no
+// bug from Devices or Threads meant a trip back to a board first. With no
 // board in the team at all there is nothing to file into — the arm then dims
 // (disabled, "New issue (no board)") instead of disappearing, so the control
 // never moves under the thumb. Same shape ×3 (iOS / Android `composeEnabled`).
@@ -174,7 +176,7 @@ interface MobileTabBarProps {
 // top-level destinations plus a detached compose FAB, replacing the old
 // sidebar-as-drawer. Desktop keeps the persistent sidebar (`md:hidden`).
 // EXP-686: Search left the bar for the board header (`use-issue-search.tsx`).
-// EXP-1187: Issues · Inbox · Devices · Reviews · Actions — no More on the
+// EXP-1187 / EXP-1293: Issues · Inbox · Devices · Threads · Actions — no More on the
 // phone: Actions is a tab of its own and Settings lives in the topbar's
 // avatar menu (×3 with the iOS and Android bars). The phone OPENS on the
 // Agent page (`routes/index.tsx`), whose entry is the FAB's chat arm.
@@ -195,12 +197,10 @@ export function MobileTabBar({
   const publishTabBarHeight = useChromeHeightVar(`--tabbar-h`)
 
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
-  // EXP-1186: only Issues is team-scoped on the phone; Reviews and the
-  // Agent dot read every member team (md+ = the active team, the bar is
+  // EXP-1186: only Issues is team-scoped on the phone; the Threads and
+  // chat dots read every member team (md+ = the active team, the bar is
   // hidden there anyway).
   const scope = useCrossTeamScope(team)
-  const reviewsNav = useReviewsNav(scope.teams)
-  const showsReviews = reviewsNav.shows
   const openNewDraft = useOpenNewDraft(teamSlug)
 
   const onBoard = Boolean(
@@ -216,8 +216,8 @@ export function MobileTabBar({
   const onActions = Boolean(
     matchRoute({ to: `/t/$teamSlug/actions`, fuzzy: true })
   )
-  const onReviews = Boolean(
-    matchRoute({ to: `/t/$teamSlug/reviews`, fuzzy: true })
+  const onThreads = Boolean(
+    matchRoute({ to: `/t/$teamSlug/threads`, fuzzy: true })
   )
   // EXP-973: the New-issue arm is always DRAWN; it only goes dead when the
   // team has no board to file into. The arm targets the current board when
@@ -272,17 +272,16 @@ export function MobileTabBar({
         >
           <NavDevicesIcon className="size-5" />
         </Link>
-        {showsReviews && (
-          <Link
-            to="/t/$teamSlug/reviews"
-            params={{ teamSlug }}
-            aria-label="Reviews"
-            className={tabClass(onReviews)}
-          >
-            <NavReviewsIcon className="size-5" />
-            <ReviewsDot dot={reviewsNav.dot} />
-          </Link>
-        )}
+        <Link
+          to="/t/$teamSlug/threads"
+          params={{ teamSlug }}
+          aria-label="Threads"
+          data-testid="tab-threads"
+          className={tabClass(onThreads)}
+        >
+          <NavThreadsIcon className="size-5" />
+          <ThreadsDot teamIds={scope.teamIds} />
+        </Link>
         {/* EXP-1187: Actions is a tab; Drafts stay the Inbox's third
             segment on the phone (EXP-878), Settings the avatar menu's. */}
         <Link

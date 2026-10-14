@@ -20,7 +20,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Priority picker`,
-  blurb: `The contract's five priorities in display order, each by its glyph in its tone — the issue's priority chip and button, the create dialog, the phone properties row, the context menu, the bulk bar and the automation trigger's priority filter (the same picker, multi, capped). No search: five fixed rows are a menu, not a list. The TABLE is the app's, beside the enum — the picker is handed rows and never owns the vocabulary, which is why the trigger draws the RESOLVED config rather than a matched row (an unknown forward-compat value falls back instead of rendering blank).`,
+  blurb: `The contract's five priorities in display order, each by its glyph in its tone — the issue's priority chip and button, the create dialog, the phone properties row, the context menu, the bulk bar and an agent trigger's priority filter (the same picker, multi, capped). No search: five fixed rows are a menu, not a list. The TABLE is the app's, beside the enum — the picker is handed rows and never owns the vocabulary, which is why the trigger draws the RESOLVED config rather than a matched row (an unknown forward-compat value falls back instead of rendering blank).`,
   status: typedPickerStatus(`PriorityPicker`, {
     web: `priority-picker.tsx`,
     desktop: `priority_picker.rs`,

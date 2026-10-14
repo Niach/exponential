@@ -1,7 +1,6 @@
 //! EXP-1156 — the ONE dragged column edge: every sidebar column in the IDE
-//! (the settings nav, the card's second sidebars — the Inbox / Reviews list
-//! and Recent runs, EXP-1192 — and the Files / Source Control screens' own
-//! lists) is
+//! (the settings nav, the card's Inbox second sidebar — EXP-1192 — and the
+//! Files / Source Control screens' own lists) is
 //! resized by dragging its RIGHT edge, the width remembered PER PANEL in
 //! `ui-prefs.json` ([`crate::ui_prefs::sidebar_width`]), a double-click on the
 //! edge resetting it to the panel's default. No hover expansion, no collapse
@@ -40,13 +39,11 @@ use theme::tokens::sidebar as tokens;
 pub(crate) enum SidebarPanel {
     /// The rail (`LeftOccupant::Rail`), fixed at its default.
     Main,
-    /// The card's Inbox / Reviews second sidebar (EXP-1192) — the list an
+    /// The card's Inbox second sidebar (EXP-1192) — the list an
     /// open detail was picked from.
     List,
     /// The settings nav.
     Settings,
-    /// The Agent page's Recent runs (a second sidebar in the card).
-    Recent,
     /// The Files screen's tree (a list INSIDE a screen, not the left column).
     Files,
     /// The Source Control screen's history list (ditto).
@@ -60,11 +57,10 @@ impl SidebarPanel {
     }
 
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 5] = [
         Self::Main,
         Self::List,
         Self::Settings,
-        Self::Recent,
         Self::Files,
         Self::SourceControl,
     ];
@@ -75,7 +71,6 @@ impl SidebarPanel {
             Self::Main => "main",
             Self::List => "list",
             Self::Settings => "settings",
-            Self::Recent => "recent",
             Self::Files => "files",
             Self::SourceControl => "sourceControl",
         }
@@ -87,7 +82,6 @@ impl SidebarPanel {
             Self::Main => tokens::DEFAULT_MAIN,
             Self::List => tokens::DEFAULT_LIST,
             Self::Settings => tokens::DEFAULT_SETTINGS,
-            Self::Recent => tokens::DEFAULT_RECENT,
             Self::Files => tokens::DEFAULT_FILES,
             Self::SourceControl => tokens::DEFAULT_SOURCE_CONTROL,
         }
@@ -358,7 +352,6 @@ mod tests {
                 ("main", 272.),
                 ("list", 352.),
                 ("settings", 272.),
-                ("recent", 272.),
                 ("files", 320.),
                 ("sourceControl", 320.),
             ]

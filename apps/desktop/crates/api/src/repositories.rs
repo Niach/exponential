@@ -96,23 +96,6 @@ pub struct OpenPull {
     pub created_at: String,
 }
 
-/// Output of `repositories.mergePull` — `{"merged": true}` on success,
-/// `{"merged": false, "queued": true}` when GitHub's merge queue only took
-/// it (EXP-1165).
-#[derive(Clone, Copy, Debug, Deserialize)]
-pub struct MergePullResult {
-    pub merged: bool,
-    #[serde(default)]
-    pub queued: bool,
-}
-
-impl MergePullResult {
-    /// The pull request is in: merged and not merely queued.
-    pub fn landed(&self) -> bool {
-        self.merged && !self.queued
-    }
-}
-
 /// `repositories.add` output: `{repository: <full row>}`. Only the fields the
 /// desktop consumes are mirrored — the rest of the row is ignored.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -158,13 +141,6 @@ struct OpenPullsOutput {
 #[serde(rename_all = "camelCase")]
 struct OpenPullsInput<'a> {
     team_id: &'a str,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MergePullInput<'a> {
-    repository_id: &'a str,
-    pr_number: u64,
 }
 
 #[derive(Serialize)]
@@ -257,23 +233,6 @@ pub fn open_pulls(
     Ok(out.repos)
 }
 
-/// `repositories.mergePull` — mutation (GitHub-App squash merge of an
-/// issue-unlinked PR; the issue-linked path is `issues.mergePr`). There is no
-/// Electric echo — the caller drops the row from its local state on success.
-pub fn merge_pull(
-    trpc: &TrpcClient,
-    repository_id: &str,
-    pr_number: u64,
-) -> Result<MergePullResult, ApiError> {
-    trpc.mutation(
-        "repositories.mergePull",
-        &MergePullInput {
-            repository_id,
-            pr_number,
-        },
-    )
-}
-
 /// `repositories.add` — mutation (owner-gated). Registers a repo reachable
 /// through one of the caller's GitHub-App installations; the installation id
 /// is resolved server-side, never supplied here. An already-registered repo
@@ -315,7 +274,7 @@ pub fn list_branches(trpc: &TrpcClient, repository_id: &str) -> Result<RepoBranc
 
 /// `repositories.branchDiff` — query (member-gated). The issue's
 /// `exp/<IDENTIFIER>` branch compared against the repo's default branch, in
-/// the SAME shape `issues.prFiles` returns ([`crate::issues::PrFiles`]) — the
+/// the shared changed-files shape ([`crate::issues::PrFiles`]) — the
 /// middle tier of Changes visibility (EXP-895, web `useReviewFiles`): a run
 /// that published no diff and has no PR yet still shows what it pushed.
 /// `None` when the branch was never pushed (the server answers JSON `null`).
@@ -470,44 +429,6 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         // Query → GET with percent-encoded raw-JSON input ({"teamId":…}).
         assert!(request.starts_with("GET /api/trpc/repositories.openPulls?input=%7B%22teamId%22%3A%2211111111-2222-3333-4444-555555555555%22%7D HTTP/1.1"));
-    }
-
-    #[test]
-    fn merge_pull_posts_camel_case_input_and_decodes_result() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"merged":true}}}"#);
-        let out = merge_pull(&client(&base), "repo-1", 42).unwrap();
-        assert!(out.merged);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/repositories.mergePull HTTP/1.1"));
-        assert!(request.ends_with(r#"{"repositoryId":"repo-1","prNumber":42}"#));
-    }
-
-    #[test]
-    fn merge_pull_decodes_a_queued_merge_as_not_landed() {
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"merged":false,"queued":true,"note":"GitHub queued it"}}}"#,
-        );
-        let out = merge_pull(&client(&base), "repo-1", 42).unwrap();
-        assert!(!out.merged);
-        assert!(out.queued);
-        assert!(!out.landed());
-    }
-
-    #[test]
-    fn merge_pull_surfaces_the_server_message() {
-        // e.g. a 405 "not mergeable" mapped to PRECONDITION_FAILED server-side.
-        let (base, _captured) = one_shot_server(
-            412,
-            r#"{"error":{"message":"Pull request is not mergeable","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#,
-        );
-        match merge_pull(&client(&base), "repo-1", 42) {
-            Err(ApiError::Http { status, message }) => {
-                assert_eq!(status, 412);
-                assert!(message.contains("not mergeable"));
-            }
-            other => panic!("expected 412 Http error, got {other:?}"),
-        }
     }
 
     #[test]

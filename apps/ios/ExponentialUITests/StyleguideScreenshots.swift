@@ -18,24 +18,39 @@ import XCTest
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
-///   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
-///   sg_machine-settings · sg_action-create · sg_action-triggers ·
-///   sg_trigger-editor · sg_action-runs · sg_reviews ·
+///   sg_chat · sg_composer-menu · sg_chat-issues ·
+///   sg_machine-settings · sg_settings-team-agent · sg_threads ·
 ///   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
-///   sg_script-card · sg_comment-call-card · sg_thread · sg_thread-runs
+///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
+///   sg_session
 ///
-/// EXP-1284 added the last two: the THREAD screen (the unit of work, n
-/// issues and m runs) — its child strip as the pager tabs, the conversation
-/// and the reply box — drawn by its real pieces over fake rows matching the
-/// approved drafts (`ThreadStyleguideScreen`, `-uiTestingStyleguide
-/// thread|thread-runs`, the run-thread cards' seam): one live run whose agent
-/// linked and filed an issue, and four sessions (an ended one, its resume, two
-/// live children of it as one card) with an issue tab's menu SHEET open
-/// (the bottom sheet Android's shot shows).
+/// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
+/// the work faces, the Recent sheet, the builtin actions, the action page)
+/// and retired `sg_chat-action`, `sg_action-runs`, `sg_action-create`,
+/// `sg_run-changes` and `sg_trigger-editor`. EXP-1309 then moved every
+/// Threads v2 shot off its hand-written specimen onto the LIVE app over the
+/// seed web/desktop photograph, so they cannot drift from it again:
+///   * `sg_agent-home` = the dawn home the app lands on (`agent-page`), and
+///     `sg_session-row` = the SAME screen gated on THE session row in its
+///     Running band (web/desktop photograph a styleguide island of the row;
+///     the phone's one honest instance of it is the seeded band);
+///   * `sg_threads` = the Threads tab (Agents band, Needs you · Running ·
+///     Recent, each row's quiet word off its pull requests);
+///     `sg_agent-channel` = the Triage agent's channel off its Agents row;
+///     `sg_thread` = the cold-start thread (DEMO_THREAD_ID); `sg_session` =
+///     its "Profile the launch path" session card's raw view
+///     (DEMO_SESSION_ID, fed by the relay stub), its pending question in
+///     the composer's place;
+///   * `sg_settings-team-agent` = Settings → team → Agents → Triage;
+///   * `sg_pr-row` = the issue page's pull-request row, `sg_guide` = the
+///     Guide tab of APP-15's thread (web's `guide` thread, EXP-1303),
+///     `sg_guide-section` = APP-14's Changes section page.
+///
+/// EXP-1284 added `sg_thread` + `sg_agent-channel` (the THREAD screen).
 ///
 /// EXP-1259 added the last four: the Agent HOME the app lands on (the
 /// greeting over the composer, nothing beneath it), the `#` typeahead's
@@ -73,18 +88,17 @@ import XCTest
 ///
 /// Prerequisites — a seeded dev server (`apps/web/scripts/seed-screenshots.ts`:
 /// demo@exponential.at / screenshots-demo, team "Acme", boards "Mobile App" +
-/// the empty "Launch Marketing", showcase issue APP-5, open PRs, actions with
-/// their triggers and runs) PLUS, since EXP-642, the relay stub:
-/// `bun run screenshots:desktop` (apps/web) registers the demo user's OWN
-/// device row, which is what `sg_machine-settings` (gated `isMine &&
-/// registered`) and the three `sg_chat*` shots photograph. No steer
-/// RELAY traffic is needed beyond that registration — nothing here watches a
-/// live session.
+/// the empty "Launch Marketing", showcase issue APP-5, open PRs and the
+/// threads holding them, the team agents, actions) PLUS, since EXP-642, the
+/// relay stub: `bun run screenshots:desktop` (apps/web) registers the demo
+/// user's OWN device row, which is what `sg_machine-settings` (gated `isMine
+/// && registered`) and the `sg_chat*` shots photograph, and (EXP-1309)
+/// publishes the scripted feed `sg_session` watches over the steer relay.
 ///
 /// Every shot is gated on real seeded content, never on a container element —
 /// an empty list still renders its container and would silently ship a blank
-/// styleguide page. The exceptions are called out where they happen (the
-/// action page's Triggers and Runs tabs, whose rows an older seed lacks). Shared
+/// styleguide page. The capture-only card + feedback screens at the end draw
+/// fake rows by design (no seed counterpart). Shared
 /// launch/sign-in/tap helpers live in ScreenshotFlow.swift, including the
 /// `snapshot(_:settle:)` overload every capture below goes through (it honours
 /// the lane's optional `shots:` allowlist).
@@ -107,13 +121,13 @@ final class StyleguideScreenshots: XCTestCase {
     private static let showcaseCommentFragment = "Profiled on a mid-range device"
     /// Assigned to the demo user, so it is on My Issues.
     private static let myIssueTitle = "Dark mode contrast pass across settings"
-    /// One of the four seeded open PRs on the Reviews queue.
-    private static let reviewTitle = "Batch-edit labels from the board"
-    /// APP-14: the seed's realPr issue, so its Guide has files from GitHub.
+    /// APP-14: the seed's realPr issue, so its thread's Guide has files from
+    /// GitHub.
     private static let guideTitle = "Group board issues by assignee"
-    /// EXP-1204: the seeded chat run with an open PR of its own — its subject
-    /// is the Reviews "Agent runs" row title and the RunChanges header.
-    private static let runChangesTitle = "Fix the error-type comparison in the resolver"
+    /// APP-15: its thread is web's `guide` thread (`DEMO_GUIDE_THREAD_ID`),
+    /// the seeded Guide's Summary + one section, its PR the stack's bottom.
+    private static let batchGuideTitle = "Batch-edit labels from the board"
+    private static let batchGuideSection = "Label picker on the selection bar"
     private static let searchQuery = "cold start"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
@@ -125,14 +139,18 @@ final class StyleguideScreenshots: XCTestCase {
     /// sit in the same group, so one scroll reaches both.
     private static let bulkFirstTitle = "Localize the app in German and Spanish"
     private static let bulkSecondTitle = "Audit accessibility labels for VoiceOver"
-    /// One of the three seeded team actions, listed on the Actions segment.
-    private static let seededActionName = "Nightly test triage"
     /// The device `bun run screenshots:desktop` registers for the demo user.
     private static let demoDeviceName = "Alex's MacBook Pro"
     /// The login that device announces for its agents (`screenshot-demo.ts`
     /// `DEMO_AGENT_STATUS`) — EXP-909: the first login row UNDER the machine
     /// row names it.
     private static let demoAccountEmail = "demo@exponential.at"
+    /// The Triage agent (`DEMO_AGENT_ID`): its channel and settings page.
+    private static let agentName = "Triage"
+    /// `DEMO_AGENT_REQUEST`, the person's ask in Triage's channel.
+    private static let agentRequest = "Label the Android ones too"
+    /// The cold-start thread's child session (`DEMO_SESSION_ID`).
+    private static let sessionTitle = "Profile the launch path"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -161,15 +179,39 @@ final class StyleguideScreenshots: XCTestCase {
         // login UI only as the fallback).
         let injected = launchSignedIn(app)
 
-        // ── sg_agent-home: the Agent page the app lands on (EXP-1253) ───────
-        // The disc mark + the greeting over the composer and its options
-        // line; nothing renders beneath it (Danny 2026-10-12).
+        // ── sg_agent-home: the home the app lands on (EXP-1253/1295) ────────
+        // The dawn behind the composer and its options line, my live threads
+        // in the Running band under it (FEED-100).
         expect(
-            anyElement(app, identified: "agent-home-greeting"),
+            anyElement(app, identified: "agent-page"),
             within: Wait.firstSync,
-            "The app did not land on the Agent home's greeting"
+            "The app did not land on the home"
+        )
+        expect(
+            anyElement(app, identified: "agent-composer"),
+            within: Wait.sync,
+            "The home drew no composer"
         )
         snapshot("sg_agent-home", settle: 2)
+
+        // ── sg_session-row: THE session row (EXP-1248/1309) ─────────────────
+        // The same home, gated on the seeded rows of its Running band (my
+        // live threads): the cold-start thread waiting on me, the private
+        // spike, the busy ones.
+        expect(
+            anyElement(app, identified: "agent-threads-running"),
+            within: Wait.sync,
+            "The home drew no Running band — reseed with `bun run seed:screenshots`"
+        )
+        expect(
+            app.descendants(matching: .any)
+                .matching(identifier: "agent-thread-row")
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.showcaseTitle))
+                .firstMatch,
+            within: Wait.sync,
+            "The Running band never listed the cold-start thread"
+        )
+        snapshot("sg_session-row", settle: 2)
 
         // The app lands on the Agent tab — switch to Issues for the board.
         let issuesTab = app.buttons["tab-issues"]
@@ -447,14 +489,12 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_agents", settle: 2)
 
-        // ── sg_chat / sg_chat-issues / sg_chat-action: the Agent page ────────
+        // ── sg_chat / sg_chat-issues: the home composer ─────────────────────
         // EXP-825: the ONE launcher. EXP-909: a device row starts nothing any
         // more (its one control is the settings gear), so the bar's Chat
-        // arm opens the Agent page on the default device: an empty
-        // composer is a chat; the `#` tool checks issues (two chips, a
-        // batch); the ▶ tool picks an action (the Fix merge conflicts
-        // builtin, its card's PR picked: EXP-1233). Nothing is ever submitted — a run
-        // would land on a real machine.
+        // arm opens the home on the default device: an empty composer
+        // starts a free request; Implement issue › chips two issues.
+        // Nothing is ever submitted — a session would land on a real machine.
         let chatButton = app.buttons["chat-button"].firstMatch
         expect(
             chatButton,
@@ -471,25 +511,6 @@ final class StyleguideScreenshots: XCTestCase {
             "The composer never settled on the chat subject"
         )
         snapshot("sg_chat", settle: 2)
-
-        // ── sg_session-row: THE session row, big (EXP-1248) ─────────────────
-        // The Recent sheet behind the page's history glyph draws every row as
-        // the big SessionRow (mark, caption, device glyph). EXP-1284 (T-N1):
-        // its rows are THREADS now (title + list caption), banded per team.
-        // A detour no later shot needs, so it is skipped whole when a scoped
-        // run did not ask for it.
-        if ScreenshotShots.isWanted("sg_session-row") {
-            anyElement(app, identified: "agent-history-button").tap()
-            let recentSheet = anyElement(app, identified: "recent-threads-sheet")
-            expect(recentSheet, within: Wait.nav, "The Recent sheet did not open")
-            if !anyElement(app, identified: "agent-thread-row").waitForExistence(timeout: Wait.sync) {
-                print("EXP-1248 sg_session-row: no recent threads — reseed with `bun run seed:screenshots`")
-            }
-            snapshot("sg_session-row", settle: 2)
-            dismissSheet(app, whileVisible: recentSheet)
-            _ = recentSheet.waitForNonExistence(timeout: Wait.nav)
-            settle(1)
-        }
 
         // EXP-1249: the "+" is the composer's ONLY tool — its sheet of the
         // `composer-menu.json` rows is `sg_composer-menu`. SLOP-28: Implement
@@ -520,52 +541,6 @@ final class StyleguideScreenshots: XCTestCase {
         ).firstMatch
         expect(issueChip, within: Wait.nav, "No issue chip after picking")
         snapshot("sg_chat-issues", settle: 2)
-
-        anyElement(app, identified: "agent-composer-plus-button").tap()
-        expect(
-            anyElement(app, identified: "agent-composer-menu"),
-            within: Wait.nav,
-            "The + menu did not reopen"
-        )
-        anyElement(app, identified: "agent-composer-menu-run-action").tap()
-        let actionPicker = anyElement(app, identified: "agent-composer-actions-picker")
-        expect(actionPicker, within: Wait.nav, "Action picker did not open")
-        let fixRow = app.staticTexts["Fix merge conflicts"].firstMatch
-        expect(fixRow, within: Wait.nav, "Action picker never listed the builtin")
-        fixRow.tap()
-        _ = actionPicker.waitForNonExistence(timeout: Wait.nav)
-        expect(
-            anyElement(app, identified: "agent-composer-chip-action"),
-            within: Wait.nav,
-            "No action chip after picking"
-        )
-        // EXP-1233: the builtin draws its own card; picking the seeded open
-        // PR (APP-14) completes it into the Fix merge conflicts look — the
-        // headline's verb + the PR's issue chip, the card's PR row.
-        let fixCard = anyElement(app, identified: "agent-composer-fix-conflicts")
-        expect(fixCard, within: Wait.nav, "No Fix merge conflicts card")
-        // The row is inert until the open-PR pool has synced: a tap that opens
-        // nothing is retried once the sheet's title has had time to appear.
-        let prSheet = app.staticTexts["Select a pull request"].firstMatch
-        anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
-        if !prSheet.waitForExistence(timeout: Wait.nav) {
-            anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
-            expect(prSheet, within: Wait.nav, "The PR picker did not open")
-        }
-        // A sheet row is a Button whose label is the option's `#N · IDENT`
-        // (the issue picker above matches its rows the same way, any type).
-        let prRow = app.descendants(matching: .any).matching(
-            NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "#", "APP-14")
-        ).firstMatch
-        expect(prRow, within: Wait.sync, "The PR picker never listed APP-14's pull request")
-        prRow.tap()
-        _ = prRow.waitForNonExistence(timeout: Wait.nav)
-        expect(
-            anyElement(app, identified: "agent-composer-chip-issue-APP-14"),
-            within: Wait.nav,
-            "No APP-14 chip after picking its pull request"
-        )
-        snapshot("sg_chat-action", settle: 2)
 
         // ── sg_search-list: the `#` typeahead's sheet (SLOP-28) ─────────────
         // Typing `#` in the composer opens THE search list as a bottom sheet,
@@ -623,212 +598,82 @@ final class StyleguideScreenshots: XCTestCase {
         _ = deviceSheet.waitForNonExistence(timeout: Wait.nav)
         settle(1)
 
-        // ── The Actions surface: five shots off one tab ──────────────────────
-        // EXP-1187: Actions is a tab of its own (the More menu is gone).
-        let actionsBarTab = app.buttons["tab-actions"]
-        expect(actionsBarTab, within: Wait.nav, "Actions tab missing")
-        actionsBarTab.tap()
-        expect(
-            app.navigationBars["Actions"],
-            within: Wait.nav,
-            "Actions surface never appeared"
-        )
-        // EXP-1270: the Suggestions segment is gone, the surface is the list.
-        expect(
-            app.staticTexts[Self.seededActionName].firstMatch,
-            within: Wait.sync,
-            "The Actions surface never listed the seeded team actions"
-        )
-
-        // ── sg_action-create: the composer on the Create action builtin ─────
-        // "New action" rides the "Actions · count" section header (EXP-574).
-        // EXP-825: it pushes the Agent page with the "Create action" builtin
-        // picked (the action chip proves it) — describe it, and the creator
-        // run writes the action. Only photographed, never submitted —
-        // submitting would start a real builtin run on somebody's machine.
-        let newActionButton = app.buttons["New action"]
-        expect(newActionButton, within: Wait.nav, "New action entry missing")
-        newActionButton.tap()
-        let createComposer = anyElement(app, identified: "agent-composer")
-        expect(createComposer, within: Wait.nav, "Agent page did not open")
-        expect(
-            anyElement(app, identified: "agent-composer-chip-action"),
-            within: Wait.nav,
-            "The composer never picked the Create action builtin"
-        )
-        expect(
-            app.buttons["Run action"].firstMatch,
-            within: Wait.nav,
-            "The composer never settled on the action subject"
-        )
-        snapshot("sg_action-create", settle: 2)
-        // A pushed detail: back pops to the Actions tab.
-        goBack(app)
-        expect(
-            app.navigationBars["Actions"],
-            within: Wait.nav,
-            "Did not return to the Actions surface"
-        )
-        settle(1)
-
-        // ── sg_action-triggers: the action page on its Triggers tab ─────────
-        // SLOP-2: an action carries its triggers. A row's body pushes the
-        // action page (Prompt · Triggers · Runs as tabs on a pager); the
-        // seeded "Nightly test triage" owns a daily schedule trigger and one
-        // scheduled run. Gated on the tab's OWN content rather than on a
-        // seeded trigger: an older seed shows the empty note — which is still
-        // a legitimate capture of this surface, unlike a half-synced list.
-        let seededAction = app.staticTexts[Self.seededActionName].firstMatch
-        seededAction.tap()
-        expect(
-            anyElement(app, identified: "action-tabs"),
-            within: Wait.nav,
-            "The action page did not open"
-        )
-        let triggersTab = anyElement(app, identified: "action-tab-triggers")
-        expect(triggersTab, within: Wait.nav, "Triggers tab missing")
-        triggersTab.tap()
-        let triggerRow = anyElement(app, identified: "trigger-row")
-        if !triggerRow.waitForExistence(timeout: Wait.sync) {
-            print("SLOP-2 sg_action-triggers: no trigger rows — reseed with `bun run seed:screenshots`")
-            expect(
-                app.staticTexts["No triggers yet"],
-                within: Wait.nav,
-                "The Triggers tab rendered neither rows nor its empty note"
-            )
-        }
-        snapshot("sg_action-triggers", settle: 2)
-
-        // ── sg_trigger-editor: the trigger form sheet ────────────────────────
-        // "Add trigger" is owner-only AND steer-gated (hidden when the backend
-        // has no STEER_RELAY_URL, since nothing could ever fire the trigger),
-        // and so is a row's Edit — the form is the ONE trigger editor.
-        let addTriggerButton = app.buttons["Add trigger"]
-        expect(
-            addTriggerButton,
-            within: Wait.nav,
-            "No \"Add trigger\" entry — the demo user must own the team and the backend needs STEER_RELAY_URL"
-        )
-        addTriggerButton.tap()
-        let triggerSheet = anyElement(app, identified: "trigger-form-sheet")
-        expect(
-            triggerSheet,
-            within: Wait.nav,
-            "The trigger form sheet did not open"
-        )
-        snapshot("sg_trigger-editor", settle: 2)
-        dismissSheet(app, whileVisible: triggerSheet)
-        _ = triggerSheet.waitForNonExistence(timeout: Wait.nav)
-        settle(1)
-
-        // ── sg_action-runs: the action page on its Runs tab ─────────────────
-        // Every run of the action, newest first; the seeded scheduled run
-        // reads "Scheduled run". Same gate as the Triggers tab: rows, or
-        // the empty note on an older seed.
-        let runsTab = anyElement(app, identified: "action-tab-runs")
-        expect(runsTab, within: Wait.nav, "Sessions tab missing")
-        runsTab.tap()
-        // EXP-1248: live and ended runs are the same SessionRow now.
-        let actionRunRow = anyElement(app, identified: "action-run-row")
-        if !actionRunRow.waitForExistence(timeout: Wait.sync) {
-            print("SLOP-2 sg_action-runs: no run rows — reseed with `bun run seed:screenshots`")
-            expect(
-                app.staticTexts["No sessions yet"],
-                within: Wait.nav,
-                "The Sessions tab rendered neither rows nor its empty note"
-            )
-        }
-        snapshot("sg_action-runs", settle: 2)
-        // A pushed detail: back pops to the Actions tab.
-        goBack(app)
-        expect(
-            app.navigationBars["Actions"],
-            within: Wait.nav,
-            "Did not return to the Actions surface"
-        )
-        settle(1)
-
-        // ── sg_reviews: the cross-board open-PR queue ───────────────────────
-        let reviewsTab = app.buttons["tab-reviews"]
-        expect(reviewsTab, within: Wait.nav, "Reviews tab missing")
-        reviewsTab.tap()
-        expect(
-            reviewRow(app, titled: Self.reviewTitle),
-            within: Wait.sync,
-            "Reviews tab never showed the seeded open PRs"
-        )
-        snapshot("sg_reviews", settle: 2)
-
-        // ── sg_pr-row: THE pull-request row (EXP-1248) ──────────────────────
-        // The same queue IS the PrRow surface: one line per PR, a tree nested
-        // with guides, a stack on its rail over the base-branch row.
-        expect(
-            anyElement(app, identified: "pr-row"),
-            within: Wait.nav,
-            "Reviews drew no PrRow"
-        )
+        // ── sg_pr-row: THE pull-request row (EXP-1248/1295) ──────────────────
+        // An issue page lists its pull requests as rows; APP-14 owns the
+        // seed's real open PR.
+        app.buttons["tab-issues"].tap()
+        openIssue(app, title: Self.guideTitle)
+        let prRow = anyElement(app, identified: "issue-pr-row")
+        _ = scrollUntilVisible(app, prRow)
+        expect(prRow, within: Wait.sync, "APP-14's page drew no pull-request row")
         snapshot("sg_pr-row", settle: 1)
 
-        // ── sg_guide / sg_guide-section: the Work screen's Guide (EXP-1251) ─
-        // A Reviews row opens its issue on the Guide face: APP-14's real PR has
-        // no report, so its whole diff is ONE Changes section; that row opens
-        // the section page. Both pop back to Reviews for sg_run-changes.
-        let wantsGuide = ScreenshotShots.isWanted("sg_guide")
-        let wantsGuideSection = ScreenshotShots.isWanted("sg_guide-section")
-        if wantsGuide || wantsGuideSection {
-            reviewRow(app, titled: Self.guideTitle).tap()
-            let guideTab = anyElement(app, identified: "work-face-guide")
-            if guideTab.waitForExistence(timeout: Wait.nav) { guideTab.tap() }
+        // ── sg_guide-section: a Guide section page (EXP-1251/1295) ──────────
+        // The issue's Threads row opens the thread holding it on the Guide
+        // tab: APP-14's real PR has no report, so its whole diff is ONE
+        // Changes section; that row opens the section page.
+        if ScreenshotShots.isWanted("sg_guide-section") {
+            let threadChip = anyElement(app, identified: "issue-thread-chip")
+            _ = scrollUntilVisible(app, threadChip)
+            expect(threadChip, within: Wait.sync, "APP-14 sits in no thread — reseed with `bun run seed:screenshots`")
+            threadChip.tap()
+            openThreadGuide(app)
             let changesRow = anyElement(app, identified: "guide-changes-row")
-            // Below the fold on a phone (the PR body comes first), so scroll
-            // to it; the shot then shows the body's end, the Changes row and
-            // Show complete diff.
+            // Below the fold on a phone (the PR body comes first).
             revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(Wait.network))
             XCTAssertTrue(
                 changesRow.exists,
                 "The Guide drew no Changes row — are the seeded PR's files reachable on GitHub?"
             )
-            snapshot("sg_guide", settle: 2)
             changesRow.tap()
             let sectionPage = anyElement(app, identified: "guide-section-page")
             expect(sectionPage, within: Wait.nav, "The Guide section page did not open")
             snapshot("sg_guide-section", settle: 2)
             anyElement(app, identified: "guide-section-back").tap()
-            _ = anyElement(app, identified: "work-face-guide").waitForExistence(timeout: Wait.nav)
             goBack(app)
-            expect(
-                reviewRow(app, titled: Self.reviewTitle),
-                within: Wait.nav,
-                "Back from the Guide did not land on Reviews"
-            )
+        }
+        // Issue → board.
+        goBack(app)
+        settle(1)
+
+        // ── sg_guide: web's `guide` thread (EXP-1303) ────────────────────────
+        // APP-15's thread, the one web/desktop photograph: its seeded Guide
+        // (Summary + one section) under THE Merge stack capsule (its PR is
+        // the bottom of APP-14's stack).
+        if ScreenshotShots.isWanted("sg_guide") {
+            openIssue(app, title: Self.batchGuideTitle)
+            let threadChip = anyElement(app, identified: "issue-thread-chip")
+            _ = scrollUntilVisible(app, threadChip)
+            expect(threadChip, within: Wait.sync, "APP-15 sits in no thread — reseed with `bun run seed:screenshots`")
+            threadChip.tap()
+            openThreadGuide(app)
+            expect(app.staticTexts[Self.batchGuideSection], within: Wait.sync, "APP-15's thread drew no seeded Guide")
+            expect(app.buttons["Merge stack"], within: Wait.sync, "APP-15's Guide drew no Merge stack capsule")
+            snapshot("sg_guide", settle: 2)
+            // Thread → issue → board.
+            goBack(app)
+            goBack(app)
             settle(1)
         }
 
-        // ── sg_run-changes: an issue-less run's PR diff (EXP-1194/1204) ─────
-        // The Reviews "Agent runs" band lists Jonas's finished chat run, whose
-        // own pull request is open; its row pushes `RunChangesView` (the
-        // run's Guide, EXP-1251), fed by `codingSessions.prFiles` — a real
-        // public PR the seed points the run at (SCREENSHOT_RUN_PR_URL). Its
-        // Changes row opens the section page, where the file cards live.
-        let runRow = reviewRow(app, titled: Self.runChangesTitle)
-        expect(
-            runRow,
-            within: Wait.sync,
-            "Reviews tab never showed the seeded agent run"
-        )
-        runRow.tap()
-        openGuideDiffPage(
-            app,
-            failure: "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
-        )
-        snapshot("sg_run-changes", settle: 2)
-        goBack(app)
+        // ── sg_threads · sg_agent-channel · sg_thread · sg_session ──────────
+        // EXP-1309: the Threads tab and the screens it opens, LIVE over the
+        // seed web/desktop photograph (no specimen to drift). Taken this
+        // late on purpose: every shape (issues for the chips, pull requests
+        // for the row words) has synced by now, and an agent text parsed
+        // before its issues landed would cache without its pills. A detour:
+        // it leaves through the Issues tab it came from.
+        let threadShots = ["sg_threads", "sg_agent-channel", "sg_thread", "sg_session"]
+        if threadShots.map(ScreenshotShots.isWanted).contains(true) {
+            walkThreads(app)
+            app.buttons["tab-issues"].tap()
+            settle(1)
+        }
 
         // ── sg_settings-root: the top-level settings list ────────────────────
         // The gear only lives on the issues tab's nav bar. The root is the
         // Servers / Teams / General stack — the paired Android shot of the
         // SAME screen (EXP-566 split it out of the old sg_settings-personal).
-        app.buttons["tab-issues"].tap()
         let settingsLink = app.buttons["nav-settings-link"]
         expect(settingsLink, within: Wait.nav, "Settings toolbar link missing")
         settingsLink.tap()
@@ -878,6 +723,29 @@ final class StyleguideScreenshots: XCTestCase {
             "Team settings never listed the seeded boards"
         )
         snapshot("sg_settings-team", settle: 2)
+
+        // ── sg_settings-team-agent: Settings → Agents, one agent's page ─────
+        // EXP-1293/1309: the Triage agent (DEMO_AGENT_ID) — its build
+        // server, login, daily Schedule row and the server-only instructions
+        // (`sessions.getAgent`, so gate on their text). A detour: nothing is
+        // edited, Back returns to the team settings.
+        if ScreenshotShots.isWanted("sg_settings-team-agent") {
+            let agentRow = app.buttons
+                .matching(identifier: "agent-settings-row")
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
+                .firstMatch
+            expect(agentRow, within: Wait.sync, "Team settings listed no \(Self.agentName) agent")
+            scrollUntilVisible(app, agentRow, attempts: 8)
+            agentRow.tap()
+            expect(anyElement(app, identified: "trigger-row"), within: Wait.sync, "\(Self.agentName)'s page drew no Schedule row")
+            // The editor mounts only once `sessions.getAgent` answered
+            // (a failure draws a retry instead), so it IS the content gate.
+            let instructions = anyElement(app, identified: "agent-instructions")
+            expect(instructions, within: Wait.network, "\(Self.agentName)'s instructions never loaded (sessions.getAgent)")
+            snapshot("sg_settings-team-agent", settle: 2)
+            goBack(app)
+            expect(app.staticTexts[Self.seededBoardName], within: Wait.nav, "Did not return to the team settings")
+        }
         goBack(app)
 
         // ── sg_settings-account: the account / server detail ──────────────────
@@ -993,22 +861,6 @@ final class StyleguideScreenshots: XCTestCase {
         openThreadCards(app, "comment-call-card")
         snapshot("sg_comment-call-card", settle: 2)
 
-        // ── sg_thread · sg_thread-runs: the Thread screen (EXP-1284) ─────────
-        // Capture-only specimens over the real Thread pieces, one relaunch
-        // each (the shot names stay literal for views.test.ts).
-        openThreadSpecimen(app, "thread")
-        expect(
-            anyElement(app, identified: "thread-link-row"),
-            within: Wait.nav,
-            "The thread specimen drew no agent link rows"
-        )
-        snapshot("sg_thread", settle: 2)
-        // EXP-1284: the child menu is a BOTTOM SHEET ×phones (Android's
-        // shot); a presented sheet hides the screen beneath it from the
-        // accessibility tree, so the relaunch waits on the sheet itself.
-        openThreadSpecimen(app, "thread-runs", awaiting: "thread-menu-sheet")
-        snapshot("sg_thread-runs", settle: 2)
-
         finished = true
     }
 
@@ -1025,17 +877,106 @@ final class StyleguideScreenshots: XCTestCase {
         )
     }
 
-    /// EXP-1284: relaunch signed out onto one Thread screen specimen.
+    /// EXP-1309: the Threads tab → the Triage agent's channel → back → the
+    /// cold-start thread → its "Profile the launch path" session, each shot
+    /// gated on its seeded content; ends back on the Threads list.
     @MainActor
-    private func openThreadSpecimen(
-        _ app: XCUIApplication, _ kind: String, awaiting identifier: String = "thread-styleguide-screen"
-    ) {
-        launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", kind])
+    private func walkThreads(_ app: XCUIApplication) {
+        let threadsTab = app.buttons["tab-threads"]
+        expect(threadsTab, within: Wait.nav, "Threads tab missing")
+        threadsTab.tap()
+        // ── sg_threads: gate on the rows' quiet words (pull requests + the
+        // pending question have synced), not on the list container.
+        for word in ["question", "stack", "merged"] {
+            expect(
+                threadRow(app, containing: word),
+                within: Wait.sync,
+                "No Threads row says \"\(word)\" — reseed with `bun run seed:screenshots`"
+            )
+        }
+        snapshot("sg_threads", settle: 2)
+
+        // ── sg_agent-channel: the Triage agent's channel (DEMO_AGENT_ID) ──
+        let agentRow = app.buttons
+            .matching(identifier: "agents-row")
+            .matching(NSPredicate(format: "label CONTAINS %@", Self.agentName))
+            .firstMatch
+        expect(agentRow, within: Wait.sync, "The Agents band has no \(Self.agentName) row")
+        agentRow.tap()
         expect(
-            anyElement(app, identified: identifier),
-            within: Wait.launch,
-            "The \(kind) specimen never opened — is -uiTestingStyleguide wired?"
+            anyElement(app, containing: Self.agentRequest),
+            within: Wait.sync,
+            "\(Self.agentName)'s channel never drew the seeded request"
         )
+        snapshot("sg_agent-channel", settle: 2)
+        goBack(app)
+
+        // ── sg_thread: the cold-start thread (DEMO_THREAD_ID) ──────────────
+        let coldStart = threadRow(app, containing: Self.showcaseTitle)
+        expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
+        coldStart.tap()
+        // The Conversation lands on its END (bottom-anchored): the seeded
+        // question card the thread waits on.
+        expect(
+            anyElement(app, identified: "thread-question-card"),
+            within: Wait.sync,
+            "The cold-start thread drew no pending question card"
+        )
+        snapshot("sg_thread", settle: 2)
+
+        // ── sg_session: that card's raw view (DEMO_SESSION_ID) ─────────────
+        // The child's session card sits above; scroll back to it if a long
+        // transcript pushed it off. The relay stub's feed ends on an
+        // UNANSWERED question, whose card takes the composer's place
+        // (EXP-1306). Nothing is answered.
+        let sessionCard = app.descendants(matching: .any)
+            .matching(identifier: "session-card")
+            .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
+            .firstMatch
+        for _ in 0..<4 where !(sessionCard.exists && sessionCard.isHittable) {
+            app.swipeDown()
+        }
+        expect(sessionCard, within: Wait.nav, "The cold-start thread drew no \"\(Self.sessionTitle)\" card")
+        sessionCard.tap()
+        expect(
+            anyElement(app, identified: "agent-feed-question"),
+            within: Wait.network,
+            "The session drew no pending question — is `bun run screenshots:desktop` publishing its feed?"
+        )
+        // EXP-1310: the header's back row names the thread, Stop beside it.
+        expect(
+            anyElement(app, identified: "session-back"),
+            within: Wait.sync,
+            "The session header drew no back row to its thread"
+        )
+        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The session header drew no Stop")
+        snapshot("sg_session", settle: 2)
+        // Back twice (session → thread → list) on the system back button:
+        // never the bar's Stop or the thread back row.
+        for _ in 0..<2 {
+            let back = app.navigationBars.buttons
+                .matching(NSPredicate(format: "NOT (identifier IN %@)", ["session-stop", "session-back"]))
+                .firstMatch
+            if back.waitForExistence(timeout: Wait.nav) { back.tap() }
+            settle(1)
+        }
+    }
+
+    /// A Threads row whose (combined) label contains `fragment`.
+    @MainActor
+    private func threadRow(_ app: XCUIApplication, containing fragment: String) -> XCUIElement {
+        app.buttons
+            .matching(identifier: "threads-row")
+            .matching(NSPredicate(format: "label CONTAINS %@", fragment))
+            .firstMatch
+    }
+
+    /// A thread's strip → its Guide tab.
+    @MainActor
+    private func openThreadGuide(_ app: XCUIApplication) {
+        let guideTab = anyElement(app, identified: "thread-tab-guide")
+        expect(guideTab, within: Wait.sync, "The thread never opened on its strip")
+        guideTab.tap()
     }
 
     /// Board switcher → the named board.
@@ -1058,13 +999,5 @@ final class StyleguideScreenshots: XCTestCase {
         row.tap()
         _ = headline.waitForNonExistence(timeout: Wait.nav)
         settle(1)
-    }
-
-    /// A Reviews row by its title. EXP-1248: a row is a plain Button over
-    /// `PrRow`, which COMBINES its texts into one element, so the title is no
-    /// standalone staticText: match the button whose label contains it.
-    @MainActor
-    private func reviewRow(_ app: XCUIApplication, titled title: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
     }
 }

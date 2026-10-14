@@ -5,6 +5,8 @@ use gpui::{App, Div, Window};
 
 /// The typed pickers' shared demo kit, not an entry (VAPP-93).
 pub(crate) mod picker;
+/// The Threads v2 entries' fixture rows + demo pull requests (EXP-1294).
+pub(crate) mod fixture_rows;
 pub(crate) mod picker_board;
 pub(crate) mod picker_issue;
 pub(crate) mod picker_action;
@@ -23,13 +25,11 @@ pub(crate) mod menu_submenu;
 pub(crate) mod toast;
 pub(crate) mod jump_to_bottom;
 pub(crate) mod composer_dialog;
-pub(crate) mod composer_fix_conflicts;
 pub(crate) mod issue_context_menu;
 pub(crate) mod session_row;
 pub(crate) mod pr_row;
 pub(crate) mod pr_graph_badge;
 pub(crate) mod device_settings;
-pub(crate) mod blocked_start_dialog;
 pub(crate) mod stack_merge_choice_dialog;
 pub(crate) mod draft_leave_dialog;
 pub(crate) mod readiness_checklist;
@@ -44,7 +44,6 @@ pub(crate) mod thread_parts;
 pub(crate) mod script_card;
 pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
-pub(crate) mod your_agent_settings;
 pub(crate) mod voice_call_overlay;
 pub(crate) mod feedback_states;
 pub(crate) mod agent_home;
@@ -52,13 +51,10 @@ pub(crate) mod work_tabs_strip;
 pub(crate) mod getting_started;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
-/// than a demo. EXP-1268/1269 landed three design drafts on the web page
-/// first; their IDE entries say so until the surfaces are built.
+/// than a demo. EXP-1268 landed its design draft on the web page first; its
+/// IDE entry says so until the surface is built.
 pub(crate) fn is_placeholder(id: &str) -> bool {
-    matches!(
-        id,
-        team_agents_settings::ID | your_agent_settings::ID | voice_call_overlay::ID
-    )
+    id == voice_call_overlay::ID
 }
 
 /// A demo: the entry's element, built with the window and the app so it
@@ -101,13 +97,11 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: jump_to_bottom::ID, owner: jump_to_bottom::OWNER, render: jump_to_bottom::render },
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: composer_dialog::ID, owner: composer_dialog::OWNER, render: composer_dialog::render },
-    Entry { id: composer_fix_conflicts::ID, owner: composer_fix_conflicts::OWNER, render: composer_fix_conflicts::render },
     Entry { id: issue_context_menu::ID, owner: issue_context_menu::OWNER, render: issue_context_menu::render },
     Entry { id: session_row::ID, owner: session_row::OWNER, render: session_row::render },
     Entry { id: pr_row::ID, owner: pr_row::OWNER, render: pr_row::render },
     Entry { id: pr_graph_badge::ID, owner: pr_graph_badge::OWNER, render: pr_graph_badge::render },
     Entry { id: device_settings::ID, owner: device_settings::OWNER, render: device_settings::render },
-    Entry { id: blocked_start_dialog::ID, owner: blocked_start_dialog::OWNER, render: blocked_start_dialog::render },
     Entry { id: stack_merge_choice_dialog::ID, owner: stack_merge_choice_dialog::OWNER, render: stack_merge_choice_dialog::render },
     Entry { id: draft_leave_dialog::ID, owner: draft_leave_dialog::OWNER, render: draft_leave_dialog::render },
     Entry { id: readiness_checklist::ID, owner: readiness_checklist::OWNER, render: readiness_checklist::render },
@@ -122,7 +116,6 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: script_card::ID, owner: script_card::OWNER, render: script_card::render },
     Entry { id: comment_card::ID, owner: comment_card::OWNER, render: comment_card::render },
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
-    Entry { id: your_agent_settings::ID, owner: your_agent_settings::OWNER, render: your_agent_settings::render },
     Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },
     Entry { id: agent_home::ID, owner: agent_home::OWNER, render: agent_home::render },
     Entry { id: work_tabs_strip::ID, owner: work_tabs_strip::OWNER, render: work_tabs_strip::render },

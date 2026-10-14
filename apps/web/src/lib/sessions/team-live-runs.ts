@@ -1,54 +1,57 @@
-import { isCodingSessionStale } from "@exp/db-schema/domain"
+import type { SessionRow } from "@/lib/session-tree"
 
-import type { CodingSession } from "@/db/schema"
-import { isLiveRun } from "@/lib/past-runs"
-
-// EXP-1075: session lists are TEAM-scoped, so a run left behind in another
-// team is invisible until you switch to it. The team picker carries the
-// signal: the caller's OWN live runs, grouped by team, so a dot on the
-// switcher (and on each foreign team's row) says "something of yours is
-// alive over there". Liveness is `useMyLiveRuns`' rule exactly — live by
-// status (or EXP-888's sweep end) AND a fresh heartbeat — so the dot and the
-// Running section can never disagree about one run. ×4 lockstep.
+// EXP-1075: session lists are TEAM-scoped, so a session left behind in
+// another team is invisible until you switch to it. The team picker carries
+// the signal: the caller's OWN live sessions (EXP-1293: `sessions` rows that
+// have not ended), grouped by team, so a dot on the switcher (and on each
+// foreign team's row) says "something of yours is alive over there".
 
 /** The fields the grouping reads — structural so a caller holding a partial
  *  row (or a test fixture) still passes one. */
 export type TeamLiveRunSession = Pick<
-  CodingSession,
-  `teamId` | `userId` | `status` | `endedBy` | `needsInput` | `updatedAt`
+  SessionRow,
+  `teamId` | `userId` | `status` | `needsInput` | `kind` | `rootId`
 >
 
-/** One team's live-run summary: how many of MY runs are alive there, and
+/** A live session counts only when its ROOT is a thread: a team agent root
+ *  (kind `agent`) never ends, and neither does its channel, so the agent and
+ *  every session under it stay out of the "something runs" dots. */
+export function countsAsLiveSession(
+  session: Pick<SessionRow, `kind` | `rootId` | `status`>,
+  agentRootIds: ReadonlySet<string>
+): boolean {
+  if (session.status === `ended`) return false
+  if (session.kind === `agent`) return false
+  if (session.rootId && agentRootIds.has(session.rootId)) return false
+  return true
+}
+
+/** One team's live summary: how many of MY sessions are alive there, and
  *  whether any of them is parked on a question (the amber tone). */
 export type TeamLiveRuns = { count: number; needsInput: boolean }
 
-/** The caller's live runs grouped by team. Teams with none are absent from
- *  the map, so `map.get(id)` is the whole "does this team have a dot?" test. */
+/** The caller's live sessions grouped by team. Teams with none are absent
+ *  from the map, so `map.get(id)` is the whole "does this team have a dot?"
+ *  test. */
 export function liveRunsByTeam(
   sessions: readonly TeamLiveRunSession[],
-  { me, now }: { me: string; now: Date }
+  { me, agentRootIds = new Set() }: { me: string; agentRootIds?: ReadonlySet<string> }
 ): Map<string, TeamLiveRuns> {
   const byTeam = new Map<string, TeamLiveRuns>()
   for (const session of sessions) {
     if (session.userId !== me) continue
-    if (!isLiveRun(session)) continue
-    if (isCodingSessionStale(new Date(session.updatedAt), now)) continue
+    if (!countsAsLiveSession(session, agentRootIds)) continue
     const entry = byTeam.get(session.teamId) ?? { count: 0, needsInput: false }
     entry.count += 1
-    // The picker's dot only splits parked-on-me from everything else — the
-    // first rule of `sessionDisplayState` (EXP-1184), which reads nothing
-    // but the flag.
-    if (session.needsInput) {
-      entry.needsInput = true
-    }
+    if (session.needsInput) entry.needsInput = true
     byTeam.set(session.teamId, entry)
   }
   return byTeam
 }
 
-/** The switcher's own dot: the ACTIVE team is excluded — its runs are the
- *  sidebar's Running section, one floor below, and repeating them on the
- *  picker would say "go somewhere else" about work already on screen. */
+/** The switcher's own dot: the ACTIVE team is excluded — its sessions are
+ *  the sidebar's Running section, and repeating them on the picker would
+ *  say "go somewhere else" about work already on screen. */
 export function otherTeamsLive(
   byTeam: ReadonlyMap<string, TeamLiveRuns>,
   activeTeamId: string | undefined

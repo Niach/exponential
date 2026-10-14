@@ -3,9 +3,9 @@
 //! there.
 //!
 //! The launcher is the only place that knows all of them — it composes the
-//! system-prompt append ([`crate::skill::system_append`]), renders the seed
-//! prompt, picks the cwd the agent's project memory hangs off, and asks the
-//! server how big the Exponential MCP surface is. So it measures them here
+//! system-prompt append ([`crate::skill::system_append_layers`]), sends the
+//! seed prompt and picks the cwd the agent's project memory hangs off. So it
+//! measures them here
 //! and hands the numbers to the engine on [`crate::launcher::AcpLaunch`];
 //! the engine turns them into token estimates
 //! (`domain::contract::CONTEXT_LAYOUT_CHARS_PER_TOKEN`) and publishes the
@@ -13,9 +13,8 @@
 //! renders anything: bytes in, bytes out.
 //!
 //! Best-effort throughout, like every other prepare-time enrichment: a file
-//! that vanished between the walk and the spawn, or a server that has not
-//! learned the budget query yet, costs the picture one segment and never a
-//! launch.
+//! that vanished between the walk and the spawn costs the picture one
+//! segment and never a launch.
 
 use std::path::{Path, PathBuf};
 
@@ -30,14 +29,18 @@ use crate::agent::CodingAgent;
 pub struct ContextLayers {
     /// The run playbook ([`crate::skill::RUN_SKILL`]) in bytes.
     pub playbook_bytes: usize,
-    /// EXP-1025 team prompt bytes, when the team has one.
+    /// EXP-1025 team prompt bytes plus (EXP-1292) a team agent's
+    /// instructions, when the brief carries either.
     pub team_bytes: Option<usize>,
     /// The seed prompt's bytes; `None` on a resume (no seed prompt).
     pub task_bytes: Option<usize>,
     /// The project memory files the agent will load, in load order.
     pub project: Vec<ProjectMemoryFile>,
     /// The Exponential MCP surface the agent gets (always-load tool defs +
-    /// server instructions), when the server answered.
+    /// server instructions). EXP-1292: always `None` from the launcher — the
+    /// v2 session router has no budget query (the old
+    /// `codingSessions.contextBudget` went with it); the engine's breakdown
+    /// simply omits the segment.
     pub tools_bytes: Option<usize>,
     /// A resume's measured base from the previous run, when one was recorded.
     pub carried_base: Option<CarriedBase>,
@@ -68,9 +71,10 @@ pub struct CarriedBase {
     pub model: String,
 }
 
-/// The TEAM PROMPT's contribution to [`crate::skill::system_append`]'s
+/// The SERVER layers' contribution to [`crate::skill::system_append_layers`]'s
 /// output, in bytes — everything the append carries beyond the playbook
-/// itself (the heading, the framing sentence and the owners' text).
+/// itself: the team prompt and (EXP-1292) a team agent's instructions, each
+/// with its heading and framing sentence.
 ///
 /// Derived from the composed string rather than from the prompt, because the
 /// append is what actually reaches the agent: no team prompt makes
@@ -283,6 +287,23 @@ mod tests {
             assert_eq!(team_bytes(&with), team_bytes(&without), "{extras:?}");
             assert_eq!(playbook_bytes(&with), alone.len(), "{extras:?}");
         }
+    }
+
+    /// EXP-1292: a team agent's instructions count as `team` too, alone or
+    /// after the team prompt.
+    #[test]
+    fn agent_instructions_count_as_team() {
+        use crate::skill::{system_append_layers, Extras};
+        let both = system_append_layers(Some("Rules"), Some("Watch the inbox."), &Extras::NONE);
+        assert_eq!(playbook_bytes(&both), crate::skill::RUN_SKILL.len());
+        assert_eq!(
+            team_bytes(&both),
+            Some(both.len() - crate::skill::RUN_SKILL.trim_end().len())
+        );
+        let team_only = system_append_layers(Some("Rules"), None, &Extras::NONE);
+        assert!(team_bytes(&both) > team_bytes(&team_only));
+        let agent_only = system_append_layers(None, Some("Watch the inbox."), &Extras::NONE);
+        assert!(team_bytes(&agent_only).is_some_and(|bytes| bytes > "Watch the inbox.".len()));
     }
 
     /// Everything the append carries beyond the playbook — heading, framing

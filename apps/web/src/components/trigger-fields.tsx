@@ -2,27 +2,23 @@ import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   MAX_TRIGGER_FILTER_IDS,
-  actionTriggerEventValues,
+  agentTriggerEventValues,
   type EventTriggerFilters,
-  type ActionScheduleInterval,
+  type AgentScheduleInterval,
   type ScheduleTriggerWhen,
   type TriggerWhen,
-  type ActionTriggerEvent,
+  type AgentTriggerEvent,
   type IssuePriority,
 } from "@exp/db-schema/domain"
-import { TRIGGER_EVENT_LABELS, weekdayName } from "@/lib/action-triggers"
+import { AGENT_SETTINGS_COPY } from "@/lib/session-tree"
 import { issuePriorityOptions } from "@/lib/domain"
-import { agentEffortValues, agentModelValues } from "@/lib/coding-launch-prefs"
-import { AgentOptionsFields } from "@/components/launch-dialog/launch-options-pane"
 import { accountOptionsOf } from "@/components/launch-dialog/use-launch-options"
 import {
   accountOptionKey,
   lastUsedAccountOption,
   type AccountOption,
 } from "@/lib/accounts/account-option"
-import { healthBadgeLabel } from "@/lib/agent-usage"
-import { deviceCanRunTriggers, type SteerDevice } from "@/lib/steer-devices"
-import { contract } from "@exp/domain-contract"
+import type { SteerDevice } from "@/lib/steer-devices"
 import {
   boardCollection,
   issueStatusCollection,
@@ -32,17 +28,12 @@ import { buildStatusOptions } from "@/lib/team-statuses"
 import { toStatusPickerStatus } from "@/components/issue-properties/status-dropdown"
 import type { Board, IssueStatusRow, Label as TeamLabel } from "@/db/schema"
 import {
-  AccountPicker,
-  agentLabel,
   BoardPicker,
   Picker,
-  DevicePicker,
   LabelPicker,
-  PickerTrigger,
   PriorityPicker,
   StatusPicker,
   Button,
-  Label,
   TabsTrigger,
   GLASS_SELECT_TRIGGER,
   GlassGroup,
@@ -50,22 +41,22 @@ import {
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 
-// The reusable trigger editing PIECES (EXP-530; SLOP-2: a trigger lives on
-// its action): the when-part panes + event filters, the "Runs on" device
-// picker, and the account/model/effort picker. The trigger dialog composes
-// all three. Everything is CONTROLLED — the parent holds a `TriggerDraft`
+// The reusable trigger editing PIECES (EXP-530; EXP-1293: a trigger lives on
+// its team AGENT, which owns the device and account, so only the WHEN is
+// edited): the when-part panes + event filters, plus the account-pin helpers
+// the agent page's Account row shares. Everything is CONTROLLED — the parent holds a `TriggerDraft`
 // (the when-part only, exactly what an `TriggerWhen` carries) and seeds
 // it in its open-reset effect, the same pattern as every other dialog field
 // here.
 
 export interface TriggerDraft {
   kind: `schedule` | `event`
-  interval: ActionScheduleInterval
+  interval: AgentScheduleInterval
   /** `HH:MM` wall-clock string, straight off the time input. */
   time: string
   weekday: number
   dayOfMonth: number
-  event: ActionTriggerEvent
+  event: AgentTriggerEvent
   boardIds: string[]
   labelIds: string[]
   priorities: IssuePriority[]
@@ -156,7 +147,7 @@ export function draftToTrigger(draft: TriggerDraft): TriggerWhen {
   }
 }
 
-const INTERVAL_LABELS: Record<ActionScheduleInterval, string> = {
+const INTERVAL_LABELS: Record<AgentScheduleInterval, string> = {
   daily: `Day`,
   weekly: `Week`,
   monthly: `Month`,
@@ -205,11 +196,11 @@ export function TriggerWhenFields({
             value={draft.interval}
             onChange={(value) => {
               if (value !== null) {
-                set({ interval: value as ActionScheduleInterval })
+                set({ interval: value as AgentScheduleInterval })
               }
             }}
             items={(
-              Object.keys(INTERVAL_LABELS) as ActionScheduleInterval[]
+              Object.keys(INTERVAL_LABELS) as AgentScheduleInterval[]
             ).map((interval) => ({
               value: interval,
               label: INTERVAL_LABELS[interval],
@@ -226,7 +217,7 @@ export function TriggerWhenFields({
               }}
               items={WEEKDAYS.map((weekday) => ({
                 value: String(weekday),
-                label: weekdayName(weekday),
+                label: AGENT_SETTINGS_COPY.weekdays[weekday - 1] ?? ``,
               }))}
             />
           )}
@@ -260,11 +251,11 @@ export function TriggerWhenFields({
             mobileTitle="When"
             value={draft.event}
             onChange={(value) => {
-              if (value !== null) set({ event: value as ActionTriggerEvent })
+              if (value !== null) set({ event: value as AgentTriggerEvent })
             }}
-            items={actionTriggerEventValues.map((event) => ({
+            items={agentTriggerEventValues.map((event) => ({
               value: event,
-              label: TRIGGER_EVENT_LABELS[event],
+              label: (AGENT_SETTINGS_COPY.events as Record<string, string>)[event] ?? event,
             }))}
           />
           <div className="px-4 py-3">
@@ -332,83 +323,9 @@ function TriggerTimeRow({
   )
 }
 
-/** Trigger-capable machines only (offline-but-capable stays pickable —
- * a schedule catches up when the machine comes back). */
-export function triggerDevices(devices: SteerDevice[]): SteerDevice[] {
-  return devices.filter(deviceCanRunTriggers)
-}
-
-export function TriggerDevicePicker({
-  deviceId,
-  devices,
-  onChange,
-}: {
-  deviceId: string | null
-  /** Trigger-capable devices only (see `triggerDevices`). */
-  devices: SteerDevice[]
-  onChange: (deviceId: string) => void
-}) {
-  if (devices.length === 0 && !deviceId) {
-    return (
-      <div className="space-y-2">
-        <Label>Runs on</Label>
-        <p className="text-xs text-muted-foreground">
-          No device can run triggers. Run the desktop app or the exponential
-          daemon and it will appear here.
-        </p>
-      </div>
-    )
-  }
-  // A trigger bound to a device the viewer cannot see (a teammate's
-  // private machine) keeps its binding: the raw id renders as a fallback
-  // entry so editing other fields never silently rebinds or drops it.
-  const unknownDeviceId =
-    deviceId && !devices.some((d) => d.deviceId === deviceId) ? deviceId : null
-  const pickedDevice = devices.find((d) => d.deviceId === deviceId)
-  const pickedDeviceLabel = pickedDevice
-    ? pickedDevice.deviceLabel || pickedDevice.deviceId
-    : unknownDeviceId
-      ? // A machine the viewer cannot see: the raw id, muted, so it reads as
-        // a binding rather than a name.
-        <span className="text-muted-foreground">{unknownDeviceId}</span>
-      : undefined
-  return (
-    // EXP-616: a grouped-form row — "Runs on" leads, the machine trails.
-    <GlassGroup>
-      <DevicePicker
-        mobileTitle="Runs on"
-        value={deviceId}
-        onChange={onChange}
-        devices={[
-          ...(unknownDeviceId
-            ? [{ id: unknownDeviceId, name: unknownDeviceId }]
-            : []),
-          // EXP-615: no online dot here — every trigger-capable machine is
-          // equally bindable (a schedule catches up on reconnect), so the
-          // live state belongs on the action's Triggers rows, not in the
-          // picker.
-          ...devices.map((device) => ({
-            id: device.deviceId,
-            name: device.deviceLabel || device.deviceId,
-            icon: device.icon,
-            kind: device.kind,
-          })),
-        ]}
-        trigger={
-          <PickerTrigger
-            variant="row"
-            label="Runs on"
-            placeholder="Select a device"
-            value={pickedDeviceLabel}
-          />
-        }
-      />
-    </GlassGroup>
-  )
-}
-
-/** EXP-995: the launch pin of an automated run, keyed the way every picker
- * keys it (`accountOptionKey`): the pinned agent + its profile id. */
+/** EXP-995: a launch pin (EXP-1293: an agent's Account row), keyed the way
+ * every picker keys it (`accountOptionKey`): the pinned agent + its profile
+ * id. */
 export interface TriggerAccountPin {
   /** `` = no agent pinned yet (only while no device is bound). */
   agent: string
@@ -472,119 +389,6 @@ export function seedAccountPin(
       ? options.find((option) => option.agent === current.agent)
       : undefined) ?? lastUsedAccountOption(options)
   return fallback ? accountPinOf(fallback) : undefined
-}
-
-/** Account + Model + Effort for an automated run. EXP-995: the agent strip
- * is gone — the FIRST row is THE account picker every launch surface shares
- * (`@exp/ui` `AccountPicker`: brand mark + email, the bound machine's last
- * used login first), and a pick implies the agent. Model/Effort below it are the launch
- * dialog's own cluster in its `trigger` variant (EXP-615), fed a single
- * agent so it draws no strip. Blank on Model/Effort means "whatever the
- * device is configured to launch with" (the row stores NULL).
- *
- * A machine that reports no profile at all offers one unpinned row per
- * runnable agent, named by the agent (`accountOptionsOf`); a binding to a machine the
- * viewer cannot see (a teammate's private device) keeps its stored agent on a
- * plain Agent row, so editing another field never silently rebinds it. */
-export function TriggerLaunchFields({
-  device,
-  pin,
-  onPinChange,
-  model,
-  onModelChange,
-  effort,
-  onEffortChange,
-  idPrefix = `trigger`,
-}: {
-  /** The bound device — its logins are the Account rows. */
-  device: SteerDevice | undefined
-  pin: TriggerAccountPin
-  onPinChange: (pin: TriggerAccountPin) => void
-  model: string
-  onModelChange: (model: string) => void
-  effort: string
-  onEffortChange: (effort: string) => void
-  idPrefix?: string
-}) {
-  const options = useMemo(() => accountOptionsOf(device), [device])
-  const pickerOptions = useMemo(
-    () =>
-      options.map((option) => ({
-        key: accountOptionKey(option),
-        agent: option.agent,
-        email: option.email,
-        // EXP-849: an expired credential is the one thing worth knowing
-        // BEFORE the run starts on it.
-        hint: healthBadgeLabel(option.health) ?? undefined,
-        limits: option.limits,
-      })),
-    [options]
-  )
-  const picked = pickedAccountOption(options, pin)
-  return (
-    <div className="space-y-3">
-      <GlassGroup>
-        {pickerOptions.length > 0 ? (
-          <AccountPicker
-            variant="row"
-            mobileTitle="Account"
-            value={picked ? accountOptionKey(picked) : null}
-            options={pickerOptions}
-            onChange={(key) => {
-              const option = options.find(
-                (candidate) => accountOptionKey(candidate) === key
-              )
-              if (option) onPinChange(accountPinOf(option))
-            }}
-            data-testid={`${idPrefix}-account`}
-          />
-        ) : (
-          <Picker
-            mode="single"
-            triggerVariant="row"
-            mobileTitle="Agent"
-            value={pin.agent === `` ? null : pin.agent}
-            triggerLabel="Select an agent"
-            items={contract.codingAgent.values.map((value) => ({
-              value,
-              label: agentLabel(value),
-            }))}
-            onChange={(value) => {
-              if (value !== null) onPinChange({ agent: value, account: `` })
-            }}
-            data-testid={`${idPrefix}-agent`}
-          />
-        )}
-      </GlassGroup>
-      <AgentOptionsFields
-        variant="trigger"
-        idPrefix={idPrefix}
-        device={device}
-        agent={pin.agent}
-        availableAgents={pin.agent === `` ? [] : [pin.agent]}
-        onAgentChange={(agent) => onPinChange({ agent, account: `` })}
-        model={model}
-        onModelChange={onModelChange}
-        effortValue={effort}
-        onEffortChange={onEffortChange}
-      />
-    </div>
-  )
-}
-
-/** Re-clamp a pinned model/effort to the agent they are paired with — the
- * server rejects a claude model on codex, so switching agent (or back to the
- * device default) drops anything that agent does not offer. */
-export function clampAgentFields(
-  agent: string,
-  model: string,
-  effort: string
-): { model: string; effort: string } {
-  if (agent === ``) return { model: ``, effort: `` }
-  return {
-    model: agentModelValues(agent).includes(model) ? model : ``,
-    effort: agentEffortValues(agent).includes(effort) ? effort : ``,
-  }
 }
 
 function EventFilterPickers({

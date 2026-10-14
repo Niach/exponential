@@ -58,8 +58,8 @@ const CLOCK_SKEW_ERROR: &str = "Steer relay rejected the connection (ticket expi
 // Spec, hooks, tickets
 // ---------------------------------------------------------------------------
 
-/// What to publish (§8.4 handshake): the `coding_sessions` row id keys the
-/// relay room; the issue id rides along for the phone's session list.
+/// What to publish (§8.4 handshake): the `sessions` row id (EXP-1292) keys
+/// the relay room; the issue id rides along for the phone's session list.
 #[derive(Clone, Debug, Default)]
 pub struct PublishSpec {
     pub session_id: String,
@@ -86,15 +86,16 @@ pub trait PublisherTickets: Send + Sync + 'static {
 }
 
 /// Production tickets over the account's tRPC client:
-/// `steer.mintTicket({kind:"publisher", codingSessionId})`.
+/// `steer.mintTicket({kind:"publisher", sessionId})` — EXP-1292: keyed by
+/// the `sessions` row id.
 pub struct TrpcPublisherTickets {
     pub trpc: Arc<TrpcClient>,
-    pub coding_session_id: String,
+    pub session_id: String,
 }
 
 impl PublisherTickets for TrpcPublisherTickets {
     fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-        Ok(api::steer::mint_publisher_ticket(&self.trpc, &self.coding_session_id)?.into_ticket())
+        Ok(api::steer::mint_publisher_ticket(&self.trpc, &self.session_id)?.into_ticket())
     }
 }
 
@@ -106,8 +107,8 @@ impl PublisherTickets for TrpcPublisherTickets {
 /// idle-publisher detector closes quiet sockets with `CLOSE_SESSION_ENDED`
 /// (a laptop sleeping >90s reads that close on wake), and treating it as a
 /// kill was tearing down live agents mid-session. Real session ends always
-/// also flip the synced `coding_sessions` row, which the §8.8 kill-watch
-/// handles durably.
+/// also flip the synced `sessions` row to `ended`, which the pickup pass's
+/// `Kill` action handles durably (EXP-1292).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KillSignal {
     /// A relay `kill` frame (steer.killSession fan-out / a steerer's kill).
@@ -135,8 +136,8 @@ pub struct PublisherHooks {
     /// `\r`, an `\x1b` interrupt). EXP-773: the engine's
     /// `line_buffered_input` is the only implementation left.
     pub write_input: InputHook,
-    /// Relay-initiated teardown: kill the `claude` child; the exit hook then
-    /// ends the `coding_sessions` row (idempotent server-side).
+    /// Relay-initiated teardown: kill the agent child; the exit hook then
+    /// reports the `sessions` row's terminal status (idempotent server-side).
     pub kill: Arc<dyn Fn(KillSignal) + Send + Sync>,
     /// Terminal-state errors worth surfacing (clock skew, repeated rejects).
     pub error: Arc<dyn Fn(String) + Send + Sync>,
@@ -587,7 +588,7 @@ impl PublisherHandle {
         let _ = self.cmd_tx.send(PublisherCmd::Shutdown { outcome });
     }
 
-    /// §8.8 kill-switch entry: the synced `coding_sessions` row flipped to
+    /// §8.8 kill-switch entry: the synced `sessions` row flipped to
     /// `ended` (or the local session was torn down out-of-band). Equivalent
     /// to `shutdown(Some("killed"))`.
     pub fn session_ended(&self) {
@@ -608,8 +609,8 @@ impl PublisherHandle {
 /// 1. `spawn_activity_emitter` with `handle.activity_sender()` — the events
 ///    this task journals and republishes;
 /// 2. exit hook → `handle.shutdown(Some(format!("exit:{code}")))`;
-/// 3. `sync::kill_watch` on_ended → `handle.session_ended()` (after killing
-///    the child).
+/// 3. the pickup pass's `Kill` action (the synced `sessions` row went
+///    `ended`, EXP-1292) → `handle.session_ended()` (after killing the child).
 pub fn publish(
     runtime: &SteerRuntime,
     spec: PublishSpec,
@@ -1260,8 +1261,7 @@ async fn pump_connection(
                                 return LoopEnd::Dropped;
                             }
                         }
-                        Some(ServerFrame::StartSession { .. })
-                        | Some(ServerFrame::CheckIn)
+                        Some(ServerFrame::CheckIn)
                         | Some(ServerFrame::HistoryRequest { .. }) => {
                             // Control-socket frames; never valid here. Ignore.
                         }

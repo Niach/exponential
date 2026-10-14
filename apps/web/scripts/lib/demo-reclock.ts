@@ -13,7 +13,7 @@
  * So the rows those views print are SHIFTED forward by however much time has
  * passed since the seed, which keeps every age exactly what the seed wrote. The
  * elapsed time is read off one anchor the seed stamps at a known offset (the
- * nightly automated run's `ended_at`) and which only this shift moves, so the
+ * ended APP-16 thread's `ended_at`, EXP-1293) and which only this shift moves, so the
  * call is idempotent and cheap to repeat: the stand-in desktop runs it on every
  * heartbeat and `capture-views` before every view.
  *
@@ -25,10 +25,10 @@
 import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import {
-  codingSessions,
   comments,
   issueDrafts,
   issues,
+  sessions,
   teams,
   users,
   widgetSubmissions,
@@ -36,24 +36,19 @@ import {
 import {
   DEMO_AGENT_COMMENT_ID,
   DEMO_EMAIL,
-  DEMO_SESSION_IDS,
+  DEMO_THREAD_IDS,
   DEMO_WIDGET_ISSUE_ID,
   TEAM_SLUG,
 } from "../screenshot-demo"
 
-/** The seed stamps `ended_at` of this run exactly this long before its clock. */
+/** The seed stamps `ended_at` of this session exactly this long before its clock. */
 export const DEMO_CLOCK_ANCHOR = {
-  sessionId: DEMO_SESSION_IDS.nightlyTriageRun,
+  sessionId: DEMO_THREAD_IDS.scrollRestore,
   endedHoursAgo: 8,
 } as const
 
-/** The seeded ENDED runs whose started/ended labels are photographed. */
-const ENDED_SESSION_IDS = [
-  DEMO_SESSION_IDS.pastChat,
-  DEMO_SESSION_IDS.nightlyTriageRun,
-  DEMO_SESSION_IDS.updateDepsRun,
-  DEMO_SESSION_IDS.runChanges,
-]
+/** The seeded ENDED sessions whose started/ended labels are photographed. */
+const ENDED_SESSION_IDS = [DEMO_THREAD_IDS.scrollRestore]
 
 /** Below this the labels cannot have moved; skip the writes (and the sync churn). */
 const MIN_SHIFT_MS = 5_000
@@ -64,12 +59,12 @@ const MIN_SHIFT_MS = 5_000
  */
 export async function reclockDemoRows(now: number = Date.now()): Promise<number> {
   const [anchor] = await db
-    .select({ endedAt: codingSessions.endedAt, teamId: codingSessions.teamId })
-    .from(codingSessions)
-    .innerJoin(teams, eq(teams.id, codingSessions.teamId))
+    .select({ endedAt: sessions.endedAt, teamId: sessions.teamId })
+    .from(sessions)
+    .innerJoin(teams, eq(teams.id, sessions.teamId))
     .where(
       and(
-        eq(codingSessions.id, DEMO_CLOCK_ANCHOR.sessionId),
+        eq(sessions.id, DEMO_CLOCK_ANCHOR.sessionId),
         eq(teams.slug, TEAM_SLUG)
       )
     )
@@ -85,13 +80,15 @@ export async function reclockDemoRows(now: number = Date.now()): Promise<number>
     db.transaction(async (tx) => {
       if (withDrafts) await tx.execute(sql`set local session_replication_role = replica`)
       await tx
-        .update(codingSessions)
+        .update(sessions)
         .set({
-          startedAt: sql`${codingSessions.startedAt} + ${shift}`,
-          endedAt: sql`${codingSessions.endedAt} + ${shift}`,
-          createdAt: sql`${codingSessions.createdAt} + ${shift}`,
+          startedAt: sql`${sessions.startedAt} + ${shift}`,
+          lastTurnAt: sql`${sessions.lastTurnAt} + ${shift}`,
+          endedAt: sql`${sessions.endedAt} + ${shift}`,
+          createdAt: sql`${sessions.createdAt} + ${shift}`,
+          updatedAt: sql`${sessions.updatedAt} + ${shift}`,
         })
-        .where(inArray(codingSessions.id, ENDED_SESSION_IDS))
+        .where(inArray(sessions.id, ENDED_SESSION_IDS))
       // SLOP-4: the widget-filed issue's report + conversation — the
       // reporter page prints every one of these as "X ago".
       await tx

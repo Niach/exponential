@@ -122,13 +122,10 @@ vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
   getTeamMember: h.getTeamMember,
 }))
-// SLOP-2: the trigger pause is its own unit (action-trigger-rules.test.ts).
-vi.mock(`@/lib/action-trigger-rules`, async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/action-trigger-rules")>()),
-  pauseDeviceTriggers: h.pauseDeviceTriggers,
-}))
-vi.mock(`@/lib/coding-session-kill`, () => ({
+// EXP-1291: the agent disarm + the hosted-session end are lifecycle's units.
+vi.mock(`@/lib/sessions/lifecycle`, () => ({
   endForeignHostedSessions: h.endForeignHostedSessions,
+  pauseDeviceAgents: h.pauseDeviceTriggers,
 }))
 vi.mock(`@/lib/client-version`, () => ({
   versionPayload: () => ({

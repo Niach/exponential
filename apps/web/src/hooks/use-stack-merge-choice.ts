@@ -1,85 +1,146 @@
 import { useMemo } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
-import type { Board, Issue } from "@/db/schema"
-import { boardCollection, issueCollection } from "@/lib/collections"
+import {
+  issueCollection,
+  pullRequestCollection,
+  pullRequestIssueCollection,
+} from "@/lib/collections"
+import type { PullRequestRow } from "@/lib/session-tree"
 import {
   stackMergeConfirm,
+  stackView,
   type StackConfirmMode,
   type StackMergeConfirm,
+  type StackMergeNode,
+  type StackView,
 } from "@/lib/pr-stack"
-import { useTeamBoardIds } from "@/hooks/use-team-issue-graph"
 
-export interface StackMergeConfirmState {
-  /** False while the rows the decision needs have not arrived. */
-  ready: boolean
-  /** The stack confirm's content; null = a plain merge. */
-  confirm: StackMergeConfirm | null
+// EXP-1248 / EXP-1293: whether merging a pull request is a STACK merge (the
+// ONE confirm, `stackMergeConfirm`), off the synced `pull_requests` rows of
+// its repository: a PR's `head` is its branch, its `base` the branch it is
+// stacked on. `input.issueId` of the confirm carries the PULL REQUEST id the
+// merge lands through (`pullRequests.merge({pullRequestId, stack: true})`).
+
+type StackPr = Pick<PullRequestRow, `id` | `number` | `head` | `base` | `state` | `url`>
+
+function node(pr: StackPr): StackMergeNode {
+  return {
+    id: pr.id,
+    identifier: `#${pr.number}`,
+    branch: pr.head,
+    prBaseBranch: pr.base,
+    prState: pr.state,
+    prUrl: pr.url,
+  }
 }
 
-const IDLE: StackMergeConfirmState = { ready: true, confirm: null }
-
-/**
- * EXP-1248: whether merging this issue's pull request is a STACK merge (the
- * one confirm, `stackMergeConfirm`), off the synced rows alone. `mode`
- * `stack` = the merge control (Merge stack), `through` = a stack-rail row's
- * Merge through here.
- *
- * The control knows only an `issueId` (an issue row carries no `team_id` on
- * the client, REV2-5), so the team is reached through the issue's board, and
- * "the team's open pull requests" = the open-PR issues of the team's boards.
- * `enabled` false skips every query: a list of Merge buttons must not fan out
- * four live queries per row: the control arms this on the click and reads
- * the answer before it opens anything.
- */
-export function useStackMergeConfirm(
-  issueId: string | undefined,
-  enabled: boolean,
+/** Pure: the stack confirm of `pr` among its repository's PRs (null = a plain
+ *  merge). */
+export function pullRequestStackConfirm(
+  pr: StackPr,
+  repositoryPrs: readonly StackPr[],
   mode: StackConfirmMode = `stack`
-): StackMergeConfirmState {
-  const active = enabled && issueId !== undefined
-  const { data: issueRows } = useLiveQuery(
-    (query) =>
-      active
-        ? query.from({ i: issueCollection }).where(({ i }) => eq(i.id, issueId))
-        : undefined,
-    [active, issueId]
-  )
-  const issue = ((issueRows ?? []) as Issue[])[0] ?? null
-  const boardId = issue?.boardId
-  const { data: boardRows } = useLiveQuery(
-    (query) =>
-      active && boardId
-        ? query.from({ b: boardCollection }).where(({ b }) => eq(b.id, boardId))
-        : undefined,
-    [active, boardId]
-  )
-  const teamId = ((boardRows ?? []) as Board[])[0]?.teamId
-  const boardIds = useTeamBoardIds(active ? teamId : undefined)
-  const { data: openRows } = useLiveQuery(
-    (query) =>
-      active && boardIds.length > 0
-        ? query
-            .from({ i: issueCollection })
-            .where(({ i }) =>
-              and(inArray(i.boardId, boardIds), eq(i.prState, `open`))
-            )
-        : undefined,
-    [active, boardIds.join(`,`)]
-  )
+): StackMergeConfirm | null {
+  return stackMergeConfirm(node(pr), repositoryPrs.map(node), mode)
+}
 
+export function usePullRequestStackConfirm(
+  pr: Pick<PullRequestRow, `id` | `number` | `head` | `base` | `state` | `url` | `repositoryId`> | null,
+  mode: StackConfirmMode = `stack`
+): { ready: boolean; confirm: StackMergeConfirm | null } {
+  const active = pr !== null && pr.state === `open`
+  const repositoryId = pr?.repositoryId
+  const { data, isReady } = useLiveQuery(
+    (query) =>
+      active && repositoryId
+        ? query
+            .from({ prs: pullRequestCollection })
+            .where(({ prs }) => and(eq(prs.repositoryId, repositoryId), eq(prs.state, `open`)))
+        : undefined,
+    [active, repositoryId]
+  )
   return useMemo(() => {
-    if (!active) return IDLE
-    // Nothing synced yet for the issue itself: wait, do not guess.
-    if (!issue) return { ready: false, confirm: null }
-    // An issue without an open PR is a plain merge, whatever the team looks
-    // like; otherwise the team's open rows decide.
-    if (issue.prState !== `open`) return IDLE
-    if (!teamId || boardIds.length === 0 || openRows === undefined) {
-      return { ready: false, confirm: null }
-    }
+    if (!pr || !active) return { ready: true, confirm: null }
+    if (!isReady) return { ready: false, confirm: null }
     return {
       ready: true,
-      confirm: stackMergeConfirm(issue, (openRows ?? []) as Issue[], mode),
+      confirm: pullRequestStackConfirm(pr, (data ?? []) as PullRequestRow[], mode),
     }
-  }, [active, issue, teamId, boardIds, openRows, mode])
+  }, [pr, active, isReady, data, mode])
+}
+
+type StackViewPr = StackPr & Pick<PullRequestRow, `title`>
+
+/** Pure: the stack rail of `pr` among its repository's PRs (null = not in a
+ *  linear open stack). A row is named like the desktop's Stack card: the
+ *  PR's lowest linked issue identifier + that issue's title, else `#<n>` +
+ *  the PR's title. `issueId` of a row carries the PULL REQUEST id. */
+export function pullRequestStackView(
+  pr: StackViewPr,
+  repositoryPrs: readonly StackViewPr[],
+  issuesOf: (pullRequestId: string) => readonly { identifier: string; title: string }[]
+): StackView | null {
+  const viewNode = (row: StackViewPr) => {
+    const named = [...issuesOf(row.id)].sort((a, b) =>
+      a.identifier < b.identifier ? -1 : a.identifier > b.identifier ? 1 : 0
+    )[0]
+    return {
+      ...node(row),
+      identifier: named?.identifier ?? `#${row.number}`,
+      title: named?.title ?? row.title ?? row.head,
+      prNumber: row.number,
+    }
+  }
+  return stackView(viewNode(pr), repositoryPrs.map(viewNode))
+}
+
+/** EXP-1306: the thread Guide's Stack card ×4 (session-thread.json): the
+ *  Guide PR's stack rail off its repository's open PRs and their issues. */
+export function usePullRequestStackView(
+  pr: (StackViewPr & Pick<PullRequestRow, `repositoryId`>) | null
+): StackView | null {
+  const active = pr !== null && pr.state === `open`
+  const repositoryId = pr?.repositoryId
+  const { data: prs } = useLiveQuery(
+    (query) =>
+      active && repositoryId
+        ? query
+            .from({ prs: pullRequestCollection })
+            .where(({ prs }) => and(eq(prs.repositoryId, repositoryId), eq(prs.state, `open`)))
+        : undefined,
+    [active, repositoryId]
+  )
+  const prIds = ((prs ?? []) as PullRequestRow[]).map((row) => row.id).sort()
+  const prKey = prIds.join(`,`)
+  const { data: named } = useLiveQuery(
+    (query) =>
+      prIds.length > 1
+        ? query
+            .from({ links: pullRequestIssueCollection })
+            .where(({ links }) => inArray(links.pullRequestId, prIds))
+            .innerJoin({ issues: issueCollection }, ({ links, issues }) =>
+              eq(links.issueId, issues.id)
+            )
+            .select(({ links, issues }) => ({
+              pullRequestId: links.pullRequestId,
+              identifier: issues.identifier,
+              title: issues.title,
+            }))
+        : undefined,
+    [prKey]
+  )
+  return useMemo(() => {
+    if (!pr || !active) return null
+    const byPr = new Map<string, { identifier: string; title: string }[]>()
+    for (const row of named ?? []) {
+      const list = byPr.get(row.pullRequestId) ?? []
+      list.push({ identifier: row.identifier, title: row.title })
+      byPr.set(row.pullRequestId, list)
+    }
+    return pullRequestStackView(
+      pr,
+      (prs ?? []) as PullRequestRow[],
+      (id) => byPr.get(id) ?? []
+    )
+  }, [pr, active, prs, named])
 }

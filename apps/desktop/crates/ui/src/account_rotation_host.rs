@@ -53,7 +53,8 @@ struct RotationState {
     reading: Mutex<HashSet<String>>,
 }
 
-struct RotationGlobal(Arc<RotationState>);
+/// The once-per-process marker.
+struct RotationGlobal;
 
 impl gpui::Global for RotationGlobal {}
 
@@ -69,7 +70,7 @@ pub fn start_account_rotation_host(cx: &mut App) {
         records: Mutex::new(HashMap::new()),
         reading: Mutex::new(HashSet::new()),
     });
-    cx.set_global(RotationGlobal(Arc::clone(&state)));
+    cx.set_global(RotationGlobal);
     let data_dir = crate::coding_flow::coding_data_dir(cx);
     cx.spawn(async move |cx| {
         // The chains as the last run of this host (or the daemon) left
@@ -367,11 +368,7 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
             if crate::account_switch::end_then_resume_on_account(
                 run.session_id.clone(),
                 target,
-                None,
-                coding::LaunchOrigin::Local,
                 Some(prompt),
-                crate::steer_wiring::StartReport::none(),
-                true,
                 cx,
             ) {
                 true

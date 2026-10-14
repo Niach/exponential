@@ -126,7 +126,7 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
             Some(comment) => EntityRowFacts { synced: true, issue_id: Some(comment.issue_id.clone()) },
             None => EntityRowFacts::default(),
         },
-        "session" => synced(collections.coding_sessions.read(cx).get(id).is_some()),
+        "session" => synced(collections.sessions.read(cx).get(id).is_some()),
         "label" => synced(collections.labels.read(cx).get(id).is_some()),
         "status" => synced(collections.issue_statuses.read(cx).get(id).is_some()),
         "device" => synced(find_device(id, cx).is_some()),
@@ -146,9 +146,10 @@ pub(crate) fn row_facts(kind: &str, id: &str, cx: &App) -> EntityRowFacts {
 // Click targets
 // ---------------------------------------------------------------------------
 
-/// Where a chip click goes. Screens navigate; a run opens through
-/// [`crate::session_screen::open_session`] (EXP-773: every entry point
-/// funnels there); an action opens its page (SLOP-2).
+/// Where a chip click goes. Screens navigate; a session opens the screen its
+/// row is ([`crate::navigation::session_screen_for`], EXP-1294: a thread
+/// root its thread, an agent root its channel, any other its session view);
+/// an action opens its page (SLOP-2).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EntityTarget {
     Screen(Screen),
@@ -204,7 +205,8 @@ pub(crate) fn open_target(target: EntityTarget, window: &mut Window, cx: &mut Ap
     match target {
         EntityTarget::Screen(screen) => navigate(window, cx, screen),
         EntityTarget::Session(session_id) => {
-            crate::session_screen::open_session(&session_id, window, cx)
+            let screen = crate::navigation::session_screen_for(&session_id, cx);
+            navigate(window, cx, screen)
         }
         EntityTarget::Action(action_id) => {
             crate::actions_view::open_action_page(window, cx, action_id)
@@ -399,11 +401,6 @@ fn action_card(action_id: &str, cx: &mut App) -> Option<AnyElement> {
         card = card.child(muted_line(description.to_string(), cx));
     }
     let mut facts: Vec<String> = Vec::new();
-    // Repositories never sync (server-only rows): the card can say the
-    // action is bound, not to what.
-    if action.repository_id.is_some() {
-        facts.push("Repository-bound".to_string());
-    }
     let inputs = action
         .inputs
         .as_ref()
@@ -516,52 +513,30 @@ fn comment_card(comment_id: &str, cx: &mut App) -> Option<AnyElement> {
     Some(card.into_any_element())
 }
 
+/// EXP-1294: a session's card — THE session card's facts
+/// (`domain::session_tree::session_card`): its state glyph in its tone, the
+/// tree's first issue identifier, the thread title (a root) or the session's
+/// name, and the muted state word with the elapsed time. No machine caption.
 fn session_card(session_id: &str, cx: &mut App) -> Option<AnyElement> {
-    let collections = sync::Store::try_global(cx)?.collections().clone();
-    let session = collections.coding_sessions.read(cx).get(session_id).cloned()?;
-    let now = now_epoch();
+    let session = crate::session_data::session(session_id, cx)?;
+    let facts = crate::session_data::session_card_of(session_id, crate::session_data::now_ms(), cx)?;
+    let root_id = session.root_id_or_self().to_string();
     let muted = cx.theme().muted_foreground;
-    let facts = crate::run_rows::RunListFacts::derive(&session, now, cx);
-    let (identifier, title, dot, working, device) = match &facts {
-        crate::run_rows::RunListFacts::Running(facts) => (
-            facts.identifier.clone(),
-            facts.title.clone(),
-            facts.dot,
-            facts.working,
-            facts.device_label.clone(),
-        ),
-        crate::run_rows::RunListFacts::Past(facts) => (
-            facts.identifier.clone(),
-            facts.title.clone(),
-            muted.opacity(0.4),
-            false,
-            crate::queries::session_device_presentation(
-                &session,
-                collections.devices.read(cx).iter(),
-                now * 1_000,
-            )
-            .label,
-        ),
-    };
-    let agent = coding::CodingAgent::parse(session.agent.as_deref().unwrap_or_default());
-    // EXP-1184: a working run's mark is the agent's working mark (Claude's
-    // stepped spark); the dot beside it stays steady.
-    let mark = if working {
-        crate::coding_selects::agent_working_mark(agent, 14.).into_any_element()
+    let title = if session.is_root() {
+        crate::session_data::thread_title_of(&root_id, cx).unwrap_or_else(|| facts.name.clone())
     } else {
-        let mark = agent
-            .map(crate::coding_selects::agent_mark)
-            .unwrap_or_else(|| Icon::new(registry::CODING_RUNNING).text_color(muted));
-        div().flex_shrink_0().child(mark.small()).into_any_element()
+        facts.name.clone()
     };
+    let glyph = Icon::new(registry::concept_by_name(&facts.icon).unwrap_or(registry::NAV_THREADS))
+        .small()
+        .text_color(crate::work_card::session_tone_color(&facts.tone, cx));
     let mut head = h_flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_2()
-        .child(crate::surface::live_dot(dot, false))
-        .child(mark);
-    if let Some(identifier) = identifier {
+        .child(div().flex_shrink_0().child(glyph));
+    if let Some(identifier) = crate::session_data::first_issue_identifier(&root_id, cx) {
         head = head.child(
             div()
                 .flex_shrink_0()
@@ -580,20 +555,14 @@ fn session_card(session_id: &str, cx: &mut App) -> Option<AnyElement> {
             .line_clamp(2)
             .child(title),
     );
-    let started = crate::run_rows::run_started_at(&session)
-        .map(|at| crate::comments::relative_time(at, now))
-        .filter(|when| !when.is_empty())
-        .map(|when| format!("started {when}"));
-    let mut byline: Vec<String> = Vec::new();
-    if let Some(device) = device.map(|label| label.trim().to_string()).filter(|l| !l.is_empty()) {
-        byline.push(device);
-    }
-    if let Some(started) = started {
-        byline.push(started);
-    }
+    let byline = std::iter::once(facts.kind_word.clone())
+        .chain(facts.elapsed.clone())
+        .filter(|part| !part.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ");
     let mut card = card_frame(cx).child(head);
     if !byline.is_empty() {
-        card = card.child(muted_line(byline.join(" · "), cx));
+        card = card.child(muted_line(byline, cx));
     }
     Some(card.into_any_element())
 }

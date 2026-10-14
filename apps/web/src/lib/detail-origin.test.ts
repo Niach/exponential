@@ -27,7 +27,8 @@ const board: DetailOrigin = { kind: `board`, boardSlug: `web` }
 describe(`screenFromPath`, () => {
   it(`names every list and detail screen, and calls the rest context-free`, () => {
     expect(screenFromPath(`/t/acme/inbox`)).toEqual({ kind: `inbox` })
-    expect(screenFromPath(`/t/acme/agent`)).toEqual({ kind: `agent` })
+    // EXP-1293: the Agent page is the composer alone — a full page.
+    expect(screenFromPath(`/t/acme/agent`)).toEqual({ kind: `other` })
     // EXP-862/SLOP-2: an action's page lists its runs, the TRIGGERED ones
     // included, so it is a list screen of its own.
     expect(screenFromPath(`/t/acme/actions/a1`)).toEqual({
@@ -35,7 +36,7 @@ describe(`screenFromPath`, () => {
       actionId: `a1`,
     })
     expect(screenFromPath(`/t/acme/actions`)).toEqual({ kind: `other` })
-    expect(screenFromPath(`/t/acme/reviews`)).toEqual({ kind: `reviews` })
+    expect(screenFromPath(`/t/acme/threads`)).toEqual({ kind: `threads` })
     expect(screenFromPath(`/t/acme/sessions/s1`)).toEqual({ kind: `session` })
     expect(screenFromPath(`/t/acme/boards/web`)).toEqual({
       kind: `board`,
@@ -49,7 +50,8 @@ describe(`screenFromPath`, () => {
     // Full pages and anything outside a team are context-free.
     for (const path of [
       `/t/acme/devices`,
-      `/t/acme/reviews/MET-3`,
+      `/t/acme/agent`,
+      `/t/acme/reviews`,
       `/t/acme/settings/general`,
       `/t/acme`,
       `/onboarding`,
@@ -60,9 +62,8 @@ describe(`screenFromPath`, () => {
     // A list or a detail is NOT context-free.
     for (const path of [
       `/t/acme/inbox`,
-      `/t/acme/agent`,
       `/t/acme/actions/a1`,
-      `/t/acme/reviews`,
+      `/t/acme/threads`,
       `/t/acme/sessions/s1`,
       `/t/acme/boards/web`,
       `/t/acme/boards/web/issues/MET-12`,
@@ -94,12 +95,13 @@ describe(`deriveOrigin`, () => {
         kind: `session`,
       })
     ).toEqual(board)
-    // The Agent page is a list context (the sessions column's own center).
+    // EXP-1293: Threads is a list context — a thread opened from it
+    // returns there.
     expect(
-      deriveOrigin(screenFromPath(`/t/acme/agent`), { kind: `agent` }, {
+      deriveOrigin(screenFromPath(`/t/acme/threads`), { kind: `threads` }, {
         kind: `session`,
       })
-    ).toEqual({ kind: `agent` })
+    ).toEqual({ kind: `threads` })
     // EXP-862: so is an action's page — a triggered run opened from it
     // keeps that list, and Back returns to it.
     expect(
@@ -116,14 +118,13 @@ describe(`deriveOrigin`, () => {
         kind: `session`,
       })
     ).toBeNull()
-    // Reviews → an issue: the issue's board comes along… except Reviews is a
-    // LIST now, so its own origin stays.
+    // Threads → an issue: the list's own origin stays.
     expect(
-      deriveOrigin(screenFromPath(`/t/acme/reviews`), { kind: `reviews` }, {
+      deriveOrigin(screenFromPath(`/t/acme/threads`), { kind: `threads` }, {
         kind: `issue`,
         boardSlug: `web`,
       })
-    ).toEqual({ kind: `reviews` })
+    ).toEqual({ kind: `threads` })
     // A deep link at boot (nothing before) → issue: its board…
     expect(
       deriveOrigin(null, inbox, { kind: `issue`, boardSlug: `web` })
@@ -139,12 +140,10 @@ describe(`capturedOrigin`, () => {
   it(`reads the origin in force on a screen`, () => {
     expect(capturedOrigin(screenFromPath(`/t/acme/inbox`))).toEqual(inbox)
     expect(capturedOrigin(screenFromPath(`/t/acme/boards/web`))).toEqual(board)
-    expect(capturedOrigin(screenFromPath(`/t/acme/reviews`))).toEqual({
-      kind: `reviews`,
+    expect(capturedOrigin(screenFromPath(`/t/acme/threads`))).toEqual({
+      kind: `threads`,
     })
-    expect(capturedOrigin(screenFromPath(`/t/acme/agent`))).toEqual({
-      kind: `agent`,
-    })
+    expect(capturedOrigin(screenFromPath(`/t/acme/agent`))).toBeNull()
     // EXP-862: a run opened from an action's page returns THERE, so the
     // page is its own origin and never hands on what it was opened with.
     expect(capturedOrigin(screenFromPath(`/t/acme/actions/a1`))).toEqual({
@@ -154,8 +153,7 @@ describe(`capturedOrigin`, () => {
     expect(
       capturedOrigin(screenFromPath(`/t/acme/actions/a1`), board)
     ).toEqual({ kind: `action`, actionId: `a1` })
-    // The Agent page hands on the origin the composer was opened with — that
-    // is how "start coding from an issue" survives the launcher hop.
+    // The Agent page hands on the origin the composer was opened with.
     expect(capturedOrigin(screenFromPath(`/t/acme/agent`), board)).toEqual(
       board
     )
@@ -188,8 +186,7 @@ describe(`formatOrigin / parseOrigin`, () => {
       { kind: `inbox`, tab: `my-issues` },
       { kind: `inbox`, tab: `drafts` },
       board,
-      { kind: `reviews` },
-      { kind: `agent` },
+      { kind: `threads` },
       { kind: `action`, actionId: `a1` },
       { kind: `drafts` },
     ]
@@ -200,8 +197,10 @@ describe(`formatOrigin / parseOrigin`, () => {
     }
     // No origin = no param: the sidebar's main menu stays.
     expect(formatOrigin(null)).toBeUndefined()
-    // EXP-818's spelling of the Agent list still parses.
-    expect(parseOrigin(`sessions`)).toEqual({ kind: `agent` })
+    // EXP-1293: the retired list tokens are no origin.
+    for (const retired of [`sessions`, `agent`, `agent:recent`, `reviews`]) {
+      expect(parseOrigin(retired), retired).toBeNull()
+    }
     // Junk is no origin at all — the retired `issue:` origin included.
     expect(parseOrigin(`issue:web:MET-12`)).toBeNull()
     expect(parseOrigin(``)).toBeNull()
@@ -215,8 +214,7 @@ describe(`originLabel / originBoardSlug`, () => {
   it(`names the list the back row returns to`, () => {
     expect(originLabel(inbox)).toBe(`Inbox`)
     expect(originLabel({ kind: `inbox`, tab: `my-issues` })).toBe(`Inbox`)
-    expect(originLabel({ kind: `reviews` })).toBe(`Reviews`)
-    expect(originLabel({ kind: `agent` })).toBe(`Agent`)
+    expect(originLabel({ kind: `threads` })).toBe(`Threads`)
     expect(originLabel({ kind: `action`, actionId: `a1` }, `Triage`)).toBe(`Triage`)
     expect(originLabel(board, `Web`)).toBe(`Web`)
     // The board's name has to sync in first — never an empty row.
@@ -226,13 +224,13 @@ describe(`originLabel / originBoardSlug`, () => {
   it(`names the board a list nav renders`, () => {
     expect(originBoardSlug(board)).toBe(`web`)
     expect(originBoardSlug(inbox)).toBeNull()
-    expect(originBoardSlug({ kind: `agent` })).toBeNull()
+    expect(originBoardSlug({ kind: `threads` })).toBeNull()
     expect(originBoardSlug({ kind: `action`, actionId: `a1` })).toBeNull()
   })
 })
 
 // EXP-851: which of the sidebar's panels is up, from the URL alone.
-// EXP-1246: a list stays beside a detail ONLY for the Inbox and Agent › Recent.
+// EXP-1246: a list stays beside a detail ONLY for the Inbox.
 describe(`sidebarOccupant`, () => {
   it(`gives settings the slot on every settings route`, () => {
     expect(sidebarOccupant(`/t/acme/settings`, null)).toEqual({
@@ -259,23 +257,14 @@ describe(`sidebarOccupant`, () => {
     }
   })
 
-  // EXP-1284 (review T12): Recent lists threads; the thread it opens keeps it.
-  it(`keeps Recent beside a thread opened from it`, () => {
-    expect(sidebarOccupant(`/t/acme/threads/th1`, `agent:recent`)).toEqual({
-      kind: `list`,
-      origin: { kind: `agent`, tab: `recent` },
-    })
-    expect(sidebarOccupant(`/t/acme/threads/th1`, null)).toEqual({ kind: `main` })
-  })
-
-  it(`keeps Recent beside a run opened from it`, () => {
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, `agent:recent`)).toEqual({
-      kind: `list`,
-      origin: { kind: `agent`, tab: `recent` },
-    })
-    expect(
-      sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `agent:recent`)
-    ).toEqual({ kind: `list`, origin: { kind: `agent`, tab: `recent` } })
+  it(`keeps the main menu on a thread and an agent's channel`, () => {
+    for (const path of [`/t/acme/threads/th1`, `/t/acme/agents/a1`]) {
+      expect(sidebarOccupant(path, null), path).toEqual({ kind: `main` })
+      expect(sidebarOccupant(path, `inbox`), path).toEqual({
+        kind: `list`,
+        origin: inbox,
+      })
+    }
   })
 
   // EXP-1246: the md+ Inbox page IS the list-detail host with nothing picked.
@@ -294,15 +283,8 @@ describe(`sidebarOccupant`, () => {
     })
   })
 
-  it(`shows Recent on the Agent page only while its panel is open`, () => {
+  it(`keeps the main menu on the Agent page`, () => {
     expect(sidebarOccupant(`/t/acme/agent`, null)).toEqual({ kind: `main` })
-    expect(
-      sidebarOccupant(`/t/acme/agent`, null, { recentOpen: true })
-    ).toEqual({ kind: `list`, origin: { kind: `agent`, tab: `recent` } })
-    // The flag means nothing off the Agent page.
-    expect(
-      sidebarOccupant(`/t/acme/boards/web`, null, { recentOpen: true })
-    ).toEqual({ kind: `main` })
   })
 
   // EXP-1246: board, reviews and action origins keep Back but no list — the
@@ -311,9 +293,9 @@ describe(`sidebarOccupant`, () => {
   it(`keeps the main menu for every other origin`, () => {
     for (const from of [
       `board:web`,
-      `reviews`,
+      `threads`,
       `action:a1`,
-      `agent`,
+      `agent:recent`,
       `sessions`,
       `running`,
       `drafts`,
@@ -331,13 +313,11 @@ describe(`sidebarOccupant`, () => {
     expect(parseOrigin(`running`)).toEqual({ kind: `running` })
     expect(formatOrigin({ kind: `running` })).toBe(`running`)
     expect(originHasListNav({ kind: `running` })).toBe(false)
-    expect(originHasListNav({ kind: `agent` })).toBe(false)
+    expect(originHasListNav({ kind: `threads` })).toBe(false)
     expect(originHasListNav({ kind: `board`, boardSlug: `web` })).toBe(false)
-    expect(originHasListNav({ kind: `reviews` })).toBe(false)
     expect(originHasListNav({ kind: `action`, actionId: `a1` })).toBe(false)
     expect(originHasListNav({ kind: `inbox` })).toBe(true)
     expect(originHasListNav({ kind: `inbox`, tab: `my-issues` })).toBe(true)
-    expect(originHasListNav({ kind: `agent`, tab: `recent` })).toBe(true)
     // The Running section is not a page: no Back destination of its own.
     expect(originListNavigation(`acme`, { kind: `running` })).toBeNull()
     // EXP-923: `running` never travels on to the next detail.
@@ -346,25 +326,12 @@ describe(`sidebarOccupant`, () => {
     ).toBeNull()
   })
 
-  it(`round-trips the agent:recent token`, () => {
-    expect(parseOrigin(`agent:recent`)).toEqual({ kind: `agent`, tab: `recent` })
-    expect(formatOrigin({ kind: `agent`, tab: `recent` })).toBe(`agent:recent`)
-    expect(originLabel({ kind: `agent`, tab: `recent` })).toBe(`Agent`)
-    expect(
-      originListNavigation(`acme`, { kind: `agent`, tab: `recent` })
-    ).toEqual({ to: `/t/$teamSlug/agent`, params: { teamSlug: `acme` }, search: {} })
-    // A run opened from Recent hands the origin on to its issue face.
-    expect(
-      capturedOrigin({ kind: `session` }, { kind: `agent`, tab: `recent` })
-    ).toEqual({ kind: `agent`, tab: `recent` })
-  })
-
   it(`keeps the main menu everywhere else`, () => {
     for (const path of [
       `/t/acme`,
       `/t/acme/actions/a1`,
-      `/t/acme/reviews`,
-      `/t/acme/reviews/MET-12`,
+      `/t/acme/threads`,
+      `/t/acme/agent`,
       `/t/acme/devices`,
       `/t/acme/boards/web`,
       `/onboarding`,
@@ -402,13 +369,11 @@ describe(`originListNavigation`, () => {
       params: { teamSlug: `acme` },
       search: { tab: `my-issues` },
     })
-    for (const kind of [`reviews`, `agent`] as const) {
-      expect(originListNavigation(`acme`, { kind })).toEqual({
-        to: `/t/$teamSlug/${kind}`,
-        params: { teamSlug: `acme` },
-        search: {},
-      })
-    }
+    expect(originListNavigation(`acme`, { kind: `threads` })).toEqual({
+      to: `/t/$teamSlug/threads`,
+      params: { teamSlug: `acme` },
+      search: {},
+    })
     expect(
       originListNavigation(`acme`, { kind: `action`, actionId: `a1` })
     ).toEqual({

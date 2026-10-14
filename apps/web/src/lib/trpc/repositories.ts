@@ -1,22 +1,18 @@
 import { z } from "zod"
 import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
 import { boardVisible } from "@/lib/board-visibility"
 import {
-  codingSessions,
   issues,
   boards,
+  pullRequests,
   repositories,
   users,
 } from "@/db/schema"
 import { assertTeamMember, getIssueTeamContext } from "@/lib/team-membership"
-import {
-  claimPrMerge,
-  releasePrMergeClaim,
-} from "@/lib/integrations/pr-actor-claims"
 import {
   fetchBranchDiff,
   githubAppConfigured,
@@ -28,34 +24,9 @@ import {
 } from "@/lib/integrations/github-app"
 import {
   branchExists,
-  diagnoseUnmergeablePr,
-  GitHubAsyncMergePending,
-  GitHubMergeError,
   listOpenPulls,
-  mergedByPerson,
-  mergePullRequestSmart,
   type OpenPull,
 } from "@/lib/integrations/github-pr"
-import { isNotMergeable, prMergeFailureError } from "@/lib/trpc/pr-merge-error"
-import {
-  awaitRebaseOffMergedBranch,
-  basedOnMergedPr,
-  loadGuardDefaultBranches,
-  openStackMember,
-  repoPrUrlPattern,
-  stackLanding,
-  squashCommitTitle,
-  stackedOnMessage,
-  stackedOnOpenPr,
-  stackStopBranches,
-  type StackMember,
-} from "@/lib/pr-merge-guard"
-import { ensureGithubStack, mergeThrough } from "@/lib/pr-stacks"
-import {
-  assertPrUpdateHasFields,
-  patchPullDescription,
-  prUpdateFields,
-} from "@/lib/trpc/pr-update"
 import { resolveRepoForConnect } from "@/lib/trpc/integrations"
 
 // The default branch-name prefix for issue worktrees: `exp/<IDENTIFIER>`.
@@ -367,10 +338,10 @@ export async function loadRepository(repositoryId: string) {
   return repo
 }
 
-// EXP-626: the repo-by-id lookup the issue-LESS `exponential_pr_open` path
-// needs — the same row `mergePull` loads, minus archived repos (a chore PR
-// must never be opened against a repo the team retired), with the EFFECTIVE
-// default branch already resolved so the caller can use it as the PR base.
+// EXP-626: the repo-by-id lookup a repository-named PR open needs — the
+// `loadRepository` row minus archived repos (a PR must never be opened
+// against a repo the team retired), with the EFFECTIVE default branch
+// already resolved so the caller can use it as the PR base.
 // Authorization stays with the caller (membership + scope + link-gate); this
 // only resolves the row.
 export async function loadRepositoryForTeam(repositoryId: string): Promise<{
@@ -396,7 +367,7 @@ export async function loadRepositoryForTeam(repositoryId: string): Promise<{
 
 // The Reviews queue's "everything else" source: open PRs listed live from
 // GitHub for every team repo. Short in-process cache so tab switches and
-// re-mounts don't hammer the GitHub API; busted by mergePull.
+// re-mounts don't hammer the GitHub API; busted when a PR gets recorded.
 const OPEN_PULLS_TTL_MS = 60_000
 interface CachedOpenPulls {
   expiresAt: number
@@ -411,28 +382,31 @@ export function invalidateOpenPulls(teamId: string): void {
 }
 
 /**
- * Every PR url an issue or a run row (EXP-734: a chat/action run's chore PR)
- * carries in these repositories, ACROSS teams: a linked PR is linked no
- * matter whose issue holds it. Exported for `openPulls`' test.
+ * Every PR url recorded in these repositories (EXP-1291: `pull_requests`),
+ * ACROSS teams: a recorded PR renders from the synced rows no matter whose
+ * team holds it. Exported for `openPulls`' test.
  */
 export async function linkedPrUrls(
   database: Pick<typeof db, `select`>,
-  repoFullNames: ReadonlyArray<string>
+  repositoryIds: ReadonlyArray<string>,
+  repoFullNames: ReadonlyArray<string> = []
 ): Promise<Set<string>> {
-  if (repoFullNames.length === 0) return new Set()
-  const inRepos = (column: typeof issues.prUrl | typeof codingSessions.prUrl) =>
-    or(...repoFullNames.map((name) => like(column, repoPrUrlPattern(name))))
-  const issueRows = await database
-    .select({ prUrl: issues.prUrl })
-    .from(issues)
-    .where(inRepos(issues.prUrl))
-  const sessionRows = await database
-    .select({ prUrl: codingSessions.prUrl })
-    .from(codingSessions)
-    .where(inRepos(codingSessions.prUrl))
-  return new Set(
-    [...issueRows, ...sessionRows].flatMap((row) => (row.prUrl ? [row.prUrl] : []))
-  )
+  if (repositoryIds.length === 0 && repoFullNames.length === 0) return new Set()
+  const byRepo = repositoryIds.length
+    ? await database
+        .select({ url: pullRequests.url })
+        .from(pullRequests)
+        .where(inArray(pullRequests.repositoryId, [...repositoryIds]))
+    : []
+  // Another team's row for the same GitHub repo records its PRs too.
+  const byName = repoFullNames.length
+    ? await database
+        .select({ url: pullRequests.url })
+        .from(pullRequests)
+        .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
+        .where(inArray(repositories.fullName, [...repoFullNames]))
+    : []
+  return new Set([...byRepo, ...byName].map((row) => row.url))
 }
 
 /** Pure: GitHub now names a DIFFERENT installation for the row's full name
@@ -481,10 +455,9 @@ export async function resolveGatedRepoToken(repo: {
   return resolved.token
 }
 
-// The repo row `codingSessions.mergePr` needs (EXP-734): a run's chore PR
-// names its repo only through the stored `pr_url`, so resolve the team's row
-// by full name — never archived (a retired repo takes no writes), the same
-// projection `loadRepository` returns. Authorization stays with the caller.
+// The team's repo row by full name (a PR url names its repo only that way),
+// never archived (a retired repo takes no writes), the same projection
+// `loadRepository` returns. Authorization stays with the caller.
 export async function loadRepositoryByFullName(
   teamId: string,
   fullName: string
@@ -518,308 +491,6 @@ export async function loadRepositoryByFullName(
     })
   }
   return repo
-}
-
-// Squash-merge a pull request by number, shared by `repositories.mergePull`
-// (repositoryId + prNumber: Reviews' external group, the MCP chore
-// `pr_merge`) and `codingSessions.mergePr` (EXP-734: a run's own PR, a
-// multi-issue run's combined PR included). Same trust model as installationToken: the team's
-// ownership of the repo row plus the installation link-gate authorizes the
-// merge; the CALLER has already checked membership. After GitHub accepts the
-// merge the session-PR state is written right here (`applySessionPrState`:
-// pr_state → merged + the merge-driven end of the run) and fanned out to
-// every issue linked by the exact `pr_url` (`applyPrMergeState`), so a
-// self-hosted instance with no inbound webhook still echoes the merge to
-// every client; the webhook's later delivery degrades to a no-op.
-//
-// `queued` (FEED-43 R1, like `issues.mergePr`): GitHub's merge queue took
-// the merge and may still reject it, so nothing landed and nothing was
-// written; the webhook (or the poller) completes it, so `merged` is `false`
-// (EXP-1165).
-export type MergePullResult = { merged: boolean; queued?: true; note?: string }
-
-export async function mergeRepositoryPull(opts: {
-  repo: Awaited<ReturnType<typeof loadRepository>>
-  prNumber: number
-  userId: string
-  viaAgent: boolean
-  endSessions?: boolean
-  // The stored PR url when the caller has one (the session path); otherwise
-  // derived from the repo's current full name.
-  prUrl?: string
-  // EXP-1248: merge THROUGH an open-stack member (see issues.mergePr).
-  mergeStack?: boolean
-}): Promise<MergePullResult> {
-  const { repo, prNumber } = opts
-  const prUrl = opts.prUrl ?? `https://github.com/${repo.fullName}/pull/${prNumber}`
-  const { db } = await import(`@/db/connection`)
-  // The issues on this PR (a batch PR has several), oldest first: the first
-  // names the squash commit, like `issues.mergePr` does.
-  const onPr = await db
-    .select({
-      id: issues.id,
-      identifier: issues.identifier,
-      title: issues.title,
-      prBaseBranch: issues.prBaseBranch,
-    })
-    .from(issues)
-    .where(and(eq(issues.prUrl, prUrl), eq(issues.teamId, repo.teamId)))
-    .orderBy(asc(issues.createdAt))
-  // EXP-1145: a PR based on another OPEN PR's branch would squash INTO that
-  // branch; refused before any claim or GitHub call. An issue-linked PR
-  // records its base on the issue; an issue-less one (a chat or action run's
-  // PR) on the run row that opened it (EXP-1165).
-  let based: { id: string | null; prBaseBranch: string } | null = null
-  const issueBased = onPr.find((issue) => issue.prBaseBranch)
-  if (issueBased?.prBaseBranch) {
-    based = { id: issueBased.id, prBaseBranch: issueBased.prBaseBranch }
-  } else if (onPr.length === 0) {
-    const [run] = await db
-      .select({ prBaseBranch: codingSessions.prBaseBranch })
-      .from(codingSessions)
-      .where(
-        and(
-          eq(codingSessions.prUrl, prUrl),
-          eq(codingSessions.teamId, repo.teamId)
-        )
-      )
-      .limit(1)
-    if (run?.prBaseBranch) based = { id: null, prBaseBranch: run.prBaseBranch }
-  }
-  // EXP-1248: an open-stack member with PRs open beneath it never merges
-  // plainly (issues.mergePr's rule). An issue-less run PR is at most a stack
-  // BOTTOM or a tree root (nothing issue-backed walks below it): it lands
-  // alone, so it merges plainly.
-  let landing: StackMember[] | null = null
-  if (onPr[0]) {
-    landing = stackLanding(
-      await openStackMember(db, { issueId: onPr[0].id, teamId: repo.teamId }),
-      opts.mergeStack
-    )
-  }
-  if (based && !landing) {
-    const parent = await stackedOnOpenPr(db, {
-      issueId: based.id,
-      teamId: repo.teamId,
-      repoFullName: repo.fullName,
-      prBaseBranch: based.prBaseBranch,
-    })
-    if (parent) {
-      throw new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: stackedOnMessage(parent),
-      })
-    }
-  }
-  if (!githubAppConfigured()) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `GitHub App is not configured on this instance`,
-    })
-  }
-  const token = await resolveGatedRepoToken(repo)
-  if (!token) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
-    })
-  }
-
-  // The parent already MERGED: its EXP-324 heal is fire-and-forget and this
-  // merge call would beat it, squashing INTO the parent's kept branch. Await
-  // the heal, then refuse while GitHub still reports the merged branch as
-  // the base (same as `issues.mergePr`). Before any claim.
-  // A merge THROUGH a stack lands the whole line at once: the branch that
-  // matters is the BOTTOM member's base (every other member sits on an open
-  // PR), so the bottom is what gets healed, as the old per-member loop did.
-  const healTarget =
-    landing && landing.length > 1
-      ? landing[0]!.prBaseBranch
-        ? {
-            prNumber: landing[0]!.prNumber,
-            prUrl: landing[0]!.prUrl,
-            prBaseBranch: landing[0]!.prBaseBranch,
-          }
-        : null
-      : based
-        ? { prNumber, prUrl, prBaseBranch: based.prBaseBranch }
-        : null
-  if (healTarget) {
-    const mergedParent = await basedOnMergedPr(db, {
-      teamId: repo.teamId,
-      repoFullName: repo.fullName,
-      prBaseBranch: healTarget.prBaseBranch,
-    })
-    if (mergedParent) {
-      const { retargetChildrenOfMergedPr } = await import(
-        `@/lib/integrations/pr-sync`
-      )
-      try {
-        await retargetChildrenOfMergedPr({
-          prUrl: mergedParent.prUrl,
-          headBranch: healTarget.prBaseBranch,
-          teamId: repo.teamId,
-        })
-      } catch (err) {
-        // The check below refuses a PR left on the merged branch.
-        console.error(
-          `retarget before merging ${repo.fullName}#${healTarget.prNumber}:`,
-          err
-        )
-      }
-      await awaitRebaseOffMergedBranch(db, {
-        repoFullName: repo.fullName,
-        prNumber: healTarget.prNumber,
-        prUrl: healTarget.prUrl,
-        prBaseBranch: healTarget.prBaseBranch,
-        mergedBranch: healTarget.prBaseBranch,
-        token,
-      })
-    }
-  }
-
-  // EXP-494: even an "unlinked" PR's `closed` webhook can resolve an
-  // issue via the branch parse — claim the initiator so that fan-out is
-  // attributed to (and excludes) the merging member instead of going out
-  // anonymously.
-  // A merge through a stack member needs the line to BE a GitHub stack, or
-  // merge-async would squash it INTO the branch below. No fallback.
-  if (landing && landing.length > 1) {
-    try {
-      await ensureGithubStack({
-        repo: repo.fullName,
-        token,
-        lowerPrNumber: landing[landing.length - 2]!.prNumber,
-        newPrNumber: prNumber,
-        stopBranches: stackStopBranches(
-          await loadGuardDefaultBranches(db, {
-            teamId: repo.teamId,
-            repoFullName: repo.fullName,
-          })
-        ),
-      })
-    } catch (err) {
-      throw new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: err instanceof Error ? err.message : String(err),
-      })
-    }
-  }
-  const landingPrs = landing ?? [{ identifier: null, prNumber, prUrl }]
-  for (const pr of landingPrs) {
-    claimPrMerge(repo.fullName, pr.prNumber, {
-      userId: opts.userId,
-      viaAgent: opts.viaAgent,
-      endSessions: opts.endSessions,
-    })
-  }
-  const releaseClaims = () => {
-    for (const pr of landingPrs) releasePrMergeClaim(repo.fullName, pr.prNumber)
-  }
-  let smart: Awaited<ReturnType<typeof mergePullRequestSmart>>
-  try {
-    const mergeOpts = {
-      repo: repo.fullName,
-      prNumber,
-      token,
-      // An issue's PR keeps its `IDENT: title (#N)` squash title on this
-      // path too (a batch merged from its run).
-      ...(onPr[0]
-        ? {
-            commitTitle: squashCommitTitle(
-              onPr[0].identifier,
-              onPr[0].title,
-              prNumber
-            ),
-          }
-        : {}),
-    }
-    smart = landing
-      ? await mergeThrough(mergeOpts)
-      : await mergePullRequestSmart(mergeOpts)
-  } catch (err) {
-    if (err instanceof GitHubAsyncMergePending) {
-      // The merge is still running on GitHub — keep the claim so the webhook
-      // echo of the landing merge stays attributed.
-      throw new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: `GitHub is still merging PR #${err.prNumber}. It did not finish in time — check the PR on GitHub; the issue completes when the merge lands.`,
-      })
-    }
-    releaseClaims()
-    if (err instanceof GitHubMergeError) {
-      // "Not mergeable" is misleading on a stacked PR whose base is stale
-      // (EXP-324) — diagnose the base's real state; degrade to GitHub's
-      // message when the diagnosis can't run (same treatment as
-      // issues.mergePr, same conflict signal, EXP-533).
-      let diagnosis = null
-      if (isNotMergeable(err)) {
-        const defaultBranch =
-          effectiveDefaultBranch(repo) ??
-          (await resolveRepoDefaultBranchCached(repo.fullName))
-        diagnosis = defaultBranch
-          ? await diagnoseUnmergeablePr({
-              repo: repo.fullName,
-              prNumber,
-              token,
-              defaultBranch,
-            })
-          : null
-      }
-      throw prMergeFailureError(err, diagnosis)
-    }
-    throw err
-  }
-
-  // EXP-897: a queued merge has not landed yet, the merge queue will run it.
-  // Nothing may be marked merged here: no issue completes, no session ends,
-  // nobody is notified. The claim stays for the landing merge's webhook.
-  if (smart.queued) {
-    return {
-      merged: false,
-      queued: true,
-      note: `GitHub queued the merge of PR #${prNumber}. Nothing is merged yet; it completes when the merge lands.`,
-    }
-  }
-
-  // FEED-64: the merge call failed but the PR reads merged — by a PERSON.
-  // Theirs to attribute: the claim goes and the webhook (or poller) writes
-  // the state off its own `merged_by`; the PR is in, so `merged: true`.
-  if (mergedByPerson(smart.mergedBy)) {
-    releaseClaims()
-    openPullsCache.delete(repo.teamId)
-    return { merged: true }
-  }
-
-  // Lazy like `loadRepository`'s db import: pr-sync opens the db connection
-  // at module scope, which the router tests never want.
-  const { applyPrMergeState, applySessionPrState } = await import(
-    `@/lib/integrations/pr-sync`
-  )
-  // Every landed PR: this one, plus the stack beneath a merge-through.
-  for (const pr of landingPrs) {
-    await applySessionPrState({
-      prUrl: pr.prUrl,
-      state: `merged`,
-      endSessions: opts.endSessions,
-    })
-    const linked = await db
-      .select({ id: issues.id })
-      .from(issues)
-      .where(and(eq(issues.prUrl, pr.prUrl), eq(issues.teamId, repo.teamId)))
-    for (const issue of linked) {
-      await applyPrMergeState({
-        issueId: issue.id,
-        prUrl: pr.prUrl,
-        prNumber: pr.prNumber,
-        actorUserId: opts.userId,
-        actorViaAgent: opts.viaAgent,
-        ...(opts.endSessions !== undefined ? { endSessions: opts.endSessions } : {}),
-      })
-    }
-  }
-  openPullsCache.delete(repo.teamId)
-  return { merged: true }
 }
 
 export const repositoriesRouter = router({
@@ -910,8 +581,8 @@ export const repositoriesRouter = router({
     }),
 
   // Member-readable: every open pull request across the team's repos
-  // that is NOT already linked to an issue (those rows render from the synced
-  // issues shape). Listed live from GitHub so PRs opened outside the issue
+  // that is NOT recorded in `pull_requests` (those render from the synced
+  // rows; `pullRequests.*` acts on them after `resolvePullRequest` records one). Listed live from GitHub so PRs opened outside the issue
   // flow — PRs on other branches, manual PRs, external contributors —
   // still land in the Reviews queue.
   openPulls: authedProcedure
@@ -940,14 +611,12 @@ export const repositoriesRouter = router({
         )
         .orderBy(asc(repositories.sortOrder), asc(repositories.fullName))
 
-      // PRs already linked to an issue are excluded by URL — the issue rows
-      // carry them (regardless of the row's possibly-drifted prState).
-      // EXP-1244: linked by ANY team's rows, keyed on the repo's PR urls, not
-      // the caller's team: two teams on one repository (or an issue moved
-      // across teams) must not re-surface a PR an issue already owns. The
-      // exclusion only HIDES a row, it exposes nothing of the other team.
+      // Recorded PRs (`pull_requests`) are excluded by URL — they render
+      // from the synced rows. EXP-1244: recorded by ANY team, keyed on the
+      // repo, not the caller's team; the exclusion only HIDES a row.
       const linkedUrls = await linkedPrUrls(
         ctx.db,
+        repos.map((repo) => repo.id),
         repos.map((repo) => repo.fullName)
       )
 
@@ -974,78 +643,6 @@ export const repositoriesRouter = router({
         repos: results,
       })
       return { repos: results }
-    }),
-
-  // Member-gated squash-merge for a pull request WITHOUT an issue link (the
-  // issue-linked path is issues.mergePr, which also syncs the issue row).
-  // Same trust model as installationToken: the team's ownership of the
-  // repo row plus the installation link-gate authorizes the merge.
-  mergePull: authedProcedure
-    .input(
-      z.object({
-        repositoryId: z.string().uuid(),
-        prNumber: z.number().int().positive(),
-        // EXP-711: see issues.mergePr — rides the merge claim to the webhook's
-        // branch-keyed sweep, the only merge-driven end a chore PR has.
-        endSessions: z.boolean().optional(),
-        // EXP-1248: merge through an open-stack member (issues.mergePr).
-        mergeStack: z.boolean().optional(),
-      })
-    )
-    .mutation(async ({ ctx, input }): Promise<MergePullResult> => {
-      const repo = await loadRepository(input.repositoryId)
-      await assertRepoCapability(ctx.session.user.id, repo.teamId)
-      return mergeRepositoryPull({
-        repo,
-        prNumber: input.prNumber,
-        userId: ctx.session.user.id,
-        // EXP-626: reachable from the MCP `exponential_pr_merge` tool now
-        // (a chore PR with no issue), so the claim records agent-mediation
-        // the same way issues.mergePr does.
-        viaAgent: ctx.viaMcp === true,
-        endSessions: input.endSessions,
-        mergeStack: input.mergeStack,
-      })
-    }),
-
-  // EXP-1139: rewrite the title/body of a pull request WITHOUT an issue link
-  // (the issue-linked path is issues.updatePr) — the chore PR a chat or
-  // action run opened, named by `repositoryId + prNumber` like `mergePull`.
-  // Same trust model: the team's ownership of the repo row plus the
-  // installation link-gate authorizes the write; nothing is persisted (the
-  // session row carries no title/body).
-  updatePull: authedProcedure
-    .input(
-      z.object({
-        repositoryId: z.string().uuid(),
-        prNumber: z.number().int().positive(),
-        ...prUpdateFields,
-      })
-    )
-    .mutation(async ({ ctx, input }): Promise<{ updated: true }> => {
-      assertPrUpdateHasFields(input)
-      const repo = await loadRepository(input.repositoryId)
-      await assertRepoCapability(ctx.session.user.id, repo.teamId)
-      if (!githubAppConfigured()) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `GitHub App is not configured on this instance`,
-        })
-      }
-      const token = await resolveGatedRepoToken(repo)
-      if (!token) {
-        throw new TRPCError({
-          code: `PRECONDITION_FAILED`,
-          message: `The GitHub App no longer has access to ${repo.fullName}. Re-grant it on GitHub (team settings → Repositories), then retry.`,
-        })
-      }
-      await patchPullDescription({
-        repoFullName: repo.fullName,
-        prNumber: input.prNumber,
-        token,
-        fields: { title: input.title, body: input.body },
-      })
-      return { updated: true }
     }),
 
   // Any member: register a repo THEIR OWN GitHub connection grants (EXP-557 —

@@ -420,13 +420,13 @@ final class PickerContractTests: XCTestCase {
     }
 
     /// The same for an action: the curated glyph through `ActionIconDisplay`
-    /// (unset = the generic action mark, never a hole), the description under
-    /// the name — so every action pick draws the composer's row.
+    /// (unset = the generic action mark, never a hole) — so every action pick
+    /// draws the composer's row.
     func testAnActionRowIsBridgedOnceWithItsGlyph() {
         func dto(icon: String?) -> ActionDto {
             ActionDto(
-                id: "a", teamId: "t", repositoryId: nil, name: "Release",
-                description: "Ship it", icon: icon, body: "", sortOrder: 1,
+                id: "a", teamId: "t", name: "Release",
+                icon: icon, body: "", sortOrder: 1,
                 createdAt: "", updatedAt: ""
             )
         }
@@ -434,7 +434,6 @@ final class PickerContractTests: XCTestCase {
         XCTAssertEqual(unset.id, "a")
         XCTAssertEqual(unset.name, "Release")
         XCTAssertEqual(unset.icon, AppIcons.actionDefault)
-        XCTAssertEqual(unset.description, "Ship it")
         XCTAssertEqual(ActionPickerAction(dto(icon: "rocket")).icon, "rocket")
         // A name this build has no asset for falls back like an unset one.
         XCTAssertEqual(

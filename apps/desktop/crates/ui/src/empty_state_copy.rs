@@ -8,7 +8,9 @@
 pub(crate) const INBOX: &str = "All caught up";
 pub(crate) const MY_ISSUES: &str = "No issues assigned to you";
 pub(crate) const DRAFTS: &str = "No drafts";
-pub(crate) const REVIEWS: &str = "No open pull requests";
+// EXP-1294: the Threads page (the empty-state.json `threads` state).
+pub(crate) const THREADS: &str = "No sessions yet";
+pub(crate) const ACTIONS: &str = "No actions yet";
 pub(crate) const BOARDS: &str = "No boards yet";
 pub(crate) const BOARDS_DESCRIPTION: &str = "Create a board to start tracking work.";
 pub(crate) const BOARDS_ACTION: &str = "Create a board";
@@ -22,10 +24,6 @@ pub(crate) const NO_SELECTION_NOTIFICATION: &str = "No notification selected";
 pub(crate) const BOARD_SWITCHER: &str = "No boards yet";
 pub(crate) const ARCHIVED_BOARDS: &str = "No archived boards";
 pub(crate) const NO_TEAM_SELECTED: &str = "No team selected";
-pub(crate) const ACTION_RUNS: &str = "No sessions yet";
-pub(crate) const ACTION_TRIGGERS: &str = "No triggers yet";
-pub(crate) const RECENT_RUNS: &str = "No recent sessions";
-pub(crate) const RUNNING_AGENTS: &str = "No agents running";
 pub(crate) const DEVICES: &str = "No devices yet";
 pub(crate) const MCP_SERVERS: &str = "No MCP servers yet";
 pub(crate) const BUILTIN_TOOLS_NO_MATCH: &str = "No tools match";
@@ -64,7 +62,8 @@ mod tests {
             ("inbox", INBOX),
             ("my-issues", MY_ISSUES),
             ("drafts", DRAFTS),
-            ("reviews", REVIEWS),
+            ("threads", THREADS),
+            ("actions", ACTIONS),
             ("boards", BOARDS),
             ("issues", ISSUES),
             ("no-team", NO_TEAM),
@@ -73,10 +72,6 @@ mod tests {
             ("board-switcher", BOARD_SWITCHER),
             ("archived-boards", ARCHIVED_BOARDS),
             ("no-team-selected", NO_TEAM_SELECTED),
-            ("action-runs", ACTION_RUNS),
-            ("action-triggers", ACTION_TRIGGERS),
-            ("recent-runs", RECENT_RUNS),
-            ("running-agents", RUNNING_AGENTS),
             ("devices", DEVICES),
             ("mcp-servers", MCP_SERVERS),
             ("builtin-tools-no-match", BUILTIN_TOOLS_NO_MATCH),
@@ -112,7 +107,7 @@ mod tests {
     /// fixture either: a stray one there would go undrawn here.
     #[test]
     fn title_only_states_have_no_description() {
-        for id in ["inbox", "my-issues", "drafts", "reviews", "no-selection-issue"] {
+        for id in ["inbox", "my-issues", "drafts", "threads", "no-selection-issue"] {
             assert!(field(id, "description").is_none(), "{id}");
         }
     }

@@ -1,5 +1,10 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.threads.ThreadsViewModel
+import com.exponential.app.ui.threads.ThreadListRow
+import com.exponential.app.ui.threads.ThreadRowMeta
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,6 +28,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -64,8 +71,8 @@ import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuRowId
+import androidx.compose.foundation.lazy.LazyListScope
 import com.exponential.app.domain.mcpPickValue
-import com.exponential.app.domain.subjectOwnsMcpServers
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
@@ -79,7 +86,6 @@ import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.BlockedStart
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.issue.StaticDot
@@ -109,7 +115,6 @@ import com.exponential.app.ui.markdown.pickAutocompleteAt
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
-import com.exponential.app.ui.session.AgentsViewModel
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.domain.ToastAction
 import com.exponential.app.ui.components.ExponentialMark
@@ -133,9 +138,10 @@ import kotlinx.coroutines.launch
  * EXP-825: the team's AGENT page — the ONE launcher on every client. The
  * composer card ([AgentComposer]: subject chips, the message, images, the
  * labelled submit), the `@`/`#`/`:` candidate menu under it, the options line
- * ([AgentOptionsRow]), the start captions, then the caller's Running and
- * Recent THREADS ([agentThreadsList], EXP-1284; moved here from the Devices tab, which keeps
- * machines only — web parity, EXP-818).
+ * ([AgentOptionsRow]) and the start captions, under the dawn
+ * ([AgentPageFrame], FEED-100). The "+" opens THE composer menu
+ * ([ComposerPlusMenuSheet], composer-menu.json). EXP-1291: a send is ONE
+ * `sessions.send` new root in the current team; the page lands on it.
  *
  * Two mounts: the Agent TAB (the bar's chat arm and the app's landing
  * screen; empty seed, no back button, the floating bar overlays it — [onBack]
@@ -151,21 +157,22 @@ import kotlinx.coroutines.launch
 fun AgentScreen(
     /** Null on the Agent TAB: no back button, and the list clears the bar. */
     onBack: (() -> Unit)?,
-    onOpenSteer: (codingSessionId: String) -> Unit,
+    /** A raw session view (`session/{id}`). */
+    onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
-    /** EXP-1284: a Running / Recent row opens its THREAD. */
+    /** A thread (`thread/{id}`). */
     onOpenThread: (threadId: String) -> Unit = {},
-    /** T-N2: a start LANDS on its thread (Conversation selected), replacing
-     *  this page when it was pushed; default = [onOpenThread]. */
+    /** EXP-1291: an accepted send LANDS on its thread (the new root IS the
+     *  thread), replacing this page when it was pushed; default = [onOpenThread]. */
     onLandInThread: (threadId: String) -> Unit = onOpenThread,
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
-    // The sessions under the composer: the Devices tab's own model, reused
-    // rather than mirrored (both read the same synced shapes).
-    sessionsViewModel: AgentsViewModel = hiltViewModel(),
-    // EXP-1284: the lists show THREADS (`partitionThreadList`).
-    threadsViewModel: com.exponential.app.ui.thread.ThreadsViewModel = hiltViewModel(),
+    threadsViewModel: ThreadsViewModel = hiltViewModel(),
 ) {
+    // composer-home.json: phones keep their Running list (live OWN threads)
+    // under the column on the TAB mount; never Recent.
+    val runningThreads by threadsViewModel.running.collectAsStateWithLifecycle()
+    val runningMeta by threadsViewModel.rowMeta.collectAsStateWithLifecycle()
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
@@ -177,28 +184,22 @@ fun AgentScreen(
     val deviceRequestNote by viewModel.deviceRequestNote.collectAsStateWithLifecycle()
     val launch by viewModel.launch.collectAsStateWithLifecycle()
     val subject by viewModel.subject.collectAsStateWithLifecycle()
-    // EXP-980: non-null while the blocked-start dialog is up — the picked
-    // subjects, their blockers and the chain it draws.
-    val blockedPrompt by viewModel.blockedPrompt.collectAsStateWithLifecycle()
     val draft by viewModel.draft.collectAsStateWithLifecycle()
     val images by viewModel.images.collectAsStateWithLifecycle()
     val imageError by viewModel.imageError.collectAsStateWithLifecycle()
     val resume by viewModel.resume.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val pendingPrIssueId by viewModel.pendingPrIssueId.collectAsStateWithLifecycle()
-    // EXP-1233: the Fix merge conflicts builtin's picked PR + the refusal flag.
-    val fixConflictsPr by viewModel.fixConflictsPr.collectAsStateWithLifecycle()
-    val conflictRefused by viewModel.conflictRefused.collectAsStateWithLifecycle()
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val pool by viewModel.startCandidates.collectAsStateWithLifecycle()
+    // EXP-1291: an action's `issue` inputs pick from the team's issues.
+    val inputIssues by viewModel.inputIssues.collectAsStateWithLifecycle()
     // EXP-1249: the "+" menu's MCP servers pick and per-run computer use.
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
     val computerUse by viewModel.computerUse.collectAsStateWithLifecycle()
-    // EXP-1253: the home around the card — the greeting's name and whether
-    // Getting started still follows it (no board yet).
-    val userName by viewModel.userName.collectAsStateWithLifecycle()
+    // EXP-1270: whether Getting started still follows the card (no board yet).
     val teamHasBoard by viewModel.teamHasBoard.collectAsStateWithLifecycle()
     // EXP-1271: the start in flight, until its row lands or it times out.
     val starting by viewModel.starting.collectAsStateWithLifecycle()
@@ -212,38 +213,14 @@ fun AgentScreen(
     val deviceWorktrees by dataViewModel.deviceWorktrees.collectAsStateWithLifecycle()
     val syncedDeviceRows by dataViewModel.deviceRows.collectAsStateWithLifecycle()
 
-    // ── Sessions ────────────────────────────────────────────────────────────
-    // EXP-1186: runs are cross-team, banded per team once there are several.
-    val memberTeams by sessionsViewModel.teams.collectAsStateWithLifecycle()
-    // EXP-1284: Running (a live run of mine) vs Recent, as THREADS.
-    val threadList by threadsViewModel.list.collectAsStateWithLifecycle()
-    val orphanLive by threadsViewModel.orphanLive.collectAsStateWithLifecycle()
-
-    // The desktop picked the start up — open the live session ONCE (EXP-536).
+    // EXP-1291: an accepted send answers with its session — a NEW ROOT, i.e.
+    // the thread itself — and the page lands there ONCE.
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
-    // EXP-1284 (T-N2/T11): EVERY start lands on its THREAD with the
-    // Conversation on show — the thread it was started into, else the one
-    // the server placed it in (its synced item, a short wait); a session no
-    // thread names yet opens on its own screen. Kept apart from the one-shot
-    // so consuming it never cancels the wait.
-    var landing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(startedSessionId) {
-        startedSessionId?.let {
-            viewModel.consumeStartedSession()
-            landing = it
-        }
+        val sessionId = startedSessionId ?: return@LaunchedEffect
+        viewModel.consumeStartedSession()
+        onLandInThread(sessionId)
     }
-    LaunchedEffect(landing) {
-        val sessionId = landing ?: return@LaunchedEffect
-        val threadId = viewModel.seed.threadId ?: threadsViewModel.awaitThreadOf(sessionId)
-        landing = null
-        if (threadId != null) onLandInThread(threadId) else onOpenSteer(sessionId)
-    }
-    // EXP-1253: computed ONCE per mount (it never flips while you type); the
-    // name fills in when the user row syncs.
-    val greetingClock = remember { AgentHome.localWallClock(LocalDateTime.now()) }
-    val greeting = remember(userName) { AgentHome.homeGreeting(greetingClock, userName) }
-
     // ── Subject resolution ──────────────────────────────────────────────────
     val actionSubject = subject as? ComposerSubject.Action
     val issueSubject = subject as? ComposerSubject.Issues
@@ -281,11 +258,9 @@ fun AgentScreen(
         val issueId = pendingPrIssueId ?: return@LaunchedEffect
         val key = selectedActionInputs.firstOrNull { it.type == "pr" }?.key ?: return@LaunchedEffect
         val option = pullRequestOptions.optionForIssue(issueId) ?: return@LaunchedEffect
-        viewModel.setInput(key, option.issueId)
+        viewModel.setInput(key, option.pullRequestId)
         viewModel.consumePendingPr()
     }
-    // EXP-349: repo-typed inputs seed from the action's bound repository.
-    LaunchedEffect(selectedAction) { selectedAction?.let(viewModel::seedRepoInputs) }
     // A team with exactly one repository pre-picks it for a chat.
     LaunchedEffect(teamRepos) { viewModel.defaultChatRepo(teamRepos.map { it.id }) }
 
@@ -311,9 +286,7 @@ fun AgentScreen(
         is ComposerSubject.Issues -> checkedCount in 1..MAX_BATCH_ISSUES && !multiRepo
         is ComposerSubject.Action -> selectedAction != null &&
             !ActionInputValues.hasUnsupportedType(selectedActionInputs) &&
-            viewModel.requiredInputsFilled(selectedActionInputs) &&
-            // The creator derives everything from the request text.
-            (actionSubject?.id != DomainContract.builtinCreateActionId || hasText)
+            viewModel.requiredInputsFilled(selectedActionInputs)
     }
     val busy = sending || starting != null || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
@@ -324,12 +297,7 @@ fun AgentScreen(
         )
     // The ONE pure place the subject turns into copy: the submit's contract
     // label and (EXP-1038) the headline verb above the field.
-    // EXP-1233: the Fix merge conflicts builtin with a picked PR is its own
-    // case (verb + send); unpicked it reads as any action.
-    val fixConflictsActive = actionSubject?.id == DomainContract.builtinFixConflictsId
-    val fixConflictsPicked = if (fixConflictsActive) fixConflictsPr else null
     val promptSubject = when {
-        fixConflictsPicked != null -> AgentComposerPrompt.Subject.FixConflicts
         actionSubject != null -> AgentComposerPrompt.Subject.Action
         checkedCount > 0 -> AgentComposerPrompt.Subject.Issues(checkedCount)
         else -> AgentComposerPrompt.Subject.None
@@ -529,60 +497,10 @@ fun AgentScreen(
     var effortPickerOpen by remember { mutableStateOf(false) }
     var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
-    // EXP-923: the finished runs live behind the top bar's history button,
-    // with no folded state anywhere — a plain list in a sheet.
-    var recentOpen by remember { mutableStateOf(false) }
-    // …and with nothing running, the composer column sits in the MIDDLE of the
-    // page instead of hugging the top bar (web `justify-center`, desktop
-    // `min_h_full`, iOS the same rule).
-    val emptyRuns = threadList.running.isEmpty() && orphanLive.isEmpty()
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Agent") },
-                navigationIcon = { onBack?.let { TopBarBackButton(onClick = it) } },
-                // EXP-923: history, where history belongs — the finished runs
-                // are one tap away instead of a band under the composer.
-                actions = {
-                    IconButton(
-                        onClick = { recentOpen = true },
-                        modifier = Modifier.testTag("agent-history-button"),
-                    ) {
-                        Icon(
-                            ExpIcons.settingsSessions,
-                            contentDescription = "Recent sessions",
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
-            )
-        },
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("agent-page"),
-            // As a tab the floating bar overlays the page: the last row (and a
-            // centred composer) must sit above the pill, not under it.
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
-                top = 4.dp,
-                bottom = if (onBack == null) BottomBarInset else 24.dp,
-            ),
-            verticalArrangement = if (emptyRuns) {
-                Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
-            } else {
-                Arrangement.spacedBy(6.dp)
-            },
-        ) {
+    AgentPageFrame(onBack = onBack, dawn = promptSubject == AgentComposerPrompt.Subject.None) {
             when (steerEnabled) {
-                // Web parity: without the relay nothing here can be started —
-                // the page still lists the sessions that synced in.
+                // Web parity: without the relay nothing here can be started.
                 false -> item(key = "__relay_off__") {
                     Row(
                         modifier = Modifier
@@ -599,7 +517,7 @@ fun AgentScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up below.",
+                            "Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up in Threads.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
@@ -614,44 +532,15 @@ fun AgentScreen(
                     // (web `LaunchHeadline` returns null, ×4): the field's
                     // placeholder already says "Ask the agent…", and the same
                     // sentence twice is not a heading.
-                    // EXP-1253: with nothing picked the HOME headline leads
-                    // (the disc mark + the time-of-day greeting); a picked
-                    // subject's own headline leads instead.
-                    if (promptSubject == AgentComposerPrompt.Subject.None) {
-                        item(key = "__home_headline__") {
-                            HomeHeadline(
-                                greeting = greeting,
-                                modifier = Modifier.padding(
-                                    top = 8.dp,
-                                    // The column's 6dp gap makes up the rest of
-                                    // `headlineToCard`.
-                                    bottom = (AgentHome.HEADLINE_TO_CARD - 6).dp,
-                                ),
-                            )
-                        }
-                    }
                     if (promptSubject != AgentComposerPrompt.Subject.None) {
                         item(key = "__composer_headline__") {
-                            if (fixConflictsPicked != null) {
-                                // EXP-1233: "Fix merge conflicts" + the PR's
-                                // issue chips; the ✕ clears the PICK only.
-                                AgentComposerHeadline(
-                                    headline = headline,
-                                    issueChips = fixConflictsPicked.issues.map { it.toIssueOption() },
-                                    onRemoveIssue = { viewModel.clearFixConflictsPr() },
-                                    actionChip = null,
-                                    onClearAction = viewModel::clearAction,
-                                    removeIssueDescription = { "Clear the pull request" },
-                                )
-                            } else {
-                                AgentComposerHeadline(
-                                    headline = headline,
-                                    issueChips = checkedOptions,
-                                    onRemoveIssue = viewModel::toggleIssue,
-                                    actionChip = selectedAction,
-                                    onClearAction = viewModel::clearAction,
-                                )
-                            }
+                            AgentComposerHeadline(
+                                headline = headline,
+                                issueChips = checkedOptions,
+                                onRemoveIssue = viewModel::toggleIssue,
+                                actionChip = selectedAction,
+                                onClearAction = viewModel::clearAction,
+                            )
                         }
                     }
                     item(key = "__composer__") {
@@ -712,9 +601,6 @@ fun AgentScreen(
                             boards = boardOptions,
                             pullRequests = pullRequestOptions,
                             onInputChange = viewModel::setInput,
-                            fixConflictsActive = fixConflictsActive,
-                            fixConflictsPr = fixConflictsPicked,
-                            conflictRefused = conflictRefused,
                             pendingImages = images,
                             imageError = imageError,
                             sending = sending || starting != null,
@@ -724,6 +610,7 @@ fun AgentScreen(
                             submitLabel = submitLabel,
                             canSubmit = canSubmit,
                             onSubmit = { viewModel.submit(selectedAction, resumeCandidate != null) },
+                            issues = inputIssues,
                         )
                     }
                     if (menuOpen) {
@@ -823,27 +710,9 @@ fun AgentScreen(
                 }
                 null -> Unit
             }
-            item(key = "__sessions_gap__") { Spacer(Modifier.height(4.dp)) }
-            agentThreadsList(
-                running = threadList.running,
-                onOpenThread = onOpenThread,
-                teams = memberTeams,
-                // T4: my live sessions no thread names yet stay listed.
-                orphans = orphanLive,
-                onOpenSession = onOpenSteer,
-            )
-        }
-        }
+            if (onBack == null) homeRunningBand(runningThreads, runningMeta, onOpenThread)
     }
 
-    if (recentOpen) {
-        RecentThreadsSheet(
-            recent = threadList.recent,
-            teams = memberTeams,
-            onOpenThread = onOpenThread,
-            onDismiss = { recentOpen = false },
-        )
-    }
     if (plusMenuOpen) {
         val claude = launch.agent == DEFAULT_AGENT
         ComposerPlusMenuSheet(
@@ -851,7 +720,9 @@ fun AgentScreen(
                 ComposerMenuConditions(
                     subagentModel = supportsSubagentModel(launch.agent),
                     ultracode = claude,
-                    mcp = mcpServers.isNotEmpty() && !subjectOwnsMcpServers(actionSubject?.id),
+                    // EXP-1291: actions no longer carry their own MCP list, so
+                    // no subject owns it — the team's servers alone decide.
+                    mcp = mcpServers.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
                 ),
             ),
@@ -933,138 +804,115 @@ fun AgentScreen(
         )
     }
 
-    // EXP-980/SLOP-3: the picked work is still blocked: cancel, start it
-    // anyway, or start a stacked PR. Same title, body, graph and button words
-    // on all four clients (`BlockedStart`).
-    blockedPrompt?.let { prompt ->
-        BlockedStartDialog(
-            prompt = prompt,
-            onOpenIssue = onOpenIssue,
-            onStartAnyway = viewModel::submitAnyway,
-            onStartStacked = viewModel::submitStacked,
-            onDismiss = viewModel::dismissBlockedPrompt,
-        )
-    }
-
-
 }
 
 /**
- * EXP-1253 (composer-home.json `geometry`, phones): the disc mark at
- * `markPhone` + ONE line of Inter semibold at `headlinePhone`, centred, never
- * a subtitle.
+ * The Agent page's frame: the transparent "Agent" top bar over the page's one
+ * column ([content]) from the top down. EXP-1306 (the approved phone home =
+ * iOS `AgentPageView`): [dawn] leads the column — the restored DAWN
+ * (FEED-100), the big Exponential mark's upper half, dim, fully BELOW the
+ * title — then the composer card + options line, then the Running band.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth().testTag(AgentHome.HOME_TEST_ID),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AgentHome.GAP.dp, Alignment.CenterHorizontally),
-    ) {
-        ExponentialMark(
-            size = AgentHome.MARK_PHONE.dp,
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.testTag(AgentHome.MARK_TEST_ID),
-        )
-        Text(
-            greeting,
-            fontSize = AgentHome.HEADLINE_PHONE.sp,
-            lineHeight = (AgentHome.HEADLINE_PHONE + 6).sp,
-            fontWeight = FontWeight(AgentHome.HEADLINE_WEIGHT),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false).testTag(AgentHome.GREETING_TEST_ID),
-        )
-    }
-}
-
-/**
- * EXP-980: the blocked-start dialog. It asks for ONE picked issue (the blocker
- * chips in the shared prefix/suffix sentence) and for a BATCH alike (the batch
- * body, blockers outside the picked set), and under either the MINI-GRAPH of
- * the transitive chain, so the reader sees what the chain actually is before
- * answering. SLOP-3: three answers, Cancel · Start anyway · Stacked PR
- * (primary). Stacked PR is never hidden: disabled, the reason note says why;
- * enabled over a line of 2+ issues, the plan note says what starts first.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun BlockedStartDialog(
-    prompt: AgentComposerViewModel.BlockedPrompt,
-    onOpenIssue: (String) -> Unit,
-    onStartAnyway: () -> Unit,
-    onStartStacked: () -> Unit,
-    onDismiss: () -> Unit,
+internal fun AgentPageFrame(
+    onBack: (() -> Unit)?,
+    /** The dawn heads the column; false while a picked subject's headline
+     *  does (iOS parity). */
+    dawn: Boolean = true,
+    content: LazyListScope.() -> Unit,
 ) {
-    val isBatch = prompt.pickedIds.size > 1
-    val stackable = prompt.stackable
-    // EXP-1215: the shared prompt card; the blocker chips, the mini-graph and
-    // the stacked-start note ride its content slot (scrolling when tall).
-    GlassAlert(
-        title = if (isBatch) BlockedStart.BATCH_TITLE else BlockedStart.TITLE,
-        body = if (isBatch) BlockedStart.BATCH_BODY else BlockedStart.BODY_PREFIX.trimEnd(),
-        onDismiss = onDismiss,
-        trailing = listOf(
-            GlassAlertAction("Cancel", onClick = onDismiss),
-            GlassAlertAction(BlockedStart.START_ANYWAY, testTag = "start-anyway", onClick = onStartAnyway),
-            GlassAlertAction(
-                BlockedStart.STACKED_PR,
-                primary = true,
-                enabled = stackable,
-                testTag = "start-stacked",
-                onClick = onStartStacked,
-            ),
-        ),
-        defaultAction = if (stackable) 2 else 0,
-        content = {
-            if (!isBatch) {
-                FlowRow(
-                    modifier = Modifier.testTag("blocked-start-blockers"),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    prompt.blockers.forEach { blocker ->
-                        IssueChip(
-                            identifier = blocker.identifier,
-                            title = blocker.title,
-                            status = null,
-                        )
+    Box(modifier = Modifier.fillMaxSize().testTag(AgentHome.HOME_TEST_ID)) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { Text("Agent") },
+                    navigationIcon = { onBack?.let { TopBarBackButton(onClick = it) } },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+                )
+            },
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .testTag("agent-page"),
+                // As a tab the floating bar overlays the page: the last row
+                // must sit above the pill, not under it.
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = DAWN_TOP.dp,
+                    bottom = if (onBack == null) BottomBarInset else 24.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (dawn) {
+                    item(key = "__dawn__") {
+                        // The column's 6dp spacing makes up the rest of the gap.
+                        AgentHomeDawn(modifier = Modifier.padding(bottom = (DAWN_TO_CARD - 6).dp))
                     }
                 }
-                Text(
-                    (if (stackable) BlockedStart.BODY_SUFFIX_STACKABLE else BlockedStart.BODY_SUFFIX)
-                        .removePrefix(".").trim(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = DesignTokens.Palette.MutedForeground,
+                content()
+            }
+        }
+    }
+}
+
+/**
+ * composer-home.json: the phone home's Running band under the column — my
+ * live OWN threads (needs you first) as THE thread rows (mark, identifier,
+ * title, lock / spinner / amber dot); nothing while nothing runs.
+ */
+internal fun LazyListScope.homeRunningBand(
+    rows: List<SessionTree.ThreadsListRow>,
+    meta: Map<String, ThreadRowMeta>,
+    onOpenThread: (threadId: String) -> Unit,
+) {
+    if (rows.isEmpty()) return
+    item(key = "__home_running__") {
+        Column(modifier = Modifier.padding(top = 18.dp).testTag("agent-home-running")) {
+            SectionHeader(SessionTree.ListCopy.GROUPS.getValue(SessionTree.ThreadsGroupKey.Running))
+            rows.forEach { row ->
+                ThreadListRow(
+                    row = row,
+                    meta = meta[row.sessionId],
+                    onClick = { onOpenThread(row.sessionId) },
                 )
             }
-            IssueGraphList(
-                graph = prompt.graph,
-                issuesById = prompt.issuesById,
-                onOpenIssue = { id ->
-                    onDismiss()
-                    onOpenIssue(id)
-                },
-            )
-            // SLOP-3: why the stacked start is off (the note under a
-            // disabled, never hidden button), else what it starts first.
-            val stackNote = prompt.stackNote
-            val planNote = prompt.planNote
-            when {
-                stackNote != null -> Text(
-                    stackNote,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.testTag("start-stacked-note"),
-                )
-                planNote != null -> Text(
-                    planNote,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.testTag("start-stacked-plan"),
-                )
-            }
-        },
-    )
+        }
+    }
+}
+
+/** The dawn's geometry (dp, iOS `HomeDawn`): the mark's diameter (the dawn
+ *  shows its upper half), the gap under the title, the gap above the card. */
+private const val DAWN_MARK = 160
+private const val DAWN_TOP = 16
+private const val DAWN_TO_CARD = 24
+
+/** The dawn's foreground alpha (iOS `HomeDawn.opacity`). */
+private const val DAWN_ALPHA = 0.05f
+
+/**
+ * FEED-100: the dawn — [ExponentialMark] in the foreground colour at a low
+ * alpha, clipped to its upper half (a half-disc standing on the card).
+ */
+@Composable
+internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height((DAWN_MARK / 2).dp)
+            .clipToBounds(),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        ExponentialMark(
+            size = DAWN_MARK.dp,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = DAWN_ALPHA),
+            modifier = Modifier
+                .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                .testTag(AgentHome.MARK_TEST_ID),
+        )
+    }
 }

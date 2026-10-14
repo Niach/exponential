@@ -38,6 +38,17 @@ where
         .ok_or_else(|| serde::de::Error::custom(format!("not a tolerant bool: {value}")))
 }
 
+/// EXP-1294: a NOT NULL boolean the UI branches on (`sessions.busy`,
+/// `shared`, …): every [`tolerant_bool`] form, and `false` for null or
+/// anything unparsable — a partial row reads "not busy", never a dropped row.
+pub fn tolerant_bool_or_false<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(value_to_bool(&value).unwrap_or(false))
+}
+
 fn value_to_bool(value: &Value) -> Option<bool> {
     match value {
         Value::Bool(b) => Some(*b),

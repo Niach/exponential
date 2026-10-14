@@ -58,13 +58,13 @@ export function buildArrayOverlapClause(column: string, ids: string[]): string {
 /**
  * The shared member where clause of the board-scoped child shapes (issues,
  * comments, attachments, issue_labels, issue_subscribers, issue_events,
- * coding_sessions): team-scoped via the denormalized `team_id`, trash-aware
+ * pull_request_issues): team-scoped via the denormalized `team_id`, trash-aware
  * via the trigger-maintained `board_deleted_at` mirror (REV2-5) and
  * archive-aware via `board_archived_at` (EXP-500). All three parts are stable
  * across board create/trash/restore/archive/unarchive, so the shape identity
  * only changes on actual team-membership changes (whose wholesale resync is
- * legitimate). Board-less rows (batch coding_sessions) keep both mirrors NULL
- * and therefore always match. Pass an empty teamIds list for anonymous
+ * legitimate). Board-less rows (issue-less notifications) keep both mirrors
+ * NULL and therefore always match. Pass an empty teamIds list for anonymous
  * callers — the impossible-match sentinel keeps the clause byte-stable and
  * matches nothing.
  */
@@ -86,4 +86,23 @@ export function andClauses(...clauses: string[]): string {
 export function orClauses(...clauses: string[]): string {
   if (clauses.length === 1) return clauses[0]
   return clauses.map((clause) => `(${clause})`).join(` OR `)
+}
+
+/**
+ * EXP-1291: the session tree's ONE visibility rule ×4 — a team member sees
+ * a session (and its messages, issues) when it is `shared` (started on a
+ * device shared with the team) or they started it. `ownerColumn` = `user_id`
+ * on `sessions`, the `owner_id` mirror on its child tables. Static per user:
+ * the identity rotates only on membership changes.
+ */
+export function buildSessionVisibleWhere(
+  teamIds: string[],
+  userId: string | null,
+  ownerColumn: `user_id` | `owner_id`
+): string {
+  if (!userId) return buildWhereClause(`id`, [])
+  return andClauses(
+    buildWhereClause(`team_id`, teamIds),
+    orClauses(`"shared" = true`, `"${ownerColumn}" = ${sqlStringLiteral(userId)}`)
+  )
 }

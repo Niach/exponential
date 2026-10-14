@@ -2,24 +2,22 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-825: the preselection a play button hands the Agent page composer.
-// Hashable (it rides an `AppRoute` case), `action` wins over `issues` when
-// both arrive (the web search-param rule), and the FAB's seed is empty.
+// EXP-825: the preselection a play button hands the home composer. Hashable
+// (it rides an `AppRoute` case), `action` wins over `issues` when both arrive
+// (the web search-param rule), and the FAB's seed is empty.
 final class AgentComposerSeedTests: XCTestCase {
     func testTheEmptySeedNamesNoSubject() {
         XCTAssertFalse(AgentComposerSeed.empty.hasSubject)
         XCTAssertEqual(AgentComposerSeed.empty.effectiveIssueIds, [])
         XCTAssertNil(AgentComposerSeed.empty.actionId)
         XCTAssertNil(AgentComposerSeed.empty.deviceId)
-        XCTAssertNil(AgentComposerSeed.empty.prIssueId)
         XCTAssertNil(AgentComposerSeed.empty.text)
-        XCTAssertNil(AgentComposerSeed.empty.icon)
         XCTAssertNil(AgentComposerSeed.empty.teamId)
         XCTAssertEqual(AgentComposerSeed.empty, AgentComposerSeed())
     }
 
-    // An issue opened from the Inbox/Reviews/Search may sit on a non-active
-    // team: the seed carries that team so the composer's pools match it.
+    // An issue opened from the Inbox/Search may sit on a non-active team: the
+    // seed carries that team so the composer's pools match it.
     func testATeamRidesWithTheSubject() {
         let seed = AgentComposerSeed(issueIds: ["a"], teamId: "team-2")
         XCTAssertEqual(seed.teamId, "team-2")
@@ -35,9 +33,9 @@ final class AgentComposerSeedTests: XCTestCase {
     }
 
     func testAnActionWinsOverIssues() {
-        let seed = AgentComposerSeed(issueIds: ["a"], actionId: "builtin:fix-conflicts", prIssueId: "a")
+        let seed = AgentComposerSeed(issueIds: ["a"], actionId: "act-1")
         XCTAssertTrue(seed.hasSubject)
-        XCTAssertEqual(seed.actionId, "builtin:fix-conflicts")
+        XCTAssertEqual(seed.actionId, "act-1")
         // The issue ids are still carried (the route hashes them) but the
         // composer checks NONE of them.
         XCTAssertEqual(seed.issueIds, ["a"])
@@ -52,35 +50,16 @@ final class AgentComposerSeedTests: XCTestCase {
 
     // Two pushes with different seeds must be two different destinations.
     func testSeedsHashByEveryField() {
-        let base = AgentComposerSeed(
-            issueIds: ["a"], actionId: nil, deviceId: "d", prIssueId: nil, text: "t", icon: "rocket"
-        )
+        let base = AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t")
         XCTAssertEqual(base, base)
         XCTAssertEqual(base.hashValue, base.hashValue)
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "bug"))
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a", "b"], deviceId: "d", text: "t", icon: "rocket"))
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "e", text: "t", icon: "rocket"))
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "u", icon: "rocket"))
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", prIssueId: "p", text: "t", icon: "rocket"))
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket", teamId: "team-2"))
-        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket", conflict: true))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a", "b"], deviceId: "d", text: "t"))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "e", text: "t"))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "u"))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], actionId: "x", deviceId: "d", text: "t"))
+        XCTAssertNotEqual(base, AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", teamId: "team-2"))
         var set: Set<AgentComposerSeed> = [base]
-        set.insert(AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t", icon: "rocket"))
+        set.insert(AgentComposerSeed(issueIds: ["a"], deviceId: "d", text: "t"))
         XCTAssertEqual(set.count, 1)
-    }
-
-    // EXP-1233: a refused merge flags the seed; every other opener does not
-    // (the context menu's manual "Fix merge conflicts" included).
-    func testConflictDefaultsOffAndRidesTheFixConflictsSeed() {
-        XCTAssertFalse(AgentComposerSeed.empty.conflict)
-        XCTAssertFalse(
-            AgentComposerSeed(actionId: DomainContract.builtinFixConflictsId, prIssueId: "a").conflict
-        )
-        let refused = AgentComposerSeed(
-            actionId: DomainContract.builtinFixConflictsId, prIssueId: "a", teamId: "t", conflict: true
-        )
-        XCTAssertTrue(refused.conflict)
-        XCTAssertEqual(refused.effectiveIssueIds, [])
-        XCTAssertEqual(refused.prIssueId, "a")
     }
 }

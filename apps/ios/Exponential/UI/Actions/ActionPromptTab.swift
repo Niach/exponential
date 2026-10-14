@@ -2,16 +2,14 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-// The action page's PROMPT tab (SLOP-2) — the action editor EXP-694 brought to
-// the phone as a sheet, now the first of the page's three tabs: icon + name on
-// ONE row, the description, the composer hint, the repository picker, and the
-// markdown body itself.
+// The action page's editor (SLOP-2; EXP-1291: an action is a saved prompt) —
+// icon + name on ONE row, the composer hint and the markdown body itself.
 //
 // The body is deliberately NOT on the Electric `actions` shape (a ≤64KB
-// markdown blob has no business riding sync), so the tab fetches it through
+// markdown blob has no business riding sync), so the page fetches it through
 // tRPC `actions.get` on open — exactly what the web and desktop editors do —
 // and saves ONLY the fields that actually changed via `actions.update`
-// (`icon`/`repositoryId` clear as an explicit null). Writes are owner-only
+// (`icon` clears as an explicit null). Writes are owner-only
 // server-side, so a non-owner gets the same form read-only: fields disabled,
 // no Save.
 struct ActionPromptTab: View {
@@ -26,13 +24,10 @@ struct ActionPromptTab: View {
     @Environment(\.accountId) private var accountId
 
     @State private var name = ""
-    @State private var descriptionText = ""
     /// EXP-825: the composer's field hint while this action is picked.
     @State private var promptPlaceholder = ""
     @State private var icon = ""
-    @State private var repoId = ""
     @State private var prompt = ""
-    @State private var repos: [TeamRepo] = []
     /// The fetched row's own values — the dirty check and the patch are both
     /// against what the server last said, never against the synced list row
     /// (which carries no body at all).
@@ -58,26 +53,19 @@ struct ActionPromptTab: View {
     private var baseline: ActionDto { savedRow ?? action }
 
     /// Only what actually changed rides the patch: an untouched field must not
-    /// be re-sent (a rename pre-check, a repo membership check and the
-    /// trigger guard all hang off the fields present in the input).
+    /// be re-sent (the rename pre-check hangs off the fields present in the
+    /// input).
     private var patch: ActionPatch {
         let action = baseline
         var patch = ActionPatch()
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName != action.name { patch.name = trimmedName }
-        let trimmedDescription = descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedDescription != (action.description ?? "") {
-            patch.description = .some(trimmedDescription.isEmpty ? nil : trimmedDescription)
-        }
         if icon != (action.icon ?? "") {
             patch.icon = .some(icon.isEmpty ? nil : icon)
         }
-        if repoId != (action.repositoryId ?? "") {
-            patch.repositoryId = .some(repoId.isEmpty ? nil : repoId)
-        }
         let trimmedHint = promptPlaceholder.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedHint != (action.promptPlaceholder ?? "") {
-            // Blank clears (an explicit null, like the description).
+            // Blank clears (an explicit null, like the icon).
             patch.promptPlaceholder = .some(trimmedHint.isEmpty ? nil : trimmedHint)
         }
         if let loadedBody, prompt != loadedBody { patch.body = prompt }
@@ -115,8 +103,7 @@ struct ActionPromptTab: View {
     private var form: some View {
         Form {
             identitySection
-            descriptionSection
-            repositorySection
+            hintSection
             promptSection
         }
         // EXP-603: the page's own background shows through the grouped list;
@@ -148,19 +135,10 @@ struct ActionPromptTab: View {
     }
 
     /// Inline placeholder title (S7) — no label above the field. EXP-825:
-    /// the composer hint sits under the description (the web dialog's
-    /// order) — what the requester should type beside this action, shown as
-    /// the composer field's placeholder while it is picked.
-    private var descriptionSection: some View {
+    /// what the requester should type beside this action, shown as the
+    /// composer field's placeholder while it is picked.
+    private var hintSection: some View {
         Section {
-            GlassTextField(
-                "Description",
-                text: $descriptionText,
-                lines: 4...10,
-                bordered: false,
-                accessibilityIdentifier: "edit-action-description"
-            )
-            .disabled(!canEdit)
             GlassTextField(
                 "Composer hint, e.g. Scope: which platforms, which version",
                 text: $promptPlaceholder,
@@ -175,22 +153,6 @@ struct ActionPromptTab: View {
                 let clamped = ActionDto.clampPromptPlaceholder(value)
                 if clamped != value { promptPlaceholder = clamped }
             }
-        }
-        .listRowBackground(glassFormRowFill)
-    }
-
-    private var repositorySection: some View {
-        Section {
-            GlassPickerRow(
-                "Repository",
-                selection: $repoId,
-                options: [""] + repos.map(\.id),
-                label: { id in
-                    guard !id.isEmpty else { return "None" }
-                    return repos.first { $0.id == id }?.fullName ?? id
-                },
-                enabled: canEdit
-            )
         }
         .listRowBackground(glassFormRowFill)
     }
@@ -233,19 +195,14 @@ struct ActionPromptTab: View {
 
     @MainActor
     private func load() async {
-        // Once per mount: the pager may re-run the task when the page comes
-        // back, and that must not throw away an edit in progress.
+        // Once per mount: a re-run task must not throw away an edit in
+        // progress.
         guard loading else { return }
         // The metadata is already synced — seed from it so the form is never
         // blank while the body is in flight.
         name = action.name
-        descriptionText = action.description ?? ""
         promptPlaceholder = action.promptPlaceholder ?? ""
         icon = action.icon ?? ""
-        repoId = action.repositoryId ?? ""
-        repos = (try? await deps.repositoriesApi.list(
-            accountId: accountId, teamId: action.teamId
-        )) ?? []
         await loadBody(accountId: accountId, retried: false)
         loading = false
     }

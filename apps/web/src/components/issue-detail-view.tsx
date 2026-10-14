@@ -50,13 +50,9 @@ import {
   type MarkdownEditorRef,
 } from "@/components/issue-editor/markdown-editor"
 import { IssueTimeline } from "@/components/issue-timeline"
-import { IssueCodingControl, IssuePrRow } from "@/components/issue-coding-rows"
+import { IssueStartButton } from "@/components/issue-coding-rows"
 import { IssueDetailMobileBar } from "@/components/issue-detail-mobile-bar"
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
-import {
-  FACE_BODY_TOUCH_CLASS,
-  type FaceSwipeHandlers,
-} from "@/components/work-faces"
 import { IssueEditorMobileProperties } from "@/components/issue-editor/mobile-properties"
 import { IssueFilesSection } from "@/components/issue-files-section"
 import {
@@ -89,30 +85,11 @@ interface IssueDetailViewProps {
   readOnly?: boolean
   /** EXP-851: the `?from=` token this issue was opened with
    *  (`lib/detail-origin.ts`) — the phone header's back button returns THERE
-   *  (the inbox, the board, a review queue) instead of always to the board. */
+   *  (the inbox, the board) instead of always to the board. */
   origin?: string
-  /** The session→issue hop draws its own back-to-run header, so the issue's
-   *  phone header would be a second bar on the same line. */
+  /** A host drawing its own phone header (the thread page's issue tab)
+   *  turns the issue's off, so there is no second bar on the same line. */
   showMobileHeader?: boolean
-  /** EXP-870/877: the md+ work header's face toggle (`WorkFaceToggle`) — the
-   *  issue and its run are one work tab with faces. */
-  faceToggle?: React.ReactNode
-  /** EXP-933: md+ — a non-issue face (the issue's Results) drawn in the work
-   *  column IN PLACE of the issue body, under the same header. */
-  faceBody?: React.ReactNode
-  /** EXP-893: the phone's Work screen parts — EXP-1150: the face TABS under
-   *  the header (`MobileFaceTabs`), the pager the root spreads
-   *  (`useFaceSwipe`, EXP-1152: it moves the `data-face-body`). The bar's right circle is always Start coding now. */
-  mobileWork?: {
-    tabs?: React.ReactNode
-    swipe?: FaceSwipeHandlers
-    /** EXP-1191: the bar's Merge circle right of the Comment capsule
-     *  (`MobileMergeCircle`) while the PR is open. */
-    merge?: React.ReactNode
-  }
-  /** EXP-1154: md+ — the work header's face action after the toggle (GitHub
-   *  while the Guide shows). */
-  headerAction?: React.ReactNode
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -174,10 +151,6 @@ export function IssueDetailView({
   readOnly = false,
   origin,
   showMobileHeader = true,
-  faceToggle,
-  faceBody,
-  mobileWork,
-  headerAction,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
@@ -488,20 +461,19 @@ export function IssueDetailView({
     }
   }
 
-  // EXP-893: the bar's right circle is Start coding (EXP-1150: on every
-  // Issue face — the switcher that used to take the slot is the strip of
-  // tabs under the header now; the control hides itself while it has
-  // nothing to start).
-  const codingFab =
-    currentUserId && isMobile ? (
-      <IssueCodingControl
-        issue={issue}
-        board={board}
-        teamId={teamId}
-        currentUserId={currentUserId}
-        variant="fab"
-      />
-    ) : null
+  // EXP-1293: THE coding control is Start (readiness-gated, it opens the
+  // home composer seeded with this issue): the white pill in the md+
+  // header's trailing slot, the right circle of the phone bar. It hides
+  // itself for a non-member or an instance without remote start.
+  const startControl = currentUserId ? (
+    <IssueStartButton
+      issue={issue}
+      board={board}
+      teamId={teamId}
+      currentUserId={currentUserId}
+      variant={isMobile ? `fab` : `pill`}
+    />
+  ) : null
 
   const dueDate = issue.dueDate ?? null
 
@@ -537,21 +509,17 @@ export function IssueDetailView({
     />
   )
 
-  // EXP-877: row 2 of the work header — the properties tray with Merge and
-  // the ONE coding action inside it (`issue-properties-tray.tsx`). The phone
-  // renders the same node at the top of its scroll column, minus the coding
-  // action: its floating bar's circle owns the start there.
-  const propsTray = (showCodingAction: boolean, showMerge = true) => (
+  // EXP-877: row 2 of the work header — the properties tray
+  // (`issue-properties-tray.tsx`). The phone renders the same node at the top
+  // of its scroll column.
+  const propsTray = (
     <IssuePropertiesTray
       issue={issue}
       board={board}
       users={users}
       teamId={teamId}
-      currentUserId={currentUserId}
       readOnly={readOnly}
       handlers={handlers}
-      showCodingAction={showCodingAction}
-      showMerge={showMerge}
     />
   )
 
@@ -568,10 +536,8 @@ export function IssueDetailView({
     />
   )
 
-  // EXP-893 phone header: the ONE header every face of the Work screen
-  // wears (`issue-mobile-header.tsx`) — round back to the list this issue
-  // was opened from, the state dot + IDENTIFIER centred, the `…` on the
-  // right. Nothing jumps when the face flips.
+  // EXP-893 phone header (`issue-mobile-header.tsx`): round back to the list
+  // this issue was opened from, the IDENTIFIER centred, the `…` on the right.
   const mobileHeader = (
     <IssueMobileHeader
       issue={issue}
@@ -581,7 +547,6 @@ export function IssueDetailView({
       readOnly={readOnly}
       origin={origin}
       handlers={handlers}
-      tabs={mobileWork?.tabs}
       collapsed={titleCollapsed}
       overlay
       headerRef={mobileHeaderRef}
@@ -606,7 +571,7 @@ export function IssueDetailView({
   ) : null
 
   const titleField = <IssueTitleField issue={issue} readOnly={readOnly} />
-  // EXP-1284: the issue NAMES its threads (one chip each, opening it).
+  // EXP-1284/1293: the issue NAMES its threads (one chip each, opening it).
   const threadsRow = (
     <IssueThreadsRow
       issueId={issue.id}
@@ -649,18 +614,6 @@ export function IssueDetailView({
   const filesSection = (
     <IssueFilesSection issueId={issue.id} readOnly={readOnly} />
   )
-
-  // PR / pushed-branch link to the issue's Guide (EXP-106; EXP-1251: the
-  // review of the PR) — stays in the main column on every layout.
-  const prRow = currentUserId ? (
-    <IssuePrRow
-      issue={issue}
-      board={board}
-      teamId={teamId}
-      teamSlug={teamSlug}
-      currentUserId={currentUserId}
-    />
-  ) : null
 
   // Keyed on issue.id: prev/next navigation swaps issues in place, and the
   // composer draft (and comment edit state) must not carry over — an unsent
@@ -715,7 +668,7 @@ export function IssueDetailView({
 
   if (isMobile) {
     return (
-      <div className={MOBILE_DETAIL_SCREEN_CLASS} {...mobileWork?.swipe}>
+      <div className={MOBILE_DETAIL_SCREEN_CLASS}>
         {showMobileHeader && mobileHeader}
         {/* EXP-698: clearance for the floating bar below, so the last comment
             scrolls clear of it instead of ending under the glass
@@ -723,14 +676,7 @@ export function IssueDetailView({
             route, so nothing else is reserved here. */}
         <div
           ref={bodyScrollRef}
-          className={cn(
-            `flex-1 overflow-y-auto`,
-            MOBILE_WORK_BAR_CLEARANCE,
-            mobileWork?.swipe && FACE_BODY_TOUCH_CLASS
-          )}
-          /* EXP-1152: the pager's body — it follows the finger between
-             faces; the header band and the bar stay put. */
-          data-face-body=""
+          className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
           /* EXP-1162: the header band floats over this scroller — the
              column starts below it and scrolls under it. */
           style={{ paddingTop: showMobileHeader ? mobileHeaderSize.height : 0 }}
@@ -740,12 +686,11 @@ export function IssueDetailView({
           <div ref={titleRef}>{titleField}</div>
           {/* The title first, then the tray, as on the natives and the New
               issue page. */}
-          {propsTray(false, false)}
+          {propsTray}
           {threadsRow}
           {editor}
           {filesSection}
           {relationsSection}
-          {prRow}
           {widgetCard}
           {timeline}
         </div>
@@ -755,11 +700,10 @@ export function IssueDetailView({
             issueId={issue.id}
             users={users}
             propertiesNode={mobilePropertiesPanel}
-            trailingNode={codingFab}
+            trailingNode={startControl}
             onSubmitComment={handleCommentSubmit}
             reporter={reporter}
             hidden={descriptionFocused}
-            merge={mobileWork?.merge}
           />
         )}
         {/* No `addRelation.dialog` here: the phone reaches relations through
@@ -789,11 +733,10 @@ export function IssueDetailView({
               } as React.CSSProperties
             }
           >
-            {/* EXP-877: the ONE work header the session route renders too
-                (the IDE's `work_header.rs`). EXP-1162: a compact bar
-                FLOATING over this scroller — face toggle · pin · `…` on the
-                title's own line at rest; the collapsed title beside them
-                once the title row below scrolled away under it. */}
+            {/* EXP-877: the work header (the IDE's `work_header.rs`).
+                EXP-1162: a compact bar FLOATING over this scroller — Start ·
+                pin · `…` on the title's own line at rest; the collapsed
+                title beside them once the title row scrolled away. */}
             <WorkHeader
               floating
               edge={false}
@@ -809,16 +752,13 @@ export function IssueDetailView({
                 <>
                   {/* EXP-897: what this issue is part of: its stack, its
                       batch (SLOP-16: an icon button per shape) or its open
-                      blockers (EXP-1097: the same badge on every face). */}
+                      blockers (EXP-1097). */}
                   <PrGraphBadge
                     teamId={teamId}
                     teamSlug={teamSlug}
                     issue={issue}
                   />
-                  {faceToggle}
-                  {/* EXP-949/1154: GitHub only while the Guide shows
-                      (the route passes it), never beside the issue itself. */}
-                  {headerAction}
+                  {startControl}
                   {pinToggle}
                   <IssueActionsMenu
                     issue={issue}
@@ -830,9 +770,9 @@ export function IssueDetailView({
               }
             />
             {/* The title row: the large editable title, clear of the bar's
-                cluster on its right. The tray (Merge and the coding action
-                inside it) follows as the next row; EXP-1191: it sticks under
-                the bar once the title scrolled away, on every face. */}
+                cluster on its right. The tray follows as the next row;
+                EXP-1191: it sticks under the bar once the title scrolled
+                away. */}
             <div className={WORK_COLUMN_CLASS}>
               <div
                 ref={titleRef}
@@ -844,21 +784,16 @@ export function IssueDetailView({
               {threadsRow}
             </div>
             <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>
-              {propsTray(true)}
+              {propsTray}
             </WorkStickyTray>
             <div className={WORK_COLUMN_CLASS}>
-              {faceBody ?? (
-                <>
-                  {editor}
-                  {filesSection}
-                  {/* EXP-760: relations sit BELOW the description (Linear's
-                      order); EXP-1097: as grouped bands. */}
-                  {relationsSection}
-                  {prRow}
-                  {widgetCard}
-                  {timeline}
-                </>
-              )}
+              {editor}
+              {filesSection}
+              {/* EXP-760: relations sit BELOW the description (Linear's
+                  order); EXP-1097: as grouped bands. */}
+              {relationsSection}
+              {widgetCard}
+              {timeline}
             </div>
           </div>
         </div>

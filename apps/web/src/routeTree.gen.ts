@@ -52,13 +52,16 @@ import { Route as ApiSupportThreadRouteImport } from './routes/api/support/threa
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
-import { Route as ApiShapesThreadsRouteImport } from './routes/api/shapes/threads'
-import { Route as ApiShapesThreadItemsRouteImport } from './routes/api/shapes/thread-items'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
 import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
+import { Route as ApiShapesSessionsRouteImport } from './routes/api/shapes/sessions'
+import { Route as ApiShapesSessionIssuesRouteImport } from './routes/api/shapes/session-issues'
+import { Route as ApiShapesPullRequestsRouteImport } from './routes/api/shapes/pull-requests'
+import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
 import { Route as ApiShapesPinsRouteImport } from './routes/api/shapes/pins'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
+import { Route as ApiShapesMessagesRouteImport } from './routes/api/shapes/messages'
 import { Route as ApiShapesLabelsRouteImport } from './routes/api/shapes/labels'
 import { Route as ApiShapesIssuesRouteImport } from './routes/api/shapes/issues'
 import { Route as ApiShapesIssueSubscribersRouteImport } from './routes/api/shapes/issue-subscribers'
@@ -70,13 +73,12 @@ import { Route as ApiShapesIssueDraftsRouteImport } from './routes/api/shapes/is
 import { Route as ApiShapesDevicesRouteImport } from './routes/api/shapes/devices'
 import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shapes/device-worktrees'
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
-import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
 import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
-import { Route as ApiSessionResultsTokenRouteImport } from './routes/api/session-results/$token'
 import { Route as ApiMcpOauthClientDotjsonRouteImport } from './routes/api/mcp-oauth/client[.]json'
 import { Route as ApiMcpOauthCallbackRouteImport } from './routes/api/mcp-oauth/callback'
+import { Route as ApiGuideUploadsTokenRouteImport } from './routes/api/guide-uploads/$token'
 import { Route as ApiEmailUnsubscribeRouteImport } from './routes/api/email/unsubscribe'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiAttachmentsAttachmentIdRouteImport } from './routes/api/attachments/$attachmentId'
@@ -87,8 +89,8 @@ import { Route as AuthenticatedAdminPerformanceRouteImport } from './routes/_aut
 import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
+import { Route as TTeamSlugThreadsIndexRouteImport } from './routes/t/$teamSlug/threads/index'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
-import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugActionsIndexRouteImport } from './routes/t/$teamSlug/actions/index'
@@ -109,6 +111,7 @@ import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSl
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
+import { Route as TTeamSlugAgentsAgentIdRouteImport } from './routes/t/$teamSlug/agents/$agentId'
 import { Route as TTeamSlugActionsActionIdRouteImport } from './routes/t/$teamSlug/actions/$actionId'
 import { Route as ApiTeamsTeamIdSessionFilesRouteImport } from './routes/api/teams/$teamId/session-files'
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
@@ -118,9 +121,12 @@ import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/i
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
 import { Route as TTeamSlugSettingsBoardsIndexRouteImport } from './routes/t/$teamSlug/settings/boards/index'
+import { Route as TTeamSlugSettingsAgentsIndexRouteImport } from './routes/t/$teamSlug/settings/agents/index'
 import { Route as TTeamSlugBoardsBoardSlugIndexRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/index'
 import { Route as TTeamSlugSettingsBoardsArchivedRouteImport } from './routes/t/$teamSlug/settings/boards/archived'
 import { Route as TTeamSlugSettingsBoardsBoardIdRouteImport } from './routes/t/$teamSlug/settings/boards/$boardId'
+import { Route as TTeamSlugSettingsAgentsNewRouteImport } from './routes/t/$teamSlug/settings/agents/new'
+import { Route as TTeamSlugSettingsAgentsAgentIdRouteImport } from './routes/t/$teamSlug/settings/agents/$agentId'
 import { Route as TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
 
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
@@ -343,16 +349,6 @@ const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
   path: '/api/shapes/users',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesThreadsRoute = ApiShapesThreadsRouteImport.update({
-  id: '/api/shapes/threads',
-  path: '/api/shapes/threads',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesThreadItemsRoute = ApiShapesThreadItemsRouteImport.update({
-  id: '/api/shapes/thread-items',
-  path: '/api/shapes/thread-items',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiShapesTeamsRoute = ApiShapesTeamsRouteImport.update({
   id: '/api/shapes/teams',
   path: '/api/shapes/teams',
@@ -368,6 +364,27 @@ const ApiShapesTeamInvitesRoute = ApiShapesTeamInvitesRouteImport.update({
   path: '/api/shapes/team-invites',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesSessionsRoute = ApiShapesSessionsRouteImport.update({
+  id: '/api/shapes/sessions',
+  path: '/api/shapes/sessions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesSessionIssuesRoute = ApiShapesSessionIssuesRouteImport.update({
+  id: '/api/shapes/session-issues',
+  path: '/api/shapes/session-issues',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesPullRequestsRoute = ApiShapesPullRequestsRouteImport.update({
+  id: '/api/shapes/pull-requests',
+  path: '/api/shapes/pull-requests',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesPullRequestIssuesRoute =
+  ApiShapesPullRequestIssuesRouteImport.update({
+    id: '/api/shapes/pull-request-issues',
+    path: '/api/shapes/pull-request-issues',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiShapesPinsRoute = ApiShapesPinsRouteImport.update({
   id: '/api/shapes/pins',
   path: '/api/shapes/pins',
@@ -376,6 +393,11 @@ const ApiShapesPinsRoute = ApiShapesPinsRouteImport.update({
 const ApiShapesNotificationsRoute = ApiShapesNotificationsRouteImport.update({
   id: '/api/shapes/notifications',
   path: '/api/shapes/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesMessagesRoute = ApiShapesMessagesRouteImport.update({
+  id: '/api/shapes/messages',
+  path: '/api/shapes/messages',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesLabelsRoute = ApiShapesLabelsRouteImport.update({
@@ -435,11 +457,6 @@ const ApiShapesCommentsRoute = ApiShapesCommentsRouteImport.update({
   path: '/api/shapes/comments',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesCodingSessionsRoute = ApiShapesCodingSessionsRouteImport.update({
-  id: '/api/shapes/coding-sessions',
-  path: '/api/shapes/coding-sessions',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiShapesBoardsRoute = ApiShapesBoardsRouteImport.update({
   id: '/api/shapes/boards',
   path: '/api/shapes/boards',
@@ -455,11 +472,6 @@ const ApiShapesActionsRoute = ApiShapesActionsRouteImport.update({
   path: '/api/shapes/actions',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSessionResultsTokenRoute = ApiSessionResultsTokenRouteImport.update({
-  id: '/api/session-results/$token',
-  path: '/api/session-results/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiMcpOauthClientDotjsonRoute =
   ApiMcpOauthClientDotjsonRouteImport.update({
     id: '/api/mcp-oauth/client.json',
@@ -469,6 +481,11 @@ const ApiMcpOauthClientDotjsonRoute =
 const ApiMcpOauthCallbackRoute = ApiMcpOauthCallbackRouteImport.update({
   id: '/api/mcp-oauth/callback',
   path: '/api/mcp-oauth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGuideUploadsTokenRoute = ApiGuideUploadsTokenRouteImport.update({
+  id: '/api/guide-uploads/$token',
+  path: '/api/guide-uploads/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiEmailUnsubscribeRoute = ApiEmailUnsubscribeRouteImport.update({
@@ -525,15 +542,15 @@ const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugThreadsIndexRoute = TTeamSlugThreadsIndexRouteImport.update({
+  id: '/threads/',
+  path: '/threads/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugSettingsIndexRoute = TTeamSlugSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => TTeamSlugSettingsRouteRoute,
-} as any)
-const TTeamSlugReviewsIndexRoute = TTeamSlugReviewsIndexRouteImport.update({
-  id: '/reviews/',
-  path: '/reviews/',
-  getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugInboxIndexRoute = TTeamSlugInboxIndexRouteImport.update({
   id: '/inbox/',
@@ -647,6 +664,11 @@ const TTeamSlugDraftsDraftIdRoute = TTeamSlugDraftsDraftIdRouteImport.update({
   path: '/drafts/$draftId',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugAgentsAgentIdRoute = TTeamSlugAgentsAgentIdRouteImport.update({
+  id: '/agents/$agentId',
+  path: '/agents/$agentId',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugActionsActionIdRoute =
   TTeamSlugActionsActionIdRouteImport.update({
     id: '/actions/$actionId',
@@ -700,6 +722,12 @@ const TTeamSlugSettingsBoardsIndexRoute =
     path: '/boards/',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
+const TTeamSlugSettingsAgentsIndexRoute =
+  TTeamSlugSettingsAgentsIndexRouteImport.update({
+    id: '/agents/',
+    path: '/agents/',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
 const TTeamSlugBoardsBoardSlugIndexRoute =
   TTeamSlugBoardsBoardSlugIndexRouteImport.update({
     id: '/boards/$boardSlug/',
@@ -716,6 +744,18 @@ const TTeamSlugSettingsBoardsBoardIdRoute =
   TTeamSlugSettingsBoardsBoardIdRouteImport.update({
     id: '/boards/$boardId',
     path: '/boards/$boardId',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsAgentsNewRoute =
+  TTeamSlugSettingsAgentsNewRouteImport.update({
+    id: '/agents/new',
+    path: '/agents/new',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsAgentsAgentIdRoute =
+  TTeamSlugSettingsAgentsAgentIdRouteImport.update({
+    id: '/agents/$agentId',
+    path: '/agents/$agentId',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute =
@@ -765,13 +805,12 @@ export interface FileRoutesByFullPath {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
-  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
-  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -783,13 +822,16 @@ export interface FileRoutesByFullPath {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
-  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
-  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -811,6 +853,7 @@ export interface FileRoutesByFullPath {
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
+  '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -831,11 +874,14 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
-  '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
+  '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/settings/agents/': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/boards/': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -876,13 +922,12 @@ export interface FileRoutesByTo {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
-  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
-  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -894,13 +939,16 @@ export interface FileRoutesByTo {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
-  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
-  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -922,6 +970,7 @@ export interface FileRoutesByTo {
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
+  '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -942,11 +991,14 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/actions': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
-  '/t/$teamSlug/reviews': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/threads': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
+  '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/settings/agents': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -992,13 +1044,12 @@ export interface FileRoutesById {
   '/api/attachments/$attachmentId': typeof ApiAttachmentsAttachmentIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/email/unsubscribe': typeof ApiEmailUnsubscribeRoute
+  '/api/guide-uploads/$token': typeof ApiGuideUploadsTokenRoute
   '/api/mcp-oauth/callback': typeof ApiMcpOauthCallbackRoute
   '/api/mcp-oauth/client.json': typeof ApiMcpOauthClientDotjsonRoute
-  '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
-  '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
   '/api/shapes/device-worktrees': typeof ApiShapesDeviceWorktreesRoute
   '/api/shapes/devices': typeof ApiShapesDevicesRoute
@@ -1010,13 +1061,16 @@ export interface FileRoutesById {
   '/api/shapes/issue-subscribers': typeof ApiShapesIssueSubscribersRoute
   '/api/shapes/issues': typeof ApiShapesIssuesRoute
   '/api/shapes/labels': typeof ApiShapesLabelsRoute
+  '/api/shapes/messages': typeof ApiShapesMessagesRoute
   '/api/shapes/notifications': typeof ApiShapesNotificationsRoute
   '/api/shapes/pins': typeof ApiShapesPinsRoute
+  '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
+  '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
+  '/api/shapes/sessions': typeof ApiShapesSessionsRoute
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
-  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
-  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -1038,6 +1092,7 @@ export interface FileRoutesById {
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
+  '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1058,11 +1113,14 @@ export interface FileRoutesById {
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
-  '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
+  '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/settings/agents/': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/boards/': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -1108,13 +1166,12 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
-    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
-    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1126,13 +1183,16 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
+    | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-requests'
+    | '/api/shapes/session-issues'
+    | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
-    | '/api/shapes/thread-items'
-    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1154,6 +1214,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
+    | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1174,11 +1235,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
-    | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
+    | '/t/$teamSlug/threads/'
+    | '/t/$teamSlug/settings/agents/$agentId'
+    | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
+    | '/t/$teamSlug/settings/agents/'
     | '/t/$teamSlug/settings/boards/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   fileRoutesByTo: FileRoutesByTo
@@ -1219,13 +1283,12 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
-    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
-    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1237,13 +1300,16 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
+    | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-requests'
+    | '/api/shapes/session-issues'
+    | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
-    | '/api/shapes/thread-items'
-    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1265,6 +1331,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
+    | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1285,11 +1352,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/drafts'
     | '/t/$teamSlug/inbox'
-    | '/t/$teamSlug/reviews'
     | '/t/$teamSlug/settings'
+    | '/t/$teamSlug/threads'
+    | '/t/$teamSlug/settings/agents/$agentId'
+    | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug'
+    | '/t/$teamSlug/settings/agents'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   id:
@@ -1334,13 +1404,12 @@ export interface FileRouteTypes {
     | '/api/attachments/$attachmentId'
     | '/api/auth/$'
     | '/api/email/unsubscribe'
+    | '/api/guide-uploads/$token'
     | '/api/mcp-oauth/callback'
     | '/api/mcp-oauth/client.json'
-    | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
     | '/api/shapes/boards'
-    | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
     | '/api/shapes/device-worktrees'
     | '/api/shapes/devices'
@@ -1352,13 +1421,16 @@ export interface FileRouteTypes {
     | '/api/shapes/issue-subscribers'
     | '/api/shapes/issues'
     | '/api/shapes/labels'
+    | '/api/shapes/messages'
     | '/api/shapes/notifications'
     | '/api/shapes/pins'
+    | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-requests'
+    | '/api/shapes/session-issues'
+    | '/api/shapes/sessions'
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
-    | '/api/shapes/thread-items'
-    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1380,6 +1452,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
+    | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1400,11 +1473,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
-    | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
+    | '/t/$teamSlug/threads/'
+    | '/t/$teamSlug/settings/agents/$agentId'
+    | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
+    | '/t/$teamSlug/settings/agents/'
     | '/t/$teamSlug/settings/boards/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   fileRoutesById: FileRoutesById
@@ -1440,13 +1516,12 @@ export interface RootRouteChildren {
   ApiAttachmentsAttachmentIdRoute: typeof ApiAttachmentsAttachmentIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiEmailUnsubscribeRoute: typeof ApiEmailUnsubscribeRoute
+  ApiGuideUploadsTokenRoute: typeof ApiGuideUploadsTokenRoute
   ApiMcpOauthCallbackRoute: typeof ApiMcpOauthCallbackRoute
   ApiMcpOauthClientDotjsonRoute: typeof ApiMcpOauthClientDotjsonRoute
-  ApiSessionResultsTokenRoute: typeof ApiSessionResultsTokenRoute
   ApiShapesActionsRoute: typeof ApiShapesActionsRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
-  ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
   ApiShapesDeviceWorktreesRoute: typeof ApiShapesDeviceWorktreesRoute
   ApiShapesDevicesRoute: typeof ApiShapesDevicesRoute
@@ -1458,13 +1533,16 @@ export interface RootRouteChildren {
   ApiShapesIssueSubscribersRoute: typeof ApiShapesIssueSubscribersRoute
   ApiShapesIssuesRoute: typeof ApiShapesIssuesRoute
   ApiShapesLabelsRoute: typeof ApiShapesLabelsRoute
+  ApiShapesMessagesRoute: typeof ApiShapesMessagesRoute
   ApiShapesNotificationsRoute: typeof ApiShapesNotificationsRoute
   ApiShapesPinsRoute: typeof ApiShapesPinsRoute
+  ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
+  ApiShapesPullRequestsRoute: typeof ApiShapesPullRequestsRoute
+  ApiShapesSessionIssuesRoute: typeof ApiShapesSessionIssuesRoute
+  ApiShapesSessionsRoute: typeof ApiShapesSessionsRoute
   ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
-  ApiShapesThreadItemsRoute: typeof ApiShapesThreadItemsRoute
-  ApiShapesThreadsRoute: typeof ApiShapesThreadsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
   ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
@@ -1784,20 +1862,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/threads': {
-      id: '/api/shapes/threads'
-      path: '/api/shapes/threads'
-      fullPath: '/api/shapes/threads'
-      preLoaderRoute: typeof ApiShapesThreadsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/thread-items': {
-      id: '/api/shapes/thread-items'
-      path: '/api/shapes/thread-items'
-      fullPath: '/api/shapes/thread-items'
-      preLoaderRoute: typeof ApiShapesThreadItemsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/shapes/teams': {
       id: '/api/shapes/teams'
       path: '/api/shapes/teams'
@@ -1819,6 +1883,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesTeamInvitesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/sessions': {
+      id: '/api/shapes/sessions'
+      path: '/api/shapes/sessions'
+      fullPath: '/api/shapes/sessions'
+      preLoaderRoute: typeof ApiShapesSessionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/session-issues': {
+      id: '/api/shapes/session-issues'
+      path: '/api/shapes/session-issues'
+      fullPath: '/api/shapes/session-issues'
+      preLoaderRoute: typeof ApiShapesSessionIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/pull-requests': {
+      id: '/api/shapes/pull-requests'
+      path: '/api/shapes/pull-requests'
+      fullPath: '/api/shapes/pull-requests'
+      preLoaderRoute: typeof ApiShapesPullRequestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/pull-request-issues': {
+      id: '/api/shapes/pull-request-issues'
+      path: '/api/shapes/pull-request-issues'
+      fullPath: '/api/shapes/pull-request-issues'
+      preLoaderRoute: typeof ApiShapesPullRequestIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/pins': {
       id: '/api/shapes/pins'
       path: '/api/shapes/pins'
@@ -1831,6 +1923,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/notifications'
       fullPath: '/api/shapes/notifications'
       preLoaderRoute: typeof ApiShapesNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/messages': {
+      id: '/api/shapes/messages'
+      path: '/api/shapes/messages'
+      fullPath: '/api/shapes/messages'
+      preLoaderRoute: typeof ApiShapesMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/labels': {
@@ -1910,13 +2009,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesCommentsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/coding-sessions': {
-      id: '/api/shapes/coding-sessions'
-      path: '/api/shapes/coding-sessions'
-      fullPath: '/api/shapes/coding-sessions'
-      preLoaderRoute: typeof ApiShapesCodingSessionsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/shapes/boards': {
       id: '/api/shapes/boards'
       path: '/api/shapes/boards'
@@ -1938,13 +2030,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesActionsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/session-results/$token': {
-      id: '/api/session-results/$token'
-      path: '/api/session-results/$token'
-      fullPath: '/api/session-results/$token'
-      preLoaderRoute: typeof ApiSessionResultsTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/mcp-oauth/client.json': {
       id: '/api/mcp-oauth/client.json'
       path: '/api/mcp-oauth/client.json'
@@ -1957,6 +2042,13 @@ declare module '@tanstack/react-router' {
       path: '/api/mcp-oauth/callback'
       fullPath: '/api/mcp-oauth/callback'
       preLoaderRoute: typeof ApiMcpOauthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/guide-uploads/$token': {
+      id: '/api/guide-uploads/$token'
+      path: '/api/guide-uploads/$token'
+      fullPath: '/api/guide-uploads/$token'
+      preLoaderRoute: typeof ApiGuideUploadsTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/email/unsubscribe': {
@@ -2029,19 +2121,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsRouteRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/threads/': {
+      id: '/t/$teamSlug/threads/'
+      path: '/threads'
+      fullPath: '/t/$teamSlug/threads/'
+      preLoaderRoute: typeof TTeamSlugThreadsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/settings/': {
       id: '/t/$teamSlug/settings/'
       path: '/'
       fullPath: '/t/$teamSlug/settings/'
       preLoaderRoute: typeof TTeamSlugSettingsIndexRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/reviews/': {
-      id: '/t/$teamSlug/reviews/'
-      path: '/reviews'
-      fullPath: '/t/$teamSlug/reviews/'
-      preLoaderRoute: typeof TTeamSlugReviewsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/inbox/': {
       id: '/t/$teamSlug/inbox/'
@@ -2183,6 +2275,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugDraftsDraftIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/agents/$agentId': {
+      id: '/t/$teamSlug/agents/$agentId'
+      path: '/agents/$agentId'
+      fullPath: '/t/$teamSlug/agents/$agentId'
+      preLoaderRoute: typeof TTeamSlugAgentsAgentIdRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/actions/$actionId': {
       id: '/t/$teamSlug/actions/$actionId'
       path: '/actions/$actionId'
@@ -2246,6 +2345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsBoardsIndexRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/agents/': {
+      id: '/t/$teamSlug/settings/agents/'
+      path: '/agents'
+      fullPath: '/t/$teamSlug/settings/agents/'
+      preLoaderRoute: typeof TTeamSlugSettingsAgentsIndexRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/boards/$boardSlug/': {
       id: '/t/$teamSlug/boards/$boardSlug/'
       path: '/boards/$boardSlug'
@@ -2265,6 +2371,20 @@ declare module '@tanstack/react-router' {
       path: '/boards/$boardId'
       fullPath: '/t/$teamSlug/settings/boards/$boardId'
       preLoaderRoute: typeof TTeamSlugSettingsBoardsBoardIdRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/agents/new': {
+      id: '/t/$teamSlug/settings/agents/new'
+      path: '/agents/new'
+      fullPath: '/t/$teamSlug/settings/agents/new'
+      preLoaderRoute: typeof TTeamSlugSettingsAgentsNewRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/agents/$agentId': {
+      id: '/t/$teamSlug/settings/agents/$agentId'
+      path: '/agents/$agentId'
+      fullPath: '/t/$teamSlug/settings/agents/$agentId'
+      preLoaderRoute: typeof TTeamSlugSettingsAgentsAgentIdRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': {
@@ -2341,8 +2461,11 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsStorageRoute: typeof TTeamSlugSettingsStorageRoute
   TTeamSlugSettingsWidgetRoute: typeof TTeamSlugSettingsWidgetRoute
   TTeamSlugSettingsIndexRoute: typeof TTeamSlugSettingsIndexRoute
+  TTeamSlugSettingsAgentsAgentIdRoute: typeof TTeamSlugSettingsAgentsAgentIdRoute
+  TTeamSlugSettingsAgentsNewRoute: typeof TTeamSlugSettingsAgentsNewRoute
   TTeamSlugSettingsBoardsBoardIdRoute: typeof TTeamSlugSettingsBoardsBoardIdRoute
   TTeamSlugSettingsBoardsArchivedRoute: typeof TTeamSlugSettingsBoardsArchivedRoute
+  TTeamSlugSettingsAgentsIndexRoute: typeof TTeamSlugSettingsAgentsIndexRoute
   TTeamSlugSettingsBoardsIndexRoute: typeof TTeamSlugSettingsBoardsIndexRoute
 }
 
@@ -2363,8 +2486,11 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsStorageRoute: TTeamSlugSettingsStorageRoute,
     TTeamSlugSettingsWidgetRoute: TTeamSlugSettingsWidgetRoute,
     TTeamSlugSettingsIndexRoute: TTeamSlugSettingsIndexRoute,
+    TTeamSlugSettingsAgentsAgentIdRoute: TTeamSlugSettingsAgentsAgentIdRoute,
+    TTeamSlugSettingsAgentsNewRoute: TTeamSlugSettingsAgentsNewRoute,
     TTeamSlugSettingsBoardsBoardIdRoute: TTeamSlugSettingsBoardsBoardIdRoute,
     TTeamSlugSettingsBoardsArchivedRoute: TTeamSlugSettingsBoardsArchivedRoute,
+    TTeamSlugSettingsAgentsIndexRoute: TTeamSlugSettingsAgentsIndexRoute,
     TTeamSlugSettingsBoardsIndexRoute: TTeamSlugSettingsBoardsIndexRoute,
   }
 
@@ -2379,13 +2505,14 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugDevicesRoute: typeof TTeamSlugDevicesRoute
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugActionsActionIdRoute: typeof TTeamSlugActionsActionIdRoute
+  TTeamSlugAgentsAgentIdRoute: typeof TTeamSlugAgentsAgentIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugThreadsThreadIdRoute: typeof TTeamSlugThreadsThreadIdRoute
   TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
   TTeamSlugDraftsIndexRoute: typeof TTeamSlugDraftsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
-  TTeamSlugReviewsIndexRoute: typeof TTeamSlugReviewsIndexRoute
+  TTeamSlugThreadsIndexRoute: typeof TTeamSlugThreadsIndexRoute
   TTeamSlugBoardsBoardSlugIndexRoute: typeof TTeamSlugBoardsBoardSlugIndexRoute
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -2396,13 +2523,14 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugDevicesRoute: TTeamSlugDevicesRoute,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugActionsActionIdRoute: TTeamSlugActionsActionIdRoute,
+  TTeamSlugAgentsAgentIdRoute: TTeamSlugAgentsAgentIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugThreadsThreadIdRoute: TTeamSlugThreadsThreadIdRoute,
   TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,
   TTeamSlugDraftsIndexRoute: TTeamSlugDraftsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
-  TTeamSlugReviewsIndexRoute: TTeamSlugReviewsIndexRoute,
+  TTeamSlugThreadsIndexRoute: TTeamSlugThreadsIndexRoute,
   TTeamSlugBoardsBoardSlugIndexRoute: TTeamSlugBoardsBoardSlugIndexRoute,
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute:
     TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute,
@@ -2447,13 +2575,12 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAttachmentsAttachmentIdRoute: ApiAttachmentsAttachmentIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiEmailUnsubscribeRoute: ApiEmailUnsubscribeRoute,
+  ApiGuideUploadsTokenRoute: ApiGuideUploadsTokenRoute,
   ApiMcpOauthCallbackRoute: ApiMcpOauthCallbackRoute,
   ApiMcpOauthClientDotjsonRoute: ApiMcpOauthClientDotjsonRoute,
-  ApiSessionResultsTokenRoute: ApiSessionResultsTokenRoute,
   ApiShapesActionsRoute: ApiShapesActionsRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
-  ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
   ApiShapesDeviceWorktreesRoute: ApiShapesDeviceWorktreesRoute,
   ApiShapesDevicesRoute: ApiShapesDevicesRoute,
@@ -2465,13 +2592,16 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesIssueSubscribersRoute: ApiShapesIssueSubscribersRoute,
   ApiShapesIssuesRoute: ApiShapesIssuesRoute,
   ApiShapesLabelsRoute: ApiShapesLabelsRoute,
+  ApiShapesMessagesRoute: ApiShapesMessagesRoute,
   ApiShapesNotificationsRoute: ApiShapesNotificationsRoute,
   ApiShapesPinsRoute: ApiShapesPinsRoute,
+  ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
+  ApiShapesPullRequestsRoute: ApiShapesPullRequestsRoute,
+  ApiShapesSessionIssuesRoute: ApiShapesSessionIssuesRoute,
+  ApiShapesSessionsRoute: ApiShapesSessionsRoute,
   ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
-  ApiShapesThreadItemsRoute: ApiShapesThreadItemsRoute,
-  ApiShapesThreadsRoute: ApiShapesThreadsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
   ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,

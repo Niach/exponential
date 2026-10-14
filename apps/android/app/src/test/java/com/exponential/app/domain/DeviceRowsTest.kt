@@ -247,22 +247,6 @@ class DeviceRowsTest {
     }
 
     @Test
-    fun `the triggers cap or its legacy automations name both run triggers`() {
-        // SLOP-17: devices advertise `triggers`; older builds still say
-        // `automations`, and either one makes the machine a trigger runner.
-        assertTrue(entity().toSteerDevice(nowMs, "me").canRunTriggers)
-        assertTrue(
-            entity { copy(caps = """["resume-run","automations"]""") }
-                .toSteerDevice(nowMs, "me").canRunTriggers,
-        )
-        assertFalse(
-            entity { copy(caps = """["resume-run"]""") }
-                .toSteerDevice(nowMs, "me").canRunTriggers,
-        )
-        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canRunTriggers)
-    }
-
-    @Test
     fun `the account-switch cap is read off the machine's caps`() {
         // EXP-849: a mid-run switch needs the machine to honour `account` on a
         // live run's resume; an older build silently keeps the recorded login.

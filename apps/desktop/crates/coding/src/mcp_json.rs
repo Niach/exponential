@@ -110,7 +110,7 @@ impl From<&McpServerWire> for McpServerEntry {
 struct Headers<'a> {
     #[serde(rename = "Authorization")]
     authorization: String,
-    /// EXP-637: the `coding_sessions` row this launch created — the server
+    /// EXP-637: the `sessions` row this launch runs — the server
     /// resolves `exponential_sessions_end` (and the self-merge spare) from
     /// it. Not a secret; absent entirely outside a launched session, which
     /// keeps the pre-EXP-637 document byte-identical.

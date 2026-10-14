@@ -61,11 +61,10 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.agent.StartBoardOption
 import com.exponential.app.ui.theme.TextEmphasis
 
-// The trigger editor's fields (EXP-583; SLOP-2: a trigger lives on its
-// action): ONE draft and its two cards — the when-part (Schedule | On event)
-// and the binding (the machine it runs on plus the account/model/effort pins)
-// — rendered by the action page's "New trigger" / "Edit trigger" sheet
-// ([TriggerFormSheet]).
+// The trigger editor's fields (EXP-583; EXP-1291: triggers live on the team
+// AGENT, whose device/account/model are the runner): ONE draft and its
+// when-part card (Schedule | On event), rendered by the agent page's
+// Schedule "Add" / row tap sheet ([TriggerFormSheet]).
 
 /** The default schedule time, matching the web draft (09:00). */
 private const val DEFAULT_MINUTE_OF_DAY = 540
@@ -74,22 +73,13 @@ internal const val TRIGGER_KIND_SCHEDULE = "schedule"
 internal const val TRIGGER_KIND_EVENT = "event"
 
 /**
- * The editor state. A draft can represent things a valid trigger cannot (an
- * event kind with no machine bound yet), so [triggerDraftToWhen]
- * converts at submit and incomplete reads as null. The filter picks are
- * SINGLE-select with an "Any" default — the mobile simplification of the web's
- * multi-selects; the wire lists carry one-or-none entries from here.
- * [agent] is seeded from the bound machine's last used agent (EXP-615 — empty
- * only before one is bound); EXP-995: [account] is the agent profile the run
- * spends, picked WITH its agent off the account row as the option id
- * VERBATIM; "" is unpinned, saved as NULL, and
- * runs on the machine's LAST USED login (EXP-1158). An empty [model]/[effort]
- * is the "CLI default" that saves as NULL.
+ * The editor state; [triggerDraftToWhen] converts at submit (an unknown kind
+ * reads as null). The filter picks are SINGLE-select with an "Any" default —
+ * the mobile simplification of the web's multi-selects; the wire lists carry
+ * one-or-none entries from here.
  */
 internal data class TriggerDraft(
     val kind: String = TRIGGER_KIND_SCHEDULE,
-    /** Steer deviceId of the bound machine; null = nothing picked yet. */
-    val deviceId: String? = null,
     val interval: String = "daily",
     /** `HH:MM` wall-clock string, straight off the time field. */
     val time: String = "09:00",
@@ -100,10 +90,6 @@ internal data class TriggerDraft(
     val labelId: String = "",
     val priority: String = "",
     val toStatusId: String = "",
-    val agent: String = "",
-    val account: String = "",
-    val model: String = CLI_DEFAULT_MODEL,
-    val effort: String = CLI_DEFAULT_EFFORT,
 )
 
 /** `HH:MM` → minutes past midnight; malformed/out-of-range reads 09:00 (the
@@ -118,18 +104,12 @@ internal fun triggerTimeToMinute(time: String): Int {
 internal fun triggerMinuteToTime(minuteOfDay: Int): String =
     String.format(java.util.Locale.ROOT, "%02d:%02d", minuteOfDay / 60, minuteOfDay % 60)
 
-/**
- * A draft seeded from an existing/suggested [trigger] (the suggestion host);
- * null seeds the plain schedule default. [deviceId] pre-picks the machine.
- */
-internal fun triggerDraftFor(
-    trigger: TriggerWhen?,
-    deviceId: String? = null,
-): TriggerDraft = when (trigger) {
-    null -> TriggerDraft(deviceId = deviceId)
+/** A draft seeded from an existing [trigger]; null seeds the plain schedule
+ *  default. */
+internal fun triggerDraftFor(trigger: TriggerWhen?): TriggerDraft = when (trigger) {
+    null -> TriggerDraft()
     is TriggerWhen.Schedule -> TriggerDraft(
         kind = TRIGGER_KIND_SCHEDULE,
-        deviceId = deviceId,
         interval = trigger.interval,
         time = triggerMinuteToTime(trigger.minuteOfDay),
         weekday = trigger.weekday ?: 1,
@@ -137,7 +117,6 @@ internal fun triggerDraftFor(
     )
     is TriggerWhen.Event -> TriggerDraft(
         kind = TRIGGER_KIND_EVENT,
-        deviceId = deviceId,
         event = trigger.event,
         boardId = trigger.filters.boardIds.firstOrNull().orEmpty(),
         labelId = trigger.filters.labelIds.firstOrNull().orEmpty(),
@@ -220,7 +199,7 @@ internal fun TriggerWhenFields(
             PickerRow(
                 label = "Every",
                 value = intervalLabel(draft.interval),
-                options = DomainContract.actionScheduleIntervalValues,
+                options = DomainContract.agentScheduleIntervalValues,
                 selected = draft.interval,
                 optionLabel = ::intervalLabel,
                 onSelect = { onChange(draft.copy(interval = it)) },
@@ -257,7 +236,7 @@ internal fun TriggerWhenFields(
             PickerRow(
                 label = "When",
                 value = triggerEventLabel(draft.event),
-                options = DomainContract.actionTriggerEventValues,
+                options = DomainContract.agentTriggerEventValues,
                 selected = draft.event,
                 optionLabel = ::triggerEventLabel,
                 onSelect = { onChange(draft.copy(event = it)) },
@@ -312,169 +291,6 @@ internal fun TriggerWhenFields(
             }
         }
     }
-}
-
-/**
- * Seed (and re-seed) the pin off the bound machine — what the editor SHOWS is
- * what Save STORES. Null = leave the draft alone.
- *
- *  - An unset pin (a row saved before EXP-615 carries a NULL agent) or one
- *    [bound] cannot run falls back to that machine's LAST USED login, which
- *    names the agent, clamped to what it advertises; model/effort reset to
- *    the "CLI default" blank since their vocabularies are per agent.
- *  - A runnable pin on the SAME machine is left alone, so a manual pick sticks.
- *  - EXP-995: a profile id is DEVICE-LOCAL, so on a switch ([deviceSwitched])
- *    a runnable pin moves onto the new machine's last used login of the SAME
- *    agent ([accountOptionsFor] lists that agent's active login first),
- *    keeping model/effort; an agent the new machine reports no login for
- *    falls back to its last used login.
- *
- * Every seeded pin is the option id VERBATIM ("" = unpinned).
- */
-internal fun seedTriggerPin(
-    draft: TriggerDraft,
-    bound: SteerDevice,
-    deviceSwitched: Boolean,
-): TriggerDraft? {
-    val agents = availableAgentsFor(bound)
-    val options = accountOptionsFor(bound, agents)
-    val runnable = draft.agent.isNotEmpty() && draft.agent in agents
-    if (runnable && !deviceSwitched) return null
-    if (runnable) {
-        val sameAgent = options.firstOrNull { it.agent == draft.agent }
-        if (sameAgent != null) {
-            return draft.copy(account = sameAgent.id)
-        }
-    }
-    val fallback = AccountOptions.lastUsed(options)
-    return draft.copy(
-        agent = fallback?.agent ?: defaultAgentFor(bound),
-        account = fallback?.id.orEmpty(),
-        model = CLI_DEFAULT_MODEL,
-        effort = CLI_DEFAULT_EFFORT,
-    )
-}
-
-/**
- * The binding half: which machine runs the trigger, and the account pin
- * with its model/effort. EXP-615 retired the "Device default" agent option;
- * EXP-995 retired the agent strip itself — the card's first row is THE
- * account picker ([AccountPicker], brand mark + email over the bound
- * machine's logins, its last used first) and a pick names the agent too. The
- * pin seeds to the bound machine's LAST USED login (the composer's seed) and
- * the row saves that concrete agent + profile. Model/Effort speak the launch
- * "CLI default" sentinel, which is what writes NULL.
- */
-@Composable
-internal fun TriggerBindingFields(
-    draft: TriggerDraft,
-    devices: List<SteerDevice>,
-    onChange: (TriggerDraft) -> Unit,
-) {
-    val device = devices.firstOrNull { it.deviceId == draft.deviceId }
-    // EXP-995: every signed-in login the bound machine reports, across
-    // agents; a machine that reports none (or none bound yet) offers one
-    // unpinned row per runnable agent so the pin can be made before the
-    // heartbeat lands (the workflow runner block's rule).
-    val accountOptions = if (device == null) {
-        unpinnedAccountOptions(DomainContract.codingAgentValues, draft.agent.takeIf { it.isNotEmpty() })
-    } else {
-        accountOptionsFor(device, availableAgentsFor(device))
-    }
-    // The machine the draft's pin was made on: an edited row's stored pin
-    // belongs to its stored machine (never re-seeded on open), a fresh draft's
-    // to nothing yet. Only a REAL switch away from it re-seeds a runnable pin —
-    // the pool arriving late, or a heartbeat re-listing the same machine, is
-    // not a switch.
-    var pinDeviceId by remember { mutableStateOf(draft.deviceId) }
-    LaunchedEffect(device?.deviceId, devices) {
-        val bound = device ?: return@LaunchedEffect
-        val switched = pinDeviceId != null && pinDeviceId != bound.deviceId
-        pinDeviceId = bound.deviceId
-        seedTriggerPin(draft, bound, deviceSwitched = switched)?.let(onChange)
-    }
-    // EXP-615: the same block the launch dialogs render, in its Trigger
-    // variant — no launch toggles; EXP-995: the account row leads it.
-    LaunchOptionsSection(
-        variant = LaunchOptionsVariant.Trigger,
-        devices = devices,
-        device = device,
-        // The re-seed above moves the pin onto the new machine (its own
-        // profile for the same agent, else its last used login).
-        onDeviceChange = { id -> onChange(draft.copy(deviceId = id)) },
-        agent = draft.agent,
-        availableAgents = device?.runnableAgents.orEmpty(),
-        onAgentChange = { next ->
-            // A profile is ONE agent's, and the model/effort vocabularies are
-            // per agent — a switch has to reset them, or a stale value hits a
-            // server refusal.
-            onChange(
-                draft.copy(
-                    agent = next,
-                    account = "",
-                    model = CLI_DEFAULT_MODEL,
-                    effort = CLI_DEFAULT_EFFORT,
-                ),
-            )
-        },
-        accountRow = if (accountOptions.isEmpty()) {
-            null
-        } else {
-            {
-                // P65: a plain picker ROW (label left, value + chevron-right),
-                // like every other row of the form — not a capsule.
-                run {
-                    // The pin's own key; an unpinned draft shows its agent's
-                    // last used login (that agent's first option), and a pin
-                    // this machine no longer reports falls back to the first.
-                    val current = accountOptions.firstOrNull { it.key == "${draft.agent}:${draft.account}" }
-                        ?: accountOptions.firstOrNull { draft.account.isEmpty() && it.agent == draft.agent }
-                        ?: accountOptions.first()
-                    // EXP-1021: the same capsule over the SHARED account sheet
-                    // — the login rows, their EXP-992 limit bars and the
-                    // highlight are the picker's now, not a menu of this
-                    // surface's own. A lone login is a statement, not a choice,
-                    // so it opens nothing.
-                    AccountPicker(
-                        options = accountOptions.map { it.toPickerAccount() },
-                        value = current.key,
-                        onChange = { key ->
-                            accountOptions.firstOrNull { it.key == key }?.let { option ->
-                                // Only an AGENT change invalidates the
-                                // vocabularies below; another login of the same
-                                // agent keeps model and effort exactly as
-                                // picked. The id rides VERBATIM.
-                                val agentChanged = option.agent != draft.agent
-                                onChange(
-                                    draft.copy(
-                                        agent = option.agent,
-                                        account = option.id,
-                                        model = if (agentChanged) CLI_DEFAULT_MODEL else draft.model,
-                                        effort = if (agentChanged) CLI_DEFAULT_EFFORT else draft.effort,
-                                    ),
-                                )
-                            }
-                        },
-                        trigger = { open ->
-                            PickerValueRow(
-                                label = "Account",
-                                value = current.toPickerAccount().email,
-                                onClick = { if (accountOptions.size > 1) open() },
-                                modifier = Modifier.testTag("trigger-account-pill"),
-                            )
-                        },
-                    )
-                }
-            }
-        },
-        model = draft.model,
-        onModelChange = { onChange(draft.copy(model = it)) },
-        effort = draft.effort,
-        onEffortChange = { onChange(draft.copy(effort = it)) },
-        // One wording with the web dialog (EXP-615).
-        noDeviceNote = "No device can run triggers. Run the desktop app or the " +
-            "exponential daemon and it will appear here.",
-    )
 }
 
 /**

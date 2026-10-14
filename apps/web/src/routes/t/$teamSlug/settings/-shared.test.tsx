@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"
 import {
   flattenSettingsNav,
+  NEW_AGENT_LABEL,
+  SETTINGS_AGENTS_GROUP,
   SETTINGS_NAV,
   type SettingsNavContext,
 } from "@/routes/t/$teamSlug/settings/-shared"
@@ -117,7 +119,7 @@ describe(`SETTINGS_NAV Personal group`, () => {
     expect(SETTINGS_NAV[SETTINGS_NAV.length - 2]).toBe(personal)
     expect(
       SETTINGS_NAV.slice(0, SETTINGS_NAV.indexOf(personal)).map((g) => g.group)
-    ).toEqual([`Team`, `Boards`, `Features`])
+    ).toEqual([`Team`, `Boards`, `Agents`, `Features`])
     expect(personal.items.map((item) => item.label)).toEqual([
       `Account`,
       `Notifications`,
@@ -189,16 +191,15 @@ describe(`SETTINGS_NAV Features group (SLOP-4, EXP-792)`, () => {
 })
 
 // EXP-862: the Boards group FLATTENS like the desktop nav — the per-board
-// rows and "New board" are injected at render, so only Repositories is static
-// (SLOP-5 moved the owner-gated "Archived boards" entry to the Advanced group).
+// rows and "New board" are injected at render, so nothing is static (SLOP-5
+// moved "Archived boards" to Advanced, EXP-1293 Repositories to Agents).
 describe(`SETTINGS_NAV Boards group (EXP-862)`, () => {
   const boardsGroup = SETTINGS_NAV.find(
     (group) => group.group === `Boards`
   )!
 
-  it(`lists Repositories alone, and no Boards list page`, () => {
-    expect(boardsGroup.items.map((item) => item.label)).toEqual([`Repositories`])
-    expect(boardsGroup.items[0].to).toBe(`/t/$teamSlug/settings/repositories`)
+  it(`has no static entries, and no Boards list page`, () => {
+    expect(boardsGroup.items).toEqual([])
   })
 })
 
@@ -211,5 +212,25 @@ describe(`SETTINGS_NAV Repositories visibility (EXP-557)`, () => {
   it(`is visible to owners and plain members alike`, () => {
     expect(repositories.visible(permissionsFor(`owner`), team)).toBe(true)
     expect(repositories.visible(permissionsFor(`member`), team)).toBe(true)
+  })
+})
+
+// EXP-1293: team agents are managed like boards — the Agents group follows
+// Boards; one row per agent plus the owner-only "New agent" are injected at
+// render off the synced sessions shape, then Repositories closes the group.
+describe(`SETTINGS_NAV Agents group (EXP-1293)`, () => {
+  const agentsGroup = SETTINGS_NAV.find(
+    (group) => group.group === SETTINGS_AGENTS_GROUP
+  )!
+
+  it(`sits right after Boards with Repositories as its one static entry`, () => {
+    const names = SETTINGS_NAV.map((group) => group.group)
+    expect(names.indexOf(`Agents`)).toBe(names.indexOf(`Boards`) + 1)
+    expect(agentsGroup.items.map((item) => item.label)).toEqual([`Repositories`])
+    expect(agentsGroup.items[0].to).toBe(`/t/$teamSlug/settings/repositories`)
+  })
+
+  it(`labels the create entry with the fixture copy`, () => {
+    expect(NEW_AGENT_LABEL).toBe(`New agent`)
   })
 })

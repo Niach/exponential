@@ -5,7 +5,8 @@
 //! kill feed and then only hears back through
 //! [`EngineHost::on_exit`](crate::EngineHost::on_exit). What lives here:
 //!
-//! - `coding::start_heartbeat` (immediate first beat, EXP-701);
+//! - EXP-1292: the Conversation outbox ([`crate::outbox`]) — the ordered
+//!   `sessions.reply` worker and the `sessions.consume` worker;
 //! - `steer::publish` with `PublisherHooks { kill → Shutdown("killed"),
 //!   answers: AnswerLink, text_sink → Prompt/Steer, attachments:
 //!   `steer::image_localizer` (EXP-511 image embeds), commands: CommandLink,
@@ -13,7 +14,9 @@
 //! - `DiffSnapshots::next_diff` every `steer::DIFF_INTERVAL` (the wire `diff`
 //!   stays the debounced WHOLE-worktree patch on both transports; per-edit ACP
 //!   diffs are local-only);
-//! - `NeedsInputForwarder` (EXP-214) and its `agent_busy` twin (EXP-848);
+//! - `NeedsInputForwarder` (EXP-214) and its `agent_busy` twin (EXP-848),
+//!   plus the blocked/title/status forwarders — every one of them writes
+//!   `sessions.report` (EXP-1292; no heartbeat, no caption column);
 //! - the FEED-25 stall watchdog ([`crate::stall`]): a live turn silent for
 //!   `STALL_AFTER` gets `Cancel`, one that ignores it for `STALL_KILL_GRACE`
 //!   gets `Shutdown` with a `Failed` reason;
@@ -22,10 +25,14 @@
 //! - the D8 `runs.json` upsert of `acp_session_id`/`agent_native_session_id`
 //!   once `session/new` answers (prepare wrote `transport` already);
 //! - the end sequence, in EXACTLY this order (D14, EXP-283): drop the
-//!   [`KillFeed`](crate::KillFeed) (which unwatches) → drop the heartbeat →
-//!   `publisher.shutdown(Some(outcome))` → `coding::end_session(&trpc, &sid)`
-//!   (observer-based, so the CLI's `registry::end_outcome_resolves` still
-//!   applies) → `host.on_exit(EngineExit { .., end })`.
+//!   [`KillFeed`](crate::KillFeed) (which unwatches) →
+//!   `publisher.shutdown(Some(outcome))` → flush the outbox (the last turn's
+//!   reply lands BEFORE the row ends) → the row's last status: a thread
+//!   session `coding::end_session(&trpc, &sid)` (observer-based, so the
+//!   CLI's `registry::end_outcome_resolves` still applies), an agent root
+//!   or a [`SUSPEND_OUTCOME`] exit `report{status: idle, busy: false}`
+//!   (EXP-1292: agents never end) →
+//!   `host.on_exit(EngineExit { .., end })`.
 //!
 //! The tickers (diff + needs-input) run on their OWN small thread, never
 //! inside the ACP dispatch loop: `worktree_diff` shells out to git, and a
@@ -42,7 +49,6 @@ use crate::session::EngineError;
 /// The run's side-car machinery, alive for exactly as long as the connection.
 pub(crate) struct RunLifecycle {
     publisher: Option<steer::PublisherHandle>,
-    heartbeat: Option<coding::HeartbeatStop>,
     /// Dropped FIRST in the end sequence: dropping unwatches (EXP-283).
     kill: Option<KillFeed>,
     /// Clears the ticker thread and the publisher's activity path.
@@ -53,7 +59,7 @@ pub(crate) struct RunLifecycle {
 }
 
 impl RunLifecycle {
-    /// Bring up the heartbeat, the publisher and the tickers, and start
+    /// Bring up the outbox, the publisher and the tickers, and start
     /// pumping the kill feed into `commands`.
     pub(crate) fn attach(
         ctx: Arc<SessionCtx>,
@@ -61,21 +67,26 @@ impl RunLifecycle {
         commands: flume::Sender<EngineCommand>,
     ) -> Result<RunLifecycle, EngineError> {
         let active = Arc::new(AtomicBool::new(true));
-        // A replay owns no row: no heartbeat, no publisher, no kill watch,
+        // A replay owns no row: no outbox, no publisher, no kill watch,
         // no diffs (`open_transcript`).
         if ctx.replay {
             return Ok(RunLifecycle {
                 publisher: None,
-                heartbeat: None,
                 kill: None,
                 active,
                 _refresher: None,
             });
         }
 
-        let heartbeat = ctx.run.heartbeat_scope.clone().map(|scope| {
-            coding::start_heartbeat(Arc::clone(&ctx.trpc), ctx.session_id.clone(), scope)
-        });
+        // EXP-1292: the Conversation writers come up FIRST — the seed turn's
+        // consume and its first card must have somewhere to go. A test's
+        // recording outbox (`EngineParts::conversation`) is already set.
+        if ctx.outbox.get().is_none() {
+            let _ = ctx.outbox.set(crate::outbox::Outbox::spawn(
+                Arc::clone(&ctx.trpc) as Arc<dyn crate::outbox::ConversationApi>,
+                &ctx.session_id,
+            ));
+        }
 
         let publisher = ctx
             .publish
@@ -97,7 +108,6 @@ impl RunLifecycle {
 
         Ok(RunLifecycle {
             publisher,
-            heartbeat,
             kill: Some(kill),
             active,
             _refresher: refresher,
@@ -118,17 +128,36 @@ impl RunLifecycle {
         //    we read our own end as a remote kill (EXP-283). Dropping the
         //    feed calls `unwatch`.
         drop(self.kill.take());
-        // 2. The row is about to end: stop claiming it is alive.
-        drop(self.heartbeat.take());
-        // 3. `bye {outcome}` and stop reconnecting.
+        // 2. `bye {outcome}` and stop reconnecting.
         if let Some(publisher) = &self.publisher {
             publisher.shutdown(Some(outcome.to_string()));
         }
-        // 4. Nothing else may publish from here on (the tickers stop).
+        // 3. Nothing else may publish from here on (the tickers stop).
         self.active.store(false, Ordering::SeqCst);
-        // 5. End the row through the observer-based path, so the CLI's
-        //    `registry::end_outcome_resolves` applies on BOTH transports.
-        let end = (!ctx.replay).then(|| coding::end_session(&ctx.trpc, &ctx.session_id));
+        // 4. EXP-1292: the Conversation catches up first — the last turn's
+        //    reply and the consumed messages land before the row's status
+        //    says the agent is gone. Bounded: a dead server never holds the
+        //    end hostage.
+        if let Some(outbox) = ctx.outbox.get() {
+            outbox.close(crate::outbox::FLUSH_GRACE);
+            // Handed messages whose consume never landed are parked on the
+            // run record: the next wake consumes them instead of handing
+            // the agent the same words twice (`coding::pickup`).
+            let owed = outbox.unconsumed();
+            if !owed.is_empty() && !ctx.replay {
+                coding::run_registry::update(&ctx.data_dir, &ctx.session_id, |record| {
+                    let mut ids = record.pending_consumes();
+                    ids.extend(owed.iter().filter(|id| !ids.contains(id)).cloned().collect::<Vec<_>>());
+                    record.set_pending_consumes(&ids);
+                    true
+                });
+            }
+        }
+        // 5. The row's last status. A thread session ends, through the
+        //    observer-based path, so the CLI's `registry::end_outcome_resolves`
+        //    applies; an agent root idles (agents never end — the next
+        //    message or trigger firing wakes the SAME row).
+        let end = (!ctx.replay).then(|| finish_row(ctx, outcome));
         // 6. EXP-758: this run's child (if it had one) is gone with the
         //    connection, so the record must stop naming it: a pid left here
         //    would make the next start's reaper sweep hunt a dead process,
@@ -168,6 +197,36 @@ impl RunLifecycle {
             error: None,
             end: None,
         }
+    }
+}
+
+/// EXP-1292: the outcome of a shutdown that stops the PROCESS but not the
+/// session — the host re-spawns the same row right after (the EXP-849/1005
+/// account switch). The row goes `idle` like an agent root's, never `ended`
+/// (an ended root takes its whole tree with it), and no WIP is saved.
+pub const SUSPEND_OUTCOME: &str = "suspended";
+
+/// EXP-1292: the row's last status write at the end of a run.
+fn finish_row(ctx: &SessionCtx, outcome: &str) -> Result<(), api::ApiError> {
+    if !ends_row(ctx.agent_root, outcome) {
+        return api::session_device::report(&ctx.trpc, &ctx.session_id, &agent_idle_report());
+    }
+    coding::end_session(&ctx.trpc, &ctx.session_id)
+}
+
+/// Does this exit END the row? A thread session's does, unless the host
+/// only suspended it; an agent root's never does.
+fn ends_row(agent_root: bool, outcome: &str) -> bool {
+    !agent_root && outcome != SUSPEND_OUTCOME
+}
+
+/// EXP-1292: an agent root (or a suspended session) whose process is gone —
+/// idle and not working.
+fn agent_idle_report() -> api::session_device::SessionReport {
+    api::session_device::SessionReport {
+        status: Some(api::session_device::ReportStatus::Idle),
+        busy: Some(false),
+        ..api::session_device::SessionReport::default()
     }
 }
 
@@ -344,13 +403,14 @@ fn attach_publisher(
 
     let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {
         trpc: Arc::clone(&ctx.trpc),
-        coding_session_id: ctx.session_id.clone(),
+        session_id: ctx.session_id.clone(),
     });
     let handle = steer::publish(
         &ctx.runtime,
         steer::PublishSpec {
             session_id: ctx.session_id.clone(),
-            issue_id: ctx.issue_id.clone(),
+            // EXP-1292: the room is the session; no issue subject.
+            issue_id: None,
             // EXP-773: every event this run publishes is also appended to
             // `{data_dir}/journal/<sessionId>.jsonl`, so the transcript
             // outlives the process and can be served back on demand.
@@ -519,8 +579,9 @@ fn spawn_kill_pump(
 }
 
 /// The periodic jobs: the debounced worktree diff (the wire `diff`, same on
-/// both transports), the EXP-214 `needs_input` forward and the FEED-25 stall
-/// watchdog (`commands` carries its `Cancel` / `Shutdown`).
+/// both transports), the row's device-written state (EXP-1292: every
+/// forwarder writes `sessions.report`) and the FEED-25 stall watchdog
+/// (`commands` carries its `Cancel` / `Shutdown`).
 fn spawn_tickers(
     ctx: &Arc<SessionCtx>,
     active: Arc<AtomicBool>,
@@ -535,57 +596,68 @@ fn spawn_tickers(
             // EXP-848: the turn mirror — same forwarder, same retry, same
             // clear-on-teardown as `needs_input`.
             let mut agent_busy = steer::AgentBusyForwarder::new();
-            // EXP-850 §8: the synced `agent_caption` column — the same
-            // forwarder rule plus a 5 s floor, since a workflow's progress
-            // moves several times a second and this is a list's second line.
-            let mut caption = steer::CaptionForwarder::new();
             let mut blocked = steer::BlockedForwarder::new();
-            // EXP-905: the synced `agent_title` column — on change only,
-            // never cleared (the name outlives the run, so no teardown write).
+            // EXP-905: the agent's conversation name — on change only, never
+            // cleared (the name outlives the run, so no teardown write).
             let mut agent_title = steer::AgentTitleForwarder::new();
+            // EXP-1292: running ⇄ idle off the turn edge. No teardown write:
+            // the end sequence writes the row's last status itself.
+            let mut status = steer::StatusForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
-            let hook: Option<steer::NeedsInputHook> = {
+            let report = {
                 let trpc = Arc::clone(&ctx.trpc);
                 let session_id = ctx.session_id.clone();
+                move |report: api::session_device::SessionReport| {
+                    api::session_device::report(&trpc, &session_id, &report).is_ok()
+                }
+            };
+            let hook: Option<steer::NeedsInputHook> = {
+                let report = report.clone();
                 Some(Arc::new(move |pending| {
-                    api::coding_sessions::set_needs_input(&trpc, &session_id, pending).is_ok()
+                    report(api::session_device::SessionReport {
+                        needs_input: Some(pending),
+                        ..Default::default()
+                    })
                 }))
             };
-            // EXP-848: the synced `agent_busy` column — the ONE input every
-            // other client's session list spins its working dot on. The turn
+            // EXP-848: the synced `busy` column — the ONE input every other
+            // client's session list spins its working dot on. The turn
             // signal is most of this bool (set false at `start_turn`, true at
             // `on_stop` and at the session's first moment), so the mirror
             // reads it rather than tracking the edges twice. FEED-44: it also
             // holds while backgrounded subagents run past their turn's end
             // (`SessionCtx::agent_busy`).
             let busy_hook: Option<steer::AgentBusyHook> = {
-                let trpc = Arc::clone(&ctx.trpc);
-                let session_id = ctx.session_id.clone();
+                let report = report.clone();
                 Some(Arc::new(move |busy| {
-                    api::coding_sessions::set_agent_busy(&trpc, &session_id, busy).is_ok()
-                }))
-            };
-            // EXP-850 §8: same shape as the busy hook — a failed write is
-            // simply not confirmed and the forwarder retries it.
-            let caption_hook: Option<steer::CaptionHook> = {
-                let trpc = Arc::clone(&ctx.trpc);
-                let session_id = ctx.session_id.clone();
-                Some(Arc::new(move |caption: Option<&str>| {
-                    api::coding_sessions::set_agent_caption(&trpc, &session_id, caption).is_ok()
+                    report(api::session_device::SessionReport {
+                        busy: Some(busy),
+                        ..Default::default()
+                    })
                 }))
             };
             let title_hook: Option<steer::AgentTitleHook> = {
-                let trpc = Arc::clone(&ctx.trpc);
-                let session_id = ctx.session_id.clone();
+                let report = report.clone();
                 Some(Arc::new(move |title: &str| {
-                    api::coding_sessions::set_agent_title(&trpc, &session_id, Some(title)).is_ok()
+                    report(api::session_device::SessionReport {
+                        title: Some(title.to_string()),
+                        ..Default::default()
+                    })
+                }))
+            };
+            let status_hook: Option<steer::StatusHook> = {
+                let report = report.clone();
+                Some(Arc::new(move |state| {
+                    report(api::session_device::SessionReport {
+                        status: Some(state),
+                        ..Default::default()
+                    })
                 }))
             };
             // EXP-804: the same shape as the needs-input hook — a failed
             // write is simply not confirmed, and the forwarder retries it.
             let blocked_hook: Option<steer::BlockedHook> = {
-                let trpc = Arc::clone(&ctx.trpc);
-                let session_id = ctx.session_id.clone();
+                let report = report.clone();
                 let agent = ctx.agent;
                 let rotation_host = ctx.rotation_host;
                 let settings_path = coding::Settings::default_path(&ctx.data_dir);
@@ -600,27 +672,20 @@ fn spawn_tickers(
                     // counts; codex never rotates and a one-login machine
                     // cannot, so neither is "handled" — the owner hears
                     // about it, throttled.
-                    let handled = wall.map(|_| {
-                        rotation_host
-                            && coding::account_rotation::wall_handled_here(
-                                agent,
-                                &coding::Settings::load(&settings_path),
-                                &data_dir,
-                            )
+                    let blocked = wall.map(|wall| {
+                        wall.report_input(Some(
+                            rotation_host
+                                && coding::account_rotation::wall_handled_here(
+                                    agent,
+                                    &coding::Settings::load(&settings_path),
+                                    &data_dir,
+                                ),
+                        ))
                     });
-                    api::coding_sessions::set_blocked(
-                        &trpc,
-                        &session_id,
-                        wall.map(|wall| api::coding_sessions::BlockedInput {
-                            kind: &wall.kind,
-                            agent: &wall.agent,
-                            window: &wall.window,
-                            resets_at: wall.resets_at.as_deref(),
-                            since: &wall.since,
-                            handled,
-                        }),
-                    )
-                    .is_ok()
+                    report(api::session_device::SessionReport {
+                        blocked: Some(blocked),
+                        ..Default::default()
+                    })
                 }))
             };
             while active.load(Ordering::SeqCst) {
@@ -630,12 +695,10 @@ fn spawn_tickers(
                 }
                 needs_input.tick(ctx.needs_input.load(Ordering::SeqCst), &hook);
                 agent_busy.tick(ctx.agent_busy(), &busy_hook);
-                // EXP-850 §8: the caption of the newest RUNNING workflow —
-                // `None` while none runs, which is also what a turn end and
-                // the teardown below write.
-                {
-                    let held = ctx.caption_signal.get();
-                    caption.tick(held.as_deref(), &caption_hook);
+                // EXP-1292: only once the session is live — the handshake's
+                // "between turns" is no idle the row should flap through.
+                if ctx.feed.phase() == Some(EnginePhase::Live) {
+                    status.tick(!ctx.agent_busy(), &status_hook);
                 }
                 {
                     let title = ctx.agent_title.get();
@@ -684,8 +747,6 @@ fn spawn_tickers(
             // are its backgrounded subagents (FEED-44), which died with it.
             ctx.background_agents.store(false, Ordering::SeqCst);
             agent_busy.clear_on_teardown(&busy_hook);
-            // EXP-850 §8: a run whose engine is gone runs no workflow either.
-            caption.clear_on_teardown(&caption_hook);
             blocked.clear_on_teardown(&blocked_hook);
             // EXP-905: NOT cleared — but a name learned in the run's last
             // second still lands (the row is live until the end path runs).
@@ -850,7 +911,7 @@ mod tests {
             "sessionId": session_id,
             "accountId": "acct-1",
             "agent": "claude",
-            "kind": "issue",
+            "kind": "thread",
             "cwd": "/tmp/worktree",
             "transport": "acp",
             // A realistic stamp: retention (EXP-886) keys on this field, so a
@@ -918,6 +979,27 @@ mod tests {
         );
         assert!(coding::run_registry::get(&data_dir, "sess-unknown").is_none());
         let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    /// EXP-1292: an agent root's run ends with the row idle and not busy —
+    /// agents never end.
+    #[test]
+    fn an_agent_roots_end_idles_its_row() {
+        assert_eq!(
+            serde_json::to_value(agent_idle_report()).expect("the report serializes"),
+            serde_json::json!({"status": "idle", "busy": false})
+        );
+    }
+
+    /// EXP-1292: only a thread session's real exit ends its row; an agent
+    /// root and a suspended (account-switched) session idle it.
+    #[test]
+    fn only_a_threads_real_exit_ends_its_row() {
+        assert!(ends_row(false, "ended"));
+        assert!(ends_row(false, "killed"));
+        assert!(!ends_row(false, SUSPEND_OUTCOME));
+        assert!(!ends_row(true, "ended"));
+        assert!(!ends_row(true, SUSPEND_OUTCOME));
     }
 
     #[test]

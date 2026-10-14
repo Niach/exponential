@@ -60,7 +60,7 @@ describe(`isRoutedAppPath`, () => {
   it(`routes the root, a query on it, and case-insensitive screen prefixes`, () => {
     expect(isRoutedAppPath(`/`)).toBe(true)
     expect(isRoutedAppPath(`/?x=1`)).toBe(true)
-    expect(isRoutedAppPath(`/t/acme/reviews?tab=mine`)).toBe(true)
+    expect(isRoutedAppPath(`/t/acme/threads?tab=guide`)).toBe(true)
     expect(isRoutedAppPath(`/T/acme`)).toBe(true)
     expect(isRoutedAppPath(`/%74/acme`)).toBe(true)
     expect(isRoutedAppPath(`/settings/account`)).toBe(false)

@@ -1,16 +1,17 @@
 //! EXP-1110: `code … --device` / `run … --device` — start the run on ANOTHER
 //! registered machine instead of this one, the way the web composer does.
 //!
-//! The start rides `exponential_sessions_start` (`api::mcp_tools`): the
-//! server's `steer.startSession` (subject, agent vocabulary, device caps,
-//! repo resolution) plus its wait for the device to register the row, so the
-//! CLI can print the run's id. Absent agent options mean the TARGET device's
-//! own launch defaults — this machine's settings never leak into it.
+//! EXP-1292: the start rides `exponential_sessions_send` (`api::mcp_tools`):
+//! the server queues a `sessions` row naming the target device (subject,
+//! agent vocabulary, repo resolution), which that device picks up off its
+//! `sessions` shape, so the CLI can print the session's id at once. Absent
+//! agent options mean the TARGET device's own launch defaults — this
+//! machine's settings never leak into it.
 
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use api::mcp_tools::{self, RemoteStartInput};
+use api::mcp_tools::{self, SessionsSendInput};
 
 use super::CommandResult;
 use crate::context::Ctx;
@@ -52,10 +53,10 @@ impl RemoteFlags {
 
 /// Fold the agent flags into a start input. Only what was typed rides:
 /// `--plan` = plan mode on, nothing = the device's own default.
-pub fn start_input(device_id: &str, flags: &AgentFlags, remote: &RemoteFlags) -> RemoteStartInput {
-    RemoteStartInput {
-        device_id: device_id.to_string(),
-        agent: flags.agent.clone(),
+pub fn start_input(device_id: &str, flags: &AgentFlags, remote: &RemoteFlags) -> SessionsSendInput {
+    SessionsSendInput {
+        device_id: Some(device_id.to_string()),
+        cli: flags.agent.clone(),
         model: flags.model.clone(),
         effort: flags.effort.clone(),
         plan_mode: flags.plan.then_some(true),
@@ -70,7 +71,7 @@ pub fn start(
     ctx: &Ctx,
     flags: &AgentFlags,
     remote: &RemoteFlags,
-    fill: impl FnOnce(&mut RemoteStartInput),
+    fill: impl FnOnce(&mut SessionsSendInput),
 ) -> CommandResult {
     let selector = remote.device.as_deref().unwrap_or_default();
     if let Some(agent) = &flags.agent {
@@ -90,10 +91,10 @@ pub fn start(
         device.label.clone()
     };
     println!("Starting on {label}...");
-    let started = mcp_tools::sessions_start(&ctx.trpc, &input)
+    let started = mcp_tools::sessions_send(&ctx.trpc, &input)
         .map_err(super::devices::tool_error)
         .context("remote start")?;
-    println!("Session {} running on {label}.", started.session_id);
+    println!("Session {} queued on {label}.", started.session_id);
     if !remote.follow {
         println!(
             "Follow it:  exponential sessions log {} --follow",
@@ -104,18 +105,16 @@ pub fn start(
             started.session_id
         );
         println!(
-            "Stop it:    exponential sessions kill {}",
+            "Stop it:    exponential sessions stop {}",
             started.session_id
         );
         return Ok(ExitCode::SUCCESS);
     }
-    let row = match started.session {
-        Some(row) => row,
-        None => mcp_tools::sessions_get(&ctx.trpc, &started.session_id)
-            .map_err(super::devices::tool_error)
-            .context("load the session")?,
-    };
-    super::sessions::stream_transcript(ctx, &row, true)
+    let tree = mcp_tools::sessions_get(&ctx.trpc, &started.session_id)
+        .map_err(super::devices::tool_error)
+        .context("load the session")?;
+    let row = tree.session(&started.session_id).unwrap_or(&tree.root);
+    super::sessions::stream_transcript(ctx, row, true)
 }
 
 #[cfg(test)]
@@ -159,7 +158,7 @@ mod tests {
         let input = start_input("d1", &flags, &RemoteFlags::default());
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"deviceId":"d1","agent":"codex","planMode":true}"#
+            r#"{"deviceId":"d1","cli":"codex","planMode":true}"#
         );
         let bare = start_input("d1", &AgentFlags::default(), &RemoteFlags::default());
         assert_eq!(

@@ -94,35 +94,13 @@ public struct WorkCardView<Footer: View>: View {
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            AppIcon(kindIcon, size: 13)
-                .foregroundStyle(muted)
-            Text(card.name)
-                .fontWeight(.medium)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            if let word = card.kindWord, word != card.name {
-                Text(word)
-                    .foregroundStyle(muted)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            Spacer(minLength: 8)
-            if card.running || !trailing.isEmpty {
-                HStack(spacing: 6) {
-                    if card.running { InlineSpinner(size: 12) }
-                    if !trailing.isEmpty {
-                        Text(trailing)
-                            .monospacedDigit()
-                            .foregroundStyle(muted)
-                            .lineLimit(1)
-                            .fixedSize()
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 12)
-        .frame(height: G.header)
+        WorkCardHeaderRow(
+            icon: kindIcon,
+            name: card.name,
+            kindWord: card.kindWord == card.name ? nil : card.kindWord,
+            trailing: trailing.isEmpty ? nil : trailing,
+            running: card.running
+        )
     }
 
     private var segmentBar: some View {
@@ -329,6 +307,154 @@ extension WorkCardView where Footer == EmptyView {
             card: card, foldedPhases: foldedPhases, onOpenLane: onOpenLane,
             onOpenSubagent: onOpenSubagent
         ) { EmptyView() }
+    }
+}
+
+/// THE card's header row (`work-card.json` geometry.header): the icon, the
+/// medium name (truncates), the muted kind word, then trailing the muted
+/// tabular `trailing` with a 12pt spinner in front while `running`. The Work
+/// card draws it at its top; EXP-1295's session card IS this row alone.
+public struct WorkCardHeaderRow: View {
+    let icon: String
+    var iconTint: Color = .white.opacity(TextOpacity.tertiary)
+    let name: String
+    var kindWord: String?
+    var kindTint: Color = .white.opacity(TextOpacity.tertiary)
+    var trailing: String?
+    var running = false
+    /// A chevron at the trailing edge: the row opens something.
+    var chevron = false
+
+    public init(
+        icon: String,
+        iconTint: Color = .white.opacity(TextOpacity.tertiary),
+        name: String,
+        kindWord: String?,
+        kindTint: Color = .white.opacity(TextOpacity.tertiary),
+        trailing: String?,
+        running: Bool,
+        chevron: Bool = false
+    ) {
+        self.icon = icon
+        self.iconTint = iconTint
+        self.name = name
+        self.kindWord = kindWord
+        self.kindTint = kindTint
+        self.trailing = trailing
+        self.running = running
+        self.chevron = chevron
+    }
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            AppIcon(icon, size: 13)
+                .foregroundStyle(iconTint)
+            Text(name)
+                .fontWeight(.medium)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let kindWord {
+                Text(kindWord)
+                    .foregroundStyle(kindTint)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            Spacer(minLength: 8)
+            if running || trailing != nil {
+                HStack(spacing: 6) {
+                    if running { InlineSpinner(size: 12) }
+                    if let trailing {
+                        Text(trailing)
+                            .monospacedDigit()
+                            .foregroundStyle(muted)
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                }
+            }
+            if chevron {
+                AppIcon(AppIcons.uiChevronRight, size: 12)
+                    .foregroundStyle(muted)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: WorkCards.Geometry.header)
+    }
+
+    private var muted: Color { .white.opacity(TextOpacity.tertiary) }
+}
+
+/// EXP-1295: THE session card (fixtures/session-card.json) — a session inside
+/// a thread, and a thread an agent started, as ONE card that is the Work
+/// card's header row alone: the state icon in its tone, the name, the muted
+/// state word, trailing the elapsed with the spinner while working. Tapping
+/// it opens that session. Model = ExpCore `SessionTree.sessionCard`.
+public struct SessionCardView: View {
+    let card: SessionCard
+    let onOpen: (() -> Void)?
+
+    public init(card: SessionCard, onOpen: (() -> Void)?) {
+        self.card = card
+        self.onOpen = onOpen
+    }
+
+    public var body: some View {
+        Group {
+            if let onOpen {
+                Button(action: onOpen) { row.contentShape(Rectangle()) }
+                    .buttonStyle(PressableRowStyle())
+            } else {
+                row
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.white)
+        .background(GlassTokens.fillRow)
+        .clipShape(RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
+                .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(card.name), \(card.kindWord)")
+        .accessibilityIdentifier(card.testId)
+    }
+
+    private var row: some View {
+        WorkCardHeaderRow(
+            icon: Self.glyph(card.state),
+            iconTint: Self.tint(card.tone),
+            name: card.name,
+            kindWord: card.kindWord,
+            kindTint: card.tone == "amber" || card.tone == "rose"
+                ? Self.tint(card.tone)
+                : .white.opacity(TextOpacity.tertiary),
+            trailing: card.elapsed,
+            running: card.running,
+            chevron: onOpen != nil
+        )
+    }
+
+    /// The fixture's `icons` concepts.
+    static func glyph(_ state: SessionState) -> String {
+        switch state {
+        case .queued: AppIcons.uiClock
+        case .working: AppIcons.codingRunning
+        case .waiting: AppIcons.codingAssistant
+        case .needsYou: AppIcons.codingNeedsInput
+        case .blocked: AppIcons.notificationSessionBlocked
+        case .ended: AppIcons.codingEnded
+        }
+    }
+
+    /// The fixture's `tones`: muted | foreground | amber | rose.
+    static func tint(_ tone: String) -> Color {
+        switch tone {
+        case "foreground": .white
+        case "amber": DesignTokens.Semantic.yellow
+        case "rose": DesignTokens.Semantic.red
+        default: .white.opacity(TextOpacity.tertiary)
+        }
     }
 }
 

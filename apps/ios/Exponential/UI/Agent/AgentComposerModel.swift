@@ -3,35 +3,34 @@ import ExpUI
 import Foundation
 import GRDB
 
-/// EXP-825: the ONE launcher's state — what the Agent page composer is about
-/// to start, and the send. It replaced the three-tab Start-coding sheet and
-/// the Create-action sheet (every play button navigates here with an
-/// `AgentComposerSeed` now), so the rules those two carried live here:
+/// EXP-825/EXP-1291: the ONE launcher's state — what Home's composer is
+/// about to start, and the send. Every play button navigates here with an
+/// `AgentComposerSeed`; the send is ONE `sessions.send` that starts a new
+/// THREAD root in the ACTIVE team (phones: the current board's team):
 ///
-/// - The SUBJECT is issue chips OR one action chip; picking the other kind
-///   REPLACES the current subject (exclusivity by swap, no disabled
-///   controls). No subject = a chat over the hidden `builtin:chat` action.
-/// - The free text is OPTIONAL additional instructions once a subject is
-///   picked, the chat prompt when there is none, and REQUIRED for the Chat
-///   and Create action builtins (`AgentComposerPrompt`). Images ride it as
-///   the steer embed format, uploaded BEFORE the start to the team route.
-/// - The machine pool, the per-machine option seeding (`LaunchOptionsState`),
-///   the single-repository and batch-cap guards, the resume offer (EXP-481)
-///   and the typed action inputs (`ActionInputValues`) are the sheet's,
-///   unchanged.
-/// - A start is only a COMMAND: the shared `StartedRunWatcher` waits for the
-///   desktop's synced row and the page pushes the live session (EXP-536).
+/// - The SUBJECT is issue chips OR one action chip (a saved prompt); picking
+///   the other kind REPLACES the current subject (exclusivity by swap, no
+///   disabled controls). No subject = the text is the request.
+/// - The free text is OPTIONAL with a subject and required without one
+///   (`AgentComposerPrompt`). Images and files ride it as the steer embed
+///   format, uploaded BEFORE the send to the team route, their ids sent
+///   beside it.
+/// - The machine pool (the Devices model's devices), the per-machine option
+///   seeding (`LaunchOptionsState`), the single-repository and issue-cap
+///   guards and the typed action inputs (`ActionInputValues`) live here.
+/// - The database is the bus: the call answers with the new root's id, so
+///   the page opens the thread at once (`landedRootId`); the device picks
+///   the queued row up from its shape.
 ///
-/// The pools (issues, actions, boards, pull requests, devices, worktrees)
-/// read LIVE off the page's `AgentsViewModel` observations; only the repo
-/// registry (tRPC) and the `@` vocabulary are fetched once on load.
+/// The pools (issues, boards, actions, pull requests) read LIVE off GRDB;
+/// only the repo registry (tRPC) and the `@` vocabulary are fetched once.
 @MainActor @Observable
 final class AgentComposerModel {
     let teamId: String?
     private let accountId: String
     private let deps: AppDependencies
-    /// The page's sessions/devices view model — the composer's pools.
-    let sessions: AgentsViewModel
+    /// The Devices tab's model — the composer's machine pool.
+    let devicesModel: AgentsViewModel
 
     /// The draft: a one-block editor so `@` members, `#` issues and `:`
     /// emoji complete here exactly as they do in a comment (EXP-802).
@@ -40,72 +39,44 @@ final class AgentComposerModel {
     /// keystroke that armed it.
     @ObservationIgnored private var issueRefAugmentor: IssueRefAugmentor?
     let launch = LaunchOptionsState()
-    let startWatcher = StartedRunWatcher()
 
-    /// Checked issue ids in pick order (the launch payload order).
+    /// Checked issue ids in pick order (the send's `issueIds` order).
     private(set) var checked: [String] = []
-    /// The picked action (a team row or a builtin id); nil = issues or chat.
+    /// The picked action; nil = issues or a free request.
     private(set) var actionId: String?
-    /// Typed input values keyed by the def's `key`; `""` = cleared. A key
-    /// that was never touched resolves to its default (`value(for:)`).
+    /// Typed input values keyed by the def's `key`; `""` = cleared.
     var inputValues: [String: String] = [:]
     var pendingImages: [PendingSteerImage] = []
     /// Wave D: non-image files, uploaded beside the images and sent as
     /// `[<filename>](/api/attachments/<id>)` lines after the embeds.
     var pendingFiles: [PendingSteerFile] = []
     var imageError: String?
-    /// EXP-615/739: the chat's OPTIONAL repository — `""` = none.
+    /// EXP-615/739: a free request's repository — the team's FIRST one (a
+    /// phone never picks it, EXP-993); `""` = none (a scratch dir).
     var chatRepoId = ""
     /// The explicitly picked machine (nil = the seed's / the default one).
     private(set) var deviceId: String?
     var sending = false
-    var error: String?
-    /// EXP-1271 (EXP-1259 D11, feedback-states.json `starting`): from the
-    /// Start press until the run's synced row lands (`runLanded`) or the
-    /// starting deadline gives up on it (the timeout toast, Retry). The card
-    /// shows the mark + "Starting on <device>" + the elapsed seconds; the
-    /// draft stays put meanwhile, so a timeout leaves it ready to retry.
+    /// EXP-1271 (feedback-states.json `starting`): from the Start press until
+    /// `sessions.send` answers. The card shows the mark + "Starting on
+    /// <device>" + the elapsed seconds; the draft stays put meanwhile, so a
+    /// refusal leaves it ready to retry.
     private(set) var starting: Starting?
 
     struct Starting: Equatable {
         let deviceLabel: String
         let since: Date
     }
-    /// Final review (feedback-states.json `starting`): the pending draft
-    /// start, its `startId` carried by `steer.startSession`. Every Retry and
-    /// every later Start of the SAME draft on the SAME device reuses it (the
-    /// server and the device start an id once); a landing or a changed draft
-    /// or device retires it (`DraftStart`).
-    private var draftStart: DraftStart?
-    /// When `draftStart` was FIRST sent: a reused id's row is the original
-    /// one (the device dedupes the re-send), so the watch cuts off there.
-    private var draftStartSentAt: Date?
-    /// The draft start `startWatcher` is watching for.
-    private var watchedStartId: String?
-    /// When that watch ends (`StartedRunMatch.watchWindow` after the first
-    /// send); a team change ends it early (`release`).
-    private var watchedUntil: Date?
-    /// The session a landing opens (the page pushes it while visible and
-    /// consumes it). Nil when the draft changed after its send: the field
-    /// stays as left and nothing navigates.
-    var landedSession: StartedRunWatcher.StartedSession?
-    /// The timeout toast still up, dismissed when the late row lands.
-    private var timeoutToastId: UUID?
-    /// EXP-897: the blocked-start prompt, up while the reader chooses between
-    /// an ordinary run and cancelling. EXP-980: it asks for a BATCH too
-    /// (blockers outside the picked set), and never for a resume.
-    var blockedPrompt: BlockedStartPrompt?
-    /// EXP-1233: a REFUSED merge opened this composer on the Fix merge
-    /// conflicts builtin (the seed's `conflict`), so the card says why it is
-    /// up. Cleared with the subject: a different pick is a different story.
-    private(set) var conflictRefused = false
 
-    /// The repo registry — one tRPC read; the chat picker and the `repo`
+    /// The new thread root a send started — the page opens it while visible
+    /// and consumes it.
+    var landedRootId: String?
+    /// The error toast still up, dismissed by the next send.
+    private var errorToastId: UUID?
+
+    /// The repo registry — one tRPC read; a free request and the `repo`
     /// inputs pick from it.
     private(set) var repos: [TeamRepo] = []
-    /// A `pr` seed waiting for the pull-request pool (EXP-323): normalised
-    /// by MEMBERSHIP when the options exist, never stomping a manual pick.
-    private var pendingPrIssueId: String?
     /// EXP-836: the machine a ▶ seed REQUESTED — a one-shot preference that
     /// outranks the default machine while it is a candidate, explains itself
     /// when it is not (`deviceRequestNote`) and is retired by a human pick.
@@ -117,34 +88,28 @@ final class AgentComposerModel {
     /// The text a seed dropped into the draft — a draft that still equals
     /// it has not been typed in.
     private var seededDraft = ""
-    /// EXP-1284: the thread a seed asked this start to land in (the thread's
-    /// "Start a session here" / reply box); nil = the server places it.
-    private(set) var threadId: String?
-    /// EXP-897/EXP-980: every `blocks` row and the issues at either end, read
-    /// live off GRDB — `IssueGraph` applies the rules. The whole table rather
-    /// than one issue's rows: the prompt asks for a BATCH as well, and draws
-    /// the TRANSITIVE chain, so the subject no longer bounds the read.
-    private var blockerRelations: [IssueRelationEntity] = []
-    private var blockerIssues: [IssueEntity] = []
-    private var blockerTask: Task<Void, Never>?
 
-    /// A batch run is deliberately loose but not unbounded — one session on
-    /// one branch; past this the prompt is unwieldy and token-expensive.
-    static let maxBatchIssues = 30
-    /// Above this we warn about token cost (still allowed up to the cap).
-    static let costWarnThreshold = 6
+    /// The live pools, read off GRDB.
+    private var issueRows: [IssueEntity] = []
+    private var boardRows: [BoardEntity] = []
+    private var actionRows: [ActionDto] = []
+    private var pullRequestRows: [StartPullRequestOption.Candidate] = []
+    @ObservationIgnored private var poolTask: Task<Void, Never>?
+
+    /// At most this many issues per thread (contract `sessionsSend.maxIssues`).
+    static let maxIssues = DomainContract.sessionsSendMaxIssues
 
     init(
         teamId: String?,
         accountId: String,
         deps: AppDependencies,
-        sessions: AgentsViewModel,
+        devicesModel: AgentsViewModel,
         seed: AgentComposerSeed
     ) {
         self.teamId = teamId
         self.accountId = accountId
         self.deps = deps
-        self.sessions = sessions
+        self.devicesModel = devicesModel
         apply(seed)
         configureDraftEditor()
     }
@@ -152,33 +117,24 @@ final class AgentComposerModel {
     // MARK: - Seed
 
     /// The preselection a play button handed over. `action` wins over
-    /// `issues`; text lands only in an EMPTY draft; a `pr` seed waits for the
-    /// pool; a device seed is a PREFERENCE (sticky until the user picks).
+    /// `issues`; text lands only in an EMPTY draft; a device seed is a
+    /// PREFERENCE (sticky until the user picks).
     func apply(_ seed: AgentComposerSeed) {
         if let actionId = seed.actionId {
             self.actionId = actionId
             checked = []
             inputValues = [:]
-            conflictRefused = seed.conflict && actionId == DomainContract.builtinFixConflictsId
         } else if !seed.effectiveIssueIds.isEmpty {
             self.actionId = nil
             checked = seed.effectiveIssueIds
             inputValues = [:]
-            conflictRefused = false
         }
-        if let icon = seed.icon, !icon.isEmpty {
-            inputValues["icon"] = icon
-        }
-        pendingPrIssueId = seed.prIssueId
         if let deviceId = seed.deviceId {
             preferredDeviceId = deviceId
         }
         if let text = seed.text, !text.isEmpty, draftText.isEmpty {
             draftText = text
             seededDraft = text
-        }
-        if let threadId = seed.threadId {
-            self.threadId = threadId
         }
     }
 
@@ -187,40 +143,24 @@ final class AgentComposerModel {
         !touched && pendingImages.isEmpty && pendingFiles.isEmpty && draftText == seededDraft
     }
 
-    /// Nothing in the draft at all: no text, subject or attachment.
-    var isEmptyDraft: Bool {
-        draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && pendingImages.isEmpty && pendingFiles.isEmpty && checked.isEmpty && actionId == nil
-    }
-
-    /// A start is on the wire or starting (the uploads, the request, the
-    /// `starting.timeoutMs` wait): the page keeps this composer through a
-    /// team change ONLY for that window and rebinds once it ends. The quiet
-    /// watch after a timeout never holds it: an idle composer follows the
-    /// team at once (`release` cancels that watch), or every later Start
-    /// would land on the team the page left.
+    /// A send is on the wire (the uploads, the request): the page keeps this
+    /// composer through a team change ONLY for that window and rebinds once
+    /// it ends.
     var isStartInFlight: Bool {
-        sending || starting != nil
+        sending
     }
 
-    /// The page is letting this composer go for another team's: the quiet
-    /// watch, its start id and the Retry toast end here, so nothing of the
-    /// old team's start lands into (or dedupes against) the new composer.
+    /// The page is letting this composer go for another team's.
     func release() {
-        startWatcher.stop()
-        watchedStartId = nil
-        watchedUntil = nil
-        draftStart = nil
-        draftStartSentAt = nil
-        dismissTimeoutToast()
+        poolTask?.cancel()
+        poolTask = nil
+        dismissErrorToast()
     }
 
     /// The text and the attachments of the composer this one replaces (a
     /// team change under a draft in progress): what is not bound to a team.
     /// The subject, the inputs and the repo pick were the old team's and
     /// stay behind; the uploads are redone under the new team at the send.
-    /// A session that landed on the way over is handed on so the page still
-    /// opens it.
     func carryDraft(from previous: AgentComposerModel) {
         draftText = previous.draftText
         pendingImages = previous.pendingImages.map { image in
@@ -234,25 +174,62 @@ final class AgentComposerModel {
             copy.uploadedName = nil
             return copy
         }
-        landedSession = previous.landedSession
+        landedRootId = previous.landedRootId
         touched = true
     }
 
     // MARK: - Load
 
     func load() async {
-        observeBlockers()
+        observePools()
         guard let teamId else { return }
         repos = (try? await deps.repositoriesApi.list(accountId: accountId, teamId: teamId)) ?? []
-        // EXP-993: a phone never picks a chat's repository — the pill is gone,
-        // so the team's FIRST repository is the anchor (a team with none still
-        // runs in the agent's scratch dir). It used to pre-pick only when the
-        // team had exactly one, which left every other team's chat repo-less
-        // with no way to say otherwise.
+        // EXP-993: a phone never picks a free request's repository — the
+        // team's FIRST repository is the anchor (a team with none runs in
+        // the agent's scratch dir).
         if chatRepoId.isEmpty, let first = repos.first {
             chatRepoId = first.id
         }
         await loadMentionMembers(teamId: teamId)
+    }
+
+    /// Issues, boards, actions and the open pull requests (with their
+    /// linked issues' identifiers) — one observation, every pool live.
+    private func observePools() {
+        guard poolTask == nil, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            let issues = try IssueEntity.fetchAll(db)
+            let boards = try BoardEntity.fetchAll(db)
+            let actions = try ActionEntity.fetchAll(db)
+            let pulls = try PullRequestEntity
+                .filter(Column("state") == DomainContract.prStateOpen)
+                .fetchAll(db)
+            let links = try PullRequestIssueEntity.fetchAll(db)
+            return (issues, boards, actions, pulls, links)
+        }
+        poolTask = Task { [weak self] in
+            do {
+                for try await (issues, boards, actions, pulls, links) in observation.values(in: pool) {
+                    guard let self else { return }
+                    self.issueRows = issues
+                    self.boardRows = boards
+                    self.actionRows = actions.map { ActionDto(entity: $0) }
+                    let identifierById = Dictionary(
+                        issues.map { ($0.id, $0.identifier ?? "") }, uniquingKeysWith: { a, _ in a }
+                    )
+                    let linked = Dictionary(grouping: links, by: \.pullRequestId)
+                    self.pullRequestRows = pulls.map { pull in
+                        StartPullRequestOption.Candidate(
+                            id: pull.id,
+                            teamId: pull.teamId,
+                            number: pull.number,
+                            state: pull.state,
+                            identifiers: (linked[pull.id] ?? []).compactMap { identifierById[$0.issueId] }
+                        )
+                    }
+                }
+            } catch {}
+        }
     }
 
     // MARK: - Draft
@@ -320,87 +297,36 @@ final class AgentComposerModel {
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 
-    // MARK: - Pools (live off the sessions view model)
+    // MARK: - Pools
 
-    /// Every issue the composer can put on a run. The checked ids are exempt
-    /// from the issue-level checks: a seeded issue must stay on offer.
+    /// Every issue the composer can put on a thread. The checked ids are
+    /// exempt from the issue-level checks: a seeded issue must stay on offer.
     var issues: [IssueOption] {
-        sessions.startCandidates(teamId: teamId, exempt: Set(checked))
+        IssueOption.build(issues: issueRows, boards: boardRows, teamId: teamId, exempt: Set(checked))
     }
 
-    /// The action picker's pool: the three LISTED builtins pinned FIRST by
-    /// the `builtin` flag (EXP-257 — never by sort order), "Fix merge
-    /// conflicts" ahead of "Create action" (the web order), then "Tidy up"
-    /// (FEED-50) unless the team owns a REAL row of that name (SLOP-2,
-    /// `hasOwnTidyUpAction`), then the team's rows. Chat is in NO pool: it is
-    /// what "no subject" means.
+    /// The action picker's pool: the team's saved prompts, sortOrder-then-name
+    /// like the server list.
     var actions: [ActionDto] {
         guard let teamId else { return [] }
-        let teamActions = sessions.teamActions(teamId: teamId)
-        var builtins = [
-            ActionDto.builtinFixConflictsAction(teamId: teamId),
-            ActionDto.builtinCreateAction(teamId: teamId),
-        ]
-        if !ActionDto.hasOwnTidyUpAction(teamActions) {
-            builtins.append(ActionDto.builtinTidyUpAction(teamId: teamId))
-        }
-        return builtins + teamActions
+        return actionRows
+            .filter { $0.teamId == teamId }
+            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
     }
 
+    /// The team's boards, sortOrder-then-name — the `board` inputs pick from
+    /// them.
     var boards: [BoardEntity] {
-        sessions.teamBoards(teamId: teamId)
+        guard let teamId else { return [] }
+        return boardRows
+            .filter { $0.teamId == teamId }
+            .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
     }
 
-    /// Open issue-linked pull requests of the team — the options a `pr`
-    /// input picks from (EXP-259/EXP-270).
+    /// The team's OPEN pull requests — the options a `pr` input picks from.
     var pullRequests: [StartPullRequestOption] {
-        sessions.openPullRequests(teamId: teamId)
-    }
-
-    // MARK: - Blocked start (EXP-897)
-
-    /// EXP-980: the OPEN issues that block the picked set from OUTSIDE it —
-    /// for one issue AND for a batch (a blocker picked into the same batch is
-    /// not in its way). An action subject and a chat are never blocked, so
-    /// they never ask.
-    var openBlockers: [IssueEntity] {
-        guard actionId == nil else { return [] }
-        return IssueGraph.openBlockersOfSet(
-            ids: effectiveChecked, relations: blockerRelations, issues: blockerIssues
-        )
-    }
-
-    /// Every `blocks` row and the issues at either end. Armed once: the rule
-    /// is keyed on the picked SET, which changes without any database change,
-    /// so there is nothing per-subject to re-point.
-    private func observeBlockers() {
-        guard blockerTask == nil, let pool = try? deps.db.pool(forAccountId: accountId)
-        else { return }
-        let observation = ValueObservation.tracking {
-            db -> ([IssueRelationEntity], [IssueEntity]) in
-            let relations = try IssueRelationEntity
-                .filter(Column("type") == IssueRelationType.blocks.rawValue)
-                .fetchAll(db)
-            let ids = Array(Set(relations.flatMap { [$0.issueId, $0.relatedIssueId] }))
-            let issues = ids.isEmpty
-                ? []
-                : try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
-            return (relations, issues)
-        }
-        blockerTask = Task { [weak self] in
-            do {
-                for try await (relations, issues) in observation.values(in: pool) {
-                    self?.blockerRelations = relations
-                    self?.blockerIssues = issues
-                }
-            } catch {}
-        }
-    }
-
-    /// The subject changed under an open prompt: it is about a set that is no
-    /// longer picked, so it goes.
-    private func refreshBlockers() {
-        blockedPrompt = nil
+        guard let teamId else { return [] }
+        return StartPullRequestOption.build(from: pullRequestRows, teamId: teamId)
     }
 
     // MARK: - Subject
@@ -424,7 +350,7 @@ final class AgentComposerModel {
     }
 
     var subject: AgentComposerPrompt.Subject {
-        if actionId != nil { return fixConflictsPr != nil ? .fixConflicts : .action }
+        if actionId != nil { return .action }
         let count = effectiveChecked.count
         return count == 0 ? .none : .issues(count: count)
     }
@@ -433,56 +359,20 @@ final class AgentComposerModel {
         AgentComposerPrompt.submitTitle(for: subject)
     }
 
-    /// EXP-1038: the headline verb over the composer ("Run" · "Implement" ·
-    /// "Ask the agent"), the contract's copy ×4 — the subject chips sit
-    /// beside it, so what a send starts is the page's main element rather
-    /// than a footnote inside the card.
+    /// EXP-1038: the headline verb over the composer ("Run" · "Implement"),
+    /// the contract's copy ×4 — the subject chips sit beside it.
     var headline: String {
         AgentComposerPrompt.headline(for: subject)
     }
 
-    /// The field's prompt per subject (`AgentComposerPrompt.placeholder`,
-    /// web parity): a chat asks for the message, a picked action shows its
-    /// own composer hint (EXP-825), anything else asks for what is optional
-    /// next to it.
+    /// The field's prompt per subject: Home asks what to build
+    /// (composer-home.json `placeholder`); a picked action shows its own
+    /// hint; issue chips ask for what is optional next to them.
     var placeholder: String {
-        // EXP-1253: a chat on the home composer asks what to build
-        // (composer-home.json `placeholder`, web's `home` variant).
         if subject == AgentComposerPrompt.Subject.none { return HomeGreeting.placeholder }
         return AgentComposerPrompt.placeholder(
             for: subject, actionHint: selectedAction?.promptPlaceholder
         )
-    }
-
-    // MARK: - Fix merge conflicts (EXP-1233)
-
-    /// Whether the picked action is the Fix merge conflicts builtin — the
-    /// card replaces its generic "Pull request" field.
-    var isFixConflicts: Bool {
-        actionId == DomainContract.builtinFixConflictsId
-    }
-
-    /// The builtin's `pr` input def.
-    var fixConflictsPrInput: ActionInputDto? {
-        guard isFixConflicts else { return nil }
-        return selectedActionInputs.first { $0.type == "pr" }
-    }
-
-    /// The picked pull request resolved off the synced rows — the
-    /// representative issue and every open-PR row sharing its URL (a batch
-    /// PR). Nil for any other subject, and while nothing is picked.
-    var fixConflictsPr: FixConflictsPr? {
-        guard let def = fixConflictsPrInput else { return nil }
-        return FixConflictsPr.resolve(
-            prIssueId: value(for: def),
-            issues: sessions.openPullRequestIssues(teamId: teamId)
-        )
-    }
-
-    /// The headline chips' ✕: clears the PICK, never the action.
-    func clearPullRequest() {
-        guard let def = fixConflictsPrInput else { return }
-        setValue("", for: def)
     }
 
     func isChecked(_ id: String) -> Bool {
@@ -493,7 +383,6 @@ final class AgentComposerModel {
     /// subject (exclusivity by swap).
     func toggleIssue(_ id: String) {
         touched = true
-        conflictRefused = false
         if actionId != nil {
             actionId = nil
             inputValues = [:]
@@ -503,7 +392,6 @@ final class AgentComposerModel {
         } else {
             checked.append(id)
         }
-        refreshBlockers()
     }
 
     /// Pick an action. Picking one REPLACES the issue chips; a different
@@ -511,43 +399,22 @@ final class AgentComposerModel {
     func pickAction(_ action: ActionDto) {
         guard action.id != actionId else { return }
         touched = true
-        conflictRefused = false
         actionId = action.id
         checked = []
         inputValues = [:]
-        refreshBlockers()
     }
 
     func clearAction() {
         touched = true
-        conflictRefused = false
         actionId = nil
         inputValues = [:]
-        refreshBlockers()
     }
 
     // MARK: - Action inputs
 
-    /// The value a def shows: what the user set, else its default — a `repo`
-    /// input pre-fills the action's bound repository (EXP-349; a picker
-    /// reading "None" while the run targets the bound repo anyway looked
-    /// misconfigured), a `pr` input the seeded pull request (EXP-323,
-    /// normalised by membership — the caller's issue is rarely the option's
-    /// representative). A manual clear stores "", which is non-nil, so it is
-    /// never re-stomped.
+    /// The value a def shows: what the user set, else unset (`""`).
     func value(for def: ActionInputDto) -> String {
-        if let value = inputValues[def.key] { return value }
-        switch def.type {
-        case "repo":
-            return selectedAction?.repositoryId ?? ""
-        case "pr":
-            guard let seed = pendingPrIssueId,
-                  let option = StartPullRequestOption.option(in: pullRequests, forIssueId: seed)
-            else { return "" }
-            return option.issueId
-        default:
-            return ""
-        }
+        inputValues[def.key] ?? ""
     }
 
     func setValue(_ value: String, for def: ActionInputDto) {
@@ -559,7 +426,7 @@ final class AgentComposerModel {
         selectedAction?.inputs ?? []
     }
 
-    /// The resolved input map (defaults applied) the gates and the wire read.
+    /// The resolved input map the gates and the wire read.
     private var resolvedInputValues: [String: String] {
         var out: [String: String] = [:]
         for def in selectedActionInputs {
@@ -570,11 +437,10 @@ final class AgentComposerModel {
 
     // MARK: - Devices
 
-    /// The machines a run can be sent to — online with a runnable agent
-    /// (EXP-672: one pool for every subject, the server refuses only on the
-    /// agent; EXP-409 drops machines whose every agent is signed out).
+    /// The machines a session can be sent to — online with a runnable agent
+    /// (EXP-672; EXP-409 drops machines whose every agent is signed out).
     var candidateDevices: [SteerDevice] {
-        (sessions.devices ?? []).filter { $0.isOnline && $0.hasRunnableAgent }
+        (devicesModel.devices ?? []).filter { $0.isOnline && $0.hasRunnableAgent }
     }
 
     var device: SteerDevice? {
@@ -596,9 +462,8 @@ final class AgentComposerModel {
         let switched = id != launch.lastSeededDeviceId
         touched = true
         deviceId = id
-        // EXP-836: a human pick retires the seed's REQUEST (web's two slots:
-        // `setDeviceId` clears `requestedDeviceId`) — a one-shot preference
-        // never reasserts itself over a choice, and its note goes with it.
+        // EXP-836: a human pick retires the seed's REQUEST — a one-shot
+        // preference never reasserts itself over a choice.
         preferredDeviceId = nil
         // The newly selected desktop may not run the chosen agent; a
         // DIFFERENT machine brings its own coding defaults (EXP-437).
@@ -613,17 +478,7 @@ final class AgentComposerModel {
         launch.reconcile(device: device)
     }
 
-    var availableAgents: [String] {
-        launch.availableAgents(for: device)
-    }
-
-    func selectAgent(_ value: String) {
-        touched = true
-        launch.selectAgent(value, device: device)
-    }
-
-    /// EXP-872: ONE pick for agent + login — the options line has no separate
-    /// agent control any more, the account carries its agent.
+    /// EXP-872: ONE pick for agent + login — the account carries its agent.
     func selectAccount(_ option: AccountOption) {
         touched = true
         launch.selectAccount(option, device: device)
@@ -636,11 +491,9 @@ final class AgentComposerModel {
     }
 
     /// EXP-1196/1219: when the picked agent cannot start on the picked
-    /// machine, that machine's failing doctor ROW (Git when Git is the
-    /// failure, else the agent's own row) — rendered under the composer with
-    /// its action instead of the `notReadyNote` sentence. Nil when the
-    /// machine reports no doctor (an older build: the sentence stays) or the
-    /// report names no failure.
+    /// machine, that machine's failing doctor ROW — rendered under the
+    /// composer with its action. Nil when the machine reports no doctor or
+    /// the report names no failure.
     var notReadyRow: DeviceReadiness.Row? {
         guard agentNotReady, let device, let doctor = device.doctor else { return nil }
         return DeviceReadiness.failingRow(
@@ -648,9 +501,8 @@ final class AgentComposerModel {
         )
     }
 
-    /// The "nothing to start on" hint — byte-matching the web launch page,
-    /// with the signed-out-agents case (EXP-409) taking precedence because it
-    /// names an actionable fix.
+    /// The "nothing to start on" hint, the signed-out-agents case (EXP-409)
+    /// first because it names an actionable fix.
     var noDeviceNote: String {
         let signedOut = signedOutAgentNames.joined(separator: ", ")
         if !signedOut.isEmpty {
@@ -659,50 +511,22 @@ final class AgentComposerModel {
         return "No desktop online. Open the Exponential desktop app to start a session."
     }
 
-    /// EXP-836: why the machine a ▶ seed NAMED is not the one this run would
-    /// land on — it went offline, every agent there is signed out, or it left
-    /// the registry. Byte-matching web's `deviceRequestNote`; nil once the
-    /// request settled (or there never was one), and nil while the devices
-    /// shape is still hydrating, because a machine that has not arrived yet is
-    /// not a missing one (the request keeps outranking the default until it
-    /// does).
+    /// EXP-836: why the machine a ▶ seed NAMED is not the one this session
+    /// would land on; nil once the request settled (or there never was one)
+    /// and while the devices shape is still hydrating.
     var deviceRequestNote: String? {
         LaunchDeviceRequest.note(
             requested: preferredDeviceId,
             resolved: device?.deviceId,
-            devices: sessions.devices
+            devices: devicesModel.devices
         )
     }
 
     /// The agents installed-but-signed-out across the caller's ONLINE
     /// machines (EXP-409), in contract order.
     private var signedOutAgentNames: [String] {
-        let reported = Set((sessions.devices ?? []).filter(\.isOnline).flatMap(\.unauthedAgentIds))
+        let reported = Set((devicesModel.devices ?? []).filter(\.isOnline).flatMap(\.unauthedAgentIds))
         return DomainContract.codingAgentValues.filter { reported.contains($0) }
-    }
-
-    // MARK: - Resume (EXP-481)
-
-    /// The synced worktree that makes "Resume previous session" offerable:
-    /// exactly ONE checked issue, a machine picked off the devices SHAPE
-    /// (rowId — relay rows never resume), and a row whose identifier +
-    /// .exp-agents marker match the chosen agent. Nil hides the toggle.
-    var resumeCandidate: DeviceWorktreeEntity? {
-        guard actionId == nil,
-              let device,
-              let option = checkedOptions.first,
-              checkedOptions.count == 1
-        else { return nil }
-        return WorktreeResume.match(
-            worktrees: sessions.worktrees,
-            deviceRowId: device.rowId,
-            issueIdentifier: option.identifier,
-            agent: launch.agent
-        )
-    }
-
-    var resumeActive: Bool {
-        launch.resume && resumeCandidate != nil
     }
 
     // MARK: - Gates
@@ -712,8 +536,7 @@ final class AgentComposerModel {
     }
 
     var multiRepo: Bool { checkedRepoIds.count > 1 }
-    var overCap: Bool { effectiveChecked.count > Self.maxBatchIssues }
-    var costWarning: Bool { effectiveChecked.count > Self.costWarnThreshold }
+    var overCap: Bool { effectiveChecked.count > Self.maxIssues }
 
     /// The reason the composer cannot start right now, worded for the
     /// caption under the options — nil when it can, or when the only thing
@@ -722,21 +545,18 @@ final class AgentComposerModel {
         guard teamId != nil else { return "Pick a team first." }
         // The pool is still resolving (the devices shape's first snapshot):
         // no verdict yet, so no "no desktop" note either.
-        guard device != nil else { return sessions.devices == nil ? nil : noDeviceNote }
+        guard device != nil else { return devicesModel.devices == nil ? nil : noDeviceNote }
         if let note = LaunchVocabulary.notReadyNote(device: device, agent: launch.agent) {
             return note
         }
-        // A seeded action that never synced, or belongs to another team:
-        // say so instead of leaving a dead disabled button.
+        // A seeded action that never synced, or belongs to another team.
         if actionId != nil, selectedAction == nil {
             return "That action is not available on this team."
         }
         if multiRepo { return "Pick issues from a single repository per session." }
-        if overCap { return "At most \(Self.maxBatchIssues) issues per session. Split the batch." }
-        if let action = selectedAction {
-            if ActionInputValues.hasUnsupportedType(action.inputs ?? []) {
-                return "This action needs a newer app version."
-            }
+        if overCap { return "At most \(Self.maxIssues) issues per session." }
+        if let action = selectedAction, ActionInputValues.hasUnsupportedType(action.inputs ?? []) {
+            return "This action needs a newer app version."
         }
         if !AgentComposerPrompt.withinLimit(draftText) {
             return "The message is too long (\(AgentComposerPrompt.maxLength) characters at most)."
@@ -744,17 +564,9 @@ final class AgentComposerModel {
         return nil
     }
 
-    /// Whether the message itself is required and missing: a chat needs text
-    /// or an image, the Create action builtin needs the request text.
+    /// A free request needs text or an attachment; a subject never does.
     private var messageMissing: Bool {
-        switch subject {
-        case .none:
-            return trimmedDraft.isEmpty && pendingImages.isEmpty && pendingFiles.isEmpty
-        case .action, .fixConflicts:
-            return actionId == DomainContract.builtinCreateActionId && trimmedDraft.isEmpty
-        case .issues:
-            return false
-        }
+        subject == AgentComposerPrompt.Subject.none && trimmedDraft.isEmpty && pendingImages.isEmpty && pendingFiles.isEmpty
     }
 
     private var requiredInputsFilled: Bool {
@@ -762,17 +574,15 @@ final class AgentComposerModel {
     }
 
     var canSubmit: Bool {
-        // `blocker` stays nil while the machine pool is still resolving (no
-        // "no desktop" flash) — but nothing can be sent without a machine.
-        guard blocker == nil, device != nil, !sending, starting == nil, !messageMissing else { return false }
+        guard blocker == nil, device != nil, !sending, !messageMissing else { return false }
         switch subject {
         case .none: return true
         case .issues: return !effectiveChecked.isEmpty
-        case .action, .fixConflicts: return selectedAction != nil && requiredInputsFilled
+        case .action: return selectedAction != nil && requiredInputsFilled
         }
     }
 
-    // MARK: - Images (EXP-511/EXP-698, the steer composer's rules)
+    // MARK: - Attachments (EXP-511/EXP-698, the steer composer's rules)
 
     /// Both lists full: nothing more can be attached (the "+" row dims).
     var attachFull: Bool {
@@ -788,8 +598,7 @@ final class AgentComposerModel {
     }
 
     /// Wave D: a picked file. An inline image joins the images (marker and
-    /// all); anything else queues as a file tile, capped at four
-    /// ("Up to 4 files per message").
+    /// all); anything else queues as a file tile.
     func queuePicked(_ picked: PendingCommentAttachment) {
         if AttachmentFiles.isInlineImage(contentType: picked.contentType) {
             guard !imagesFull else { return }
@@ -819,9 +628,7 @@ final class AgentComposerModel {
 
     /// Queue one normalized image and drop its positional `[Image #k]`
     /// marker at the END of the draft, so a sentence can name the picture it
-    /// means (EXP-698). The end, not the caret: the caret is an offset into
-    /// the DECORATED text, where a resolved `#EXP-1` chip carries a title
-    /// character the sent text does not.
+    /// means (EXP-698).
     func queueImage(_ normalized: PendingCommentAttachment) {
         guard !imagesFull else { return }
         touched = true
@@ -839,9 +646,8 @@ final class AgentComposerModel {
         draftText = inserted.text
     }
 
-    /// Dropping a pending image renumbers the draft's markers: the removed
-    /// one goes and every higher one slides down, so `[Image #N]` keeps
-    /// naming the N-th image that will actually be sent.
+    /// Dropping a pending image renumbers the draft's markers, so
+    /// `[Image #N]` keeps naming the N-th image that will actually be sent.
     func removeImage(id: UUID) {
         guard let position = pendingImages.firstIndex(where: { $0.id == id }) else { return }
         pendingImages.remove(at: position)
@@ -852,134 +658,23 @@ final class AgentComposerModel {
 
     // MARK: - Submit
 
-    /// EXP-897/EXP-980: a start on BLOCKED work asks first — start anyway, or
-    /// cancel. One issue and a batch both ask;
-    /// an action run and a chat never do, and neither does a RESUME (it
-    /// re-enters a run whose blockers were answered when it started, the
-    /// desktop's rule since EXP-897).
-    /// A Start press or the error toast's Retry: the same draft on the same
-    /// device re-sends under the SAME `startId`, anything else mints one.
+    /// Upload the pending attachments (sequentially, stamping `uploadedId`
+    /// so a retry after a mid-batch failure never uploads the same file
+    /// twice), then ONE `sessions.send` for a new thread root. On success
+    /// the composer clears and the page opens the thread; on failure the
+    /// draft, the chips and the strip stay and a toast offers Retry.
     func submit() {
-        guard canSubmit, !sending, let fingerprint = draftFingerprint else { return }
-        let resolved = DraftStart.resolve(pending: draftStart, fingerprint: fingerprint)
-        if resolved.startId != draftStart?.startId { draftStartSentAt = nil }
-        draftStart = resolved
-        if !resumeActive {
-            let blockers = openBlockers
-            if !blockers.isEmpty {
-                let picked = effectiveChecked
-                let stack = stackPlan(picked: picked)
-                blockedPrompt = BlockedStartPrompt(
-                    issueIds: picked,
-                    identifiers: blockers.map { $0.identifier ?? "" },
-                    graph: IssueGraph.blockGraph(
-                        subjectIds: picked, relations: blockerRelations, issues: blockerIssues
-                    ),
-                    issues: blockerIssues,
-                    stack: stack.result,
-                    stackStartIssueId: stack.startIssueId
-                )
-                return
-            }
-        }
-        send()
-    }
-
-    /// The reader chose an ordinary run despite the blockers — exactly what
-    /// was picked, the whole batch for a batch.
-    func startAnyway() {
-        blockedPrompt = nil
-        send()
-    }
-
-    /// SLOP-3: the SAME remote start as Start anyway, but of the line's
-    /// lowest unstarted issue (`StackPlan.run[0]`, not necessarily the picked
-    /// one), its `prompt` = `BlockedStart.stackedStartPrompt` around the typed
-    /// draft. Prompt text only: no new start input.
-    /// `prompt` = the one the alert was built from: the alert clears
-    /// `blockedPrompt` before its answer runs.
-    func startStacked(_ prompt: BlockedStartPrompt? = nil) {
-        guard let prompt = prompt ?? blockedPrompt, let plan = prompt.stack.plan,
-              let startIssueId = prompt.stackStartIssueId else { return }
-        blockedPrompt = nil
-        send(stacked: (plan: plan, issueId: startIssueId))
-    }
-
-    /// The stack rule's view of the picked subject and the open-blocker line
-    /// below it (`BlockedStart.stackLine`): a line member's repository is its
-    /// BOARD's, the subject's the picked issue's; a member is `running` while
-    /// a live run works on it and its pull request is not open yet. Also
-    /// resolves `run[0]`, the issue a stacked start actually starts.
-    private func stackPlan(
-        picked: [String]
-    ) -> (result: BlockedStart.StackPlanResult, startIssueId: String?) {
-        let subjectOption = checkedOptions.first { $0.id == picked.first }
-        let subject = BlockedStart.Subject(
-            identifier: subjectOption?.identifier ?? "",
-            repositoryId: subjectOption?.repositoryId
-        )
-        guard picked.count == 1, let subjectId = picked.first else {
-            let result = BlockedStart.stackPlan(
-                pickedCount: picked.count, subject: subject, line: [], fork: nil, cycle: false
-            )
-            return (result, nil)
-        }
-        let walk = BlockedStart.stackLine(
-            subjectId: subjectId, relations: blockerRelations, issues: blockerIssues
-        )
-        let repoByBoard = Dictionary(
-            boards.map { ($0.id, $0.repositoryId) }, uniquingKeysWith: { a, _ in a }
-        )
-        let live = sessions.liveRunIssueIds()
-        let result = BlockedStart.stackPlan(
-            pickedCount: 1,
-            subject: subject,
-            line: walk.line.map {
-                BlockedStart.LineMember(
-                    identifier: $0.identifier ?? "",
-                    prState: $0.prState,
-                    branch: $0.branch,
-                    repositoryId: repoByBoard[$0.boardId] ?? nil,
-                    running: live.contains($0.id) && $0.prState != DomainContract.prStateOpen
-                )
-            },
-            fork: walk.fork.map { $0.identifier ?? "" },
-            cycle: walk.cycle
-        )
-        guard let first = result.plan?.run.first else { return (result, nil) }
-        let startId = first == subject.identifier
-            ? subjectId
-            : walk.line.first { $0.identifier == first }?.id
-        return (result, startId)
-    }
-
-    /// Upload the pending images (sequentially, stamping `uploadedId` so a
-    /// retry after a mid-batch failure never uploads the same file twice),
-    /// compose the `prompt`, then dispatch chat / action / issue / batch.
-    /// On success the composer clears and the watcher pushes the run once
-    /// its row syncs; on failure the draft, the chips and the strip stay.
-    private func send(stacked: (plan: BlockedStart.StackPlan, issueId: String)? = nil) {
-        guard canSubmit, let device, let teamId, !sending else { return }
+        guard canSubmit, let device, let teamId else { return }
         sending = true
-        // A send is a touch: a team change never reseeds this composer
-        // under a start in flight (`isStartInFlight`).
         touched = true
-        error = nil
         imageError = nil
-        let watched = draftStart
-        // A different draft start supersedes the quiet watch of the previous
-        // one (its late row must never clear this draft); a re-send of the
-        // SAME start keeps it running, so a failed re-send still lands the
-        // original.
-        if watchedStartId != watched?.startId {
-            startWatcher.sending()
-            watchedStartId = nil
-        }
-        let deviceLabel = LaunchVocabulary.deviceName(device)
-        starting = Starting(deviceLabel: deviceLabel, since: Date())
-        dismissTimeoutToast()
+        dismissErrorToast()
+        starting = Starting(deviceLabel: LaunchVocabulary.deviceName(device), since: Date())
         Task {
-            defer { sending = false }
+            defer {
+                sending = false
+                starting = nil
+            }
             for index in pendingImages.indices where pendingImages[index].uploadedId == nil {
                 do {
                     let uploaded = try await deps.attachmentsApi.uploadTeamSessionImage(
@@ -991,7 +686,7 @@ final class AgentComposerModel {
                     )
                     pendingImages[index].uploadedId = uploaded.id
                 } catch {
-                    uploadFailed(error.userFacingMessage)
+                    failed(verb: "upload", thing: "the attachment", error)
                     return
                 }
             }
@@ -1008,165 +703,88 @@ final class AgentComposerModel {
                     )
                     pendingFiles[index].stamp(uploaded)
                 } catch {
-                    uploadFailed(error.userFacingMessage)
+                    failed(verb: "upload", thing: "the attachment", error)
                     return
                 }
             }
-            // SLOP-3: a stacked start's text is the line's prompt around the
-            // typed draft.
-            let text = stacked.map {
-                BlockedStart.stackedStartPrompt(plan: $0.plan, text: draftText)
-            } ?? draftText
-            let prompt = AgentComposerPrompt.build(
-                text: text,
-                attachmentIds: pendingImages.compactMap(\.uploadedId),
+            let imageIds = pendingImages.compactMap(\.uploadedId)
+            let attachmentIds = imageIds + pendingFiles.compactMap(\.uploadedId)
+            let text = AgentComposerPrompt.build(
+                text: draftText,
+                attachmentIds: imageIds,
                 files: pendingFiles.compactMap(\.wireFile)
             )
-            let sentAt = Date()
             do {
-                let key = try await dispatch(
-                    device: device, teamId: teamId, prompt: prompt,
-                    issueIds: stacked.map { [$0.issueId] }, startId: watched?.startId
-                )
-                touched = true
-                if draftStartSentAt == nil, draftStart?.startId == watched?.startId {
-                    draftStartSentAt = sentAt
-                }
-                // The deadline arms HERE, once the start request is sent
-                // (uploads done), never at the press. The watch outlives the
-                // page (it lives on this model), bounded by its window.
-                watchedStartId = watched?.startId
-                watchedUntil = (draftStartSentAt ?? sentAt).addingTimeInterval(StartedRunMatch.watchWindow)
-                startWatcher.begin(
-                    key: key,
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
+                let result = try await deps.sessionsApi.send(
                     accountId: accountId,
-                    deadline: TimeInterval(FeedbackStates.Starting.timeoutMs) / 1000,
-                    cutoff: draftStartSentAt ?? sentAt,
-                    onTimeout: { [weak self] in self?.startTimedOut(deviceLabel: deviceLabel) },
-                    onLanded: { [weak self] sessionId in
-                        self?.runLanded(sessionId: sessionId, start: watched)
-                    }
+                    sendInput(teamId: teamId, deviceId: device.deviceId, text: text, attachmentIds: attachmentIds)
                 )
+                clearDraft()
+                landedRootId = result.sessionId
             } catch {
-                // FEED-79 (EXP-1259 D10): a failed start is a toast with
-                // Retry (the same startId); the draft stays.
-                starting = nil
-                let toast = ToastItem(
-                    kind: .error,
-                    title: FeedbackStates.Errors.title(verb: "start", thing: "the session"),
-                    description: error.userFacingMessage,
-                    action: retryAction()
-                )
-                timeoutToastId = toast.id
-                Toaster.shared.show(toast)
-                // Recheck R3 (`starting.maybeDelivered`): a send whose fate is
-                // unknown may have reached the device, so it is followed
-                // quietly too and a late session still lands; a definite
-                // refusal has nothing to follow.
-                if StartDelivery.fate(of: error) == .maybeDelivered, let watched,
-                   draftStart?.startId == watched.startId,
-                   let key = watchKey(teamId: teamId, issueIds: stacked.map { [$0.issueId] }) {
-                    if draftStartSentAt == nil { draftStartSentAt = sentAt }
-                    let cutoff = draftStartSentAt ?? sentAt
-                    watchedStartId = watched.startId
-                    watchedUntil = cutoff.addingTimeInterval(StartedRunMatch.watchWindow)
-                    startWatcher.follow(
-                        key: key,
-                        userId: deps.auth.userId,
-                        db: deps.db,
-                        accountId: accountId,
-                        cutoff: cutoff,
-                        onLanded: { [weak self] sessionId in
-                            self?.runLanded(sessionId: sessionId, start: watched)
-                        }
-                    )
-                }
+                failed(verb: "start", thing: "the session", error)
             }
         }
     }
 
-    /// EXP-1271: the run's synced row landed: the starting state ends and
-    /// the error clears. Final review: the draft clears and the session opens
-    /// (`landedSession`) only when the draft is unchanged since its send; a
-    /// draft the person changed after the timeout stays exactly as they left
-    /// it and nothing navigates (the session shows in Running).
-    private func runLanded(sessionId: String, start: DraftStart?) {
-        starting = nil
-        error = nil
-        watchedStartId = nil
-        watchedUntil = nil
-        dismissTimeoutToast()
-        if let start, draftStart?.startId == start.startId {
-            draftStart = nil
-            draftStartSentAt = nil
-        }
-        if let start {
-            guard let current = draftFingerprint, start.landsInto(current) else { return }
-        }
-        clearDraft()
-        landedSession = StartedRunWatcher.StartedSession(sessionId: sessionId)
-    }
-
-    /// The draft as a start is bound to it (recheck R2,
-    /// `starting.fingerprint.fields`): the machine, the text, the subject
-    /// (issues, or the action + its wire inputs, or the chat's repository),
-    /// the attachments and every launch option in the form the start sends.
-    /// Nil without a machine to start on.
-    private var draftFingerprint: DraftStart.Fingerprint? {
-        guard let device else { return nil }
-        let attachments = pendingImages.map(\.id.uuidString) + pendingFiles.map(\.id.uuidString)
-        let options = launch.buildOptions()
+    /// The new thread root this draft starts.
+    private func sendInput(
+        teamId: String, deviceId: String, text: String?, attachmentIds: [String]
+    ) -> SessionsSendInput {
+        let attachments = attachmentIds.isEmpty ? nil : attachmentIds
         switch subject {
         case .none:
-            return DraftStart.Fingerprint(
-                deviceId: device.deviceId,
-                text: draftText,
-                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId,
-                attachments: attachments,
-                options: options
+            return .newThread(
+                teamId: teamId,
+                deviceId: deviceId,
+                options: launch.buildOptions(),
+                text: text,
+                attachmentIds: attachments,
+                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId
             )
-        case .action, .fixConflicts:
-            return DraftStart.Fingerprint(
-                deviceId: device.deviceId,
-                text: draftText,
-                actionId: actionId,
-                actionInputs: ActionInputValues.wireValues(
-                    selectedActionInputs, values: resolvedInputValues
-                ),
-                attachments: attachments,
-                options: options
-            )
-        case let .issues(count):
-            // The Resume toggle rides single-issue starts only (`dispatch`).
-            return DraftStart.Fingerprint(
-                deviceId: device.deviceId,
-                text: draftText,
-                issueIds: checked,
-                attachments: attachments,
-                options: count == 1 && resumeActive ? launch.buildOptions(resume: true) : options
-            )
-        }
-    }
-
-    /// The row a start of the current subject produces (`dispatch`'s key),
-    /// for the quiet follow of a send whose fate is unknown.
-    private func watchKey(teamId: String, issueIds: [String]?) -> StartedRunKey? {
-        switch subject {
-        case .none:
-            return .action(name: ActionDto.builtinChatAction(teamId: teamId).name)
-        case .action, .fixConflicts:
-            return selectedAction.map { .action(name: $0.name) }
         case .issues:
-            return StartedRunKey.forIssues(issueIds ?? effectiveChecked)
+            return .newThread(
+                teamId: teamId,
+                deviceId: deviceId,
+                options: launch.buildOptions(),
+                text: text,
+                attachmentIds: attachments,
+                issueIds: effectiveChecked
+            )
+        case .action:
+            // Values in wire form: blank optionals dropped (a required blank
+            // can't get here — `canSubmit` gates it).
+            let values = ActionInputValues.wireValues(selectedActionInputs, values: resolvedInputValues)
+            return .newThread(
+                teamId: teamId,
+                deviceId: deviceId,
+                options: launch.buildOptions(),
+                text: text,
+                attachmentIds: attachments,
+                actionId: actionId,
+                inputs: values.isEmpty ? nil : values
+            )
         }
     }
 
-    private func dismissTimeoutToast() {
-        guard let id = timeoutToastId else { return }
-        timeoutToastId = nil
+    /// FEED-79 (EXP-1259 D10): a failed upload or send is a toast with
+    /// Retry (the uploads are idempotent); the draft stays.
+    private func failed(verb: String, thing: String, _ error: Error) {
+        let toast = ToastItem(
+            kind: .error,
+            title: FeedbackStates.Errors.title(verb: verb, thing: thing),
+            description: error.userFacingMessage,
+            action: ToastAction(label: FeedbackStates.Starting.timeoutAction) { [weak self] in
+                Task { @MainActor in self?.submit() }
+            }
+        )
+        errorToastId = toast.id
+        Toaster.shared.show(toast)
+    }
+
+    private func dismissErrorToast() {
+        guard let id = errorToastId else { return }
+        errorToastId = nil
         Toaster.shared.dismiss(id)
     }
 
@@ -1177,165 +795,6 @@ final class AgentComposerModel {
         checked = []
         actionId = nil
         inputValues = [:]
-        pendingPrIssueId = nil
-        conflictRefused = false
         seededDraft = ""
-        refreshBlockers()
-    }
-
-    /// EXP-1271: no row within `starting.timeoutMs` of the send: the
-    /// timeout toast (`starting.timeoutToast`) and the composer back to idle.
-    /// Nothing is aborted: the watcher keeps watching, so a late row still
-    /// lands (`runLanded`); Retry re-sends the kept draft under the same
-    /// `startId` (`DraftStart`).
-    private func startTimedOut(deviceLabel: String) {
-        starting = nil
-        let toast = ToastItem(
-            kind: .error,
-            title: FeedbackStates.Starting.timeoutTitle,
-            description: FeedbackStates.Starting.timeoutDescription(device: deviceLabel),
-            action: retryAction()
-        )
-        timeoutToastId = toast.id
-        Toaster.shared.show(toast)
-    }
-
-    /// FEED-79: a failed upload is the error toast with Retry (the uploads
-    /// are idempotent: a retry never sends a finished one twice); the draft
-    /// and the strip stay.
-    private func uploadFailed(_ message: String) {
-        // A re-send of a start already being watched keeps that watch.
-        if watchedStartId == nil { startWatcher.failed(message) }
-        starting = nil
-        Toaster.shared.error(
-            FeedbackStates.Errors.title(verb: "upload", thing: "the attachment"),
-            description: message,
-            action: retryAction()
-        )
-    }
-
-    private func retryAction() -> ToastAction {
-        ToastAction(label: FeedbackStates.Starting.timeoutAction) { [weak self] in
-            Task { @MainActor in self?.submit() }
-        }
-    }
-
-    /// One `steer.startSession` per subject. Returns the watch key that
-    /// recognises the desktop-inserted row (`StartedRunMatch`). `issueIds`
-    /// overrides the picked issues (a stacked start starts `run[0]`).
-    private func dispatch(
-        device: SteerDevice, teamId: String, prompt: String?, issueIds: [String]? = nil,
-        startId: String? = nil
-    ) async throws -> StartedRunKey {
-        switch subject {
-        case .none:
-            // EXP-615: a chat is an ordinary action run of the HIDDEN
-            // `builtin:chat` action, constructed locally. `wireValues` drops
-            // an empty `repo`, so a "No repository" pick sends none (EXP-756).
-            let action = ActionDto.builtinChatAction(teamId: teamId)
-            let values = ActionInputValues.wireValues(
-                action.inputs ?? [], values: ["repo": chatRepoId]
-            )
-            try await deps.steerApi.startSession(
-                accountId: accountId,
-                actionId: action.id,
-                deviceId: device.deviceId,
-                teamId: action.teamId,
-                options: launch.buildOptions(),
-                inputs: values.isEmpty ? nil : values,
-                prompt: prompt,
-                threadId: threadId,
-                startId: startId
-            )
-            return .action(name: action.name)
-        case .action, .fixConflicts:
-            guard let action = selectedAction else { throw SteerStartError.rejected("Pick an action.") }
-            // Values in wire form: blank optionals dropped (a required blank
-            // can't get here — `canSubmit` gates it). `teamId` rides ONLY
-            // with the builtins (their virtual rows have no server id).
-            let values = ActionInputValues.wireValues(
-                action.inputs ?? [], values: resolvedInputValues
-            )
-            try await deps.steerApi.startSession(
-                accountId: accountId,
-                actionId: action.id,
-                deviceId: device.deviceId,
-                teamId: action.isBuiltin ? action.teamId : nil,
-                options: launch.buildOptions(),
-                inputs: values.isEmpty ? nil : values,
-                prompt: prompt,
-                threadId: threadId,
-                startId: startId
-            )
-            return .action(name: action.name)
-        case .issues:
-            let ids = issueIds ?? effectiveChecked
-            guard let key = StartedRunKey.forIssues(ids) else {
-                throw SteerStartError.rejected("Pick an issue.")
-            }
-            if ids.count > 1 {
-                try await deps.steerApi.startSession(
-                    accountId: accountId,
-                    issueIds: ids,
-                    deviceId: device.deviceId,
-                    options: launch.buildOptions(),
-                    prompt: prompt,
-                    threadId: threadId,
-                    startId: startId
-                )
-            } else {
-                // Single-issue only — a batch has no per-issue worktree to
-                // resume (EXP-481).
-                try await deps.steerApi.startSession(
-                    accountId: accountId,
-                    issueId: ids[0],
-                    deviceId: device.deviceId,
-                    options: launch.buildOptions(
-                        resume: resumeActive && issueIds == nil ? true : nil
-                    ),
-                    prompt: prompt,
-                    threadId: threadId,
-                    startId: startId
-                )
-            }
-            return key
-        }
-    }
-}
-
-/// EXP-897/EXP-980: what the blocked-start prompt shows — the work it is
-/// about, the identifiers of the blockers outside it, and the transitive chain
-/// the alert card draws under the sentence (`IssueGraphView`, EXP-1215: the
-/// `GlassAlert` content slot).
-struct BlockedStartPrompt: Identifiable {
-    /// The picked issues, in pick order.
-    let issueIds: [String]
-    /// The open blockers OUTSIDE the picked set, by identifier.
-    let identifiers: [String]
-    let graph: IssueGraph.Graph
-    /// The synced rows the graph names its nodes from.
-    let issues: [IssueEntity]
-    /// SLOP-3: the stacked line's plan, or why Stacked PR is disabled.
-    let stack: BlockedStart.StackPlanResult
-    /// The issue behind `stack.plan.run[0]`, what Stacked PR starts.
-    let stackStartIssueId: String?
-
-    var id: String { issueIds.joined(separator: ",") }
-
-    /// Two or more picked issues = a batch, which reads differently.
-    var isBatch: Bool { issueIds.count > 1 }
-
-    /// Byte-identical ×4 (`BlockedStart`).
-    var title: String {
-        isBatch ? BlockedStart.blockedBatchTitle : BlockedStart.blockedStartTitle
-    }
-
-    /// Stacked PR is enabled only with a plan and its first issue resolved.
-    var stackable: Bool { stack.plan != nil && stackStartIssueId != nil }
-
-    /// The note under Stacked PR: the disabled reason, or (enabled, 2+
-    /// issues to start) the plan note.
-    var stackNote: String? {
-        stack.note ?? stack.planNote
     }
 }

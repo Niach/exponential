@@ -2,8 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type * as React from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import type { Board, CodingSession, Issue } from "@/db/schema"
-import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import type { Board, Issue } from "@/db/schema"
+import { issueCollection, sessionCollection } from "@/lib/collections"
 import {
   AgentRunMark,
   conceptIcon,
@@ -14,8 +14,6 @@ import {
   menuProps,
   type MenuSessionProps,
 } from "@exp/ui"
-import { sessionDisplayState } from "@/lib/coding-session-display"
-import { sessionIdentity } from "@/lib/session-identity"
 import { cn } from "@/lib/utils"
 import {
   closeTabs,
@@ -24,7 +22,6 @@ import {
   partitionTabs,
   routePathFromLocation,
   tabHref,
-  tabIsLive,
   tabKey,
   type WorkTab,
 } from "@/lib/work-tabs"
@@ -33,46 +30,47 @@ import {
   updateWorkTabs,
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
-import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/lib/session-row-caption"
+import { useAgents, useThreadsList } from "@/hooks/use-session-tree"
+import {
+  SESSION_CARD_COPY,
+  sessionState,
+  toTreeSession,
+  type SessionRow,
+  type ThreadsListRow,
+} from "@/lib/session-tree"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import { ThreadLead } from "@/components/thread/thread-row"
-import { useThreadBundles, type ThreadBundle } from "@/hooks/use-threads"
-import { useSession } from "@/hooks/use-session"
+import { ThreadRunMark, threadRunMarkState } from "@/components/team/sidebar-running"
+import { AgentIcon } from "@/components/team/sidebar-agents"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
 // the content card, md+ only (the desktop's title-band strip; phones keep
 // their tab bar). The model is `lib/work-tabs.ts`, the writer
-// `work-tabs-sync.tsx`; this only draws it:
+// `work-tabs-sync.tsx` (route-driven, EXP-1293); this only draws it:
 //
-//   * EXP-923: a FLAT chip list in stored order — the agent groups (their
-//     brand marks, their fold chevrons) are gone with the live tabs they
-//     existed to corral. A live run is a sidebar row now
-//     (`components/team/sidebar-running.tsx`); the strip holds issues and
-//     ENDED runs.
+//   * a FLAT chip list in stored order: issues (status glyph + identifier +
+//     title), threads (the agent mark — the spark while it works, amber
+//     while it needs you — + the thread title), agents' channels (the
+//     agent's icon in its color + its name) and raw sessions (the mark +
+//     the session's name);
 //   * the ACTIVE chip is derived from the URL — never stored;
-//   * a chip's lead is the bound run's mark while it is live — EXP-1191: the
-//     sidebar's Running-row `AgentRunMark` (the spark while the agent works,
-//     else the brand mark with its state badge) — else the issue's status
-//     glyph, else (an ended run tab) the bare mark, else a muted dot;
-//   * EVERY chip closes again (EXP-923) — its ×, a middle click, and Close /
-//     Close others / Close all all reach it;
+//   * every chip closes — its ×, a middle click, and Close / Close others /
+//     Close all all reach it;
 //   * chips that do not fit collapse into a trailing "+N" menu
 //     (`partitionTabs`, measured against the real chips);
 //   * EXP-1255: a chip's × shows only while the tab is hovered (or the × has
-//     keyboard focus), every tab alike, the active one too; a ghost "+" right
-//     after the last tab (after the "+N") opens the New run tab — the home
-//     column (`openNewRunPage`, Alt/Option+T too). Switching tabs never
-//     animates.
+//     keyboard focus); a ghost "+" after the last tab opens the New session
+//     tab — the home composer (`openNewRunPage`, Alt/Option+T too).
+//     Switching tabs never animates.
 
 /** The work-tab chips' context-menu kind (`menuProps`). */
 const TAB_MENU_KIND = `work-tab`
 
 const UiCloseIcon = conceptIcon(`ui-close`)
 const UiAddIcon = conceptIcon(`ui-add`)
-// The New run tab's lead: the Agent entry's concept (the sidebar's).
+// The New session tab's lead: the Agent entry's concept (the sidebar's).
 const NewRunIcon = conceptIcon(`action-chat`)
 
-/** EXP-1255: the New run chip's title. */
+/** EXP-1255: the New session chip's title. */
 export const NEW_RUN_TAB_TITLE = `New session`
 
 interface ChipModel {
@@ -118,13 +116,11 @@ export function WorkTabsStrip({
       ].sort(),
     [state.tabs]
   )
-  const runIds = useMemo(
+  const sessionIds = useMemo(
     () =>
       [
         ...new Set(
-          state.tabs.flatMap((tab) =>
-            tab.runId ? [tab.runId] : []
-          )
+          state.tabs.flatMap((tab) => (tab.kind === `session` ? [tab.sessionId] : []))
         ),
       ].sort(),
     [state.tabs]
@@ -138,39 +134,42 @@ export function WorkTabsStrip({
         : undefined,
     [issueIds.join(`,`)]
   )
-  const { data: runRows } = useLiveQuery(
+  const { data: sessionRows } = useLiveQuery(
     (query) =>
-      runIds.length > 0
+      sessionIds.length > 0
         ? query
-            .from({ s: codingSessionCollection })
-            .where(({ s }) => inArray(s.id, runIds))
+            .from({ s: sessionCollection })
+            .where(({ s }) => inArray(s.id, sessionIds))
         : undefined,
-    [runIds.join(`,`)]
+    [sessionIds.join(`,`)]
   )
   const issuesById = useMemo(
     () => new Map(((issueRows ?? []) as Issue[]).map((row) => [row.id, row])),
     [issueRows]
   )
-  // EXP-1284: thread tabs read their title + live mark off the ONE model.
-  const threadIds = useMemo(
-    () =>
-      state.tabs.flatMap((tab) => (tab.kind === `thread` ? [tab.threadId] : [])),
-    [state.tabs]
+  const sessionsById = useMemo(
+    () => new Map(((sessionRows ?? []) as SessionRow[]).map((row) => [row.id, row])),
+    [sessionRows]
   )
-  const { data: authSession } = useSession()
-  const { bundles: threadBundles } = useThreadBundles(
-    threadIds.length > 0 ? teamId : undefined,
-    authSession?.user?.id,
-    { threadIds }
-  )
-  const threadsById = useMemo(
-    () => new Map(threadBundles.map((bundle) => [bundle.thread.id, bundle])),
-    [threadBundles]
-  )
-  const runsById = useMemo(
-    () =>
-      new Map(((runRows ?? []) as CodingSession[]).map((row) => [row.id, row])),
-    [runRows]
+  // Thread chips read their title + state off the Threads list (the ONE
+  // model, `partitionThreads`); agent chips off the Agents list. Neither
+  // query runs while no such tab is open.
+  const hasThreadTabs = state.tabs.some((tab) => tab.kind === `thread`)
+  const hasAgentTabs = state.tabs.some((tab) => tab.kind === `agent`)
+  const { groups } = useThreadsList(hasThreadTabs ? teamId : null)
+  const threadsById = useMemo(() => {
+    const map = new Map<string, { row: ThreadsListRow; live: boolean }>()
+    for (const group of groups) {
+      for (const row of group.rows) {
+        map.set(row.sessionId, { row, live: group.key !== `recent` })
+      }
+    }
+    return map
+  }, [groups])
+  const { agents } = useAgents(hasAgentTabs ? teamId : null)
+  const agentsById = useMemo(
+    () => new Map(agents.map((agent) => [agent.sessionId, agent])),
+    [agents]
   )
   const boardSlugById = useMemo(
     () => new Map((boards ?? []).map((board) => [board.id, board.slug])),
@@ -191,8 +190,10 @@ export function WorkTabsStrip({
       switch (path.kind) {
         case `thread`:
           return tab.kind === `thread` && tab.threadId === path.threadId
-        case `run`:
-          return tab.kind !== `thread` && tab.runId === path.runId
+        case `agent`:
+          return tab.kind === `agent` && tab.agentId === path.agentId
+        case `session`:
+          return tab.kind === `session` && tab.sessionId === path.sessionId
         case `issue`: {
           if (tab.kind !== `issue`) return false
           const issue = issuesById.get(tab.issueId)
@@ -208,42 +209,72 @@ export function WorkTabsStrip({
 
   const chipOf = (tab: WorkTab): ChipModel => {
     const key = tabKey(tab)
-    if (tab.kind === `new`) {
-      return {
-        key,
-        tab,
-        identifier: null,
-        title: NEW_RUN_TAB_TITLE,
-        lead: <NewRunIcon className="size-3.5 text-muted-foreground" />,
+    switch (tab.kind) {
+      case `new`:
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: NEW_RUN_TAB_TITLE,
+          lead: <NewRunIcon className="size-3.5 text-muted-foreground" />,
+        }
+      case `thread`: {
+        const entry = threadsById.get(tab.threadId)
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: entry ? entry.row.title : null,
+          lead: !entry ? (
+            <LiveDot tone="muted" />
+          ) : entry.live ? (
+            <ThreadRunMark row={entry.row} ringClassName="ring-background" />
+          ) : (
+            <AgentRunMark
+              agent={sessionCollection.get(tab.threadId)?.cli ?? null}
+              state="ended"
+            />
+          ),
+        }
       }
-    }
-    if (tab.kind === `thread`) {
-      const bundle: ThreadBundle | undefined = threadsById.get(tab.threadId)
-      return {
-        key,
-        tab,
-        identifier: null,
-        title: bundle ? bundle.view.title : null,
-        lead: bundle ? (
-          <ThreadLead bundle={bundle} ringClassName="ring-background" />
-        ) : (
-          <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
-        ),
+      case `agent`: {
+        const agent = agentsById.get(tab.agentId)
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: agent ? agent.name : null,
+          lead: agent ? (
+            <AgentIcon agent={agent} className="size-3.5" />
+          ) : (
+            <LiveDot tone="muted" />
+          ),
+        }
       }
-    }
-    const run = tab.runId ? runsById.get(tab.runId) : undefined
-    const issue = tab.kind === `issue` ? issuesById.get(tab.issueId) : undefined
-    const identity = run
-      ? sessionIdentity({ session: run, issue })
-      : issue
-        ? { identifier: issue.identifier, subject: issue.title }
-        : { identifier: null, subject: null }
-    return {
-      key,
-      tab,
-      identifier: identity.identifier,
-      title: identity.subject,
-      lead: <ChipLead tab={tab} run={run} issue={issue} />,
+      case `session`: {
+        const row = sessionsById.get(tab.sessionId)
+        return {
+          key,
+          tab,
+          identifier: null,
+          title: row ? row.title?.trim() || SESSION_CARD_COPY.session : null,
+          lead: row ? <SessionMark row={row} /> : <LiveDot tone="muted" />,
+        }
+      }
+      case `issue`: {
+        const issue = issuesById.get(tab.issueId)
+        return {
+          key,
+          tab,
+          identifier: issue?.identifier ?? null,
+          title: issue?.title ?? null,
+          lead: issue ? (
+            <IssueStatusIcon issue={issue} className="size-3.5!" />
+          ) : (
+            <LiveDot tone="muted" />
+          ),
+        }
+      }
     }
   }
 
@@ -327,11 +358,8 @@ export function WorkTabsStrip({
   const visibleSet = new Set(visible)
   const hidden = chips.filter((_, index) => !visibleSet.has(index))
 
-  const close = (keys: string[], options?: { spareStarting?: boolean }) =>
-    updateWorkTabs(teamId, (current) => closeTabs(current, keys, options))
-  // EXP-1284: the bulk closes spare a New session tab whose start is in
-  // flight (its landing still needs it); its own × closes it regardless.
-  const closeBulk = (keys: string[]) => close(keys, { spareStarting: true })
+  const close = (keys: string[]) =>
+    updateWorkTabs(teamId, (current) => closeTabs(current, keys))
 
   const open = (tab: WorkTab) => {
     const href = tabHref(teamSlug, tab, (issueId) => {
@@ -439,9 +467,9 @@ export function WorkTabsStrip({
             id: `close-others`,
             label: `Close others`,
             disabled: others.length === 0,
-            onSelect: () => closeBulk(others),
+            onSelect: () => close(others),
           },
-          { kind: `item`, id: `close-all`, label: `Close all`, onSelect: () => closeBulk(allKeys) },
+          { kind: `item`, id: `close-all`, label: `Close all`, onSelect: () => close(allKeys) },
         ]}
       />
     )
@@ -534,31 +562,22 @@ export function WorkTabsStrip({
   )
 }
 
-/** A chip's lead glyph: the bound run's state dot while it is live (the
- *  EXP-848 ping while the agent works), else the issue's status glyph, else a
- *  muted dot for an ended run that has no issue behind it. */
-function ChipLead({
-  tab,
-  run,
-  issue,
-}: {
-  tab: WorkTab
-  run: CodingSession | undefined
-  issue: Issue | undefined
-}) {
-  const live = tabIsLive(tab) && run && run.status !== `ended`
-  if (live) {
-    const prState = issue?.prState ?? run.prState
-    return (
-      <AgentRunMark
-        agent={run.agent}
-        state={sessionDisplayState(run, prState)}
-      />
-    )
-  }
-  if (issue) {
-    return <IssueStatusIcon issue={issue} className="size-3.5!" />
-  }
-  if (run) return <AgentRunMark agent={run.agent} />
-  return <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
+/** A raw session's mark: the working spark, amber while it needs you, the
+ *  dimmed brand mark once it ended. */
+function SessionMark({ row }: { row: SessionRow }) {
+  const state = sessionState(toTreeSession(row))
+  return (
+    <AgentRunMark
+      agent={row.cli}
+      state={
+        state === `ended`
+          ? `ended`
+          : threadRunMarkState({
+              needsYou: state === `needs_you`,
+              busy: state === `working`,
+            })
+      }
+      ringClassName="ring-background"
+    />
+  )
 }

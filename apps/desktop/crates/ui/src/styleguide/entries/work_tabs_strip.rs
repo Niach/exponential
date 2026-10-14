@@ -1,15 +1,20 @@
-//! EXP-1255 — `work-tabs-strip` (3 Special components): the top tab strip.
-//! Every chip's × shows on hover only (the active one too; Cmd+W unchanged)
-//! and the ghost "+" after the last chip opens a New run tab (Cmd+T too).
-//! Drawn with the strip's own pieces: `surface::rich_tab`,
-//! [`crate::screens::hover_close`] and [`crate::screens::new_run_button`].
+//! EXP-1255 → EXP-1294: `work-tabs-strip` (Special components): the IDE's
+//! top tab strip, drawn with the strip's own pieces — `surface::rich_tab`
+//! chips in the strip's hover group, every chip's × shown on hover only
+//! ([`crate::screens::hover_close`], the active one too; Cmd+W unchanged),
+//! a thread chip's lead = its root's state mark
+//! ([`crate::screens::session_tab_status`]), an issue chip's = its status
+//! glyph, then the ghost "+" that opens Home
+//! ([`crate::screens::home_button`]).
 
 use gpui::{App, Div, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _, Window};
 use gpui_component::button::Button;
 use gpui_component::{h_flex, Icon};
 
+use domain::session_tree::SessionState;
+
 use crate::icons::registry;
-use crate::screens::{hover_close, new_run_button, TAB_HOVER_GROUP};
+use crate::screens::{home_button, hover_close, session_tab_status, TAB_GROUP};
 use crate::surface::{rich_tab, RichTab, RichTabStatus};
 
 pub(crate) const ID: &str = "work-tabs-strip";
@@ -29,7 +34,7 @@ fn chip(
     tab.title = Some(title.into());
     tab.closable = true;
     rich_tab(tab, cx)
-        .group(TAB_HOVER_GROUP)
+        .group(TAB_GROUP)
         .child(hover_close(Button::new(("sg-work-tab-close", ix))))
         .into_any_element()
 }
@@ -41,9 +46,9 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(chip(
             0,
             false,
-            RichTabStatus::Run(Some(coding::CodingAgent::Claude), None),
+            session_tab_status(SessionState::Working, cx),
             None,
-            "UX batch 3",
+            "Login fails on Safari",
             cx,
         ))
         .child(chip(
@@ -57,10 +62,10 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(chip(
             2,
             false,
-            RichTabStatus::Glyph(Icon::new(registry::ACTION_CHAT)),
+            session_tab_status(SessionState::NeedsYou, cx),
             None,
-            crate::navigation::NEW_RUN_TITLE,
+            "UX batch 3",
             cx,
         ))
-        .child(new_run_button("sg-work-tab-new"))
+        .child(home_button("sg-work-tab-new"))
 }

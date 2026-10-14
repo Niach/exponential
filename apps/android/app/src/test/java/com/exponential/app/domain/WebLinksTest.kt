@@ -53,6 +53,16 @@ class WebLinksTest {
         assertEquals(AppLink.Thread("acme", expected.threadId), link)
     }
 
+    // EXP-1291: the PR body footer's `/t/{team}/sessions/{rootId}?view=guide`
+    // (Uri.getPath drops the query); deeper paths stay unclaimed.
+    @Test
+    fun parsesSessionUrl() {
+        val expected = WebLinks.Parsed.SessionRef("acme", "abc")
+        assertEquals(expected, WebLinks.parsePath("/t/acme/sessions/abc"))
+        assertEquals(expected, WebLinks.parsePath("/t/acme/sessions/abc/"))
+        assertEquals(null, WebLinks.parsePath("/t/acme/sessions/abc/extra"))
+    }
+
     @Test
     fun parsesInviteUrl() {
         assertEquals(WebLinks.Parsed.Invite("abc123"), WebLinks.parsePath("/invite/abc123"))

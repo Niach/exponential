@@ -9,13 +9,11 @@ public struct ActionPickerAction: Identifiable, Hashable {
     public let name: String
     /// Contract `boardIcon` (the curated action set); nil = the default.
     public let icon: String?
-    public let description: String?
 
-    public init(id: String, name: String, icon: String? = nil, description: String? = nil) {
+    public init(id: String, name: String, icon: String? = nil) {
         self.id = id
         self.name = name
         self.icon = icon
-        self.description = description
     }
 }
 
@@ -62,7 +60,7 @@ public struct ActionPicker<Trigger: View>: View {
 
     nonisolated public static func items(_ actions: [ActionPickerAction]) -> [PickerItem<String>] {
         actions.map { action in
-            PickerItem(value: action.id, label: action.name, icon: action.icon, description: action.description)
+            PickerItem(value: action.id, label: action.name, icon: action.icon)
         }
     }
 

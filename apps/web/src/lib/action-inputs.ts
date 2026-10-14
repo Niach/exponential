@@ -1,15 +1,16 @@
 // Action-input validation + resolution (EXP-257) — the pure core shared by
-// the steer router (server-side value resolution with injected DB lookups)
-// and the launch composer (client-side required-field gating). No DB imports:
-// lookups are injected so this stays unit-testable and client-bundle-safe.
+// `sessions.send` / the brief (server-side value resolution with injected DB
+// lookups) and the launch composer (client-side required-field gating). No
+// DB imports: lookups are injected so this stays unit-testable and
+// client-bundle-safe.
 
-import { boardIconValues, type ActionInputDef } from "@exp/db-schema/domain"
+import type { ActionInputDef } from "@exp/db-schema/domain"
 
 /** One FILLED action input, fully resolved server-side: `display` is the
- * human-readable form (repo fullName / board name / the text itself) so the
- * desktop can inject a readable "## Inputs" block with zero lookups, while
- * `value` keeps the raw id the agent must pass to MCP tools. */
-export interface SteerStartInput {
+ * human-readable form (repo fullName / board name / `#12 · title` / the
+ * issue's identifier + title) the session brief lists, while `value` keeps
+ * the raw id the agent passes to MCP tools. */
+export interface ResolvedActionInput {
   key: string
   label: string
   type: string
@@ -51,27 +52,56 @@ export function buildInputsPayload(
 
 // ── Server-side resolution ────────────────────────────────────────────────────
 
+// EXP-1291: every input is a team-scoped PICK (repo | board | pr | issue);
+// the value is always an id.
 export interface ActionInputLookups {
   /** null unless the repo exists AND belongs to teamId. */
   repo(id: string, teamId: string): Promise<{ fullName: string } | null>
-  /** null unless the board exists in teamId and is not trashed. */
+  /** null unless the board exists in teamId and is not trashed/archived. */
   board(id: string, teamId: string): Promise<{ name: string } | null>
-  /** `pr` inputs (EXP-259): the value is an ISSUE id — null unless the issue
-   * exists in teamId and carries an OPEN linked pull request. */
-  pr(
-    issueId: string,
-    teamId: string
-  ): Promise<{ identifier: string; prNumber: number | null } | null>
+  /** `pr`: a `pull_requests` id — null unless it is an OPEN PR of teamId. */
+  pr(id: string, teamId: string): Promise<{ number: number; title: string | null } | null>
+  /** `issue`: an issue id — null unless it is in teamId on a visible board. */
+  issue(id: string, teamId: string): Promise<{ identifier: string; title: string } | null>
 }
 
 export type ResolveInputsResult =
-  | { ok: true; inputs: SteerStartInput[] }
+  | { ok: true; inputs: ResolvedActionInput[] }
   | { ok: false; message: string }
 
-/** Validate the raw client values against the action's input schema and
- * resolve repo/board ids to display names. Output is in DEFINITION order and
- * carries only filled keys. Runs even for an empty schema so unknown keys
- * still reject. */
+const refusals: Record<ActionInputDef[`type`], string> = {
+  repo: `repository must belong to the team`,
+  board: `board must belong to the team`,
+  pr: `pick an open pull request of the team`,
+  issue: `pick an issue of the team`,
+}
+
+async function displayOf(
+  type: ActionInputDef[`type`],
+  id: string,
+  teamId: string,
+  lookups: ActionInputLookups
+): Promise<string | null> {
+  switch (type) {
+    case `repo`:
+      return (await lookups.repo(id, teamId))?.fullName ?? null
+    case `board`:
+      return (await lookups.board(id, teamId))?.name ?? null
+    case `pr`: {
+      const pr = await lookups.pr(id, teamId)
+      if (!pr) return null
+      return pr.title ? `#${pr.number} · ${pr.title}` : `#${pr.number}`
+    }
+    case `issue`: {
+      const issue = await lookups.issue(id, teamId)
+      return issue ? `${issue.identifier} ${issue.title}` : null
+    }
+  }
+}
+
+/** Validate the raw values against the action's input schema and resolve
+ * each id to its display. Output is in DEFINITION order and carries only
+ * filled keys. Runs even for an empty schema so unknown keys still reject. */
 export async function resolveActionInputs(
   defs: ActionInputDef[],
   values: Record<string, string>,
@@ -85,7 +115,7 @@ export async function resolveActionInputs(
     }
   }
 
-  const inputs: SteerStartInput[] = []
+  const inputs: ResolvedActionInput[] = []
   for (const def of defs) {
     const raw = values[def.key]
     const filled = raw !== undefined && raw.trim().length > 0
@@ -95,83 +125,14 @@ export async function resolveActionInputs(
       }
       continue
     }
-
-    // icon (EXP-273): the only non-id picked value — a curated registry name,
-    // validated against the contract set rather than a team-scoped lookup
-    // (icons are global, so there is nothing to scope). Checked before the
-    // uuid gate below, which it would otherwise fail.
-    if (def.type === `icon`) {
-      if (!(boardIconValues as readonly string[]).includes(raw)) {
-        return {
-          ok: false,
-          message: `Input "${def.key}": pick an icon from the curated set`,
-        }
-      }
-      inputs.push({
-        key: def.key,
-        label: def.label,
-        type: def.type,
-        value: raw,
-        display: raw,
-      })
-      continue
-    }
-
-    // repo / board / pr: the value is a picked id — must be a uuid that
-    // resolves team-scoped, or the run is refused before waking the desktop.
     if (!UUID_RE.test(raw)) {
       return { ok: false, message: `Input "${def.key}" must be an id` }
     }
-    if (def.type === `pr`) {
-      const pr = await lookups.pr(raw, teamId)
-      if (!pr) {
-        return {
-          ok: false,
-          message: `Input "${def.key}": pick an open pull request of the team`,
-        }
-      }
-      inputs.push({
-        key: def.key,
-        label: def.label,
-        type: def.type,
-        value: raw,
-        display: pr.prNumber
-          ? `#${pr.prNumber} · ${pr.identifier}`
-          : pr.identifier,
-      })
-      continue
+    const display = await displayOf(def.type, raw, teamId, lookups)
+    if (display === null) {
+      return { ok: false, message: `Input "${def.key}": ${refusals[def.type]}` }
     }
-    if (def.type === `repo`) {
-      const repo = await lookups.repo(raw, teamId)
-      if (!repo) {
-        return {
-          ok: false,
-          message: `Input "${def.key}": repository must belong to the team`,
-        }
-      }
-      inputs.push({
-        key: def.key,
-        label: def.label,
-        type: def.type,
-        value: raw,
-        display: repo.fullName,
-      })
-      continue
-    }
-    const board = await lookups.board(raw, teamId)
-    if (!board) {
-      return {
-        ok: false,
-        message: `Input "${def.key}": board must belong to the team`,
-      }
-    }
-    inputs.push({
-      key: def.key,
-      label: def.label,
-      type: def.type,
-      value: raw,
-      display: board.name,
-    })
+    inputs.push({ key: def.key, label: def.label, type: def.type, value: raw, display })
   }
   return { ok: true, inputs }
 }

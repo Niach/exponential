@@ -22,7 +22,9 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.ActionEntity
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.data.db.CommentEntity
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.IssueEntity
@@ -37,8 +39,6 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
-import com.exponential.app.domain.SessionDotTone
-import com.exponential.app.domain.pastRunTitle
 import com.exponential.app.navigation.EntityTarget
 import com.exponential.app.navigation.LocalEntityNavigator
 import com.exponential.app.ui.components.BoardIcon
@@ -67,7 +67,6 @@ import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.work.SessionToneDot
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.Json
@@ -345,9 +344,6 @@ private fun ActionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         body = action.description?.takeIf { it.isNotBlank() },
         facts = {
             GlassPill("$inputCount " + if (inputCount == 1) "input" else "inputs", size = PillSize.Sm, mode = PillMode.Readonly)
-            if (action.repositoryId != null) {
-                GlassPill("Repository-bound", size = PillSize.Sm, mode = PillMode.Readonly, icon = ExpIcons.uiRepository)
-            }
         },
         onOpen = { open(EntityTarget.Action(action.id)) },
     )
@@ -392,36 +388,25 @@ private fun CommentCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val session by observeScoped(ref.id, null) { it.codingSessionDao().observeById(ref.id) }
-    val row: CodingSessionEntity = session ?: run {
+    val session by observeScoped(ref.id, null) { it.sessionDao().observeById(ref.id) }
+    val row: SessionEntity = session ?: run {
         SlimCard(ref, onOpen = { open(EntityTarget.Session(ref.id)) })
         return
     }
-    val issue by observeScoped(row.issueId, null) { db ->
-        row.issueId?.let { db.issueDao().observeById(it) } ?: flowOf(null)
-    }
-    // A batch run names itself from its covered issues (`EXP-874 +2`).
-    val issues by observeScoped(row.batchIssueIds, emptyList<IssueEntity>()) { db ->
-        if (row.batchIssueIds.isNullOrBlank()) flowOf(emptyList()) else db.issueDao().observeAll()
-    }
+    // EXP-1291: the ×4 session card — state word, name, elapsed.
     val nowMs = System.currentTimeMillis()
-    val tone = sessionDotTone(row, issue?.prState, nowMs, awaitingInput = row.needsInput) ?: SessionDotTone.Muted
-    val stateLabel = when (row.status) {
-        DomainContract.codingSessionStatusEnded -> "Ended"
-        DomainContract.codingSessionStatusInReview -> "In review"
-        else -> if (row.needsInput) "Needs input" else "Running"
+    val card = remember(row, nowMs / 60_000) {
+        SessionTree.sessionCard(SessionTree.session(row), 1, SessionTree.nowIso(nowMs))
     }
     EntityPreviewCard(
-        icon = { SessionToneDot(tone, busy = row.agentBusy) },
+        icon = { AgentRunMark(agent = row.cli, state = card.state, size = 16.dp, badgeSize = 6.dp) },
         eyebrow = "Session",
-        title = pastRunTitle(row, issue, issues),
-        subtitle = issue?.identifier,
+        title = row.title?.takeIf { it.isNotBlank() } ?: row.name?.takeIf { it.isNotBlank() } ?: card.name,
         facts = {
-            GlassPill(stateLabel, size = PillSize.Sm, mode = PillMode.Readonly)
-            row.deviceLabel?.takeIf { it.isNotBlank() }?.let {
-                GlassPill(it, size = PillSize.Sm, mode = PillMode.Readonly, icon = ExpIcons.uiDevice)
+            GlassPill(card.kindWord, size = PillSize.Sm, mode = PillMode.Readonly)
+            row.startedAt?.let {
+                GlassPill("Started ${relativeTime(it, nowMs)}", size = PillSize.Sm, mode = PillMode.Readonly)
             }
-            GlassPill("Started ${relativeTime(row.startedAt, nowMs)}", size = PillSize.Sm, mode = PillMode.Readonly)
         },
         onOpen = { open(EntityTarget.Session(row.id)) },
     )

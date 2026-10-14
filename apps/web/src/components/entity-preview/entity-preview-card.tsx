@@ -26,7 +26,6 @@ import type {
   Action,
   Attachment,
   Board,
-  CodingSession,
   Comment,
   Device,
   Issue,
@@ -48,16 +47,13 @@ import { IssuePreviewCard } from "@/components/issue-preview-card"
 import { IssueChip } from "@/components/issue-chip"
 import { StatusIcon, statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
-import { useTeamRepos } from "@/hooks/use-team-repos"
-import { useSessionDevice } from "@/hooks/use-session-device"
+import { useSessionCard, useTreeSessions } from "@/hooks/use-session-tree"
+import type { SessionRow, SessionState } from "@/lib/session-tree"
 import { useNow } from "@/hooks/use-now"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { relativeTime } from "@/components/comment-rows/format"
 import { displayUserName } from "@/lib/user-display"
 import { formatAttachmentSize } from "@/lib/attachment-files"
-import { sessionIdentity } from "@/lib/session-identity"
-import { sessionDisplayState, sessionStatusLine } from "@/lib/coding-session-display"
-import { sessionIsPaused } from "@/lib/session-device"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { isIssueSearchOpen } from "@/lib/issue-search"
 import { useEntityRefRow } from "./use-entity-ref-row"
@@ -111,7 +107,7 @@ export function EntityRefPreviewCard({
     case `comment`:
       return <CommentCard comment={row as Comment} />
     case `session`:
-      return <SessionCard session={row as CodingSession} />
+      return <SessionPreviewCard session={row as SessionRow} />
     case `label`:
       return <LabelCard label={row as Label} />
     case `status`:
@@ -214,25 +210,13 @@ function BoardCard({ board }: { board: Board }) {
 
 function ActionCard({ action }: { action: Action }) {
   const Icon = getActionIcon(action)
-  const repos = useTeamRepos(action.teamId, action.repositoryId !== null)
-  const repo = repos?.find((row) => row.id === action.repositoryId) ?? null
   const inputs = Array.isArray(action.inputs) ? action.inputs.length : 0
   return (
     <EntityPreviewCard
       icon={<Icon className="size-3.5" />}
       eyebrow={nounEyebrow(`action`)}
       title={action.name}
-      body={action.description}
-      facts={
-        <>
-          {action.repositoryId && (
-            <Pill size="sm" leading={kindGlyph({ kind: `repository`, id: `` }, `size-3`)}>
-              {repo?.fullName ?? `Repository`}
-            </Pill>
-          )}
-          <Pill size="sm">{`${inputs} ${inputs === 1 ? `input` : `inputs`}`}</Pill>
-        </>
-      }
+      facts={<Pill size="sm">{`${inputs} ${inputs === 1 ? `input` : `inputs`}`}</Pill>}
       testId="entity-preview-action"
     />
   )
@@ -283,57 +267,38 @@ function CommentCard({ comment }: { comment: Comment }) {
 
 // ── Session ─────────────────────────────────────────────────────────────────
 
-const SESSION_TONE: Record<string, LiveDotTone> = {
+// EXP-1293: THE session card's model (`sessionCard()`): its name and state
+// word under the agent's mark. No device, account or branch caption.
+const SESSION_TONE: Record<SessionState, LiveDotTone> = {
+  queued: `muted`,
   working: `live`,
-  review: `live`,
-  needs_input: `attention`,
-  done: `done`,
+  waiting: `live`,
+  needs_you: `attention`,
+  blocked: `attention`,
+  ended: `muted`,
 }
 
-function SessionCard({ session }: { session: CodingSession }) {
-  const issueRefs = useIssueRefs()
-  const issue = session.issueId ? issueRefs?.resolveById(session.issueId) ?? undefined : undefined
-  const identity = sessionIdentity({
-    session,
-    issue,
-    batchIssues: issueRefs?.rows ?? [],
-  })
-  const device = useSessionDevice(session)
-  const state = sessionDisplayState(session, session.prState)
-  const ended = session.status === `ended`
-  const paused = sessionIsPaused(state, session.status, device)
-  const line = sessionStatusLine({
-    state,
-    paused,
-    device: device.label ?? `Unknown device`,
-    startedAt: session.startedAt,
-  })
-  const tone: LiveDotTone = ended ? `muted` : (SESSION_TONE[state] ?? `muted`)
-  const started = relativeTime(session.startedAt)
+function SessionPreviewCard({ session }: { session: SessionRow }) {
+  const { tree } = useTreeSessions(session.rootId ?? session.id)
+  const card = useSessionCard(session, tree)
+  if (!card) return null
   return (
     <EntityPreviewCard
       icon={
-        // EXP-1184: a working run's mark is the agent's working mark.
-        !ended && !paused && state === `working` ? (
-          <AgentWorkingMark agent={session.agent} className="size-3.5" />
+        card.running ? (
+          <AgentWorkingMark agent={session.cli} className="size-3.5" />
         ) : (
-          <AgentBrandMark agent={session.agent} className="size-3.5" />
+          <AgentBrandMark agent={session.cli} className="size-3.5" />
         )
       }
-      eyebrow={identity.identifier ? `Session · ${identity.identifier}` : `Session`}
-      title={identity.subject}
-      subtitle={ended && started ? `Ended · ${device.label ?? `Unknown device`} · started ${started}` : line.text}
+      eyebrow={nounEyebrow(`session`)}
+      title={card.name}
       facts={
-        <Pill size="sm" leading={<LiveDot tone={tone} className="size-1.5" />}>
-          {ended
-            ? `Ended`
-            : state === `needs_input`
-              ? `Needs input`
-              : state === `review`
-                ? `In review`
-                : state === `done`
-                  ? `Done`
-                  : `Running`}
+        <Pill
+          size="sm"
+          leading={<LiveDot tone={SESSION_TONE[card.state]} className="size-1.5" />}
+        >
+          {card.kindWord}
         </Pill>
       }
       testId="entity-preview-session"

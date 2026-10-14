@@ -110,6 +110,10 @@ export function serializeBoard(
   }
 }
 
+/** EXP-1293: the issue's pull request as the synced `pull_requests` row
+ *  carries it (the open one, else the newest; null = none). */
+export type SerializedIssuePr = { url: string; state: string } | null
+
 export function serializeIssue(
   issue: Pick<
     Issue,
@@ -119,14 +123,13 @@ export function serializeIssue(
     | `priority`
     | `assigneeId`
     | `dueDate`
-    | `prUrl`
-    | `prState`
     | `createdAt`
     | `updatedAt`
     | `source`
   >,
   labelNames: string[],
-  userNameById: Map<string, string>
+  userNameById: Map<string, string>,
+  pullRequest: SerializedIssuePr = null
 ) {
   return {
     identifier: issue.identifier,
@@ -143,8 +146,8 @@ export function serializeIssue(
       : null,
     dueDate: issue.dueDate ?? null,
     labels: labelNames,
-    prUrl: issue.prUrl ?? null,
-    prState: issue.prState ?? null,
+    prUrl: pullRequest?.url ?? null,
+    prState: pullRequest?.state ?? null,
     createdAt: toIso(issue.createdAt),
     updatedAt: toIso(issue.updatedAt),
   }

@@ -149,7 +149,7 @@ struct EntityPreviewModel {
         /// member) — the initials chip of the name the card reads.
         case initials(String)
         case team(TeamEntity)
-        case sessionDot(SessionDotTone, pulsing: Bool)
+        case sessionDot(SessionState, pulsing: Bool)
         case dot(Color)
     }
 
@@ -233,8 +233,8 @@ struct EntityRefPreviewSheet: View {
             )
         case let .team(team):
             TeamAvatar(team: team, size: size + 6)
-        case let .sessionDot(tone, pulsing):
-            SessionStateDot(tone: tone, pulsing: pulsing, size: size * 0.6)
+        case let .sessionDot(state, pulsing):
+            SessionStateDot(state: state, pulsing: pulsing, size: size * 0.6)
         case let .dot(color):
             Circle().fill(color).frame(width: size * 0.6, height: size * 0.6)
         }
@@ -385,16 +385,13 @@ enum EntityRefResolver {
     private static func actionModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
         guard let action = try ActionEntity.fetchOne(db, key: ref.id) else { return nil }
         var facts: [EntityPreviewModel.Fact] = []
-        if action.repositoryId != nil {
-            facts.append(.init(id: "repo", label: "Repository", icon: AppIcons.uiRepository))
-        }
         let inputs = action.inputs.flatMap { try? JSONDecoder().decode([ActionInputDto].self, from: Data($0.utf8)) } ?? []
         facts.append(.init(id: "inputs", label: "\(inputs.count) \(inputs.count == 1 ? "input" : "inputs")"))
         return EntityPreviewModel(
             icon: .glyph(ActionIconDisplay.iconName(for: action.icon), nil),
             eyebrow: "Action",
             title: action.name,
-            excerpt: action.description,
+            excerpt: nil,
             facts: facts,
             open: .action(action.id)
         )
@@ -443,33 +440,27 @@ enum EntityRefResolver {
     }
 
     private static func sessionModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
-        guard let session = try CodingSessionEntity.fetchOne(db, key: ref.id) else { return nil }
-        let issue = try session.issueId.flatMap { try IssueEntity.fetchOne(db, key: $0) }
-        let batchIssues: [IssueEntity] = try {
-            let ids = BatchRun.issueIds(session.batchIssueIds)
-            guard !ids.isEmpty else { return [] }
-            return try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
-        }()
-        let state = CodingSessionDisplayState.of(session: session, prState: issue?.prState ?? session.prState)
-        let devices = try DeviceEntity.fetchAll(db)
-        let device = SessionDevicePresentation.resolve(session: session, devices: devices)
-        var facts: [EntityPreviewModel.Fact] = [
-            .init(id: "state", label: stateLabel(state), tint: SessionStateDot.color(SessionStateDot.tone(of: state))),
-        ]
-        if let agent = session.agent, !agent.isEmpty {
-            facts.append(.init(id: "agent", label: agent.capitalized))
+        guard let session = try SessionQueries.session(db: db, id: ref.id) else { return nil }
+        let state = session.sessionState
+        let tree = try SessionQueries.tree(db: db, rootId: session.rootId)
+        // A root names its thread; a child its own card name.
+        let title: String
+        if session.isRoot {
+            title = try SessionTree.threadTitle(db: db, root: session)
+        } else {
+            title = session.cardName(in: tree)
         }
-        if let label = device.label, !label.isEmpty {
-            facts.append(.init(id: "device", label: label, icon: AppIcons.uiDevice))
+        var facts: [EntityPreviewModel.Fact] = [
+            .init(id: "state", label: state.word, tint: SessionStateDot.color(state)),
+        ]
+        if let cli = session.cli, !cli.isEmpty {
+            facts.append(.init(id: "agent", label: cli.capitalized))
         }
         return EntityPreviewModel(
-            icon: .sessionDot(
-                CodingSessionLiveness.isLive(session) ? SessionStateDot.tone(of: state) : .muted,
-                pulsing: CodingSessionDisplayState.working(status: session.status, state: state)
-            ),
-            eyebrow: sessionRowIdentifier(issue: issue, session: session, batchIssues: batchIssues) ?? "Session",
-            title: sessionRowTitle(issue: issue, session: session, batchIssues: batchIssues),
-            subtitle: "Started \(RelativeTime.long(wire: session.startedAt))",
+            icon: .sessionDot(state, pulsing: state == .working),
+            eyebrow: SessionTree.CardCopy.session,
+            title: title,
+            subtitle: session.startedAt.map { "Started \(RelativeTime.long(wire: $0))" },
             facts: facts,
             open: .session(session.id)
         )
@@ -687,15 +678,6 @@ enum EntityRefResolver {
             db, sql: "SELECT team_id FROM boards WHERE id = ?", arguments: [issue.boardId]
         )
         return IssueStatusResolver.resolve(issue, team: try teamStatuses(db: db, teamId: scope))
-    }
-
-    private static func stateLabel(_ state: CodingSessionDisplayState) -> String {
-        switch state {
-        case .working: "Working"
-        case .needsInput: "Needs input"
-        case .review: "In review"
-        case .done: "Done"
-        }
     }
 
     private static func categoryLabel(_ category: IssueStatusCategory) -> String {

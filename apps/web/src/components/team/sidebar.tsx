@@ -39,14 +39,13 @@ import {
   blockingLabel,
   whileBlocking,
 } from "@exp/ui"
-import { useReviewsNav } from "@/hooks/use-nav-counts"
+import { useAgents, useThreadsList } from "@/hooks/use-session-tree"
 import { useSession } from "@/hooks/use-session"
 import { cn } from "@/lib/utils"
 import { firstName } from "@/lib/user-display"
 import type { Board, Team } from "@/db/schema"
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
-import { useRecentRunsPanelRouteGuard } from "@/lib/recent-runs-panel"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { Empty } from "@/components/empty"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
@@ -54,12 +53,16 @@ import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { ListDetailPane, listDetailKey } from "@/components/team/list-detail"
 import { SidebarPinned } from "@/components/team/sidebar-pinned"
-import { SidebarRunningSection } from "@/components/team/sidebar-running"
+import {
+  SidebarRunningSection,
+  threadsNavState,
+} from "@/components/team/sidebar-running"
+import { SidebarAgentsSection } from "@/components/team/sidebar-agents"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import {
   InboxUnreadBadge,
-  ReviewsOpenBadge,
   TeamLiveDot,
+  ThreadsLiveBadge,
   TeamSidebarRail,
   UserAvatar,
   UserMenuItems,
@@ -108,7 +111,7 @@ const NavAgentIcon = conceptIcon(`action-chat`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
-const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavSearchIcon = conceptIcon(`nav-search`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavTeamSwitcherIcon = conceptIcon(`nav-team-switcher`)
@@ -167,14 +170,18 @@ export function TeamSidebar({
   const whatsNew = useWhatsNew()
   const { myTeams } = useTeamMemberships(session?.user?.id)
   // EXP-1075: session lists are team-scoped, so the picker carries the only
-  // hint that a run of mine is alive in a team I am not looking at.
+  // hint that a session of mine is alive in a team I am not looking at.
   const teamLive = useTeamLiveRuns(session?.user?.id)
   const otherLive = otherTeamsLive(teamLive, team?.id)
   const openNewDraft = useOpenNewDraft(teamSlug)
   // EXP-878: the Drafts entry lists only while a draft is parked.
   const draftCount = useDraftCount(team?.id)
-  const reviewsNav = useReviewsNav(team ? [team] : [])
-  const showsReviews = reviewsNav.shows
+  // EXP-1293: ONE Threads list read for the sidebar — the Threads entry's
+  // dot, the Running section and the compact rail's running icons.
+  const threadsList = useThreadsList(team?.id)
+  const threads = { groups: threadsList.groups, extras: threadsList.extras }
+  const threadsNav = threadsNavState(threadsList.groups)
+  const { agents } = useAgents(team?.id)
   // The guarded /t/$teamSlug layout is the only render site, so a session is
   // guaranteed — the reactive useSession store may still be pending on cold
   // load, and we render the authed chrome throughout rather than flash a
@@ -203,9 +210,10 @@ export function TeamSidebar({
   const agentPage = useRouterState({
     select: (s) => s.location.pathname.endsWith(`/agent`),
   })
+  const activeAgentId = useRouterState({
+    select: (s) => /\/agents\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
+  })
   const occupant = useSidebarOccupant()
-  // EXP-1246: the Recent panel survives the runs it opens.
-  useRecentRunsPanelRouteGuard()
   const inSettings = occupant.kind === `settings`
   const listOrigin = occupant.kind === `list` ? occupant.origin : null
   // EXP-870: a panel is up → the rail compacts to its icon column instead of
@@ -380,13 +388,11 @@ export function TeamSidebar({
                   >
                     <SidebarGroup>
                       <SidebarGroupContent>
-                        {/* Nav order ×4 with the IDE rail (EXP-1229): Agent,
-                            Inbox, Devices, Reviews, Actions, Drafts (while any). */}
+                        {/* Nav order ×4 with the IDE rail (EXP-1293): Agent,
+                            Inbox, Threads, Devices, Actions, Drafts (while any). */}
                         <SidebarMenu>
-                          {/* EXP-818: the Agent page — the composer over the
-                              caller's past sessions (the IDE rail's Agent entry).
-                              EXP-1120: no live-run dot — live sessions already list
-                              in the sidebar's Running section. */}
+                          {/* EXP-818 / EXP-1293: the Agent page — HOME, the
+                              composer. No live dot: Threads carries it. */}
                           <SidebarMenuItem>
                             <SidebarMenuButton
                               asChild
@@ -414,6 +420,22 @@ export function TeamSidebar({
                             </SidebarMenuButton>
                             <InboxUnreadBadge placement="row" />
                           </SidebarMenuItem>
+                          {/* EXP-1293: Threads replaced Reviews and the
+                              Agent page's history — green while a thread of the
+                              team runs, amber while one needs you. */}
+                          <SidebarMenuItem>
+                            <SidebarMenuButton asChild density="compact">
+                              <Link
+                                to="/t/$teamSlug/threads"
+                                params={{ teamSlug }}
+                                data-testid="nav-threads"
+                              >
+                                <NavThreadsIcon className="h-4 w-4" />
+                                <span>Threads</span>
+                              </Link>
+                            </SidebarMenuButton>
+                            <ThreadsLiveBadge state={threadsNav} placement="row" />
+                          </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
                               <Link to="/t/$teamSlug/devices" params={{ teamSlug }}>
@@ -422,20 +444,6 @@ export function TeamSidebar({
                               </Link>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
-                          {showsReviews && (
-                            <SidebarMenuItem>
-                              <SidebarMenuButton asChild density="compact">
-                                <Link to="/t/$teamSlug/reviews" params={{ teamSlug }}>
-                                  <NavReviewsIcon className="h-4 w-4" />
-                                  <span>Reviews</span>
-                                </Link>
-                              </SidebarMenuButton>
-                              <ReviewsOpenBadge
-                                dot={reviewsNav.dot}
-                                placement="row"
-                              />
-                            </SidebarMenuItem>
-                          )}
                           {/* Actions (authoring; the composer's action
                               chip RUNS one) and the Drafts pile (EXP-878,
                               while any) are root entries, as on desktop. */}
@@ -474,6 +482,15 @@ export function TeamSidebar({
                         in this team — favourites above the boards, hidden when
                         empty. */}
                     {team && <SidebarPinned teamId={team.id} teamSlug={teamSlug} />}
+
+                    {/* EXP-1293: the team's agents, above Boards and drawn
+                        like them. */}
+                    <SidebarAgentsSection
+                      teamSlug={teamSlug}
+                      agents={agents}
+                      isOwner={isOwner}
+                      activeAgentId={activeAgentId}
+                    />
 
                     <SidebarGroup>
                       <SidebarGroupLabel>Boards</SidebarGroupLabel>
@@ -532,12 +549,10 @@ export function TeamSidebar({
                         </SidebarMenu>
                       </SidebarGroupContent>
                     </SidebarGroup>
-                    {/* EXP-923: the RUNNING group — my live runs, nested, under
-                        the boards. Hidden entirely when nothing runs. */}
-                    <SidebarRunningSection
-                      teamId={team?.id}
-                      currentUserId={session?.user?.id}
-                    />
+                    {/* EXP-923 / EXP-1293: the RUNNING group — the team's
+                        running threads, under the boards. Hidden entirely
+                        when nothing runs. */}
+                    <SidebarRunningSection teamSlug={teamSlug} threads={threads} />
                   </SidebarContent>
                   {/* EXP-164: dismissable "What's new" teaser for the latest
                       changelog entry — hidden again until the next release
@@ -621,6 +636,9 @@ export function TeamSidebar({
                   teamSlug={teamSlug}
                   team={team}
                   boards={boards}
+                  agents={agents}
+                  threads={threads}
+                  threadsNav={threadsNav}
                   onWhatsNew={() => setWhatsNewOpen(true)}
                 />
               </div>
@@ -647,10 +665,10 @@ export function TeamSidebar({
                 />
               </PanelLayer>
 
-              {/* EXP-1246: the ONE list-detail host — the Inbox or Agent ›
-                  Recent, beside what it opened. Mounted only while one is up:
-                  its lists run live queries. Keyed by the LIST, so stepping
-                  through it one detail at a time never remounts it. */}
+              {/* EXP-1246: the ONE list-detail host — the Inbox, beside what
+                  it opened. Mounted only while it is up: its lists run live
+                  queries. Keyed by the LIST, so stepping through it one
+                  detail at a time never remounts it. */}
               <PanelLayer
                 panel="list"
                 inert={!listOrigin}
@@ -663,9 +681,7 @@ export function TeamSidebar({
                   <ListDetailPane
                     key={listDetailKey(listOrigin)}
                     teamSlug={teamSlug}
-                    team={team}
                     origin={listOrigin}
-                    currentUserId={session?.user?.id}
                   />
                 )}
               </PanelLayer>

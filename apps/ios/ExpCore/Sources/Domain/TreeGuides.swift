@@ -23,9 +23,8 @@ public struct TreeGuide: Equatable, Sendable {
     public var isEmpty: Bool { elbowAt == nil && passThrough.isEmpty }
 }
 
-/// EXP-965: the CONNECTOR every nested list draws — the Agent page's Running
-/// band and its Recent sheet, the Reviews stack, the work header's overlay.
-/// A row used to be nested by leading padding alone, so three levels of runs
+/// EXP-965: the CONNECTOR every nested list draws (issue sub-issues, nested
+/// sessions). A row used to be nested by leading padding alone, so three levels of runs
 /// read as three arbitrary left margins; the guide lines say which row hangs
 /// off which.
 ///
@@ -40,9 +39,7 @@ public struct TreeGuide: Equatable, Sendable {
 /// (and anything folded out of the list) draws nothing.
 public enum TreeGuides {
 
-    /// 14 pt per level — the ×4 measure, and the ONE place it lives on iOS
-    /// (the session lists, the Reviews stack and the PR-graph overlay each
-    /// used to type their own).
+    /// 14 pt per level — the ×4 measure, and the ONE place it lives on iOS.
     public static let indentPerLevel: CGFloat = 14
 
     /// The rounded turn at the elbow — a tight one (EXP-998: 5 read as a
@@ -51,7 +48,7 @@ public enum TreeGuides {
 
     /// The guides for a list of VISIBLE rows, in order, keyed only by their
     /// depths — the tree's shape is already in them (a child follows its
-    /// parent directly, `SessionTree`), so nothing else is needed.
+    /// parent directly), so nothing else is needed.
     public static func compute(depths: [Int]) -> [TreeGuide] {
         depths.indices.map { index in
             let depth = depths[index]

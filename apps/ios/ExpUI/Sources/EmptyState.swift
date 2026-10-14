@@ -143,7 +143,7 @@ public enum EmptyStateIcon {
         case "nav-inbox": AppIcons.navInbox
         case "nav-issues": AppIcons.navIssues
         case "nav-my-issues": AppIcons.navMyIssues
-        case "nav-reviews": AppIcons.navReviews
+        case "nav-threads": AppIcons.navThreads
         case "settings-boards": AppIcons.settingsBoards
         case "settings-labels": AppIcons.settingsLabels
         case "settings-mcp": AppIcons.settingsMcp

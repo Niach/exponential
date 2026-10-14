@@ -51,15 +51,14 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Me
         let userId = userInfo["userId"] as? String
         switch NotificationRouting.pushTarget(userInfo) {
         case let .session(sessionId):
-            // A blocked run (EXP-980): its `sessionId` is the run to open.
+            // A blocked session (EXP-980): its `sessionId` is the one to open.
             deepLinkBus.navigateToSession(sessionId, userId: userId)
         case .inbox:
-            // An issue-less agent message (EXP-801), or a blocked run whose
-            // row was pruned: the row lives in the inbox and nowhere else.
+            // An issue-less agent message (EXP-801), or a blocked session
+            // whose row was pruned: the row lives in the inbox alone.
             deepLinkBus.navigateToInbox(userId: userId)
-        case let .issue(issueId, face):
-            // EXP-933: a targeted agent message opens the issue's Results.
-            deepLinkBus.navigateToIssue(issueId, userId: userId, face: face)
+        case let .issue(issueId):
+            deepLinkBus.navigateToIssue(issueId, userId: userId)
         case .none:
             break
         }

@@ -1,6 +1,5 @@
 package com.exponential.app.ui.components
 
-import com.exponential.app.data.api.builtinCreateAction
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.icons.ExpIcons
 import org.junit.Assert.assertEquals
@@ -67,16 +66,5 @@ class IconSwatchGridTest {
         // `laptop`/`os-*` only exist for a device.
         assertTrue("laptop" !in ExpIcons.pickable)
         assertNull(pickableIconName("laptop"))
-    }
-
-    @Test
-    fun `the create-action builtin declares an optional icon input`() {
-        val icon = builtinCreateAction("team-1").inputs.orEmpty()
-            .single { it.key == "icon" }
-        assertEquals("icon", icon.type)
-        // Known to the contract, so the sheet never blocks the run as an
-        // unknown type — it must reach the grid branch instead.
-        assertTrue(icon.type in DomainContract.actionInputTypeValues)
-        assertTrue("the Icon input is optional", !icon.required)
     }
 }

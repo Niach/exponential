@@ -23,8 +23,8 @@ public struct IssueDraftDto: Decodable, Sendable {
     public let assigneeId: String?
     public let labelIds: [String]?
     public let dueDate: String?
-    /// EXP-1284: the thread the draft files into.
-    public let threadId: String?
+    /// EXP-1291: the root session (thread) the draft files into.
+    public let sessionId: String?
     public let createdAt: String?
     public let updatedAt: String?
 
@@ -40,7 +40,7 @@ public struct IssueDraftDto: Decodable, Sendable {
         assigneeId: String? = nil,
         labelIds: [String]? = nil,
         dueDate: String? = nil,
-        threadId: String? = nil,
+        sessionId: String? = nil,
         createdAt: String? = nil,
         updatedAt: String? = nil
     ) {
@@ -55,7 +55,7 @@ public struct IssueDraftDto: Decodable, Sendable {
         self.assigneeId = assigneeId
         self.labelIds = labelIds
         self.dueDate = dueDate
-        self.threadId = threadId
+        self.sessionId = sessionId
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -77,7 +77,7 @@ public struct IssueDraftDto: Decodable, Sendable {
             assigneeId: assigneeId,
             labelIds: labelIds ?? [],
             dueDate: dueDate,
-            threadId: threadId,
+            sessionId: sessionId,
             createdAt: createdAt ?? "",
             updatedAt: updatedAt ?? ""
         )
@@ -164,10 +164,10 @@ public struct UpsertIssueDraftInput: Encodable, Sendable {
     public var assigneeId: String?
     public var labelIds: [String]
     public var dueDate: String?
-    /// EXP-1284: the thread the draft files into. Omitted when nil, which
-    /// KEEPS the row's thread server-side (null would clear it; nothing on
-    /// iOS clears it).
-    public var threadId: String?
+    /// EXP-1291: the root session (thread) the draft files into. Omitted
+    /// when nil, which KEEPS the row's session server-side (null would clear
+    /// it; nothing on iOS clears it).
+    public var sessionId: String?
 
     public init(
         id: String,
@@ -180,7 +180,7 @@ public struct UpsertIssueDraftInput: Encodable, Sendable {
         assigneeId: String? = nil,
         labelIds: [String] = [],
         dueDate: String? = nil,
-        threadId: String? = nil
+        sessionId: String? = nil
     ) {
         self.id = id
         self.teamId = teamId
@@ -192,7 +192,7 @@ public struct UpsertIssueDraftInput: Encodable, Sendable {
         self.assigneeId = assigneeId
         self.labelIds = labelIds
         self.dueDate = dueDate
-        self.threadId = threadId
+        self.sessionId = sessionId
     }
 }
 

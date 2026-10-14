@@ -4,10 +4,9 @@ import SwiftUI
 // EXP-1248: THE pull-request row, ×4 (web `@exp/ui` `pr-row.tsx`, desktop
 // `pr_rows.rs`, Android `PrRow.kt`; geometry = `list-item.json`): ONE line,
 // [ring lead · mono identifier · title · quiet word]. No branch line, no PR
-// number column, no counts, no age, no inline Merge. Reviews, PR trees and
-// the Guide's stack card all draw it. Two shapes: a TREE nests with tree
-// guides (`PrList`), a linear STACK never nests, it hangs off one rail down
-// to its base branch (`StackRail`).
+// number column, no counts, no age, no inline Merge. EXP-1306: back for the
+// thread Guide's stack block — a linear STACK never nests, it hangs off one
+// rail down to its base branch (`StackRail`).
 
 /// The ring lead: an emerald ring (open PR), a filled centre (the current
 /// stack member), a muted ring (the base branch). A 14pt box like the run
@@ -164,74 +163,6 @@ extension PrRow where Trailing == EmptyView {
             node: node, identifier: identifier, title: title, word: word,
             guide: guide, rail: rail, active: active, trailing: { EmptyView() }
         )
-    }
-}
-
-/// One row of a PR tree: `depth` nests it under its parent.
-public struct PrListRow: Identifiable {
-    public let id: String
-    public let identifier: String?
-    public let title: String
-    public let depth: Int
-    public let node: PrNodeState
-    public let word: String?
-    public let active: Bool
-    /// A muted external-link glyph at the right (an unlinked PR opens GitHub).
-    public let external: Bool
-    public let onOpen: (() -> Void)?
-
-    public init(
-        id: String,
-        identifier: String? = nil,
-        title: String,
-        depth: Int = 0,
-        node: PrNodeState = .open,
-        word: String? = nil,
-        active: Bool = false,
-        external: Bool = false,
-        onOpen: (() -> Void)? = nil
-    ) {
-        self.id = id
-        self.identifier = identifier
-        self.title = title
-        self.depth = depth
-        self.node = node
-        self.word = word
-        self.active = active
-        self.external = external
-        self.onOpen = onOpen
-    }
-}
-
-/// A PR TREE (or a flat run of single PRs): rows nest with tree guides,
-/// gapless (nothing for a connector to bridge).
-public struct PrList: View {
-    private let rows: [PrListRow]
-    private let rowIdentifier: String
-
-    public init(rows: [PrListRow], rowIdentifier: String = "pr-row") {
-        self.rows = rows
-        self.rowIdentifier = rowIdentifier
-    }
-
-    public var body: some View {
-        let guides = TreeGuides.compute(depths: rows.map(\.depth))
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                PrTapTarget(onOpen: row.onOpen) {
-                    PrRow(
-                        node: row.node, identifier: row.identifier, title: row.title,
-                        word: row.word, guide: guides[index], active: row.active
-                    ) {
-                        if row.external {
-                            AppIcon(AppIcons.uiExternalLink, size: 13)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        }
-                    }
-                }
-                .accessibilityIdentifier(rowIdentifier)
-            }
-        }
     }
 }
 

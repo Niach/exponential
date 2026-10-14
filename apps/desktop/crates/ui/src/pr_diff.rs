@@ -1,49 +1,36 @@
-//! The issue's CHANGES face over its pull request (EXP-181/EXP-889): the
-//! shared unified [`DiffView`] over `issues.prFiles`, embedded under an issue
-//! tab's work header.
+//! A pull request's diff (EXP-181/EXP-889): the shared unified [`DiffView`]
+//! over `pullRequests.files`.
 //!
 //! EXP-895/EXP-916: the pane IS the shared Changes layout
 //! ([`crate::diff_pane`]) — the file tree beside the per-file cards, the same
-//! thing the run's Changes face renders, so a review and a run read
-//! identically.
+//! thing Source Control renders, so every diff reads identically.
 //!
-//! EXP-1154: there is no standalone review screen any more. The review of a
-//! PR is the issue's Work screen on this face: the work header above it
-//! names the issue and carries the merge pill, the GitHub link and the `…`
-//! menu (Close PR lives there), so this pane draws no header of its own.
+//! EXP-1294: keyed on a `pull_requests` row (PR state left the issue). The
+//! host is the thread's Guide: [`PrDiffView::set_paths`] filters both the
+//! tree and the cards to one section's files (`None` = the complete diff);
+//! the host draws the `← Guide` back row above it.
 //!
-//! One instance per issue tab, re-pointed on issue switches. Same-id
-//! re-points are no-ops — the fetch must not re-run per render; the diff is a
-//! snapshot of the PR at open time.
-//!
-//! EXP-1251: the pane IS the Guide's diff page — [`PrDiffView::set_paths`]
-//! filters both the tree and the cards to one section's files (`None` = the
-//! complete diff); the host draws the `← Guide` back row above it.
-
-use std::sync::Arc;
+//! Same-id re-points are no-ops — the fetch must not re-run per render; the
+//! diff is a snapshot of the PR at open time.
 
 use gpui::{
     App, AppContext as _, Entity, FocusHandle, Focusable, IntoElement, Render, Window,
 };
-use sync::Store;
+use gpui_component::ActiveTheme as _;
 
 use crate::diff::DiffView;
-use crate::pr_merge::MergeState;
 use crate::queries;
 
-/// The read-only PR diff, embedded as an issue tab's Changes face.
+/// The read-only PR diff behind the thread Guide's diff pages.
 pub struct PrDiffView {
     focus_handle: FocusHandle,
     diff: Entity<DiffView>,
-    issue_id: Option<String>,
+    pull_request_id: Option<String>,
     /// EXP-895/EXP-916: the file tree's state — which row it highlights, the
     /// directories the reader folded, and the `Filter files` field.
     selected: usize,
     folded_dirs: std::collections::HashSet<String>,
     filter: Entity<gpui_component::input::InputState>,
-    /// EXP-1154: a file the Results Guide asked for (a file row click) before
-    /// the PR's files had landed — selected as soon as they do.
-    pending_path: Option<String>,
     /// The pane's own painted width — [`crate::diff_pane`]'s tree gate (it
     /// writes and reads it; 0 before the first paint).
     pane_width: std::rc::Rc<std::cell::Cell<f32>>,
@@ -64,18 +51,10 @@ impl PrDiffView {
             gpui_component::input::InputState::new(window, cx)
                 .placeholder(domain::contract::DIFF_UI_FILTER_PLACEHOLDER)
         });
-        // The caption mirrors the shared two-click state (EXP-325).
-        let merge_state = MergeState::global(cx);
-        let mut subscriptions = vec![cx.observe(&merge_state, |_, _, cx| cx.notify())];
-        if let Some(store) = Store::try_global(cx) {
-            let issues = store.collections().issues.clone();
-            subscriptions.push(cx.observe(&issues, |_, _, cx| cx.notify()));
-        }
-        // The file counts come off the diff's own summaries; a pending Guide
-        // pick lands the moment they arrive.
+        let mut subscriptions = Vec::new();
+        // The file counts come off the diff's own summaries.
         subscriptions.push(cx.observe(&diff, |this: &mut Self, _, cx| {
             this.sync_filter(cx);
-            this.apply_pending_path(cx);
             cx.notify();
         }));
         subscriptions.push(cx.subscribe(
@@ -89,45 +68,54 @@ impl PrDiffView {
         Self {
             focus_handle: cx.focus_handle(),
             diff,
-            issue_id: None,
+            pull_request_id: None,
             selected: 0,
             folded_dirs: std::collections::HashSet::new(),
             filter,
-            pending_path: None,
             pane_width: std::rc::Rc::new(std::cell::Cell::new(0.)),
             paths: None,
             _subscriptions: subscriptions,
         }
     }
 
-    /// Re-point at `issue_id` and fetch its PR files (no-op on the same id).
-    pub fn set_issue(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        if self.issue_id.as_deref() == Some(issue_id.as_str()) {
+    /// Re-point at `pull_request_id` and fetch its files
+    /// (`pullRequests.files`); a no-op on the same id.
+    pub fn set_pull_request(&mut self, pull_request_id: String, cx: &mut gpui::Context<Self>) {
+        if self.pull_request_id.as_deref() == Some(pull_request_id.as_str()) {
             return;
         }
-        // The issue tab builds this pane from `render`, which can run while
-        // the session is still validating on a background thread — so a cold
-        // start into a deep link finds no client yet. Latching an error here
-        // would be terminal (same-id calls no-op); stay Loading and leave
-        // `issue_id` unrecorded so the next call actually re-attempts.
+        // A cold start can render this before the session validated: stay
+        // Loading and leave the id unrecorded so the next call re-attempts.
         let Some(client) = queries::trpc_client(cx) else {
             self.diff.update(cx, |diff, cx| diff.set_loading(cx));
             return;
         };
-        // Moving OFF another issue's PR: a refusal captioned on the PREVIOUS
-        // PR describes a snapshot that is no longer on screen. A first load never clears it: the Results face prefetches these files
-        // for its Guide counts, and that must not wipe the CURRENT issue's
-        // visible merge/Close PR failure.
-        let clear = clears_merge_error(self.issue_id.as_deref(), &issue_id);
-        self.issue_id = Some(issue_id.clone());
+        self.pull_request_id = Some(pull_request_id.clone());
         self.selected = 0;
-        // A Guide pick held for the previous PR must not land on this one.
-        self.pending_path = None;
-        if clear {
-            MergeState::clear_error(cx);
-        }
-        self.diff
-            .update(cx, |diff, cx| diff.fetch(Arc::new(client), issue_id, cx));
+        self.diff.update(cx, |diff, cx| diff.set_loading(cx));
+        let theme = cx.theme().highlight_theme.clone();
+        let diff = self.diff.clone();
+        cx.spawn(async move |_, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    api::sessions::pr_files(&client, &pull_request_id).map(|files| {
+                        crate::diff::build_diff(
+                            &diff_files(&files),
+                            &theme,
+                            crate::diff::DiffOptions::review(),
+                        )
+                    })
+                })
+                .await;
+            let _ = diff.update(cx, |diff, cx| match result {
+                Ok(prepared) => diff.set_prepared(prepared, cx),
+                // Fetched on open (the Guide's counts): quiet, the empty
+                // list says it.
+                Err(err) => diff.set_error(err.to_string(), false, cx),
+            });
+        })
+        .detach();
     }
 
     /// EXP-1251 — show only `paths` (a Guide section's files; the diff keeps
@@ -160,33 +148,6 @@ impl PrDiffView {
         self.diff
             .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
         cx.notify();
-    }
-
-    /// EXP-1154 — select the file at `path` (a Results Guide row click). The
-    /// files may not have landed yet (the face just opened): the path is
-    /// held and applied when they do. An unknown path selects nothing.
-    pub(crate) fn select_path(&mut self, path: String, cx: &mut gpui::Context<Self>) {
-        self.pending_path = Some(path);
-        self.apply_pending_path(cx);
-    }
-
-    fn apply_pending_path(&mut self, cx: &mut gpui::Context<Self>) {
-        let outcome = resolve_pending_path(
-            self.pending_path.as_deref(),
-            self.diff
-                .read(cx)
-                .files()
-                .iter()
-                .map(|file| file.filename.as_ref()),
-        );
-        match outcome {
-            PendingPath::Hold => {}
-            PendingPath::Drop => self.pending_path = None,
-            PendingPath::Select(index) => {
-                self.pending_path = None;
-                self.select_file(index, cx);
-            }
-        }
     }
 
     /// Fold `path` in the file tree, or open it again.
@@ -230,54 +191,27 @@ pub(crate) fn shown_indices<'a>(
         .collect()
 }
 
-/// EXP-1154 — whether re-pointing the pane from `previous` to `next` clears
-/// the shared merge refusal: only when it moves OFF a different, previously
-/// loaded issue (never a first load, never a same-issue re-point).
-pub(crate) fn clears_merge_error(previous: Option<&str>, next: &str) -> bool {
-    previous.is_some_and(|previous| previous != next)
-}
-
-/// What a held Guide file pick does against the files on screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum PendingPath {
-    /// Nothing held, or the files have not landed yet: keep waiting.
-    Hold,
-    /// The files landed without that path: forget it.
-    Drop,
-    /// Select the file at this index.
-    Select(usize),
-}
-
-/// EXP-1154 — resolve a held Guide pick. An empty file list means the files
-/// are still loading (a load clears them), so the pick waits; a loaded list
-/// without the path drops it, so it can never select a file on a later PR.
-pub(crate) fn resolve_pending_path<'a>(
-    pending: Option<&str>,
-    files: impl IntoIterator<Item = &'a str>,
-) -> PendingPath {
-    let Some(pending) = pending else {
-        return PendingPath::Hold;
-    };
-    let mut any = false;
-    for (index, name) in files.into_iter().enumerate() {
-        any = true;
-        if name == pending {
-            return PendingPath::Select(index);
-        }
-    }
-    if any { PendingPath::Drop } else { PendingPath::Hold }
+/// `pullRequests.files` rows → the shared diff model (the wire carries no
+/// status or previous path: every file reads as modified).
+pub(crate) fn diff_files(files: &[api::sessions::PrFile]) -> Vec<domain::diff::DiffFile> {
+    files
+        .iter()
+        .map(|file| {
+            domain::diff::from_pull_file(
+                &file.path,
+                None,
+                "modified",
+                file.additions,
+                file.deletions,
+                file.patch.as_deref(),
+            )
+        })
+        .collect()
 }
 
 impl Focusable for PrDiffView {
     fn focus_handle(&self, _cx: &App) -> FocusHandle {
         self.focus_handle.clone()
-    }
-}
-
-impl PrDiffView {
-    /// EXP-1261: whether the diff left its top (the work body's top fade).
-    pub(crate) fn scrolled(&self, cx: &App) -> bool {
-        crate::work_header::scrolled(&self.diff.read(cx).page_scroll())
     }
 }
 
@@ -315,11 +249,19 @@ impl Render for PrDiffView {
 mod tests {
     use super::*;
 
+    /// EXP-1294: `pullRequests.files` rows map onto the shared model, path
+    /// and counts kept.
     #[test]
-    fn a_first_load_or_same_issue_repoint_keeps_the_merge_error() {
-        assert!(!clears_merge_error(None, "a"));
-        assert!(!clears_merge_error(Some("a"), "a"));
-        assert!(clears_merge_error(Some("a"), "b"));
+    fn pull_request_files_map_onto_the_diff_model() {
+        let files = diff_files(&[api::sessions::PrFile {
+            path: "src/a.rs".into(),
+            additions: 2,
+            deletions: 1,
+            patch: Some("@@ -1,1 +1,2 @@\n-a\n+b\n+c".into()),
+        }]);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "src/a.rs");
+        assert_eq!(files[0].status, domain::diff::DiffStatus::Modified);
     }
 
     /// EXP-1251: a section page shows only its paths, in the diff's order.
@@ -332,14 +274,4 @@ mod tests {
         assert!(shown_indices(files, Some(&[])).is_empty());
     }
 
-    #[test]
-    fn a_pending_path_waits_for_files_then_selects_or_drops() {
-        assert_eq!(resolve_pending_path(None, ["x"]), PendingPath::Hold);
-        assert_eq!(resolve_pending_path(Some("x"), []), PendingPath::Hold);
-        assert_eq!(
-            resolve_pending_path(Some("b"), ["a", "b"]),
-            PendingPath::Select(1)
-        );
-        assert_eq!(resolve_pending_path(Some("z"), ["a", "b"]), PendingPath::Drop);
-    }
 }

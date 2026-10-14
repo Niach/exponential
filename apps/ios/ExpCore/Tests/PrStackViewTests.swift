@@ -2,9 +2,12 @@ import Foundation
 import XCTest
 @testable import ExpCore
 
-// EXP-1248: the tree/stack rule and the stack rail, replayed from
-// `pr-stack-view.json` (web `pr-stack.test.ts`, desktop
-// `stack_view_matches_the_fixture`, Android `PrStackViewTest`).
+// EXP-1248/1306: the stack rail, replayed from `pr-stack-view.json` over
+// `pull_requests` rows (web `pr-stack.test.ts`, desktop
+// `stack_view_matches_the_fixture`, Android `PullRequestStack.stackView`).
+// The fixture is issue-shaped: rows sharing a `prUrl` are ONE pull request
+// closing all of them (desktop's `World::build`); a `tree` or `single` shape
+// draws no rail.
 final class PrStackViewTests: XCTestCase {
     private struct Fixture: Decodable {
         struct Row: Decodable {
@@ -21,7 +24,7 @@ final class PrStackViewTests: XCTestCase {
             let issueId: String
             let identifier: String
             let title: String
-            let prNumber: Int?
+            let prNumber: Int
             let isCurrent: Bool
         }
         struct View: Decodable {
@@ -49,54 +52,77 @@ final class PrStackViewTests: XCTestCase {
         return try JSONDecoder().decode(Fixture.self, from: try Data(contentsOf: url))
     }
 
-    private func entity(_ row: Fixture.Row) -> IssueEntity {
-        IssueEntity(
-            id: row.id, boardId: "board", number: nil, identifier: row.identifier,
-            title: row.title, description: nil, status: "in_review",
-            priority: "none", assigneeId: nil, creatorId: nil, source: nil, dueDate: nil,
-            sortOrder: nil, completedAt: nil, duplicateOfId: nil, prUrl: row.prUrl,
-            prNumber: row.prNumber, prState: row.prState, branch: row.branch,
-            prBaseBranch: row.prBaseBranch, prMergedAt: nil,
-            createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z"
-        )
+    private struct World {
+        var pulls: [PullRequestEntity] = []
+        var issueIds: [String: [String]] = [:]
+        var issues: [IssueEntity] = []
+
+        func pullRequest(of issueId: String) -> PullRequestEntity? {
+            pulls.first { issueIds[$0.id]?.contains(issueId) == true }
+        }
+    }
+
+    private func world(_ rows: [Fixture.Row]) -> World {
+        var world = World()
+        for row in rows {
+            world.issues.append(IssueEntity(
+                id: row.id, boardId: "board", number: nil, identifier: row.identifier,
+                title: row.title, description: nil, status: "in_review", priority: "none",
+                assigneeId: nil, creatorId: nil, source: nil, dueDate: nil, sortOrder: nil,
+                completedAt: nil, duplicateOfId: nil,
+                createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z"
+            ))
+            guard let url = row.prUrl else { continue }
+            if !world.pulls.contains(where: { $0.id == url }) {
+                world.pulls.append(PullRequestEntity(
+                    id: url, teamId: "team", repositoryId: "repo", number: row.prNumber ?? 0, url: url,
+                    head: row.branch ?? "", base: row.prBaseBranch ?? "",
+                    state: row.prState ?? DomainContract.prStateOpen,
+                    createdAt: "2026-10-01T00:00:00Z", updatedAt: "2026-10-01T00:00:00Z"
+                ))
+            }
+            world.issueIds[url, default: []].append(row.id)
+        }
+        return world
     }
 
     func testStackViewMatchesTheFixture() throws {
         let cases = try fixture().cases
         XCTAssertFalse(cases.isEmpty)
         for testCase in cases {
-            let issues = testCase.issues.map(entity)
-            let issue = try XCTUnwrap(issues.first { $0.id == testCase.issue }, testCase.name)
-            XCTAssertEqual(
-                PrStack.openPrShape(issue, issues: issues).rawValue, testCase.shape, testCase.name
-            )
-            let expected = testCase.view.map { view in
-                PrStack.StackView(
-                    rows: view.rows.map {
-                        PrStack.StackViewRow(
-                            issueId: $0.issueId, identifier: $0.identifier, title: $0.title,
-                            prNumber: $0.prNumber, isCurrent: $0.isCurrent
+            let world = world(testCase.issues)
+            let view = world.pullRequest(of: testCase.issue).flatMap {
+                PullRequestStack.stackView($0, in: world.pulls, issueIds: world.issueIds, issues: world.issues)
+            }
+            XCTAssertEqual(view != nil, testCase.shape == "stack", testCase.name)
+            let expected = try testCase.view.map { view in
+                PullRequestStack.StackView(
+                    rows: try view.rows.map { row in
+                        PullRequestStack.StackViewRow(
+                            pullRequestId: try XCTUnwrap(world.pullRequest(of: row.issueId)).id,
+                            issueId: row.issueId, identifier: row.identifier, title: row.title,
+                            prNumber: row.prNumber, rootSessionId: nil, isCurrent: row.isCurrent
                         )
                     },
                     baseBranch: view.baseBranch
                 )
             }
-            XCTAssertEqual(PrStack.stackView(issue, issues: issues), expected, testCase.name)
+            XCTAssertEqual(view, expected, testCase.name)
         }
     }
 
-    func testPrGraphShapeTellsAForkFromALine() {
-        func row(_ id: String, base: String?) -> Fixture.Row {
-            Fixture.Row(
-                id: id, identifier: "EXP-\(id)", title: id, prNumber: nil,
-                branch: "exp/\(id)", prBaseBranch: base, prState: "open", prUrl: nil
+    func testAnIssueLessMemberReadsItsNumberAndTitle() throws {
+        func pr(_ id: String, _ number: Int, head: String, base: String, title: String? = nil) -> PullRequestEntity {
+            PullRequestEntity(
+                id: id, teamId: "team", repositoryId: "repo", number: number, url: "", title: title,
+                head: head, base: base, createdAt: "", updatedAt: ""
             )
         }
-        let line = [row("1", base: "master"), row("2", base: "exp/1"), row("3", base: "exp/2")].map(entity)
-        XCTAssertEqual(PrStack.prGraphShape(line), .stack)
-        let fork = [row("1", base: "master"), row("2", base: "exp/1"), row("3", base: "exp/1")].map(entity)
-        XCTAssertEqual(PrStack.prGraphShape(fork), .tree)
-        XCTAssertEqual(PrStack.prGraphShape([line[0]]), .single)
-        XCTAssertEqual(PrStack.prComponent(line[2], in: line + [row("9", base: "master")].map(entity)).map(\.id), ["1", "2", "3"])
+        let all = [pr("b", 7, head: "exp/b", base: "main", title: "Bottom"), pr("t", 8, head: "exp/t", base: "exp/b")]
+        let view = try XCTUnwrap(PullRequestStack.stackView(all[0], in: all, issueIds: [:], issues: []))
+        XCTAssertEqual(view.rows.map(\.identifier), ["#8", "#7"])
+        XCTAssertEqual(view.rows.map(\.title), ["", "Bottom"])
+        XCTAssertEqual(view.rows.map(\.isCurrent), [false, true])
+        XCTAssertEqual(view.baseBranch, "main")
     }
 }

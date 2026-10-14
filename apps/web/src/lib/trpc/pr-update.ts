@@ -1,23 +1,20 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { PR_BODY_MAX } from "@/lib/pr-body-from-results"
+import { PR_BODY_MAX } from "@/lib/pr-body"
 import {
   GitHubMergeError,
   updatePullRequest,
 } from "@/lib/integrations/github-pr"
 
-// EXP-1139: rewriting a pull request's title/body, shared by the issue path
-// (`issues.updatePr`: the Reviews card's Edit, the MCP `exponential_pr_update`
-// issue subjects) and the chore path (`repositories.updatePull`: an issue-less
-// PR named by `repositoryId + prNumber`). The routers own their guards
-// (membership, open-state, repo-from-prUrl, the installation link-gate) and
-// hand the resolved repo + token here; this maps GitHub's refusal onto the
-// same error vocabulary `retargetPr`/`closePr` use.
+// EXP-1139: rewriting a pull request's title/body on GitHub, for
+// `updatePullRequest`, `openPullRequest`'s idempotent re-open and the Guide
+// body sync (lib/pull-requests.ts, which owns the guards: membership,
+// open-state, the installation link-gate). This maps GitHub's refusal onto
+// the same error vocabulary retarget/close use.
 //
-// EXP-1154: a run's OWN PR body is its Results report (`pr-body-from-results.ts`,
-// re-synced by `run-pr-body.ts` on every report text write); MCP `pr_update`
-// drops `body` for such a run. A person's edit through `issues.updatePr`
-// still lands and holds until the run's next report write.
+// EXP-1291: every PR body of a thread is its Guide (`lib/pr-body.ts`,
+// re-synced by `syncPullRequestBodies` on every Guide write); a person's
+// edit holds until the thread's next Guide write.
 
 /** The `pr_open` limits, so an update can never be refused for a size the
  *  open accepted. */

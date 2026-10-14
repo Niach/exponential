@@ -1,13 +1,14 @@
-//! EXP-825 — an action's typed PICK inputs on the Agent page composer: the
-//! per-key pick maps, the EXP-349 repo seed, the fix-conflicts PR preselect,
-//! the definition-ordered value snapshot and the one field renderer. Ported
+//! EXP-825 — an action's typed PICK inputs on the Home composer: the
+//! per-key pick maps, the definition-ordered value snapshot and the one
+//! field renderer. EXP-1294: the pick types are repo, board, pr and issue
+//! (contract `actionInputType`); a `pr` pick is a pull request row. Ported
 //! out of the deleted start-coding dialog minus its `text`/`textarea`
 //! branches: those input types are retired (the composer's free text reaches
 //! every run as its additional-instructions section), and a stale row still
 //! declaring one is BLOCKED until the owner removes it on the web — the
 //! desktop has no inputs editor.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use gpui::{
@@ -20,12 +21,10 @@ use gpui_component::{
 };
 use sync::Store;
 
-use coding::ActionInputValue;
-
 use crate::action_run::ActionRepoRow;
 
 /// The input types a run can still be handed (contract `actionInputType`).
-pub(crate) const PICK_INPUT_TYPES: [&str; 4] = ["repo", "board", "pr", "icon"];
+pub(crate) const PICK_INPUT_TYPES: &[&str] = domain::contract::ACTION_INPUT_TYPE_VALUES;
 
 /// The retired free-text types (EXP-825). A row declaring one is a stale
 /// definition, not a schema this build predates.
@@ -59,30 +58,26 @@ pub(crate) fn unsupported_reason(action: &api::actions::Action) -> Option<&'stat
     None
 }
 
-/// The `pr` input's pick list (EXP-259): the team's OPEN issue-linked pull
-/// requests, deduped by prUrl (a batch PR shows once; its value is the
-/// representative issue's id). Shared by the field's dropdown and the
-/// fix-conflicts seed's PR preselect (EXP-313).
+/// The `pr` input's pick list: the team's OPEN pull requests, `(pull request
+/// id, "#n · EXP-1 +2 title")`.
 pub(crate) fn pr_pick_options(cx: &App, team_id: &str) -> Vec<(String, String)> {
-    crate::queries::review_groups(cx, team_id)
-        .iter()
-        .flat_map(|group| group.entries.iter())
-        .map(|entry| {
-            let issue = entry.representative();
-            let idents = entry
-                .issues
-                .iter()
-                .map(|issue| issue.identifier.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
-            let label = match (issue.pr_number, entry.is_batch()) {
-                (Some(number), true) => format!("#{number} · {idents}"),
-                (Some(number), false) => {
-                    format!("#{number} · {idents} {}", issue.title)
+    let snapshot = crate::session_data::team_pr_snapshot(team_id, cx);
+    crate::session_data::open_pull_requests_in_team(team_id, cx)
+        .into_iter()
+        .map(|pr| {
+            let label = snapshot.with_set(|set| {
+                let name = set.label(&pr);
+                let title = pr
+                    .title
+                    .clone()
+                    .or_else(|| set.representative(&pr).map(|issue| issue.title.clone()))
+                    .unwrap_or_default();
+                match pr.number {
+                    Some(number) if !name.starts_with('#') => format!("#{number} · {name} {title}"),
+                    _ => format!("{name} {title}"),
                 }
-                (None, _) => idents,
-            };
-            (issue.id.clone(), label)
+            });
+            (pr.id.clone(), label.trim().to_string())
         })
         .collect()
 }
@@ -94,137 +89,20 @@ pub(crate) struct ActionInputPicks {
     repo: HashMap<String, ActionRepoRow>,
     /// Picked `(board id, board name)` per `board` input key.
     board: HashMap<String, (String, String)>,
-    /// Picked `(representative issue id, display label)` per `pr` input key
-    /// (EXP-259 — the fix-conflicts builtin's open-PR target).
+    /// Picked `(pull request id, display label)` per `pr` input key.
     pr: HashMap<String, (String, String)>,
-    /// Picked curated icon NAME per `icon` input key (EXP-273). The only
-    /// pick that is not an id — the value goes to the server verbatim.
-    icon: HashMap<String, String>,
-    /// Last action id whose `repo` inputs were seeded from the action's own
-    /// bound repository (EXP-349) — the latch keeps a manual re-pick
-    /// (including clearing to "None") from being re-seeded.
-    seeded_repo_action_id: Option<String>,
+    /// Picked issue id per `issue` input key.
+    issue: HashMap<String, String>,
 }
 
 impl ActionInputPicks {
-    /// Pre-fill `repo` inputs with the action's bound repository (EXP-349)
-    /// — a picker reading "None" while the run targets the bound repo anyway
-    /// looked misconfigured. Call on selection and again when
-    /// `repositories.list` lands (whichever comes last); the id latch keeps a
-    /// manual re-pick from being stomped. Returns whether the seed landed.
-    pub(crate) fn seed_repo_inputs(
-        &mut self,
-        action: &api::actions::Action,
-        team_repos: &[ActionRepoRow],
-    ) -> bool {
-        if self.seeded_repo_action_id.as_deref() == Some(action.id.as_str()) {
-            return false;
-        }
-        let repo_keys: Vec<String> = action
-            .inputs
-            .iter()
-            .filter(|input| input.input_type == "repo")
-            .map(|input| input.key.clone())
-            .collect();
-        let Some(repository_id) = action.repository_id.as_deref() else {
-            self.seeded_repo_action_id = Some(action.id.clone());
-            return false;
-        };
-        // Repos not fetched yet — leave the latch unset so the fetch's
-        // completion arm retries the seed.
-        let Some(repo) = team_repos.iter().find(|repo| repo.id == repository_id).cloned()
-        else {
-            return false;
-        };
-        for key in repo_keys {
-            self.repo.insert(key, repo.clone());
-        }
-        self.seeded_repo_action_id = Some(action.id.clone());
-        true
-    }
-
-    /// EXP-313: fill the action's `pr` input with `issue_id` when that PR is
-    /// in the open-reviews list (`options` = [`pr_pick_options`]). A PR that
-    /// is not there (racing a merge) is dropped; the user picks manually.
-    pub(crate) fn preselect_pr(
-        &mut self,
-        action: &api::actions::Action,
-        issue_id: &str,
-        options: &[(String, String)],
-    ) -> bool {
-        let Some(pick) = options.iter().find(|(id, _)| id == issue_id).cloned() else {
-            return false;
-        };
-        let Some(key) = action
-            .inputs
-            .iter()
-            .find(|input| input.input_type == "pr")
-            .map(|input| input.key.clone())
-        else {
-            return false;
-        };
-        self.pr.insert(key, pick);
-        true
-    }
-
-    /// FEED-50: the board list's Tidy up button seeds the (first) `board`
-    /// input with the board it was pressed on — `(board id, board name)`
-    /// as the field's own pick stores it.
-    pub(crate) fn preselect_board(
-        &mut self,
-        action: &api::actions::Action,
-        board_id: &str,
-        board_name: &str,
-    ) -> bool {
-        let Some(key) = action
-            .inputs
-            .iter()
-            .find(|input| input.input_type == "board")
-            .map(|input| input.key.clone())
-        else {
-            return false;
-        };
-        self.board
-            .insert(key, (board_id.to_string(), board_name.to_string()));
-        true
-    }
-
-    /// EXP-273: a suggestion's icon seeds the (first) `icon` input.
-    pub(crate) fn preselect_icon(&mut self, action: &api::actions::Action, icon: &str) -> bool {
-        let Some(key) = action
-            .inputs
-            .iter()
-            .find(|input| input.input_type == "icon")
-            .map(|input| input.key.clone())
-        else {
-            return false;
-        };
-        self.icon.insert(key, icon.to_string());
-        true
-    }
-
-    /// EXP-1233: the picked representative issue id of `action`'s (first)
-    /// `pr` input — what the fix-conflicts card resolves its PR from.
-    pub(crate) fn pr_value(&self, action: &api::actions::Action) -> Option<&str> {
-        let input = action.inputs.iter().find(|input| input.input_type == "pr")?;
-        self.pr.get(&input.key).map(|(issue_id, _)| issue_id.as_str())
-    }
-
-    /// EXP-1233: clear the `pr` pick (the fix-conflicts headline chip's ✕) —
-    /// the action stays, the card turns back into the picker.
-    pub(crate) fn clear_pr(&mut self, action: &api::actions::Action) {
-        for input in action.inputs.iter().filter(|input| input.input_type == "pr") {
-            self.pr.remove(&input.key);
-        }
-    }
-
     /// Whether `input` currently holds a usable value.
     pub(crate) fn filled(&self, input: &api::actions::ActionInput) -> bool {
         match input.input_type.as_str() {
             "repo" => self.repo.contains_key(&input.key),
             "board" => self.board.contains_key(&input.key),
             "pr" => self.pr.contains_key(&input.key),
-            "icon" => self.icon.contains_key(&input.key),
+            "issue" => self.issue.contains_key(&input.key),
             _ => false,
         }
     }
@@ -240,48 +118,31 @@ impl ActionInputPicks {
             .find(|input| input.required && !self.filled(input))
     }
 
-    /// Snapshot the filled input values in DEFINITION order (empty optional
-    /// inputs are omitted): repo → value=id, display=fullName; board →
-    /// value=id, display=name; pr → value=issue id, display=label; icon →
-    /// value=display=name.
-    pub(crate) fn collect(&self, action: &api::actions::Action) -> Vec<ActionInputValue> {
-        let mut values = Vec::new();
+    /// The filled input values, key → id (`sessions.send`'s `inputs`; empty
+    /// optional inputs are omitted): repo → repository id, board → board id,
+    /// pr → pull request id, issue → issue id.
+    pub(crate) fn collect(&self, action: &api::actions::Action) -> BTreeMap<String, String> {
+        let mut values = BTreeMap::new();
         for input in &action.inputs {
-            let (value, display) = match input.input_type.as_str() {
-                "repo" => match self.repo.get(&input.key) {
-                    Some(repo) => (repo.id.clone(), repo.full_name.clone()),
-                    None => continue,
-                },
-                "board" => match self.board.get(&input.key) {
-                    Some((board_id, name)) => (board_id.clone(), name.clone()),
-                    None => continue,
-                },
-                "pr" => match self.pr.get(&input.key) {
-                    Some((issue_id, label)) => (issue_id.clone(), label.clone()),
-                    None => continue,
-                },
-                "icon" => match self.icon.get(&input.key) {
-                    Some(icon) => (icon.clone(), icon.clone()),
-                    None => continue,
-                },
+            let value = match input.input_type.as_str() {
+                "repo" => self.repo.get(&input.key).map(|repo| repo.id.clone()),
+                "board" => self.board.get(&input.key).map(|(board_id, _)| board_id.clone()),
+                "pr" => self.pr.get(&input.key).map(|(pr_id, _)| pr_id.clone()),
+                "issue" => self.issue.get(&input.key).cloned(),
                 // Retired/unknown types never reach here — the blocker gates.
-                _ => continue,
+                _ => None,
             };
-            values.push(ActionInputValue {
-                key: input.key.clone(),
-                label: input.label.clone(),
-                input_type: input.input_type.clone(),
-                value,
-                display: Some(display),
-            });
+            if let Some(value) = value {
+                values.insert(input.key.clone(), value);
+            }
         }
         values
     }
 
-    /// One typed input field (EXP-257): repo/board/pr → dropdown-menu buttons
-    /// over the team's repos / synced boards / open PRs, icon → the shared
-    /// swatch-and-popover picker. `access` reaches the picks on the host view
-    /// so the menus can write back.
+    /// One typed input field (EXP-257): repo/pr → dropdown-menu buttons over
+    /// the team's repos / open pull requests, board / issue → THE board and
+    /// issue pickers. `access` reaches the picks on the host view so the
+    /// menus can write back.
     #[allow(clippy::too_many_arguments)] // one renderer for four field kinds
     pub(crate) fn render_field<V: Render>(
         &self,
@@ -349,9 +210,8 @@ impl ActionInputPicks {
                     .into_any_element()
             }
             // EXP-1045: THE board picker — the board's own glyph in its own
-            // colour, searchable, like every other board pick (the sibling
-            // `icon` input already rode the shared one). A required input
-            // offers no clearing row.
+            // colour, searchable, like every other board pick. A required
+            // input offers no clearing row.
             "board" => {
                 let picked = self.board.get(&input.key).cloned();
                 let pick_label: SharedString = match &picked {
@@ -414,34 +274,46 @@ impl ActionInputPicks {
                     .dropdown_menu(pr_menu(view, key, optional, pulls, access))
                     .into_any_element()
             }
-            // EXP-273: the curated icon set. Unlike the other pickers the
-            // value is a NAME, not an id. EXP-575: the shared swatch-and-popover
-            // picker (`board_form::icon_picker`), as everywhere else.
-            "icon" => {
-                let picked = self.icon.get(&input.key).cloned();
-                crate::board_form::icon_picker(
-                    format!("{prefix}-icon-{ix}"),
-                    crate::icons::registry::PICKABLE_ICONS,
-                    picked.as_deref(),
-                    None,
-                    optional,
-                    move |name, _, cx| {
-                        if let Some(view) = view.upgrade() {
+            // EXP-1294: one of the team's issues, through THE issue picker.
+            "issue" => {
+                let picked = self.issue.get(&input.key).cloned();
+                let issues = Store::global(cx).collections().issues_in_team(team_id, cx);
+                let pick_label: SharedString = match picked
+                    .as_deref()
+                    .and_then(|id| issues.iter().find(|issue| issue.id == id))
+                {
+                    Some(issue) => format!("{} {}", issue.identifier, issue.title).into(),
+                    None => unset_label(optional, "Select issue…"),
+                };
+                let trigger = row_trigger(prefix, ix, pick_label, cx).into_any_element();
+                let picker_id = SharedString::from(format!("{prefix}-issue-{ix}"));
+                crate::picker::deferred(move |window, cx| {
+                    let on_change: crate::picker::OnPickerChange<String> =
+                        Rc::new(move |values: Vec<String>, _window, cx: &mut App| {
+                            let Some(view) = view.upgrade() else {
+                                return;
+                            };
                             view.update(cx, |view, cx| {
-                                match name {
-                                    Some(name) => {
-                                        access(view).icon.insert(key.clone(), name.to_string());
+                                match values.first().cloned() {
+                                    Some(issue_id) => {
+                                        access(view).issue.insert(key.clone(), issue_id);
                                     }
                                     None => {
-                                        access(view).icon.remove(&key);
+                                        access(view).issue.remove(&key);
                                     }
                                 }
                                 cx.notify();
                             });
-                        }
-                    },
-                    cx,
-                )
+                        });
+                    crate::picker::issue_picker::issue_picker(
+                        &issues,
+                        picked.clone(),
+                        trigger,
+                        on_change,
+                    )
+                    .id(picker_id)
+                    .render(window, cx)
+                })
                 .into_any_element()
             }
             // A retired or unknown type: named by the blocker, never a fake
@@ -473,11 +345,9 @@ fn unset_label(optional: bool, prompt: &'static str) -> SharedString {
     if optional { "None".into() } else { prompt.into() }
 }
 
-/// The `pr` input's ONE dropdown — the open-PR list of [`pr_pick_options`]
-/// (a "None" row for an optional input). The generic field's button and the
-/// fix-conflicts card's row (EXP-1233, `chat_screen::render_fix_conflicts_card`)
-/// both open exactly this.
-pub(crate) fn pr_menu<V: 'static>(
+/// The `pr` input's dropdown — the open-PR list of [`pr_pick_options`] (a
+/// "None" row for an optional input).
+fn pr_menu<V: 'static>(
     view: gpui::WeakEntity<V>,
     key: String,
     optional: bool,
@@ -505,10 +375,10 @@ pub(crate) fn pr_menu<V: 'static>(
         if pulls.is_empty() {
             menu = menu.item(crate::controls::pointer_label_item("No open pull requests", true));
         }
-        for (issue_id, label) in &pulls {
+        for (pr_id, label) in &pulls {
             let view = view.clone();
             let key = key.clone();
-            let issue_id = issue_id.clone();
+            let pr_id = pr_id.clone();
             let label = label.clone();
             menu = menu.item(crate::controls::pointer_label_item(SharedString::from(label.clone()), false).on_click(
                 move |_, _, cx| {
@@ -516,7 +386,7 @@ pub(crate) fn pr_menu<V: 'static>(
                         view.update(cx, |view, cx| {
                             access(view)
                                 .pr
-                                .insert(key.clone(), (issue_id.clone(), label.clone()));
+                                .insert(key.clone(), (pr_id.clone(), label.clone()));
                             cx.notify();
                         });
                     }
@@ -551,10 +421,11 @@ mod tests {
         }
     }
 
-    fn action(inputs: Vec<ActionInput>, repository_id: Option<&str>) -> Action {
-        let mut action = api::actions::builtin_fix_conflicts_action("team-1");
-        action.id = "act-1".to_string();
-        action.repository_id = repository_id.map(str::to_string);
+    fn action(inputs: Vec<ActionInput>) -> Action {
+        let mut action: Action = serde_json::from_value(serde_json::json!({
+            "id": "act-1", "teamId": "team-1", "name": "Triage",
+        }))
+        .expect("a minimal action row");
         action.inputs = inputs;
         action
     }
@@ -563,7 +434,6 @@ mod tests {
         ActionRepoRow {
             id: id.to_string(),
             full_name: full_name.to_string(),
-            default_branch: None,
         }
     }
 
@@ -572,96 +442,47 @@ mod tests {
     /// pick types pass.
     #[test]
     fn unsupported_reason_distinguishes_retired_from_unknown() {
-        let picks = action(
-            vec![
-                input("r", "repo", false),
-                input("b", "board", false),
-                input("p", "pr", false),
-                input("i", "icon", false),
-            ],
-            None,
-        );
+        let picks = action(vec![
+            input("r", "repo", false),
+            input("b", "board", false),
+            input("p", "pr", false),
+            input("i", "issue", false),
+        ]);
         assert_eq!(unsupported_reason(&picks), None);
-        let stale = action(vec![input("scope", "textarea", true)], None);
+        let stale = action(vec![input("scope", "textarea", true)]);
         assert_eq!(unsupported_reason(&stale), Some(FREE_TEXT_BLOCKER));
-        let stale = action(vec![input("n", "text", false), input("r", "repo", false)], None);
+        let stale = action(vec![input("n", "text", false), input("r", "repo", false)]);
         assert_eq!(unsupported_reason(&stale), Some(FREE_TEXT_BLOCKER));
-        let newer = action(vec![input("x", "label", true)], None);
-        assert_eq!(unsupported_reason(&newer), Some(NEWER_APP_BLOCKER));
+        let retired = action(vec![input("x", "icon", true)]);
+        assert_eq!(unsupported_reason(&retired), Some(NEWER_APP_BLOCKER));
         assert_eq!(FREE_TEXT_BLOCKER, "This action still declares free-text inputs. Remove them on the web.");
     }
 
-    /// EXP-349: the repo seed fills every `repo` input from the action's
-    /// binding once the repos are known, and the latch keeps a later clear
-    /// from being re-seeded.
+    /// EXP-1294: the send's `inputs` are key → id, empty optionals omitted,
+    /// and the first missing REQUIRED input names the blocker.
     #[test]
-    fn repo_seed_waits_for_repos_and_latches() {
+    fn collect_is_key_to_id() {
         let mut picks = ActionInputPicks::default();
-        let action = action(vec![input("r", "repo", false)], Some("repo-1"));
-        // Repos not fetched: nothing seeded, latch unset → a retry may land.
-        assert!(!picks.seed_repo_inputs(&action, &[]));
-        assert!(picks.seeded_repo_action_id.is_none());
-        let repos = vec![repo("repo-1", "acme/web")];
-        assert!(picks.seed_repo_inputs(&action, &repos));
-        assert_eq!(picks.repo.get("r").map(|r| r.id.as_str()), Some("repo-1"));
-        // A manual clear survives the next seed call.
-        picks.repo.remove("r");
-        assert!(!picks.seed_repo_inputs(&action, &repos));
-        assert!(picks.repo.get("r").is_none());
-        // An unbound action latches without seeding.
-        let mut picks = ActionInputPicks::default();
-        let unbound = self::action(vec![input("r", "repo", false)], None);
-        assert!(!picks.seed_repo_inputs(&unbound, &repos));
-        assert_eq!(picks.seeded_repo_action_id.as_deref(), Some("act-1"));
-    }
-
-    /// The value snapshot follows DEFINITION order, omits empty optionals,
-    /// and carries the id + display pairs the prompt renders.
-    #[test]
-    fn collect_is_definition_ordered_with_displays() {
-        let mut picks = ActionInputPicks::default();
-        let action = action(
-            vec![
-                input("i", "icon", false),
-                input("p", "pr", true),
-                input("b", "board", false),
-                input("r", "repo", false),
-            ],
-            None,
-        );
+        let action = action(vec![
+            input("i", "issue", false),
+            input("p", "pr", true),
+            input("b", "board", false),
+            input("r", "repo", false),
+        ]);
         assert_eq!(picks.missing_required(&action).map(|i| i.key.as_str()), Some("p"));
-        assert!(picks.preselect_pr(&action, "issue-9", &[("issue-9".into(), "#4 · EXP-9 T".into())]));
-        assert!(!picks.preselect_pr(&action, "gone", &[("issue-9".into(), "x".into())]));
-        assert!(picks.preselect_icon(&action, "bug"));
+        picks.pr.insert("p".into(), ("pr-9".into(), "#4 · EXP-9 T".into()));
+        picks.issue.insert("i".into(), "issue-1".into());
         picks.repo.insert("r".into(), repo("repo-1", "acme/web"));
         assert!(picks.missing_required(&action).is_none());
         let values = picks.collect(&action);
-        let keys: Vec<&str> = values.iter().map(|v| v.key.as_str()).collect();
-        assert_eq!(keys, vec!["i", "p", "r"]);
-        assert_eq!(values[1].value, "issue-9");
-        assert_eq!(values[1].display.as_deref(), Some("#4 · EXP-9 T"));
-        assert_eq!(values[2].display.as_deref(), Some("acme/web"));
-        assert_eq!(values[0].value, "bug");
-        assert!(picks.filled(&input("i", "icon", false)));
+        assert_eq!(values.len(), 3);
+        assert_eq!(values.get("p").map(String::as_str), Some("pr-9"));
+        assert_eq!(values.get("i").map(String::as_str), Some("issue-1"));
+        assert_eq!(values.get("r").map(String::as_str), Some("repo-1"));
+        assert!(!values.contains_key("b"));
+        assert!(picks.filled(&input("i", "issue", false)));
         assert!(!picks.filled(&input("b", "board", false)));
         // A retired type is never "filled" and never collected.
         assert!(!picks.filled(&input("scope", "textarea", true)));
-    }
-
-    /// FEED-50: the board list's Tidy up seed fills the builtin's `board`
-    /// input (the prompt then names it), and an action without one ignores it.
-    #[test]
-    fn board_preselect_fills_the_tidy_up_board_input() {
-        let mut picks = ActionInputPicks::default();
-        let tidy = api::actions::builtin_tidy_up_action("team-1");
-        assert!(picks.preselect_board(&tidy, "board-1", "Mobile"));
-        let values = picks.collect(&tidy);
-        assert_eq!(values.len(), 1);
-        assert_eq!(values[0].key, "board");
-        assert_eq!(values[0].value, "board-1");
-        assert_eq!(values[0].display.as_deref(), Some("Mobile"));
-        let mut picks = ActionInputPicks::default();
-        let boardless = action(vec![input("r", "repo", false)], None);
-        assert!(!picks.preselect_board(&boardless, "board-1", "Mobile"));
     }
 }

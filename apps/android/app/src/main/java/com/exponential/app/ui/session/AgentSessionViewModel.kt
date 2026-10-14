@@ -6,19 +6,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
-import com.exponential.app.data.api.CodingSessionsApi
 import com.exponential.app.data.api.DevicesApi
+import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.SteerApi
+import com.exponential.app.data.api.SessionsSendInput
+import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.MessageEntity
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.SessionIssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.ExponentialDatabase
@@ -34,14 +37,11 @@ import com.exponential.app.domain.ContextSegment
 import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.batchRunIssues
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.IssueStatusResolver
-import com.exponential.app.domain.ConflictRefusal
-import com.exponential.app.domain.MergeFailure
-import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
-import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.QueuedMessage
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
 import com.exponential.app.domain.SessionConfigState
@@ -49,29 +49,18 @@ import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.SessionUsageState
 import com.exponential.app.domain.SlashCommand
 import com.exponential.app.domain.SlashCommands
-import com.exponential.app.domain.batchMergeCarrier
-import com.exponential.app.domain.isBatchRun
-import com.exponential.app.domain.resolveMergeTarget
-import com.exponential.app.domain.resumeTargetFor
-import com.exponential.app.domain.runChain
-import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
-import com.exponential.app.ui.steer.ActionRunState
-import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.receiveAsFlow
-import com.exponential.app.data.ShowWorkPreference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -149,14 +138,12 @@ class AgentSessionViewModel @AssistedInject constructor(
     @Assisted val codingSessionId: String,
     holder: DatabaseHolder,
     private val auth: AuthRepository,
-    private val steerApi: SteerApi,
     private val issuesApi: IssuesApi,
-    private val codingSessionsApi: CodingSessionsApi,
+    private val sessionsApi: SessionsApi,
     private val devicesApi: DevicesApi,
+    private val issueImagesApi: IssueImagesApi,
     private val store: SteerConnectionStore,
-    private val steerLaunch: SteerLaunchDelegate,
     stats: SyncStats,
-    private val showWorkPreference: ShowWorkPreference,
 ) : ViewModel() {
 
     @AssistedFactory
@@ -174,9 +161,9 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  that has it open, and released in [onCleared]. */
     private val connection = store.acquire(codingSessionId)
 
-    /** The synced coding_sessions row — flips to ended via Electric. Shared
-     *  from the connection, which needs it eagerly for its redial loop. */
-    val session: StateFlow<CodingSessionEntity?> = connection.session
+    /** The synced `sessions` row — flips to ended via Electric. Shared from
+     *  the connection, which needs it eagerly for its redial loop. */
+    val session: StateFlow<SessionEntity?> = connection.session
 
     /** EXP-656: when our own `devices` shape last completed a poll — presence
      *  derived from an unrefreshed cursor is unknown, never offline. */
@@ -231,7 +218,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      * this only changes what the screen says while it keeps trying.
      */
     val hostDeviceOffline: StateFlow<Boolean> = combine(hostDevice, session) { device, row ->
-        device.offline && row != null && row.status == DomainContract.codingSessionStatusRunning
+        device.offline && row != null && row.status == DomainContract.sessionStatusRunning
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
@@ -245,7 +232,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         session,
         deviceRows,
     ) { row, devices ->
-        val deviceId = row?.deviceId ?: return@combine null
+        val deviceId = row?.deviceId?.takeIf { it.isNotBlank() } ?: return@combine null
         val matches = devices.filter { it.deviceId == deviceId }
         matches.firstOrNull { it.userId == row.userId } ?: matches.firstOrNull()
     }.distinctUntilChanged()
@@ -265,34 +252,32 @@ class AgentSessionViewModel @AssistedInject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * EXP-688: this run's OWN issue — the header names what is being worked
-     * on, the way the Agents list row does. Null for batch and action runs
-     * (they have none) and until an issue-scoped run's issue syncs in.
+     * EXP-1291: the issues the session's THREAD links (`session_issues` on its
+     * ROOT), in the thread's order — the header names what is worked on.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val issue: StateFlow<IssueEntity?> = session
-        .map { it?.issueId }
+    val issues: StateFlow<List<IssueEntity>> = session
+        .map { row -> row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id }
         .distinctUntilChanged()
-        .flatMapLatest { issueId ->
-            if (issueId == null) {
-                flowOf(null)
+        .flatMapLatest { rootId ->
+            if (rootId == null) {
+                flowOf(emptyList())
             } else {
-                dbFlow.scopedQuery(null) { it.issueDao().observeById(issueId) }
+                combine(
+                    dbFlow.scopedQuery(emptyList<SessionIssueEntity>()) { it.sessionIssueDao().observeByRoot(rootId) },
+                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
+                ) { links, all ->
+                    val byId = all.associateBy { it.id }
+                    links.mapNotNull { byId[it.issueId] }
+                }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /**
-     * EXP-876: the issues the run covers when it is a BATCH, in naming order —
-     * what titles an issue-less run in the Work screen's header
-     * (`EXP-874 +2`) and what that title opens. Empty for every other run.
-     */
-    val batchIssues: StateFlow<List<IssueEntity>> = combine(
-        session,
-        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-    ) { row, issues ->
-        row?.let { batchRunIssues(it, issues) } ?: emptyList()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** The thread's first issue (null for an issue-less session). */
+    val issue: StateFlow<IssueEntity?> = issues
+        .map { it.firstOrNull() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage
@@ -304,7 +289,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         session,
         hostDeviceRow,
     ) { row, device ->
-        val agent = row?.agent?.takeIf { it.isNotBlank() } ?: return@combine null
+        val agent = row?.cli?.takeIf { it.isNotBlank() } ?: return@combine null
         AgentUsagePresentation.parseAccounts(device?.agentAccounts)?.get(agent)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -331,20 +316,20 @@ class AgentSessionViewModel @AssistedInject constructor(
         SessionAccountSwitchState(
             options = SessionAccountSwitch.options(
                 AgentUsagePresentation.parseAccounts(device?.agentAccounts),
-                row.agent,
-                row.agentAccount,
+                row.cli,
+                row.account,
             ),
-            agent = row.agent,
+            agent = row.cli,
             // A teammate's run is never steerable (EXP-312) and its account is
             // not this user's to change; the machine must be one we may drive.
             mine = userId != null && row.userId == userId,
-            sessionEnded = runHasEnded(row),
+            sessionEnded = row.isEnded,
             deviceOnline = steerDevice?.online == true,
             canResume = steerDevice?.canResumeRun == true,
             canSwitchAccount = steerDevice?.canSwitchAccount == true,
             deviceLabel = steerDevice?.deviceLabel?.takeIf { it.isNotBlank() }
-                ?: row.deviceId.orEmpty(),
-            currentAccount = row.agentAccount,
+                ?: row.deviceId,
+            currentAccount = row.account,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
 
@@ -369,13 +354,8 @@ class AgentSessionViewModel @AssistedInject constructor(
         hostDeviceRow,
         accountSwitch,
     ) { row, device, switch ->
-        if (row == null) return@combine null
-        if (row.status != DomainContract.codingSessionStatusRunning &&
-            row.status != DomainContract.codingSessionStatusInReview
-        ) {
-            return@combine null
-        }
-        val agent = row.agent?.takeIf { it.isNotBlank() } ?: return@combine null
+        if (row == null || row.isEnded) return@combine null
+        val agent = row.cli?.takeIf { it.isNotBlank() } ?: return@combine null
         val ambient = AgentUsagePresentation.parseUsageMap(device?.agentUsage)?.get(agent)
         val current = switch.options.firstOrNull { it.current } ?: return@combine ambient
         current.usage ?: ambient.takeIf { current.active }
@@ -395,12 +375,12 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     fun refreshRunUsage() {
         val row = session.value ?: return
-        val agent = row.agent?.takeIf { it.isNotBlank() } ?: return
-        val deviceId = row.deviceId ?: return
+        val agent = row.cli?.takeIf { it.isNotBlank() } ?: return
+        val deviceId = row.deviceId.takeIf { it.isNotBlank() } ?: return
         val switch = accountSwitch.value
         if (!switch.mine || !switch.deviceOnline) return
         val profileId = switch.options.firstOrNull { it.current }?.profileId
-            ?: row.agentAccount?.trim()?.takeIf { it.isNotEmpty() }
+            ?: row.account?.trim()?.takeIf { it.isNotEmpty() }
             ?: return
         if (AgentAccountsRows.refreshAllowedAt(agentUsage.value, System.currentTimeMillis()) != null) {
             return
@@ -506,8 +486,8 @@ class AgentSessionViewModel @AssistedInject constructor(
      * bitmap lands. Batch and action runs have no issue: nothing to pre-size.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val attachmentDims: StateFlow<AttachmentDims> = session
-        .map { it?.issueId }
+    val attachmentDims: StateFlow<AttachmentDims> = issue
+        .map { it?.id }
         .distinctUntilChanged()
         .flatMapLatest { issueId ->
             if (issueId == null) {
@@ -520,86 +500,6 @@ class AgentSessionViewModel @AssistedInject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     val currentUserId: StateFlow<String?> = auth.userId
-
-    /** EXP-1175: the viewer's Show work preference — the Run face shows the
-     *  full transcript instead of the thread. Read synchronously first so the
-     *  face's first frame is already right. */
-    val showWork: StateFlow<Boolean> = showWorkPreference.observe(auth.activeAccountId)
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            showWorkPreference.read(auth.activeAccountId.value),
-        )
-
-    fun setShowWork(on: Boolean) {
-        showWorkPreference.set(auth.activeAccountId.value, on)
-    }
-
-    /**
-     * EXP-773: the machine a Resume of this ENDED run would go to, or null
-     * when there is none — a live run, someone else's, a machine that is away
-     * or too old to advertise `resume-run`. Resume moved off the list rows
-     * onto this screen, so the ×4 `resumeTargetFor` rule is resolved here now,
-     * re-decided on every heartbeat. Display gating only: the server re-checks
-     * the same rule.
-     */
-    val resumeTarget: StateFlow<RunResumeTarget?> = combine(
-        session,
-        deviceRows,
-        DeviceLiveness.ticker(),
-        currentUserId,
-    ) { row, devices, now, userId ->
-        row?.let {
-            resumeTargetFor(it, devices.map { d -> d.toSteerDevice(now, userId) }, userId)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /**
-     * EXP-974: this run's RESUME CHAIN — every row of the same run (a resume
-     * is the same run under a new row, `resumed_from_id`), NEWEST FIRST, over
-     * the caller's OWN rows of the run's team. The Work screen's run switcher
-     * reads it for an ISSUE-LESS subject (a chat, action or batch run has no
-     * issue to list runs under), so a resumed chat run and its successor share
-     * ONE toggle and its menu picks between them; an issue-bound run keeps the
-     * issue's own runs, which already include its resumes. Rows reuse the
-     * Recent list's shape so bylines come off the same ×4 rules; the ×4
-     * selection is [runChain]. Someone else's run, or a signed-out reader,
-     * lists nothing.
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val teamSessions: Flow<List<CodingSessionEntity>> = session
-        .map { it?.teamId }
-        .distinctUntilChanged()
-        .flatMapLatest { teamId ->
-            if (teamId == null) {
-                flowOf(emptyList())
-            } else {
-                dbFlow.scopedQuery(emptyList<CodingSessionEntity>()) {
-                    it.codingSessionDao().observeByTeam(teamId)
-                }
-            }
-        }
-
-    val chainRuns: StateFlow<List<PastRunRow>> = combine(
-        teamSessions,
-        deviceRows,
-        DeviceLiveness.ticker(),
-        currentUserId,
-    ) { sessions, devices, now, userId ->
-        if (userId == null) {
-            emptyList()
-        } else {
-            runChain(sessions.filter { it.userId == userId }, codingSessionId)
-                .asReversed()
-                .map { row ->
-                    PastRunRow(
-                        session = row,
-                        issue = null,
-                        device = resolveSessionDevice(row, devices, now),
-                    )
-                }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ── The live connection's state, re-exposed unchanged (EXP-621) ─────────
 
@@ -617,8 +517,82 @@ class AgentSessionViewModel @AssistedInject constructor(
     val history: StateFlow<HistoryState?> = connection.history
 
     val pendingImages: StateFlow<List<PendingAttachment>> = connection.pendingImages
-    val steerSending: StateFlow<Boolean> = connection.steerSending
-    val steerImageError: StateFlow<String?> = connection.steerImageError
+
+    /** EXP-1291: a `sessions.send` in flight (uploads included). */
+    private val _sending = MutableStateFlow(false)
+    val steerSending: StateFlow<Boolean> = _sending
+
+    /** A refused pick (the connection's caps) or a failed upload — the text
+     *  and the thumbnails survive, so the send is retryable. */
+    private val _uploadError = MutableStateFlow<String?>(null)
+    val steerImageError: StateFlow<String?> = combine(_uploadError, connection.steerImageError) { own, relay ->
+        own ?: relay
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** A failed `sessions.send` / `sessions.unqueue` — FEED-79: the error
+     *  toast `Couldn't send the message`, raised once by the screen. */
+    private val _sendError = MutableStateFlow<String?>(null)
+    val sendError: StateFlow<String?> = _sendError
+    fun clearSendError() {
+        _sendError.value = null
+    }
+
+    /** The session's ROOT id (the thread it belongs to). */
+    private val rootId: Flow<String?> = session
+        .map { row -> row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id }
+        .distinctUntilChanged()
+
+    /**
+     * EXP-1291: the header's back row — the THREAD's title
+     * ([SessionTree.threadTitle]: stored, action, first issue, first request
+     * line, `Untitled`) — and this session's own card name (`Session N` in
+     * the tree's creation order when untitled).
+     */
+    data class Header(val threadTitle: String, val sessionName: String)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val header: StateFlow<Header?> = rootId
+        .flatMapLatest { root ->
+            if (root == null) {
+                flowOf(null)
+            } else {
+                combine(
+                    dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(root) },
+                    dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(root) },
+                    issues,
+                    session,
+                ) { tree, messages, linked, row ->
+                    val me = row ?: return@combine null
+                    val sessions = tree.map(SessionTree::session)
+                    val rootRow = sessions.firstOrNull { it.id == root } ?: SessionTree.session(me)
+                    val title = SessionTree.threadTitle(
+                        rootRow,
+                        linked.map(SessionTree::issue),
+                        messages.map(SessionTree::message),
+                    ).title
+                    val ordered = SessionTree.treeOrder(sessions)
+                    val ordinal = ordered.indexOfFirst { it.id == me.id }.let { if (it < 0) 1 else it + 1 }
+                    val name = me.title?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: me.name?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: if (me.id == root) title else "${SessionTree.CardCopy.SESSION} $ordinal"
+                    Header(threadTitle = title, sessionName = name)
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * EXP-1291: the viewer's OWN messages the server still holds for this
+     * session (`consumed_at` NULL) — the queue bar; X = [unqueueMessage].
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val queuedMessages: StateFlow<List<QueuedMessage>> = combine(
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeQueued(codingSessionId) },
+        auth.userId,
+    ) { rows, me ->
+        rows.filter { me != null && it.authorId == me }
+            .map { QueuedMessage(id = it.id, text = it.body) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The composer's typed text — held by the connection, so it survives a
      *  reconnect, a back-tap and a rotation alike. */
@@ -666,7 +640,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     ) { text, row, config ->
         SlashCommands.matches(
             text,
-            SlashCommands.agentId(row?.agent, config != null),
+            SlashCommands.agentId(row?.cli, config != null),
             config?.commands.orEmpty(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -678,122 +652,12 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  only read as prose. */
     fun pendingSlashCommand(): SlashCommand? = SlashCommands.commandFor(
         draft.value,
-        SlashCommands.agentId(session.value?.agent, sessionConfig.value != null),
+        SlashCommands.agentId(session.value?.cli, sessionConfig.value != null),
         sessionConfig.value?.commands.orEmpty(),
     )
 
-    /**
-     * EXP-678: the issue whose PR the Merge pill above the composer merges —
-     * this run's own issue. EXP-1165: a BATCH run whose combined PR a covered
-     * issue carries (same url, still open) merges through THAT issue, so the
-     * stack choice and the Fix merge conflicts composer reach the run view. Any other
-     * issue-less run (chat, action, carrier-less batch) has none: it merges
-     * the PR on its OWN row, which [mergeTarget] resolves.
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val mergeIssue: StateFlow<IssueEntity?> = session
-        .flatMapLatest { row ->
-            when {
-                row == null -> flowOf(null)
-                row.issueId != null ->
-                    dbFlow.scopedQuery(null) { it.issueDao().observeById(row.issueId) }
-                isBatchRun(row) && !row.prUrl.isNullOrEmpty() ->
-                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
-                        .map { issues -> batchMergeCarrier(row, batchRunIssues(row, issues)) }
-                else -> flowOf(null)
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /**
-     * EXP-734: what the Merge pill actually merges — the run's issue, or the
-     * SESSION itself for an issue-less run with a PR on its own row. Null =
-     * nothing to merge, and the pill stays hidden.
-     */
-    val mergeTarget: StateFlow<MergeTarget?> = combine(session, mergeIssue) { row, issue ->
-        row?.let {
-            if (it.issueId != null) {
-                resolveMergeTarget(it, issue)
-            } else {
-                resolveMergeTarget(it, issue = null, batchIssues = listOfNotNull(issue))
-            }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    private val _merging = MutableStateFlow(false)
-    val merging: StateFlow<Boolean> = _merging
-
-    /**
-     * A failed merge (EXP-678) — the same banner shape as [killError], cleared
-     * by the next attempt. Typed, not a bare string: the screen keeps a REAL
-     * conflict (EXP-533) out of its toast when it opened the recovery
-     * composer instead (EXP-1233).
-     */
-    private val _mergeError = MutableStateFlow<MergeFailure?>(null)
-    val mergeError: StateFlow<MergeFailure?> = _mergeError
-
-    /**
-     * EXP-1233: one event per plain ISSUE-target merge refused by a real
-     * conflict; the Work screen opens the Fix merge conflicts composer off it.
-     */
-    private val _conflictRefusals = Channel<ConflictRefusal>(Channel.BUFFERED)
-    val conflictRefusals: Flow<ConflictRefusal> = _conflictRefusals.receiveAsFlow()
-
-    /**
-     * Squash-merge [mergeTarget]'s PR. The server merges AND ends this session
-     * (EXP-498), so there is nothing to change locally: the row flips to
-     * `ended` and the PR to `merged` via Electric, and the screen reacts —
-     * for a run's OWN PR that flip lands on the session row itself (EXP-734).
-     */
-    fun merge() {
-        val target = mergeTarget.value ?: return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _mergeError.value = null
-            _merging.value = true
-            runCatching {
-                when (target) {
-                    is MergeTarget.Issue -> issuesApi.mergePr(accountId, target.issueId)
-                    is MergeTarget.Session ->
-                        codingSessionsApi.mergePr(accountId, target.sessionId)
-                }
-            }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    // Conflicts, branch protection and GitHub App errors are the
-                    // common, persistent failures — same copy as Agents/Reviews.
-                    val failure = MergeFailure.from(t, "The pull request could not be merged")
-                    _mergeError.value = failure
-                    if (target is MergeTarget.Issue && failure.isConflict) {
-                        _conflictRefusals.send(ConflictRefusal(target.issueId, failure))
-                    }
-                }
-            _merging.value = false
-        }
-    }
-
-    /**
-     * EXP-1145: merge the open stack bottom-up THROUGH [throughIssueId]
-     * (`issues.mergePr({ mergeStack: true })`), with [merge]'s state handling.
-     * A failure shows the server's message and never opens Fix merge
-     * conflicts: the pull request that stopped the chain may be another member.
-     */
-    fun mergeStack(throughIssueId: String) {
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _mergeError.value = null
-            _merging.value = true
-            runCatching { issuesApi.mergePr(accountId, throughIssueId, mergeStack = true) }
-                .onFailure { t ->
-                    if (t is CancellationException) throw t
-                    _mergeError.value = MergeFailure.fromStack(t)
-                }
-            _merging.value = false
-        }
-    }
-
-    /** A failed [killSession] call's message (EXP-268) — FEED-79: raised as
-     *  the error toast once, then [clearKillError]ed. */
+    /** A failed [stopSession] call's message — FEED-79: raised as the error
+     *  toast once, then [clearKillError]ed. */
     private val _killError = MutableStateFlow<String?>(null)
     val killError: StateFlow<String?> = _killError
 
@@ -809,14 +673,89 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     fun setDraft(text: String) = connection.setDraft(text)
 
-    /** Send the composed message. The draft and the thumbnails clear only if
-     *  it actually goes out. */
-    fun sendDraft() = connection.sendDraft()
+    /**
+     * EXP-1291: send the composed message as `sessions.send({sessionId})` —
+     * the server holds it until the device takes it (an idle session resumes,
+     * an ended one continues). Picked files upload against the session first
+     * and ride as `attachmentIds`. The draft and the thumbnails clear only
+     * once the server took it.
+     */
+    fun sendDraft() {
+        val text = draft.value
+        val images = pendingImages.value
+        if (text.isBlank() && images.isEmpty()) return
+        if (_sending.value) return
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            _sending.value = true
+            _uploadError.value = null
+            try {
+                val ids = mutableListOf<String>()
+                for (image in images) {
+                    val id = image.uploadedId ?: try {
+                        issueImagesApi.uploadSessionImage(
+                            accountId,
+                            codingSessionId,
+                            image.bytes,
+                            image.filename,
+                            image.contentType,
+                        ).also { connection.stampPendingUpload(image, it.id, it.filename) }.id
+                    } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
+                        _uploadError.value = trpcErrorMessage(
+                            t,
+                            if (image.isImage) "The image could not be uploaded" else "The file could not be uploaded",
+                        )
+                        return@launch
+                    }
+                    ids += id
+                }
+                try {
+                    sessionsApi.send(
+                        accountId,
+                        SessionsSendInput.message(codingSessionId, text, ids.takeIf { it.isNotEmpty() }),
+                    )
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    _sendError.value = trpcErrorMessage(t, "")
+                    return@launch
+                }
+                for (index in images.indices.reversed()) connection.removePendingImage(index)
+                connection.setDraft("")
+            } finally {
+                _sending.value = false
+            }
+        }
+    }
 
     /** EXP-893: send a command line (`/model opus`) as a plain message
      *  WITHOUT touching the draft — the composer footer's model picker rides
      *  this, so a half-typed message is never clobbered by a pick. */
-    fun sendCommand(text: String): Boolean = connection.sendMessage(text)
+    fun sendCommand(text: String): Boolean {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.send(accountId, SessionsSendInput.message(codingSessionId, text))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _sendError.value = trpcErrorMessage(t, "")
+            }
+        }
+        return true
+    }
+
+    /** EXP-1291: revoke one of the viewer's held messages (`sessions.unqueue`). */
+    fun unqueueMessage(messageId: String) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.unqueue(accountId, messageId)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _sendError.value = trpcErrorMessage(t, "")
+            }
+        }
+    }
 
     fun addPendingImage(uri: Uri, bytes: ByteArray, filename: String, mime: String) =
         connection.addPendingImage(uri, bytes, filename, mime)
@@ -854,7 +793,9 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /** EXP-790: interrupt the turn in flight — the composer's Stop glyph.
      *  Fire-and-forget like [setMode]; the feed shows the agent stopping. */
-    fun interrupt() = connection.interrupt()
+    fun interrupt() {
+        if (connected.value) connection.interrupt() else stopSession()
+    }
 
     /** EXP-861: revoke a message the device is holding for the next turn —
      *  the queue bar's X. Fire-and-forget; the next `queue` event confirms. */
@@ -869,70 +810,31 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     /**
-     * Kill the session (EXP-268): tRPC `steer.killSession` flips the synced
-     * row to `ended` (which this screen already reacts to) and best-effort
-     * kills the live run through the relay — so no local state change on
-     * success; a failure surfaces via [killError].
+     * EXP-1291: Stop = `sessions.stop` — interrupts the current turn; the
+     * session stays live and goes idle (every member may stop a SHARED one).
+     * A failure surfaces via [killError].
      */
-    fun killSession() {
+    fun stopSession() = sessionCall("Couldn't stop the session") { accountId ->
+        sessionsApi.stop(accountId, codingSessionId)
+    }
+
+    /** End the session for good (`sessions.end`; a root ends its tree). */
+    fun endSession() = sessionCall("Couldn't end the session") { accountId ->
+        sessionsApi.end(accountId, codingSessionId)
+    }
+
+    private fun sessionCall(fallback: String, call: suspend (String) -> Unit) {
         viewModelScope.launch {
             _killError.value = null
             try {
                 val accountId = auth.activeAccountId.value
                     ?: throw IllegalStateException("No active account")
-                steerApi.killSession(accountId, codingSessionId)
+                call(accountId)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _killError.value = trpcErrorMessage(t, "Couldn't stop the session")
+                _killError.value = trpcErrorMessage(t, fallback)
             }
         }
-    }
-
-    // ── Remote rails (EXP-706 / EXP-773) ─────────────────────────────────────
-    // EXP-825/EXP-1233: a conflict-refused merge opens the Agent page
-    // composer ([conflictRefusals]); what stays here is Resume, which rides the shared
-    // delegate and reports back through the same captions.
-    val steerLaunchEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
-    val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
-    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
-
-    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
-
-    /** EXP-773: Resume this finished run on the machine that ran it. Rides the
-     *  same rails a remote start does — the desktop's new row lands in
-     *  [startedSessionId] and the screen opens it. */
-    fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
-
-    /** EXP-1259: the failed Resume / switch toast's Retry — the same press
-     *  again under its `startId`, so the machine resumes it once. */
-    fun retryResume() = steerLaunch.retryResume()
-
-    /**
-     * EXP-849 phase 3: continue THIS run under another login — a resume that
-     * names an account. The machine re-enters the recorded run in the same
-     * worktree and inserts the continuation row (`resumed_from_id`), which
-     * arrives in [startedSessionId] like any remote start's, so the screen
-     * follows it. Display-gated by [SessionAccountSwitch.refusal]; the server
-     * and the machine re-check.
-     */
-    fun switchAccount(option: SessionAccountOption) {
-        val row = session.value ?: return
-        val deviceId = row.deviceId ?: return
-        // EXP-866: the wall belongs to the login being left — drop it NOW,
-        // not when the continuation's first frame happens to arrive.
-        connection.clearRateLimit()
-        steerLaunch.resumeRun(
-            RunResumeTarget(
-                sessionId = codingSessionId,
-                deviceId = deviceId,
-                deviceLabel = accountSwitch.value.deviceLabel,
-            ),
-            account = SessionAccountSwitch.wireAccount(option),
-        )
-    }
-
-    init {
-        steerLaunch.attach(viewModelScope)
     }
 
     /** Detach from the connection — it keeps streaming for the next visit,

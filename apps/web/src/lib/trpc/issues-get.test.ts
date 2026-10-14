@@ -56,10 +56,6 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => false,
   resolveRepoInstallationTokenInfo: vi.fn(),
 }))
-vi.mock(`@/lib/integrations/pr-sync`, () => ({
-  applyPrClosedState: vi.fn(),
-  applyPrMergeState: vi.fn(),
-}))
 // EXP-736: the relations read is its own query shape (a self-join); the point
 // this file locks is the ISSUE projection, so stub it out.
 vi.mock(`@/lib/issue-relations`, () => ({
@@ -113,12 +109,6 @@ const SHAPE_COLUMNS = [
   `sortOrder`,
   `completedAt`,
   `duplicateOfId`,
-  `prUrl`,
-  `prNumber`,
-  `prState`,
-  `branch`,
-  `prMergedAt`,
-  `prBaseBranch`,
   `estimate`,
   `draftId`,
   `createdAt`,

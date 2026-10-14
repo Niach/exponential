@@ -2,411 +2,343 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-1284: the thread's CONVERSATION child (brief §2), phones = draft 3:
-/// the `conversation` blocks of THE thread view (`ThreadViews.build`) in
-/// order — a `Run N` block per run (header row: the agent's run mark, the
-/// label, its caption parts, a hairline, the state word), the issues its
-/// agent linked as rows under it, and the runs one parent started as ONE
-/// parallel card. Presentational: the screen (and the styleguide specimen)
-/// hand it the rows; every tap goes back out through a closure.
-///
-/// A run block's body is the EXISTING run content for that run: the run's
-/// own Guide entries (`sessionThread` over `ThreadViews.sessionGuideEntries`,
-/// the Summary as the reply) closed by the Run face's status row
-/// (`RunStatusRow`, `WorkFaces.runRowCaption`); the agent's link rows sit
-/// right under the header (draft 3). A LIVE run's content stays owner-only
-/// (EXP-312): a teammate sees the status row alone. An ended run folds to ONE
-/// line (its name) with `Show work`, which opens that thread in place. The
-/// run's full transcript (and the steer composer) is its own Work screen —
-/// the header row opens it.
+/// EXP-1295: a root's CONVERSATION (fixture `session-thread.json` `rows`) —
+/// a thread's, or a team agent's channel: the root's own session card
+/// first, then its messages oldest first, in the session view's own parts:
+/// a person's message is THE message bubble (`UserMessageBubble`, captioned
+/// with the name and time, or `queued` until the device took it), the
+/// agent's reply bare prose under its mark (`NarrationBubble`); a `session`
+/// / `thread_started` card is THE session card (`SessionCardView`): a
+/// session of this tree opens its raw view, a thread another root started
+/// opens that thread; a question or plan answers IN the session view's
+/// `QuestionCard` (`sessions.answer`); a subagent is one muted row; a
+/// picture is the Guide's inline tile; an event is one muted line.
+/// EXP-1300: an AGENT channel (web `AgentChannel`, Android
+/// `ThreadCommentRow`) leaves its own root card out and draws EVERY message
+/// as a comment row (`ChannelMessageRow`: the agent's icon or the person's
+/// avatar, the name, the time, the body); its cards indent under the rows.
+/// Presentational: the screen (and the styleguide) hand it the rows; every
+/// tap goes back out through a closure.
 struct ThreadConversationView: View {
     let rows: ThreadRows
-    let view: ThreadViewModel
-    /// The viewer (`deps.auth.userId`).
-    let me: String?
-    var now: Date = Date()
-    /// Opens a run's own Work screen (header row, parallel card row).
-    var onOpenRun: (String) -> Void = { _ in }
-    /// Opens an issue's child tab (a link row's chip).
-    var onOpenIssue: (String) -> Void = { _ in }
+    let view: SessionThreadView
+    /// A card's session: open its raw view (`AgentSessionView`).
+    var onOpenSession: (String) -> Void = { _ in }
+    /// A card naming ANOTHER root: open that thread.
+    var onOpenThread: (String) -> Void = { _ in }
+    /// A question card's pick: (message id, the option).
+    var onAnswer: (String, String) -> Void = { _, _ in }
+    /// A plan card's Approve / Reject: (message id, decision, the reject
+    /// row's feedback).
+    var onDecide: (String, PlanDecision, String?) -> Void = { _, _, _ in }
+    /// The card answer in flight (its buttons wait).
+    var answeringId: String?
+    /// Whether this reader may answer the cards (a member of the team).
+    var canAnswer = true
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @Environment(\.motion) private var motion
-    /// Folded runs the reader opened with Show work.
-    @State private var opened: Set<String> = []
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            ForEach(Array(view.conversation.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case let .run(run):
-                    runBlock(run)
-                case let .parallel(parallel):
-                    parallelBlock(parallel)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-conversation")
-    }
+    /// The plan card's two rows: the first is the primary approve, `reject`
+    /// expands into the inline feedback field (`AgentFeed.planRejectKey`).
+    static let planOptions = [
+        AgentQuestionOption(label: "Approve", key: approveKey),
+        AgentQuestionOption(label: "Reject", key: "reject"),
+    ]
+    static let approveKey = "approve"
+    static let queuedWord = "queued"
 
-    // MARK: - Run block
-
-    @ViewBuilder
-    private func runBlock(_ block: ThreadRunBlock) -> some View {
-        let session = rows.session(id: block.runId)
-        VStack(alignment: .leading, spacing: 10) {
-            ThreadBlockHeader(
-                agent: session?.agent,
-                markState: markState(session),
-                ended: block.state == .ended,
-                label: block.label,
-                caption: block.caption,
-                state: block.state,
-                onOpen: { onOpenRun(block.runId) }
-            )
-            // The issues its agent linked sit right under the header (draft
-            // 3), then the run's own content.
-            ForEach(block.links, id: \.itemId) { link in
-                ThreadLinkRowView(
-                    link: link,
-                    agent: session?.agent,
-                    issue: rows.issue(id: link.issueId),
-                    onOpen: { onOpenIssue(link.issueId) }
-                )
-            }
-            if let session {
-                runBody(block, session: session)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-run-block")
-    }
-
-    @ViewBuilder
-    private func runBody(_ block: ThreadRunBlock, session: CodingSessionEntity) -> some View {
-        if block.folded, !opened.contains(block.runId) {
-            // ONE line: the run's name, then Show work.
-            HStack(spacing: 6) {
-                Text(rows.name(of: session))
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text("·")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Button(ThreadViews.showWorkLabel) {
-                    withAnimation(motion.standard) { _ = opened.insert(block.runId) }
-                }
-                .buttonStyle(.plain)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.primary))
-                .fixedSize()
-                .accessibilityIdentifier("thread-show-work")
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, SessionRowLead.markSize + SessionRowLead.gap)
-        } else {
-            let owner = session.userId == me
-            // EXP-312: a LIVE run's content is its owner's; an ended run's
-            // published Guide is the team's anyway.
-            if owner || block.state == .ended {
-                runThread(session)
-                    .padding(.leading, SessionRowLead.markSize + SessionRowLead.gap)
-            }
-            // The status row closes the block, where the run is NOW.
-            statusRow(session)
-        }
-    }
-
-    /// The Run face's ONE status row, off the synced row alone (the relay's
-    /// tool line is the run screen's).
-    private func statusRow(_ session: CodingSessionEntity) -> some View {
-        let ended = PastRuns.hasEnded(session)
-        let display = CodingSessionDisplayState.of(session: session, prState: nil)
-        let device = rows.device(for: session, now: now)
-        let paused = !ended && device.isPaused(display, status: session.status)
-        let state = WorkFaces.runRowState(
-            paused: paused,
-            ended: ended,
-            awaitingInput: false,
-            working: CodingSessionDisplayState.working(
-                status: session.status, state: display, paused: paused, live: true
-            ),
-            display: display
-        )
-        return RunStatusRow(
-            agent: session.agent,
-            markState: runningRowMarkState(display, paused: paused, working: state == .working),
-            ended: ended,
-            rowState: state,
-            caption: { now in
-                WorkFaces.runRowCaption(
-                    state: state,
-                    device: device.displayLabel,
-                    startedAt: session.startedAt,
-                    endedAt: session.endedAt ?? session.updatedAt,
-                    now: now
-                )
-            },
-            toolLine: nil,
-            showWork: false,
-            // Show work = the run's full transcript, its own screen.
-            onToggle: { onOpenRun(session.id) }
-        )
-        .padding(.horizontal, -AgentSessionLayout.gutter)
-    }
-
-    /// The run's slice of the thread's Guide, in publish order, the Summary
-    /// as the reply.
-    @ViewBuilder
-    private func runThread(_ session: CodingSessionEntity) -> some View {
-        let thread = sessionThread(runResults(session))
-        if !thread.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(Array(thread.items.enumerated()), id: \.offset) { _, item in
-                    switch item {
-                    case let .text(topic, text):
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(topic)
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            AgentMarkdownText(text: text, context: markdownContext(session), options: [.autolinkBareURLs])
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    case let .picture(entry):
-                        SessionInlinePicture(entry: entry)
-                    }
-                }
-                if let reply = thread.reply {
-                    AgentMarkdownText(
-                        text: reply,
-                        context: markdownContext(session),
-                        options: [.autolinkBareURLs, .hardLineBreaks]
-                    )
-                }
-            }
-        }
-    }
-
-    /// The entries THIS session wrote (`sessionGuideEntries`, fixture
-    /// `guideSlices` ×4: stamped with its `sessionId`; unstamped legacy
-    /// entries belong to the thread's first session) out of the thread's
-    /// Guide (else the newest session's row, `threadGuide`).
-    private func runResults(_ session: CodingSessionEntity) -> String? {
-        ThreadViews.sessionGuideEntries(
-            ThreadViews.threadGuide(threadResults: rows.thread.results, sessions: rows.sessions),
-            sessionId: session.id,
-            firstSessionId: rows.sessions.first?.id
-        )
-    }
-
-    private func markdownContext(_ session: CodingSessionEntity) -> AgentMarkdownContext {
+    /// Attachment images through the instance, `#EXP-1` refs chipped against
+    /// the root's team — the session view's context.
+    private var markdownContext: AgentMarkdownContext {
         AgentMarkdownContext(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
             httpClient: deps.httpClient,
             issueRefs: AgentIssueRefContext(
-                teamId: session.teamId,
+                teamId: rows.root.teamId,
                 db: deps.db,
-                onOpen: { issueId in
+                onOpen: { [deps, accountId] issueId in
                     deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
                 }
             )
         )
     }
 
-    /// A run's mark: the working mark while its agent works, amber while it
-    /// waits on a person, else the bare brand mark.
-    private func markState(_ session: CodingSessionEntity?) -> CodingSessionDisplayState? {
-        guard let session, !PastRuns.hasEnded(session) else { return nil }
-        if session.needsInput { return .needsInput }
-        return session.agentBusy ? .working : nil
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 14) {
+            ForEach(shownRows, id: \.id) { row in
+                if rows.isAgent {
+                    channelRowView(row)
+                } else {
+                    rowView(row)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(SessionTree.ThreadCopy.conversationTestId)
     }
 
-    // MARK: - Parallel block
+    /// An agent channel's own card (row 0) stays off it.
+    private var shownRows: [ThreadRow] {
+        guard rows.isAgent else { return view.rows }
+        return view.rows.filter { row in
+            if case let .session(_, card) = row { return card.sessionId != rows.root.id }
+            return true
+        }
+    }
+
+    /// An agent channel's row: a message is a comment row, anything else
+    /// the thread's own part indented under the rows' lead.
+    @ViewBuilder
+    private func channelRowView(_ row: ThreadRow) -> some View {
+        if case let .message(id, author, authorId, body, queued) = row,
+           author != DomainContract.messageAuthorKindSystem {
+            let fromAgent = author == DomainContract.messageAuthorKindAgent
+            let user = fromAgent ? nil : rows.user(id: authorId)
+            ChannelMessageRow(
+                name: fromAgent ? (rows.root.name ?? "") : (user?.name ?? user?.email ?? ""),
+                time: channelTime(messageId: id, queued: queued),
+                lead: {
+                    if fromAgent {
+                        AppIcon(
+                            BoardTypeDisplay.iconName(for: rows.root.icon)
+                                ?? SessionTree.ListCopy.agentDefaultIcon,
+                            size: 16,
+                            weight: .medium
+                        )
+                        .foregroundStyle(
+                            Color(hex: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .white
+                        )
+                    } else {
+                        UserAvatar(user: user, id: authorId, size: ChannelMessageMetrics.leadSize)
+                    }
+                },
+                content: {
+                    AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                }
+            )
+            .opacity(queued ? 0.7 : 1)
+            .accessibilityIdentifier("thread-message")
+        } else {
+            rowView(row)
+                .padding(.leading, ChannelMessageMetrics.leadSize + ChannelMessageMetrics.gap)
+        }
+    }
+
+    /// A channel row's time: `HH:mm`, then `queued` until the device took it.
+    private func channelTime(messageId: String, queued: Bool) -> String {
+        let at = rows.messages.first { $0.id == messageId }
+            .flatMap { WireTimestamps.parse($0.createdAt) }
+            .map(GlassTimeRow.formatted)
+        return [at, queued ? Self.queuedWord : nil].compactMap { $0 }.joined(separator: " · ")
+    }
 
     @ViewBuilder
-    private func parallelBlock(_ block: ThreadParallelBlock) -> some View {
-        let first = block.runs.first.flatMap { rows.session(id: $0.runId) }
-        VStack(alignment: .leading, spacing: 10) {
-            ThreadBlockHeader(
-                agent: first?.agent,
-                markState: block.runs.contains { rows.session(id: $0.runId)?.agentBusy == true }
-                    ? .working
-                    : (block.state == .needsInput ? .needsInput : nil),
-                ended: block.state == .ended,
-                label: block.label,
-                caption: block.caption,
-                state: block.state,
-                onOpen: nil
-            )
-            VStack(spacing: 0) {
-                ForEach(Array(block.runs.enumerated()), id: \.element.runId) { index, row in
-                    if index > 0 {
-                        Rectangle()
-                            .fill(.white.opacity(GlassMenuTokens.dividerOpacity))
-                            .frame(height: GlassTokens.hairline)
-                    }
-                    parallelRow(row)
+    private func rowView(_ row: ThreadRow) -> some View {
+        switch row {
+        case let .message(id, author, authorId, body, queued):
+            if author == DomainContract.messageAuthorKindSystem {
+                ThreadEventLine(text: body)
+            } else if author == DomainContract.messageAuthorKindAgent {
+                NarrationBubble(text: body, context: markdownContext)
+                    .accessibilityIdentifier("thread-message")
+            } else {
+                UserMessageBubble(
+                    text: body,
+                    context: markdownContext,
+                    caption: caption(messageId: id, authorId: authorId, queued: queued)
+                )
+                .opacity(queued ? 0.7 : 1)
+                .accessibilityIdentifier("thread-message")
+            }
+        case let .session(_, card):
+            SessionCardView(card: card) {
+                if rows.isOtherRoot(card.sessionId) {
+                    onOpenThread(card.sessionId)
+                } else {
+                    onOpenSession(card.sessionId)
                 }
             }
-            .glassRow()
-            .padding(.leading, SessionRowLead.markSize + SessionRowLead.gap)
-            ForEach(block.links, id: \.itemId) { link in
-                ThreadLinkRowView(
-                    link: link,
-                    agent: first?.agent,
-                    issue: rows.issue(id: link.issueId),
-                    onOpen: { onOpenIssue(link.issueId) }
-                )
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-parallel-block")
-    }
-
-    private func parallelRow(_ row: ThreadParallelRow) -> some View {
-        let session = rows.session(id: row.runId)
-        let issue = row.issueId.flatMap { rows.issue(id: $0) }
-        let device = session.map { rows.device(for: $0, now: now).displayLabel } ?? (row.deviceLabel ?? "")
-        let age = RelativeTime.compact(wire: row.startedAt, now: now)
-        return Button {
-            onOpenRun(row.runId)
-        } label: {
-            HStack(spacing: SessionRowLead.gap) {
-                AgentRunMark(
-                    agent: session?.agent,
-                    state: markState(session),
-                    badgeSize: SessionRowLead.badgeSize,
-                    ended: row.state == .ended
-                )
-                .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
-                Text(row.name)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+        case let .question(id, question, options, answer, answered):
+            QuestionCard(
+                question: AgentQuestion(
+                    id: 0,
+                    wireId: id,
+                    text: question,
+                    options: options.map { AgentQuestionOption(label: $0, key: $0) },
+                    resolved: answered,
+                    answers: answer.map { [$0] } ?? []
+                ),
+                active: !answered,
+                canAnswer: canAnswer,
+                locked: answeringId == id,
+                pending: answeringId == id,
+                failed: false,
+                onAnswer: { keys, text in
+                    if let pick = text ?? keys.first { onAnswer(id, pick) }
+                },
+                markdownContext: markdownContext
+            )
+            .accessibilityIdentifier("thread-question-card")
+        case let .plan(id, plan, decision):
+            QuestionCard(
+                question: AgentQuestion(
+                    id: 0,
+                    wireId: id,
+                    text: plan,
+                    options: Self.planOptions,
+                    planMode: true,
+                    resolved: decision != nil,
+                    answers: decision.map {
+                        [$0 == PlanDecision.approved.rawValue ? "Approved" : "Rejected"]
+                    } ?? []
+                ),
+                active: decision == nil,
+                canAnswer: canAnswer,
+                locked: answeringId == id,
+                pending: answeringId == id,
+                failed: false,
+                onAnswer: { keys, _ in
+                    onDecide(id, keys.first == Self.approveKey ? .approved : .rejected, nil)
+                },
+                onAnswerThenSend: { _, feedback in onDecide(id, .rejected, feedback) },
+                markdownContext: markdownContext
+            )
+            .accessibilityIdentifier("thread-plan-card")
+        case let .subagent(_, title, status):
+            HStack(spacing: 8) {
+                AppIcon(AppIcons.codingSubagent, size: 13)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Text(title)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .layoutPriority(1)
-                if let issue {
-                    IssueChip(
-                        identifier: issue.identifier,
-                        title: nil,
-                        iconName: nil,
-                        statusColor: nil,
-                        size: .sm
-                    )
-                    // The identifier never truncates; the name gives way.
-                    .fixedSize()
-                }
-                Spacer(minLength: 4)
-                Text([device, age].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("thread-parallel-row")
-    }
-}
-
-/// EXP-1284: a block's header row — the agent's run mark (its spinner while
-/// the agent works), `Run N` / `Runs 3 and 4`, the caption parts joined
-/// ` · `, a hairline to the edge and the state word (`live` | `needs input` |
-/// `ended`). A run block's row opens that run.
-struct ThreadBlockHeader: View {
-    let agent: String?
-    let markState: CodingSessionDisplayState?
-    let ended: Bool
-    let label: String
-    let caption: [String]
-    let state: ThreadRunState
-    let onOpen: (() -> Void)?
-
-    var body: some View {
-        if let onOpen {
-            Button(action: onOpen) { row }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("thread-block-header")
-        } else {
-            row
-        }
-    }
-
-    private var row: some View {
-        HStack(spacing: SessionRowLead.gap) {
-            AgentRunMark(agent: agent, state: markState, badgeSize: SessionRowLead.badgeSize, ended: ended)
-                .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
-                .accessibilityHidden(true)
-            Text(label)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.primary))
-                .fixedSize()
-            if !caption.isEmpty {
-                Text(caption.joined(separator: " · "))
+                Spacer(minLength: 8)
+                Text(status)
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fixedSize()
             }
-            Rectangle()
-                .fill(.white.opacity(GlassMenuTokens.dividerOpacity * 2))
-                .frame(height: GlassTokens.hairline)
-                .frame(maxWidth: .infinity)
-            Text(ThreadViews.stateWord(state))
-                .font(.footnote)
-                .foregroundStyle(stateColor)
-                .fixedSize()
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("thread-subagent-row")
+        case let .picture(_, attachmentId, width, height, caption):
+            SessionInlinePicture(entry: SessionResultEntry(
+                topic: "",
+                label: caption ?? "",
+                attachmentId: attachmentId,
+                width: width.map { Int($0) },
+                height: height.map { Int($0) },
+                inline: true,
+                caption: caption
+            ))
+        case let .event(_, _, text):
+            ThreadEventLine(text: text, issue: rows.issues.first { issue in issue.identifier.map { text.hasSuffix(" \($0)") } ?? false }) { issueId in
+                deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+            }
         }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
     }
 
-    private var stateColor: Color {
-        switch state {
-        case .needsInput: DesignTokens.Semantic.yellow
-        case .live, .ended: .white.opacity(TextOpacity.tertiary)
-        }
+    /// A person's bubble caption: `<name> · <time>`, or `queued` until the
+    /// device took the message.
+    private func caption(messageId: String, authorId: String?, queued: Bool) -> String {
+        if queued { return Self.queuedWord }
+        let user = rows.user(id: authorId)
+        let name = user?.name ?? user?.email
+        let time = rows.messages.first { $0.id == messageId }.map { RelativeTime.compact(wire: $0.createdAt) }
+        return [name, time].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 
-/// EXP-1284: an issue the run's agent linked, under its block — `<agent
-/// mark> Linked | Filed and linked [issue chip]`; the chip opens that issue's
-/// child.
-struct ThreadLinkRowView: View {
-    let link: ThreadLinkRow
-    let agent: String?
-    /// The synced row, for the chip's status glyph (nil = the anchor default).
-    let issue: IssueEntity?
-    let onOpen: () -> Void
+/// One muted line (an event, a system message); an event naming a linked
+/// issue draws that issue as THE issue chip after its verb.
+private struct ThreadEventLine: View {
+    let text: String
+    var issue: IssueEntity?
+    var onOpenIssue: (String) -> Void = { _ in }
 
     var body: some View {
-        HStack(spacing: SessionRowLead.gap) {
-            AgentRunMark(agent: agent, state: nil, ended: true)
-                .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
-                .accessibilityHidden(true)
-            Text(link.label)
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .fixedSize()
-            IssueChip(
-                identifier: link.identifier,
-                title: link.title,
-                status: IssueStatus.from(issue?.status),
-                onTap: onOpen
-            )
-            .layoutPriority(-1)
-            Spacer(minLength: 0)
+        HStack(spacing: 6) {
+            if let issue {
+                Text(String(text.dropLast((issue.identifier?.count ?? -1) + 1)))
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .fixedSize()
+                IssueChip(
+                    identifier: issue.identifier,
+                    title: issue.title,
+                    status: IssueStatus.from(issue.status),
+                    bodySize: UIFont.preferredFont(forTextStyle: .footnote).pointSize,
+                    size: .sm,
+                    onTap: { onOpenIssue(issue.id) }
+                )
+            } else {
+                Text(text)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-link-row")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("thread-event-line")
+    }
+}
+
+/// The channel row's lead circle and its gap to the card (a card row
+/// indents by both).
+enum ChannelMessageMetrics {
+    static let leadSize: CGFloat = 32
+    static let gap: CGFloat = 12
+}
+
+/// EXP-1300: an agent channel's comment row (web `ChannelMessageRow`,
+/// Android `ThreadCommentRow`) — the lead (the agent's icon or the person's
+/// avatar) in a 32pt circle, then the card: the name, the muted time, the
+/// body.
+struct ChannelMessageRow<Lead: View, Content: View>: View {
+
+    let name: String
+    let time: String
+    @ViewBuilder let lead: () -> Lead
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: ChannelMessageMetrics.gap) {
+            lead()
+                .frame(width: ChannelMessageMetrics.leadSize, height: ChannelMessageMetrics.leadSize)
+                .background(GlassTokens.fillRow, in: Circle())
+                .clipShape(Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if !time.isEmpty {
+                        Text(time)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .fixedSize()
+                    }
+                }
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GlassTokens.fillRow, in: RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
+                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("channel-message")
     }
 }

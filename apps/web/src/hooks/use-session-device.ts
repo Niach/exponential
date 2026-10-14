@@ -1,7 +1,8 @@
 import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { deviceCollection } from "@/lib/collections"
-import type { CodingSession, Device } from "@/db/schema"
+import type { Device } from "@/db/schema"
+import type { SessionRow } from "@/lib/session-tree"
 import { useNow } from "@/hooks/use-now"
 import { resolveSessionDevice, type SessionDevice } from "@/lib/session-device"
 
@@ -11,7 +12,7 @@ import { resolveSessionDevice, type SessionDevice } from "@/lib/session-device"
 // get the same off `useAgentsData` rows. Ticks every 30 s against the 90 s
 // online window (the use-remote-start idiom).
 export function useSessionDevice(
-  session: Pick<CodingSession, `deviceId` | `deviceLabel` | `userId`> | null
+  session: Pick<SessionRow, `deviceId` | `userId`> | null
 ): SessionDevice {
   const enabled = session !== null
   const { data: deviceRows } = useLiveQuery(
@@ -20,17 +21,14 @@ export function useSessionDevice(
   )
   const now = useNow(30_000)
   const deviceId = session?.deviceId ?? null
-  const deviceLabel = session?.deviceLabel ?? null
   const userId = session?.userId ?? null
+  // EXP-1291: the session row carries no label; the devices row is the only
+  // source (null until it resolves).
   return useMemo(
     () =>
-      userId === null
-        ? { label: deviceLabel, online: null }
-        : resolveSessionDevice(
-            { deviceId, deviceLabel, userId },
-            (deviceRows ?? []) as Device[],
-            now
-          ),
-    [deviceId, deviceLabel, userId, deviceRows, now]
+      deviceId === null || userId === null
+        ? { label: null, online: null }
+        : resolveSessionDevice({ deviceId, userId }, (deviceRows ?? []) as Device[], now),
+    [deviceId, userId, deviceRows, now]
   )
 }

@@ -460,11 +460,6 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
         tasks.append(makeShapeTask(
-            name: "coding-sessions", path: "/api/shapes/coding-sessions", table: "coding_sessions",
-            type: CodingSessionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
-            session: session
-        ))
-        tasks.append(makeShapeTask(
             name: "actions", path: "/api/shapes/actions", table: "actions",
             type: ActionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
@@ -512,18 +507,32 @@ public final class SyncManager: @unchecked Sendable {
             session: session
         ))
 
-        // EXP-1284: threads — the unit of work, team-scoped (no board, no
-        // trash predicate), the 22nd shape; `results` is the thread's Guide.
+        // EXP-1291: the session tree — threads, agents and their
+        // sub-sessions (`shared OR user_id = me` within the member's teams),
+        // their issues, the Conversation, and the PRs that left `issues`.
         tasks.append(makeShapeTask(
-            name: "threads", path: "/api/shapes/threads", table: "threads",
-            type: ThreadEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            name: "sessions", path: "/api/shapes/sessions", table: "sessions",
+            type: SessionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
-        // EXP-1284: a thread's issues + runs — team-scoped with the static
-        // board trash/archive predicates like every issue child, the 23rd.
         tasks.append(makeShapeTask(
-            name: "thread-items", path: "/api/shapes/thread-items", table: "thread_items",
-            type: ThreadItemEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            name: "session-issues", path: "/api/shapes/session-issues", table: "session_issues",
+            type: SessionIssueEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "messages", path: "/api/shapes/messages", table: "messages",
+            type: MessageEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "pull-requests", path: "/api/shapes/pull-requests", table: "pull_requests",
+            type: PullRequestEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        tasks.append(makeShapeTask(
+            name: "pull-request-issues", path: "/api/shapes/pull-request-issues", table: "pull_request_issues",
+            type: PullRequestIssueEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
 

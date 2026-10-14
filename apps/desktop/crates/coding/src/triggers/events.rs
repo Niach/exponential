@@ -40,7 +40,7 @@ pub struct EventRow {
     pub id: String,
     pub issue_id: String,
     /// The event's denormalized `team_id` — a trigger only ever fires on
-    /// its own action's team; `None` = unknown, which FAILS the team check.
+    /// its own agent's team; `None` = unknown, which FAILS the team check.
     pub team_id: Option<String>,
     /// `created_at` as a ms epoch (the watermark scale).
     pub created_at_ms: i64,
@@ -71,7 +71,7 @@ pub fn event_matches(spec: &EventSpec, row: &EventRow) -> bool {
 }
 
 /// The rows the `cursor` still admits, inside the catch-up window, on the
-/// action's OWN team, matching the spec — sorted by `(created_at_ms, id)`.
+/// agent's OWN team, matching the spec — sorted by `(created_at_ms, id)`.
 /// The hosts sync every member team's events into one collection, so the
 /// team fence lives here, not in the snapshot.
 pub fn matching_events<'a>(
@@ -242,7 +242,7 @@ mod tests {
     }
 
     /// The hosts feed EVERY member team's events into one snapshot — a
-    /// trigger must only ever see its own action's team, and a row with an
+    /// trigger must only ever see its own agent's team, and a row with an
     /// unknown team fails conservatively.
     #[test]
     fn other_teams_rows_never_match() {

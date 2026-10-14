@@ -1,6 +1,6 @@
 package com.exponential.app.ui.thread
 
-import androidx.compose.animation.core.Animatable
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,8 +21,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,104 +33,105 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.exponential.app.domain.CodingSessionDisplayState
+import androidx.core.net.toUri
+import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.ResolvedIssueStatus
-import com.exponential.app.domain.ThreadView
-import com.exponential.app.ui.components.AgentRunMark
-import com.exponential.app.ui.components.ExponentialMark
-import com.exponential.app.ui.components.IssueChip
-import com.exponential.app.ui.components.IssueChipSize
-import com.exponential.app.ui.components.SessionRowBadgeSize
-import com.exponential.app.ui.components.SessionRowMarkSize
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.domain.WorkCardInput
+import com.exponential.app.domain.WorkCardSpec
+import com.exponential.app.domain.WorkCards
+import com.exponential.app.ui.components.CircleIconButton
+import com.exponential.app.ui.components.ComposerSubmitButton
+import com.exponential.app.ui.components.ComposerToolButton
+import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.GlassComposer
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.InlineSpinner
+import com.exponential.app.ui.components.PendingAttachmentStrip
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.LiveGreen
 import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.markdown.LocalIssueRefBare
+import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.session.AnsweredRow
+import com.exponential.app.ui.session.AskCard
+import com.exponential.app.ui.session.LeadText
+import com.exponential.app.ui.session.QuestionOptionButton
+import com.exponential.app.ui.session.WorkCardView
+import com.exponential.app.ui.session.threadCard
+import com.exponential.app.ui.session.threadCardTextStyle
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassCard
 
-// EXP-1284: the THREAD's phone pieces (draft 3), stateless so the Thread
-// screen and the styleguide's capture screens draw the SAME composables:
-// the header, the child strip as pager tabs (Conversation · one tab per issue
-// · Guide, the "+" trailing), the conversation (Run N blocks, the agent's
-// link rows, the parallel card), the reply box and the list rows. The words
-// are the ×4 copy (`thread-view.json` + the brief).
+// EXP-1296 Threads v2 (Model v3): the THREAD screen's stateless pieces, so
+// the screen and the styleguide captures draw the SAME composables — the
+// header (title, or an agent's icon + name), the ONE tab strip (the phone
+// pager's tabs), the conversation rows (`SessionTree.ThreadRow`), THE session
+// card (`session-card.json`) and the composer box ([GlassComposer], the one
+// composer shell). Copy comes from `SessionTree` (the fixtures) — never the
+// word "thread".
 
-/** The ×4 copy of the thread surfaces. */
-object ThreadCopy {
-    const val CONVERSATION = "Conversation"
-    const val GUIDE = "Guide"
-    const val THREAD_WORD = "thread"
+/** The few words the fixtures leave to the client (no "thread" word). */
+internal object ThreadUiCopy {
     const val LINK_ISSUE = "Link an issue"
-    const val NEW_ISSUE = "New issue in this thread"
-    const val START_RUN = "Start a session here"
-    const val REPLY_PLACEHOLDER = "Reply in this thread"
-    const val THREADS = "Threads"
-    const val SHOW_WORK = "Show work"
-    const val HIDE_WORK = "Hide work"
-    const val OPEN_THREAD = "Open thread"
-    const val RUNNING = "Running"
-    const val RECENT = "Recent"
+    const val NEW_ISSUE = "New issue"
+    const val RENAME = "Rename"
+    const val SAVE = "Save"
+    const val QUEUED = "Queued"
+    const val APPROVE = "Approve"
+    const val REJECT = "Reject"
+    const val APPROVED = "Approved"
+    const val REJECTED = "Rejected"
+    const val ANSWER = "Answer"
+    const val SEND = "Send"
+    const val ADD = "Add"
+    const val SETTINGS = "Agent settings"
+    const val PRIVATE = "Private"
 
     fun unlink(identifier: String) = "Unlink $identifier"
 
-    /** A thread draft's line: where the new issue files into. */
-    fun inThread(title: String) = "In $title"
+    /** An agent channel's composer: `Message <name>`. */
+    fun messageAgent(name: String) = "Message $name"
 }
 
-/** A child of the strip as the saveable page key: `conversation`,
- *  `issue:<id>`, `guide` (the web's `?child=`). */
-fun threadChildKey(child: ThreadView.Child): String = when (child) {
-    ThreadView.Child.Conversation -> "conversation"
-    is ThreadView.Child.IssueChild -> "issue:${child.issueId}"
-    ThreadView.Child.Add -> "add"
-    is ThreadView.Child.Guide -> "guide"
-}
-
-/** What a run block needs beyond the model: its agent (the mark), whether
- *  it is mid-turn (the spinner) and its name (the folded line). */
-data class ThreadRunMeta(
-    val agent: String?,
-    val busy: Boolean,
-    val name: String,
-)
-
-/** The block header's mark state: the working spinner while busy, amber
- *  while it waits on a person, the bare mark otherwise. */
-internal fun threadMarkState(state: ThreadView.RunState, busy: Boolean): CodingSessionDisplayState? = when (state) {
-    ThreadView.RunState.NeedsInput -> CodingSessionDisplayState.NeedsInput
-    ThreadView.RunState.Live -> if (busy) CodingSessionDisplayState.Working else null
-    ThreadView.RunState.Ended -> null
+/** A tab of the strip as its saveable page key. */
+fun threadTabKey(tab: SessionTree.ThreadTab): String = when (tab) {
+    SessionTree.ThreadTab.Conversation -> "conversation"
+    is SessionTree.ThreadTab.IssueTab -> "issue:${tab.issueId}"
+    SessionTree.ThreadTab.Add -> "add"
+    is SessionTree.ThreadTab.Guide -> "guide"
 }
 
 private val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -137,42 +139,34 @@ private val Secondary: Color @Composable get() = MaterialTheme.colorScheme.onSur
 
 // ── Header ──────────────────────────────────────────────────────────────────
 
-/**
- * The thread's header: back, the header caption at the right of the bar, the
- * title (+ the muted `thread` word) under it. A long-press on the title
- * renames ([onRename]; null = no rename).
- */
+/** The thread's header: back, then the title (a lock when private); a
+ *  long-press on the title renames ([onRename]; null = no rename). */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThreadHeader(
     title: String,
-    caption: String,
+    private: Boolean,
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onRename: (() -> Unit)? = null,
+    /** The header's trailing action slot (EXP-1302: Open on GitHub on the
+     *  Guide, as iOS draws it). */
+    action: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag("thread-header")) {
         Row(
             modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (onBack != null) TopBarBackButton(onClick = onBack) else Spacer(Modifier.width(8.dp))
+            if (onBack != null) TopBarBackButton(onClick = onBack)
             Spacer(Modifier.weight(1f))
-            if (caption.isNotEmpty()) {
-                Text(
-                    caption,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Muted,
-                    maxLines = 1,
-                    modifier = Modifier.padding(end = 12.dp).testTag("thread-header-caption"),
-                )
-            }
+            action?.invoke()
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(top = 4.dp, bottom = 10.dp)
+                .padding(top = 2.dp, bottom = 10.dp)
                 .then(
                     if (onRename != null) {
                         Modifier.combinedClickable(onClick = {}, onLongClick = onRename)
@@ -180,7 +174,7 @@ fun ThreadHeader(
                         Modifier
                     },
                 ),
-            verticalAlignment = Alignment.Bottom,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 title,
@@ -192,115 +186,198 @@ fun ThreadHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false).testTag("thread-title"),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                ThreadCopy.THREAD_WORD,
-                style = MaterialTheme.typography.labelMedium,
-                color = Muted,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
+            if (private) {
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    ExpIcons.uiPrivate,
+                    contentDescription = ThreadUiCopy.PRIVATE,
+                    tint = Muted,
+                    modifier = Modifier.size(16.dp).testTag("thread-private"),
+                )
+            }
         }
     }
 }
 
-// ── The child strip = the pager tabs ────────────────────────────────────────
+/**
+ * EXP-1307: the thread header's `…` on the Guide (session-thread.json
+ * `guideMenuEntries` ×4): Open on GitHub, then Close PR (destructive) while
+ * the PR is open and the viewer is a member. THE app menu (the issue `…`'s
+ * [GlassDropdownMenu]); the host hosts Close's confirm. Empty = no trigger.
+ */
+@Composable
+fun ThreadGuideMenuButton(
+    prUrl: String?,
+    entries: List<SessionTree.GuideMenuEntry>,
+    onClosePr: () -> Unit,
+) {
+    if (entries.isEmpty()) return
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    // The Box anchors the dropdown to the button.
+    Box {
+        CircleIconButton(
+            ExpIcons.uiMore,
+            "More",
+            onClick = { open = true },
+            modifier = Modifier.padding(end = 8.dp).testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU),
+            borderless = true,
+        )
+        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (entry in entries) when (entry) {
+                SessionTree.GuideMenuEntry.OpenGithub -> GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiGithub, contentDescription = null) },
+                    text = { Text(DomainContract.diffUiOpenOnGithub) },
+                    enabled = !prUrl.isNullOrBlank(),
+                    onClick = {
+                        open = false
+                        // A device with no browser throws rather than
+                        // resolving the intent — a dead tap beats a crash.
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_VIEW, prUrl.orEmpty().toUri())
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        }
+                    },
+                    modifier = Modifier.testTag("thread-guide-menu-open-github"),
+                )
+                SessionTree.GuideMenuEntry.ClosePr -> GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.prClosed, contentDescription = null) },
+                    text = { Text(DomainContract.diffUiClosePr) },
+                    destructive = true,
+                    onClick = {
+                        open = false
+                        onClosePr()
+                    },
+                    modifier = Modifier.testTag("thread-guide-menu-close-pr"),
+                )
+            }
+        }
+    }
+}
+
+/** An agent channel's header: back, the agent's icon (its colour) + name,
+ *  and the settings affordance. */
+@Composable
+fun AgentChannelHeader(
+    name: String,
+    icon: String?,
+    color: String?,
+    onBack: (() -> Unit)?,
+    onSettings: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth().testTag("thread-header")) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (onBack != null) TopBarBackButton(onClick = onBack)
+            Spacer(Modifier.weight(1f))
+            if (onSettings != null) {
+                IconButton(onClick = onSettings, modifier = Modifier.testTag("agent-channel-settings")) {
+                    Icon(ExpIcons.navSettings, contentDescription = ThreadUiCopy.SETTINGS, tint = Secondary, modifier = Modifier.size(20.dp))
+                }
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 2.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AgentGlyph(icon = icon, color = color, size = 24.dp)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                name,
+                fontSize = 22.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.testTag("thread-title"),
+            )
+        }
+        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+    }
+}
+
+/** An agent's icon (a pickable icon name) in its colour. */
+@Composable
+fun AgentGlyph(icon: String?, color: String?, size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    val glyph = icon?.let { ExpIcons.byName(it) }
+        ?: ExpIcons.byName(SessionTree.ListCopy.AGENT_DEFAULT_ICON)
+        ?: ExpIcons.settingsAgents
+    val tint = runCatching { parseColor(color ?: SessionTree.ListCopy.AGENT_DEFAULT_COLOR) }
+        .getOrDefault(MaterialTheme.colorScheme.onSurface)
+    Icon(glyph, contentDescription = null, tint = tint, modifier = modifier.size(size))
+}
+
+// ── The tab strip = the pager's tabs ────────────────────────────────────────
 
 /**
- * Phones: the strip IS the pager's tabs (replacing Issue · Run · Guide):
- * Conversation, one tab per issue (status glyph + mono identifier), the
- * Guide (green dot when it has entries), and the "+" trailing outside the
- * scroll. A long-press on an issue tab opens its menu. A child the viewer
- * has not seen yet ([fresh]) fades in with a ring.
+ * Phones: the ONE strip IS the pager's tabs — Conversation, one chip per
+ * linked issue (status glyph + mono identifier), "+" (link / file an issue),
+ * Guide (a green dot while it holds anything). A long-press on an issue chip
+ * opens its menu (Unlink).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ThreadChildTabs(
-    strip: List<ThreadView.Child>,
+fun ThreadTabStrip(
+    tabs: List<SessionTree.ThreadTab>,
     selectedKey: String,
-    onSelect: (ThreadView.Child) -> Unit,
+    onSelect: (SessionTree.ThreadTab) -> Unit,
     onAdd: (() -> Unit)?,
     issueStatus: (String) -> ResolvedIssueStatus?,
     modifier: Modifier = Modifier,
-    onIssueMenu: ((ThreadView.Child.IssueChild) -> Unit)? = null,
-    fresh: (String) -> Boolean = { false },
+    onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 0.dp, bottom = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)
+                .testTag(SessionTree.ThreadCopy.TEST_ID_TABS),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            val scroll = rememberScrollState()
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    // A strip wider than the phone fades out at its end
-                    // instead of cutting a tab in half.
-                    .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                    .drawWithContent {
-                        drawContent()
-                        if (scroll.canScrollForward) {
-                            drawRect(
-                                Brush.horizontalGradient(
-                                    0f to Color.Black,
-                                    0.85f to Color.Black,
-                                    1f to Color.Transparent,
-                                ),
-                                blendMode = BlendMode.DstIn,
-                            )
+            tabs.forEach { tab ->
+                val key = threadTabKey(tab)
+                val selected = key == selectedKey
+                val textColor = if (selected) MaterialTheme.colorScheme.onSurface else Secondary
+                when (tab) {
+                    SessionTree.ThreadTab.Add -> if (onAdd != null) {
+                        IconButton(onClick = onAdd, modifier = Modifier.size(36.dp).testTag("thread-tab-add")) {
+                            Icon(ExpIcons.uiAdd, contentDescription = ThreadUiCopy.ADD, tint = Secondary, modifier = Modifier.size(16.dp))
                         }
                     }
-                    .horizontalScroll(scroll)
-                    .testTag("thread-tabs"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                strip.forEach { child ->
-                    if (child == ThreadView.Child.Add) return@forEach
-                    val key = threadChildKey(child)
-                    val selected = key == selectedKey
-                    val issue = child as? ThreadView.Child.IssueChild
-                    ThreadTab(
+                    SessionTree.ThreadTab.Conversation -> ThreadTab(selected, { onSelect(tab) }, null, "thread-tab-$key") {
+                        Text(SessionTree.ThreadCopy.CONVERSATION, style = MaterialTheme.typography.labelLarge, color = textColor)
+                    }
+                    is SessionTree.ThreadTab.IssueTab -> ThreadTab(
                         selected = selected,
-                        ring = issue != null && fresh(issue.issueId),
-                        onClick = { onSelect(child) },
-                        onLongClick = issue?.let { tab -> onIssueMenu?.let { menu -> { menu(tab) } } },
+                        onClick = { onSelect(tab) },
+                        onLongClick = onIssueMenu?.let { menu -> { menu(tab) } },
                         testTag = "thread-tab-$key",
                     ) {
-                        when (child) {
-                            ThreadView.Child.Conversation -> Text(
-                                ThreadCopy.CONVERSATION,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (selected) MaterialTheme.colorScheme.onSurface else Secondary,
-                            )
-                            is ThreadView.Child.IssueChild -> {
-                                issueStatus(child.issueId)?.let { StatusIcon(it, size = 14.dp) }
-                                Spacer(Modifier.width(5.dp))
-                                Text(
-                                    child.identifier,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = if (selected) MaterialTheme.colorScheme.onSurface else Secondary,
-                                )
-                            }
-                            is ThreadView.Child.Guide -> {
-                                Text(
-                                    ThreadCopy.GUIDE,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = if (selected) MaterialTheme.colorScheme.onSurface else Secondary,
-                                )
-                                if (child.dot) {
-                                    Spacer(Modifier.width(6.dp))
-                                    Box(Modifier.size(6.dp).background(LiveGreen, CircleShape).testTag("thread-guide-dot"))
-                                }
-                            }
-                            ThreadView.Child.Add -> Unit
+                        issueStatus(tab.issueId)?.let {
+                            StatusIcon(it, size = 14.dp)
+                            Spacer(Modifier.width(5.dp))
+                        }
+                        Text(
+                            tab.identifier,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace,
+                            color = textColor,
+                        )
+                    }
+                    is SessionTree.ThreadTab.Guide -> ThreadTab(selected, { onSelect(tab) }, null, "thread-tab-$key") {
+                        Text(SessionTree.ThreadCopy.GUIDE, style = MaterialTheme.typography.labelLarge, color = textColor)
+                        if (tab.dot) {
+                            Spacer(Modifier.width(6.dp))
+                            Box(Modifier.size(6.dp).background(LiveGreen, CircleShape).testTag("thread-guide-dot"))
                         }
                     }
-                }
-            }
-            if (onAdd != null) {
-                IconButton(onClick = onAdd, modifier = Modifier.size(40.dp).testTag("thread-add")) {
-                    Icon(ExpIcons.uiAdd, contentDescription = "Add to this thread", tint = Secondary, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -312,39 +389,27 @@ fun ThreadChildTabs(
 @Composable
 private fun ThreadTab(
     selected: Boolean,
-    ring: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     testTag: String,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(10.dp)
-    // A fresh child (the agent just linked it) fades in with a ring once.
-    val appear = remember { Animatable(if (ring) 0f else 1f) }
-    val ringAlpha = remember { Animatable(if (ring) 1f else 0f) }
-    val enter = Motion.slow<Float>()
-    LaunchedEffect(ring) {
-        if (ring) {
-            appear.animateTo(1f, enter)
-            kotlinx.coroutines.delay(2_000)
-            ringAlpha.animateTo(0f, enter)
-        }
-    }
     Row(
         modifier = Modifier
-            .alpha(appear.value)
             .clip(shape)
-            .then(if (selected) Modifier.background(GlassTokens.OpaqueCardFill, shape) else Modifier)
             .then(
-                when {
-                    ringAlpha.value > 0f -> Modifier.border(1.dp, LiveGreen.copy(alpha = ringAlpha.value * 0.7f), shape)
-                    selected -> Modifier.border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
-                    else -> Modifier
+                if (selected) {
+                    Modifier
+                        .background(GlassTokens.OpaqueCardFill, shape)
+                        .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
+                } else {
+                    Modifier
                 },
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .heightIn(min = 36.dp)
-            .padding(horizontal = 9.dp, vertical = 8.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -352,527 +417,482 @@ private fun ThreadTab(
     }
 }
 
-// ── The conversation ────────────────────────────────────────────────────────
+// ── THE session card ────────────────────────────────────────────────────────
+
+/** The card's state icon CONCEPT (`session-card.json` `icons`). */
+internal fun sessionCardIcon(concept: String): ImageVector = when (concept) {
+    "ui-clock" -> ExpIcons.uiClock
+    "coding-running" -> ExpIcons.codingRunning
+    "coding-assistant" -> ExpIcons.codingAssistant
+    "coding-needs-input" -> ExpIcons.codingNeedsInput
+    "notification-session-blocked" -> ExpIcons.notificationSessionBlocked
+    "coding-ended" -> ExpIcons.codingEnded
+    else -> ExpIcons.codingAssistant
+}
+
+/** A tone token (`muted | foreground | amber | rose`) as a colour. */
+@Composable
+internal fun sessionToneColor(tone: String): Color = when (tone) {
+    "foreground" -> MaterialTheme.colorScheme.onSurface
+    "amber" -> NeedsInputAmber
+    "rose" -> DesignTokens.Semantic.Red
+    else -> Muted
+}
 
 /**
- * The Conversation child: the model's blocks in order — `Run N` blocks
- * (the header row, then the run's own content via [runBody]; an ended run
- * folds to its name + Show work), the issues its agent linked as rows under
- * it, and the runs one parent started as ONE card. [runLead] draws above a
- * block's header (the owner's opening message).
+ * THE session card ×4 (`session-card.json`): the Work card's HEADER row — the
+ * state icon, the name (medium, truncates), the muted state word, trailing
+ * the elapsed time with a 12px spinner in front while working. No device,
+ * account or branch. Tapping opens that session ([onClick]).
+ */
+@Composable
+fun SessionCard(card: SessionTree.SessionCard, onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
+    val style = threadCardTextStyle()
+    val muted = Muted
+    val toneColor = sessionToneColor(card.tone)
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .threadCard()
+            .then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
+            .height(WorkCardSpec.HEADER.dp)
+            .padding(horizontal = 12.dp)
+            .testTag(card.testId),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            sessionCardIcon(card.icon),
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = if (card.tone == "amber" || card.tone == "rose") toneColor else muted,
+        )
+        LeadText(
+            card.name,
+            style = style.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface,
+        ) {
+            Text(
+                card.kindWord,
+                style = style,
+                // session-card.json: the kindWord is ALWAYS muted; the tone
+                // rides on the state icon only.
+                color = muted,
+                maxLines = 1,
+                modifier = Modifier.testTag("session-card-state"),
+            )
+        }
+        if (card.running) InlineSpinner(size = 12.dp)
+        card.elapsed?.let {
+            Text(it, style = style.copy(fontFeatureSettings = "tnum"), color = muted, maxLines = 1)
+        }
+    }
+}
+
+// ── Conversation rows ───────────────────────────────────────────────────────
+
+/** What a message row shows beyond the model: its author's name, their
+ *  user row (the avatar) and the `HH:mm` it was written. */
+data class ThreadRowMeta(
+    val authorName: String,
+    val time: String,
+    val user: UserEntity? = null,
+)
+
+/** The agent a channel belongs to (its rows' avatar + name). */
+data class ThreadAgent(val name: String, val icon: String?, val color: String?)
+
+/**
+ * The Conversation page: the model's rows in order. A thread draws a
+ * person's message as the right-aligned bubble and the agent's as prose; an
+ * AGENT CHANNEL ([agent] non-null) draws every message as a comment row
+ * (avatar, name, time) and skips its own root card.
  */
 @Composable
 fun ThreadConversation(
-    view: ThreadView.View,
-    runMeta: (String) -> ThreadRunMeta?,
-    issueStatus: (String) -> ResolvedIssueStatus?,
-    onOpenIssue: (String) -> Unit,
-    onOpenRun: (String) -> Unit,
-    parallelCaption: (ThreadView.ParallelRow) -> String,
+    rows: List<SessionTree.ThreadRow>,
+    rootId: String,
+    meta: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta?,
+    onOpenCard: (SessionTree.SessionCard) -> Unit,
+    onAnswer: (messageId: String, answer: String) -> Unit,
+    onDecidePlan: (messageId: String, approved: Boolean) -> Unit,
+    canUnqueue: (SessionTree.ThreadRow.MessageRow) -> Boolean,
+    onUnqueue: (messageId: String) -> Unit,
     modifier: Modifier = Modifier,
+    agent: ThreadAgent? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
-    issueTitle: (String) -> Pair<String, String>? = { null },
-    runLead: @Composable (ThreadView.RunBlock) -> Unit = {},
-    runBody: @Composable (ThreadView.RunBlock, expanded: Boolean) -> Unit = { _, _ -> },
-    footer: (LazyListScope.() -> Unit)? = null,
+    state: LazyListState = rememberLazyListState(),
 ) {
-    var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
-    LazyColumn(
-        modifier = modifier.testTag("thread-conversation"),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        view.conversation.forEach { block ->
-            when (block) {
-                is ThreadView.RunBlock -> item(key = "run-${block.runId}") {
-                    val meta = runMeta(block.runId)
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        runLead(block)
-                        ThreadBlockHeader(
-                            label = block.label,
-                            caption = block.caption,
-                            state = block.state,
-                            agent = meta?.agent,
-                            busy = meta?.busy == true,
-                            onClick = { onOpenRun(block.runId) },
-                        )
-                        // The issues its agent linked sit right under the run.
-                        block.links.forEach { link ->
-                            ThreadLinkRow(link, issueStatus(link.issueId), onOpen = { onOpenIssue(link.issueId) })
-                        }
-                        val open = block.runId in expanded
-                        if (block.folded) {
-                            FoldedRunLine(
-                                name = meta?.name.orEmpty(),
-                                open = open,
-                                onToggle = {
-                                    expanded = if (open) expanded - block.runId else expanded + block.runId
-                                },
+    val shown = remember(rows, agent, rootId) {
+        if (agent != null) rows.filterNot { it is SessionTree.ThreadRow.SessionRow && it.id == rootId } else rows
+    }
+    // The newest row stays in view as the conversation grows.
+    LaunchedEffect(shown.size) {
+        if (shown.isNotEmpty()) state.animateScrollToItem(shown.lastIndex)
+    }
+    // EXP-760 ×4 (web `thread-markdown.tsx`): every conversation text chips
+    // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
+    // provides [LocalIssueRefs]. Display-only: the composer sits outside.
+    CompositionLocalProvider(LocalIssueRefBare provides true) {
+        LazyColumn(
+            state = state,
+            modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(shown, key = { it.id }) { row ->
+                when (row) {
+                    is SessionTree.ThreadRow.MessageRow -> {
+                        val rowMeta = meta(row)
+                        if (agent != null) {
+                            ThreadCommentRow(
+                                row = row,
+                                meta = rowMeta,
+                                agent = agent,
+                                onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
                             )
-                            if (open) runBody(block, true)
                         } else {
-                            runBody(block, false)
+                            when (row.author) {
+                                "user" -> ThreadMessageBubble(
+                                    text = row.body,
+                                    caption = rowMeta?.let { listOf(it.authorName, it.time).filter(String::isNotEmpty).joinToString(" · ") },
+                                    queued = row.queued,
+                                    onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
+                                )
+                                "agent" -> MarkdownView(
+                                    markdown = row.body,
+                                    softBreaksAsNewlines = true,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("thread-agent-message"),
+                                )
+                                else -> ThreadEventLine(row.body)
+                            }
                         }
                     }
-                }
-                is ThreadView.ParallelBlock -> item(key = "parallel-${block.runs.first().runId}") {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        val first = runMeta(block.runs.first().runId)
-                        ThreadBlockHeader(
-                            label = block.label,
-                            caption = block.caption,
-                            state = block.state,
-                            agent = first?.agent,
-                            busy = block.runs.any { runMeta(it.runId)?.busy == true },
-                            onClick = null,
-                        )
-                        ThreadParallelCard(
-                            block = block,
-                            runMeta = runMeta,
-                            issueChip = { issueId -> issueTitle(issueId)?.first },
-                            onOpenRun = onOpenRun,
-                            caption = parallelCaption,
-                        )
-                        block.links.forEach { link ->
-                            ThreadLinkRow(link, issueStatus(link.issueId), onOpen = { onOpenIssue(link.issueId) })
-                        }
-                    }
-                }
-            }
-        }
-        footer?.invoke(this)
-    }
-}
-
-/** A block's header: the agent mark (spinner while busy), the label, the
- *  caption parts joined ` · `, a hairline, the trailing state word. */
-@Composable
-fun ThreadBlockHeader(
-    label: String,
-    caption: List<String>,
-    state: ThreadView.RunState,
-    agent: String?,
-    busy: Boolean,
-    onClick: (() -> Unit)?,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(vertical = 2.dp)
-            .testTag("thread-block-header"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AgentRunMark(
-            agent = agent,
-            state = threadMarkState(state, busy),
-            size = SessionRowMarkSize,
-            badgeSize = SessionRowBadgeSize,
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(label, style = MaterialTheme.typography.bodySmall, color = Secondary, maxLines = 1)
-        // The caption takes what it needs (ellipsized when it cannot have
-        // it) and the hairline runs on from its end to the state word.
-        var captionWidth by remember { mutableFloatStateOf(0f) }
-        val hairline = GlassTokens.StrokeRow
-        Text(
-            if (caption.isEmpty()) "" else " · ${caption.joinToString(" · ")}",
-            style = MaterialTheme.typography.bodySmall,
-            color = Muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            onTextLayout = { captionWidth = if (it.lineCount > 0) it.getLineRight(0) else 0f },
-            modifier = Modifier
-                .weight(1f)
-                .drawBehind {
-                    val start = captionWidth + 10.dp.toPx()
-                    val end = size.width - 10.dp.toPx()
-                    if (end - start > 8.dp.toPx()) {
-                        drawLine(
-                            color = hairline,
-                            start = Offset(start, size.height / 2),
-                            end = Offset(end, size.height / 2),
-                            strokeWidth = GlassTokens.Hairline.toPx(),
-                        )
-                    }
-                },
-        )
-        Text(
-            state.word,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (state == ThreadView.RunState.NeedsInput) NeedsInputAmber else Muted,
-            modifier = Modifier.testTag("thread-block-state"),
-        )
-    }
-}
-
-@Composable
-private fun FoldedRunLine(name: String, open: Boolean, onToggle: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 22.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            name,
-            style = MaterialTheme.typography.bodySmall,
-            color = Secondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        Text(" · ", style = MaterialTheme.typography.bodySmall, color = Muted)
-        Text(
-            if (open) ThreadCopy.HIDE_WORK else ThreadCopy.SHOW_WORK,
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.clickable(onClick = onToggle).testTag("thread-show-work"),
-        )
-    }
-}
-
-/** An agent link row: `<mark> Linked | Filed and linked  [issue chip]`;
- *  the chip opens that issue's child. */
-@Composable
-fun ThreadLinkRow(link: ThreadView.LinkRow, status: ResolvedIssueStatus?, onOpen: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().testTag("thread-link-row"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        ExponentialMark(size = 14.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(link.label, style = MaterialTheme.typography.bodySmall, color = Secondary)
-        Spacer(Modifier.width(8.dp))
-        IssueChip(
-            identifier = link.identifier,
-            title = link.title,
-            status = status,
-            size = IssueChipSize.Md,
-            onClick = onOpen,
-        )
-    }
-}
-
-/** The parallel card: one row per run (mark/spinner, name, issue chip,
- *  `device · <age>`); a row opens that run. */
-@Composable
-private fun ThreadParallelCard(
-    block: ThreadView.ParallelBlock,
-    runMeta: (String) -> ThreadRunMeta?,
-    issueChip: (String) -> String?,
-    onOpenRun: (String) -> Unit,
-    caption: (ThreadView.ParallelRow) -> String,
-) {
-    Column(modifier = Modifier.fillMaxWidth().glassCard().testTag("thread-parallel-card")) {
-        block.runs.forEachIndexed { index, row ->
-            if (index > 0) HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
-            val meta = runMeta(row.runId)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenRun(row.runId) }
-                    .heightIn(min = 44.dp)
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    .testTag("thread-parallel-row"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AgentRunMark(
-                    agent = meta?.agent,
-                    state = threadMarkState(row.state, meta?.busy == true),
-                    size = SessionRowMarkSize,
-                    badgeSize = SessionRowBadgeSize,
-                    ended = row.state == ThreadView.RunState.Ended,
-                )
-                Spacer(Modifier.width(10.dp))
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        row.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
+                    is SessionTree.ThreadRow.SessionRow -> SessionCard(row.card, onClick = { onOpenCard(row.card) })
+                    is SessionTree.ThreadRow.Question -> ThreadQuestionCard(row, onAnswer = { onAnswer(row.id, it) })
+                    is SessionTree.ThreadRow.Plan -> ThreadPlanCard(row, onDecide = { onDecidePlan(row.id, it) })
+                    is SessionTree.ThreadRow.Subagent -> WorkCardView(
+                        card = WorkCards.of(WorkCardInput.Subagent(title = row.title, state = row.status)),
                     )
-                    row.issueId?.let(issueChip)?.let { identifier ->
-                        Spacer(Modifier.width(8.dp))
-                        IssueChip(identifier = identifier, title = null, status = null, size = IssueChipSize.Sm)
-                    }
+                    is SessionTree.ThreadRow.Picture -> ThreadPictureRow(row)
+                    is SessionTree.ThreadRow.Event -> ThreadEventLine(row.text)
                 }
-                Spacer(Modifier.width(8.dp))
-                Text(caption(row), style = MaterialTheme.typography.labelSmall, color = Muted, maxLines = 1)
             }
         }
     }
 }
 
-/** The owner's opening message — the transcript's right-aligned bubble. */
+/** A person's message: the right-aligned bubble, `name · HH:mm` under it;
+ *  while the device has not taken it: `Queued` + the revoke ✕ (mine only). */
 @Composable
-fun ThreadMessageBubble(text: String) {
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+fun ThreadMessageBubble(
+    text: String,
+    caption: String?,
+    queued: Boolean,
+    onUnqueue: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        val shape = RoundedCornerShape(16.dp)
         Text(
             text,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .wrapLeft()
-                .clip(RoundedCornerShape(16.dp))
-                .background(GlassTokens.OpaqueCardFill)
-                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(16.dp))
+                .padding(start = 48.dp)
+                .widthIn(max = 520.dp)
+                .clip(shape)
+                .background(GlassTokens.OpaqueCardFill, shape)
+                .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .testTag("thread-message-bubble"),
         )
-    }
-}
-
-/** A bubble hugs its text up to its max width. */
-private fun Modifier.wrapLeft(): Modifier = this.then(Modifier.widthIn(max = 520.dp))
-
-// ── The reply box ───────────────────────────────────────────────────────────
-
-/** `Reply in this thread`: the floating capsule over the conversation. */
-@Composable
-fun ThreadReplyBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onSend: () -> Unit,
-    modifier: Modifier = Modifier,
-    sending: Boolean = false,
-) {
-    val shape = RoundedCornerShape(22.dp)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(shape)
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
-            .heightIn(min = 52.dp)
-            .padding(start = 16.dp, end = 4.dp)
-            .testTag("thread-reply"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        androidx.compose.foundation.text.BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.onSurface),
-            maxLines = 5,
-            modifier = Modifier.weight(1f).padding(vertical = 14.dp).testTag("thread-reply-field"),
-            decorationBox = { inner ->
-                Box {
-                    if (value.isEmpty()) {
-                        Text(ThreadCopy.REPLY_PLACEHOLDER, style = MaterialTheme.typography.bodyMedium, color = Muted)
-                    }
-                    inner()
-                }
-            },
-        )
-        if (value.isNotBlank()) {
-            IconButton(onClick = onSend, enabled = !sending, modifier = Modifier.testTag("thread-reply-send")) {
-                Icon(ExpIcons.uiSend, contentDescription = "Send", modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}
-
-// ── Lists ───────────────────────────────────────────────────────────────────
-
-/** A thread in a list (Agent page Running / Recent): its title over its
- *  `listCaption`, a live run's mark (spinner while busy, amber when it
- *  waits), else the conversation glyph. A row opens the thread. */
-@Composable
-fun ThreadListRow(
-    title: String,
-    caption: String,
-    live: Boolean,
-    busy: Boolean,
-    needsInput: Boolean,
-    agent: String?,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    /** The live session's own mark state (review green, done blue) when the
-     *  caller resolved it; null falls back to busy / needs input. */
-    markState: CodingSessionDisplayState? = null,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .flatRow()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp)
-            .testTag("thread-row"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-            if (live) {
-                AgentRunMark(
-                    agent = agent,
-                    state = markState ?: when {
-                        needsInput -> CodingSessionDisplayState.NeedsInput
-                        busy -> CodingSessionDisplayState.Working
-                        else -> null
-                    },
-                    size = 16.dp,
-                    badgeSize = SessionRowBadgeSize,
-                )
-            } else {
-                Icon(ExpIcons.actionChat, contentDescription = null, tint = Secondary, modifier = Modifier.size(16.dp))
-            }
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                caption,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (needsInput) NeedsInputAmber else Muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.testTag("thread-row-caption"),
-            )
-        }
-    }
-}
-
-/** The issue page's `Threads` row: one chip per thread holding the issue
- *  (a live mark while it runs); a chip opens the thread. */
-@Composable
-fun ThreadsRow(
-    threads: List<ThreadsRowChip>,
-    onOpen: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    if (threads.isEmpty()) return
-    Row(
-        modifier = modifier.fillMaxWidth().testTag("issue-threads-row"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(ThreadCopy.THREADS, style = MaterialTheme.typography.bodySmall, color = Muted)
-        Spacer(Modifier.width(10.dp))
         Row(
-            modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(top = 4.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            threads.forEach { chip ->
-                val shape = RoundedCornerShape(8.dp)
-                Row(
-                    modifier = Modifier
-                        .clip(shape)
-                        .background(GlassTokens.OpaqueCardFill, shape)
-                        .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
-                        .clickable { onOpen(chip.threadId) }
-                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                        .testTag("issue-thread-chip"),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (chip.live) {
-                        AgentRunMark(
-                            agent = chip.agent,
-                            state = if (chip.busy) CodingSessionDisplayState.Working else null,
-                            size = 12.dp,
-                            badgeSize = SessionRowBadgeSize,
+            if (queued) {
+                Text(
+                    ThreadUiCopy.QUEUED,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Muted,
+                    modifier = Modifier.testTag("thread-message-queued"),
+                )
+                if (onUnqueue != null) {
+                    Icon(
+                        ExpIcons.uiClose,
+                        contentDescription = null,
+                        tint = Muted,
+                        modifier = Modifier
+                            .padding(start = 4.dp)
+                            .size(14.dp)
+                            .clip(CircleShape)
+                            .clickable(role = Role.Button, onClick = onUnqueue)
+                            .testTag("thread-message-unqueue"),
+                    )
+                }
+                if (!caption.isNullOrEmpty()) Text(" · ", style = MaterialTheme.typography.labelSmall, color = Muted)
+            }
+            if (!caption.isNullOrEmpty()) {
+                Text(caption, style = MaterialTheme.typography.labelSmall, color = Muted, maxLines = 1)
+            }
+        }
+    }
+}
+
+/** An agent channel's message: a comment row (avatar = the agent's icon or
+ *  the person's avatar, the name, the time, the body). */
+@Composable
+fun ThreadCommentRow(
+    row: SessionTree.ThreadRow.MessageRow,
+    meta: ThreadRowMeta?,
+    agent: ThreadAgent,
+    onUnqueue: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val fromAgent = row.author != "user"
+    Row(modifier = modifier.fillMaxWidth().testTag("thread-comment-row"), verticalAlignment = Alignment.Top) {
+        if (fromAgent) {
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .background(GlassTokens.OpaqueCardFill, CircleShape)
+                    .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                AgentGlyph(icon = agent.icon, color = agent.color, size = 16.dp)
+            }
+        } else {
+            UserAvatar(user = meta?.user, nameOrEmail = meta?.authorName, size = 28.dp, userId = row.authorId)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .glassCard()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (fromAgent) agent.name else meta?.authorName.orEmpty(),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                meta?.time?.takeIf { it.isNotEmpty() }?.let {
+                    Spacer(Modifier.width(8.dp))
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = Muted)
+                }
+                if (row.queued) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(ThreadUiCopy.QUEUED, style = MaterialTheme.typography.labelSmall, color = Muted, modifier = Modifier.testTag("thread-message-queued"))
+                    if (onUnqueue != null) {
+                        Icon(
+                            ExpIcons.uiClose,
+                            contentDescription = null,
+                            tint = Muted,
+                            modifier = Modifier
+                                .padding(start = 4.dp)
+                                .size(14.dp)
+                                .clip(CircleShape)
+                                .clickable(role = Role.Button, onClick = onUnqueue)
+                                .testTag("thread-message-unqueue"),
                         )
-                    } else {
-                        Icon(ExpIcons.actionChat, contentDescription = null, tint = Secondary, modifier = Modifier.size(12.dp))
                     }
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        chip.title,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 220.dp),
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            MarkdownView(markdown = row.body, softBreaksAsNewlines = true)
+        }
+    }
+}
+
+/** A `question` card, answered IN place — the session view's ask card
+ *  ([AskCard] + [QuestionOptionButton] + [AnsweredRow]) over plain data: the
+ *  question, one numbered row per option; answered = the answer row. No
+ *  options = a field + Answer. */
+@Composable
+fun ThreadQuestionCard(row: SessionTree.ThreadRow.Question, onAnswer: (String) -> Unit) {
+    AskCard(plan = false, heading = null, meta = null, modifier = Modifier.testTag("thread-question-card")) {
+        MarkdownView(row.question, softBreaksAsNewlines = true)
+        if (row.answered) {
+            Box(Modifier.padding(top = 4.dp)) { AnsweredRow(row.answer) }
+        } else if (row.options.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                row.options.forEachIndexed { index, option ->
+                    Box(Modifier.testTag("thread-question-option")) {
+                        QuestionOptionButton(
+                            option = QuestionOption(label = option, key = option),
+                            ordinal = index + 1,
+                            primary = false,
+                            selected = false,
+                            checked = null,
+                            enabled = true,
+                            dimmed = false,
+                            onClick = { onAnswer(option) },
+                        )
+                    }
+                }
+            }
+        } else {
+            var draft by remember(row.id) { mutableStateOf("") }
+            GlassTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                modifier = Modifier.fillMaxWidth().testTag("thread-question-field"),
+                minLines = 1,
+                maxLines = 4,
+            )
+            GlassPill(
+                ThreadUiCopy.ANSWER,
+                size = PillSize.Sm,
+                primary = true,
+                enabled = draft.isNotBlank(),
+                onClick = { onAnswer(draft.trim()) },
+                modifier = Modifier.align(Alignment.End),
+            )
+        }
+    }
+}
+
+/** A `plan` card — the session view's "Plan ready" ask card over plain
+ *  data: the plan (markdown), Approve (the primary row) / Reject; decided =
+ *  the answer row with the decision word. */
+@Composable
+fun ThreadPlanCard(row: SessionTree.ThreadRow.Plan, onDecide: (approved: Boolean) -> Unit) {
+    AskCard(plan = true, heading = PLAN_READY_HEADING, meta = null, modifier = Modifier.testTag("thread-plan-card")) {
+        MarkdownView(markdown = row.plan, softBreaksAsNewlines = true)
+        when (row.decision) {
+            null -> Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(Modifier.testTag("thread-plan-approve")) {
+                    QuestionOptionButton(
+                        option = QuestionOption(label = ThreadUiCopy.APPROVE, key = "approve"),
+                        ordinal = 1,
+                        primary = true,
+                        selected = false,
+                        checked = null,
+                        enabled = true,
+                        dimmed = false,
+                        onClick = { onDecide(true) },
+                    )
+                }
+                Box(Modifier.testTag("thread-plan-reject")) {
+                    QuestionOptionButton(
+                        option = QuestionOption(label = ThreadUiCopy.REJECT, key = "reject"),
+                        ordinal = 2,
+                        primary = false,
+                        selected = false,
+                        checked = null,
+                        enabled = true,
+                        dimmed = false,
+                        onClick = { onDecide(false) },
                     )
                 }
             }
+            else -> Box(Modifier.padding(top = 4.dp).testTag("thread-plan-decision")) {
+                AnsweredRow(if (row.decision == "approved") ThreadUiCopy.APPROVED else ThreadUiCopy.REJECTED)
+            }
         }
     }
 }
 
-data class ThreadsRowChip(
-    val threadId: String,
-    val title: String,
-    val live: Boolean,
-    val busy: Boolean,
-    val agent: String?,
-)
+/** The session view's plan heading (its ask card says the same). */
+private const val PLAN_READY_HEADING = "Plan ready"
 
-/** A muted uppercase band label over a list (Running / Recent). */
+/** A `picture` card: the attachment through the markdown image path (auth,
+ *  probed size), the caption muted under it. */
 @Composable
-fun ThreadListBand(label: String, modifier: Modifier = Modifier) {
-    Text(
-        label.uppercase(),
-        style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Medium,
-        letterSpacing = 0.6.sp,
-        color = Muted,
-        modifier = modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp),
-    )
-}
-
-/** Thread rows as a list section — the Agent page and the Recent sheet. */
-fun LazyListScope.threadRows(
-    keyPrefix: String,
-    rows: List<ThreadListRowModel>,
-    onOpen: (String) -> Unit,
-) {
-    items(rows, key = { "$keyPrefix-${it.threadId}" }) { row ->
-        ThreadListRow(
-            title = row.title,
-            caption = row.caption,
-            live = row.live,
-            busy = row.busy,
-            needsInput = row.needsInput,
-            agent = row.agent,
-            markState = row.markState,
-            onClick = { onOpen(row.threadId) },
-        )
+fun ThreadPictureRow(row: SessionTree.ThreadRow.Picture) {
+    Column(modifier = Modifier.fillMaxWidth().testTag("thread-picture"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        MarkdownView(markdown = "![${row.caption.orEmpty()}](/api/attachments/${row.attachmentId})")
+        row.caption?.takeIf { it.isNotBlank() }?.let {
+            Text(it, style = MaterialTheme.typography.labelSmall, color = Muted)
+        }
     }
 }
 
-/** One list row's inputs, off a bundle or a styleguide fake. */
-data class ThreadListRowModel(
-    val threadId: String,
-    val title: String,
-    val caption: String,
-    val live: Boolean,
-    val busy: Boolean,
-    val needsInput: Boolean,
-    val agent: String?,
-    val markState: CodingSessionDisplayState? = null,
-)
+/** An `event` card (and a system message): ONE quiet line. */
+@Composable
+fun ThreadEventLine(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = Muted,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("thread-event"),
+    )
+}
+
+// ── The composer ────────────────────────────────────────────────────────────
 
 /**
- * EXP-1284: the New issue page's line for a thread draft — `In <thread>`
- * with the conversation glyph, so a draft reopened from Drafts still says
- * where its issue files into. The title resolves through the ONE model.
+ * THE session composer box ([GlassComposer], the one composer shell the
+ * Agent page and the session view wear): the pending files, the field, the
+ * "+" (attach) and the send glyph.
  */
 @Composable
-fun DraftThreadLine(threadId: String, modifier: Modifier = Modifier) {
-    val threadsVm: ThreadsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
-    val bundles by threadsVm.bundles.collectAsStateWithLifecycle()
-    val title = bundles.firstOrNull { it.thread.id == threadId }?.view?.title ?: return
-    Row(
-        modifier = modifier.fillMaxWidth().testTag("issue-draft-thread"),
-        verticalAlignment = Alignment.CenterVertically,
+fun ThreadComposerBox(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    pendingImages: List<PendingAttachment>,
+    imageError: String?,
+    sending: Boolean,
+    onAdd: (() -> Unit)?,
+    onRemoveImage: (Int) -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending
+    GlassComposer(
+        opaque = true,
+        modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
+        strip = {
+            PendingAttachmentStrip(items = pendingImages, enabled = !sending, onRemove = onRemoveImage)
+            FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
+        },
+        tools = {
+            if (onAdd != null) {
+                ComposerToolButton(
+                    ExpIcons.uiAdd,
+                    contentDescription = ThreadUiCopy.ADD,
+                    onClick = onAdd,
+                    enabled = !sending,
+                    modifier = Modifier.testTag("thread-composer-add"),
+                )
+            }
+        },
+        submit = {
+            ComposerSubmitButton(
+                ExpIcons.uiSubmit,
+                contentDescription = ThreadUiCopy.SEND,
+                onClick = onSend,
+                enabled = canSend,
+                sending = sending,
+                modifier = Modifier.testTag("thread-composer-send"),
+            )
+        },
     ) {
-        Icon(ExpIcons.actionChat, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            ThreadCopy.inThread(title),
-            style = MaterialTheme.typography.bodySmall,
-            color = Secondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        GlassTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth().testTag("thread-composer-field"),
+            placeholder = placeholder,
+            minLines = 2,
+            maxLines = 8,
+            bordered = false,
+            containerColor = Color.Transparent,
         )
     }
 }

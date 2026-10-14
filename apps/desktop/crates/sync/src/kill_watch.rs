@@ -1,143 +1,98 @@
 //! The §8.8 own-row Electric kill-switch (masterplan-v3) — the ONLY kill
 //! path that survives a dead relay.
 //!
-//! An explicit kill flips the synced `coding_sessions` row to
-//! `status = ended` (the relay `kill` fan-out is best-effort). That comes
-//! from the explicit ends — `steer.killSession`, `codingSessions.end` — and,
-//! since EXP-498, from EVERY PR merge: the server ends an issue's live
-//! sessions on merge (webhook, poller, and `issues.mergePr` alike). `ended`
-//! stays what it always was: the one status that tears a session down.
+//! EXP-1294 (Threads v2): an explicit end (`sessions.end`, ending a root ends
+//! its whole tree server-side) flips the synced `sessions` row to
+//! `status = ended`. `queued`, `running` and `idle` never fire; agent roots
+//! never end; merging never ends a session. "Stop" (interrupt a turn) is not
+//! an `ended` flip and travels another path.
 //!
-//! This watch subscribes to the [`crate::collections`] `coding_sessions`
-//! entity (read-only — it consumes the public collections API and never
-//! writes) and fires a one-shot callback when a locally-watched session's row
-//! transitions to `ended`. The coding-flow glue registers each session it
-//! starts; its callback kills the `claude` child (`Terminal::kill`), tells the steer
-//! publisher (`PublisherHandle::session_ended()`), and marks the tab stopped.
+//! This watch subscribes to the [`crate::collections`] `sessions` entity
+//! (read-only — it consumes the public collections API and never writes)
+//! and fires a one-shot callback when a locally-watched session's row
+//! transitions to `ended`. The host registers each session it runs; its
+//! callback tears the engine down and tells the steer publisher.
 //!
 //! Dependency direction (§3.1): `steer` cannot depend on `sync` and `sync`
 //! cannot depend on `steer`, so this lives here as a generic callback watch;
 //! the app/ui layer wires the two.
 //!
 //! "The desktop didn't initiate it" (§8.8): locally-initiated teardown paths
-//! must [`KillWatch::unwatch`] BEFORE ending the session so the callback only
-//! fires for remote/out-of-band kills. Callbacks are fire-once (removed on
-//! fire). Sign-out clears the collections without marking rows `ended` —
-//! a vanished row deliberately does NOT fire (children owned by this desktop
-//! are torn down by the sign-out path itself, not by the kill-switch).
-//! The server's staleness sweep leans on the same distinction: its end of a
-//! `running` row whose heartbeat stopped must never kill a possibly-live
-//! child (a laptop that slept past the window). Since EXP-888 it ends such
-//! rows `ended_by = stale`, which this watch IGNORES (the watch stays armed;
-//! the run's next heartbeat revives the row) — but only on devices advertising
-//! the `stale-end` cap; older builds still get a DELETE, so
-//! vanish-does-not-fire stays load-bearing for them.
+//! (the device writes `ended` itself through `sessions.report`) must
+//! [`KillWatch::unwatch`] BEFORE ending the session so the callback only
+//! fires for remote/out-of-band ends. Callbacks are fire-once (removed on
+//! fire). Sign-out clears the collections without marking rows `ended` — a
+//! vanished row deliberately does NOT fire.
+//!
+//! Owner guard (EXP-105 F3, re-keyed by EXP-1294): `user_id` is now the
+//! STARTER (a teammate may start a session on my device) and the host's
+//! owner is server-only, so the guard is the HOST DEVICE: a row whose
+//! `device_id` is not this device's id never fires.
 
 #[cfg(feature = "gpui")]
 use std::collections::HashMap;
 
-use domain::contract::CODING_SESSION_STATUS_ENDED;
-use domain::rows::CodingSession;
+use domain::rows::SessionRow;
 #[cfg(feature = "gpui")]
 use gpui::{App, AppContext as _, Context, Entity};
 
 #[cfg(feature = "gpui")]
 use crate::collections::{Collection, Store};
 
-/// EXP-637 — what the ended row SAYS, handed to the teardown callback.
-/// `ended_by == "agent"` means the agent itself declared the run over
-/// (`exponential_sessions_end`), which the host answers with a graceful stop
-/// and an ended strip instead of an immediate kill; every other value is the
-/// pre-EXP-637 "tear it down now".
+/// What the ended row says, handed to the teardown callback. EXP-1294: the
+/// row carries no close-out reason any more, so this is empty;
+/// it stays a type so the callback signature can grow without churn.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct EndedFacts {
-    pub ended_by: Option<String>,
-}
+pub struct EndedFacts {}
 
-impl EndedFacts {
-    /// Did the AGENT end this run itself?
-    pub fn by_agent(&self) -> bool {
-        self.ended_by.as_deref() == Some(domain::contract::CODING_SESSION_ENDED_BY_AGENT)
-    }
-}
-
-/// The close-out an ended row carries. A row that never reached the server's
-/// EXP-637 columns (an old server, a pre-migration row) reads as all-`None`,
-/// which every consumer treats as the legacy "just ended".
-pub fn ended_facts(row: Option<&CodingSession>) -> EndedFacts {
-    match row {
-        Some(row) => EndedFacts {
-            ended_by: row.ended_by.clone(),
-        },
-        None => EndedFacts::default(),
-    }
-}
-
-/// One-shot teardown callback, invoked on the gpui foreground. EXP-637 hands
-/// it the ended row's close-out so the host can pick its teardown policy.
+/// One-shot teardown callback, invoked on the gpui foreground.
 #[cfg(feature = "gpui")]
 pub type OnSessionEnded = Box<dyn FnOnce(EndedFacts) + 'static>;
 
-/// The `running → ended` transition test, shared by the sweep and the
-/// register-time race check. `None` status (absent/partial row) is NOT ended.
-pub fn session_row_is_ended(row: Option<&CodingSession>) -> bool {
-    row.and_then(|session| session.status.as_deref())
-        .is_some_and(|status| status == CODING_SESSION_STATUS_ENDED)
+/// The `→ ended` transition test, shared by the sweep and the register-time
+/// race check. An absent row (sign-out clear / not yet synced) or a row
+/// without a status is NOT ended.
+pub fn session_row_is_ended(row: Option<&SessionRow>) -> bool {
+    row.is_some_and(SessionRow::is_ended)
 }
 
-/// EXP-888: the staleness sweep's end (`ended_by = stale`).
-pub fn session_row_is_stale_end(row: Option<&CodingSession>) -> bool {
-    row.and_then(|session| session.ended_by.as_deref())
-        == Some(domain::contract::CODING_SESSION_ENDED_BY_STALE)
-}
-
-/// Whether an ended row may actually fire the kill (EXP-105 F3). After the
-/// server's staleness sweep DELETEs a live session's row (laptop-suspend
-/// case), any team member can resurrect the id via the scoped heartbeat
-/// — the server re-inserts with THE SENDER as owner — then flip it to
-/// `ended`, remote-killing a run they never owned. The original owner is
-/// unknowable server-side (the row was deleted), so the desktop enforces it:
-/// a row whose `user_id` differs from the signed-in user's id never fires.
-/// Legit kills (`steer.killSession` by a team owner) flip status WITHOUT
-/// changing the row's owner, so they still pass. An unknowable owner on
-/// either side degrades to firing (the server always stamps `user_id`; this
-/// only covers partial/legacy rows).
-///
-/// EXP-888: a sweep end (`ended_by = stale`) never fires — it says "silent for
-/// the staleness window", not "stop", and this build is evidently alive.
-pub fn session_row_fires_kill(row: Option<&CodingSession>, own_user_id: Option<&str>) -> bool {
-    if !session_row_is_ended(row) || session_row_is_stale_end(row) {
+/// Whether an ended row may actually fire the kill: it must be ended AND
+/// hosted by THIS device (`own_device_id`). An unknowable device on either
+/// side degrades to the plain ended check (the server always stamps
+/// `device_id`; this only covers partial rows).
+pub fn session_row_fires_kill(row: Option<&SessionRow>, own_device_id: Option<&str>) -> bool {
+    if !session_row_is_ended(row) {
         return false;
     }
-    match (own_user_id, row.and_then(|session| session.user_id.as_deref())) {
-        (Some(own), Some(owner)) => own == owner,
+    match (own_device_id, row.and_then(|session| session.device_id.as_deref())) {
+        (Some(own), Some(host)) => own == host,
         _ => true,
     }
 }
 
-/// One registered watch: the teardown callback plus the signed-in user's id
-/// at registration time (the row's expected owner — see
+/// One registered watch: the teardown callback plus this device's id at
+/// registration time (the row's expected host — see
 /// [`session_row_fires_kill`]).
 #[cfg(feature = "gpui")]
 struct Watched {
-    own_user_id: Option<String>,
+    own_device_id: Option<String>,
     on_ended: OnSessionEnded,
 }
 
 /// The watch registry. Install ONCE per app (after [`Store::open`]) and share
-/// the entity with the coding flow.
+/// the entity with the session host.
 #[cfg(feature = "gpui")]
 pub struct KillWatch {
-    sessions: Entity<Collection<CodingSession>>,
+    sessions: Entity<Collection<SessionRow>>,
     watched: HashMap<String, Watched>,
 }
 
 #[cfg(feature = "gpui")]
 impl KillWatch {
-    /// Subscribe to the store's `coding_sessions` collection. The observer
-    /// lives as long as the entity (subscription detached into the app).
+    /// Subscribe to the store's `sessions` collection. The observer lives as
+    /// long as the entity (subscription detached into the app).
     pub fn install(store: &Store, cx: &mut App) -> Entity<KillWatch> {
-        let sessions = store.collections().coding_sessions.clone();
+        let sessions = store.collections().sessions.clone();
         cx.new(|cx: &mut Context<KillWatch>| {
             cx.observe(&sessions, |watch: &mut KillWatch, sessions, cx| {
                 watch.sweep(&sessions, cx);
@@ -150,40 +105,40 @@ impl KillWatch {
         })
     }
 
-    /// Watch a session this desktop started. `own_user_id` is the signed-in
-    /// user's id — the row's expected owner ([`session_row_fires_kill`]). If
-    /// the row is ALREADY `ended` (the kill raced the registration), the
-    /// callback fires immediately — the §8.8 gate must hold even when
-    /// Electric beats the local wiring.
+    /// Watch a session this device hosts. `own_device_id` is THIS device's
+    /// steer device id — the row's expected `device_id`
+    /// ([`session_row_fires_kill`]). If the row is ALREADY `ended` (the end
+    /// raced the registration), the callback fires immediately — the §8.8
+    /// gate must hold even when Electric beats the local wiring.
     pub fn watch(
         &mut self,
         session_id: impl Into<String>,
-        own_user_id: Option<String>,
+        own_device_id: Option<String>,
         on_ended: OnSessionEnded,
         cx: &Context<Self>,
     ) {
         let session_id = session_id.into();
         let already_ended = session_row_fires_kill(
             self.sessions.read(cx).get(&session_id),
-            own_user_id.as_deref(),
+            own_device_id.as_deref(),
         );
         if already_ended {
             log::info!("kill-watch: session {session_id} already ended at register");
-            on_ended(ended_facts(self.sessions.read(cx).get(&session_id)));
+            on_ended(EndedFacts::default());
             return;
         }
         self.watched.insert(
             session_id,
             Watched {
-                own_user_id,
+                own_device_id,
                 on_ended,
             },
         );
     }
 
-    /// Drop a watch WITHOUT firing — locally-initiated teardown (child
-    /// exited, user stopped the tab) calls this first so the kill-switch only
-    /// reacts to kills the desktop didn't initiate (§8.8).
+    /// Drop a watch WITHOUT firing — locally-initiated teardown calls this
+    /// first so the kill-switch only reacts to ends the device didn't
+    /// initiate (§8.8).
     pub fn unwatch(&mut self, session_id: &str) {
         self.watched.remove(session_id);
     }
@@ -193,7 +148,7 @@ impl KillWatch {
         self.watched.keys().cloned().collect()
     }
 
-    fn sweep(&mut self, sessions: &Entity<Collection<CodingSession>>, cx: &Context<Self>) {
+    fn sweep(&mut self, sessions: &Entity<Collection<SessionRow>>, cx: &Context<Self>) {
         if self.watched.is_empty() {
             return;
         }
@@ -202,18 +157,14 @@ impl KillWatch {
             .watched
             .iter()
             .filter(|(id, watched)| {
-                session_row_fires_kill(collection.get(id.as_str()), watched.own_user_id.as_deref())
+                session_row_fires_kill(collection.get(id.as_str()), watched.own_device_id.as_deref())
             })
             .map(|(id, _)| id.clone())
             .collect();
         for session_id in fired {
-            let facts = ended_facts(collection.get(session_id.as_str()));
             if let Some(watched) = self.watched.remove(&session_id) {
-                log::info!(
-                    "kill-watch: session {session_id} ended remotely (by {:?}) — aborting",
-                    facts.ended_by
-                );
-                (watched.on_ended)(facts);
+                log::info!("kill-watch: session {session_id} ended remotely — aborting");
+                (watched.on_ended)(EndedFacts::default());
             }
         }
     }
@@ -224,7 +175,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn session(status: &str) -> CodingSession {
+    fn session(status: &str) -> SessionRow {
         serde_json::from_value(json!({
             "id": "sess-1",
             "status": status,
@@ -232,11 +183,12 @@ mod tests {
         .unwrap()
     }
 
-    fn owned_session(status: &str, user_id: &str) -> CodingSession {
+    fn hosted(status: &str, device_id: &str) -> SessionRow {
         serde_json::from_value(json!({
             "id": "sess-1",
             "status": status,
-            "user_id": user_id,
+            "device_id": device_id,
+            "user_id": "teammate",
         }))
         .unwrap()
     }
@@ -244,93 +196,29 @@ mod tests {
     #[test]
     fn only_an_explicit_ended_status_counts() {
         assert!(session_row_is_ended(Some(&session("ended"))));
-        assert!(!session_row_is_ended(Some(&session("running"))));
-        // EXP-194: the server flips running→in_review when the agent's PR
-        // opens — a REVIEW flip must never read as a remote kill.
-        assert!(!session_row_is_ended(Some(&session("in_review"))));
+        for live in ["queued", "running", "idle"] {
+            assert!(!session_row_is_ended(Some(&session(live))), "{live} never fires");
+        }
         // Absent row (sign-out clear / not yet synced) must NOT fire (§8.8:
         // the kill signal is the row FLIP, not the row's absence).
         assert!(!session_row_is_ended(None));
         // Partial row without a status: not ended.
-        let bare: CodingSession = serde_json::from_value(json!({"id": "sess-1"})).unwrap();
+        let bare: SessionRow = serde_json::from_value(json!({"id": "sess-1"})).unwrap();
         assert!(!session_row_is_ended(Some(&bare)));
     }
 
-    /// EXP-637: the close-out the ended row carries. A row from before the
-    /// columns existed reads as all-`None` — the legacy "just ended".
     #[test]
-    fn ended_facts_read_the_close_out_or_degrade_to_none() {
-        let row: CodingSession = serde_json::from_value(json!({
-            "id": "sess-1",
-            "status": "ended",
-            "ended_by": "agent",
-            // EXP-686 dropped `outcome`: a row from a server that still sends
-            // it must decode, not error.
-            "outcome": "done",
-            // EXP-862 dropped `summary` from the shape: a row from a server
-            // that still sends it must decode, not error.
-            "summary": "Opened the PR.",
-        }))
-        .unwrap();
-        let facts = ended_facts(Some(&row));
-        assert!(facts.by_agent());
-
-        // A user kill is NOT the agent's own close-out.
-        let killed: CodingSession = serde_json::from_value(json!({
-            "id": "sess-1",
-            "status": "ended",
-            "ended_by": "user",
-        }))
-        .unwrap();
-        assert!(!ended_facts(Some(&killed)).by_agent());
-
-        // Legacy / absent rows.
-        assert_eq!(ended_facts(Some(&session("ended"))), EndedFacts::default());
-        assert_eq!(ended_facts(None), EndedFacts::default());
-        assert!(!EndedFacts::default().by_agent());
-    }
-
-    /// EXP-888: the sweep's end never kills; the merge end a revive turns it
-    /// into (a PR merged meanwhile) does.
-    #[test]
-    fn a_stale_sweep_end_never_fires() {
-        let stale: CodingSession = serde_json::from_value(json!({
-            "id": "sess-1",
-            "status": "ended",
-            "ended_by": "stale",
-            "user_id": "me",
-        }))
-        .unwrap();
-        assert!(session_row_is_ended(Some(&stale)));
-        assert!(!session_row_fires_kill(Some(&stale), Some("me")));
-        assert!(!session_row_fires_kill(Some(&stale), None));
-        let merged: CodingSession = serde_json::from_value(json!({
-            "id": "sess-1",
-            "status": "ended",
-            "ended_by": "merge",
-            "user_id": "me",
-        }))
-        .unwrap();
-        assert!(session_row_fires_kill(Some(&merged), Some("me")));
-    }
-
-    #[test]
-    fn foreign_owner_ended_flip_never_fires() {
-        // EXP-105 F3: a swept-then-resurrected row carries the resurrector as
-        // owner — its `ended` flip must NOT kill the real owner's run.
-        let foreign = owned_session("ended", "attacker");
-        assert!(!session_row_fires_kill(Some(&foreign), Some("me")));
-        // A legit kill keeps the original owner on the row and still fires.
-        let own = owned_session("ended", "me");
-        assert!(session_row_fires_kill(Some(&own), Some("me")));
-        // Not-ended rows never fire regardless of owner.
-        assert!(!session_row_fires_kill(
-            Some(&owned_session("running", "me")),
-            Some("me")
-        ));
-        assert!(!session_row_fires_kill(None, Some("me")));
-        // Unknowable owner on either side degrades to the plain ended check.
-        assert!(session_row_fires_kill(Some(&session("ended")), Some("me")));
-        assert!(session_row_fires_kill(Some(&foreign), None));
+    fn only_this_devices_ended_row_fires() {
+        // A teammate started it on MY device: the starter is not me, the
+        // host is — it fires.
+        assert!(session_row_fires_kill(Some(&hosted("ended", "dev-me")), Some("dev-me")));
+        // Another device's session never kills mine.
+        assert!(!session_row_fires_kill(Some(&hosted("ended", "dev-other")), Some("dev-me")));
+        // Not-ended rows never fire regardless of host.
+        assert!(!session_row_fires_kill(Some(&hosted("idle", "dev-me")), Some("dev-me")));
+        assert!(!session_row_fires_kill(None, Some("dev-me")));
+        // Unknowable device on either side degrades to the plain ended check.
+        assert!(session_row_fires_kill(Some(&session("ended")), Some("dev-me")));
+        assert!(session_row_fires_kill(Some(&hosted("ended", "dev-other")), None));
     }
 }

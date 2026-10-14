@@ -5,7 +5,6 @@ import javax.inject.Singleton
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -60,45 +59,6 @@ data class TeamRepo(
     val sharedBy: RepoSharedBy? = null,
 )
 
-/**
- * EXP-1244: one open pull request GitHub lists for a team repo
- * (`repositories.openPulls`) — Reviews' repository bands show the ones no
- * issue or run links.
- */
-@Serializable
-data class OpenPull(
-    val number: Int,
-    val url: String,
-    val title: String = "",
-    val branch: String = "",
-    val baseBranch: String = "",
-    val draft: Boolean = false,
-    val authorLogin: String? = null,
-    val authorAvatarUrl: String? = null,
-    val createdAt: String = "",
-)
-
-@Serializable
-data class OpenPullsRepo(
-    val repositoryId: String,
-    val fullName: String,
-    val pulls: List<OpenPull> = emptyList(),
-)
-
-@Serializable
-private data class OpenPullsResult(val repos: List<OpenPullsRepo> = emptyList())
-
-@Serializable
-private data class MergePullInput(val repositoryId: String, val prNumber: Int)
-
-/** `repositories.mergePull`: `queued` = GitHub's merge queue took it, nothing landed yet. */
-@Serializable
-data class MergePullResult(
-    val merged: Boolean = false,
-    val queued: Boolean? = null,
-    val note: String? = null,
-)
-
 @Serializable
 private data class RepoTeamIdInput(val teamId: String)
 
@@ -112,9 +72,6 @@ private data class AddRepoInput(
     val defaultBranch: String,
     @SerialName("private") val isPrivate: Boolean,
 )
-
-@Serializable
-private data class BranchDiffInput(@SerialName("issueId") val issueId: String)
 
 @Serializable
 private data class BranchesResult(val branches: List<String> = emptyList())
@@ -216,43 +173,4 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = RepositoryIdInput.serializer(),
             outputSerializer = BranchesResult.serializer(),
         ).branches
-
-    /**
-     * Member-gated middle tier of remote Changes visibility (masterplan v4 §4.8,
-     * L18): the issue's `exp/<IDENTIFIER>` branch compared against the repo
-     * default branch, returned in the shared `prFiles` shape (reuses [PrFilesResult]).
-     * Null when the branch was never pushed (the caller falls through to the
-     * "being coded on <device>" tier).
-     */
-    suspend fun branchDiff(accountId: String, issueId: String): PrFilesResult? =
-        trpc.query(
-            accountId,
-            path = "repositories.branchDiff",
-            input = BranchDiffInput(issueId),
-            inputSerializer = BranchDiffInput.serializer(),
-            outputSerializer = PrFilesResult.serializer().nullable,
-        )
-
-    /**
-     * EXP-1244: every open pull request of the team's (unarchived) repos,
-     * live from GitHub (server-cached ~60s, busted by [mergePull]).
-     */
-    suspend fun openPulls(accountId: String, teamId: String): List<OpenPullsRepo> =
-        trpc.query(
-            accountId,
-            path = "repositories.openPulls",
-            input = RepoTeamIdInput(teamId),
-            inputSerializer = RepoTeamIdInput.serializer(),
-            outputSerializer = OpenPullsResult.serializer(),
-        ).repos
-
-    /** EXP-1244: squash-merge a pull request no issue links, by number. */
-    suspend fun mergePull(accountId: String, repositoryId: String, prNumber: Int): MergePullResult =
-        trpc.mutation(
-            accountId,
-            path = "repositories.mergePull",
-            input = MergePullInput(repositoryId, prNumber),
-            inputSerializer = MergePullInput.serializer(),
-            outputSerializer = MergePullResult.serializer(),
-        )
 }

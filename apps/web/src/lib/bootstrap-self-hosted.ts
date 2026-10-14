@@ -1,6 +1,6 @@
-import { and, eq, gte, isNotNull, isNull, or } from "drizzle-orm"
+import { and, eq, gte, inArray, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { issues, boards, codingSessions } from "@/db/schema"
+import { pullRequests } from "@/db/schema"
 import type { PullState } from "@/lib/integrations/github-pr"
 import {
   fetchPullState,
@@ -8,11 +8,12 @@ import {
 } from "@/lib/integrations/github-pr"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import {
-  applyPrClosedState,
-  applyPrMergeState,
-  applyPrReopenedState,
-  applySessionPrState,
+  applyPullRequestBase,
+  applyPullRequestClosed,
+  applyPullRequestMerged,
+  applyPullRequestReopened,
 } from "@/lib/integrations/pr-sync"
+import { LIVE_PR_STATES } from "@/lib/pr-merge-guard"
 
 const POLL_INTERVAL_MS = 3 * 60 * 1000 // every 3 minutes
 const INITIAL_DELAY_MS = 30 * 1000 // first run ~30s after boot
@@ -42,13 +43,16 @@ export type PrPollAction = `merge` | `close` | `reopen` | `none`
 // events never reach a polling instance, and a reopened PR that stays
 // `closed` locally would never have its merge observed either (REV2-74).
 export function decidePrPollAction(
+  // `draft` is a live PR like `open`.
   localPrState: string | null,
   // Only the transition matters here — deliberately narrower than PullState so
   // the decision can't quietly start depending on attribution fields.
   state: Pick<PullState, `state` | `merged`>
 ): PrPollAction {
   if (state.merged) return localPrState === `merged` ? `none` : `merge`
-  if (state.state === `closed`) return localPrState === `open` ? `close` : `none`
+  if (state.state === `closed`) {
+    return localPrState === `open` || localPrState === `draft` ? `close` : `none`
+  }
   return localPrState === `closed` ? `reopen` : `none`
 }
 
@@ -61,164 +65,61 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
   running = true
   try {
     const closedCutoff = new Date(now.getTime() - CLOSED_PR_RECHECK_WINDOW_MS)
+    // EXP-1291: every tracked PR is a `pull_requests` row (an issue's, a
+    // thread's, an adopted one): live ones, plus recently closed ones (a
+    // reopen, and the merge that may follow it, must be seen at all).
     const rows = await db
       .select({
-        issueId: issues.id,
-        prUrl: issues.prUrl,
-        prNumber: issues.prNumber,
-        prState: issues.prState,
-        teamId: boards.teamId,
-        // A PR's base moves on GitHub (a retarget on github.com, or GitHub's
-        // own when the PR below lands); a polling instance never gets the
-        // `edited` webhook, so the pass re-reads it.
-        prBaseBranch: issues.prBaseBranch,
+        id: pullRequests.id,
+        url: pullRequests.url,
+        number: pullRequests.number,
+        state: pullRequests.state,
+        base: pullRequests.base,
+        teamId: pullRequests.teamId,
       })
-      .from(issues)
-      .innerJoin(boards, eq(boards.id, issues.boardId))
+      .from(pullRequests)
       .where(
-        and(
-          isNotNull(issues.prNumber),
-          isNotNull(issues.prUrl),
-          or(
-            eq(issues.prState, `open`),
-            // Recently closed and never merged: still worth asking about, so a
-            // reopen (and the merge that may follow it) is seen at all.
-            and(
-              eq(issues.prState, `closed`),
-              isNull(issues.prMergedAt),
-              gte(issues.updatedAt, closedCutoff)
-            )
-          )
+        or(
+          inArray(pullRequests.state, [...LIVE_PR_STATES]),
+          and(eq(pullRequests.state, `closed`), gte(pullRequests.updatedAt, closedCutoff))
         )
       )
 
-    // A batch PR is linked to several issues (same prUrl on every row) —
-    // fetch each PR's state once per pass.
-    const pullStates = new Map<string, PullState>()
-
     for (const row of rows) {
-      if (!row.prUrl || row.prNumber == null) continue
       try {
-        const repo = parseRepoFromPrUrl(row.prUrl)
+        const repo = parseRepoFromPrUrl(row.url)
         if (!repo) continue
-        let state = pullStates.get(row.prUrl)
-        if (!state) {
-          const token = await resolveRepoToken({
-            teamId: row.teamId,
-            repo,
-          })
-          state = await fetchPullState(repo, row.prNumber, token)
-          pullStates.set(row.prUrl, state)
+        const token = await resolveRepoToken({ teamId: row.teamId, repo })
+        const state = await fetchPullState(repo, row.number, token)
+        // A live PR's base moves on GitHub (a retarget on github.com, or
+        // GitHub's restack when the PR below lands); a polling instance
+        // never gets the `edited` webhook, so the pass re-reads it.
+        if (state.state === `open` && !state.merged && state.baseRef && state.baseRef !== row.base) {
+          await applyPullRequestBase({ pullRequestId: row.id, base: state.baseRef })
         }
-        // A still-open PR with a recorded base has it mirrored from the SAME
-        // read, written raw like the webhook leg.
-        if (
-          state.state === `open` &&
-          !state.merged &&
-          row.prBaseBranch !== null
-        ) {
-          const baseRef = state.baseRef
-          if (baseRef && baseRef !== row.prBaseBranch) {
-            await db
-              .update(issues)
-              .set({ prBaseBranch: baseRef })
-              .where(eq(issues.prUrl, row.prUrl))
-          }
-        }
-        switch (decidePrPollAction(row.prState, state)) {
+        switch (decidePrPollAction(row.state, state)) {
           case `merge`:
-            await applyPrMergeState({
-              issueId: row.issueId,
-              prUrl: row.prUrl,
+            await applyPullRequestMerged({
+              pullRequestId: row.id,
               mergedAt: new Date(),
               actorUserId: null,
-              // EXP-617: self-hosted has no webhook, so `merged_by` off the
-              // poll response is its only chance to attribute the merge — and
-              // to keep the person who pressed Merge out of their own
-              // notification.
-              githubActorUserId: await resolveAppUserForGithubActor(
-                state.mergedBy
-              ),
+              // EXP-617: `merged_by` off the poll response is a self-hosted
+              // instance's only attribution.
+              githubActorUserId: await resolveAppUserForGithubActor(state.mergedBy),
             })
             break
           case `close`:
-            await applyPrClosedState({
-              issueId: row.issueId,
-              prUrl: row.prUrl,
-            })
+            await applyPullRequestClosed({ pullRequestId: row.id })
             break
           case `reopen`:
-            await applyPrReopenedState({
-              issueId: row.issueId,
-              prUrl: row.prUrl,
-              baseBranch: state.baseRef,
-            })
+            await applyPullRequestReopened({ pullRequestId: row.id, base: state.baseRef })
             break
           case `none`:
             break
         }
       } catch (err) {
         // One repo failing must not abort the batch.
-        console.error(`[pr-merge-poll] issue ${row.issueId}:`, err)
-      }
-    }
-
-    // EXP-734: every run's PR also lives on its session row (`pr_open`
-    // stamps the caller's row on every form) — poll them the same way (same
-    // transitions, same recheck window, the issue lane's reads reused) so a
-    // self-hosted run's own PR merges and ends it.
-    const sessionRows = await db
-      .select({
-        sessionId: codingSessions.id,
-        prUrl: codingSessions.prUrl,
-        prNumber: codingSessions.prNumber,
-        prState: codingSessions.prState,
-        teamId: codingSessions.teamId,
-      })
-      .from(codingSessions)
-      .where(
-        and(
-          isNotNull(codingSessions.prNumber),
-          isNotNull(codingSessions.prUrl),
-          or(
-            eq(codingSessions.prState, `open`),
-            and(
-              eq(codingSessions.prState, `closed`),
-              gte(codingSessions.updatedAt, closedCutoff)
-            )
-          )
-        )
-      )
-    for (const row of sessionRows) {
-      if (!row.prUrl || row.prNumber == null) continue
-      try {
-        const repo = parseRepoFromPrUrl(row.prUrl)
-        if (!repo) continue
-        let state = pullStates.get(row.prUrl)
-        if (!state) {
-          const token = await resolveRepoToken({ teamId: row.teamId, repo })
-          state = await fetchPullState(repo, row.prNumber, token)
-          pullStates.set(row.prUrl, state)
-        }
-        switch (decidePrPollAction(row.prState, state)) {
-          case `merge`:
-            await applySessionPrState({ prUrl: row.prUrl, state: `merged` })
-            break
-          case `close`:
-            await applySessionPrState({ prUrl: row.prUrl, state: `closed` })
-            break
-          case `reopen`:
-            await applySessionPrState({
-              prUrl: row.prUrl,
-              state: `open`,
-              baseBranch: state.baseRef,
-            })
-            break
-          case `none`:
-            break
-        }
-      } catch (err) {
-        console.error(`[pr-merge-poll] session ${row.sessionId}:`, err)
+        console.error(`[pr-merge-poll] ${row.url}:`, err)
       }
     }
   } catch (err) {

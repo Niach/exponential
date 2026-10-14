@@ -8707,8 +8707,6 @@ public object ExpIcons {
     public val navRailExpand: ImageVector get() = `panel-left-open`
     /** Concept `nav-report-bug`. */
     public val navReportBug: ImageVector get() = `bug`
-    /** Concept `nav-reviews`. */
-    public val navReviews: ImageVector get() = `git-pull-request`
     /** Concept `nav-search`. */
     public val navSearch: ImageVector get() = `search`
     /** Concept `nav-settings`. */
@@ -8721,6 +8719,8 @@ public object ExpIcons {
     public val navTeamSwitcher: ImageVector get() = `chevrons-up-down`
     /** Concept `nav-terminal`. */
     public val navTerminal: ImageVector get() = `square-terminal`
+    /** Concept `nav-threads`. */
+    public val navThreads: ImageVector get() = `list-tree`
     /** Concept `notification-agent-message`. */
     public val notificationAgentMessage: ImageVector get() = `bot`
     /** Concept `notification-issue-assigned`. */

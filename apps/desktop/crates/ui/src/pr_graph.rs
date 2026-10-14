@@ -1,7 +1,6 @@
 //! EXP-897 §4: the ONE stack/batch badge and its "Related work" dialog.
 //!
-//! Every face of a top tab (Issue · Run · Changes) shares one work header, so
-//! it shares ONE badge. SLOP-16 round 2: the badge is a muted ICON BUTTON
+//! The issue header and the session header share ONE badge. SLOP-16 round 2: the badge is a muted ICON BUTTON
 //! (the header `…` button's box) whose glyph names the SHAPE
 //! ([`domain::pr_graph::badge_shape`], face-independent): `pr-stack` for a
 //! stack (with or without a batch), `pr-batch`, `relation-blocked-by` for
@@ -21,9 +20,9 @@
 //!
 //! Every click inside the dialog closes it and acts in the opener.
 //!
-//! SLOP-3 kept this badge when the stack SYSTEM went: the three bands are
-//! read from synced data alone (`blocks` relations, a shared `pr_url`, and
-//! `pr_base_branch == lower.branch`); there is no merge-stack control.
+//! The three bands are read from synced data alone (`blocks` relations and,
+//! EXP-1294, the `pull_requests` + `pull_request_issues` rows: a PR closing
+//! several issues, a PR based on another's head); no merge control here.
 //!
 //! The model is [`domain::pr_graph`]: this module is presentation only.
 
@@ -35,7 +34,7 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::pr_graph::{self, overlay_copy, BadgeChip, BadgeShape, OverlaySection, PrEntry, PrGraph};
-use domain::rows::{CodingSession, Issue};
+use domain::rows::Issue;
 
 use crate::icons::{registry, ExpIcon};
 use crate::issue_relations::{band_window, fold_band, FoldBand, IssueRowOpts};
@@ -58,30 +57,6 @@ impl BadgeSpec {
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------
-
-/// Every issue of the team `issue` belongs to: the scope the branch-matching
-/// stack rule needs (the caller owns the scoping, exactly like the web twin).
-fn team_issues(issue: &Issue, cx: &App) -> Vec<Issue> {
-    let Some(store) = sync::Store::try_global(cx) else {
-        return vec![issue.clone()];
-    };
-    let collections = store.collections();
-    let boards = collections.boards.read(cx);
-    let Some(team_id) = boards.get(&issue.board_id).map(|board| board.team_id.clone()) else {
-        return vec![issue.clone()];
-    };
-    collections
-        .issues
-        .read(cx)
-        .iter()
-        .filter(|row| {
-            boards
-                .get(&row.board_id)
-                .is_some_and(|board| board.team_id == team_id)
-        })
-        .cloned()
-        .collect()
-}
 
 /// EXP-736: the issues BLOCKING `issue_id`: canonical `blocks` rows whose
 /// `related_issue_id` is this issue (the inverse side, "blocked by"). Rows
@@ -143,28 +118,15 @@ fn status_is_closed(issue: &Issue) -> bool {
     )
 }
 
-/// The badge spec for an issue-bound face (a run on its issue included:
-/// the run's issue IS the subject).
+/// The badge spec for an issue: its newest open pull request (else its
+/// newest), read off its TEAM's pull requests (the stack rule's scope).
 pub(crate) fn issue_spec(issue: &Issue, cx: &App) -> BadgeSpec {
-    let issues = team_issues(issue, cx);
-    let mut graph = pr_graph::pr_graph(Some(issue), None, &issues, &[]);
-    // EXP-1097: the open blockers ride the GRAPH (web `blockedBy`): they
-    // earn the badge on every face, not just the Issue one.
-    graph.blocked_by = blocked_by(&issue.id, cx);
-    BadgeSpec { graph }
-}
-
-/// The badge spec for an issue-LESS run (a chat / action / batch run): its
-/// own pull request (or a batch's covered set).
-pub(crate) fn session_spec(session: &CodingSession, cx: &App) -> BadgeSpec {
-    let issues: Vec<Issue> = sync::Store::try_global(cx)
-        .map(|store| store.collections().issues.read(cx).iter().cloned().collect())
+    let snapshot = crate::queries::issue_team_id(cx, &issue.id)
+        .map(|team_id| crate::session_data::team_pr_snapshot(&team_id, cx))
         .unwrap_or_default();
-    let mut graph = pr_graph::pr_graph(None, Some(session), &issues, std::slice::from_ref(session));
-    // A run on an issue that has synced reads that issue's blockers.
-    if let Some(issue_id) = graph.subject_issue_id.clone() {
-        graph.blocked_by = blocked_by(&issue_id, cx);
-    }
+    let mut graph = snapshot.with_set(|set| pr_graph::pr_graph(Some(issue), None, set));
+    // EXP-1097: the open blockers ride the GRAPH (web `blockedBy`).
+    graph.blocked_by = blocked_by(&issue.id, cx);
     BadgeSpec { graph }
 }
 
@@ -438,42 +400,58 @@ fn section_rows(graph: &PrGraph, section: OverlaySection, shown: usize, cx: &mut
     }
 }
 
-/// The mono label a stack row leads with: `#n`, the identifier while the
-/// pull request has no number.
+/// The mono label a stack row leads with: `#n`, the representative's
+/// identifier while the pull request has no number.
 fn stack_row_label(entry: &PrEntry) -> String {
-    let representative = entry.representative();
-    match representative.pr_number {
+    match entry.pull.as_ref().and_then(|pull| pull.number) {
         Some(number) => format!("#{number}"),
-        None => representative.identifier.clone(),
+        None => entry.identifiers(),
     }
 }
 
 /// One OTHER pull request of the stack as THE pull-request row: ring lead
-/// ([`stack_row_node`]) · mono `#n` · the representative issue's title · the
-/// PR state chip. A click closes the dialog and opens that pull request's
-/// review.
+/// ([`stack_row_node`]) · mono `#n` · its title (the PR's, else the
+/// representative issue's) · the PR state chip. A click closes the dialog
+/// and opens the session that opened the PR (its Guide), else GitHub.
 fn stack_list_row(entry: &PrEntry, cx: &mut App) -> crate::pr_rows::PrListRow {
-    let representative = entry.representative();
-    let state = representative
-        .pr_state
-        .clone()
+    let pull = entry.pull.as_ref();
+    let state = pull
+        .and_then(|pull| pull.state.clone())
         .unwrap_or_else(|| domain::contract::PR_STATE_OPEN.to_string());
     let node = stack_row_node(&state);
-    let issue_id = representative.id.clone();
-    let open_id = issue_id.clone();
+    let title = pull
+        .and_then(|pull| pull.title.clone())
+        .or_else(|| entry.representative().map(|issue| issue.title.clone()))
+        .unwrap_or_default();
+    let key = entry
+        .pull_request_id()
+        .map(str::to_string)
+        .or_else(|| entry.representative().map(|issue| issue.id.clone()))
+        .unwrap_or_default();
+    let root_id = pull.and_then(|pull| pull.root_session_id.clone());
+    let url = pull.and_then(|pull| pull.url.clone());
     crate::pr_rows::PrListRow {
-        key: issue_id,
+        key,
         identifier: Some(SharedString::from(stack_row_label(entry))),
-        title: SharedString::from(representative.title.clone()),
+        title: SharedString::from(title),
         depth: 0,
         node,
         word: None,
         active: false,
         on_open: Some(Box::new(move |_: &ClickEvent, window, cx| {
-            // EXP-1251: the PR's review = its issue's Guide.
-            let issue_id = open_id.clone();
-            crate::native_dialog::close_then(window, cx, move |window, cx| {
-                crate::screens::open_issue_changes(&issue_id, None, window, cx);
+            let root_id = root_id.clone();
+            let url = url.clone();
+            crate::native_dialog::close_then(window, cx, move |window, cx| match root_id {
+                Some(session_id) => crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::Thread { session_id },
+                ),
+                None => {
+                    if let Some(url) = url {
+                        crate::settings::open_url(cx, url);
+                    }
+                }
             });
         })),
         trailing: Some(crate::issue_detail::pr_state_chip(&state, cx)),
@@ -495,6 +473,7 @@ pub(crate) fn stack_row_node(state: &str) -> domain::list_item::PrNodeState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::rows::PullRequestRow;
 
     #[test]
     fn a_draft_stack_row_keeps_the_open_ring() {
@@ -505,7 +484,7 @@ mod tests {
         assert_eq!(stack_row_node("closed"), PrNodeState::Base);
     }
 
-    fn issue(identifier: &str, head: Option<&str>, base: Option<&str>) -> Issue {
+    fn issue(identifier: &str) -> Issue {
         serde_json::from_value(serde_json::json!({
             "id": format!("id-{identifier}"),
             "board_id": "board-1",
@@ -513,17 +492,52 @@ mod tests {
             "identifier": identifier,
             "title": identifier,
             "status": "in_review",
-            "branch": head,
-            "pr_base_branch": base,
-            "pr_state": "open",
-            "pr_url": head.map(|head| format!("https://github.com/o/r/pull/{head}")),
         }))
         .unwrap()
     }
 
-    fn spec(issues: &[Issue]) -> BadgeSpec {
+    /// One open pull request `pr-<identifier>` on `head` → `base`, closing
+    /// the issue of the same identifier.
+    fn pull(identifier: &str, head: &str, base: &str, number: Option<i64>) -> PullRequestRow {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("pr-{identifier}"),
+            "team_id": "team-1",
+            "repository_id": "repo-1",
+            "head": head,
+            "base": base,
+            "state": "open",
+            "number": number,
+        }))
+        .unwrap()
+    }
+
+    fn link(identifier: &str) -> domain::rows::PullRequestIssueRow {
+        serde_json::from_value(serde_json::json!({
+            "id": format!("link-{identifier}"),
+            "pull_request_id": format!("pr-{identifier}"),
+            "issue_id": format!("id-{identifier}"),
+        }))
+        .unwrap()
+    }
+
+    /// The badge spec of the FIRST issue over `(identifier, head, base,
+    /// number)` pull requests, each closing its own issue.
+    fn spec(prs: &[(&str, &str, &str, Option<i64>)]) -> BadgeSpec {
+        let issues: Vec<Issue> = prs.iter().map(|(id, ..)| issue(id)).collect();
+        let pulls: Vec<PullRequestRow> = prs
+            .iter()
+            .map(|(id, head, base, number)| pull(id, head, base, *number))
+            .collect();
+        let links: Vec<domain::rows::PullRequestIssueRow> = prs.iter().map(|(id, ..)| link(id)).collect();
+        let (pull_refs, link_refs, issue_refs): (Vec<_>, Vec<_>, Vec<_>) =
+            (pulls.iter().collect(), links.iter().collect(), issues.iter().collect());
+        let set = domain::pr_stack::PrSet {
+            pulls: &pull_refs,
+            links: &link_refs,
+            issues: &issue_refs,
+        };
         BadgeSpec {
-            graph: pr_graph::pr_graph(Some(&issues[0]), None, issues, &[]),
+            graph: pr_graph::pr_graph(Some(&issues[0]), None, &set),
         }
     }
 
@@ -550,10 +564,10 @@ mod tests {
     /// blockers alone earn it.
     #[test]
     fn the_badge_needs_a_relation() {
-        let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
+        let lone = [("EXP-30", "exp/EXP-30", "master", None)];
         assert!(badge_face(&spec(&lone)).is_none());
         let mut blocked = spec(&lone);
-        blocked.graph.blocked_by = vec![issue("EXP-29", None, None)];
+        blocked.graph.blocked_by = vec![issue("EXP-29")];
         assert_eq!(badge_face(&blocked), Some((BadgeShape::Blocked, 0)));
     }
 
@@ -561,14 +575,14 @@ mod tests {
     /// blockers alone count all but the first.
     #[test]
     fn the_count_is_everything_but_the_front() {
-        let stacked = vec![
-            issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
-            issue("EXP-11", Some("exp/EXP-11"), Some("master")),
+        let stacked = [
+            ("EXP-12", "exp/EXP-12", "exp/EXP-11", None),
+            ("EXP-11", "exp/EXP-11", "master", None),
         ];
         assert_eq!(badge_face(&spec(&stacked)), Some((BadgeShape::Stack, 1)));
-        let lone = vec![issue("EXP-30", Some("exp/EXP-30"), Some("master"))];
+        let lone = [("EXP-30", "exp/EXP-30", "master", None)];
         let mut blocked = spec(&lone);
-        blocked.graph.blocked_by = vec![issue("EXP-28", None, None), issue("EXP-29", None, None)];
+        blocked.graph.blocked_by = vec![issue("EXP-28"), issue("EXP-29")];
         assert_eq!(badge_face(&blocked), Some((BadgeShape::Blocked, 1)));
     }
 
@@ -576,11 +590,10 @@ mod tests {
     /// (`#n`, the identifier without a number) and sizes to the capped bands.
     #[test]
     fn the_stack_band_lists_the_other_pull_requests() {
-        let mut stacked = vec![
-            issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
-            issue("EXP-11", Some("exp/EXP-11"), Some("master")),
+        let stacked = [
+            ("EXP-12", "exp/EXP-12", "exp/EXP-11", None),
+            ("EXP-11", "exp/EXP-11", "master", Some(41)),
         ];
-        stacked[1].pr_number = Some(41);
         let graph = spec(&stacked).graph;
         let labels: Vec<String> =
             pr_graph::stack_others(&graph).into_iter().map(stack_row_label).collect();
@@ -590,7 +603,7 @@ mod tests {
         let pr_row = domain::list_item::PR_ROW;
         assert_eq!(content_height(&graph), 2. * DIALOG_PAD + BAND_H + pr_row);
         let mut blocked = graph.clone();
-        blocked.blocked_by = (1..=5).map(|n| issue(&format!("EXP-{n}"), None, None)).collect();
+        blocked.blocked_by = (1..=5).map(|n| issue(&format!("EXP-{n}"))).collect();
         // Blocked by: 3 capped issue rows + "Show 2 more", then the stack
         // band's one pull-request row.
         assert_eq!(

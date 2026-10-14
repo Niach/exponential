@@ -2,7 +2,6 @@ import {
   AgentPickerTabs,
   EffortPicker,
   ModelPicker,
-  conceptIcon,
   GlassGroup,
   GlassToggleRow,
   type ValueChoice,
@@ -42,7 +41,6 @@ import { contract } from "@exp/domain-contract"
 // launcher). The device/"Runs on" picker is NOT part of this card: the caller keeps
 // it in its own group ABOVE.
 
-const ResumeBranchIcon = conceptIcon(`ui-branch`)
 
 // An empty string is no usable option identity; the blank "CLI default"
 // model/effort rides this sentinel inside the dialog only.
@@ -67,26 +65,13 @@ export function effortLabel(value: string): string {
   return value === `xhigh` ? `XHigh` : modelLabel(value)
 }
 
-/** EXP-481: the "Resume previous run" row's inputs — rendered only when
- * the shell computed an eligible worktree for (device, issue, agent). */
-export interface ResumeRowProps {
-  checked: boolean
-  onChange: (value: boolean) => void
-  identifier: string
-  branch: string
-}
-
 /** The launch variant's run-time switches — never rendered for a trigger,
- * which has nobody to steer a plan or a resume. */
+ * which has nobody to steer a plan. */
 interface LaunchToggleProps {
   ultracode: boolean
   onUltracodeChange: (value: boolean) => void
   planMode: boolean
   onPlanModeChange: (value: boolean) => void
-  /** EXP-481: hidden entirely while a resume is armed — a resumed session
-   * never re-enters plan mode (mirrors the desktop dialog). */
-  planModeHidden?: boolean
-  resumeRow?: ResumeRowProps | null
   /** EXP-1005: the device-settings toggle only — absent in the launch
    * composer, which never shows it. Start every run on the login with the
    * most headroom and move a rate-limited run to another one between turns. */
@@ -242,20 +227,6 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       {/* EXP-694: the run-time switches are rows of the SAME card now — a
           trigger never gets them (nobody is there to steer a plan), and a
           capability the agent lacks simply drops its row. */}
-      {toggles?.resumeRow && (
-        <GlassToggleRow
-          id={`${idPrefix}-resume`}
-          label="Resume previous session"
-          checked={toggles.resumeRow.checked}
-          onCheckedChange={toggles.resumeRow.onChange}
-          description={
-            <span className="flex items-center gap-1">
-              <ResumeBranchIcon className="size-3 shrink-0" />
-              {`A worktree for ${toggles.resumeRow.identifier} already exists (${toggles.resumeRow.branch}).`}
-            </span>
-          }
-        />
-      )}
       {toggles && agentSupportsUltracode(agent) && (
         <GlassToggleRow
           id={`${idPrefix}-ultracode`}
@@ -264,7 +235,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
           onCheckedChange={toggles.onUltracodeChange}
         />
       )}
-      {toggles && agentSupportsPlanMode(agent) && !toggles.planModeHidden && (
+      {toggles && agentSupportsPlanMode(agent) && (
         <GlassToggleRow
           id={`${idPrefix}-plan-mode`}
           label="Plan mode"

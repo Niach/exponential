@@ -16,7 +16,6 @@ import {
   teamMembers,
   teams,
   attachments,
-  sessionAttachments,
   creem_subscriptions,
   teamInvites,
   users,
@@ -242,7 +241,9 @@ export type TeamUsage = {
 export async function getTeamUsage(
   teamId: string
 ): Promise<TeamUsage> {
-  const [memberCount, [storageSum], [sessionStorageSum], [widgetCount]] =
+  // EXP-1291: conversation files and Guide pictures are `attachments` rows
+  // too, so the one sum covers them.
+  const [memberCount, [storageSum], [widgetCount]] =
     await Promise.all([
       countTeamMembers(teamId),
       // A media row's poster frame is a second blob on the same row
@@ -254,22 +255,13 @@ export async function getTeamUsage(
         })
         .from(attachments)
         .where(eq(attachments.teamId, teamId)),
-      // Steer images (EXP-702) — server-only rows, but their blobs occupy
-      // the same per-team storage budget.
-      db
-        .select({
-          totalBytes: sql<string>`coalesce(sum(${sessionAttachments.sizeBytes}), 0)::bigint`,
-        })
-        .from(sessionAttachments)
-        .where(eq(sessionAttachments.teamId, teamId)),
       db
         .select({ count: sql<number>`count(*)::int` })
         .from(widgetConfigs)
         .where(eq(widgetConfigs.teamId, teamId)),
     ])
 
-  const totalBytes =
-    Number(storageSum.totalBytes) + Number(sessionStorageSum.totalBytes)
+  const totalBytes = Number(storageSum.totalBytes)
 
   return {
     members: memberCount,

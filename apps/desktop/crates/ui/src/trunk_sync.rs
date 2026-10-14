@@ -21,8 +21,9 @@
 //! tree under Claude's feet; EXP-346 pulled promptless AgentShell tabs OUT
 //! of that hold-off — they live for entire work days and were parking the
 //! trunk stale). A PR merging is a sync trigger of its own (EXP-346,
-//! [`TrunkSync::check_merge_autopull`]): a fresh `pr_merged_at` on any of
-//! this repo's synced issues fires an immediate debounce-bypassing pull, so
+//! [`TrunkSync::check_merge_autopull`]): a fresh `merged_at` on any of
+//! this repo's synced pull requests fires an immediate debounce-bypassing
+//! pull, so
 //! every IDE lands on the new master right after a merge instead of on the
 //! next timer tick. The background pass is
 //! [`clone_manager::auto_sync`]: fetch → fast-forward ONLY when clean +
@@ -54,6 +55,10 @@ use coding::{
 use crate::navigation;
 use crate::queries;
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup, RepoResolver};
+
+/// EXP-868: the scans' cache key — the scoped repo and the revisions of the
+/// issues, boards, pull_requests and pull_request_issues collections.
+type ScanKey = (String, u64, u64, u64, u64);
 use crate::session::AuthContext;
 
 /// The trunk repo a resolved board points at. All owned/`Send` so the whole
@@ -177,8 +182,8 @@ pub struct TrunkSync {
     /// surfaces (the Source Control history pane, EXP-67) compare instead of
     /// diffing trunk snapshots.
     sync_seq: u64,
-    /// The newest `pr_merged_at` stamp seen across synced issues of this
-    /// repo's boards (EXP-346 merge-reactive autopull). A later stamp means
+    /// The newest `merged_at` stamp seen across this repo's synced pull
+    /// requests (EXP-346 merge-reactive autopull). A later stamp means
     /// a PR merged while we watch → pull NOW, not on the next timer tick.
     merge_stamp: Option<String>,
     /// Whether `merge_stamp` holds this scope's baseline yet — the first
@@ -200,12 +205,13 @@ pub struct TrunkSync {
     /// An issue newly finished and the prune-carrying auto-sync has not
     /// started yet — same stickiness/consumption as `pending_merge_sync`.
     pending_prune_sync: bool,
-    /// EXP-868: the (repo, issues revision, boards revision) the merge-stamp
-    /// and finished-set scans last ran against. Both run per RENDER, and the
+    /// EXP-868: the (repo, then the issues / boards / pull_requests /
+    /// pull_request_issues revisions) the merge-stamp and finished-set scans
+    /// last ran against. Both run per RENDER, and the
     /// rail renders on every window redraw (a caret blink, a keystroke) —
     /// an unchanged key means an unchanged answer, so the scan is skipped.
-    merge_scan_key: Option<(String, u64, u64)>,
-    finished_scan_key: Option<(String, u64, u64)>,
+    merge_scan_key: Option<ScanKey>,
+    finished_scan_key: Option<ScanKey>,
     /// The doctor's last-seen git verdict — the EXP-366 recovery edge: when
     /// git flips missing→present ("Check tools" after installing it), the
     /// failed/never-attempted clone retries WITHOUT the user finding the
@@ -251,6 +257,9 @@ impl TrunkSync {
             // The repo scope's board order + the merge scans read synced rows.
             cx.observe(&collections.issues, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
+            // EXP-1294: PR state lives on the pull requests rows.
+            cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()),
+            cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()),
             // Re-render when the shared repo resolution lands / changes.
             cx.observe(&repo_resolver, |_, _, cx| cx.notify()),
             // Window focus is an auto-sync trigger (debounced).
@@ -487,9 +496,9 @@ impl TrunkSync {
         }
     }
 
-    /// Merge-reactive autopull (EXP-346): the rail re-renders on every issue
-    /// sync, so this runs per render — when a NEW `pr_merged_at` stamp
-    /// appears on this repo's issues, pull immediately instead of waiting
+    /// Merge-reactive autopull (EXP-346): the rail re-renders on every pull
+    /// request sync, so this runs per render — when a NEW `merged_at` stamp
+    /// appears on this repo's pull requests, pull immediately instead of waiting
     /// out the timer + debounce ("when a PR is merged, every IDE is on the
     /// newest master"). The first read after the shapes are ready only seeds
     /// the baseline; [`stamp_is_newer`] makes a first-ever merge
@@ -499,7 +508,7 @@ impl TrunkSync {
             return;
         }
         let collections = Store::global(cx).collections().clone();
-        if !collections.issues.read(cx).is_ready() || !collections.boards.read(cx).is_ready() {
+        if !collections.pull_requests.read(cx).is_ready() {
             return;
         }
         let key = self.issue_scan_key(cx);
@@ -523,37 +532,30 @@ impl TrunkSync {
         }
     }
 
-    /// EXP-868: what the per-render issue scans below depend on — the scoped
-    /// repo and the two collections they read. `None` without a repo.
-    fn issue_scan_key(&self, cx: &App) -> Option<(String, u64, u64)> {
+    /// EXP-868: what the per-render scans below depend on — the scoped repo
+    /// and the collections they read. `None` without a repo.
+    fn issue_scan_key(&self, cx: &App) -> Option<ScanKey> {
         let repo = self.repo.as_ref()?;
         let collections = Store::global(cx).collections();
         Some((
             repo.repository_id.clone(),
             collections.issues.read(cx).revision(),
             collections.boards.read(cx).revision(),
+            collections.pull_requests.read(cx).revision(),
+            collections.pull_request_issues.read(cx).revision(),
         ))
     }
 
-    /// The newest `pr_merged_at` across synced issues whose board points at
-    /// the scoped repo. A batch PR stamps all its linked issues in one sync
-    /// batch — `max` coalesces that to a single trigger.
+    /// The newest `merged_at` across the scoped repo's synced pull requests
+    /// (EXP-1294: `pull_requests.repository_id`).
     fn latest_merge_stamp(&self, cx: &App) -> Option<String> {
         let repo = self.repo.as_ref()?;
         let collections = Store::global(cx).collections().clone();
-        let boards = collections.boards.read(cx);
-        let repo_boards: Vec<&str> = boards
+        let pulls = collections.pull_requests.read(cx);
+        pulls
             .iter()
-            .filter(|board| {
-                board.repository_id.as_deref() == Some(repo.repository_id.as_str())
-            })
-            .map(|board| board.id.as_str())
-            .collect();
-        let issues = collections.issues.read(cx);
-        issues
-            .iter()
-            .filter(|issue| repo_boards.contains(&issue.board_id.as_str()))
-            .filter_map(|issue| issue.pr_merged_at.clone())
+            .filter(|pull| pull.repository_id.as_deref() == Some(repo.repository_id.as_str()))
+            .filter_map(|pull| pull.merged_at.clone())
             .max()
     }
 
@@ -574,6 +576,15 @@ impl TrunkSync {
             })
             .map(|board| board.id.as_str())
             .collect();
+        // EXP-1294: the issues a MERGED pull request closes.
+        let pulls = collections.pull_requests.read(cx);
+        let merged: std::collections::HashSet<&str> = collections
+            .pull_request_issues
+            .read(cx)
+            .iter()
+            .filter(|link| pulls.get(&link.pull_request_id).is_some_and(|pull| pull.is_merged()))
+            .map(|link| link.issue_id.as_str())
+            .collect();
         collections
             .issues
             .read(cx)
@@ -583,7 +594,7 @@ impl TrunkSync {
                 // The dual-written enum ANCHOR (EXP-314) — this runs per
                 // render, so it must stay a cheap enum test, not a per-issue
                 // team-status resolution.
-                issue.pr_state.as_deref() == Some(domain::contract::PR_STATE_MERGED)
+                merged.contains(issue.id.as_str())
                     || matches!(
                         issue.status,
                         domain::enums::IssueStatus::Done
@@ -751,8 +762,8 @@ impl TrunkSync {
             self.generation += 1;
         }
         // Merge-reactive autopull (EXP-346) — every render, not just while a
-        // load is pending (the rail re-renders on issue sync, which is what
-        // carries a fresh `pr_merged_at` in).
+        // load is pending (the rail re-renders on pull request sync, which
+        // is what carries a fresh `merged_at` in).
         self.check_merge_autopull(window, cx);
         // Finished-reactive auto-clean (EXP-465) — same cadence.
         self.check_finished_autoclean(window, cx);
@@ -1043,7 +1054,7 @@ impl TrunkSync {
     }
 }
 
-/// Whether a freshly read `pr_merged_at` is NEWER than the scope's baseline
+/// Whether a freshly read `merged_at` is NEWER than the scope's baseline
 /// (the EXP-346 merge trigger). Compares parsed instants, not the raw text:
 /// Electric forwards Postgres `timestamptz` in whatever form the server
 /// encodes (`2026-07-03 10:11:12.345+00`, RFC 3339 from tRPC, trailing

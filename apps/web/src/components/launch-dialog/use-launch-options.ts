@@ -36,7 +36,7 @@ import { agentLabel } from "@exp/ui"
 
 // EXP-615: the launch-options cluster every start-coding surface shares —
 // device settle, the EXP-437 device-seeded agent/model/effort/toggle state,
-// the EXP-201 agent clamp, and the resolved `StartCodingOptions` payload.
+// the EXP-201 agent clamp, and the resolved runner picks.
 // Extracted from the launch dialog (which carried it since EXP-257); since
 // EXP-825 its one launch caller is the Agent page composer
 // (`use-launch-composer.ts`), the others are the automation and device-settings
@@ -110,9 +110,9 @@ export interface LaunchOptions {
   /** A pick: sets the agent (re-seeding model/effort/toggles like an agent
    * switch) and the account in one go. */
   setAccountKey: (key: string) => void
-  /** The capability-clamped payload for `steer.startSession`. */
+  /** The capability-clamped runner picks `sessions.send` carries
+   *  (`buildSendInput` maps them; `agent` = the `cli`). */
   buildOptions: (args?: {
-    resume?: boolean
     /** FEED-73: the subject (a real action) owns the run's MCP list, so the
      * pick never rides out. */
     omitMcp?: boolean
@@ -373,10 +373,7 @@ export function useLaunchOptions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, availableAgentsKey, agent])
 
-  const buildOptions = ({
-    resume = false,
-    omitMcp = false,
-  }: { resume?: boolean; omitMcp?: boolean } = {}) => ({
+  const buildOptions = ({ omitMcp = false }: { omitMcp?: boolean } = {}) => ({
     agent,
     model,
     effort: effortValue === CLI_DEFAULT_EFFORT ? `` : effortValue,
@@ -386,10 +383,7 @@ export function useLaunchOptions({
       ? { subagentModel }
       : {}),
     ultracode: ultracode && agentSupportsUltracode(agent),
-    // A resumed session never re-enters plan mode (EXP-481, mirrors the
-    // desktop launcher's clamp).
-    planMode: planMode && agentSupportsPlanMode(agent) && !resume,
-    ...(resume ? { resume: true } : {}),
+    planMode: planMode && agentSupportsPlanMode(agent),
     // EXP-792: omitted when nothing is picked — the server treats an absent
     // list and an empty one alike, and older relays never see the key.
     // FEED-73: a real action's runs use the ACTION's list (server-set).
