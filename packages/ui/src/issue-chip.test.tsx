@@ -77,3 +77,30 @@ describe(`IssueChip size="pager" (EXP-1316)`, () => {
     expect(chip.textContent).toBe(`EXP-2`)
   })
 })
+
+// EXP-1316 (the IDE's strip rule): on md+ a tab chip shrinks first, its
+// title between 7rem (long titles) and 8.75rem with an ellipsis.
+describe(`IssueChip size="tab" shrinking`, () => {
+  it(`may shrink down to its title floor`, () => {
+    const { rerender } = render(
+      <IssueChip
+        identifier="EXP-3"
+        title="Syntax highlighting ships every language"
+        status={status}
+        size="tab"
+        testId="chip"
+      />
+    )
+    const chip = screen.getByTestId(`chip`)
+    expect(chip.className).toContain(`shrink`)
+    expect(chip.className).not.toContain(`shrink-0`)
+    expect(chip.className).toContain(`min-w-min`)
+    let title = chip.querySelector(`[data-slot="issue-chip-title"]`)!
+    expect(title.className).toContain(`max-w-[8.75rem]`)
+    expect(title.className).toContain(`min-w-[7rem]`)
+    expect(title.className).toContain(`truncate`)
+    rerender(<IssueChip identifier="EXP-3" title="Short" status={status} size="tab" testId="chip" />)
+    title = screen.getByTestId(`chip`).querySelector(`[data-slot="issue-chip-title"]`)!
+    expect(title.className).not.toContain(`min-w-[7rem]`)
+  })
+})

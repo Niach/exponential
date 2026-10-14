@@ -91,7 +91,11 @@ export function ThreadTabs({
       data-variant={variant}
       role="tablist"
       className={cn(
-        `flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&>*]:shrink-0`,
+        `flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]`,
+        // Phones: nothing shrinks, the pager scrolls. md+: the issue chips
+        // shrink first (`IssueChip size="tab"`), everything else keeps its
+        // natural width; the strip scrolls only past the chips' floor.
+        pager && `[&>*]:shrink-0`,
         className
       )}
     >

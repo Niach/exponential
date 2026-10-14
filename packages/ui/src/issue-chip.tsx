@@ -43,6 +43,10 @@ export type IssueChipLinkProps = EntityChipLinkProps
  *  header's badge — where a title per chip is what made them sprawl. */
 export type IssueChipSize = `md` | `sm` | `tab` | `pager`
 
+/** A tab chip's title this long (≈112px at text-sm) keeps a 7rem floor when
+ *  the strip shrinks it; a shorter one stays its own width. */
+const TAB_TITLE_FLOOR_CHARS = 16
+
 export function IssueChip({
   identifier,
   title,
@@ -93,7 +97,18 @@ export function IssueChip({
     <>
       <StatusGlyph {...status} className={cn(`size-3.5 shrink-0`, status.className)} />
       <span className="shrink-0 font-mono text-xs text-muted-foreground">{identifier}</span>
-      {size === `tab` && <span className="min-w-0 truncate">{title}</span>}
+      {size === `tab` && (
+        <span
+          data-slot="issue-chip-title"
+          className={cn(
+            `max-w-[8.75rem] truncate`,
+            // The IDE's rule: a long title shrinks no further than 112px.
+            title.length > TAB_TITLE_FLOOR_CHARS ? `min-w-[7rem]` : `min-w-0`
+          )}
+        >
+          {title}
+        </span>
+      )}
     </>
   ) : (
     <>
@@ -119,7 +134,14 @@ export function IssueChip({
       data-active={tab ? active : undefined}
       box={
         tab
-          ? cn(stripTabClass(active, true), `overflow-hidden`, size === `tab` && `max-w-[11rem]`)
+          ? cn(
+              stripTabClass(active, true),
+              `overflow-hidden`,
+              // EXP-1316 (the IDE's strip): a tab chip SHRINKS first, its
+              // title between 112px and 140px with an ellipsis; the strip
+              // scrolls only when even that does not fit.
+              size === `tab` && `shrink min-w-min`
+            )
           : undefined
       }
       body={body}
