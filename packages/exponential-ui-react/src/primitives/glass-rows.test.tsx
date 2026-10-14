@@ -1,6 +1,21 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
-import { GlassSectionHeader, ListRow, ROW_PARTS, SECTION_PARTS } from "./glass-rows"
+import {
+  GlassSectionHeader,
+  ListRow,
+  ROW_PARTS,
+  SECTION_PARTS,
+  SETTINGS_LIST_CLASS,
+} from "./glass-rows"
+
+// EXP-1320: an entity list = a band over FLAT gapless rows, NO dividers ×4.
+describe(`SETTINGS_LIST_CLASS`, () => {
+  it(`stacks rows without a gap or a hairline`, () => {
+    expect(SETTINGS_LIST_CLASS).toBe(`flex flex-col`)
+    expect(SETTINGS_LIST_CLASS).not.toContain(`divide`)
+    expect(SETTINGS_LIST_CLASS).not.toContain(`gap`)
+  })
+})
 
 // EXP-862: the group band gained a FOLDABLE variant (the Agent page's "Recent").
 // The plain band every other list uses must be untouched by it.

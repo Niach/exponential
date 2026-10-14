@@ -48,3 +48,23 @@ describe(`IssueChip size (SLOP-15)`, () => {
     expect(screen.getByRole(`button`, { name: `Remove EXP-1` })).toBeTruthy()
   })
 })
+
+// EXP-1316: the TAB size = the thread strip's tab box, off the unlayered
+// `.issue-chip` paint so the active wash wins.
+describe(`IssueChip size="tab" (EXP-1316)`, () => {
+  it(`wears the strip tab box, glyph · identifier · title`, () => {
+    const { rerender } = render(
+      <IssueChip identifier="EXP-1" title="The title" status={status} size="tab" testId="chip" />
+    )
+    const chip = screen.getByTestId(`chip`)
+    expect(chip.className).not.toContain(`issue-chip`)
+    expect(chip.className).toContain(`h-8`)
+    expect(chip.className).toContain(`border-transparent`)
+    expect(chip.textContent).toBe(`EXP-1The title`)
+    rerender(
+      <IssueChip identifier="EXP-1" title="The title" status={status} size="tab" active testId="chip" />
+    )
+    expect(screen.getByTestId(`chip`).className).toContain(`bg-glass-active`)
+    expect(screen.getByTestId(`chip`).getAttribute(`data-active`)).toBe(`true`)
+  })
+})

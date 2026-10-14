@@ -82,10 +82,7 @@ function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> {
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((link) => issueById.get(link.issueId))
         .filter((issue): issue is TreeIssue => issue !== undefined)
-      titles.set(
-        root.id,
-        threadTitle(toTreeSession(root), rootIssues, treeMessages).title
-      )
+      titles.set(root.id, threadTitle(toTreeSession(root), rootIssues, treeMessages))
     }
     return titles
     // eslint-disable-next-line react-hooks/exhaustive-deps

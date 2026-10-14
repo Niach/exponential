@@ -25,7 +25,7 @@ import type { StyleguideEntry } from "./types.ts"
 // picker + colour + name in ONE row), Device, Account, Schedule (a row per
 // trigger reading `triggerSummary`, a switch each, `+ Add`), the
 // Instructions card, then the owner-only Delete. Built from the settings
-// ladder only (EXP-1076).
+// ladder only (EXP-1076; lists without dividers, EXP-1320).
 
 const noop = (): void => {}
 const COPY = fixture.copy

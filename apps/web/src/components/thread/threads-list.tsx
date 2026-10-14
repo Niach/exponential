@@ -13,20 +13,24 @@ import {
 } from "@exp/ui"
 import { pullRequestCollection } from "@/lib/collections"
 import {
+  THREAD_ROW_WORDS,
   THREADS_LIST_COPY,
+  threadInStack,
+  threadRowWord,
   type AgentRow,
   type PullRequestRow,
+  type ThreadRowWord,
   type ThreadsListGroup,
   type ThreadsListRow as ThreadsListRowModel,
 } from "@/lib/session-tree"
 
 // EXP-1293 Threads v2: the Threads list (fixture `threads-list.json` ×4) in
-// the Reviews list language: a filled group band (no count) per group (Needs
-// you · Running · Recent) over flat hairline rows. A row = the lead (the
-// agent's working mark while busy, its amber badge when it needs you, else
-// the PR glyph its word names), the first linked issue's identifier, the
-// title and ONE quiet word derived from the root's pull requests, or a lock
-// when private. Phones put the team's Agents band on top.
+// the lists language: a filled group band (no count) per group (Needs you ·
+// Running · Recent) over flat gapless rows, no dividers (EXP-1320). A row =
+// the lead (the agent's working mark while busy, its amber badge when it
+// needs you, else the PR glyph its word names), the title (it names the
+// issue) and the trailing word AND the lock when private (EXP-1318). Phones
+// put the team's Agents band on top.
 
 const NeedsYouIcon = conceptIcon(`coding-needs-input`)
 const RecentIcon = conceptIcon(`ui-check`)
@@ -36,46 +40,22 @@ const PrOpenIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PrStackIcon = conceptIcon(`pr-stack`)
 
-/** The quiet trailing words ×web. */
-export const THREAD_ROW_WORDS = {
-  readyToMerge: `ready to merge`,
-  stack: `stack`,
-  merged: `merged`,
-  question: `question`,
-  needsInput: `needs input`,
-} as const
-
-export type ThreadRowWord = keyof typeof THREAD_ROW_WORDS
-
 type WordPr = Pick<PullRequestRow, `id` | `state` | `basePullRequestId`>
 
-/**
- * ONE quiet word for a thread row, deterministic: an open PR that sits in a
- * stack (based on another open PR, or one is based on it) → `stack`; else an
- * open PR while nothing works → `ready to merge`; no open PR but a merged one
- * → `merged`; else waiting on a person → `question`; else nothing.
- * `teamPrs` = the team's PRs (a stack edge may cross threads).
- */
-export function threadRowWord(
+/** A thread row's ONE quiet word off its root's PRs (the contract's
+ *  `threadRowWord` + `threadInStack`, `threads-list.json` ×4). `teamPrs` =
+ *  the team's PRs (a stack edge may cross threads). */
+export function threadWordOf(
   row: Pick<ThreadsListRowModel, `busy` | `needsYou`>,
   prs: readonly WordPr[],
   teamPrs: readonly WordPr[] = prs
 ): ThreadRowWord | null {
-  const open = prs.filter((pr) => pr.state === `open`)
-  if (open.length > 0) {
-    const openIds = new Set(teamPrs.filter((pr) => pr.state === `open`).map((pr) => pr.id))
-    const stacked = open.some(
-      (pr) =>
-        (pr.basePullRequestId !== null && openIds.has(pr.basePullRequestId)) ||
-        teamPrs.some((other) => other.state === `open` && other.basePullRequestId === pr.id)
-    )
-    if (stacked) return `stack`
-    if (!row.busy) return `readyToMerge`
-    return null
-  }
-  if (prs.some((pr) => pr.state === `merged`)) return `merged`
-  if (row.needsYou) return `question`
-  return null
+  return threadRowWord({
+    pullRequests: prs,
+    busy: row.busy,
+    needsYou: row.needsYou,
+    inStack: threadInStack(prs, teamPrs),
+  })
 }
 
 /** The team's PRs grouped by the thread (root) that opened them. */
@@ -124,7 +104,6 @@ const GROUP_GLYPH: Record<ThreadsListGroup[`key`], ReactNode> = {
 
 export function ThreadsListView({
   groups,
-  identifierByRoot,
   cliByRoot,
   prsByRoot,
   teamPrs,
@@ -135,7 +114,6 @@ export function ThreadsListView({
   onOpenAgent,
 }: {
   groups: readonly ThreadsListGroup[]
-  identifierByRoot: ReadonlyMap<string, string>
   /** The root's agent CLI (its mark). */
   cliByRoot: ReadonlyMap<string, string | null>
   prsByRoot: ReadonlyMap<string, readonly WordPr[]>
@@ -183,12 +161,11 @@ export function ThreadsListView({
           <GlassSectionHeader label={group.title} leading={GROUP_GLYPH[group.key]} />
           <div className="flex flex-col">
             {group.rows.map((row) => {
-              const word = threadRowWord(row, prsByRoot.get(row.sessionId) ?? [], teamPrs)
+              const word = threadWordOf(row, prsByRoot.get(row.sessionId) ?? [], teamPrs)
               return (
                 <ThreadsListItem
                   key={row.sessionId}
                   lead={rowLead(row, cliByRoot.get(row.sessionId) ?? null, word)}
-                  identifier={identifierByRoot.get(row.sessionId) ?? null}
                   title={row.title}
                   word={word ? THREAD_ROW_WORDS[word] : null}
                   wordIcon={

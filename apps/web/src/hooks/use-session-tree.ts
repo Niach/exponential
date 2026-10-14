@@ -107,18 +107,12 @@ function useTitleContext(teamIds: readonly string[]) {
   )
 }
 
-export interface ThreadsListExtras {
-  /** The first linked issue's identifier per root (the row's id column). */
-  identifierByRoot: ReadonlyMap<string, string>
-}
-
 /**
  * The Threads list (Needs you · Running · Recent) for the ACTIVE team
  * (`teamId`; null/array = every listed team, phones band per team).
  */
 export function useThreadsList(teamId: string | readonly string[] | null | undefined): {
   groups: ThreadsListGroup[]
-  extras: ThreadsListExtras
   isReady: boolean
 } {
   const teamIds = teamScopeIds(teamId ?? undefined)
@@ -132,14 +126,7 @@ export function useThreadsList(teamId: string | readonly string[] | null | undef
       messages: context.messages,
       teamId: null,
     })
-    const issueById = new Map(context.issues.map((issue) => [issue.id, issue]))
-    const identifierByRoot = new Map<string, string>()
-    for (const link of [...context.sessionIssues].sort((a, b) => a.sortOrder - b.sortOrder)) {
-      if (identifierByRoot.has(link.sessionId)) continue
-      const issue = issueById.get(link.issueId)
-      if (issue) identifierByRoot.set(link.sessionId, issue.identifier)
-    }
-    return { groups, extras: { identifierByRoot }, isReady }
+    return { groups, isReady }
   }, [tree, context, isReady])
 }
 

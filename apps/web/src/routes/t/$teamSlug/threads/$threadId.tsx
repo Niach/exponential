@@ -12,7 +12,6 @@ import {
   ThreadConversation,
   ThreadTabs,
   ThreadTabsAddButton,
-  threadTabChipClass,
   useIsMobile,
   userMessageCaption,
   type MenuSessionProps,
@@ -32,10 +31,10 @@ import {
   ThreadGuideMerge,
   threadGuidePullRequest,
 } from "@/components/thread/thread-guide"
-import { useAnswerMessage } from "@/components/thread/agent-channel"
+import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
-import { ThreadTitle } from "@/components/thread/thread-title"
+import { useSession } from "@/hooks/use-session"
 import { useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
 import { useTeamBoards, useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -53,17 +52,22 @@ import {
 } from "@/lib/session-tree"
 
 // EXP-1293 Threads v2: a THREAD = a root session (fixture
-// `session-thread.json` ×4, `buildSessionThread`). Header: the title (rename
-// in place, a lock when private) + ONE tab strip: Conversation · one issue
-// chip per linked issue · "+" · Guide (a dot while it holds anything).
+// `session-thread.json` ×4, `buildSessionThread`). Header: the title
+// (EXP-1316: derived, `Implement EXP-12` / `Run <action>` / the agent's
+// auto-name; nobody renames it; a lock when private) + ONE tab strip:
+// Conversation · one issue chip per linked issue (`IssueChip size="tab"`) ·
+// "+" · Guide (a dot while it holds anything). md+: while the Guide's PR is
+// open the header's trailing slot carries Merge on EVERY tab, then the `…`
+// (Guide tab only).
 // `?tab=` names the tab on show:
 //
 //   (absent)               the conversation: the root's messages and THE
 //                          session card per session, question and plan cards
 //                          answered in the card, the composer at the bottom
-//   issue&issue=<id>       that issue's detail, embedded
+//   issue&issue=<id>       that issue's body, embedded (no header bar, no
+//                          Start, no pin, no Threads row)
 //   guide[&section=&file=] the root's Guide over its pull request (its stack
-//                          rail, THE bottom Merge capsule)
+//                          rail; phones: THE bottom Merge capsule)
 //
 // Phones: the strip IS the pager under the header. No right sidebar, no
 // Show work, no captions.
@@ -239,14 +243,15 @@ function ThreadScreen({
         aria-selected={active}
         identifier={entry.identifier}
         title={issue.title}
-        size={isMobile ? `sm` : `md`}
+        size="tab"
+        active={active}
         status={{
           icon: status.icon,
           colorClass: statusColorClass(status),
           colorHex: status.builtinKey ? undefined : status.colorHex,
         }}
         testId={`thread-tab-${entry.identifier}`}
-        className={threadTabChipClass(active)}
+        className={isMobile ? `max-w-[8rem]` : undefined}
         onClick={() => go({ tab: `issue`, issue: entry.issueId })}
       />,
     ]
@@ -289,7 +294,7 @@ function ThreadScreen({
             teamSlug={teamSlug}
             teamId={team.id}
             readOnly={!permissions.canMutateIssue(issue)}
-            showMobileHeader={false}
+            embedded
           />
         </div>
       ) : (
@@ -319,7 +324,7 @@ function ThreadScreen({
             />
           </div>
         </div>
-        {search.section === undefined && (
+        {isMobile && search.section === undefined && (
           <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
         )}
       </div>
@@ -343,14 +348,23 @@ function ThreadScreen({
       <ThreadGuideMenu pr={guidePr} canClose={permissions.isMember} className={className} />
     ) : null
 
+  // EXP-1316: the title is derived (`threadTitle`), never renamed.
   const title = (
-    <ThreadTitle
-      sessionId={root.id}
-      title={view.title}
-      stored={root.title}
-      isPrivate={view.private}
-      canRename={permissions.isMember}
-    />
+    <div className="flex min-w-0 items-center gap-2">
+      <h1
+        data-testid="thread-title"
+        className="min-w-0 truncate text-2xl font-semibold tracking-tight"
+      >
+        {view.title}
+      </h1>
+      {view.private && (
+        <PrivateIcon
+          aria-label="Private"
+          data-testid="thread-private"
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      )}
+    </div>
   )
 
   const issueMenus = {
@@ -407,8 +421,9 @@ function ThreadScreen({
     <MenuGestureHost menus={issueMenus}>
       <div className="flex h-full min-h-0 flex-col" data-testid="thread-page">
         <div className="shrink-0 border-b border-border px-6 pt-6 pb-3 md:px-10">
-          <div className="flex items-start gap-3">
+          <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">{title}</div>
+            <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
             {guideMenu(`shrink-0 text-muted-foreground`)}
           </div>
           <div className="mt-4">{tabs}</div>
@@ -444,6 +459,8 @@ function ConversationBody({
   )
   const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
   const { answer, pending } = useAnswerMessage()
+  const unqueue = useUnqueueMessage()
+  const { data: session } = useSession()
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -467,9 +484,11 @@ function ConversationBody({
                 params: { teamSlug, sessionId },
               })
             }
-            onAnswer={canReply ? (id, value) => void answer(id, { answer: value }) : undefined}
-            onDecide={canReply ? (id, decision) => void answer(id, { decision }) : undefined}
+            onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
+            onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
             pending={pending}
+            viewerId={session?.user?.id ?? null}
+            onUnqueue={(id) => void unqueue(id)}
           />
         </div>
       </div>

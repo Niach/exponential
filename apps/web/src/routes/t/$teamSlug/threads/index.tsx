@@ -32,7 +32,7 @@ function ThreadsPage() {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
   const team = useTeamBySlug(teamSlug)
-  const { groups, extras, isReady } = useThreadsList(team?.id)
+  const { groups, isReady } = useThreadsList(team?.id)
   const { rows } = useTeamSessions(team?.id)
   const { agents } = useAgents(isMobile ? team?.id : undefined)
   const prs = useTeamPullRequestsByRoot(team?.id)
@@ -50,7 +50,6 @@ function ThreadsPage() {
         ) : (
           <ThreadsListView
             groups={groups}
-            identifierByRoot={extras.identifierByRoot}
             cliByRoot={cliByRoot}
             prsByRoot={prs.byRoot}
             teamPrs={prs.all}

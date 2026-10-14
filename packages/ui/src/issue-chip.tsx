@@ -3,6 +3,7 @@ import { StatusGlyph, type StatusGlyphProps } from "./status-glyph"
 import {
   CHIP_GLYPH_CLASS,
   ChipBox,
+  stripTabClass,
   type ChipHostProps,
   type EntityChipLinkProps,
 } from "./entity-chip"
@@ -40,7 +41,7 @@ export type IssueChipLinkProps = EntityChipLinkProps
  *  identifier alone (the title rides in the tooltip), for the surfaces that
  *  stand for several issues at once — the hover graph's nodes, the phone
  *  header's badge — where a title per chip is what made them sprawl. */
-export type IssueChipSize = `md` | `sm`
+export type IssueChipSize = `md` | `sm` | `tab`
 
 export function IssueChip({
   identifier,
@@ -55,14 +56,20 @@ export function IssueChip({
   className,
   testId,
   removeTestId,
+  active = false,
   ...host
 }: {
   identifier: string
   title: string
   /** The already-resolved status glyph (icon + its token class or hex). */
   status: StatusGlyphProps
-  /** `sm` drops the title (SLOP-15); the box and the glyph stay the same. */
+  /** `sm` drops the title (SLOP-15); the box and the glyph stay the same.
+   *  `tab` (EXP-1316) = exactly the strip tab box (`stripTabClass`: h-8,
+   *  text-sm, rounded-md, border, px-2.5): glyph · mono identifier · title,
+   *  every chip of a strip the height of Conversation / Guide. */
   size?: IssueChipSize
+  /** The tab size's active state (the glass wash). */
+  active?: boolean
   /** Open the issue. Omitted = an inert chip (no target, no pointer). */
   onClick?: () => void
   /** Open the issue as a real LINK (⌘-click, middle-click, copy address,
@@ -79,7 +86,14 @@ export function IssueChip({
   testId?: string
   removeTestId?: string
 } & ChipHostProps): ReactNode {
-  const body = (
+  const tab = size === `tab`
+  const body = tab ? (
+    <>
+      <StatusGlyph {...status} className={cn(`size-3.5 shrink-0`, status.className)} />
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">{identifier}</span>
+      <span className="min-w-0 truncate">{title}</span>
+    </>
+  ) : (
     <>
       <StatusGlyph
         {...status}
@@ -100,6 +114,8 @@ export function IssueChip({
     <ChipBox
       slot="issue-chip"
       data-size={size}
+      data-active={tab ? active : undefined}
+      box={tab ? cn(stripTabClass(active), `max-w-[11rem]`) : undefined}
       body={body}
       openLabel={`Open ${identifier}`}
       tooltip={`${identifier} · ${title}`}

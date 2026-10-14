@@ -847,7 +847,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `issue-chip`,
     title: `Issue chip`,
     kind: `Buttons & chips`,
-    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift. SLOP-15: the SMALL mode (\`size="sm"\`) is the same box without the title — glyph · identifier — for the surfaces that name many issues at a glance (the hover graph's nodes, the work header's badge on a phone, the badge overlay's rows); the title rides in the tooltip and the preview card.`,
+    blurb: `The ONE badge that names an issue inline. A small rounded RECT — 6px on web, 4 on desktop, 5 on iOS, 5dp on Android — and never a capsule: a capsule is the pill, which carries a label, not a subject. A hairline border over the accent fill (the fill barely clears the surface, so the border is what makes the chip legible), then status glyph · mono muted identifier · the title in the foreground at medium weight, truncated. The left padding is tighter than the right because the glyph carries its own gap. The ✕ sits INSIDE the chip and exists for COMPOSERS only — nothing else hands a badge a control — and it takes the trailing padding down to its own hit box. Inside a markdown editor the identical box is a DECORATION painted over the bare \`#IDENT\` token, so the document text round-trips untouched and the two cannot drift. SLOP-15: the SMALL mode (\`size="sm"\`) is the same box without the title — glyph · identifier — for the surfaces that name many issues at a glance (the hover graph's nodes, the work header's badge on a phone, the badge overlay's rows); the title rides in the tooltip and the preview card. EXP-1316: the TAB size (\`size="tab"\`) is the thread strip's chip: exactly the strip tab box (32px, text-sm, rounded-md, the tab border), glyph · mono identifier · title truncated at 11rem, the active one in the glass wash, so every chip in the strip stands as tall as Conversation and Guide.`,
     status: {
       web: ok(`IssueChip`, `packages/ui/src/issue-chip.tsx`, `The app's components/issue-chip.tsx is the binding that resolves the status and adds the hover preview.`),
       desktop: ok(`issue_chip`, `apps/desktop/crates/ui/src/issue_chip.rs`),
@@ -879,6 +879,22 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           title="Stack badge, subtle"
           status={BACKLOG_GLYPH}
           size="sm"
+          onClick={noop}
+        />
+        {/* EXP-1316: the tab size — the thread strip's chip, active + rest. */}
+        <IssueChip
+          identifier="EXP-1316"
+          title="Thread header chips"
+          status={BACKLOG_GLYPH}
+          size="tab"
+          active
+          onClick={noop}
+        />
+        <IssueChip
+          identifier="EXP-1318"
+          title="Threads list rows"
+          status={DONE_GLYPH}
+          size="tab"
           onClick={noop}
         />
       </div>
@@ -1363,7 +1379,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-strokes`,
     title: `Strokes`,
     kind: `Colour`,
-    blurb: `Five hairlines. Row separates, section and card enclose, strong floats, active marks a selection — pick by JOB, never by contrast.`,
+    blurb: `Five hairlines. Row separates FORM fields (an entity list carries none: band over flat gapless rows, EXP-1320), section and card enclose, strong floats, active marks a selection — pick by JOB, never by contrast.`,
     status: {
       web: ok(`--glass-stroke-*`, `packages/ui/src/styles.css`),
       desktop: ok(`theme::glass::STROKE_*`, `apps/desktop/crates/theme/src/tokens.generated.rs`),

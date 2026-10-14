@@ -87,9 +87,10 @@ interface IssueDetailViewProps {
    *  (`lib/detail-origin.ts`) — the phone header's back button returns THERE
    *  (the inbox, the board) instead of always to the board. */
   origin?: string
-  /** A host drawing its own phone header (the thread page's issue tab)
-   *  turns the issue's off, so there is no second bar on the same line. */
-  showMobileHeader?: boolean
+  /** EXP-1316: the thread's issue tab — the issue BODY without its own
+   *  chrome: no work header bar (Start, pin, PR graph badge, `…`), no phone
+   *  header, no Threads row; the phone bar keeps properties + Comment. */
+  embedded?: boolean
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -150,7 +151,7 @@ export function IssueDetailView({
   teamId,
   readOnly = false,
   origin,
-  showMobileHeader = true,
+  embedded = false,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
@@ -572,7 +573,7 @@ export function IssueDetailView({
 
   const titleField = <IssueTitleField issue={issue} readOnly={readOnly} />
   // EXP-1284/1293: the issue NAMES its threads (one chip each, opening it).
-  const threadsRow = (
+  const threadsRow = embedded ? null : (
     <IssueThreadsRow
       issueId={issue.id}
       teamId={teamId}
@@ -591,7 +592,7 @@ export function IssueDetailView({
         editable={!readOnly}
         // EXP-1191: the caret scrolls clear of the sticky bar + tray.
         topScrollInset={
-          isMobile ? undefined : WORK_BAR_HEIGHT + traySize.height
+          isMobile ? undefined : embedded ? 0 : WORK_BAR_HEIGHT + traySize.height
         }
         onChange={setDescriptionValue}
         onBlur={() => void handleDescriptionBlur()}
@@ -669,7 +670,7 @@ export function IssueDetailView({
   if (isMobile) {
     return (
       <div className={MOBILE_DETAIL_SCREEN_CLASS}>
-        {showMobileHeader && mobileHeader}
+        {!embedded && mobileHeader}
         {/* EXP-698: clearance for the floating bar below, so the last comment
             scrolls clear of it instead of ending under the glass
             (`MOBILE_WORK_BAR_CLEARANCE`); the tab bar itself is hidden on this
@@ -679,7 +680,7 @@ export function IssueDetailView({
           className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
           /* EXP-1162: the header band floats over this scroller — the
              column starts below it and scrolls under it. */
-          style={{ paddingTop: showMobileHeader ? mobileHeaderSize.height : 0 }}
+          style={{ paddingTop: embedded ? 0 : mobileHeaderSize.height }}
         >
           {duplicateBanner}
           {parentLine}
@@ -700,7 +701,7 @@ export function IssueDetailView({
             issueId={issue.id}
             users={users}
             propertiesNode={mobilePropertiesPanel}
-            trailingNode={startControl}
+            trailingNode={embedded ? undefined : startControl}
             onSubmitComment={handleCommentSubmit}
             reporter={reporter}
             hidden={descriptionFocused}
@@ -729,7 +730,7 @@ export function IssueDetailView({
                below the bar and the tray. */
             style={
               {
-                [WORK_STICKY_TOP_VAR]: `${WORK_BAR_HEIGHT + traySize.height}px`,
+                [WORK_STICKY_TOP_VAR]: `${embedded ? 0 : WORK_BAR_HEIGHT + traySize.height}px`,
               } as React.CSSProperties
             }
           >
@@ -737,6 +738,7 @@ export function IssueDetailView({
                 EXP-1162: a compact bar FLOATING over this scroller — Start ·
                 pin · `…` on the title's own line at rest; the collapsed
                 title beside them once the title row scrolled away. */}
+            {!embedded && (
             <WorkHeader
               floating
               edge={false}
@@ -769,6 +771,7 @@ export function IssueDetailView({
                 </>
               }
             />
+            )}
             {/* The title row: the large editable title, clear of the bar's
                 cluster on its right. The tray follows as the next row;
                 EXP-1191: it sticks under the bar once the title scrolled
@@ -783,9 +786,17 @@ export function IssueDetailView({
               </div>
               {threadsRow}
             </div>
-            <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>
-              {propsTray}
-            </WorkStickyTray>
+            {embedded ? (
+              // No bar above it: the tray stays a plain row (a sticky one
+              // would stop a bar's height below the top).
+              <div ref={trayRef} className="pb-3">
+                {propsTray}
+              </div>
+            ) : (
+              <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>
+                {propsTray}
+              </WorkStickyTray>
+            )}
             <div className={WORK_COLUMN_CLASS}>
               {editor}
               {filesSection}

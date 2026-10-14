@@ -257,10 +257,10 @@ function ComposerPane({
 
 /** PHONES ONLY (the rail's Running section covers md+): the team's live
  *  threads (Needs you, then Running) under the composer. A row = the agent
- *  mark, the first issue's identifier and the title; it opens the thread. */
+ *  mark and the title (it names the issue); it opens the thread. */
 function PhoneRunningList({ teamId, teamSlug }: { teamId: string; teamSlug: string }) {
   const navigate = useNavigate()
-  const { groups, extras } = useThreadsList(teamId)
+  const { groups } = useThreadsList(teamId)
   const rows = groups
     .filter((group) => group.key === `needs_you` || group.key === `running`)
     .flatMap((group) => group.rows)
@@ -274,7 +274,6 @@ function PhoneRunningList({ teamId, teamSlug }: { teamId: string; teamSlug: stri
           size="small"
           agent={null}
           markState={row.needsYou ? `needs_input` : row.busy ? `working` : undefined}
-          identifier={extras.identifierByRoot.get(row.sessionId) ?? null}
           title={row.title}
           data-testid="threads-row"
           onClick={() =>

@@ -33,13 +33,16 @@ import { trpc } from "@/lib/trpc-client"
 /** Answer a question / decide a plan IN its card (`sessions.answer`); a
  *  failure toasts `Couldn't answer the question`. `pending` = the cards whose
  *  answer is in flight. */
+/** A card's answer: a question's text, or a plan's decision + note. */
+export type CardAnswer = { answer?: string; decision?: `approved` | `rejected`; feedback?: string }
+
 export function useAnswerMessage(): {
-  answer: (messageId: string, input: { answer?: string; decision?: `approved` | `rejected` }) => Promise<void>
+  answer: (messageId: string, input: CardAnswer) => Promise<void>
   pending: ReadonlySet<string>
 } {
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
   const answer = useCallback(
-    async (messageId: string, input: { answer?: string; decision?: `approved` | `rejected` }) => {
+    async (messageId: string, input: CardAnswer) => {
       setPending((current) => new Set([...current, messageId]))
       try {
         const result = await trpc.sessions.answer.mutate({ messageId, ...input }, SKIP_ERROR_TOAST)
@@ -57,6 +60,19 @@ export function useAnswerMessage(): {
     []
   )
   return { answer, pending }
+}
+
+/** EXP-1317: revoke a person's own queued message (`sessions.unqueue`); a
+ *  failure toasts `Couldn't remove the message`. */
+export function useUnqueueMessage(): (messageId: string) => Promise<void> {
+  return useCallback(async (messageId: string) => {
+    try {
+      const result = await trpc.sessions.unqueue.mutate({ messageId }, SKIP_ERROR_TOAST)
+      await messageCollection.utils.awaitTxId(result.txid).catch(() => undefined)
+    } catch (error) {
+      failedAction(`remove`, `the message`, error)
+    }
+  }, [])
 }
 
 export function AgentChannel({
@@ -140,8 +156,8 @@ export function AgentChannel({
           rows={[row]}
           renderText={renderThreadText}
           attachmentSrc={(id) => `/api/attachments/${id}`}
-          onAnswer={canAnswer ? (id, value) => void answer(id, { answer: value }) : undefined}
-          onDecide={canAnswer ? (id, decision) => void answer(id, { decision }) : undefined}
+          onAnswer={canAnswer ? (id, input) => void answer(id, input) : undefined}
+          onDecide={canAnswer ? (id, input) => void answer(id, input) : undefined}
           pending={pending}
         />
       </div>

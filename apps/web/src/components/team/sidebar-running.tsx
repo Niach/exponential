@@ -13,32 +13,29 @@ import {
 import { sessionCollection } from "@/lib/collections"
 import {
   THREADS_LIST_COPY,
+  railThreads,
   threadRowMarkState,
+  type ThreadRowWord,
   type ThreadsListGroup,
   type ThreadsListRow,
 } from "@/lib/session-tree"
-import type { ThreadsListExtras } from "@/hooks/use-session-tree"
 import { TABLESS_ORIGIN } from "@/lib/work-tabs"
 
-// EXP-923 / EXP-1293: RUNNING lives in the SIDEBAR, under the boards — the
-// Threads list's `needs_you` + `running` groups of the ACTIVE team
-// (`useThreadsList`, fixture-locked `partitionThreads`), hidden entirely
-// when nothing runs. A row = the agent mark (the working spark, the amber
-// badge while it needs you) + the first issue's identifier + the title, NO
-// captions. A click opens the thread with the `running` origin, which
-// creates NO work tab (`lib/work-tabs.ts` `TABLESS_ORIGIN`).
+// EXP-923 / EXP-1293 / EXP-1318: the ACTIVE band lives in the SIDEBAR,
+// under the boards — `railThreads` over the Threads list of the ACTIVE team
+// (fixture-locked `partitionThreads`, `threads-list.json` `railCases`):
+// every Needs you row, every Running row, then the Recent rows whose word
+// still asks for a merge (`readyToMerge`, `stack`); hidden entirely when
+// empty. A row = the agent mark (the working spark, the amber badge while it
+// needs you) + the title (it names the issue), NO captions. A click opens
+// the thread with the `running` origin, which creates NO work tab
+// (`lib/work-tabs.ts` `TABLESS_ORIGIN`).
 
 /** The list data the sidebar reads ONCE and hands to its sections. */
 export interface SidebarThreads {
   groups: ThreadsListGroup[]
-  extras: ThreadsListExtras
-}
-
-/** The rows the Running section lists: needs you first, then running. */
-export function runningThreadRows(groups: readonly ThreadsListGroup[]): ThreadsListRow[] {
-  return groups
-    .filter((group) => group.key === `needs_you` || group.key === `running`)
-    .flatMap((group) => group.rows)
+  /** A row's quiet word (its root's PRs), what keeps a Recent row Active. */
+  wordOf: (row: ThreadsListRow) => ThreadRowWord | null
 }
 
 /** The nav's live state for the Threads entry: green while anything runs,
@@ -110,7 +107,7 @@ function useOpenThread(teamSlug: string): (threadId: string) => void {
   }
 }
 
-/** The expanded sidebar's Running group — hidden with nothing live. */
+/** The expanded sidebar's Active group — hidden with nothing in it. */
 export function SidebarRunningSection({
   teamSlug,
   threads,
@@ -118,7 +115,7 @@ export function SidebarRunningSection({
   teamSlug: string
   threads: SidebarThreads
 }) {
-  const rows = runningThreadRows(threads.groups)
+  const rows = railThreads(threads.groups, threads.wordOf)
   const shown = useShownThreadId()
   const openThread = useOpenThread(teamSlug)
   if (rows.length === 0) return null
@@ -126,37 +123,29 @@ export function SidebarRunningSection({
     <SidebarGroup data-testid="sidebar-running">
       {/* EXP-1022: the main menu's plain group label, like Boards above it —
           the filled group band belongs to LISTS, not the menu. */}
-      <SidebarGroupLabel>{THREADS_LIST_COPY.groups.running}</SidebarGroupLabel>
+      <SidebarGroupLabel>{THREADS_LIST_COPY.rail}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {rows.map((row) => {
-            const identifier = threads.extras.identifierByRoot.get(row.sessionId)
-            return (
-              <SidebarMenuItem key={row.sessionId}>
-                <SidebarMenuButton
-                  density="compact"
-                  isActive={shown === row.sessionId}
-                  onClick={() => openThread(row.sessionId)}
-                  data-testid={`sidebar-running-${row.sessionId}`}
-                >
-                  <ThreadRunMark row={row} />
-                  {identifier && (
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                      {identifier}
-                    </span>
-                  )}
-                  <span className="min-w-0 flex-1 truncate">{row.title}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )
-          })}
+          {rows.map((row) => (
+            <SidebarMenuItem key={row.sessionId}>
+              <SidebarMenuButton
+                density="compact"
+                isActive={shown === row.sessionId}
+                onClick={() => openThread(row.sessionId)}
+                data-testid={`sidebar-running-${row.sessionId}`}
+              >
+                <ThreadRunMark row={row} />
+                <span className="min-w-0 flex-1 truncate">{row.title}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
   )
 }
 
-/** The compact rail's Running column — one 32px button per running thread
+/** The compact rail's Active column — one 32px button per Active thread
  *  under the board icons. The rail owns the button chrome, so it hands one
  *  in, exactly like `SidebarPinnedIcons`. */
 export function SidebarRunningIcons({
@@ -176,23 +165,22 @@ export function SidebarRunningIcons({
   }) => React.ReactNode
   separator?: React.ReactNode
 }) {
-  const rows = runningThreadRows(threads.groups)
+  const rows = railThreads(threads.groups, threads.wordOf)
   const shown = useShownThreadId()
   const openThread = useOpenThread(teamSlug)
   if (rows.length === 0) return null
   return (
     <>
       {separator}
-      {rows.map((row) => {
-        const identifier = threads.extras.identifierByRoot.get(row.sessionId)
-        return renderItem({
+      {rows.map((row) =>
+        renderItem({
           key: row.sessionId,
-          label: identifier ? `${identifier} ${row.title}` : row.title,
+          label: row.title,
           active: shown === row.sessionId,
           onClick: () => openThread(row.sessionId),
           icon: <ThreadRunMark row={row} />,
         })
-      })}
+      )}
     </>
   )
 }
