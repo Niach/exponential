@@ -54,6 +54,7 @@ const TOOL_GROUPS: {
       { name: `exponential_issues_update_status`, desc: `Set status during a coding session (PR events move it to the team's configured statuses).` },
       { name: `exponential_pr_open`, desc: `Open + link the pull request server-side: issueId for one, issueIds + head for a batch, or repositoryId + head for a chore PR that links nothing. A follow-up session builds on its parent session's branch with base; such a tree merges root first, and the root's merge retargets its children.` },
       { name: `exponential_pr_merge`, desc: `Squash-merge through the GitHub App (no gh, no token): issueId, issueIds, or repositoryId + prNumber. endSessions overrides the team's end-sessions-on-merge setting for this call.` },
+      { name: `exponential_pr_close`, desc: `Close an open PR without merging, e.g. one another PR superseded. Its issues keep their status.` },
       { name: `exponential_pr_retarget`, desc: `Repoint an open PR's base branch, the fix for a PR whose base branch is gone.` },
       { name: `exponential_issues_pr_files`, desc: `List the linked PR's changed files with patches and add/delete counts.` },
     ],

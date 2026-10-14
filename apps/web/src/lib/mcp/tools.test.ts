@@ -152,6 +152,7 @@ const h = vi.hoisted(() => {
     openPullRequest: vi.fn(),
     resolvePullRequest: vi.fn(),
     mergePullRequest: vi.fn(),
+    closePullRequestTx: vi.fn(),
     retargetPullRequest: vi.fn(),
     updatePullRequest: vi.fn(),
     pullRequestFiles: vi.fn(),
@@ -2462,6 +2463,21 @@ describe(`pull request tools (EXP-1291)`, () => {
       stack: true,
       callerSessionId: SESSION,
     })
+  })
+
+  it(`pr_close closes the named PR without merging`, async () => {
+    prs.closePullRequestTx.mockResolvedValue({ txid: 1 })
+    const result = await tool(`exponential_pr_close`)({ pullRequestId: PR_ID })
+    expect(parseOk(result)).toEqual({ pullRequestId: PR_ID, number: 7, url: PR.url, closed: true })
+    expect(prs.closePullRequestTx).toHaveBeenCalledWith({ userId: USER.id, pullRequestId: PR_ID })
+    expect(prs.mergePullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`pr_close holds a confined grant to the PR's team`, async () => {
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, teamConfined([WS]))
+      .get(`exponential_pr_close`)!({ pullRequestId: PR_ID })
+    expect(result.isError).toBe(true)
+    expect(prs.closePullRequestTx).not.toHaveBeenCalled()
   })
 
   it(`names a PR by issue identifier or by repository + number`, async () => {

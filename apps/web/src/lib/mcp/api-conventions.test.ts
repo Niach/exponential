@@ -173,6 +173,7 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
     [`exponential_issues_subscribe`, `issueId`],
     [`exponential_issues_unsubscribe`, `issueId`],
     [`exponential_pr_merge`, `issueId`],
+    [`exponential_pr_close`, `issueId`],
     [`exponential_pr_retarget`, `issueId`],
     [`exponential_pr_update`, `issueId`],
     [`exponential_pr_files`, `issueId`],

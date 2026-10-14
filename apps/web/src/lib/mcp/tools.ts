@@ -126,6 +126,7 @@ import { endSession, stopSession } from "@/lib/sessions/lifecycle"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import { writeGuide } from "@/lib/sessions/guide"
 import {
+  closePullRequestTx,
   mergePullRequest,
   openPullRequest,
   pullRequestFiles,
@@ -2551,6 +2552,23 @@ export function registerExponentialTools(
           callerSessionId,
         })
         return ok({ ...prRef(pr), ...result })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_pr_close`,
+    {
+      description: `Close an open PR without merging (via the GitHub App), e.g. one superseded by another PR. Its issues keep their status. Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. Only when a person asks.`,
+      inputSchema: strictInput({ ...prSelector }),
+    },
+    async (selector) => {
+      try {
+        const { pr } = await selectPr(selector)
+        await closePullRequestTx({ userId: user.id, pullRequestId: pr.id })
+        return ok({ ...prRef(pr), closed: true })
       } catch (e) {
         return err(e)
       }
