@@ -1,5 +1,6 @@
 import ExpCore
 import Foundation
+import GRDB
 
 // EXP-1295: the synced session-tree rows as the ×4 tree rule reads them
 // (`Tree*`). ONE mapping each, so every surface (the session view, the ref
@@ -89,5 +90,19 @@ extension SessionEntity {
             return own.isEmpty ? SessionTree.CardCopy.session : own
         }
         return SessionTree.sessionCard(ordered[index], ordinal: index + 1, now: now).name
+    }
+}
+
+extension SessionTree {
+    /// A ROOT row's thread title off the synced rows (`threadTitle`: stored,
+    /// action, first issue, first request line, `Untitled`).
+    static func threadTitle(db: Database, root: SessionEntity) throws -> String {
+        let issues = try SessionQueries.issues(db: db, rootId: root.id)
+        let messages = try SessionQueries.messages(db: db, sessionId: root.id)
+        return threadTitle(
+            root: TreeSession(sessionRow: root),
+            issues: issues.map { TreeIssue(issueRow: $0) },
+            messages: messages.map { TreeMessage(messageRow: $0) }
+        ).title
     }
 }

@@ -228,6 +228,9 @@ final class AgentSessionModel {
     /// The session's name as its card reads it (its title, else `Session N`
     /// by its place in the tree) — the screen's title.
     private(set) var title: String?
+    /// EXP-1310: the thread's title (the ROOT's `threadTitle`) — the header's
+    /// back row, ×4 (web `session-back`, Android `session-open-thread`).
+    private(set) var threadTitle: String?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
     /// `devices` row's label and whether that machine stopped heartbeating.
     private(set) var hostDevice = SessionHostDevice(label: nil, online: nil)
@@ -1214,11 +1217,12 @@ final class AgentSessionModel {
         guard sessionObservationTask == nil else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
-        let observation = ValueObservation.tracking { db -> (SessionEntity?, SessionEntity?, String?) in
-            guard let row = try SessionQueries.session(db: db, id: id) else { return (nil, nil, nil) }
+        let observation = ValueObservation.tracking { db -> (SessionEntity?, SessionEntity?, String?, String?) in
+            guard let row = try SessionQueries.session(db: db, id: id) else { return (nil, nil, nil, nil) }
             let root = row.isRoot ? row : try SessionQueries.session(db: db, id: row.rootId)
             let tree = try SessionQueries.tree(db: db, rootId: row.rootId)
-            return (row, root, row.cardName(in: tree))
+            let threadTitle = try root.map { try SessionTree.threadTitle(db: db, root: $0) }
+            return (row, root, row.cardName(in: tree), threadTitle)
         }
         sessionObservationTask = Task { [weak self] in
             // The GRDB stream is one-shot: any error (a busy database, a
@@ -1229,7 +1233,7 @@ final class AgentSessionModel {
             // (EXP-410; Android's Room flow re-subscribes on its own).
             while !Task.isCancelled {
                 do {
-                    for try await (row, root, title) in observation.values(in: pool) {
+                    for try await (row, root, title, threadTitle) in observation.values(in: pool) {
                         guard let self else { return }
                         // A nil row is published (not swallowed): the row is
                         // gone, which `sessionEnded` reads as ended. Holding
@@ -1239,6 +1243,7 @@ final class AgentSessionModel {
                         self.session = row
                         self.root = root
                         if let title { self.title = title }
+                        if let threadTitle { self.threadTitle = threadTitle }
                         // EXP-724: the run is over (or gone) — no `ended`
                         // compaction frame will ever arrive for it.
                         if self.sessionEnded { self.clearLiveWork() }

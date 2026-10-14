@@ -104,8 +104,8 @@ struct AgentSessionScreen: View {
 /// over the relay's scrubbed activity channel: narration bubbles, compact tool
 /// rows, collapsible subagent runs, question cards. NO terminal rendering.
 ///
-/// The header is the back button, the session's name and Stop
-/// (`sessions.stop`); the composer box sends a `messages` row
+/// The header is the back button, a back row naming the THREAD (its root,
+/// EXP-1310) over the session's name, and Stop (`sessions.stop`); the composer box sends a `messages` row
 /// (`sessions.send({sessionId})`). The relay stays the LIVE layer (streaming
 /// text, tool lines, usage). Read-only for a viewer who may not post (a
 /// teammate's session on a private device).
@@ -117,6 +117,7 @@ struct AgentSessionView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @Environment(\.toaster) private var toaster
+    @Environment(\.pushRoute) private var pushRoute
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
@@ -156,6 +157,8 @@ struct AgentSessionView: View {
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
+    /// EXP-1310: the Stop confirm (`Prompts.StopRun`, ×4 with Android).
+    @State private var stopConfirm = false
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
@@ -233,40 +236,76 @@ struct AgentSessionView: View {
 
     // MARK: - Header
 
-    /// The nav bar: the system back button, the session's name, and Stop
-    /// while this viewer may stop it (EXP-942: a NATIVE bar button, not a
+    /// The nav bar: the system back button, a two-line title (EXP-1310, web
+    /// `session-header`, Android `SessionHeaderBar`): the back row naming
+    /// the THREAD over the session's name; and Stop while the session is
+    /// live and this viewer may stop it (EXP-942: a NATIVE bar button, not a
     /// glass pill — the bar wraps its items in its own capsule).
     private func withChrome(_ content: some View) -> some View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(model?.title ?? session.title ?? SessionTree.CardCopy.session)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .accessibilityIdentifier("session-title")
-                }
+                ToolbarItem(placement: .principal) { headerTitle }
                 // Always mounted (EXP-942: an action-edge item that comes and
                 // goes sometimes failed to reappear); draws nothing while
                 // there is nothing to stop.
                 ToolbarItem(placement: .topBarTrailing) { stopButton }
             }
+            // EXP-240: the confirm on a zero-size node of its own.
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(isPresented: $stopConfirm) {
+                        GlassAlert(prompt: Prompts.StopRun.copy(), handlers: [
+                            "stop": { model?.stop() },
+                        ])
+                    }
+            }
     }
 
-    /// The ending verb is the word "Stop" on every client — it interrupts the
-    /// agent's turn (`sessions.stop`); the session itself stays.
+    private var headerTitle: some View {
+        VStack(spacing: 1) {
+            // The way back to the thread (a thread already on the stack is
+            // popped back to — `pushRoute`'s rule).
+            if let threadTitle = model?.threadTitle, !threadTitle.isEmpty {
+                Button {
+                    pushRoute(.thread(accountId: accountId, threadId: session.rootId))
+                } label: {
+                    HStack(spacing: 2) {
+                        AppIcon(AppIcons.uiChevronLeft, size: 11)
+                        Text(threadTitle)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("session-back")
+            }
+            Text(model?.title ?? session.title ?? SessionTree.CardCopy.session)
+                .font(.headline)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("session-title")
+        }
+    }
+
+    /// The ending verb is the word "Stop" on every client — it stops the
+    /// session (`sessions.stop`), confirmed first (`Prompts.StopRun`).
     @ViewBuilder
     private var stopButton: some View {
-        if let model, model.canStop, model.agentWorking {
+        if let model, model.canStop {
             // Text, not a Label: a bar item collapses a Label to its icon.
-            Button(role: .destructive) { model.stop() } label: {
+            Button(role: .destructive) { stopConfirm = true } label: {
                 Text("Stop").fontWeight(.medium)
             }
             .tint(DesignTokens.Semantic.red)
-            .accessibilityLabel("Stop the agent")
+            .accessibilityLabel("Stop the session")
             .accessibilityIdentifier("session-stop")
         }
     }

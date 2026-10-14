@@ -4227,8 +4227,8 @@
         "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
         "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes; the app views are the rail and Recent.",
-        "android": "EXP-1284: the Recent sheet lists threads now, so `sg_session-row` photographs a capture-only screen of THE session card, one per state (no seed counterpart, like the web/desktop styleguide entries).",
-        "ios": "EXP-1309: the live home's Running band over the seeded roots (the row's one phone instance), right after sg_agent-home."
+        "android": "See ios: the same live walk in StyleguideScreenshotsTest.",
+        "ios": "EXP-1311: the view is THE list row (the session card is `thread`'s). Both phones photograph the live home's Running band over the seeded roots, the row's one phone instance, right after sg_agent-home."
       }
     },
     {
