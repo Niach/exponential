@@ -395,6 +395,13 @@ struct MainNavigator: View {
 
             NavigationStack(path: $path) {
                 tabRoot
+                    // EXP-1318: the Threads root wears its large in-content
+                    // heading right under the status bar (Android parity), so
+                    // ITS bar is hidden; every other root states its bar
+                    // visible explicitly — the roots swap inside ONE stack,
+                    // and an inherited hidden bar would take the board's
+                    // search / Settings links with it.
+                    .toolbar(tab == .threads ? .hidden : .visible, for: .navigationBar)
                     .navigationDestination(for: AppRoute.self) { destination(for: $0) }
             }
         }
