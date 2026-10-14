@@ -272,6 +272,36 @@ function eventText(
   return template
 }
 
+export interface GuidePullRequestLike {
+  id: string
+  number: number
+  state: string
+  createdAt: string
+}
+
+/** EXP-1306: the ONE pull request the thread's Guide speaks for (its stack
+ *  rail + the bottom Merge capsule): the newest open one, else the newest
+ *  merged one (createdAt, ties by the higher number); a closed PR never counts. */
+export function guidePullRequest<T extends GuidePullRequestLike>(
+  pullRequests: readonly T[]
+): T | null {
+  const newest = (state: string) =>
+    pullRequests
+      .filter((pr) => pr.state === state)
+      .reduce<T | null>((best, pr) => {
+        if (!best) return pr
+        const diff = (ms(pr.createdAt) ?? 0) - (ms(best.createdAt) ?? 0)
+        return diff > 0 || (diff === 0 && pr.number > best.number) ? pr : best
+      }, null)
+  return newest(`open`) ?? newest(`merged`)
+}
+
+/** EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
+ *  takes the session composer's place. */
+export function composerYieldsToCard(input: { live: boolean; pendingAsk: boolean }): boolean {
+  return input.live && input.pendingAsk
+}
+
 /**
  * The thread screen: the header tabs (Conversation · one chip per issue ·
  * + · Guide), the root's conversation as rows (the root's own session card

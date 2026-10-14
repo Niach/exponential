@@ -71,3 +71,26 @@ export function validateAgentForm(form: AgentForm): AgentFormError[] {
     errors.push({ field: `instructions`, message: fixture.copy.errors.instructionsTooLong })
   return errors
 }
+
+export interface AgentAccountOptionLike {
+  id: string
+  agent: string
+  email: string
+  isLastUsed: boolean
+}
+
+/** EXP-1306: what the Account row reads (the agent mark + this email), the
+ *  composer chip's value; null = no login reported (`copy.accountLastUsed`). */
+export function agentAccountValue(input: {
+  options: readonly AgentAccountOptionLike[]
+  account: string | null
+  cli: string | null
+}): { agent: string; email: string } | null {
+  const { options, account, cli } = input
+  const picked =
+    (account ? options.find((option) => option.id === account && (!cli || option.agent === cli)) : undefined) ??
+    (cli ? options.find((option) => option.agent === cli) : undefined) ??
+    options.find((option) => option.isLastUsed) ??
+    options[0]
+  return picked ? { agent: picked.agent, email: picked.email } : null
+}
