@@ -121,7 +121,7 @@ fun AgentsSettingsList(
     )
 }
 
-/** The stateless list (the styleguide capture draws it over fake rows). */
+/** The stateless list. */
 @Composable
 internal fun AgentsSettingsListContent(
     agents: List<SessionTree.AgentRow>,
@@ -464,8 +464,7 @@ fun AgentSettingsScreen(
 }
 
 /**
- * The stateless agent page, [AgentSettings.FIELDS] top to bottom (the
- * styleguide capture draws it over fake data). [onCreate] non-null = the
+ * The stateless agent page, [AgentSettings.FIELDS] top to bottom. [onCreate] non-null = the
  * `New agent` form's submit; [onDelete] non-null = the owner's Delete.
  */
 @Composable

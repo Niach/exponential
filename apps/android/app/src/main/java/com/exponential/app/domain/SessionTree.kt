@@ -627,6 +627,46 @@ object SessionTree {
      *  session composer's place (`composerCases`). */
     fun composerYieldsToCard(live: Boolean, pendingAsk: Boolean): Boolean = live && pendingAsk
 
+    /** EXP-1309 (web `THREAD_ROW_WORDS` ×4): a Threads row's ONE quiet word. */
+    enum class ThreadRowWord(val text: String) {
+        ReadyToMerge("ready to merge"),
+        Stack("stack"),
+        Merged("merged"),
+        Question("question"),
+
+        /** An agent row waiting on a person. */
+        NeedsInput("needs input"),
+    }
+
+    /**
+     * EXP-1309 (web `threadRowWord` ×4): a thread row's word off its root's
+     * [prs], deterministic: an open PR in a stack (based on another open PR,
+     * or one is based on it) → [ThreadRowWord.Stack]; else an open PR while
+     * nothing works → [ThreadRowWord.ReadyToMerge]; no open PR but a merged
+     * one → [ThreadRowWord.Merged]; else waiting on a person →
+     * [ThreadRowWord.Question]; else none. [teamPrs] = the team's PRs (a stack
+     * edge may cross threads).
+     */
+    fun threadRowWord(
+        busy: Boolean,
+        needsYou: Boolean,
+        prs: List<PullRequestEntity>,
+        teamPrs: List<PullRequestEntity> = prs,
+    ): ThreadRowWord? {
+        val open = prs.filter { it.state == DomainContract.prStateOpen }
+        if (open.isNotEmpty()) {
+            val openIds = teamPrs.filter { it.state == DomainContract.prStateOpen }.map { it.id }.toSet()
+            val stacked = open.any { pr ->
+                (pr.basePullRequestId != null && pr.basePullRequestId in openIds) ||
+                    teamPrs.any { it.state == DomainContract.prStateOpen && it.basePullRequestId == pr.id }
+            }
+            if (stacked) return ThreadRowWord.Stack
+            return if (busy) null else ThreadRowWord.ReadyToMerge
+        }
+        if (prs.any { it.state == DomainContract.prStateMerged }) return ThreadRowWord.Merged
+        return if (needsYou) ThreadRowWord.Question else null
+    }
+
     /** EXP-1307: one entry of the thread header's `…` on the Guide. */
     enum class GuideMenuEntry(val wire: String) { OpenGithub("open-github"), ClosePr("close-pr") }
 

@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,6 +74,7 @@ import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.IssueSearchSheet
+import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.work.ChangesLoadState
@@ -190,12 +192,23 @@ fun ThreadScreen(
     // EXP-1307: the Guide's ONE PR behind the header `…`.
     val guidePr = SessionTree.guidePullRequest(pullRequests)
 
+    // EXP-760 ×4: a `#IDENTIFIER` (and, in the conversation, a BARE one) of a
+    // synced same-team issue is a pill; one linked here opens its tab.
+    val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
+    val issueRefHandler = remember(linkCandidates, statusById) {
+        IssueRefHandler(linkCandidates, searchServer = viewModel::searchIssues) { target ->
+            if (statusById.containsKey(target.issueId)) selectedKey = "issue:${target.issueId}"
+            else currentOnOpenIssue(target.issueId)
+        }
+    }
+
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {
         CompositionLocalProvider(
             LocalDetailHaze provides hazeState,
             LocalTitleCollapse provides titleCollapse,
+            LocalIssueRefs provides issueRefHandler,
         ) {
             ThreadContent(
                 view = view,
@@ -348,7 +361,7 @@ internal fun fixConflictsMessage(number: Int?): String =
 /**
  * The thread screen's whole layout, stateless: the header, the tab strip
  * (none on an agent channel) and the pager. The issue + Guide pages come in
- * as slots, so the styleguide captures draw this over fake data.
+ * as slots.
  */
 @Composable
 fun ThreadContent(

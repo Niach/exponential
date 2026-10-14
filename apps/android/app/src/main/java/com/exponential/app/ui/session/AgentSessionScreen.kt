@@ -475,8 +475,7 @@ fun AgentSessionScreen(
 }
 
 /**
- * EXP-1291: the raw session view's header — stateless, so the styleguide
- * capture draws the real one. The shared [com.exponential.app.ui.work.WorkTopBar]
+ * EXP-1291: the raw session view's header, stateless. The shared [com.exponential.app.ui.work.WorkTopBar]
  * (back · title · Stop) whose title is two lines: the back row naming the
  * thread (`session-open-thread`, muted, a chevron) over the session's name
  * with its [AgentRunMark] (the ×4 state on the agent's mark).
@@ -548,105 +547,6 @@ fun SessionHeaderBar(
         onVerb = onStop,
         menu = null,
     )
-}
-
-/**
- * EXP-1291: the raw session view drawn WITHOUT a relay — the styleguide's
- * capture (`SessionCaptures`): the real [SessionHeaderBar], status row,
- * transcript ([ActivityFeed]) over [feed] and the folded session composer.
- */
-@Composable
-internal fun SessionViewPreview(
-    threadTitle: String,
-    sessionName: String,
-    agent: String,
-    state: SessionTree.SessionState,
-    feed: List<AgentFeedItem>,
-    canStop: Boolean = true,
-) {
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            SessionHeaderBar(
-                threadTitle = threadTitle,
-                sessionName = sessionName,
-                agent = agent,
-                state = state,
-                canStop = canStop,
-                onBack = {},
-                onOpenThread = {},
-                onStop = {},
-            )
-        },
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-            ActivityFeed(
-                feed = feed,
-                live = true,
-                listState = rememberLazyListState(),
-                follow = false,
-                onFollowChange = {},
-                agentTab = null,
-                onAgentTabChange = {},
-                working = state == SessionTree.SessionState.Working,
-                workingAgent = agent,
-                answerEnabled = false,
-                answerStates = emptyMap(),
-                answerLabels = emptyMap(),
-                onAnswer = { _, _, _ -> },
-                onPlanFollowUp = { _, _, _ -> },
-                agent = agent,
-                bottomInset = padding.calculateBottomPadding() + 96.dp,
-                topInset = padding.calculateTopPadding(),
-                statusRow = {
-                    ReadingColumn {
-                        Row(
-                            modifier = Modifier.padding(vertical = 8.dp).testTag("run-status-row"),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            AgentRunMark(agent = agent, state = state, size = 14.dp, badgeSize = 6.dp)
-                            Text(
-                                SessionTree.CardCopy.STATES[state].orEmpty(),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
-                    }
-                },
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .padding(bottom = padding.calculateBottomPadding()),
-            ) {
-                SteerComposer(
-                    value = TextFieldValue(""),
-                    onValueChange = {},
-                    onValueRewrite = {},
-                    pendingImages = emptyList(),
-                    sending = false,
-                    live = true,
-                    working = state == SessionTree.SessionState.Working,
-                    onInterrupt = {},
-                    expanded = false,
-                    onExpandedChange = {},
-                    onPickImages = {},
-                    onRemoveImage = {},
-                    onSend = {},
-                    planMode = false,
-                    model = null,
-                    modelPickable = false,
-                    onPickModel = {},
-                    contextPercent = null,
-                    hasUsage = false,
-                    onOpenUsage = {},
-                    trailing = null,
-                )
-            }
-        }
-    }
 }
 
 /** EXP-1172: the shown run's raw results blob, for the transcript's inline

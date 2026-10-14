@@ -14,6 +14,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import com.exponential.app.data.steer.SteerTestHooks
 import java.net.URI
+import java.util.TimeZone
 import tools.fastlane.screengrab.Screengrab
 import tools.fastlane.screengrab.UiAutomatorScreenshotStrategy
 
@@ -73,6 +74,14 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
 
         /** APP-5 — the seeded showcase issue (description + the only comment thread). */
         const val SHOWCASE_ISSUE_TITLE = "Reduce cold start below 800 ms"
+
+        /**
+         * EXP-1309: the zone the seed's pinned instants are printed in
+         * (`DEMO_TIMEZONE`, `apps/web/scripts/screenshot-demo.ts`): message
+         * rows print a TIME OF DAY (`09:14`), which web and iOS read in the
+         * capture host's zone. Keep in lockstep.
+         */
+        const val DEMO_TIME_ZONE = "Europe/Berlin"
 
         /** InstanceScreen's demoted self-hosting entry (EXP-14). */
         const val SELF_HOST_LINK = "Use a self-hosted instance"
@@ -156,6 +165,22 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
             } else {
                 GrantPermissionRule.grant()
             }
+
+        /**
+         * Pins THIS process's default zone to [DEMO_TIME_ZONE] (the app runs
+         * in the instrumentation's process, and every clock it prints reads
+         * `ZoneId.systemDefault()`), so a shot never depends on the emulator's
+         * zone. Returns the previous zone for [restoreTimeZone].
+         */
+        fun pinDemoTimeZone(): TimeZone {
+            val previous = TimeZone.getDefault()
+            TimeZone.setDefault(TimeZone.getTimeZone(DEMO_TIME_ZONE))
+            return previous
+        }
+
+        fun restoreTimeZone(previous: TimeZone) {
+            TimeZone.setDefault(previous)
+        }
 
         /** Compose surfaces only render into a screenshot via UiAutomator. */
         fun useUiAutomatorScreenshots() {
