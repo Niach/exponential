@@ -50,7 +50,6 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.TopBarBackButton
@@ -567,7 +566,6 @@ fun ServerDetailScreen(
                             onBack()
                         },
                     )
-                    GroupDivider()
                     // Store policy (Play "Delete account" / App Store
                     // 5.1.1(v)): account deletion must be initiable in-app.
                     ActionRow(
@@ -594,7 +592,6 @@ fun ServerDetailScreen(
                 // The bundled cloud can never be removed — "Remove server" is a
                 // custom-server affordance only (iOS parity, EXP-331).
                 if (account?.isCloud != true) {
-                    GroupDivider()
                     ActionRow(
                         icon = ExpIcons.uiDelete,
                         title = "Remove server",
