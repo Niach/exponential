@@ -7,7 +7,7 @@ import {
 
 /**
  * The ONE mapping from a refused GitHub merge onto a tRPC error code, shared by
- * `issues.mergePr` and `repositories.mergePull`.
+ * every merge path (`mergePullRequestOrThrow`, lib/pull-requests.ts).
  *
  * EXP-533: the code IS the conflict signal every client gates its
  * "Fix conflicts" recovery run on. `CONFLICT` (HTTP 409) means the two trees

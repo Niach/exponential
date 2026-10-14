@@ -1,287 +1,245 @@
-//! EXP-1284: `thread-parts` (Special components): the THREAD's pieces, the
-//! IDE half of the styleguide entry — the REAL painters
+//! EXP-1284/EXP-1294: `thread-parts` (Special components): the thread
+//! screen's pieces, the IDE half of the styleguide entry — the REAL painters
 //! (`crate::thread_screen`) over the contract model
-//! (`domain::thread_view::build_thread_view`), fed the fixture's own cases
-//! (`fixtures/thread-view.json`): draft 1 (two issues the agent linked, one
-//! live run) and draft 2 (a resume, then two children of Run 2 in ONE
-//! parallel card). Above them the title row and the child strip; below them
-//! the thread list rows (Running / Recent) and the issue page's `Threads`
-//! chip.
+//! (`domain::session_tree::build_session_thread`), fed
+//! `fixtures/session-thread.json`'s first case: the title, the ONE tab strip
+//! (Conversation · the issue chips · + · Guide with its dot), then every
+//! conversation row in order — the root's own session card, the person's
+//! bubble, the agent's prose, an event line, a child's session card, a
+//! question answered in place and the queued reply. The rows the first case
+//! has no example of (a plan, a subagent, a picture) follow from the second
+//! case, then THE session composer box with the fixture's placeholder.
+//!
+//! No `sync::Store` here: authors read `Someone`, no `#IDENT` pills, and the
+//! image cache has no transport (the picture paints its placeholder box).
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, Div, IntoElement, ParentElement as _,
-    SharedString, Styled as _, Window,
+    div, prelude::FluentBuilder as _, px, AnyElement, App, Context, Div, Entity,
+    IntoElement as _, ParentElement as _, Render, SharedString, Styled as _, Window,
 };
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
-use domain::thread_view::{
-    build_thread_view, ThreadBlock, ThreadChild, ThreadView, ThreadViewIssue, ThreadViewItem,
-    ThreadViewRun, ThreadViewThread,
+use domain::rows::{MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
+use domain::session_tree::{
+    build_session_thread, SessionThreadInput, SessionThreadRow, SessionThreadView, ThreadTab, TreeIssue,
+    THREAD,
 };
 
 use crate::icons::registry;
+use crate::markdown::ImageCache;
+use crate::mention_input::MentionInput;
 use crate::thread_screen::{
-    block_header, folded_line, guide_dot, link_row, parallel_card, parallel_meta, parallel_row,
-    run_mark, strip_chip, strip_divider, strip_issue_body, thread_row, title_row, ThreadRowSpec,
-    CONVERSATION_LABEL, GUIDE_LABEL, SHOW_WORK_LABEL,
+    agent_prose, bubble_caption, card_row, clock, guide_dot, message_markdown, muted_line, strip_chip,
+    strip_divider, strip_issue_body, title_row, user_bubble,
 };
 
+use super::fixture_rows;
+
 pub(crate) const ID: &str = "thread-parts";
-pub(crate) const OWNER: &str = "EXP-1284";
+pub(crate) const OWNER: &str = "EXP-1293";
 
-const FIXTURE: &str =
-    include_str!("../../../../../../../packages/domain-contract/fixtures/thread-view.json");
-
-/// The fixture cases the demo draws, by index: draft 1, draft 2.
-const CASES: [usize; 2] = [0, 1];
-
-#[derive(serde::Deserialize)]
-struct Input {
-    thread: ThreadViewThread,
-    items: Vec<ThreadViewItem>,
-    issues: Vec<ThreadViewIssue>,
-    runs: Vec<ThreadViewRun>,
+/// One fixture case: the view, plus the messages it was built from (a
+/// bubble's caption reads its `createdAt`).
+pub(super) struct Case {
+    pub(super) view: SessionThreadView,
+    messages: Vec<MessageRow>,
+    issues: Vec<TreeIssue>,
 }
 
-fn cases() -> Vec<(ThreadView, Vec<ThreadViewRun>)> {
-    let fixture: serde_json::Value = serde_json::from_str(FIXTURE).expect("thread-view.json parses");
-    CASES
+/// Fixture case `index`, built through the shared model.
+pub(super) fn case(index: usize) -> Case {
+    let fixture: serde_json::Value =
+        serde_json::from_str(fixture_rows::SESSION_THREAD_JSON).expect("session-thread.json parses");
+    let input = &fixture["cases"][index]["input"];
+    let root: SessionRow = fixture_rows::row(&input["root"]);
+    let sessions: Vec<SessionRow> = fixture_rows::rows(&input["sessions"]);
+    let links: Vec<SessionIssueRow> = fixture_rows::rows(&input["sessionIssues"]);
+    let issues: Vec<TreeIssue> = input["issues"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|issue| TreeIssue {
+            id: issue["id"].as_str().unwrap_or_default().to_string(),
+            identifier: issue["identifier"].as_str().unwrap_or_default().to_string(),
+            title: issue["title"].as_str().unwrap_or_default().to_string(),
+        })
+        .collect();
+    let messages: Vec<MessageRow> = fixture_rows::rows(&input["messages"]);
+    let pulls: Vec<PullRequestRow> = fixture_rows::rows(&input["pullRequests"]);
+    let view = build_session_thread(SessionThreadInput {
+        root: &root,
+        sessions: &sessions.iter().collect::<Vec<_>>(),
+        session_issues: &links.iter().collect::<Vec<_>>(),
+        issues: &issues,
+        messages: &messages.iter().collect::<Vec<_>>(),
+        pull_requests: &pulls.iter().collect::<Vec<_>>(),
+        now_ms: fixture_rows::now_ms(&input["now"]),
+    });
+    Case { view, messages, issues }
+}
+
+/// The strip the thread screen draws over `view.tabs`: Conversation active,
+/// the `+`, the divider, Guide.
+fn strip(case: &Case, cx: &App) -> AnyElement {
+    let mut chips: Vec<AnyElement> = Vec::new();
+    let mut trailing: Vec<AnyElement> = Vec::new();
+    for tab in &case.view.tabs {
+        match tab {
+            ThreadTab::Conversation => chips.push(
+                strip_chip("sg-thread-conversation", true, cx)
+                    .child(Icon::new(registry::ACTION_CHAT).xsmall())
+                    .child(SharedString::from(THREAD.copy.conversation.clone()))
+                    .into_any_element(),
+            ),
+            ThreadTab::Issue { issue_id, identifier } => {
+                let title = case
+                    .issues
+                    .iter()
+                    .find(|issue| issue.id == *issue_id)
+                    .map(|issue| issue.title.as_str())
+                    .unwrap_or_default();
+                chips.push(
+                    strip_chip(SharedString::from(format!("sg-thread-issue-{issue_id}")), false, cx)
+                        .children(strip_issue_body(None, identifier, title, false, cx))
+                        .into_any_element(),
+                );
+            }
+            ThreadTab::Add => {
+                chips.push(
+                    crate::controls::ghost_icon_button("sg-thread-add", Icon::new(registry::UI_ADD), cx)
+                        .into_any_element(),
+                );
+                trailing.push(strip_divider(cx));
+            }
+            ThreadTab::Guide { dot } => trailing.push(
+                strip_chip("sg-thread-guide", false, cx)
+                    .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
+                    .child(SharedString::from(THREAD.copy.guide.clone()))
+                    .when(*dot, |chip| chip.child(guide_dot(cx)))
+                    .into_any_element(),
+            ),
+        }
+    }
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .items_center()
+        .children(chips)
+        .children(trailing)
+        .into_any_element()
+}
+
+/// One conversation row, the way the thread screen paints it.
+pub(super) fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+    if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
+        let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, None);
+        return match author.as_str() {
+            domain::contract::MESSAGE_AUTHOR_KIND_USER => {
+                let at = case
+                    .messages
+                    .iter()
+                    .find(|message| message.id == *id)
+                    .and_then(|message| message.created_at.as_deref());
+                let name = crate::comments::author_label(None);
+                user_bubble(id, markdown, bubble_caption(Some(&name), &clock(at)), *queued, true, cx)
+            }
+            domain::contract::MESSAGE_AUTHOR_KIND_AGENT => agent_prose(markdown, cx),
+            _ => muted_line(registry::UI_INFO, body.clone(), cx),
+        };
+    }
+    card_row(row, &case.view.root_id, None, images, cx).unwrap_or_else(|| div().into_any_element())
+}
+
+/// The rows of the second case the first has no example of.
+fn extra_rows(view: &SessionThreadView) -> Vec<&SessionThreadRow> {
+    view.rows
         .iter()
-        .filter_map(|&index| serde_json::from_value::<Input>(fixture["views"][index]["input"].clone()).ok())
-        .map(|input| {
-            let view = build_thread_view(&input.thread, &input.items, &input.issues, &input.runs);
-            (view, input.runs)
+        .filter(|row| {
+            matches!(
+                row,
+                SessionThreadRow::Plan { .. } | SessionThreadRow::Subagent { .. } | SessionThreadRow::Picture { .. }
+            )
         })
         .collect()
 }
 
-/// The fixture's "now" — a little after its newest run started.
-const NOW: &str = "2026-10-12T11:02:00.000Z";
+/// THE session composer box's field, kept across frames.
+struct ComposerDemo {
+    mention: Entity<MentionInput>,
+}
 
-fn strip(view: &ThreadView, case: usize, cx: &App) -> AnyElement {
-    let mut chips: Vec<AnyElement> = Vec::new();
-    for (index, child) in view.strip.iter().enumerate() {
-        let id = SharedString::from(format!("sg-thread-strip-{case}-{index}"));
-        chips.push(match child {
-            ThreadChild::Conversation => strip_chip(id, true, cx)
-                .child(Icon::new(registry::ACTION_CHAT).xsmall())
-                .child(CONVERSATION_LABEL)
-                .into_any_element(),
-            ThreadChild::Issue { identifier, title, .. } => strip_chip(id, false, cx)
-                .children(strip_issue_body(None, identifier, title, false, cx))
-                .into_any_element(),
-            ThreadChild::Add => h_flex()
-                .gap_1()
-                .items_center()
-                .child(
-                    Icon::new(registry::UI_ADD)
-                        .xsmall()
-                        .text_color(cx.theme().muted_foreground),
-                )
-                .child(strip_divider(cx))
-                .into_any_element(),
-            ThreadChild::Guide { dot } => strip_chip(id, false, cx)
-                .child(Icon::new(registry::NAV_REVIEWS).xsmall())
-                .child(GUIDE_LABEL)
-                .when(*dot, |chip| chip.child(guide_dot(cx)))
-                .into_any_element(),
-        });
+impl ComposerDemo {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let (_, mention) = crate::composer::session_composer_field(THREAD.copy.placeholder.clone(), window, cx);
+        Self { mention }
     }
-    h_flex()
-        .w_full()
-        .gap_1()
-        .items_center()
-        .children(chips)
-        .child(div().flex_1())
-        .child(
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(SharedString::from(view.header_caption.clone())),
-        )
-        .into_any_element()
 }
 
-fn agent() -> Option<coding::CodingAgent> {
-    Some(coding::CodingAgent::default())
-}
-
-fn link_chip(key: String, identifier: &str, title: &str) -> AnyElement {
-    crate::issue_chip::issue_chip(key, identifier.to_string(), title.to_string())
-        .max_title_width(px(220.))
-        .into_any_element()
-}
-
-fn conversation(view: &ThreadView, runs: &[ThreadViewRun], case: usize, cx: &App) -> AnyElement {
-    let now_ms = crate::run_rows::stamp_ms(Some(NOW)).unwrap_or(0);
-    let mut column = v_flex().w_full().gap_4();
-    for (index, block) in view.conversation.iter().enumerate() {
-        let mut body = v_flex().w_full().gap_2();
-        match block {
-            ThreadBlock::Run(block) => {
-                let busy = runs.iter().any(|run| run.id == block.run_id && run.agent_busy);
-                body = body.child(block_header(
-                    run_mark(agent(), block.state, busy),
-                    &block.label,
-                    &block.caption,
-                    block.state,
-                    cx,
-                ));
-                if block.folded {
-                    let name = runs
-                        .iter()
-                        .find(|run| run.id == block.run_id)
-                        .map(|run| run.name.clone())
-                        .unwrap_or_default();
-                    let toggle = crate::controls::text_button(
-                        SharedString::from(format!("sg-thread-show-work-{case}-{index}")),
-                        SHOW_WORK_LABEL,
-                        crate::controls::TextButtonVariant::Text,
-                        cx,
-                    )
-                    .into_any_element();
-                    body = body.child(folded_line(&name, toggle, cx));
-                }
-            }
-            ThreadBlock::Parallel(block) => {
-                body = body.child(block_header(
-                    run_mark(agent(), block.state, false),
-                    &block.label,
-                    &block.caption,
-                    block.state,
-                    cx,
-                ));
-                let rows = block
-                    .runs
-                    .iter()
-                    .enumerate()
-                    .map(|(row_ix, row)| {
-                        let chip = row.issue_id.as_ref().and_then(|issue_id| {
-                            view.strip.iter().find_map(|child| match child {
-                                ThreadChild::Issue { issue_id: id, identifier, title } if id == issue_id => {
-                                    Some(
-                                        crate::issue_chip::issue_chip(
-                                            SharedString::from(format!("sg-thread-par-chip-{case}-{row_ix}")),
-                                            identifier.clone(),
-                                            title.clone(),
-                                        )
-                                        .small()
-                                        .into_any_element(),
-                                    )
-                                }
-                                _ => None,
-                            })
-                        });
-                        parallel_row(
-                            SharedString::from(format!("sg-thread-par-{case}-{row_ix}")),
-                            run_mark(agent(), row.state, false),
-                            &row.name,
-                            chip,
-                            &parallel_meta(row.device_label.as_deref(), &row.started_at, now_ms),
-                            row_ix == 0,
-                            cx,
-                        )
-                        .into_any_element()
-                    })
-                    .collect();
-                body = body.child(parallel_card(rows, cx));
-            }
-        }
-        for link in block.links() {
-            let mark = crate::coding_selects::agent_mark(coding::CodingAgent::default())
-                .size(px(14.))
-                .into_any_element();
-            body = body.child(link_row(
-                mark,
-                &link.label,
-                link_chip(
-                    format!("sg-thread-link-{case}-{}", link.item_id),
-                    &link.identifier,
-                    &link.title,
-                ),
-                cx,
-            ));
-        }
-        column = column.child(body);
-    }
-    column.into_any_element()
-}
-
-fn list_rows(views: &[(ThreadView, Vec<ThreadViewRun>)], cx: &App) -> AnyElement {
-    let mut column = v_flex().w(px(300.)).gap_0p5();
-    for (index, (view, _)) in views.iter().enumerate() {
-        column = column.child(thread_row(
-            ThreadRowSpec {
-                id_prefix: "sg-thread-list",
-                index,
-                title: SharedString::from(view.title.clone()),
-                caption: SharedString::from(view.list_caption.clone()),
-                agent: coding::CodingAgent::default(),
-                live: view.live,
-                display: if view.needs_input {
-                    Some(crate::queries::CodingSessionDisplay::NeedsInput)
-                } else if view.busy {
-                    Some(crate::queries::CodingSessionDisplay::Working)
-                } else {
-                    None
-                },
-                active: index == 0,
-                glass: true,
-                on_open: Box::new(|_, _, _| {}),
-                stop: Vec::new(),
-            },
-            cx,
-        ));
-    }
-    column.into_any_element()
-}
-
-pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
-    let views = cases();
-    let mut page = v_flex().w(px(760.)).gap_8();
-    for (case, (view, runs)) in views.iter().enumerate() {
-        page = page.child(
-            v_flex()
-                .w_full()
-                .gap_3()
-                .child(title_row(&view.title, cx))
-                .child(strip(view, case, cx))
-                .child(div().w_full().h(px(1.)).bg(cx.theme().border))
-                .child(conversation(view, runs, case, cx)),
-        );
-    }
-    let chip = views.first().map(|(view, _)| {
-        crate::thread_screen::issue_thread_chip(
-            0,
-            &crate::threads::IssueThreadChip {
-                thread_id: "sg-thread".into(),
-                title: SharedString::from(view.title.clone()),
-                live: view.live,
-                busy: view.busy,
-                needs_input: view.needs_input,
-                agent: coding::CodingAgent::default(),
-            },
+impl Render for ComposerDemo {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let submit = crate::composer::SessionComposerSubmit::send("sg-thread-composer", true, |_, _, _| {});
+        crate::composer::session_composer_box(
+            crate::composer::SessionComposerBox::new(self.mention.clone(), submit).tool(
+                crate::composer::composer_tool("sg-thread-attach", crate::icons::registry::UI_ADD, cx)
+                    .tooltip("Add file or image"),
+            ),
             cx,
         )
-    });
-    page.child(list_rows(&views, cx)).child(
-        h_flex()
-            .gap_1p5()
-            .items_center()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(crate::thread_screen::THREADS_LABEL),
-            )
-            .children(chip),
-    )
+    }
+}
+
+pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
+    let images = window
+        .use_keyed_state("sg-thread-parts-images", cx, |_, _| ImageCache::new(None))
+        .clone();
+    let composer = window.use_keyed_state("sg-thread-parts-composer", cx, ComposerDemo::new);
+    let first = case(0);
+    let second = case(1);
+    let mut conversation = v_flex().w_full().gap_5();
+    for item in &first.view.rows {
+        conversation = conversation.child(row(&first, item, &images, cx));
+    }
+    for item in extra_rows(&second.view) {
+        conversation = conversation.child(row(&second, item, &images, cx));
+    }
+    v_flex()
+        .w(px(760.))
+        .gap_4()
+        .child(title_row(&first.view.title, first.view.private, cx))
+        .child(strip(&first, cx))
+        .child(div().w_full().h(px(1.)).bg(cx.theme().border))
+        .child(conversation)
+        .child(composer)
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// The demo draws every row kind the conversation has, the session card
+    /// first.
     #[test]
-    fn both_fixture_cases_build() {
-        assert_eq!(super::cases().len(), 2);
+    fn the_demo_draws_every_row_kind() {
+        let first = case(0);
+        let second = case(1);
+        let kinds: std::collections::BTreeSet<&str> = first
+            .view
+            .rows
+            .iter()
+            .chain(extra_rows(&second.view))
+            .map(|row| match row {
+                SessionThreadRow::Message { .. } => "message",
+                SessionThreadRow::Session { .. } => "session",
+                SessionThreadRow::Question { .. } => "question",
+                SessionThreadRow::Plan { .. } => "plan",
+                SessionThreadRow::Subagent { .. } => "subagent",
+                SessionThreadRow::Picture { .. } => "picture",
+                SessionThreadRow::Event { .. } => "event",
+            })
+            .collect();
+        assert_eq!(kinds.len(), 7, "{kinds:?}");
+        assert!(matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
+        assert_eq!(first.view.title, "Login fails on Safari");
     }
 }

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TRPCError } from "@trpc/server"
 
-// Actions router (EXP-257/EXP-539): list returns DB rows only (clients and
-// the MCP tool construct/append the virtual builtins themselves), the
-// reserved builtin ids stay read/write-protected, inputs schemas persist
-// through create/update, and the reserved name stays unique. DB access is a
-// queued select-chain + insert recorder (steer.test.ts precedent).
+// Actions router (EXP-1291: actions = SAVED PROMPTS): member reads, `get`
+// returns the body, owner-only writes, inputs schemas persist through
+// create/update, names stay unique per team; no builtins, triggers,
+// repository or MCP list. DB access is a queued select-chain + insert
+// recorder (steer.test.ts precedent).
 
 const h = vi.hoisted(() => {
   const selectResults: unknown[][] = []
@@ -82,15 +82,11 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => {
 
 import { actionsRouter } from "@/lib/trpc/actions"
 import { actions } from "@/db/schema"
-import { MAX_ACTION_TRIGGERS } from "@exp/db-schema/domain"
 
 const { selectResults, inserts, updates, deletes, fakeDb } = h
 
 const TEAM_ID = `11111111-1111-4111-8111-111111111111`
 const ACTION_ID = `22222222-2222-4222-8222-222222222222`
-const TRIGGER_ID = `33333333-3333-4333-8333-333333333333`
-const BUILTIN_ID = `builtin:create-action`
-const FIX_CONFLICTS_ID = `builtin:fix-conflicts`
 
 const caller = actionsRouter.createCaller({
   session: { user: { id: `actor` } },
@@ -105,6 +101,18 @@ async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
   )
 }
 
+const row = (over: Record<string, unknown> = {}) => ({
+  id: ACTION_ID,
+  teamId: TEAM_ID,
+  name: `Code review`,
+  icon: null,
+  body: `Review the diff`,
+  inputs: [],
+  promptPlaceholder: null,
+  sortOrder: 1,
+  ...over,
+})
+
 beforeEach(() => {
   selectResults.length = 0
   inserts.length = 0
@@ -112,108 +120,38 @@ beforeEach(() => {
   deletes.length = 0
   h.assertTeamMember.mockClear()
   h.assertTeamOwner.mockClear()
+  h.assertTeamOwner.mockResolvedValue({ role: `owner` })
 })
 
-describe(`actions.list — rows only (EXP-539)`, () => {
-  it(`returns DB rows flagged builtin: false and appends nothing`, async () => {
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Code review`, inputs: [] },
-    ])
-    const { actions } = await caller.list({ teamId: TEAM_ID })
-    expect(actions).toHaveLength(1)
-    expect(actions[0]).toMatchObject({ id: ACTION_ID, builtin: false })
+describe(`actions.list / get`, () => {
+  it(`lists the team's rows as they are, member-gated`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review`, inputs: [] }])
+    const { actions: rows } = await caller.list({ teamId: TEAM_ID })
+    expect(rows).toEqual([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review`, inputs: [] }])
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
   })
 
-  it(`stays empty for a team with no actions (clients construct builtins locally)`, async () => {
+  it(`get returns the body, member-gated`, async () => {
+    selectResults.push([row()])
+    const { action } = await caller.get({ id: ACTION_ID })
+    expect(action.body).toBe(`Review the diff`)
+    expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
+  })
+
+  it(`get 404s a vanished row and refuses a non-uuid id`, async () => {
     selectResults.push([])
-    const { actions } = await caller.list({ teamId: TEAM_ID })
-    expect(actions).toEqual([])
+    expect(((await rejectionOf(caller.get({ id: ACTION_ID }))) as TRPCError).code).toBe(`NOT_FOUND`)
+    expect(
+      ((await rejectionOf(caller.get({ id: `builtin:create-action` }))) as TRPCError).code
+    ).toBe(`BAD_REQUEST`)
   })
 })
 
-describe(`actions — builtin is read/write-protected`, () => {
-  it(`get refuses the builtin id`, async () => {
-    const error = await rejectionOf(caller.get({ id: BUILTIN_ID }))
-    expect(error).toBeInstanceOf(TRPCError)
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-  })
-
-  it(`update refuses the builtin id before any DB work`, async () => {
-    const error = await rejectionOf(
-      caller.update({ id: BUILTIN_ID, name: `Hijack` })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`can't be edited`)
-    expect(h.assertTeamOwner).not.toHaveBeenCalled()
-  })
-
-  it(`delete refuses the builtin id`, async () => {
-    const error = await rejectionOf(caller.delete({ id: BUILTIN_ID }))
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`can't be deleted`)
-  })
-
-  it(`get/update/delete refuse the fix-conflicts builtin id too (EXP-259)`, async () => {
-    for (const call of [
-      caller.get({ id: FIX_CONFLICTS_ID }),
-      caller.update({ id: FIX_CONFLICTS_ID, name: `Hijack` }),
-      caller.delete({ id: FIX_CONFLICTS_ID }),
-    ]) {
-      const error = await rejectionOf(call)
-      expect(error).toBeInstanceOf(TRPCError)
-      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    }
-  })
-
-  it(`get/update/delete refuse the chat builtin id too (EXP-615)`, async () => {
-    for (const call of [
-      caller.get({ id: `builtin:chat` }),
-      caller.update({ id: `builtin:chat`, name: `Hijack` }),
-      caller.delete({ id: `builtin:chat` }),
-    ]) {
-      const error = await rejectionOf(call)
-      expect(error).toBeInstanceOf(TRPCError)
-      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    }
-  })
-})
-
-describe(`actions — tidy-up builtin (FEED-50)`, () => {
-  it(`get/update/delete refuse the tidy-up builtin id`, async () => {
-    for (const call of [
-      caller.get({ id: `builtin:tidy-up` }),
-      caller.update({ id: `builtin:tidy-up`, name: `Hijack` }),
-      caller.delete({ id: `builtin:tidy-up` }),
-    ]) {
-      const error = await rejectionOf(call)
-      expect(error).toBeInstanceOf(TRPCError)
-      expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    }
-  })
-
-  it(`refuses the reserved Tidy up name`, async () => {
-    const error = await rejectionOf(
-      caller.create({ teamId: TEAM_ID, name: `Tidy Up`, body: `x` })
-    )
-    expect((error as TRPCError).code).toBe(`CONFLICT`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`delete removes the action row (its triggers go with it)`, async () => {
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Nightly`, inputs: [] },
-    ])
-    await caller.delete({ id: ACTION_ID })
-    expect(deletes).toEqual([actions])
-  })
-})
-
-describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
-  it(`persists a valid inputs schema`, async () => {
-    // sortOrder probe select.
-    selectResults.push([])
+describe(`actions.create`, () => {
+  it(`persists a valid inputs schema (issue picks included) and appends to the end`, async () => {
+    selectResults.push([{ sortOrder: 4 }])
     const inputs = [
-      { key: `topic`, label: `Topic`, type: `icon` as const, required: true },
+      { key: `topic`, label: `Topic`, type: `issue` as const, required: true },
     ]
     const { action } = await caller.create({
       teamId: TEAM_ID,
@@ -221,11 +159,11 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
       body: `Do the thing`,
       inputs,
     })
-    expect(inserts[0]).toMatchObject({ inputs })
-    expect(action).toMatchObject({ name: `Weekly review` })
+    expect(inserts[0]).toMatchObject({ inputs, sortOrder: 5 })
+    expect(action).toMatchObject({ name: `Weekly review`, body: `Do the thing` })
+    expect(h.assertTeamOwner).toHaveBeenCalledWith(`actor`, TEAM_ID)
   })
 
-  // EXP-825: the composer hint rides create/update; blank clears it.
   it(`persists the composer hint and clears it on blank`, async () => {
     selectResults.push([])
     await caller.create({
@@ -236,7 +174,7 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
     })
     expect(inserts[0]).toMatchObject({ promptPlaceholder: `Scope: which platforms` })
 
-    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Release`, inputs: [] }])
+    selectResults.push([row({ name: `Release` })])
     await caller.update({ id: ACTION_ID, promptPlaceholder: `` })
     expect(updates[0]!.promptPlaceholder).toBeNull()
   })
@@ -247,373 +185,90 @@ describe(`actions.create — inputs + reserved name (EXP-257)`, () => {
     expect(inserts[0]!.inputs).toEqual([])
   })
 
-  it(`rejects duplicate input keys as input validation`, async () => {
-    const error = await rejectionOf(
-      caller.create({
+  it(`refuses duplicate input keys, retired input kinds and retired fields`, async () => {
+    for (const input of [
+      {
         teamId: TEAM_ID,
         name: `Dup`,
         body: `x`,
         inputs: [
-          { key: `a`, label: `A`, type: `icon` },
-          { key: `a`, label: `B`, type: `icon` },
+          { key: `a`, label: `A`, type: `repo` },
+          { key: `a`, label: `B`, type: `repo` },
         ],
-      })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`refuses the reserved builtin name, case-insensitively`, async () => {
-    const error = await rejectionOf(
-      caller.create({ teamId: TEAM_ID, name: `create ACTION`, body: `x` })
-    )
-    expect((error as TRPCError).code).toBe(`CONFLICT`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`refuses the reserved chat name (EXP-615)`, async () => {
-    // Chat session rows carry actionName "Chat" and clients watch started
-    // runs by that snapshot — a team action named "Chat" would hijack it.
-    const error = await rejectionOf(
-      caller.create({ teamId: TEAM_ID, name: `chat`, body: `x` })
-    )
-    expect((error as TRPCError).code).toBe(`CONFLICT`)
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`refuses renaming an existing action to the reserved name`, async () => {
-    // loadAction select.
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Old name`, inputs: [] },
-    ])
-    const error = await rejectionOf(
-      caller.update({ id: ACTION_ID, name: `Create action` })
-    )
-    expect((error as TRPCError).code).toBe(`CONFLICT`)
-  })
-})
-
-// SLOP-2: an action carries its triggers. A triggered run fills no inputs, so
-// an enabled trigger and a required input can never meet, whichever side the
-// write changes.
-describe(`actions.update — required inputs vs triggers`, () => {
-  const requiredInput = {
-    key: `target`,
-    label: `Target`,
-    type: `icon` as const,
-    required: true,
-  }
-  const optionalInput = { ...requiredInput, required: false }
-  const stored = (enabled: boolean) => ({
-    id: TRIGGER_ID,
-    enabled,
-    deviceId: `dev-1`,
-    kind: `schedule` as const,
-    interval: `daily` as const,
-    minuteOfDay: 540,
-  })
-
-  it(`refuses adding a required input to an action with an enabled trigger`, async () => {
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [], triggers: [stored(true)] },
-    ])
-    const error = await rejectionOf(
-      caller.update({ id: ACTION_ID, inputs: [requiredInput] })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`required inputs`)
-    expect(updates).toHaveLength(0)
-  })
-
-  it(`allows a required input while every trigger is paused`, async () => {
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Sweep`, inputs: [], triggers: [stored(false)] },
-    ])
-    await caller.update({ id: ACTION_ID, inputs: [requiredInput] })
-    expect(updates[0]!.inputs).toEqual([requiredInput])
-  })
-
-  it(`refuses enabling a trigger on an action with a required input`, async () => {
-    selectResults.push([
-      {
-        id: ACTION_ID,
-        teamId: TEAM_ID,
-        name: `Sweep`,
-        inputs: [requiredInput],
-        triggers: [stored(false)],
       },
-    ])
-    const error = await rejectionOf(
-      caller.update({ id: ACTION_ID, triggers: [stored(true)] })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`required inputs`)
-    expect(updates).toHaveLength(0)
-  })
-
-  it(`allows making the inputs optional on a triggered action`, async () => {
-    selectResults.push([
-      {
-        id: ACTION_ID,
-        teamId: TEAM_ID,
-        name: `Sweep`,
-        inputs: [requiredInput],
-        triggers: [stored(false)],
-      },
-    ])
-    await caller.update({ id: ACTION_ID, inputs: [optionalInput] })
-    expect(updates[0]!.inputs).toEqual([optionalInput])
-  })
-})
-
-describe(`actions.update — triggers (SLOP-2)`, () => {
-  const existing = {
-    id: TRIGGER_ID,
-    enabled: true,
-    deviceId: `dev-1`,
-    agent: `claude`,
-    kind: `schedule` as const,
-    interval: `daily` as const,
-    minuteOfDay: 540,
-  }
-  const ownDevice = {
-    userId: `actor`,
-    sharedTeamIds: [],
-    kind: `desktop`,
-    caps: [`triggers`],
-    agents: [`claude`],
-  }
-  const action = (triggers: unknown[]) => ({
-    id: ACTION_ID,
-    teamId: TEAM_ID,
-    name: `Sweep`,
-    inputs: [],
-    triggers,
-  })
-
-  it(`keeps a held trigger's id, mints one for a new trigger and stores the event source`, async () => {
-    selectResults.push([action([existing])])
-    // The new trigger's device is checked; the unchanged binding is not.
-    selectResults.push([ownDevice])
-    await caller.update({
-      id: ACTION_ID,
-      triggers: [
-        { ...existing, enabled: false },
-        { deviceId: `dev-1`, kind: `event`, event: `pr_merged`, model: null },
-      ],
-    })
-    const written = updates[0]!.triggers as Record<string, unknown>[]
-    expect(written[0]).toEqual({ ...existing, enabled: false })
-    expect(written[1]).toEqual({
-      id: expect.stringMatching(/^[0-9a-f-]{36}$/),
-      enabled: true,
-      deviceId: `dev-1`,
-      kind: `event`,
-      source: `exponential`,
-      event: `pr_merged`,
-    })
-    expect(written[1]!.id).not.toBe(TRIGGER_ID)
-  })
-
-  it(`re-mints an id the action does not hold (trigger ids are run history keys)`, async () => {
-    selectResults.push([action([])])
-    selectResults.push([ownDevice])
-    await caller.update({ id: ACTION_ID, triggers: [existing] })
-    const written = updates[0]!.triggers as Record<string, unknown>[]
-    expect(written[0]!.id).not.toBe(TRIGGER_ID)
-  })
-
-  it(`refuses a device that is neither the caller's nor shared with the team`, async () => {
-    selectResults.push([action([])])
-    selectResults.push([{ ...ownDevice, userId: `someone-else` }])
-    const error = await rejectionOf(
-      caller.update({ id: ACTION_ID, triggers: [{ ...existing, id: undefined }] })
-    )
-    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((error as TRPCError).message).toContain(`device must be yours`)
-    expect(updates).toHaveLength(0)
-  })
-
-  it(`refuses an account pin without its agent, and an unknown model`, async () => {
-    for (const pins of [{ agent: null, account: `work` }, { model: `gpt-nope` }]) {
-      selectResults.length = 0
-      selectResults.push([action([existing])])
-      const error = await rejectionOf(
-        caller.update({ id: ACTION_ID, triggers: [{ ...existing, ...pins }] })
-      )
+      { teamId: TEAM_ID, name: `Icon`, body: `x`, inputs: [{ key: `a`, label: `A`, type: `icon` }] },
+      { teamId: TEAM_ID, name: `Blank`, body: `   ` },
+    ]) {
+      const error = await rejectionOf(caller.create(input as never))
       expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
     }
-    expect(updates).toHaveLength(0)
-  })
-
-  // The SLOP-2 migration folded every automation of an action into its
-  // array, unbounded: the cap refuses GROWTH only, so an over-cap action
-  // still takes a pause or a removal.
-  it(`caps the trigger count on growth only`, async () => {
-    const many = Array.from({ length: MAX_ACTION_TRIGGERS + 2 }, (_, i) => ({
-      ...existing,
-      id: `33333333-3333-4333-8333-3333333333${String(i).padStart(2, `0`)}`,
-    }))
-    // A pause of one, same count.
-    selectResults.push([action(many)])
-    await caller.update({
-      id: ACTION_ID,
-      triggers: many.map((t, i) => (i === 0 ? { ...t, enabled: false } : t)),
-    })
-    expect(updates[0]!.triggers).toHaveLength(MAX_ACTION_TRIGGERS + 2)
-    // A removal, still above the cap.
-    selectResults.push([action(many)])
-    await caller.update({ id: ACTION_ID, triggers: many.slice(1) })
-    expect(updates[1]!.triggers).toHaveLength(MAX_ACTION_TRIGGERS + 1)
-    // One more than stored: refused, before any device lookup.
-    selectResults.push([action(many)])
-    const grown = await rejectionOf(
-      caller.update({
-        id: ACTION_ID,
-        triggers: [...many, { ...existing, id: undefined }],
-      })
-    )
-    expect((grown as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect((grown as TRPCError).message).toContain(`at most ${MAX_ACTION_TRIGGERS}`)
-    // …and an ordinary action cannot grow past the cap either.
-    selectResults.length = 0
-    selectResults.push([action([existing])])
-    const fresh = await rejectionOf(
-      caller.update({
-        id: ACTION_ID,
-        triggers: Array.from({ length: MAX_ACTION_TRIGGERS + 1 }, () => ({
-          ...existing,
-          id: undefined,
-        })),
-      })
-    )
-    expect((fresh as TRPCError).code).toBe(`BAD_REQUEST`)
-    expect(updates).toHaveLength(2)
-  })
-
-  // A migrated trigger may pin a model (or agent) the contract has since
-  // dropped: pins are validated only where they CHANGED against the stored
-  // trigger of the same id, so such an action still takes every other write.
-  it(`accepts an unchanged pin the contract no longer knows, refuses a changed one`, async () => {
-    const stale = { ...existing, model: `retired-model`, effort: `retired-effort` }
-    const sibling = { ...existing, id: `33333333-3333-4333-8333-333333333399` }
-    selectResults.push([action([stale, sibling])])
-    await caller.update({
-      id: ACTION_ID,
-      triggers: [
-        { ...stale, enabled: false },
-        { ...sibling, minuteOfDay: 600 },
-      ],
-    })
-    const written = updates[0]!.triggers as Record<string, unknown>[]
-    expect(written[0]).toEqual({ ...stale, enabled: false })
-    expect(written[1]).toEqual({ ...sibling, minuteOfDay: 600 })
-
-    // Changing the stale pin to another unknown value is still refused…
-    selectResults.push([action([stale])])
-    const changed = await rejectionOf(
-      caller.update({ id: ACTION_ID, triggers: [{ ...stale, model: `also-gone` }] })
-    )
-    expect((changed as TRPCError).message).toBe(`Unknown claude model`)
-    // …and so is carrying it under ANOTHER agent (model lists are per agent).
-    selectResults.push([action([stale])])
-    selectResults.push([{ ...ownDevice, agents: [`claude`, `codex`] }])
-    const switched = await rejectionOf(
-      caller.update({ id: ACTION_ID, triggers: [{ ...stale, agent: `codex` }] })
-    )
-    expect((switched as TRPCError).message).toBe(`Unknown codex model`)
-    // A NEW trigger (no stored twin) is validated in full.
-    selectResults.length = 0
-    selectResults.push([action([])])
-    const fresh = await rejectionOf(
-      caller.update({ id: ACTION_ID, triggers: [{ ...stale, id: undefined }] })
-    )
-    expect((fresh as TRPCError).message).toBe(`Unknown claude model`)
-    expect(updates).toHaveLength(1)
-  })
-
-  it(`lets the migrated Tidy up row keep its reserved name`, async () => {
-    selectResults.push([{ ...action([]), name: `Tidy up` }])
-    await caller.update({ id: ACTION_ID, name: `Tidy up`, description: `Mine` })
-    expect(updates[0]!.description).toBe(`Mine`)
-  })
-})
-
-// FEED-73: the action owns its MCP list — server-only like `body`, written
-// through create/update (in-team ids only), echoed by the writes and `get`,
-// never by `list`.
-describe(`actions — mcpServerIds (FEED-73)`, () => {
-  const SERVER_A = `44444444-4444-4444-8444-444444444444`
-  const SERVER_B = `55555555-5555-4555-8555-555555555555`
-
-  it(`create persists the in-team list, de-duplicated, and echoes it`, async () => {
-    // assertMcpServersInTeam, then the sortOrder probe.
-    selectResults.push([{ id: SERVER_A }, { id: SERVER_B }], [])
-    const { action } = await caller.create({
-      teamId: TEAM_ID,
-      name: `Triage`,
-      body: `x`,
-      mcpServerIds: [SERVER_A, SERVER_B, SERVER_A],
-    })
-    expect(inserts[0]!.mcpServerIds).toEqual([SERVER_A, SERVER_B])
-    expect(action).toMatchObject({ mcpServerIds: [SERVER_A, SERVER_B] })
-  })
-
-  it(`create defaults to an empty list without a query`, async () => {
-    selectResults.push([])
-    await caller.create({ teamId: TEAM_ID, name: `Plain`, body: `x` })
-    expect(inserts[0]!.mcpServerIds).toEqual([])
-  })
-
-  it(`create refuses a foreign (or vanished) server id`, async () => {
-    selectResults.push([{ id: SERVER_A }])
-    const error = await rejectionOf(
-      caller.create({
-        teamId: TEAM_ID,
-        name: `Triage`,
-        body: `x`,
-        mcpServerIds: [SERVER_A, SERVER_B],
-      })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect(inserts).toHaveLength(0)
   })
 
-  it(`update replaces the list (empty clears it), refuses foreign ids`, async () => {
-    selectResults.push(
-      [{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }],
-      [{ id: SERVER_B }]
-    )
-    const { action } = await caller.update({ id: ACTION_ID, mcpServerIds: [SERVER_B] })
-    expect(updates[0]).toEqual({ mcpServerIds: [SERVER_B] })
-    expect(action).toMatchObject({ mcpServerIds: [SERVER_B] })
-
-    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }])
-    await caller.update({ id: ACTION_ID, mcpServerIds: [] })
-    expect(updates[1]).toEqual({ mcpServerIds: [] })
-
-    selectResults.push(
-      [{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }],
-      []
+  it(`refuses a non-owner before any write`, async () => {
+    h.assertTeamOwner.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Owner only` })
     )
     const error = await rejectionOf(
-      caller.update({ id: ACTION_ID, mcpServerIds: [SERVER_A] })
+      caller.create({ teamId: TEAM_ID, name: `X`, body: `x` })
     )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect(updates).toHaveLength(2)
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(inserts).toHaveLength(0)
   })
 
-  it(`a partial update leaves the list alone`, async () => {
-    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, inputs: [], triggers: [] }])
-    await caller.update({ id: ACTION_ID, description: `d` })
-    expect(updates[0]).not.toHaveProperty(`mcpServerIds`)
+  it(`answers a duplicate name with CONFLICT`, async () => {
+    selectResults.push([])
+    const insert = fakeDb.insert as () => unknown
+    fakeDb.insert = () => ({
+      values: () => ({ onConflictDoNothing: () => ({ returning: async () => [] }) }),
+    })
+    try {
+      const error = await rejectionOf(
+        caller.create({ teamId: TEAM_ID, name: `Code review`, body: `x` })
+      )
+      expect((error as TRPCError).code).toBe(`CONFLICT`)
+    } finally {
+      fakeDb.insert = insert
+    }
+  })
+})
+
+describe(`actions.update / delete`, () => {
+  it(`writes only the given fields, owner-gated on the row's team`, async () => {
+    selectResults.push([row()])
+    await caller.update({ id: ACTION_ID, body: `New body`, icon: null })
+    expect(updates[0]).toEqual({ body: `New body`, icon: null })
+    expect(h.assertTeamOwner).toHaveBeenCalledWith(`actor`, TEAM_ID)
   })
 
-  it(`get returns it`, async () => {
-    selectResults.push([
-      { id: ACTION_ID, teamId: TEAM_ID, name: `Triage`, body: `x`, mcpServerIds: [SERVER_A] },
-    ])
-    const { action } = await caller.get({ id: ACTION_ID })
-    expect(action.mcpServerIds).toEqual([SERVER_A])
+  it(`returns the row unchanged for an empty patch`, async () => {
+    selectResults.push([row()])
+    const { action } = await caller.update({ id: ACTION_ID })
+    expect(action).toMatchObject({ id: ACTION_ID, body: `Review the diff` })
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`refuses a rename onto another action's name`, async () => {
+    selectResults.push([row()], [{ id: `other` }])
+    const error = await rejectionOf(caller.update({ id: ACTION_ID, name: `Taken` }))
+    expect((error as TRPCError).code).toBe(`CONFLICT`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`delete removes the row, owner-gated`, async () => {
+    selectResults.push([row()])
+    await caller.delete({ id: ACTION_ID })
+    expect(deletes).toEqual([actions])
+    expect(h.assertTeamOwner).toHaveBeenCalledWith(`actor`, TEAM_ID)
+  })
+
+  it(`delete refuses a non-owner`, async () => {
+    selectResults.push([row()])
+    h.assertTeamOwner.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Owner only` })
+    )
+    const error = await rejectionOf(caller.delete({ id: ACTION_ID }))
+    expect((error as TRPCError).code).toBe(`FORBIDDEN`)
+    expect(deletes).toHaveLength(0)
   })
 })

@@ -593,6 +593,38 @@ async fn drive_spec(
     permission: PermissionAnswer,
     elicitation: ElicitationAnswer,
 ) -> Run {
+    drive_spec_until(spec, work, prompt, permission, elicitation, |_| true).await
+}
+
+/// The fake's stdin log, parsed (blank and partial lines skipped).
+fn logged_stdin(work: &Path) -> Vec<Value> {
+    std::fs::read_to_string(work.join("stdin.jsonl"))
+        .map(|text| {
+            text.lines()
+                .filter(|line| !line.trim().is_empty())
+                .filter_map(|line| serde_json::from_str(line).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// [`drive_spec`] that, once the prompt resolves, holds the connection (and
+/// with it the fake) open until the fake's stdin log satisfies `logged`.
+///
+/// EXP-1304: a write the adapter makes from a SPAWNED task (the plan
+/// approval's `set_permission_mode`) can land after the turn settles; the
+/// teardown then closes stdin and SIGTERMs the fake before it reads the line,
+/// so a log read at teardown missed it on a loaded runner. The run's own
+/// 30 s budget is the safety net.
+async fn drive_spec_until(
+    spec: AdapterSpec,
+    work: &Path,
+    prompt: &str,
+    permission: PermissionAnswer,
+    elicitation: ElicitationAnswer,
+    logged: fn(&[Value]) -> bool,
+) -> Run {
+    let log_dir = work.to_path_buf();
     let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
     let updates: Arc<Mutex<Vec<SessionNotification>>> = Arc::new(Mutex::new(Vec::new()));
     let permissions: Arc<Mutex<Vec<RequestPermissionRequest>>> = Arc::new(Mutex::new(Vec::new()));
@@ -654,6 +686,9 @@ async fn drive_spec(
                 .await?;
             *count_at_settle.lock().expect("the settle count") =
                 counted_updates.lock().expect("updates").len();
+            while !logged(&logged_stdin(&log_dir)) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
             Ok::<_, Error>((session, response))
         });
 
@@ -665,14 +700,7 @@ async fn drive_spec(
     let argv = std::fs::read_to_string(work.join("argv.txt"))
         .map(|text| text.lines().map(str::to_string).collect())
         .unwrap_or_default();
-    let stdin = std::fs::read_to_string(work.join("stdin.jsonl"))
-        .map(|text| {
-            text.lines()
-                .filter(|line| !line.trim().is_empty())
-                .filter_map(|line| serde_json::from_str(line).ok())
-                .collect()
-        })
-        .unwrap_or_default();
+    let stdin = logged_stdin(work);
 
     let updates_at_settle = *settled_at.lock().expect("the settle count");
     let updates = std::mem::take(&mut *updates.lock().expect("updates"));
@@ -2258,7 +2286,7 @@ async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
     // The crash path (a `kill -9`, an OOM, the reaper): the CLI is gone while
     // the client is still holding the connection open. Nothing but the child's
     // EOF can end this run, and the engine's whole end sequence — the bye, the
-    // heartbeat, `coding::end_session` — hangs off that close (EXP-746 E1).
+    // outbox flush, `coding::end_session` — hangs off that close (EXP-746 E1).
     let work = workdir("child-exit");
     let mut adapter_spec = spec("basic", &work.0, false);
     adapter_spec.spawn = adapter_spec.spawn.clone().env("EXP_FAKE_CLAUDE_EXIT", "3");
@@ -3040,13 +3068,15 @@ async fn a_resumed_agent_of_a_stopped_workflow_publishes_no_duplicate() {
 async fn a_plan_approval_is_not_walked_back_by_the_next_init() {
     let _session = one_session_at_a_time();
     let work = workdir("plan-flap");
-    let run = drive(
-        "plan-flap",
+    // Rule 3's request is spawned off the approval: wait for the fake to log
+    // it rather than racing the teardown (EXP-1304).
+    let run = drive_spec_until(
+        spec_at(&Path::new(FIXTURES).join("plan-flap"), &work.0, false),
         &work.0,
         "Plan the change, then exit plan mode.",
-        false,
         pick("exit-plan-bypass"),
         cancel_elicitations(),
+        |stdin| stdin.iter().any(|line| line["request"]["subtype"] == "set_permission_mode"),
     )
     .await;
 

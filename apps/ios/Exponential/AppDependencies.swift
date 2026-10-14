@@ -21,9 +21,6 @@ final class AppDependencies: @unchecked Sendable {
     // sockets, feeds and composer drafts are app-scoped, so navigating away and
     // back costs no reconnect and loses no draft.
     let steerSessions = SteerSessionStore()
-    // EXP-1244: the open pull requests nothing links, per account + team —
-    // the Reviews screen and the Reviews tab's dot read the SAME entries.
-    let openPulls = OpenPullsStore()
 
     // API services
     let authApi: AuthApi
@@ -47,24 +44,24 @@ final class AppDependencies: @unchecked Sendable {
     // EXP-878: issue drafts — rows sync (22nd shape), the three writes
     // (upsert / delete / listAttachments) are tRPC.
     let issueDraftsApi: IssueDraftsApi
-    // EXP-1284: threads — rows sync (`threads` + `thread-items`, the 22nd
-    // and 23rd shapes), get + the four writes (create / update / link /
-    // unlink) are tRPC.
-    let threadsApi: ThreadsApi
+    // EXP-1291: the session tree — thread roots, team agents and their
+    // children sync (`sessions`, `session-issues`, `messages`); every start
+    // and every message is ONE `sessions.send`, plus the stop/end/title/
+    // link/answer/agent writes.
+    let sessionsApi: SessionsApi
+    // EXP-1291: the synced `pull_requests` rows' merge / close / files.
+    let pullRequestsApi: PullRequestsApi
     let onboardingApi: OnboardingApi
     // Server-only repositories registry (not a synced shape) — read + link
     // management in team settings (masterplan §7a).
     let repositoriesApi: RepositoriesApi
-    // Remote start + live steer viewer (relay-backed; graceful-off when the
-    // instance has no relay configured).
+    // The live steer viewer (relay-backed; graceful-off when the instance
+    // has no relay configured). Starts go through `sessionsApi`.
     let steerApi: SteerApi
     // The caller's registered machines (EXP-403) — polled, never synced.
     let devicesApi: DevicesApi
-    // EXP-734: merging a run's OWN pull request (the issue-less chore PR an
-    // action or chat run opened) — the session rows themselves stay synced.
-    let codingSessionsApi: CodingSessionsApi
-    // Team actions (EXP-253) — synced for reads; tRPC for the prompt body and
-    // the owner-gated writes (the editor fields and, SLOP-2, the triggers).
+    // Team actions (EXP-253) = saved prompts — synced for reads; tRPC for
+    // the prompt body and the owner-gated writes.
     let actionsApi: ActionsApi
     // Widget/agent submission metadata (EXP-496) — tRPC-only.
     let widgetsApi: WidgetsApi
@@ -175,12 +172,12 @@ final class AppDependencies: @unchecked Sendable {
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.relationsApi = RelationsApi(trpc: trpc)
         self.issueDraftsApi = IssueDraftsApi(trpc: trpc)
-        self.threadsApi = ThreadsApi(trpc: trpc)
+        self.sessionsApi = SessionsApi(trpc: trpc)
+        self.pullRequestsApi = PullRequestsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
-        self.codingSessionsApi = CodingSessionsApi(trpc: trpc)
         self.actionsApi = ActionsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
 

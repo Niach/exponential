@@ -2,20 +2,19 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-1251: the Work screen's GUIDE face — Changes + Results merged (web
+/// EXP-1251: the GUIDE face — Changes + Results merged (web
 /// `components/guide-face.tsx`, desktop `session_results.rs`, Android
-/// `GuideFace.kt`). Top to bottom: the Stack card (the shared `StackRail`
-/// when the PR sits in a linear open stack of 2+), the Summary lead, the
-/// numbered sections (band, text, ONE `GuideChangesRow`, tiles, Earlier), the
-/// automatic `Other changes` section, then `Show complete diff`. With no
-/// report an open PR's GitHub body is ONE unnumbered section claiming the
-/// whole diff (web M8, `prDescriptionGroup`); with neither, ONE `Changes`
-/// section. Coverage is `guideCoverage` (ExpCore, fixture-locked ×4).
+/// `GuideFace.kt`); EXP-1295: a thread's Guide tab over its root's `guide`
+/// (THE PR body). Top to bottom: the Summary lead, the numbered sections
+/// (band, text, ONE `GuideChangesRow`, tiles, Earlier), the automatic `Other
+/// changes` section, then `Show complete diff`. With no report, ONE
+/// `Changes` section. Coverage is `guideCoverage` (ExpCore, fixture-locked ×4).
 ///
 /// A Changes row opens that section's diff as a PAGE in place
 /// (`GuideSectionDiffView`): a back row to the Guide, the cards filtered to
 /// the section and the file sheet filtered the same way. The bar is the white
-/// Merge capsule (`merge`).
+/// Merge capsule (`merge`). EXP-1306: a thread's Guide leads with its PR's
+/// stack block (`stack`: the `Stack` band + THE `StackRail`) when it has one.
 struct GuideFace<Merge: View>: View {
     let groups: [SessionResultGroup]
     /// The diff the Guide counts (the run's live diff, else the PR / branch
@@ -24,17 +23,6 @@ struct GuideFace<Merge: View>: View {
     var diffStatus: GuideDiffStatus = .ready
     /// The publisher's own dropped-line count, on a live run diff.
     var truncatedLines: Int?
-    /// With no report: the open PR's GitHub body (or its load state).
-    var prFallback: GuidePrFallback?
-    /// The rail of the PR's open stack (`PrStack.stackView`), nil = none.
-    var stack: PrStack.StackView?
-    /// The board's own default branch: the Stack card's base row when the
-    /// bottom member's base is not synced (Reviews' fallback).
-    var defaultBranch: String?
-    /// A stack member tap: the Work screen swaps to that issue in place.
-    var onOpenStackMember: ((String) -> Void)?
-    /// A stack member's long-press "Merge through here".
-    var onMergeThrough: ((String) -> Void)?
     /// EXP-1188: the run's team, so the report chips issue identifiers like
     /// the steer feed does; nil = no chips.
     var teamId: String?
@@ -42,6 +30,8 @@ struct GuideFace<Merge: View>: View {
     @Binding var section: GuideSectionKey?
     /// The file the section page focuses (its sheet's pick).
     @Binding var focusPath: String?
+    /// EXP-1306: the block above the Guide text (the thread's stack rail).
+    var stack: AnyView?
     /// Whether `merge` draws anything (a generic view cannot say).
     var showsMerge = false
     var merge: () -> Merge
@@ -51,14 +41,10 @@ struct GuideFace<Merge: View>: View {
         files: [Diff.File]?,
         diffStatus: GuideDiffStatus = .ready,
         truncatedLines: Int? = nil,
-        prFallback: GuidePrFallback? = nil,
-        stack: PrStack.StackView? = nil,
-        defaultBranch: String? = nil,
-        onOpenStackMember: ((String) -> Void)? = nil,
-        onMergeThrough: ((String) -> Void)? = nil,
         teamId: String? = nil,
         section: Binding<GuideSectionKey?>,
         focusPath: Binding<String?>,
+        stack: AnyView? = nil,
         showsMerge: Bool = false,
         @ViewBuilder merge: @escaping () -> Merge
     ) {
@@ -66,33 +52,17 @@ struct GuideFace<Merge: View>: View {
         self.files = files
         self.diffStatus = diffStatus
         self.truncatedLines = truncatedLines
-        self.prFallback = prFallback
-        self.stack = stack
-        self.defaultBranch = defaultBranch
-        self.onOpenStackMember = onOpenStackMember
-        self.onMergeThrough = onMergeThrough
         self.teamId = teamId
         _section = section
         _focusPath = focusPath
+        self.stack = stack
         self.showsMerge = showsMerge
         self.merge = merge
     }
 
-    /// M8 ×4: with no report, the loaded PR body is ONE unnumbered group
-    /// that claims every diff path (`prDescriptionGroup`), so its band holds
-    /// the one Changes row and `Other changes` never shows.
-    private var prGroup: SessionResultGroup? {
-        guard groups.isEmpty, case let .loaded(description) = prFallback else { return nil }
-        return prDescriptionGroup(title: description.title, body: description.body, files: files)
-    }
-
     var body: some View {
-        let prGroup = prGroup
-        let shown = prGroup.map { [$0] } ?? groups
         if let section,
-           let page = WorkFaces.guideSectionPage(
-               shown, files: files, section: section, numbered: prGroup == nil
-           ) {
+           let page = guideSectionPage(groups, files: files, section: section, numbered: true) {
             GuideSectionDiffView(
                 page: page,
                 truncatedLines: section == .all ? truncatedLines : nil,
@@ -103,16 +73,11 @@ struct GuideFace<Merge: View>: View {
             )
         } else {
             GuideBody(
-                groups: shown,
+                groups: groups,
                 files: files,
                 diffStatus: diffStatus,
-                prFallback: prFallback,
-                prBody: prGroup != nil,
-                stack: stack,
-                defaultBranch: defaultBranch,
-                onOpenStackMember: onOpenStackMember,
-                onMergeThrough: onMergeThrough,
                 teamId: teamId,
+                stack: stack,
                 onOpen: { key in
                     focusPath = nil
                     section = key
@@ -141,27 +106,14 @@ enum GuideDiffStatus: Equatable {
     case ready
 }
 
-/// The open PR's GitHub body standing in for a report.
-enum GuidePrFallback: Equatable {
-    case loading
-    case failed(String)
-    case loaded(PrDescription)
-}
-
 /// The Guide's scrolling body (the page `GuideFace` shows with no section
 /// open).
 private struct GuideBody: View {
     let groups: [SessionResultGroup]
     let files: [Diff.File]?
     let diffStatus: GuideDiffStatus
-    let prFallback: GuidePrFallback?
-    /// `groups` is the loaded PR body standing in for a missing report.
-    let prBody: Bool
-    let stack: PrStack.StackView?
-    let defaultBranch: String?
-    let onOpenStackMember: ((String) -> Void)?
-    let onMergeThrough: ((String) -> Void)?
     let teamId: String?
+    let stack: AnyView?
     let onOpen: (GuideSectionKey) -> Void
 
     @Environment(AppDependencies.self) private var deps
@@ -207,17 +159,7 @@ private struct GuideBody: View {
         let coverage = guideCoverage(shown, files)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
-                if let stack {
-                    GuideStackCard(
-                        stack: stack,
-                        defaultBranch: defaultBranch,
-                        onOpen: onOpenStackMember,
-                        onMergeThrough: onMergeThrough
-                    )
-                }
-                if groups.isEmpty, let prFallback {
-                    fallback(prFallback)
-                }
+                if let stack { stack }
                 if let lead = coverage.lead {
                     VStack(alignment: .leading, spacing: 0) {
                         groupBody(lead.group, changes: lead.changes, key: .lead)
@@ -231,27 +173,20 @@ private struct GuideBody: View {
                 // By position: one topic can repeat.
                 ForEach(Array(coverage.sections.enumerated()), id: \.offset) { _, section in
                     VStack(alignment: .leading, spacing: 0) {
-                        if prBody {
-                            // The PR body: one UNNUMBERED section.
-                            GlassSectionBand(section.group.topic)
-                        } else {
-                            GlassSectionBand(section.group.topic) {
-                                Text(guideSectionCaption(section.index, section.total))
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                    .padding(.trailing, 2)
-                                    .accessibilityIdentifier("guide-section-caption")
-                            } trailing: {
-                                EmptyView()
-                            }
+                        GlassSectionBand(section.group.topic) {
+                            Text(guideSectionCaption(section.index, section.total))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .padding(.trailing, 2)
+                                .accessibilityIdentifier("guide-section-caption")
+                        } trailing: {
+                            EmptyView()
                         }
                         groupBody(section.group, changes: section.changes, key: .section(section.index))
                             .padding(.top, 4)
                     }
                     .accessibilityElement(children: .contain)
-                    .accessibilityIdentifier(
-                        prBody ? "session-results-pr-body" : "guide-section-\(section.index)"
-                    )
+                    .accessibilityIdentifier("guide-section-\(section.index)")
                 }
                 if let other = coverage.other {
                     VStack(alignment: .leading, spacing: 0) {
@@ -317,22 +252,6 @@ private struct GuideBody: View {
         }
         if !group.earlier.isEmpty {
             earlierBand(group)
-        }
-    }
-
-    @ViewBuilder
-    private func fallback(_ state: GuidePrFallback) -> some View {
-        switch state {
-        case .loaded:
-            // Rendered as the PR-body group (`prDescriptionGroup`).
-            EmptyView()
-        case .failed:
-            // FEED-79: a load on open fails quietly, no red line.
-            EmptyView()
-        case .loading:
-            // EXP-1275 (D8): a placeholder, not "Loading…".
-            SkeletonRows(rows: 2, rowHeight: 28, dot: false, dividers: false)
-                .accessibilityIdentifier("results-pr-fallback-loading")
         }
     }
 
@@ -446,54 +365,6 @@ struct GuideShowCompleteDiffRow: View {
     }
 }
 
-/// EXP-1248: the Guide's Stack card — a `Stack` band (the `pr-stack` concept,
-/// NO count) over the shared rail, top-first down to the base branch. A
-/// member tap swaps the screen to that issue in place; a long-press offers
-/// "Merge through here".
-struct GuideStackCard: View {
-    static let title = "Stack"
-
-    let stack: PrStack.StackView
-    /// The board's default branch, for a bottom member with no synced base.
-    var defaultBranch: String?
-    var onOpen: ((String) -> Void)?
-    var onMergeThrough: ((String) -> Void)?
-
-    /// The base row: the bottom member's synced base, else the board's
-    /// default branch, else the literal `default branch` (Reviews ×4).
-    static func baseRowTitle(_ baseBranch: String?, defaultBranch: String?) -> String {
-        for candidate in [baseBranch, defaultBranch] {
-            if let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
-                return value
-            }
-        }
-        return "default branch"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            GlassSectionBand(Self.title) {
-                AppIcon(AppIcons.prStack, size: 14, weight: .medium)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            } trailing: {
-                EmptyView()
-            }
-            StackRail(
-                members: stack.rows.map {
-                    StackRailMember(
-                        id: $0.issueId, identifier: $0.identifier, title: $0.title, current: $0.isCurrent
-                    )
-                },
-                baseBranch: Self.baseRowTitle(stack.baseBranch, defaultBranch: defaultBranch),
-                onOpen: onOpen.map { open in { member in open(member.id) } },
-                onMergeThrough: onMergeThrough.map { merge in { member in merge(member.id) } }
-            )
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("guide-stack-card")
-    }
-}
-
 /// EXP-1251: a Guide section's changes as a PAGE (web
 /// `guide-section-diff.tsx` on phones): the back row `‹ Guide · 02 / 06 ·
 /// title · +A −D`, the diff cards filtered to the section, and the bar's
@@ -532,7 +403,7 @@ struct GuideSectionDiffView<Merge: View>: View {
             Button(action: onBack) {
                 HStack(spacing: 4) {
                     AppIcon(AppIcons.uiChevronLeft, size: 14, weight: .medium)
-                    Text(WorkFaces.guideFaceLabel)
+                    Text(SessionTree.ThreadCopy.guide)
                         .font(.subheadline.weight(.medium))
                 }
                 .foregroundStyle(.white)
@@ -559,7 +430,7 @@ struct GuideSectionDiffView<Merge: View>: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(WorkFaces.guideSectionSummary(page))
+        .accessibilityLabel(guideSectionSummary(page))
     }
 
     @ViewBuilder
@@ -578,34 +449,5 @@ struct GuideSectionDiffView<Merge: View>: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("changes-files-bar")
         }
-    }
-}
-
-/// EXP-893/1251: a shown run's retained steer model, claimed while this view
-/// is up — the Guide reads the run's LIVE worktree diff off it. Its own
-/// ref-counted claim (`attachSteerModel`), so a finished run's model survives
-/// whichever page the pager unmounts first.
-struct RunModelClaim<Content: View>: View {
-    let accountId: String
-    let session: CodingSessionEntity
-    @ViewBuilder let content: (AgentSessionModel?) -> Content
-
-    @Environment(AppDependencies.self) private var deps
-    @State private var model: AgentSessionModel?
-    /// ONE claim: the pager can fire `onAppear` / `onDisappear` unpaired.
-    @State private var claimed = false
-
-    var body: some View {
-        content(model)
-            .onAppear {
-                guard !claimed else { return }
-                claimed = true
-                model = deps.attachSteerModel(accountId: accountId, session: session)
-            }
-            .onDisappear {
-                guard claimed else { return }
-                claimed = false
-                deps.steerSessions.detach(accountId: accountId, sessionId: session.id)
-            }
     }
 }

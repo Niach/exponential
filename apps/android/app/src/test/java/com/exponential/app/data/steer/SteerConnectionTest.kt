@@ -1,7 +1,7 @@
 package com.exponential.app.data.steer
 
 import com.exponential.app.data.api.SteerTicketResult
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.TURN_STATE_STARTED
@@ -117,11 +117,11 @@ class SteerConnectionTest {
         suspend fun awaitOpen(): FakeSocket = withTimeout(5_000) { opens.receive() }
     }
 
-    private fun runningRow() = CodingSessionEntity(
+    private fun runningRow() = SessionEntity(
         id = SESSION_ID,
         teamId = "team-1",
         userId = "user-1",
-        status = DomainContract.codingSessionStatusRunning,
+        status = DomainContract.sessionStatusRunning,
         startedAt = Instant.now().toString(),
         createdAt = Instant.now().toString(),
         updatedAt = Instant.now().toString(),
@@ -130,7 +130,7 @@ class SteerConnectionTest {
     private fun connection(
         transport: FakeTransport,
         timings: SteerTimings = fastTimings,
-        row: MutableStateFlow<CodingSessionEntity?> = MutableStateFlow(null),
+        row: MutableStateFlow<SessionEntity?> = MutableStateFlow(null),
     ): SteerConnection {
         if (row.value == null) row.value = runningRow()
         return SteerConnection(
@@ -1123,8 +1123,8 @@ class SteerConnectionTest {
     @Test
     fun aHistoryRoomOnAnEndedRunPagesWithoutReadingAsLive() = runBlocking {
         val transport = FakeTransport()
-        val row = MutableStateFlow<CodingSessionEntity?>(
-            runningRow().copy(status = DomainContract.codingSessionStatusEnded),
+        val row = MutableStateFlow<SessionEntity?>(
+            runningRow().copy(status = DomainContract.sessionStatusEnded),
         )
         val connection = connection(transport, stagingTimings, row)
         try {
@@ -1159,8 +1159,8 @@ class SteerConnectionTest {
     @Test
     fun aDeviceGoingOfflineMidPageIsTerminal() = runBlocking {
         val transport = FakeTransport()
-        val row = MutableStateFlow<CodingSessionEntity?>(
-            runningRow().copy(status = DomainContract.codingSessionStatusEnded),
+        val row = MutableStateFlow<SessionEntity?>(
+            runningRow().copy(status = DomainContract.sessionStatusEnded),
         )
         val connection = connection(transport, stagingTimings, row)
         try {

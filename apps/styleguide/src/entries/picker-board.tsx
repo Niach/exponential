@@ -20,7 +20,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Board picker`,
-  blurb: `Boards by icon and colour, everywhere a board is picked: the create-issue dialog's prefix chip, move-to-board (the issue detail, the list row's context menu, the phone properties sheet) and the automation trigger's board filter, which is the same picker in its multi arm. A board with no icon of its own is never a bare colour dot — a repo-backed board draws the repo glyph, everything else the default board glyph (EXP-449), decided once in \`boardPickerItems\`.`,
+  blurb: `Boards by icon and colour, everywhere a board is picked: the create-issue dialog's prefix chip, move-to-board (the issue detail, the list row's context menu, the phone properties sheet) and an agent trigger's board filter, which is the same picker in its multi arm. A board with no icon of its own is never a bare colour dot — a repo-backed board draws the repo glyph, everything else the default board glyph (EXP-449), decided once in \`boardPickerItems\`.`,
   status: typedPickerStatus(`BoardPicker`, {
     web: `board-picker.tsx`,
     desktop: `board_picker.rs`,

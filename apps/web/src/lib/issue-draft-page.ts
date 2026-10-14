@@ -151,19 +151,21 @@ export function canCreateDraft({
 /**
  * EXP-1284 (review T11): where a created draft lands. A "New issue in this
  * thread" draft lands back on the THREAD with the new issue's tab selected
- * (`?child=<IDENT>`, Back keeps the thread's own origin); every other draft
- * lands on the issue's page, keeping `?from=`.
+ * (`?tab=issue&issue=<id>`, keeping `?from=`); every other draft lands on the
+ * issue's page, keeping `?from=`.
  */
 export function draftLandingNavigation({
   teamSlug,
   threadId,
   boardSlug,
+  issueId,
   identifier,
   from,
 }: {
   teamSlug: string
   threadId: string | null
   boardSlug: string
+  issueId: string
   identifier: string
   from?: string
 }) {
@@ -171,7 +173,7 @@ export function draftLandingNavigation({
     return {
       to: `/t/$teamSlug/threads/$threadId` as const,
       params: { teamSlug, threadId },
-      search: { child: identifier },
+      search: { tab: `issue` as const, issue: issueId, ...(from ? { from } : {}) },
     }
   }
   return {

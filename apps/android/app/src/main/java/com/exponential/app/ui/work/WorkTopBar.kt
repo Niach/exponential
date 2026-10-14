@@ -1,6 +1,5 @@
 package com.exponential.app.ui.work
 
-import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
@@ -25,29 +24,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import com.exponential.app.domain.DetailChrome
-import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.SessionDotTone
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.PillSize
-import com.exponential.app.ui.components.TopBarActionButton
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.DoneBlue
-import com.exponential.app.ui.issue.LiveGreen
-import com.exponential.app.ui.issue.NeedsInputAmber
-import com.exponential.app.ui.issue.PulsingDot
-import com.exponential.app.ui.issue.ReviewGreen
-import com.exponential.app.ui.issue.StaticDot
-import com.exponential.app.ui.session.LostGray
 import com.exponential.app.ui.theme.TextEmphasis
 
 // EXP-893: the Work screen's top bar — IDENTICAL across its faces, so it
@@ -205,46 +192,5 @@ fun WorkTopBar(
     )
     tabs?.invoke()
     }
-    }
-}
-
-/**
- * EXP-895: "open the PR on GitHub" as a header action. It used to be the
- * Changes bar's leading circle; the changed-files sheet took that slot, and a
- * link OUT of the app belongs with the other header verbs anyway.
- */
-@Composable
-fun GithubHeaderAction(prUrl: String, modifier: Modifier = Modifier) {
-    val context = LocalContext.current
-    Box(modifier = modifier) {
-    TopBarActionButton(
-        icon = ExpIcons.uiGithub,
-        // EXP-916: the contract's words, byte-identical ×4.
-        contentDescription = DomainContract.diffUiOpenOnGithub,
-        onClick = {
-            // A device with no browser (a stripped emulator image) throws
-            // rather than resolving the intent — a dead tap beats a crash.
-            runCatching {
-                val intent = Intent(Intent.ACTION_VIEW, prUrl.toUri())
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
-            }
-        },
-        // EXP-862: a secondary header control is the GHOST variant — the glass
-        // circle is left to the primary actions.
-        borderless = true,
-    )
-    }
-}
-
-/** The ×4 session-dot palette (`SessionDotTone`) as the list rows draw it. */
-@Composable
-fun SessionToneDot(tone: SessionDotTone, busy: Boolean) {
-    when (tone) {
-        SessionDotTone.Running -> if (busy) PulsingDot() else StaticDot(LiveGreen)
-        SessionDotTone.Review -> StaticDot(ReviewGreen)
-        SessionDotTone.NeedsInput -> StaticDot(NeedsInputAmber)
-        SessionDotTone.Done -> StaticDot(DoneBlue)
-        SessionDotTone.Muted -> StaticDot(LostGray)
     }
 }

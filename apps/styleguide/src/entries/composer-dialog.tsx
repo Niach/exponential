@@ -45,7 +45,6 @@ const MODELS = [
 /** The value a row shows in the specimen (the app reads the model). */
 const SAMPLE_VALUES: Record<string, string> = {
   effort: `High`,
-  subagents: `Opus`,
   "mcp-servers": `2`,
 }
 const SAMPLE_CHECKED: Record<string, boolean> = {
@@ -53,9 +52,10 @@ const SAMPLE_CHECKED: Record<string, boolean> = {
   "computer-use": true,
 }
 
-/** The "+" rows straight from the fixture, every condition met. */
+/** The "+" rows straight from the fixture, every condition met (EXP-1293:
+ *  minus Subagents, which `sessions.send` does not carry). */
 function composerMenuEntries(): MenuEntry[] {
-  return composerMenu.rows.map((row): MenuEntry => {
+  return composerMenu.rows.filter((row) => row.id !== `subagents`).map((row): MenuEntry => {
     if (row.kind === `separator`) return { kind: `separator` }
     const base = {
       id: row.id,
@@ -115,7 +115,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1019`,
   title: `Composer dialog`,
-  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it. The SUBJECT leads: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips, set as the biggest thing in the dialog. The field under it is the SECONDARY half and says so ("Additional instructions (optional)…", or an action's own promptPlaceholder). The card's ONE tool is the "+" (EXP-1249): Implement issue › and Run action › (SLOP-28: both THE search list, see Search list and Menu submenu), Add file or image, then the session's options (Effort ›, Subagents ›, Ultracode) and tools (MCP servers ›, Computer use for this session) — a dropdown at the "+" from md up, the bottom sheet of the same rows on a phone. Under the card the muted options line: device, account, model, Plan (Resume and the repository when they apply), no overflow. The Agent page around the card is the home column (see Agent home): no suggestion rows, no watermark.`,
+  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it. The SUBJECT leads: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips, set as the biggest thing in the dialog. The field under it is the SECONDARY half and says so ("Additional instructions (optional)…", or an action's own promptPlaceholder). The card's ONE tool is the "+" (EXP-1249): Implement issue › and Run action › (SLOP-28: both THE search list, see Search list and Menu submenu), Add file or image, then the session's options (Effort ›, Ultracode) and tools (MCP servers ›, Computer use for this session) — a dropdown at the "+" from md up, the bottom sheet of the same rows on a phone. Under the card the muted options line: device, account, model, Plan (the repository when a subjectless session has several), no overflow. Send = ONE sessions.send; the dialog shuts and the new thread opens. The Agent page around the card is the home column (see Agent home).`,
   status: {
     web: {
       state: `ok`,
@@ -150,7 +150,7 @@ export const entry: StyleguideEntry = {
           <span className="text-lg font-semibold">{composerUi.runHeadline}</span>
           <Pill size="sm" mode="readonly">
             <ActionIcon aria-hidden />
-            Fix merge conflicts
+            Triage new issues
           </Pill>
         </div>
         <Card placeholder={composerUi.instructionsPlaceholder} />

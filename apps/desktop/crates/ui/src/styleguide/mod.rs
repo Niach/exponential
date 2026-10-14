@@ -93,8 +93,7 @@ mod tests {
     /// (`toast` was the last placeholder) and names a real owner.
     #[test]
     fn every_entry_is_filled() {
-        const PLACEHOLDERS: [&str; 3] =
-            ["team-agents-settings", "your-agent-settings", "voice-call-overlay"];
+        const PLACEHOLDERS: [&str; 1] = ["voice-call-overlay"];
         // An owner is an issue identifier, `<BOARD>-<number>` (EXP-1031,
         // SLOP-7): uppercase letters, a dash, digits.
         let is_identifier = |owner: &str| {
@@ -122,10 +121,10 @@ mod tests {
     /// second frame reuses the entities `use_keyed_state` kept), and the
     /// one that used to only describe its own — `device-settings` — now
     /// paints the product's own elements. EXP-1092
-    /// did the same for `issue-context-menu` (a real `PopupMenu`),
-    /// `pr-graph-badge` (`pr_graph::badge`) and `session-row` (the `run_rows`
-    /// renderers over `domain::session_tree`) — with NO `sync::Store`
-    /// installed here, so every store read on those paths is `try_global`.
+    /// did the same for `issue-context-menu` (a real `PopupMenu`), and
+    /// EXP-1294 for `session-row` (THE session card over
+    /// `domain::session_tree`) — with NO `sync::Store` installed here, so
+    /// every store read on those paths is `try_global`.
     #[gpui::test]
     async fn every_entry_paints_with_the_window_and_the_app(cx: &mut gpui::TestAppContext) {
         use gpui::{div, IntoElement, ParentElement as _, Render, Window};

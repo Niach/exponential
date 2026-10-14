@@ -1,185 +1,144 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { TooltipProvider } from "@exp/ui"
-import type { CodingSession, Issue, Thread } from "@/db/schema"
-import { buildThreadView } from "@/lib/thread-view"
-import type { ThreadBundle } from "@/hooks/use-threads"
+import { SidebarProvider, TooltipProvider } from "@exp/ui"
+import type { ThreadsListGroup } from "@/lib/session-tree"
 
-// EXP-923 / EXP-1284: the sidebar's RUNNING section lists THREADS. Its
-// rules: hidden with nothing live of mine, one row per thread (its title
-// over the model's list caption, the live run's mark leading, an amber
-// badge while that run waits on a person), and a click that opens the
-// THREAD page with the `running` origin — which keeps it off the work-tab
-// strip.
+// EXP-923 / EXP-1293: the sidebar's RUNNING section lists the Threads list's
+// `needs_you` + `running` rows — hidden with nothing live, one row per
+// thread (the agent mark, the first issue's identifier, the title, NO
+// caption), and a click that opens the THREAD with the `running` origin —
+// which keeps it off the work-tab strip.
 
-const running = vi.hoisted(() => ({ value: [] as unknown[] }))
-const orphans = vi.hoisted(() => ({ value: [] as unknown[] }))
 const navigate = vi.hoisted(() => vi.fn())
 const location = vi.hoisted(() => ({ pathname: `/t/acme/inbox` }))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => navigate,
-  useParams: () => ({ teamSlug: `acme` }),
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location }),
 }))
-vi.mock(`@/hooks/use-threads`, () => ({
-  useThreadList: () => ({
-    running: running.value,
-    recent: [],
-    orphans: orphans.value,
-    isReady: true,
-    now: new Date(),
-  }),
+vi.mock(`@/lib/collections`, () => ({
+  sessionCollection: {
+    get: (id: string) =>
+      id === `s-child` ? { id, rootId: `t-run`, cli: `claude` } : { id, rootId: id, cli: `claude` },
+  },
 }))
-// Review T4: an orphan live session renders as a plain session row.
-vi.mock(`@/components/thread/orphan-session-rows`, () => ({
-  OrphanSessionRows: ({ sessions }: { sessions: { id: string }[] }) => (
-    <>
-      {sessions.map((session) => (
-        <div key={session.id} data-testid={`orphan-session-${session.id}`} />
-      ))}
-    </>
-  ),
-}))
-vi.mock(`@/hooks/use-open-session`, () => ({ useOpenSession: () => vi.fn() }))
 
-import { SidebarRunningSection } from "@/components/team/sidebar-running"
+import {
+  SidebarRunningIcons,
+  SidebarRunningSection,
+  runningThreadRows,
+  threadRunMarkState,
+  threadsNavState,
+} from "@/components/team/sidebar-running"
 
-const T0 = `2026-10-12T10:00:00.000Z`
+const T0 = `2026-10-13T10:00:00.000Z`
 
-function bundle(over: {
-  id: string
-  title?: string
-  needsInput?: boolean
-  agentBusy?: boolean
-}): ThreadBundle {
-  const run = {
-    id: `r-${over.id}`,
-    agent: `claude`,
-    userId: `u1`,
-    status: `running`,
-    needsInput: over.needsInput ?? false,
-    agentBusy: over.agentBusy ?? false,
-    issueId: null,
-    parentSessionId: null,
-    resumedFromId: null,
-    startedAt: T0,
-    endedAt: null,
-    deviceLabel: `macbook`,
-  } as unknown as CodingSession
-  const issue = { id: `i-${over.id}`, identifier: `EXP-1`, title: `An issue`, createdAt: T0 } as unknown as Issue
-  const view = buildThreadView({
-    thread: { id: over.id, title: over.title ?? null, results: null, updatedAt: T0 },
-    items: [
-      { id: `a`, kind: `run`, issueId: null, sessionId: run.id, source: `user`, addedBySessionId: null, sortOrder: 1, createdAt: T0 },
-      { id: `b`, kind: `issue`, issueId: issue.id, sessionId: null, source: `user`, addedBySessionId: null, sortOrder: 2, createdAt: T0 },
-    ],
-    issues: [{ id: issue.id, identifier: `EXP-1`, title: `An issue`, createdAt: T0 }],
-    runs: [
-      {
-        id: run.id,
-        name: over.title ?? `Chat`,
-        userId: `u1`,
-        deviceLabel: `macbook`,
-        status: `running`,
-        needsInput: over.needsInput ?? false,
-        agentBusy: over.agentBusy ?? false,
-        issueId: null,
-        parentSessionId: null,
-        resumedFromId: null,
-        startedAt: T0,
-        endedAt: null,
-      },
-    ],
-  })
+function row(sessionId: string, title: string, over: { busy?: boolean; needsYou?: boolean } = {}) {
   return {
-    thread: { id: over.id, teamId: `t1`, title: over.title ?? null, results: null } as unknown as Thread,
-    items: [],
-    runs: [run],
-    issues: [issue],
-    view,
-    runNames: new Map([[run.id, over.title ?? `Chat`]]),
-    mineLive: true,
-    mine: true,
-    myLiveRun: run,
-    liveRun: run,
+    sessionId,
+    teamId: `team-1`,
+    title,
+    private: false,
+    busy: over.busy ?? false,
+    needsYou: over.needsYou ?? false,
+    activityAt: T0,
   }
 }
 
-function renderSection() {
+const groups: ThreadsListGroup[] = [
+  { key: `needs_you`, title: `Needs you`, rows: [row(`t-ask`, `Reduce cold start`, { needsYou: true })] },
+  { key: `running`, title: `Running`, rows: [row(`t-run`, `Group board issues`, { busy: true })] },
+  { key: `recent`, title: `Recent`, rows: [row(`t-old`, `Fix flaky scroll`)] },
+]
+const extras = { identifierByRoot: new Map([[`t-ask`, `APP-5`]]) }
+
+function renderSection(list: ThreadsListGroup[] = groups) {
   return render(
-    <TooltipProvider>
-      <SidebarRunningSection teamId="t1" currentUserId="u1" />
-    </TooltipProvider>
+    <SidebarProvider>
+      <TooltipProvider>
+        <SidebarRunningSection teamSlug="acme" threads={{ groups: list, extras }} />
+      </TooltipProvider>
+    </SidebarProvider>
   )
 }
 
-describe(`SidebarRunningSection (EXP-923, EXP-1284 threads)`, () => {
-  beforeEach(() => {
-    running.value = []
-    orphans.value = []
-    navigate.mockClear()
-    location.pathname = `/t/acme/inbox`
+beforeEach(() => {
+  navigate.mockReset()
+  location.pathname = `/t/acme/inbox`
+})
+
+describe(`SidebarRunningSection`, () => {
+  it(`is hidden with nothing running`, () => {
+    renderSection([groups[2]])
+    expect(screen.queryByTestId(`sidebar-running`)).toBeNull()
   })
 
-  it(`renders nothing at all with no running thread`, () => {
-    const { container } = renderSection()
-    expect(container.firstChild).toBeNull()
-  })
-
-  it(`still lists a live session no thread holds yet (review T4)`, () => {
-    orphans.value = [{ id: `s-orphan` }]
+  it(`lists needs-you then running threads, never recent ones`, () => {
     renderSection()
-    expect(screen.getByTestId(`sidebar-running`)).toBeTruthy()
-    expect(screen.getByTestId(`orphan-session-s-orphan`)).toBeTruthy()
+    const rows = screen.getAllByTestId(/^sidebar-running-/)
+    expect(rows.map((el) => el.getAttribute(`data-testid`))).toEqual([
+      `sidebar-running-t-ask`,
+      `sidebar-running-t-run`,
+    ])
+    expect(rows[0].textContent).toContain(`APP-5`)
+    expect(rows[0].textContent).toContain(`Reduce cold start`)
+    expect(screen.queryByText(`Fix flaky scroll`)).toBeNull()
+    // The needs-you thread wears the amber badge.
+    expect(rows[0].querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(
+      `needs_input`
+    )
   })
 
-  it(`lists a thread with its caption and opens its page with the running origin`, () => {
-    const thread = bundle({ id: `th1`, title: `Keyboard and picker` })
-    running.value = [thread]
+  it(`opens the thread with the tabless running origin`, () => {
     renderSection()
-    const row = screen.getByTestId(`sidebar-running-th1`)
-    expect(row.textContent).toContain(`Keyboard and picker`)
-    // The model's list caption (`1 issue · 1 run · macbook`), verbatim.
-    expect(thread.view.listCaption).toMatch(/^1 issue · 1 \w+ · macbook$/)
-    expect(row.textContent).toContain(thread.view.listCaption)
-    fireEvent.click(row)
+    fireEvent.click(screen.getByTestId(`sidebar-running-t-run`))
     expect(navigate).toHaveBeenCalledWith({
       to: `/t/$teamSlug/threads/$threadId`,
-      params: { teamSlug: `acme`, threadId: `th1` },
+      params: { teamSlug: `acme`, threadId: `t-run` },
       search: { from: `running` },
     })
   })
 
-  it(`badges a thread whose run needs input, and only that one`, () => {
-    running.value = [bundle({ id: `th1` }), bundle({ id: `th2`, needsInput: true })]
-    const { container } = renderSection()
-    expect(container.querySelectorAll(`.bg-amber-500`).length).toBe(1)
-    expect(
-      screen.getByTestId(`sidebar-running-th2`).querySelector(`[data-state]`)?.getAttribute(`data-state`)
-    ).toBe(`needs_input`)
+  it(`marks the thread on screen, its own page or one of its sessions`, () => {
+    location.pathname = `/t/acme/sessions/s-child`
+    renderSection()
+    expect(screen.getByTestId(`sidebar-running-t-run`).getAttribute(`data-active`)).toBe(`true`)
+    expect(screen.getByTestId(`sidebar-running-t-ask`).getAttribute(`data-active`)).toBe(`false`)
+  })
+})
+
+describe(`SidebarRunningIcons`, () => {
+  it(`hands the rail one item per running thread`, () => {
+    const items: { key: string; label: string }[] = []
+    render(
+      <SidebarRunningIcons
+        teamSlug="acme"
+        threads={{ groups, extras }}
+        renderItem={(item) => {
+          items.push(item)
+          return null
+        }}
+      />
+    )
+    expect(items.map((item) => [item.key, item.label])).toEqual([
+      [`t-ask`, `APP-5 Reduce cold start`],
+      [`t-run`, `Group board issues`],
+    ])
+  })
+})
+
+describe(`the nav state`, () => {
+  it(`is green while anything runs, amber while something needs you`, () => {
+    expect(threadsNavState([])).toEqual({ live: false, needsYou: false })
+    expect(threadsNavState([groups[1], groups[2]])).toEqual({ live: true, needsYou: false })
+    expect(threadsNavState(groups)).toEqual({ live: true, needsYou: true })
+    expect(runningThreadRows([groups[2]])).toEqual([])
   })
 
-  it(`sparks while the thread's run works`, () => {
-    running.value = [bundle({ id: `th1`, agentBusy: true })]
-    renderSection()
-    const mark = screen.getByTestId(`sidebar-running-th1`).querySelector(`[data-state]`)
-    expect(mark?.getAttribute(`data-state`)).toBe(`working`)
-  })
-
-  it(`highlights the thread the app is showing — its page or one of its runs`, () => {
-    running.value = [bundle({ id: `th1` })]
-    location.pathname = `/t/acme/threads/th1`
-    const first = renderSection()
-    expect(screen.getByTestId(`sidebar-running-th1`).className).toContain(`bg-glass-active`)
-    first.unmount()
-    location.pathname = `/t/acme/sessions/r-th1`
-    const second = renderSection()
-    expect(screen.getByTestId(`sidebar-running-th1`).className).toContain(`bg-glass-active`)
-    second.unmount()
-    location.pathname = `/t/acme/inbox`
-    renderSection()
-    expect(screen.getByTestId(`sidebar-running-th1`).className).not.toContain(`bg-glass-active`)
+  it(`maps a row onto the run mark`, () => {
+    expect(threadRunMarkState({ needsYou: true, busy: true })).toBe(`needs_input`)
+    expect(threadRunMarkState({ needsYou: false, busy: true })).toBe(`working`)
+    expect(threadRunMarkState({ needsYou: false, busy: false })).toBeUndefined()
   })
 })

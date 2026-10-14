@@ -204,11 +204,11 @@ fn open_heals_missing_columns_from_an_older_schema() {
     assert!(store.shape_state("boards").unwrap().is_none());
 }
 
-/// SLOP-17: open drops the orphaned `automations` table + its cursor row and
-/// renames `coding_sessions.automation_id` to `trigger_id` keeping its
-/// values, idempotently (a second open is a no-op).
+/// SLOP-17 + EXP-1294: open drops the tables of shapes that left the
+/// registry (`automations`, `coding_sessions`, `threads`, `thread_items`)
+/// together with their cursor rows, idempotently (a second open is a no-op).
 #[test]
-fn open_migrates_the_legacy_automation_schema() {
+fn open_drops_the_legacy_shape_tables() {
     let db = TempDb::new();
     if let Some(dir) = db.path.parent() {
         std::fs::create_dir_all(dir).unwrap();
@@ -220,32 +220,35 @@ fn open_migrates_the_legacy_automation_schema() {
                  shape TEXT PRIMARY KEY, handle TEXT NOT NULL, "offset" TEXT NOT NULL,
                  needs_refetch INTEGER NOT NULL DEFAULT 0, is_live INTEGER NOT NULL DEFAULT 0);
                INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('automations', 'h', '0_0');
+               INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('coding_sessions', 'h', '0_0');
+               INSERT INTO electric_offsets (shape, handle, "offset") VALUES ('thread_items', 'h', '0_0');
                CREATE TABLE "automations" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
                INSERT INTO "automations" ("id") VALUES ('au-1');
                CREATE TABLE "coding_sessions" ("id" TEXT NOT NULL, "automation_id" TEXT, PRIMARY KEY ("id"));
-               INSERT INTO "coding_sessions" ("id", "automation_id") VALUES ('s-1', 'tr-1');"#,
+               INSERT INTO "coding_sessions" ("id", "automation_id") VALUES ('s-1', 'tr-1');
+               CREATE TABLE "threads" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));
+               CREATE TABLE "thread_items" ("id" TEXT NOT NULL, PRIMARY KEY ("id"));"#,
         )
         .unwrap();
     }
 
-    let sessions = shape_by_name("coding_sessions").unwrap();
     for _ in 0..2 {
         let store = db.open();
-        assert!(store.shape_state("automations").unwrap().is_none());
-        let rows = store.read_all(sessions).unwrap();
-        let row = row_by_id(&rows, "s-1");
-        assert_eq!(row.get("trigger_id").and_then(Value::as_str), Some("tr-1"));
-        assert!(!row.contains_key("automation_id"));
+        for gone in ["automations", "coding_sessions", "threads", "thread_items"] {
+            assert!(store.shape_state(gone).unwrap().is_none(), "{gone} cursor dropped");
+        }
+        // The new tree's table exists from the registry.
+        assert!(store.read_all(shape_by_name("sessions").unwrap()).unwrap().is_empty());
         drop(store);
         let conn = rusqlite::Connection::open(&db.path).unwrap();
         let tables: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'automations'",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('automations', 'coding_sessions', 'threads', 'thread_items')",
                 [],
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(tables, 0, "the orphaned automations table is dropped");
+        assert_eq!(tables, 0, "the orphaned tables are dropped");
     }
 }
 

@@ -1,32 +1,34 @@
 import ExpCore
 import ExpUI
-import GRDB
 import SwiftUI
 
-/// EXP-1284: the phone's THREAD screen (brief §1-4, draft 3) — the unit of
-/// work: n issues and m runs. The header band carries the thread's title and
-/// the CHILD STRIP as the pager tabs (`ThreadStripTabs`: Conversation · one
-/// tab per issue · Guide, "+" trailing), replacing the Work screen's Issue ·
-/// Run · Guide; the pages follow the finger (`FacePager`).
+/// EXP-1295: the phone's ONE screen for a root session (fixture
+/// `session-thread.json`) — a THREAD, or a team AGENT's channel (the same
+/// Conversation, Slack-like, its started threads as session cards).
 ///
-/// * Conversation = `ThreadConversationView` over THE thread view
-///   (`ThreadViews.build`, fixture-locked ×4) with the reply box under it
-///   (`Reply in this thread`: sends into my latest live run, resumes my
-///   ended latest run, else opens the composer with the thread).
-/// * An issue tab = the existing Issue face (`IssueFaceView`) of that issue.
-/// * Guide = the existing Guide face fed the THREAD's Guide
-///   (`threads.results`) with the Merge capsule of the thread's PR
-///   (`ThreadViews.mergeTarget`).
+/// * Header = the title (a lock when private; an agent's icon in its color
+///   before its name) and, for a thread, THE strip — Conversation · one tab
+///   per linked issue · "+" · Guide — as the pager (`FacePager`). Nothing
+///   else: no caption, no Stop, no device, no Show work.
+/// * Conversation = `ThreadConversationView` over `buildSessionThread`, with
+///   THE session composer box under it (`ThreadComposer` →
+///   `SessionComposerCard`), sending
+///   `sessions.send({sessionId: root})`.
+/// * An issue tab = the existing issue page (`IssueFaceView`) of that issue.
+/// * Guide = the existing Guide face over the root's `guide` (the PR body),
+///   counting the thread PR's files, with its Merge capsule while it is open
+///   and ONE `…` in the header's action slot (EXP-1307: THE Menu's sheet,
+///   `guideMenuEntries` — Open on GitHub · Close PR behind the close-pr.json
+///   confirm). EXP-1306: while that PR
+///   sits in a linear open stack, a `Stack` band + THE `StackRail` lead it
+///   (a row opens that PR's thread, a hold offers Merge through here).
 ///
-/// The "+" and an issue tab's long press open THE Menu as a bottom sheet
-/// (`ThreadMenuSheet`, the sheet Android and web-mobile open): Link an issue (THE
-/// search list → `threads.link`), New issue in this thread (the New issue
-/// page carrying the thread → `issues.create({threadId})`), Start a session here
-/// (the Agent page composer carrying the thread → `steer.startSession(
-/// {threadId})`) and, on an issue tab, Unlink <IDENT> (`threads.unlink`).
+/// The "+" opens THE Menu's sheet: Link an issue (THE search list →
+/// `sessions.linkIssues`) · New issue (the New issue page filing into this
+/// root); an issue tab's long press offers Unlink (`sessions.unlinkIssue`).
 /// Failed actions toast (`Couldn't link the issue`, feedback-states).
 struct ThreadScreen: View {
-    let threadId: String
+    let rootId: String
     let initialPage: ThreadPage
 
     @Environment(AppDependencies.self) private var deps
@@ -36,48 +38,39 @@ struct ThreadScreen: View {
     @Environment(\.toaster) private var toaster
     @Environment(TeamState.self) private var teamState
     @Environment(\.threadLanding) private var threadLanding
+    @Environment(\.openURL) private var openURL
     @State private var page: ThreadPage
-    /// T11/T-N7: a requested child that has not synced into the strip yet
-    /// (a just-filed issue): the page shows the Conversation and switches the
-    /// moment the child arrives; a tab tap drops the request.
+    /// A requested issue tab that has not synced into the strip yet (a
+    /// just-filed issue): the page shows the Conversation and switches the
+    /// moment the tab arrives; a tab tap drops the request.
     @State private var pendingPage: ThreadPage?
     @State private var model: ThreadScreenModel?
-    /// The Issue face models of the issue tabs VISITED so far, created when
-    /// their page is first reached (EXP-1288): a batch thread's ten issues
-    /// never hold ten sets of live observations. Only the SHOWN page's model
-    /// observes (`observingIssueId`); a model kept for a page left behind is
-    /// stopped, so coming back re-arms it instead of rebuilding it.
+    /// The issue page models of the issue tabs VISITED so far (EXP-1288):
+    /// only the SHOWN page's model observes (`observingIssueId`).
     @State private var issueVMs: [String: IssueDetailViewModel] = [:]
-    /// The one issue model observing right now (the shown issue tab's).
     @State private var observingIssueId: String?
-    /// nil until the relay config resolves (the reply box waits for it).
-    @State private var steerEnabled: Bool?
-    /// THE Menu's sheet: the "+" (issueId nil) or an issue tab's long press.
+    /// THE Menu's sheet: the "+" (issueId nil), an issue tab's long press or
+    /// the Guide's `…` (EXP-1307).
     @State private var menuTarget: ThreadMenuTarget?
     /// The sheet's pick, run once the sheet has dismissed.
     @State private var pendingMenuAction: (action: ThreadMenuSheet.Action, issueId: String?)?
     @State private var linkSheetOpen = false
+    /// The question / plan answer in flight.
+    @State private var answeringId: String?
     // Guide
     @State private var guideSection: GuideSectionKey?
     @State private var focusPath: String?
     @State private var mergeState = WorkMergeState()
-    @State private var prChangesModel: ChangesViewModel?
-    // Reply
-    @State private var reply = ""
-    @State private var replying = false
-    /// The live run the reply box sends into — its socket claimed while the
-    /// screen is up, so a message goes out the moment it is typed.
-    @State private var claimedRunId: String?
-    /// A reply that RESUMED my ended run, waiting for the successor's socket.
-    @State private var pendingReply: String?
-    /// The reply's resume press (EXP-1259 `StartIntent`): ONE `startId` per
-    /// press, re-sent by its Retry, so the server and the device start it once.
-    @State private var resumeIntent: StartIntent?
+    /// EXP-1306: a rail member's Merge through here, awaiting its confirm.
+    @State private var mergeThrough: PullRequestStack.Confirm?
+    @State private var prChanges: ChangesViewModel?
+    /// EXP-1307: the Guide PR awaiting the Close PR confirm.
+    @State private var closePrTarget: PullRequestEntity?
 
-    init(threadId: String, initialPage: ThreadPage = .conversation) {
-        self.threadId = threadId
+    init(rootId: String, initialPage: ThreadPage = .conversation) {
+        self.rootId = rootId
         self.initialPage = initialPage
-        // An issue child may not be in the strip yet: hold it (`pendingPage`).
+        // An issue tab may not be in the strip yet: hold it (`pendingPage`).
         if case .issue = initialPage {
             _page = State(initialValue: .conversation)
             _pendingPage = State(initialValue: initialPage)
@@ -87,39 +80,46 @@ struct ThreadScreen: View {
     }
 
     private var rows: ThreadRows? { model?.rows }
-    private var view: ThreadViewModel? { model?.view }
 
-    private var pages: [ThreadPage] {
-        guard let view else { return [.conversation] }
-        var pages: [ThreadPage] = []
-        for child in view.strip {
-            switch child {
-            case .conversation: pages.append(.conversation)
-            case let .issue(issueId, _, _): pages.append(.issue(issueId))
-            case .guide: pages.append(.guide)
-            case .add: break
+    /// The pager's pages: the strip's (an agent channel has the
+    /// Conversation alone).
+    private func pages(_ rows: ThreadRows, _ view: SessionThreadView) -> [ThreadPage] {
+        guard !rows.isAgent else { return [.conversation] }
+        return view.tabs.compactMap { tab in
+            switch tab {
+            case .conversation: .conversation
+            case let .issue(issueId, _): .issue(issueId)
+            case .guide: .guide
+            case .add: nil
             }
         }
-        return pages
+    }
+
+    private var currentPages: [ThreadPage] {
+        guard let rows, let view = model?.view else { return [.conversation] }
+        return pages(rows, view)
     }
 
     var body: some View {
         ZStack {
             AppBackground()
             if let model, let rows = model.rows, let view = model.view {
-                FacePager(pages: pages, selection: Binding(get: { page }, set: { switchPage($0) })) { page in
+                FacePager(
+                    pages: pages(rows, view),
+                    selection: Binding(get: { page }, set: { switchPage($0) })
+                ) { page in
                     pageView(page, rows: rows, view: view)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .workHeaderBand(ground: page == .conversation) { header(rows: rows, view: view) }
-            } else if model?.missing == true {
-                // EXP-1284: empty-state.json `thread-not-found`; its action
-                // lands on the Agent tab.
-                EmptyState(.threadNotFound) {
-                    pushRoute(.agent(accountId: accountId, seed: .empty))
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    header(rows: rows, view: view)
+                        .frame(maxWidth: .infinity)
+                        .headerEdgeChrome(ground: page == .conversation)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .accessibilityIdentifier("thread-not-found")
+            } else if model?.missing == true {
+                EmptyState(.threadNotFound)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("thread-not-found")
             } else {
                 // EXP-1275 (D8): a first load is skeleton rows.
                 SkeletonRows()
@@ -130,23 +130,60 @@ struct ThreadScreen: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbar {
+            // EXP-1307: ONE `…` rides the header's action slot on the Guide
+            // while it has a PR — Open on GitHub · Close PR, in THE Menu's sheet.
+            ToolbarItem(placement: .topBarTrailing) {
+                if page == .guide, !guideMenuEntries.isEmpty {
+                    Button { openGuideMenu() } label: {
+                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium, weight: .medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .accessibilityLabel("More")
+                    .accessibilityIdentifier(SessionTree.ThreadCopy.guideMenuTestId)
+                }
+            }
+        }
         // Each presentation on its OWN node (EXP-240).
         .background {
             Color.clear
                 .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
                     ThreadMenuSheet(
-                        identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier }
+                        identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier },
+                        guideEntries: target.guide ? guideMenuEntries : nil
                     ) { action in
                         pendingMenuAction = (action, target.issueId)
                         menuTarget = nil
                     }
                 }
         }
+        // EXP-1307: close-pr.json's confirm (the app's own card, EXP-240).
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $closePrTarget) { pullRequest in
+                    GlassAlert(
+                        title: ClosePrCopy.title,
+                        message: ClosePrCopy.message(
+                            otherLinkedIssues: max((rows?.pullRequestIssueIds[pullRequest.id]?.count ?? 0) - 1, 0)
+                        ),
+                        actions: [
+                            GlassAlertAction(
+                                PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel"
+                            ) {},
+                            GlassAlertAction(ClosePrCopy.confirm, role: .destructive, id: "close-pr") {
+                                closePr(pullRequest)
+                            },
+                        ]
+                    )
+                }
+        }
         .sheet(isPresented: $linkSheetOpen) {
             if let rows {
                 ThreadLinkIssueSheet(
-                    teamId: rows.thread.teamId,
-                    excluded: Set(rows.linkedIssues.map(\.id)),
+                    teamId: rows.root.teamId,
+                    excluded: Set(rows.issues.map(\.id)),
                     onPick: { issueId in
                         linkSheetOpen = false
                         link(issueId)
@@ -158,13 +195,9 @@ struct ThreadScreen: View {
         .accessibilityIdentifier("thread-screen")
         .onAppear(perform: appear)
         .onDisappear(perform: disappear)
-        .task(id: accountId) {
-            let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
-            steerEnabled = config.enabled
-        }
-        // A held child that arrived is shown; a page that vanished (an
+        // A held tab that arrived is shown; a page that vanished (an
         // unlinked issue) lands on the Conversation.
-        .onChange(of: pages) { _, pages in
+        .onChange(of: currentPages) { _, pages in
             if let pending = pendingPage, pages.contains(pending) {
                 pendingPage = nil
                 selectPage(pending)
@@ -173,49 +206,59 @@ struct ThreadScreen: View {
             }
             syncIssueModels()
         }
-        // T11/T-N9: the navigator popped back to THIS page for a start or a
-        // filed issue: land on the child it names.
+        // The navigator popped back to THIS page for a filed issue: land on
+        // the tab it names.
         .onChange(of: threadLanding.request) { _, request in
-            guard let request, request.threadId == threadId else { return }
+            guard let request, request.threadId == rootId else { return }
             land(on: request.page)
         }
-        .onChange(of: replyTarget) { _, _ in claimReplyRun() }
-        .onChange(of: wantsPrChanges, initial: true) { _, _ in syncPrChangesModel() }
-        .onChange(of: mergeTarget.map(Self.mergeKey)) { _, _ in mergeState = WorkMergeState() }
+        .onChange(of: rows?.guidePullRequest?.id, initial: true) { _, _ in syncPrChanges() }
     }
 
     // MARK: - Header
 
-    private func header(rows: ThreadRows, view: ThreadViewModel) -> some View {
+    @ViewBuilder
+    private func header(rows: ThreadRows, view: SessionThreadView) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            ThreadHeaderTitle(title: view.title, caption: view.headerCaption)
-            ThreadStripTabs(
-                strip: view.strip,
-                selection: page,
-                issue: { rows.issue(id: $0) },
-                isFresh: { issueId in rows.item(issueId: issueId).map { model?.isFresh($0) ?? false } ?? false },
-                onSelect: { next in
-                    pendingPage = nil
-                    selectPage(next)
-                },
-                onIssueMenu: { issueId, frame in openMenu(issueId: issueId, anchor: frame) },
-                onAdd: canEdit ? { (frame: CGRect) in openMenu(issueId: nil, anchor: frame) } : nil
-            )
+            if rows.isAgent {
+                ThreadHeaderTitle(
+                    title: rows.root.name ?? view.title,
+                    isPrivate: view.isPrivate,
+                    agentIcon: BoardTypeDisplay.iconName(for: rows.root.icon)
+                        ?? SessionTree.ListCopy.agentDefaultIcon,
+                    agentColor: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor
+                )
+                .padding(.bottom, 8)
+            } else {
+                ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
+                ThreadStripTabs(
+                    tabs: view.tabs,
+                    selection: page,
+                    issue: { rows.issue(id: $0) },
+                    isFresh: { model?.isFresh(issueId: $0) ?? false },
+                    onSelect: { next in
+                        pendingPage = nil
+                        selectPage(next)
+                    },
+                    onIssueMenu: { issueId in openMenu(issueId: issueId) },
+                    onAdd: canEdit ? { openMenu(issueId: nil) } : nil
+                )
+            }
         }
         .padding(.top, 4)
     }
 
-    /// A member may link, file and start here (`resolveTeamAccess`: every
-    /// member comments and creates issues).
+    /// A member may link and file here (`resolveTeamAccess`: every member
+    /// comments and creates issues).
     private var canEdit: Bool {
         guard let rows else { return false }
-        return teamState.teams.contains { $0.id == rows.thread.teamId }
+        return teamState.teams.contains { $0.id == rows.root.teamId }
     }
 
     // MARK: - Pages
 
     @ViewBuilder
-    private func pageView(_ page: ThreadPage, rows: ThreadRows, view: ThreadViewModel) -> some View {
+    private func pageView(_ page: ThreadPage, rows: ThreadRows, view: SessionThreadView) -> some View {
         switch page {
         case .conversation:
             conversationPage(rows: rows, view: view)
@@ -226,28 +269,46 @@ struct ThreadScreen: View {
         }
     }
 
-    private func conversationPage(rows: ThreadRows, view: ThreadViewModel) -> some View {
-        ScrollView {
-            ThreadConversationView(
-                rows: rows,
-                view: view,
-                me: deps.auth.userId,
-                now: model?.now ?? Date(),
-                onOpenRun: { runId in
-                    pushRoute(.agentSession(accountId: accountId, sessionId: runId))
-                },
-                onOpenIssue: { issueId in selectPage(.issue(issueId)) }
-            )
-            .padding(.vertical, 12)
-            .transcriptColumn()
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom) {
-            if steerEnabled == true {
-                replyBox
+    private func conversationPage(rows: ThreadRows, view: SessionThreadView) -> some View {
+        ScrollViewReader { scroller in
+            ScrollView {
+                ThreadConversationView(
+                    rows: rows,
+                    view: view,
+                    onOpenSession: { sessionId in
+                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                    },
+                    onOpenThread: { threadId in
+                        pushRoute(.thread(accountId: accountId, threadId: threadId))
+                    },
+                    onAnswer: { messageId, option in answer(messageId, answer: option) },
+                    onDecide: { messageId, decision, feedback in
+                        answer(messageId, decision: decision, feedback: feedback)
+                    },
+                    answeringId: answeringId,
+                    canAnswer: canEdit
+                )
+                .padding(.vertical, 12)
+                .transcriptColumn()
+                Color.clear
+                    .frame(height: 1)
+                    .id(Self.bottomId)
+            }
+            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: view.rows.count) { _, _ in
+                withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+            }
+            .safeAreaInset(edge: .bottom) {
+                ThreadComposer(
+                    sessionId: view.composer.sessionId,
+                    placeholder: rows.composerPlaceholder(view)
+                )
             }
         }
     }
+
+    private static let bottomId = "thread-conversation-bottom"
 
     @ViewBuilder
     private func issuePage(_ issueId: String) -> some View {
@@ -257,10 +318,9 @@ struct ThreadScreen: View {
                 issue: issue,
                 barTrailing: .hidden,
                 onStartCoding: {},
-                onOpenChanges: { selectPage(.guide) }
+                // Its `Threads` row leaves THIS thread out.
+                hostThreadId: rootId
             )
-            // T-N9: its `Threads` row leaves THIS thread out.
-            .environment(\.currentThreadId, threadId)
         } else {
             SkeletonRows()
                 .padding(.horizontal, 16)
@@ -269,233 +329,188 @@ struct ThreadScreen: View {
         }
     }
 
-    // MARK: - Guide (the THREAD's Guide)
+    // MARK: - Guide (the root's Guide = the PR body)
 
-    /// T8/T-N6: the thread's PR (`threadPrTarget` ×4: newest open, else
-    /// newest merged); the capsule only while it is open.
-    private var prTarget: ThreadViews.PrTarget? { rows?.prTarget }
-    private var mergeTarget: MergeTarget? { prTarget?.mergeTarget }
-
-    private static func mergeKey(_ target: MergeTarget) -> String {
-        switch target {
-        case let .issue(id): "issue:\(id)"
-        case let .session(id): "session:\(id)"
+    private func guidePage(rows: ThreadRows) -> some View {
+        let pullRequest = rows.guidePullRequest
+        let openPullRequest = pullRequest.flatMap { $0.isOpen ? $0 : nil }
+        return GuideFace(
+            groups: parseSessionResultGroups(rows.root.guide),
+            files: prChanges?.loadedFiles,
+            diffStatus: prDiffStatus,
+            teamId: rows.root.teamId,
+            section: $guideSection,
+            focusPath: $focusPath,
+            stack: guideStack(rows: rows),
+            showsMerge: openPullRequest != nil
+        ) {
+            if let openPullRequest {
+                WorkMergePill(
+                    pullRequest: openPullRequest,
+                    issueCount: rows.pullRequestIssueIds[openPullRequest.id]?.count ?? 0,
+                    stackConfirm: rows.guideStackConfirm,
+                    state: $mergeState,
+                    // EXP-1307: the thread Guide's capsule (`testIds.guideMerge`).
+                    identifier: SessionTree.ThreadCopy.guideMergeTestId
+                )
+                .id(openPullRequest.id)
+            }
         }
     }
 
-    /// The PR files the Guide counts: the thread PR's issue (or session),
-    /// open or merged.
-    private var wantsPrChanges: String? {
-        prTarget.map { Self.mergeKey($0.subject) }
+    /// EXP-1306: the Guide PR's stack block (desktop `stack_card`): the
+    /// `Stack` band over THE `StackRail`, top first, the Guide PR's row in the
+    /// current wash, down to the base branch. nil = no linear open stack.
+    private func guideStack(rows: ThreadRows) -> AnyView? {
+        guard let view = rows.guideStackView else { return nil }
+        let members = view.rows.map {
+            StackRailMember(id: $0.pullRequestId, identifier: $0.identifier, title: $0.title, current: $0.isCurrent)
+        }
+        let roots = Dictionary(
+            view.rows.compactMap { row in row.rootSessionId.map { (row.pullRequestId, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return AnyView(
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(SessionTree.ThreadCopy.stack) {
+                    AppIcon(AppIcons.prStack, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                } trailing: {
+                    EmptyView()
+                }
+                StackRail(
+                    members: members,
+                    baseBranch: view.baseBranch ?? "",
+                    onOpen: { member in
+                        // The thread on screen is already open.
+                        guard let rootId = roots[member.id], rootId != self.rootId else { return }
+                        pushRoute(.thread(accountId: accountId, threadId: rootId))
+                    },
+                    onMergeThrough: canEdit && !mergeState.merging
+                        ? { member in mergeThrough = rows.mergeThroughConfirm(pullRequestId: member.id) }
+                        : nil
+                )
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(SessionTree.ThreadCopy.guideStackTestId)
+            // THE stack confirm, on a zero-size node of its own (EXP-240).
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(item: $mergeThrough) { confirm in
+                        GlassAlert(
+                            title: confirm.title,
+                            message: confirm.body,
+                            actions: [
+                                GlassAlertAction(
+                                    PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel"
+                                ) {},
+                                GlassAlertAction(confirm.title, role: .primary, id: "merge-through") {
+                                    merge(through: confirm)
+                                },
+                            ]
+                        )
+                    }
+            }
+        )
     }
 
-    private func guidePage(rows: ThreadRows) -> some View {
-        GuideFace(
-            // T-N8: the thread's Guide, else its newest session's row.
-            groups: parseSessionResultGroups(rows.guide),
-            files: prChangesModel?.loadedFiles,
-            diffStatus: prDiffStatus,
-            teamId: rows.thread.teamId,
-            section: $guideSection,
-            focusPath: $focusPath,
-            showsMerge: mergeTarget != nil
-        ) {
-            mergeCapsule(rows: rows)
+    /// Merge through a rail member: `pullRequests.merge({stack: true})` on
+    /// it. Shares the capsule's in-flight state, so both spin together.
+    private func merge(through confirm: PullRequestStack.Confirm) {
+        mergeState.merging = true
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        Task {
+            do {
+                let result = try await api.merge(
+                    accountId: accountId, pullRequestId: confirm.throughId, stack: true
+                )
+                if !result.merged, result.queued != true {
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
+                        description: result.error
+                    )
+                }
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
+                    description: error.userFacingMessage
+                )
+            }
+            mergeState.merging = false
         }
     }
 
     private var prDiffStatus: GuideDiffStatus {
-        guard let prChangesModel else { return .ready }
-        switch prChangesModel.load {
+        guard let prChanges else { return .ready }
+        switch prChanges.load {
         case .loading: return .loading
         case let .failed(message): return .failed(message)
         case .loaded: return .ready
         }
     }
 
-    @ViewBuilder
-    private func mergeCapsule(rows: ThreadRows) -> some View {
-        if let target = mergeTarget {
-            let issue: IssueEntity? = {
-                if case let .issue(id) = target { return rows.issue(id: id) }
-                return nil
-            }()
-            let session: CodingSessionEntity? = {
-                if case let .session(id) = target { return rows.session(id: id) }
-                return nil
-            }()
-            WorkMergePill(
-                target: target,
-                issue: issue,
-                prIssues: rows.linkedIssues,
-                steerEnabled: steerEnabled == true,
-                runPrNumber: session?.prNumber,
-                teamId: rows.thread.teamId,
-                state: $mergeState,
-                identifier: "thread-merge-pr"
-            )
-            .id(Self.mergeKey(target))
-        }
-    }
-
-    private func syncPrChangesModel() {
-        prChangesModel?.stopObserving()
-        prChangesModel = nil
-        guard let target = prTarget?.subject else { return }
-        let source: ChangesViewModel.Source = switch target {
-        case let .issue(id): .issue(id)
-        case let .session(id): .session(id)
-        }
+    /// The Guide counts the thread PR's files (open, else merged).
+    private func syncPrChanges() {
+        let wanted = rows?.guidePullRequest?.id
+        guard prChanges?.pullRequestId != wanted else { return }
+        prChanges?.stopObserving()
+        prChanges = nil
+        mergeState = WorkMergeState()
+        guard let wanted else { return }
         let changes = ChangesViewModel(
             accountId: accountId,
-            source: source,
+            pullRequestId: wanted,
             db: deps.db,
-            issuesApi: deps.issuesApi,
-            repositoriesApi: deps.repositoriesApi,
-            codingSessionsApi: deps.codingSessionsApi
+            pullRequestsApi: deps.pullRequestsApi
         )
-        prChangesModel = changes
+        prChanges = changes
         changes.startObserving()
     }
 
-    // MARK: - Reply (brief §2)
+    // MARK: - Cards (answered in place)
 
-    private var replyTarget: ThreadViews.ReplyTarget? {
-        guard let rows else { return nil }
-        return ThreadViews.replyTarget(runs: rows.viewRuns, me: deps.auth.userId)
-    }
-
-    private var replyBox: some View {
-        ThreadReplyBox(text: $reply, sending: replying, onSend: { sendReply() })
-    }
-
-    private func sendReply(retry: Bool = false) {
-        let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !replying, let rows, let target = replyTarget else { return }
-        switch target {
-        case let .send(runId):
-            guard let session = rows.session(id: runId) else { return }
-            let steer = deps.attachSteerModel(accountId: accountId, session: session)
-            defer { deps.steerSessions.detach(accountId: accountId, sessionId: runId) }
-            if steer.sendMessage(text) {
-                reply = ""
-            } else {
-                toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"))
-            }
-        case let .resume(runId):
-            guard let session = rows.session(id: runId) else { return }
-            let devices = rows.devices.map {
-                SteerDevice(entity: $0, now: Date(), currentUserId: deps.auth.userId)
-            }
-            guard let device = RunResume.target(for: session, devices: devices, currentUserId: deps.auth.userId)
-            else {
-                // T9: nothing can take it back — say it ended and start a
-                // new session in this thread.
-                toaster.info(Self.endedTitle, description: Self.endedDescription)
-                openComposer(issueId: nil, text: text)
-                reply = ""
-                return
-            }
-            let target = StartIntent.resumeTarget(sessionId: runId, deviceId: device.deviceId, account: nil)
-            let intent = retry
-                ? StartIntent.retry(pending: resumeIntent, target: target)
-                : StartIntent.press(target: target)
-            resumeIntent = intent
-            replying = true
-            Task {
-                do {
-                    try await deps.steerApi.resumeSession(
-                        accountId: accountId,
-                        sessionId: runId,
-                        deviceId: device.deviceId,
-                        startId: intent.startId
-                    )
-                    // The resume stays in the thread; the text follows it
-                    // once its socket is up (`claimReplyRun`). T10/T-N4: no
-                    // successor within the start timeout = the text comes
-                    // back with a Retry.
-                    pendingReply = text
-                    reply = ""
-                    holdReply(text)
-                } catch {
-                    toaster.error(
-                        FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
-                        description: error.userFacingMessage,
-                        action: ToastAction(label: FeedbackStates.Errors.retry) {
-                            Task { @MainActor in sendReply(retry: true) }
-                        }
-                    )
-                }
-                replying = false
-            }
-        case .start:
-            openComposer(issueId: nil, text: text)
-            reply = ""
-        }
-    }
-
-    /// T9: a reply to my ended session nothing can resume.
-    static let endedTitle = "That session ended"
-    static let endedDescription = "Your reply starts a new session in this thread."
-
-    /// T10/T-N4: a resumed reply still waiting after the start timeout gives
-    /// its text back and offers a Retry.
-    private func holdReply(_ text: String) {
+    private func answer(
+        _ messageId: String, answer: String? = nil, decision: PlanDecision? = nil, feedback: String? = nil
+    ) {
+        guard answeringId == nil else { return }
+        answeringId = messageId
+        let api = deps.sessionsApi
+        let accountId = accountId
         Task {
-            try? await Task.sleep(for: .milliseconds(FeedbackStates.Starting.timeoutMs))
-            guard pendingReply == text else { return }
-            pendingReply = nil
-            if reply.isEmpty { reply = text }
-            toaster.error(
-                FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
-                action: ToastAction(label: FeedbackStates.Errors.retry) {
-                    Task { @MainActor in sendReply(retry: true) }
-                }
-            )
+            do {
+                try await api.answer(
+                    accountId: accountId, messageId: messageId, answer: answer, decision: decision, feedback: feedback
+                )
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the answer"),
+                    description: error.userFacingMessage
+                )
+            }
+            answeringId = nil
         }
     }
 
-    /// Keep ONE claim on the live run the reply box sends into, and deliver a
-    /// reply that resumed a run once its successor is live.
-    private func claimReplyRun() {
-        var wanted: String?
-        if case let .send(runId)? = replyTarget { wanted = runId }
-        if claimedRunId != wanted {
-            if let claimedRunId {
-                deps.steerSessions.detach(accountId: accountId, sessionId: claimedRunId)
-            }
-            claimedRunId = nil
-            if let wanted, let session = rows?.session(id: wanted) {
-                _ = deps.attachSteerModel(accountId: accountId, session: session)
-                claimedRunId = wanted
-            }
-        }
-        guard let text = pendingReply, let runId = wanted, let session = rows?.session(id: runId) else { return }
-        pendingReply = nil
-        // The resume landed: its press is spent.
-        resumeIntent = nil
-        let steer = deps.attachSteerModel(accountId: accountId, session: session)
-        Task {
-            defer { deps.steerSessions.detach(accountId: accountId, sessionId: runId) }
-            // The successor's socket dials after its row lands: retry for a
-            // while rather than drop the text.
-            for _ in 0..<30 {
-                if steer.sendMessage(text) { return }
-                try? await Task.sleep(for: .seconds(1))
-            }
-            reply = text
-            toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"))
-        }
-    }
+    // MARK: - THE Menu
 
-    // MARK: - THE Menu (brief §4)
-
-    /// The anchor the strip reports is unused: on a phone THE Menu is a
-    /// sheet, never a popover.
-    private func openMenu(issueId: String?, anchor _: CGRect) {
+    private func openMenu(issueId: String?) {
         guard canEdit else { return }
         UIApplication.endEditing()
         menuTarget = ThreadMenuTarget(issueId: issueId)
+    }
+
+    /// EXP-1307: the Guide header's `…` entries (`guideMenuEntries`, fixture
+    /// `guideMenuCases` ×4) over the Guide's PR; empty = no trigger.
+    private var guideMenuEntries: [SessionTree.GuideMenuEntry] {
+        SessionTree.guideMenuEntries(state: rows?.guidePullRequest?.state, member: canEdit)
+    }
+
+    private func openGuideMenu() {
+        UIApplication.endEditing()
+        menuTarget = ThreadMenuTarget(issueId: nil, guide: true)
     }
 
     private func runPendingMenuAction() {
@@ -503,20 +518,40 @@ struct ThreadScreen: View {
         pendingMenuAction = nil
         switch pending.action {
         case .linkIssue: linkSheetOpen = true
-        case .newIssue: newIssue(nextTo: pending.issueId)
-        case .startSession: openComposer(issueId: pending.issueId, text: nil)
+        case .newIssue: newIssue()
         case .unlink:
             if let issueId = pending.issueId { unlink(issueId) }
+        case .openGithub:
+            if let url = rows?.guidePullRequest.flatMap({ URL(string: $0.url) }) { openURL(url) }
+        case .closePr:
+            closePrTarget = rows?.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
+        }
+    }
+
+    /// EXP-1307: `pullRequests.close` on the Guide's open PR; the Electric
+    /// echo flips its state (the entry goes), a refusal toasts.
+    private func closePr(_ pullRequest: PullRequestEntity) {
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.close(accountId: accountId, pullRequestId: pullRequest.id)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "close", thing: "the PR"),
+                    description: error.userFacingMessage
+                )
+            }
         }
     }
 
     private func link(_ issueId: String) {
-        let api = deps.threadsApi
+        let api = deps.sessionsApi
         let accountId = accountId
-        let threadId = threadId
+        let rootId = rootId
         Task {
             do {
-                try await api.link(accountId: accountId, .issue(threadId: threadId, issueId: issueId))
+                try await api.linkIssues(accountId: accountId, sessionId: rootId, issueIds: [issueId])
             } catch {
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "link", thing: "the issue"),
@@ -528,12 +563,12 @@ struct ThreadScreen: View {
 
     private func unlink(_ issueId: String) {
         if page == .issue(issueId) { selectPage(.conversation) }
-        let api = deps.threadsApi
+        let api = deps.sessionsApi
         let accountId = accountId
-        let threadId = threadId
+        let rootId = rootId
         Task {
             do {
-                try await api.unlink(accountId: accountId, .issue(threadId: threadId, issueId: issueId))
+                try await api.unlinkIssue(accountId: accountId, sessionId: rootId, issueId: issueId)
             } catch {
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "unlink", thing: "the issue"),
@@ -543,14 +578,13 @@ struct ThreadScreen: View {
         }
     }
 
-    /// The New issue page carrying the thread, on the chip's board, else the
-    /// thread's first issue's, else the team's first board.
-    private func newIssue(nextTo issueId: String?) {
+    /// The New issue page filing into this root, on its first issue's board,
+    /// else the team's first board.
+    private func newIssue() {
         guard let rows else { return }
-        let boardId = issueId.flatMap { rows.issue(id: $0)?.boardId }
-            ?? rows.linkedIssues.first?.boardId
+        let boardId = rows.issues.first?.boardId
             ?? teamState.boards
-                .filter { $0.teamId == rows.thread.teamId }
+                .filter { $0.teamId == rows.root.teamId }
                 .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
                 .first?.id
         guard let boardId else {
@@ -562,22 +596,7 @@ struct ThreadScreen: View {
             accountId: accountId,
             draftId: UUID().uuidString.lowercased(),
             boardId: boardId,
-            threadId: threadId
-        ))
-    }
-
-    /// The Agent page composer prefilled with the thread (and the chip's
-    /// issue): its start lands in this thread.
-    private func openComposer(issueId: String?, text: String?) {
-        guard let rows else { return }
-        pushRoute(.agent(
-            accountId: accountId,
-            seed: AgentComposerSeed(
-                issueIds: issueId.map { [$0] } ?? [],
-                text: text,
-                teamId: rows.thread.teamId,
-                threadId: threadId
-            )
+            threadId: rootId
         ))
     }
 
@@ -585,23 +604,18 @@ struct ThreadScreen: View {
 
     private func appear() {
         if model == nil {
-            model = ThreadScreenModel(threadId: threadId, accountId: accountId, db: deps.db)
+            model = ThreadScreenModel(rootId: rootId, accountId: accountId, db: deps.db)
         }
-        model?.start(api: deps.threadsApi)
-        prChangesModel?.startObserving()
+        model?.start()
+        prChanges?.startObserving()
         syncIssueModels()
-        claimReplyRun()
     }
 
     private func disappear() {
         UIApplication.endEditing()
         model?.stop()
-        prChangesModel?.stopObserving()
+        prChanges?.stopObserving()
         stopIssueModel()
-        if let claimedRunId {
-            deps.steerSessions.detach(accountId: accountId, sessionId: claimedRunId)
-            self.claimedRunId = nil
-        }
     }
 
     /// EXP-1288: ONE issue model observes at a time — the shown issue tab's,
@@ -609,7 +623,7 @@ struct ThreadScreen: View {
     /// the page is left. An unlinked issue's model is dropped.
     private func syncIssueModels() {
         guard let rows else { return }
-        let ids = Set(rows.linkedIssues.map(\.id))
+        let ids = Set(rows.issues.map(\.id))
         for id in issueVMs.keys where !ids.contains(id) {
             if observingIssueId == id { stopIssueModel() }
             issueVMs[id] = nil
@@ -626,8 +640,7 @@ struct ThreadScreen: View {
         observingIssueId = id
     }
 
-    /// Stop the observing issue model, saving what its face left unsaved
-    /// (the face's own leave saves too; both are no-ops when nothing changed).
+    /// Stop the observing issue model, saving what its page left unsaved.
     private func stopIssueModel() {
         guard let id = observingIssueId else { return }
         observingIssueId = nil
@@ -648,19 +661,16 @@ struct ThreadScreen: View {
             attachmentsApi: deps.attachmentsApi,
             labelsApi: deps.labelsApi,
             relationsApi: deps.relationsApi,
-            steerApi: deps.steerApi,
             widgetsApi: deps.widgetsApi,
             auth: deps.auth
         )
     }
 
-    // MARK: - Pages
-
-    /// T11/T-N7: show `target` now, or hold it until it reaches the strip.
+    /// Show `target` now, or hold it until it reaches the strip.
     private func land(on target: ThreadPage) {
         menuTarget = nil
         guideSection = nil
-        if pages.contains(target) {
+        if currentPages.contains(target) {
             pendingPage = nil
             selectPage(target)
         } else {
@@ -681,120 +691,119 @@ struct ThreadScreen: View {
     }
 }
 
-/// EXP-1284: what the thread's menu sheet is open for — an issue tab
-/// (`issueId`) or the strip's "+" (nil).
+/// What the strip's menu sheet is open for — an issue tab (`issueId`), the
+/// "+" (nil) or the Guide's `…` (`guide`, EXP-1307).
 struct ThreadMenuTarget: Identifiable {
     let issueId: String?
-    var id: String { issueId ?? "add" }
+    var guide = false
+    var id: String { guide ? "guide" : issueId ?? "add" }
 }
 
-/// EXP-1284: the Conversation's reply box — `Reply in this thread`, the send
-/// mark once there is text. What a send does is the screen's
-/// (`ThreadViews.replyTarget`).
-struct ThreadReplyBox: View {
-    @Binding var text: String
-    var sending = false
-    let onSend: () -> Void
+/// EXP-1295: a Conversation's draft for THE session composer box
+/// (`SessionComposerCard`, mounted bare: no plan chip, model pill or usage
+/// ring) — `sessions.send({sessionId, text, attachmentIds})` into the root:
+/// an idle session resumes, an ended thread continues server-side. Picks
+/// upload to that session first, each once.
+@MainActor
+@Observable
+final class ThreadComposerDraft: SessionComposerDraft {
+    let sessionId: String
+    let draftEditor = IssueEditorModel()
+    var pendingImages: [PendingSteerImage] = []
+    var pendingFiles: [PendingSteerFile] = []
+    var steerImageError: String?
+    var steerSending = false
+    /// A refused send: the host toasts it (the draft stays put).
+    var sendError: String?
 
-    private var hasText: Bool {
-        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    @ObservationIgnored private let accountId: String
+    @ObservationIgnored private let sessionsApi: SessionsApi
+    @ObservationIgnored private let attachmentsApi: AttachmentsApi
+
+    init(sessionId: String, accountId: String, sessionsApi: SessionsApi, attachmentsApi: AttachmentsApi) {
+        self.sessionId = sessionId
+        self.accountId = accountId
+        self.sessionsApi = sessionsApi
+        self.attachmentsApi = attachmentsApi
     }
 
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(ThreadViews.replyPlaceholder, text: $text, axis: .vertical)
-                .lineLimit(1...5)
-                .font(.body)
-                .foregroundStyle(.white)
-                .padding(.vertical, 4)
-                .accessibilityIdentifier("thread-reply-field")
-            if hasText {
-                GlassComposerSubmitButton(
-                    AppIcons.uiSend,
-                    accessibilityLabel: "Send",
-                    enabled: !sending,
-                    pending: sending,
-                    action: onSend
+    func uploadAttachment(data: Data, filename: String, contentType: String) async throws -> UploadedAttachment {
+        try await attachmentsApi.uploadSessionImage(
+            accountId: accountId,
+            sessionId: sessionId,
+            data: data,
+            filename: filename,
+            contentType: contentType
+        )
+    }
+
+    func sendMessage(_ text: String, attachmentIds: [String]?) async -> Bool {
+        sendError = nil
+        let holdsFlag = !steerSending
+        if holdsFlag { steerSending = true }
+        defer { if holdsFlag { steerSending = false } }
+        do {
+            try await sessionsApi.send(
+                accountId: accountId,
+                .message(
+                    sessionId: sessionId,
+                    text: text.isEmpty ? nil : text,
+                    attachmentIds: attachmentIds?.isEmpty == false ? attachmentIds : nil
                 )
-                .accessibilityIdentifier("thread-reply-send")
+            )
+            return true
+        } catch {
+            sendError = error.userFacingMessage
+            return false
+        }
+    }
+}
+
+/// Mounts THE session composer box under a Conversation for one session.
+struct ThreadComposer: View {
+    let sessionId: String
+    let placeholder: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
+    @State private var draft: ThreadComposerDraft?
+    @State private var attach = SessionComposerAttach()
+
+    var body: some View {
+        Group {
+            if let draft, draft.sessionId == sessionId {
+                SessionComposerCard(
+                    draft: draft,
+                    placeholder: placeholder,
+                    attach: $attach,
+                    sendEnabled: !draft.steerSending,
+                    fieldIdentifier: "thread-composer-field"
+                )
+                .onChange(of: draft.sendError) { _, message in
+                    guard let message else { return }
+                    toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
+                }
+            } else {
+                Color.clear.frame(height: 1)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: GlassComposerTokens.cornerRadius, style: .continuous)
-                .fill(GlassTokens.opaqueCardFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: GlassComposerTokens.cornerRadius, style: .continuous)
-                .strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
-        )
         .transcriptColumn()
         .padding(.bottom, 8)
         .floatingBarEdge()
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("thread-reply")
-    }
-}
-
-/// EXP-1284: a run's THREAD (`AppRoute.runThread`) — what a just-started run
-/// and a run row open: the thread once the run's `thread_items` row synced
-/// (every start opens or joins one), else — a legacy run, or one the shapes
-/// have not delivered within `wait` — the run's own Work screen, kept once
-/// shown so the screen never swaps under the reader.
-struct RunThreadScreen: View {
-    let sessionId: String
-    var wait: Duration = .seconds(4)
-
-    @Environment(AppDependencies.self) private var deps
-    @Environment(\.accountId) private var accountId
-    @State private var threadId: String?
-    @State private var gaveUp = false
-
-    var body: some View {
-        Group {
-            if let threadId {
-                ThreadScreen(threadId: threadId)
-                    .id(threadId)
-            } else if gaveUp {
-                WorkScreen(subject: .session(id: sessionId))
-            } else {
-                ZStack {
-                    AppBackground()
-                    SkeletonRows()
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                }
+        .accessibilityIdentifier(SessionTree.ThreadCopy.composerTestId)
+        // The composed session can move (a resumed child): a new draft.
+        .task(id: sessionId) {
+            if draft?.sessionId != sessionId {
+                draft = ThreadComposerDraft(
+                    sessionId: sessionId,
+                    accountId: accountId,
+                    sessionsApi: deps.sessionsApi,
+                    attachmentsApi: deps.attachmentsApi
+                )
             }
         }
-        .task(id: sessionId) { await resolve() }
-    }
-
-    private func resolve() async {
-        guard threadId == nil, !gaveUp, let pool = try? deps.db.pool(forAccountId: accountId) else {
-            if threadId == nil { gaveUp = true }
-            return
-        }
-        let sessionId = sessionId
-        let observation = ValueObservation.tracking { db in
-            try ThreadQueries.threadOfSession(db: db, sessionId: sessionId)?.id
-        }
-        let deadline = ContinuousClock.now.advanced(by: wait)
-        let timeout = Task { @MainActor in
-            try? await Task.sleep(until: deadline, clock: .continuous)
-            if threadId == nil { gaveUp = true }
-        }
-        defer { timeout.cancel() }
-        do {
-            for try await id in observation.values(in: pool) {
-                if gaveUp { return }
-                if let id {
-                    threadId = id
-                    return
-                }
-            }
-        } catch {}
     }
 }
 
@@ -803,21 +812,10 @@ private struct ThreadLandingKey: EnvironmentKey {
     static let defaultValue = ThreadLanding()
 }
 
-private struct CurrentThreadIdKey: EnvironmentKey {
-    static let defaultValue: String? = nil
-}
-
 extension EnvironmentValues {
     /// EXP-1284: the navigator's landing box (`ThreadLanding`).
     var threadLanding: ThreadLanding {
         get { self[ThreadLandingKey.self] }
         set { self[ThreadLandingKey.self] = newValue }
-    }
-
-    /// EXP-1284 (T-N9): the thread whose page hosts this view — an embedded
-    /// issue's `Threads` row leaves it out (it IS the page you are on).
-    var currentThreadId: String? {
-        get { self[CurrentThreadIdKey.self] }
-        set { self[CurrentThreadIdKey.self] = newValue }
     }
 }

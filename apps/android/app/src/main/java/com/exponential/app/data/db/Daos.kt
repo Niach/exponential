@@ -79,36 +79,6 @@ interface IssueDao {
     @Query("SELECT EXISTS(SELECT 1 FROM issues WHERE id = :id)")
     suspend fun exists(id: String): Boolean
 
-    // Reviews (EXP-131): every issue in one team with an OPEN pull request.
-    // Joins boards to scope by team and drop trashed boards;
-    // a batch PR links several issues to the SAME pr_url, so the client groups
-    // these rows by pr_url into one review entry. Draft and state-less prUrl
-    // rows are deliberately excluded — parity with web use-reviews-data.ts
-    // (open only).
-    @Query(
-        "SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id " +
-            "WHERE p.team_id = :teamId AND i.pr_state = 'open' " +
-            "AND p.deleted_at IS NULL"
-    )
-    fun observeOpenPrsByTeam(teamId: String): Flow<List<IssueEntity>>
-
-    // EXP-1186: Reviews is CROSS-TEAM like the Inbox — every member team's
-    // open PRs (the synced issues ARE the member teams').
-    @Query(
-        "SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id " +
-            "WHERE i.pr_state = 'open' AND p.deleted_at IS NULL"
-    )
-    fun observeOpenPrs(): Flow<List<IssueEntity>>
-
-    // EXP-1244: every PR-carrying issue, ANY pr_state — the Reviews queue's
-    // input, so a linked PR never lists as unlinked (`ReviewsQueue` rule 5).
-    @Query(
-        "SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id " +
-            "WHERE (i.pr_state = 'open' OR (i.pr_url IS NOT NULL AND i.pr_url != '')) " +
-            "AND p.deleted_at IS NULL"
-    )
-    fun observeReviewQueueIssues(): Flow<List<IssueEntity>>
-
     // App-link resolution (EXP-92): team SLUG + identifier → issue id.
     // Deliberately no board-slug predicate (identifiers are
     // team-unique; the board slug in an old link goes stale when an
@@ -280,98 +250,6 @@ interface CommentDao {
 }
 
 @Dao
-interface CodingSessionDao {
-    @Query("SELECT * FROM coding_sessions WHERE issue_id = :issueId ORDER BY started_at DESC")
-    fun observeByIssue(issueId: String): Flow<List<CodingSessionEntity>>
-
-    @Query("SELECT * FROM coding_sessions WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<CodingSessionEntity?>
-
-    @Query("SELECT * FROM coding_sessions WHERE team_id = :teamId")
-    fun observeByTeam(teamId: String): Flow<List<CodingSessionEntity>>
-
-    // EXP-897: every synced run — the badge's overlay nests a run's whole
-    // FAMILY (its root and every descendant), which spans issues and teams.
-    @Query("SELECT * FROM coding_sessions")
-    fun observeAll(): Flow<List<CodingSessionEntity>>
-
-    // Account-wide live sessions (the Agents tab + its bottom-bar dot). Takes a
-    // status list so both live states (`running` + `in_review`, EXP-194) match;
-    // CodingSessionLiveness.isLive still applies the staleness cut on top.
-    // EXP-888: the sweep's own end (`ended_by = 'stale'`) rides along — the
-    // host device ignores that flip and heartbeats the row back to `running`
-    // within the heartbeat interval, so the run is still live (`runHasEnded`).
-    // The two literals are the contract's `codingSessionStatusEnded` /
-    // `codingSessionEndedByStale`, inlined because Room needs them in the SQL.
-    @Query(
-        "SELECT * FROM coding_sessions WHERE status IN (:statuses) " +
-            "OR (status = 'ended' AND ended_by = 'stale') ORDER BY started_at DESC",
-    )
-    fun observeByStatuses(statuses: List<String>): Flow<List<CodingSessionEntity>>
-
-    // SLOP-2: an action page's Runs — every run of that action, newest first,
-    // person-started and triggered alike.
-    @Query("SELECT * FROM coding_sessions WHERE action_id = :actionId ORDER BY started_at DESC")
-    fun observeByAction(actionId: String): Flow<List<CodingSessionEntity>>
-
-    // EXP-746: the Agent page's "Recent" feed — one user's finished
-    // PERSON-STARTED sessions in one team, newest first. `started_reason IS
-    // NULL` is in the SQL on purpose: a trigger-heavy team's last 50 ended
-    // rows are mostly scheduled runs, so filtering in Kotlin after a LIMIT
-    // would silently truncate the list the other three clients show in full.
-    // A row swept before it ever stamped `ended_at` still orders sensibly off
-    // its heartbeat stamp, hence the COALESCE.
-    @Query(
-        "SELECT * FROM coding_sessions WHERE team_id = :teamId AND user_id = :userId " +
-            "AND status = :status AND started_reason IS NULL " +
-            "ORDER BY COALESCE(ended_at, updated_at) DESC LIMIT :limit",
-    )
-    fun observePastByTeamAndUser(
-        teamId: String,
-        userId: String,
-        status: String,
-        limit: Int,
-    ): Flow<List<CodingSessionEntity>>
-
-    // EXP-1186: the Recent feed across EVERY member team (same rules as
-    // [observePastByTeamAndUser]; the page groups it by team).
-    @Query(
-        "SELECT * FROM coding_sessions WHERE user_id = :userId " +
-            "AND status = :status AND started_reason IS NULL " +
-            "ORDER BY COALESCE(ended_at, updated_at) DESC LIMIT :limit",
-    )
-    fun observePastByUser(
-        userId: String,
-        status: String,
-        limit: Int,
-    ): Flow<List<CodingSessionEntity>>
-
-    // EXP-734: the team's runs with an OPEN pull request of their OWN — an
-    // action or chat run (issue_id NULL) whose PR links no issue, so nothing
-    // in the issues table can represent it in Reviews. Newest first; the
-    // client still collapses by pr_url (a resumed run can share one).
-    @Query(
-        "SELECT * FROM coding_sessions WHERE team_id = :teamId " +
-            "AND issue_id IS NULL AND pr_state = 'open' ORDER BY started_at DESC"
-    )
-    fun observeOpenPrRunsByTeam(teamId: String): Flow<List<CodingSessionEntity>>
-
-    // EXP-1244: every run carrying a PR, ANY state — the Reviews queue's
-    // run input (its own PRs + the linked set).
-    @Query("SELECT * FROM coding_sessions WHERE pr_url IS NOT NULL AND pr_url != ''")
-    fun observeWithPrUrl(): Flow<List<CodingSessionEntity>>
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: CodingSessionEntity)
-
-    @Query("DELETE FROM coding_sessions WHERE id = :id")
-    suspend fun deleteById(id: String)
-
-    @Query("DELETE FROM coding_sessions")
-    suspend fun clear()
-}
-
-@Dao
 interface ActionDao {
     @Query("SELECT * FROM actions WHERE team_id = :teamId ORDER BY sort_order, name")
     fun observeByTeam(teamId: String): Flow<List<ActionEntity>>
@@ -433,84 +311,173 @@ interface IssueDraftDao {
     suspend fun clear()
 }
 
-// EXP-1284: threads — the unit of work (n issues + m runs). Team-scoped like
-// the shape; lists sort by `updated_at`, which the server bumps on every
-// link/unlink (the activity sort).
+// EXP-1291 Threads v2: the session tree. Roots (`parent_id IS NULL`) are
+// threads (`kind = thread`) and team agents (`kind = agent`); every session
+// of one tree shares `root_id`.
 @Dao
-interface ThreadDao {
-    @Query("SELECT * FROM threads WHERE team_id = :teamId ORDER BY updated_at DESC, created_at DESC, id")
-    fun observeByTeam(teamId: String): Flow<List<ThreadEntity>>
+interface SessionDao {
+    @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<SessionEntity?>
 
-    // Phones list across EVERY member team (EXP-1186), banded by team.
-    @Query("SELECT * FROM threads ORDER BY updated_at DESC, created_at DESC, id")
-    fun observeAll(): Flow<List<ThreadEntity>>
+    @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): SessionEntity?
 
-    @Query("SELECT * FROM threads WHERE id = :id LIMIT 1")
-    fun observeById(id: String): Flow<ThreadEntity?>
+    // Every visible session (the Threads list derives groups per tree off it).
+    @Query("SELECT * FROM sessions ORDER BY created_at, id")
+    fun observeAll(): Flow<List<SessionEntity>>
 
-    // The threads holding an issue (an issue may sit in several), newest
-    // activity first — the first one is where an issue start lands.
+    @Query("SELECT * FROM sessions WHERE team_id = :teamId ORDER BY created_at, id")
+    fun observeByTeam(teamId: String): Flow<List<SessionEntity>>
+
+    // One tree: the root and every descendant, creation order.
+    @Query("SELECT * FROM sessions WHERE root_id = :rootId OR id = :rootId ORDER BY created_at, id")
+    fun observeTree(rootId: String): Flow<List<SessionEntity>>
+
+    // The team agents (roots of kind agent), rail / Settings order.
     @Query(
-        "SELECT threads.* FROM threads INNER JOIN thread_items ON thread_items.thread_id = threads.id " +
-            "WHERE thread_items.issue_id = :issueId " +
-            "ORDER BY threads.updated_at DESC, threads.created_at DESC, threads.id",
+        "SELECT * FROM sessions WHERE parent_id IS NULL AND kind = 'agent' " +
+            "ORDER BY sort_order, name, id",
     )
-    fun observeHoldingIssue(issueId: String): Flow<List<ThreadEntity>>
+    fun observeAgents(): Flow<List<SessionEntity>>
 
-    // The ONE thread a run sits in (session_id is unique server-side).
     @Query(
-        "SELECT threads.* FROM threads INNER JOIN thread_items ON thread_items.thread_id = threads.id " +
-            "WHERE thread_items.session_id = :sessionId LIMIT 1",
+        "SELECT * FROM sessions WHERE parent_id IS NULL AND kind = 'agent' AND team_id = :teamId " +
+            "ORDER BY sort_order, name, id",
     )
-    fun observeOfSession(sessionId: String): Flow<ThreadEntity?>
+    fun observeAgentsByTeam(teamId: String): Flow<List<SessionEntity>>
 
-    // App-link resolution (EXP-1288): team SLUG + thread id → the thread id,
-    // only when the synced thread sits in that team (the issue twin is
-    // [IssueDao.findIdByTeamRef]).
+    // Every session not ended (the bar's live dot, the switcher's per-team dots).
+    @Query("SELECT * FROM sessions WHERE status != 'ended' ORDER BY created_at, id")
+    fun observeLive(): Flow<List<SessionEntity>>
+
+    // The roots (threads) an issue sits in, newest activity first.
     @Query(
-        "SELECT t.id FROM threads t JOIN teams w ON w.id = t.team_id " +
-            "WHERE t.id = :threadId AND w.slug = :teamSlug LIMIT 1",
+        "SELECT s.* FROM sessions s INNER JOIN session_issues si ON si.session_id = s.id " +
+            "WHERE si.issue_id = :issueId ORDER BY s.updated_at DESC, s.created_at DESC, s.id",
     )
-    suspend fun findIdByTeamRef(teamSlug: String, threadId: String): String?
+    fun observeRootsOfIssue(issueId: String): Flow<List<SessionEntity>>
+
+    // App-link resolution (EXP-1288): team SLUG + root id → the id, only when
+    // the synced root sits in that team.
+    @Query(
+        "SELECT s.id FROM sessions s JOIN teams w ON w.id = s.team_id " +
+            "WHERE s.id = :sessionId AND w.slug = :teamSlug LIMIT 1",
+    )
+    suspend fun findIdByTeamRef(teamSlug: String, sessionId: String): String?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: ThreadEntity)
+    suspend fun upsert(item: SessionEntity)
 
-    @Query("DELETE FROM threads WHERE id = :id")
+    @Query("DELETE FROM sessions WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM threads")
+    @Query("DELETE FROM sessions")
     suspend fun clear()
 }
 
-// EXP-1284: a thread's children (issue | run items). Display order is
-// `sort_order` ascending, ties broken by creation.
+// EXP-1291: a thread's issues (always on the ROOT), display order.
 @Dao
-interface ThreadItemDao {
-    @Query("SELECT * FROM thread_items WHERE thread_id = :threadId ORDER BY sort_order, created_at, id")
-    fun observeByThread(threadId: String): Flow<List<ThreadItemEntity>>
+interface SessionIssueDao {
+    @Query("SELECT * FROM session_issues ORDER BY session_id, sort_order, created_at, id")
+    fun observeAll(): Flow<List<SessionIssueEntity>>
 
-    // Every item of a team's threads — what a thread LIST needs to derive
-    // titles (first issue, else first run) and counts without a query per row.
-    @Query("SELECT * FROM thread_items WHERE team_id = :teamId ORDER BY thread_id, sort_order, created_at, id")
-    fun observeByTeam(teamId: String): Flow<List<ThreadItemEntity>>
+    @Query("SELECT * FROM session_issues WHERE session_id = :rootId ORDER BY sort_order, created_at, id")
+    fun observeByRoot(rootId: String): Flow<List<SessionIssueEntity>>
 
-    @Query("SELECT * FROM thread_items ORDER BY thread_id, sort_order, created_at, id")
-    fun observeAll(): Flow<List<ThreadItemEntity>>
-
-    @Query("SELECT * FROM thread_items WHERE issue_id = :issueId ORDER BY created_at, id")
-    fun observeByIssue(issueId: String): Flow<List<ThreadItemEntity>>
-
-    @Query("SELECT * FROM thread_items WHERE session_id = :sessionId LIMIT 1")
-    fun observeBySession(sessionId: String): Flow<ThreadItemEntity?>
+    @Query("SELECT * FROM session_issues WHERE issue_id = :issueId ORDER BY created_at, id")
+    fun observeByIssue(issueId: String): Flow<List<SessionIssueEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(item: ThreadItemEntity)
+    suspend fun upsert(item: SessionIssueEntity)
 
-    @Query("DELETE FROM thread_items WHERE id = :id")
+    @Query("DELETE FROM session_issues WHERE id = :id")
     suspend fun deleteById(id: String)
 
-    @Query("DELETE FROM thread_items")
+    @Query("DELETE FROM session_issues")
+    suspend fun clear()
+}
+
+// EXP-1291: the Conversation, oldest first.
+@Dao
+interface MessageDao {
+    @Query("SELECT * FROM messages ORDER BY created_at, id")
+    fun observeAll(): Flow<List<MessageEntity>>
+
+    @Query("SELECT * FROM messages WHERE session_id = :sessionId ORDER BY created_at, id")
+    fun observeBySession(sessionId: String): Flow<List<MessageEntity>>
+
+    // Every message of one tree (the root's conversation + its children's).
+    @Query("SELECT * FROM messages WHERE root_id = :rootId ORDER BY created_at, id")
+    fun observeByRoot(rootId: String): Flow<List<MessageEntity>>
+
+    // A session's person messages the device has not consumed (the queue bar).
+    @Query(
+        "SELECT * FROM messages WHERE session_id = :sessionId AND author_kind = 'user' " +
+            "AND consumed_at IS NULL ORDER BY created_at, id",
+    )
+    fun observeQueued(sessionId: String): Flow<List<MessageEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: MessageEntity)
+
+    @Query("DELETE FROM messages WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM messages")
+    suspend fun clear()
+}
+
+// EXP-1291: pull requests (all PR + branch state).
+@Dao
+interface PullRequestDao {
+    @Query("SELECT * FROM pull_requests ORDER BY created_at, id")
+    fun observeAll(): Flow<List<PullRequestEntity>>
+
+    @Query("SELECT * FROM pull_requests WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<PullRequestEntity?>
+
+    @Query("SELECT * FROM pull_requests WHERE team_id = :teamId ORDER BY created_at, id")
+    fun observeByTeam(teamId: String): Flow<List<PullRequestEntity>>
+
+    // A thread's PRs (`root_session_id`), opening order.
+    @Query("SELECT * FROM pull_requests WHERE root_session_id = :rootId ORDER BY created_at, id")
+    fun observeByRoot(rootId: String): Flow<List<PullRequestEntity>>
+
+    // An ISSUE's PRs (pull_requests ⋈ pull_request_issues), newest first —
+    // what replaced the dropped issues.pr_* / branch columns.
+    @Query(
+        "SELECT pr.* FROM pull_requests pr INNER JOIN pull_request_issues pri " +
+            "ON pri.pull_request_id = pr.id WHERE pri.issue_id = :issueId " +
+            "ORDER BY pr.created_at DESC, pr.id",
+    )
+    fun observeByIssue(issueId: String): Flow<List<PullRequestEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: PullRequestEntity)
+
+    @Query("DELETE FROM pull_requests WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM pull_requests")
+    suspend fun clear()
+}
+
+// EXP-1291: which issues a PR closes.
+@Dao
+interface PullRequestIssueDao {
+    @Query("SELECT * FROM pull_request_issues ORDER BY created_at, id")
+    fun observeAll(): Flow<List<PullRequestIssueEntity>>
+
+    @Query("SELECT * FROM pull_request_issues WHERE pull_request_id = :pullRequestId ORDER BY created_at, id")
+    fun observeByPullRequest(pullRequestId: String): Flow<List<PullRequestIssueEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: PullRequestIssueEntity)
+
+    @Query("DELETE FROM pull_request_issues WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM pull_request_issues")
     suspend fun clear()
 }
 

@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from "react"
 
-import type { DetailOrigin } from "@/lib/detail-origin"
 import type { LaunchSeed } from "@/lib/launch-seed"
 
 // EXP-1019: the start-coding DIALOG's open state, and nothing else.
@@ -13,21 +12,16 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // in its headline.
 //
 // The open state is deliberately NOT in the URL (a launcher is not a
-// destination; a shared link must not reopen someone else's half-typed run)
+// destination; a shared link must not reopen someone else's half-typed draft)
 // and deliberately NOT React state — the callers are scattered across the
 // whole team subtree (issue detail, the bulk bar, the actions page, the
-// sidebar's pinned rows, Reviews) with the layout between them. So it is the
-// three-line external store the agent-login dialog and the Recent panel
-// already use, with ONE `LaunchDialogHost` mounted in the team route.
+// sidebar's pinned rows) with the layout between them. So it is the
+// three-line external store the agent-login dialog already uses, with ONE
+// `LaunchDialogHost` mounted in the team route.
 
-/** What a play button hands the launcher: the seed, plus (EXP-870) the
- *  ORIGIN the click came from when the caller knows better than the URL —
- *  `null` from a pinned row means context-free, so the run it starts opens
- *  full-width with no list nav. The KEY absent = derive it from the URL,
- *  the same present-or-absent rule `useOpenSession` reads. */
-export interface LaunchDialogRequest extends LaunchSeed {
-  origin?: DetailOrigin | null
-}
+/** What a play button hands the launcher: the seed. EXP-1293: a start
+ *  always opens its new thread, so the click's origin no longer rides. */
+export type LaunchDialogRequest = LaunchSeed
 
 let pending: LaunchDialogRequest | null = null
 const listeners = new Set<() => void>()
@@ -42,7 +36,7 @@ export function requestLaunchDialog(seed: LaunchDialogRequest): void {
   emit()
 }
 
-/** Shut it — on dismissal, and once a run has been started. */
+/** Shut it — on dismissal, and once a session has been started. */
 export function closeLaunchDialog(): void {
   if (pending === null) return
   pending = null

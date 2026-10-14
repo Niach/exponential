@@ -109,6 +109,9 @@ function context(over: Partial<EntityRefRouteContext> = {}): EntityRefRouteConte
     attachmentIssueId: (id) => (id === `at-1` ? `i-1` : null),
     notificationIssueId: (id) => (id === `n-1` ? `i-1` : null),
     teamSlugById: (id) => (id === `t-2` ? `other` : null),
+    sessionRootId: (id) =>
+      id === `root-1` || id === `s-1` ? `root-1` : id === `agent-1` ? `agent-1` : null,
+    sessionIsAgent: (id) => id === `agent-1`,
     ...over,
   }
 }
@@ -138,14 +141,10 @@ describe(`entityRefRoute`, () => {
     expect(route({ kind: `board`, id: `b-9` })).toBeNull()
   })
 
-  it(`opens an action on its page, a builtin in the list`, () => {
+  it(`opens an action on its page`, () => {
     expect(route({ kind: `action`, id: `a-1` })).toEqual({
       to: `/t/$teamSlug/actions/$actionId`,
       params: { teamSlug: `acme`, actionId: `a-1` },
-    })
-    expect(route({ kind: `action`, id: `builtin:create-action` })).toEqual({
-      to: `/t/$teamSlug/actions`,
-      params: { teamSlug: `acme` },
     })
   })
 
@@ -162,10 +161,26 @@ describe(`entityRefRoute`, () => {
     })
   })
 
-  it(`sends a run to its own page`, () => {
+  it(`sends a root session to its thread, any other session to its own page`, () => {
+    expect(route({ kind: `session`, id: `root-1` })).toEqual({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug: `acme`, threadId: `root-1` },
+    })
     expect(route({ kind: `session`, id: `s-1` })).toEqual({
       to: `/t/$teamSlug/sessions/$sessionId`,
       params: { teamSlug: `acme`, sessionId: `s-1` },
+    })
+    // Not synced here: the raw page still resolves it.
+    expect(route({ kind: `session`, id: `s-9` })).toEqual({
+      to: `/t/$teamSlug/sessions/$sessionId`,
+      params: { teamSlug: `acme`, sessionId: `s-9` },
+    })
+  })
+
+  it(`sends a team agent root to its channel`, () => {
+    expect(route({ kind: `session`, id: `agent-1` })).toEqual({
+      to: `/t/$teamSlug/agents/$agentId`,
+      params: { teamSlug: `acme`, agentId: `agent-1` },
     })
   })
 

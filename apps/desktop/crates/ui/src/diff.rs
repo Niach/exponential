@@ -31,7 +31,6 @@ pub use highlight::language_for_filename;
 use std::cell::RefCell;
 use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui::{
     div, point, px, size, AnyElement, App, Bounds, FocusHandle, Focusable, HighlightStyle,
@@ -108,9 +107,10 @@ pub struct DiffOptions {
 }
 
 impl DiffOptions {
-    /// The Reviews screen: a stack of per-file cards, OPEN — a review is
-    /// read top to bottom, and the file list beside it is how a big PR is
-    /// navigated. Each card still folds on its own header.
+    /// A pull request's review (the Guide's section diff, [`crate::pr_diff`]):
+    /// a stack of per-file cards, OPEN — a review is read top to bottom, and
+    /// the file list beside it is how a big PR is navigated. Each card still
+    /// folds on its own header.
     pub fn review() -> Self {
         Self {
             collapsible: true,
@@ -122,8 +122,8 @@ impl DiffOptions {
         }
     }
 
-    /// The run's / issue's Changes face: the same cards, OPEN — a run's diff
-    /// is small and you came to read it.
+    /// The shared Changes pane ([`crate::diff_pane`]): the same cards, OPEN —
+    /// a session's diff is small and you came to read it.
     pub fn pane() -> Self {
         Self {
             collapsible: true,
@@ -205,6 +205,8 @@ pub(crate) enum RenderRow {
     /// The file's card header: status letter, dimmed dir + basename, counts,
     /// chevron.
     FileHeader {
+        /// The full path — the tests key header rows by it.
+        #[allow(dead_code)]
         path: SharedString,
         /// The basename, at full weight.
         name: SharedString,
@@ -214,7 +216,6 @@ pub(crate) enum RenderRow {
         status: DiffStatus,
         additions: u32,
         deletions: u32,
-        binary: bool,
     },
     /// What a file with no hunks says instead of rows (web `noHunksNote`),
     /// and the transcript card's trailing "… N more lines".
@@ -501,7 +502,6 @@ pub(crate) fn file_header_only(file: &DiffFile) -> RenderRow {
         status: file.status,
         additions: file.additions,
         deletions: file.deletions,
-        binary: file.binary,
     }
 }
 
@@ -776,17 +776,8 @@ pub fn build_diff(
     }
 }
 
-/// [`build_diff`] from `issues.prFiles` / `repositories.branchDiff`.
-pub fn build_pr_diff(
-    files: &[PullFile],
-    theme: &HighlightTheme,
-    options: DiffOptions,
-) -> PreparedDiff {
-    build_diff(&files_from_pull(files), theme, options)
-}
-
 /// [`build_diff`] from the desktop's own `git diff` (`coding::scm`) — the
-/// Source Control screen and the session's Changes face.
+/// Source Control screen.
 pub fn build_scm_diff(
     files: &[DiffFile],
     theme: &HighlightTheme,
@@ -1312,37 +1303,6 @@ impl DiffView {
         cx.notify();
     }
 
-    /// Fetch `issues.prFiles` for `issue_id` on the background executor and
-    /// populate the view. Both the blocking HTTP and the row build stay off
-    /// the foreground; only the cheap `set_prepared` swap runs on the UI
-    /// thread.
-    pub fn fetch(
-        &mut self,
-        client: Arc<api::TrpcClient>,
-        issue_id: String,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.set_loading(cx);
-        let theme = cx.theme().highlight_theme.clone();
-        let options = self.options;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move {
-                    api::issues::pr_files(&client, &issue_id)
-                        .map(|pr| build_pr_diff(&pr.files, &theme, options))
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(prepared) => this.set_prepared(prepared, cx),
-                // Fetched on open (the Guide's counts, the Changes face):
-                // quiet, the empty list says it.
-                Err(err) => this.set_error(err.to_string(), false, cx),
-            });
-        })
-        .detach();
-    }
-
     /// EXP-1251 — show only the files at these indices (a Guide section's
     /// diff page), or every file again (`None`). Same-set calls are no-ops.
     pub fn set_file_filter(&mut self, only: Option<Vec<usize>>, cx: &mut gpui::Context<Self>) {
@@ -1598,7 +1558,6 @@ mod tests {
                 status: DiffStatus::Modified,
                 additions: 1,
                 deletions: 0,
-                binary: false,
             },
             RenderRow::HunkHeader { header: "@@".into() },
             line(),

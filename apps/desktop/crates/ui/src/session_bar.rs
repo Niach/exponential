@@ -2,7 +2,7 @@
 //! panel carrying the tabs of the user's PTY terminals, then the `+` button.
 //! Nothing else. EXP-791: it used to be the desktop twin of the web
 //! `AgentDock` and carried the coding-session tabs too; those are top tabs
-//! now (EXP-870: a run is its issue's Run face), the Chat button became the rail's Agent
+//! now (EXP-1294: a session is its own screen), the Chat button became the rail's Agent
 //! entry, and the bar takes NO height while no terminal is open (the shell
 //! keeps it mounted — its manager, key bindings and registry live on).
 //!
@@ -43,10 +43,10 @@
 //! `+` / cmd-t opens a plain shell on the active board's trunk clone
 //! (v4 §4.6); NOTHING terminal-side is persisted (EXP-301) and nothing ever
 //! spawns on its own — a terminal only appears from an explicit action.
-//! Chat (EXP-739) is a promptless, repo-less chat run on the device's default
-//! agent; agent-anchored launches live on the Agent page composer (EXP-825).
+//! Agent launches live on the Home composer (EXP-825; EXP-1294:
+//! `sessions.send`).
 //!
-//! **Phase-5 deferral (§6.7):** "child exit ends the `coding_sessions` row"
+//! **Phase-5 deferral (§6.7):** "child exit ends the `sessions` row"
 //! is the launcher's wiring — it passes an `ExitHook` into `open_tab`; the
 //! bar/manager only surface the exit edge.
 
@@ -63,10 +63,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use terminal::{TabId, TabKind, TerminalManager, TerminalManagerEvent};
 
-use crate::coding_flow::{CodingHub, LocalSessionHost, LocalSessions, TokenRefreshers};
+use crate::coding_flow::{CodingHub, LocalSessions, TokenRefreshers};
 use crate::controls::WebControl as _;
 use crate::icons::registry;
-use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{self, Screen};
 use crate::repo_resolver::{repo_resolver_for_window, RepoLookup};
 
@@ -188,17 +187,6 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextTerminalTab, Some(KEY_CONTEXT)),
         KeyBinding::new("ctrl-shift-tab", PrevTerminalTab, Some(KEY_CONTEXT)),
     ]);
-    // EXP-1255: outside a terminal the chord opens a NEW RUN tab (the top
-    // strip's "+"); inside one it stays the terminal's own new tab above.
-    cx.on_action(|_: &crate::screens::NewRunTab, cx| {
-        crate::navigation::on_active_window(cx, |window, cx| {
-            crate::screens::open_new_run_tab(window, cx)
-        });
-    });
-    #[cfg(target_os = "macos")]
-    cx.bind_keys([KeyBinding::new("cmd-t", crate::screens::NewRunTab, None)]);
-    #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("ctrl-t", crate::screens::NewRunTab, Some("!Terminal"))]);
 }
 
 /// The per-window session bar: owner of that window's [`TerminalManager`]
@@ -274,7 +262,7 @@ impl SessionBar {
                         this.poke_screens(cx);
                     }
                     // Exit strip/badge render on notify; ending the
-                    // coding_sessions row is Phase 5's ExitHook (§6.7). The
+                    // sessions row is Phase 5's ExitHook (§6.7). The
                     // strip is the terminal SCREEN's — the panel repaints.
                     TerminalManagerEvent::TabExited { .. } => this.poke_screens(cx),
                 }
@@ -322,7 +310,7 @@ impl SessionBar {
             cx.observe(&collections.issue_statuses, |_, _, cx| cx.notify())
                 .detach();
             cx.observe(&collections.boards, |_, _, cx| cx.notify()).detach();
-            cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify())
+            cx.observe(&collections.sessions, |_, _, cx| cx.notify())
                 .detach();
             cx.observe(&collections.devices, |_, _, cx| cx.notify()).detach();
         }
@@ -617,93 +605,12 @@ impl SessionBar {
             .into_any_element()
     }
 
-    /// EXP-703: the Chat button's agent launch — a promptless CHAT run over
-    /// the builtin action rails ([`crate::action_run`] with the hidden
-    /// `builtin:chat` action and, when one is given, its `repo` input
-    /// filled). The run gets a `coding_sessions` row, a steer channel and the
-    /// MCP session header — visible and steerable from web and mobile, and a
-    /// child it starts via `exponential_sessions_start` gets parent linkage
-    /// (EXP-700).
-    ///
-    /// EXP-739: `repo` is `Some((repository_id, full_name))` for a run
-    /// anchored to a repository — its OWN worktree on `exp/chat-<id8>`, never
-    /// the trunk clone — and `None` for a repo-LESS chat, which the launcher
-    /// runs worktree-less in a scratch dir: a conversation with the tracker
-    /// over MCP, no code checked out.
-    ///
-    /// EXP-772: `options` are the Chat page's own picks (agent, model, effort,
-    /// plan) rather than the settings defaults, and `prompt` is the first
-    /// message typed there. `None` keeps the older promptless shape — the
-    /// agent spawns and waits for input (`coding::prepare_action` has allowed
-    /// that attended shape since EXP-703).
-    pub(crate) fn launch_chat_run(
-        &mut self,
-        options: coding::LaunchOptions,
-        repo: Option<(String, String)>,
-        prompt: Option<String>,
-        // EXP-1284: `LocalThread` when the composer starts into a thread.
-        origin: coding::LaunchOrigin,
-        on_settled: Option<crate::action_run::ActionSettledHook>,
-        handoff: Option<crate::coding_flow::StartHandoff>,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        // EXP-1271: the composer's starting state ends on every outcome.
-        let refuse = |on_settled: Option<crate::action_run::ActionSettledHook>, cx: &mut App| {
-            if let Some(hook) = on_settled {
-                hook(cx, false);
-            }
-        };
-        if crate::coding_flow::build_action_deps(cx).is_none() {
-            log::warn!("session bar: chat launch ignored — not signed in");
-            refuse(on_settled, cx);
-            return;
-        }
-        let nav = navigation::nav_for_window(window, cx);
-        let Some(team_id) = navigation::active_team_id(&nav, cx) else {
-            log::warn!("session bar: chat launch ignored — no active team");
-            refuse(on_settled, cx);
-            return;
-        };
-        let action = api::actions::builtin_chat_action(&team_id);
-        // EXP-825: the typed first message is the launcher's `prompt`; the
-        // repository, when the chat is anchored to one, stays the builtin's
-        // one input (EXP-739: a repo-less chat emits no `repo` key at all).
-        let prompt = prompt
-            .map(|text| text.trim().to_string())
-            .filter(|text| !text.is_empty());
-        let inputs = crate::chat_launch::chat_repo_input(
-            &team_id,
-            repo.as_ref()
-                .map(|(repository_id, full_name)| (repository_id.as_str(), full_name.as_str())),
-        );
-        crate::action_run::start_action_run(
-            crate::action_run::StartActionArgs {
-                action_id: action.id,
-                team_id,
-                repo: crate::action_run::ActionRepo::Resolve,
-                options,
-                origin,
-                inputs,
-                target: Some(window.window_handle()),
-                landing: crate::coding_flow::RunLanding::Composer(handoff),
-                reservation: None,
-                trigger: None,
-                trigger_id: None,
-                on_settled,
-                prompt,
-                report: crate::steer_wiring::StartReport::none(),
-            },
-            cx,
-        );
-    }
-
     /// The EXP-325 promptless agent launch: background
     /// [`coding::prepare_agent_shell`] (doctor → token → clone/autopull →
     /// MCP wiring → promptless argv with the agent's settings defaults) →
     /// foreground [`TabKind::AgentShell`] tab in THIS window. No
-    /// `coding_sessions` row / heartbeat / exit hook — the session has no
-    /// issue/batch/action subject; the P9 token-refresher hold keeps `git
+    /// `sessions` row / heartbeat / exit hook — the session has no
+    /// subject; the P9 token-refresher hold keeps `git
     /// push` working past the token TTL, released on tab close.
     ///
     /// This path serves the EXP-369 worktree-PINNED terminals (the settings
@@ -720,7 +627,7 @@ impl SessionBar {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(deps) = crate::coding_flow::build_action_deps(cx) else {
+        let Some(deps) = crate::coding_flow::build_coding_deps(cx) else {
             log::warn!("session bar: agent shell ignored — not signed in");
             return;
         };
@@ -798,7 +705,7 @@ impl SessionBar {
     /// A plain [`TerminalManager::open_tab`], deliberately NOT the
     /// [`Self::launch_agent_shell`] path: `coding::prepare_agent_shell`
     /// refuses a signed-out agent, which is exactly who needs to sign in.
-    /// No `coding_sessions` row, no token hold, no MCP wiring — just the
+    /// No `sessions` row, no token hold, no MCP wiring — just the
     /// CLI's own login command in a visible tab. The caller (
     /// [`crate::agent_login`]) owns the logout-first switch, the
     /// and the exit hook.
@@ -1011,29 +918,6 @@ pub(crate) fn exit_strip(code: i32, cx: &App) -> impl IntoElement {
         .child(SharedString::from(format!(
             "Process finished with exit code {code}"
         )))
-}
-
-/// The confirm before a live run is ended: the prompts fixture's `stop-run`
-/// (EXP-1230: one question, no body, Cancel takes Return). A run this process
-/// hosts stops through its [`LocalSessionHost`] (the same path the issue
-/// header's stop takes); anything else goes out as `steer.killSession`.
-/// Shared by the session lists' Stop.
-pub(crate) fn prompt_kill_session(
-    local: Option<LocalSessionHost>,
-    session_id: String,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let spec = AlertSpec::from_prompt("Stop session", &domain::prompts::stop_run()).on_ok(
-        move |_, cx| {
-            match &local {
-                Some(host) => host.stop(cx),
-                None => crate::steer_viewer::kill_session(&session_id, cx),
-            }
-            true
-        },
-    );
-    native_dialog::open_alert(window, cx, spec);
 }
 
 #[cfg(test)]

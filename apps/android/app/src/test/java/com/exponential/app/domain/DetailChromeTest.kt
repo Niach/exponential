@@ -62,39 +62,4 @@ class DetailChromeTest {
             )
         }
     }
-
-    private fun face(wire: String): WorkFaceKind = when (wire) {
-        "issue" -> WorkFaceKind.Issue
-        "run" -> WorkFaceKind.Run
-        "guide" -> WorkFaceKind.Guide
-        else -> error("unknown face $wire")
-    }
-
-    private fun tone(wire: String): SessionDotTone = when (wire) {
-        "running" -> SessionDotTone.Running
-        "needs_input" -> SessionDotTone.NeedsInput
-        "review" -> SessionDotTone.Review
-        else -> error("unknown tone $wire")
-    }
-
-    @Test
-    fun `every face-dot case matches the fixture`() {
-        val cases = fixture().getValue("faceDots").jsonArray
-        assertEquals(9, cases.size)
-        for (element in cases) {
-            val case = element.jsonObject
-            val expected = case.getValue("dots").jsonObject.entries
-                .associate { (k, v) -> face(k) to tone(v.jsonPrimitive.content) }
-            assertEquals(
-                case.getValue("name").jsonPrimitive.content,
-                expected,
-                DetailChrome.faceDots(
-                    faces = case.getValue("faces").jsonArray.map { face(it.jsonPrimitive.content) },
-                    runLive = case.getValue("runLive").jsonPrimitive.boolean,
-                    needsInput = case.getValue("needsInput").jsonPrimitive.boolean,
-                    prOpen = case.getValue("prOpen").jsonPrimitive.boolean,
-                ),
-            )
-        }
-    }
 }

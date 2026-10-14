@@ -17,9 +17,13 @@
 //! - an error response does not tear the connection down;
 //! - EXP-750: a `terminal/*` round trip streams into the LOCAL feed and
 //!   settles its exit, and a Stop kills the child;
-//! - `start` never touches the launch hold the host took (EXP-478).
+//! - `start` never touches the launch hold the host took (EXP-478);
+//! - EXP-1292: a delivered `messages` row is consumed the moment the agent
+//!   has it, a turn's last message and the cards reach the Conversation in
+//!   order, and a card answered there resolves the agent's ask.
 //!
-//! No network: `publish: false` with a recording sink in its place.
+//! No network: `publish: false` with a recording sink in its place, and a
+//! recording Conversation in place of `sessions.reply`/`sessions.consume`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -593,6 +597,29 @@ async fn run_turn(
                 .await;
             StopReason::EndTurn
         }
+        // EXP-1292: a turn whose LAST top-level message is its reply — the
+        // prose before the tool call is not.
+        "reply" => {
+            for (message_id, text) in [("m-a", "Looking around."), ("m-b", "All "), ("m-b", "done.")] {
+                if message_id == "m-b" && text == "All " {
+                    let _ = cx.send_notification(SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::ToolCall(
+                            ToolCall::new(ToolCallId::new("tc-reply"), "Read src/lib.rs")
+                                .kind(ToolKind::Read),
+                        ),
+                    ));
+                }
+                let _ = cx.send_notification(SessionNotification::new(
+                    session_id.clone(),
+                    SessionUpdate::AgentMessageChunk(
+                        ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
+                            .message_id(agent_client_protocol::schema::v1::MessageId::new(message_id)),
+                    ),
+                ));
+            }
+            StopReason::EndTurn
+        }
         "quit" => {
             child_exit.record(terminal::pty::ChildExit {
                 code: 3,
@@ -647,9 +674,52 @@ impl EngineHost for TestHost {
     }
 }
 
+/// EXP-1292: the Conversation as the outbox writes it — every reply (body,
+/// card JSON) and every consumed message id, in order.
+#[derive(Default)]
+struct RecordingConversation {
+    replies: Mutex<Vec<(String, Option<serde_json::Value>)>>,
+    consumed: Mutex<Vec<String>>,
+}
+
+impl engine::outbox::ConversationApi for RecordingConversation {
+    fn reply(
+        &self,
+        _session_id: &str,
+        body: &str,
+        card: Option<&api::session_device::ReplyCard>,
+    ) -> Result<String, api::ApiError> {
+        let mut replies = self.replies.lock().expect("the reply log is not poisoned");
+        replies.push((
+            body.to_string(),
+            card.map(|card| serde_json::to_value(card).expect("a card serializes")),
+        ));
+        Ok(format!("msg-{}", replies.len()))
+    }
+
+    fn consume(&self, _session_id: &str, message_ids: &[String]) -> Result<(), api::ApiError> {
+        self.consumed
+            .lock()
+            .expect("the consume log is not poisoned")
+            .extend(message_ids.iter().cloned());
+        Ok(())
+    }
+}
+
+impl RecordingConversation {
+    fn consumed(&self) -> Vec<String> {
+        self.consumed.lock().expect("the consume log is not poisoned").clone()
+    }
+
+    fn replies(&self) -> Vec<(String, Option<serde_json::Value>)> {
+        self.replies.lock().expect("the reply log is not poisoned").clone()
+    }
+}
+
 struct Harness {
     session: EngineSession,
     sink: Arc<RecordingSink>,
+    conversation: Arc<RecordingConversation>,
     state: Arc<FakeState>,
     host: Arc<TestHost>,
     /// Kept alive: dropping it would release the gate under test.
@@ -695,22 +765,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         },
         tab_title: "claude · EXP-746".to_string(),
         tab_title_prefix: "EXP-746".to_string(),
-        heartbeat_scope: api::coding_sessions::HeartbeatScope {
-            issue_id: None,
-            team_id: None,
-            action_id: None,
-            action_name: None,
-            started_by_id: None,
-            device_id: None,
-            started_reason: None,
-            trigger_id: None,
-            branch: None,
-            batch_issue_ids: Vec::new(),
-            agent: None,
-            agent_account: None,
-            thread_id: None,
-        },
-        action_id: None,
+        seed_message_id: None,
         bypass_permissions: true,
         plan_mode: false,
         agent: coding::CodingAgent::Claude,
@@ -728,6 +783,16 @@ fn start_fake(name: &str) -> Harness {
 /// `start_fake`, with a hook that shapes the scratch worktree before the
 /// engine ever looks at it — a real git repo, the launcher's secrets on disk.
 fn start_fake_with(name: &str, setup: impl FnOnce(&Path)) -> Harness {
+    start_fake_prepared(name, setup, |_| {})
+}
+
+/// `start_fake_with`, with a hook that shapes the launch itself (a seed
+/// prompt, the message it delivers).
+fn start_fake_prepared(
+    name: &str,
+    setup: impl FnOnce(&Path),
+    launch: impl FnOnce(&mut coding::PreparedLaunch),
+) -> Harness {
     let worktree = std::env::temp_dir().join(format!(
         "exp746-engine-{name}-{}-{}",
         std::process::id(),
@@ -745,10 +810,13 @@ fn start_fake_with(name: &str, setup: impl FnOnce(&Path)) -> Harness {
     let host = Arc::new(TestHost::default());
     let child_exit = ChildExitLink::new();
     let adapter = FakeAgent::new(state.clone(), child_exit.clone());
+    let conversation = Arc::new(RecordingConversation::default());
+    let mut launch_prepared = prepared(&format!("sess-{name}"), worktree.clone());
+    launch(&mut launch_prepared);
 
     let session = engine::start_with(
         EngineStart {
-            prepared: prepared(&format!("sess-{name}"), worktree.clone()),
+            prepared: launch_prepared,
             // Nothing in these tests talks to a server; an unroutable base
             // makes every stray call fail immediately instead of hanging.
             trpc: Arc::new(api::TrpcClient::new("http://127.0.0.1:1", Arc::new(|| None))),
@@ -757,7 +825,7 @@ fn start_fake_with(name: &str, setup: impl FnOnce(&Path)) -> Harness {
             account_id: "acct-1".to_string(),
             own_user_id: Some("user-1".to_string()),
             personal_key: Some("expu_supersecretkey".to_string()),
-            issue_id: Some("issue-1".to_string()),
+            agent_root: false,
             foreign_host: false,
             rotation_host: false,
             publish: false,
@@ -769,6 +837,7 @@ fn start_fake_with(name: &str, setup: impl FnOnce(&Path)) -> Harness {
             adapter,
             child_exit,
             sink: Some(sink.clone() as Arc<dyn EventSink>),
+            conversation: Some(conversation.clone() as Arc<dyn engine::outbox::ConversationApi>),
         },
     )
     .expect("the engine starts");
@@ -776,6 +845,7 @@ fn start_fake_with(name: &str, setup: impl FnOnce(&Path)) -> Harness {
     Harness {
         session,
         sink,
+        conversation,
         state,
         host,
         _hold: hold,
@@ -1791,7 +1861,7 @@ fn a_run_that_dies_in_its_handshake_ends_as_a_failed_phase() {
             account_id: "acct-1".to_string(),
             own_user_id: Some("user-1".to_string()),
             personal_key: None,
-            issue_id: Some("issue-1".to_string()),
+            agent_root: false,
             foreign_host: false,
             rotation_host: false,
             publish: false,
@@ -1803,6 +1873,7 @@ fn a_run_that_dies_in_its_handshake_ends_as_a_failed_phase() {
             adapter: DeadAgent,
             child_exit: ChildExitLink::new(),
             sink: None,
+            conversation: None,
         },
     )
     .expect("the engine starts");
@@ -1988,4 +2059,172 @@ fn a_nonsense_context_layout_payload_publishes_nothing() {
         events_of(&harness.sink, "context_layout").is_empty(),
         "a malformed slot is dropped whole"
     );
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1292: the Conversation
+// ---------------------------------------------------------------------------
+
+/// A row delivered between turns IS the next turn: consumed the moment it is
+/// sent. One delivered mid-turn waits in the bar under its own row id and is
+/// consumed on the agent's replay — never before.
+#[test]
+fn a_delivered_message_is_consumed_when_it_reaches_the_agent() {
+    let harness = start_fake("deliver");
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+    let signal = harness.session.turn_signal();
+
+    harness.session.deliver("m-1".to_string(), "hello".to_string());
+    until("the delivered turn", || prompts() >= 1);
+    until("its consume", || harness.conversation.consumed() == vec!["m-1".to_string()]);
+    assert!(has_user_row(&harness.sink, "hello"));
+    until("the idle edge", || signal.is_idle());
+
+    harness.state.replay_gate.store(true, Ordering::SeqCst);
+    harness.session.send_prompt("steered".to_string());
+    until("the held turn", || prompts() >= 2);
+    harness.session.deliver("m-2".to_string(), "also this".to_string());
+    until("the message reaches the agent mid-turn", || prompts() >= 3);
+    until("its bar line", || {
+        last_queue(&harness.sink).is_some_and(|m| m.len() == 1 && m[0]["id"] == "m-2")
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        harness.conversation.consumed(),
+        vec!["m-1".to_string()],
+        "unread: not consumed yet"
+    );
+    harness.state.replay_gate.store(false, Ordering::SeqCst);
+    until("the replay consumes it", || {
+        harness.conversation.consumed() == vec!["m-1".to_string(), "m-2".to_string()]
+    });
+    // The engine's own prompts are no rows: nothing else was consumed.
+    harness.state.released.store(true, Ordering::SeqCst);
+    until("the idle edge", || signal.is_idle());
+    harness.session.kill("killed");
+    harness.session.wait_timeout(BUDGET).expect("the run ends");
+    assert_eq!(harness.conversation.consumed(), vec!["m-1".to_string(), "m-2".to_string()]);
+}
+
+/// A row the person unqueued while it was HELD (a compaction open) leaves
+/// the bar and is never consumed — its row is already gone.
+#[test]
+fn an_unqueued_held_row_is_never_consumed() {
+    let harness = start_fake("deliver-unqueue");
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").len();
+    harness.session.send_prompt("compact".to_string());
+    until("the fold opens", || {
+        events_of(&harness.sink, "compaction").iter().any(|e| e["phase"] == "started")
+    });
+    harness.session.deliver("m-held".to_string(), "later".to_string());
+    until("the held line", || {
+        last_queue(&harness.sink).is_some_and(|m| m.len() == 1 && m[0]["id"] == "m-held")
+    });
+    harness.session.unqueue("m-held");
+    until("the bar empties", || last_queue(&harness.sink).is_some_and(|m| m.is_empty()));
+    harness.state.fold_released.store(true, Ordering::SeqCst);
+    until("the idle edge", || harness.session.turn_signal().is_idle());
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(prompts(), 1, "the revoked line never reached the agent");
+    harness.session.kill("killed");
+    harness.session.wait_timeout(BUDGET).expect("the run ends");
+    assert!(harness.conversation.consumed().is_empty());
+}
+
+/// A resume's seed prompt is the waking message row: consumed once sent.
+#[test]
+fn a_seed_message_is_consumed_once_the_seed_turn_is_sent() {
+    let harness = start_fake_prepared(
+        "seed",
+        |_| {},
+        |prepared| {
+            prepared.acp.prompt = Some("wake up".to_string());
+            prepared.seed_message_id = Some("m-seed".to_string());
+        },
+    );
+    until("the seed consume", || harness.conversation.consumed() == vec!["m-seed".to_string()]);
+    // EXP-1304: the row is consumed as the engine SENDS the seed turn, which
+    // can be before the fake has taken it in; wait for its log, then pin it.
+    until("the seed turn reaches the agent", || {
+        !harness.state.prompts.lock().expect("the prompt log is not poisoned").is_empty()
+    });
+    assert_eq!(
+        harness.state.prompts.lock().expect("the prompt log is not poisoned").clone(),
+        vec!["wake up".to_string()]
+    );
+    harness.session.kill("killed");
+}
+
+/// The turn's LAST top-level message is its reply — the prose before the
+/// tool call is not — and it lands in the Conversation when the turn ends.
+#[test]
+fn a_turns_last_message_is_its_reply() {
+    let harness = start_fake("reply");
+    harness.session.send_prompt("reply".to_string());
+    until("the reply", || !harness.conversation.replies().is_empty());
+    assert_eq!(
+        harness.conversation.replies(),
+        vec![("All done.".to_string(), None)]
+    );
+    harness.session.kill("killed");
+}
+
+/// A permission is a question card in the Conversation; answering IN the
+/// card resolves the agent's request, and the card stops reading open.
+#[test]
+fn a_question_card_answered_in_the_conversation_resolves_the_permission() {
+    let harness = start_fake("card-permission");
+    harness.session.send_prompt("permission".to_string());
+    until("the card", || !harness.session.open_cards().is_empty());
+    let replies = harness.conversation.replies();
+    assert_eq!(
+        replies[0].1,
+        Some(serde_json::json!({
+            "kind": "question",
+            "question": "Write src/main.rs",
+            "options": ["Yes", "No"],
+            "questionId": "tc-perm",
+        }))
+    );
+    let open = harness.session.open_cards();
+    assert_eq!(open.get("msg-1").map(String::as_str), Some("tc-perm"));
+
+    harness
+        .session
+        .answer_card("tc-perm", &serde_json::json!({"kind": "question", "answer": "yes"}));
+    until("the agent's request resolves", || {
+        harness.state.chosen.lock().expect("the choice slot is not poisoned").is_some()
+    });
+    assert_eq!(
+        harness.state.chosen.lock().expect("the choice slot is not poisoned").as_deref(),
+        Some("allow")
+    );
+    until("the card closes", || harness.session.open_cards().is_empty());
+    harness.session.kill("killed");
+}
+
+/// An elicitation's step is a card too; the one-step form submits on the
+/// card's answer.
+#[test]
+fn an_elicitation_card_answered_in_the_conversation_submits_the_form() {
+    let harness = start_fake("card-ask");
+    harness.session.send_prompt("ask".to_string());
+    until("the card", || !harness.session.open_cards().is_empty());
+    let (_, question_id) = harness
+        .session
+        .open_cards()
+        .into_iter()
+        .next()
+        .expect("one open card");
+    harness
+        .session
+        .answer_card(&question_id, &serde_json::json!({"kind": "question", "answer": "patch"}));
+    until("the form goes back", || {
+        harness.state.elicited.lock().expect("the form slot is not poisoned").is_some()
+    });
+    assert_eq!(
+        harness.state.elicited.lock().expect("the form slot is not poisoned").as_deref(),
+        Some("patch")
+    );
+    harness.session.kill("killed");
 }

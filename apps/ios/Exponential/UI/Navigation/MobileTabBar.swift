@@ -1,16 +1,18 @@
+import ExpCore
 import ExpUI
 import SwiftUI
 
 /// Linear-style floating bottom navigation: a glass pill with the top-level
 /// destinations (Issues, Inbox — with an unread dot — Devices — the
-/// machines surface — Reviews — its own entry per EXP-147 — and Actions —
-/// EXP-1187: a top-level tab ×3, the More menu is gone; Settings stays the
-/// Issues header's gear; base order per EXP-81) plus a detached launcher on
+/// machines surface — Threads — EXP-1291: it replaced Reviews, with the
+/// Agents band on top — and Actions — EXP-1187: a top-level tab ×3, the More
+/// menu is gone; Settings stays the Issues header's gear; base order per
+/// EXP-81) plus a detached launcher on
 /// the right: the SPLIT capsule (chat | new issue), on every bar-visible
-/// route since EXP-973 — the chat arm opens the Agent page (the sessions list
-/// lives there since EXP-825, so it wears the running-session dot the Devices
-/// tab used to carry) and the New-issue arm files into the board in view,
-/// dimmed only while the team has no board at all. The Agent page is a
+/// route since EXP-973 — the chat arm opens Home (the composer and my
+/// Running threads, so it wears the running-session dot) and the New-issue
+/// arm files into the board in view, dimmed only while the team has no board
+/// at all. Home is a
 /// bar-visible ROOT and the app's landing screen (mobile parity ×3): the chat
 /// arm switches to it rather than pushing, and wears the tabs' selected
 /// circle while it is up; only New issue still pushes on top of the tabs. Search is no longer a tab
@@ -19,7 +21,7 @@ import SwiftUI
 /// scrolls underneath it; each bar-visible scrollable reserves clearance with
 /// `.tabBarBottomInset()` (EXP-36). MainNavigator hides it on detail screens.
 struct MobileTabBar: View {
-    /// Lit while the Agent tab ROOT (the empty-seed Agent page) is up: the
+    /// Lit while the Home ROOT (the empty-seed composer page) is up: the
     /// chat arm wears the selected circle and no pill tab is lit.
     let agentActive: Bool
     let issuesActive: Bool
@@ -27,15 +29,16 @@ struct MobileTabBar: View {
     /// EXP-1187: lit while the Actions list (or an action) is up.
     let actionsActive: Bool
     let myWorkActive: Bool
-    let reviewsActive: Bool
+    /// EXP-1291: lit while the Threads screen is up.
+    let threadsActive: Bool
     let unreadCount: Int
     let agentsRunning: Bool
     let agentsNeedInput: Bool
-    /// EXP-1244: `ReviewsQueue.nav(...).dot` — the Reviews queue is non-empty.
-    let reviewsOpen: Bool
-    /// EXP-1244: `ReviewsQueue.nav(...).shows` — false only while every team
-    /// runs in yolo mode (EXP-1105: PRs auto-merge) and nothing is queued.
-    var showsReviews: Bool = true
+    /// EXP-1291: a thread runs — the Threads tab's green dot (the
+    /// launcher's tone rule).
+    let threadsRunning: Bool
+    /// EXP-1291: any thread (or agent) needs me — the dot turns amber.
+    let threadsNeedYou: Bool
     /// EXP-973: whether the New-issue arm can go anywhere. The split capsule
     /// itself rides EVERY bar-visible route now; only a team with no board at
     /// all leaves the arm dimmed and inert.
@@ -44,7 +47,7 @@ struct MobileTabBar: View {
     let onDevices: () -> Void
     let onActions: () -> Void
     let onMyWork: () -> Void
-    let onReviews: () -> Void
+    let onThreads: () -> Void
     let onCompose: () -> Void
     let onChat: () -> Void
 
@@ -63,7 +66,7 @@ struct MobileTabBar: View {
         if issuesActive { return "issues" }
         if myWorkActive { return "mywork" }
         if devicesActive { return "devices" }
-        if reviewsActive { return "reviews" }
+        if threadsActive { return "threads" }
         if actionsActive { return "actions" }
         return "none"
     }
@@ -99,21 +102,18 @@ struct MobileTabBar: View {
                     action: onDevices
                 )
                 .accessibilityIdentifier("tab-devices")
-                // Reviews (EXP-147/EXP-152/EXP-686) — the same
-                // open-PR glyph the in_review status uses. Green dot while
-                // open PRs await review (EXP-214).
-                // EXP-1105: hidden in yolo mode unless a PR is open.
-                if showsReviews {
-                    tab(
-                        glyph: AppIcons.navReviews,
-                        label: "Reviews",
-                        active: reviewsActive,
-                        badge: reviewsOpen,
-                        badgeColor: DesignTokens.Semantic.green,
-                        action: onReviews
-                    )
-                    .accessibilityIdentifier("tab-reviews")
-                }
+                // EXP-1291: Threads replaced Reviews — the thread list with
+                // the team agents on top. Green dot while a thread runs,
+                // amber while one needs me.
+                tab(
+                    glyph: AppIcons.navThreads,
+                    label: SessionTree.ListCopy.title,
+                    active: threadsActive,
+                    badge: threadsRunning || threadsNeedYou,
+                    badgeColor: threadsNeedYou ? DesignTokens.Semantic.yellow : DesignTokens.Semantic.green,
+                    action: onThreads
+                )
+                .accessibilityIdentifier("tab-threads")
                 // EXP-1187: Actions — a top-level tab ×3 (the More menu is
                 // gone; Settings is the Issues header's gear). Authoring
                 // lives here; the composer's action chip runs one.
@@ -137,11 +137,10 @@ struct MobileTabBar: View {
 
             Spacer()
 
-            // The Chat launcher opens the Agent page from every top-level
-            // surface (EXP-631/694/827, and the rest since the sessions list
-            // moved there): it wears the live dot — amber while any of my
-            // sessions waits on a plan approval / question (EXP-214), green
-            // while one runs. EXP-973: New issue sits beside it on EVERY
+            // The Chat launcher opens Home (the composer) from every
+            // top-level surface (EXP-631/694/827): it wears the live dot —
+            // amber while any of my sessions waits on a plan approval /
+            // question (EXP-214), green while one runs. EXP-973: New issue sits beside it on EVERY
             // route, not only a board — the capsule is the bar's ONE launcher.
             launcherCapsule
         }
@@ -287,7 +286,7 @@ struct MobileTabBar: View {
 }
 
 /// The height `.tabBarBottomInset()` reserves — exposed for the one layout
-/// that has to subtract it (the Agent page's centred empty state).
+/// that has to subtract it (Home's centred composer).
 let tabBarBottomClearance: CGFloat = 80
 
 extension View {
@@ -296,7 +295,7 @@ extension View {
     /// plus 16pt of breathing room. The bar is an ancestor OVERLAY (see
     /// MainNavigator) — ancestor safe-area insets don't reliably reach List
     /// content inside pushed destinations, so every bar-visible scrollable
-    /// (Agent root, Issues list, Devices, Inbox's inbox/my-issues, Reviews,
+    /// (Home, Issues list, Devices, Inbox's inbox/my-issues, Threads,
     /// Actions) applies
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a

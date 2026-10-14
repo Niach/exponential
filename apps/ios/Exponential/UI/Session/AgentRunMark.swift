@@ -2,10 +2,8 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-// EXP-1184: the agent's WORKING mark and a live run's state mark, ×4 (web
-// `@exp/ui` `AgentWorkingMark`/`AgentRunMark`, desktop + Android twins). The
-// state they read is `CodingSessionDisplayState`, the
-// `session-display.json` rule.
+// EXP-1184: the agent's WORKING mark and its resting brand mark, ×4 (web
+// `@exp/ui` `AgentWorkingMark`, desktop + Android twins).
 
 /// Claude's own "writing" spark: 8 hand-cut frames
 /// (`agent-claude-writing-{0..7}` beside `agent-claude`), 90 ms each with HARD
@@ -56,71 +54,6 @@ struct AgentWorkingMark: View {
     }
 }
 
-/// EXP-1208: an ENDED run's mark is the brand mark at this opacity, ×4.
-let runMarkEndedOpacity: Double = 0.5
-
-/// EXP-1208: a session list row's run mark is one indent level square (its
-/// centre IS the gutter centre a child's connector hangs off), its badge 6,
-/// and 8 separates the mark and the text — ×4 (no fold chevron since
-/// EXP-1248).
-enum SessionRowLead {
-    static let markSize: CGFloat = TreeGuides.indentPerLevel
-    static let badgeSize: CGFloat = 6
-    static let gap: CGFloat = 8
-}
-
-/// EXP-1208: a live session row's mark state, ×4 (web `runningRowMarkState`):
-/// the display state, except a paused run (offline host) wears the bare mark
-/// (nil) and only a WORKING row animates (EXP-848: the turn flag, never
-/// `running` alone).
-func runningRowMarkState(
-    _ state: CodingSessionDisplayState, paused: Bool, working: Bool
-) -> CodingSessionDisplayState? {
-    if paused { return nil }
-    if state == .working { return working ? .working : nil }
-    return state
-}
-
-/// A run's mark — wherever a run is named by its agent (the Work screen's
-/// Run tab and, EXP-1208, the lead of every session list row) it reads the
-/// same: the working mark while the agent works, else its brand mark with a
-/// small state badge (amber: wants you, green: PR open, blue: done). No
-/// `state` = a paused run, the bare mark; `ended` = a FINISHED run's row, the
-/// mark dimmed with no badge. The caller sizes it.
-struct AgentRunMark: View {
-    let agent: String?
-    let state: CodingSessionDisplayState?
-    var badgeSize: CGFloat = 6
-    var ended: Bool = false
-
-    var body: some View {
-        mark
-            .opacity(ended ? runMarkEndedOpacity : 1)
-            .overlay(alignment: .topTrailing) {
-                if let badge {
-                    Circle()
-                        .fill(badge)
-                        .frame(width: badgeSize, height: badgeSize)
-                        .offset(x: badgeSize / 3, y: -badgeSize / 3)
-                }
-            }
-    }
-
-    @ViewBuilder
-    private var mark: some View {
-        if state == .working, !ended {
-            AgentWorkingMark(agent: agent)
-        } else {
-            BeatingAgentMark(agent: agent, beating: false)
-        }
-    }
-
-    private var badge: Color? {
-        guard !ended, let state, state != .working else { return nil }
-        return sessionStateColor(state)
-    }
-}
-
 /// The agent's brand mark (EXP-849: never a bare `Image("agent-…")`), with
 /// the EXP-850 working beat — opacity 0.4 ↔ 1 over 1.4s — while `beating`;
 /// steady under Reduce Motion.
@@ -157,15 +90,17 @@ struct BeatingAgentMark: View {
         @ViewBuilder
         private var mark: some View {
             // A missing agent is a claude run (web parity); an id outside the
-            // contract draws the agents glyph (`AgentBrandMark`).
+            // contract draws the agents glyph (`AgentBrandMark`). EXP-1312: a
+            // template mark (codex, the glyph) takes the foreground, like web's
+            // `currentColor` and Android's content colour.
             if let image = AgentBrandMark.image(agentIsClaude(agent) ? "claude" : agent ?? "claude") {
                 image
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .foregroundStyle(.white)
             } else {
                 AppIcon(AppIcons.settingsAgents, size: DetailChrome.faceMark)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .foregroundStyle(.white)
             }
         }
     }

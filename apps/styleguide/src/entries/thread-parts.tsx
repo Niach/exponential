@@ -1,264 +1,253 @@
-import type { ReactNode } from "react"
-import fixture from "@exp/domain-contract/fixtures/thread-view.json"
+import threadFixture from "@exp/domain-contract/fixtures/session-thread.json"
+import listFixture from "@exp/domain-contract/fixtures/threads-list.json"
+import {
+  buildSessionThread,
+  partitionThreads,
+  sessionCard,
+  type ThreadsListGroup,
+} from "@exp/domain-contract/session-tree"
 import { SEMANTIC_ICONS } from "@exp/icons"
 import {
   AgentRunMark,
-  ExponentialLogo,
-  IssueChip,
-  MenuPanel,
-  StatusGlyph,
-  ThreadFoldedRun,
-  ThreadGlyph,
-  ThreadHeader,
-  ThreadLinkRow,
-  ThreadListRow,
-  ThreadParallelCard,
-  ThreadRunHeader,
-  ThreadStrip,
+  AgentWorkingMark,
+  BoardGlyph,
   conceptIcon,
-  type MenuEntry,
-  type ThreadStripEntry,
+  GlassSectionHeader,
+  IssueChip,
+  SessionCard,
+  ThreadTabs,
+  ThreadTabsAddButton,
+  ThreadsListItem,
+  threadTabChipClass,
 } from "@exp/ui"
+
+import type { ReactNode } from "react"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1284: the THREAD's Exponential-specific parts, the REAL `@exp/ui`
-// components (`thread-parts.tsx`) painted from the contract's own expected
-// views (`thread-view.json`, ×4): the child strip of draft 1, the
-// conversation of draft 2 (folded sessions, the agent's link rows, the
-// parallel card), the thread's ONE menu and the list rows. The web app binds
-// them to the synced rows (`apps/web/src/routes/t/$teamSlug/threads/`).
+// EXP-1293 Threads v2: the THREAD's parts, the REAL `@exp/ui` components
+// (`session-thread-view.tsx`, `work-card.tsx`) painted from the contract's
+// own models: the header (title + ONE tab strip: Conversation · issue chips
+// · "+" · Guide), THE session card at every state (`session-card.json`) and
+// the Threads list (`partitionThreads`, `threads-list.json`) in the Reviews
+// list language. The web app binds them to the synced rows
+// (`apps/web/src/routes/t/$teamSlug/threads/`).
 
-type Expected = (typeof fixture.views)[number][`expected`]
-type Input = (typeof fixture.views)[number][`input`]
+type ThreadInput = Parameters<typeof buildSessionThread>[0]
+type ListInput = Parameters<typeof partitionThreads>[0]
 
-/** The model's blocks (`lib/thread-view.ts`), typed for the specimen. */
-interface LinkModel {
-  itemId: string
-  issueId: string
-  label: string
-}
-type BlockModel =
-  | {
-      kind: `run`
-      runId: string
-      label: string
-      caption: string[]
-      state: `live` | `needs_input` | `ended`
-      folded: boolean
-      links: LinkModel[]
-    }
-  | {
-      kind: `parallel`
-      label: string
-      caption: string[]
-      state: `live` | `needs_input` | `ended`
-      runs: {
-        runId: string
-        name: string
-        issueId: string | null
-        deviceLabel: string | null
-        state: string
-      }[]
-      links: LinkModel[]
-    }
-
-const DRAFT_1 = fixture.views[0]!
-const DRAFT_2 = fixture.views[1]!
 const noop = (): void => {}
+const PrivateIcon = conceptIcon(`ui-private`)
+const NeedsYouIcon = conceptIcon(`coding-needs-input`)
+const RecentIcon = conceptIcon(`ui-check`)
+const PrOpenIcon = conceptIcon(`pr-open`)
+const PrStackIcon = conceptIcon(`pr-stack`)
 
-const STATUS_ICONS = [`status-in-progress`, `status-backlog`, `status-backlog`] as const
+const STATUS = [
+  { icon: SEMANTIC_ICONS[`status-in-progress`], colorClass: `text-amber-400` },
+  { icon: SEMANTIC_ICONS[`status-backlog`], colorClass: `text-muted-foreground` },
+] as const
 
-function statusOf(index: number) {
-  const icon = SEMANTIC_ICONS[STATUS_ICONS[index % STATUS_ICONS.length]!]
-  return { icon, colorClass: index === 0 ? `text-amber-400` : `text-muted-foreground` }
+const THREAD = buildSessionThread(threadFixture.cases[0]!.input as unknown as ThreadInput)
+const PRIVATE = buildSessionThread(threadFixture.cases[1]!.input as unknown as ThreadInput)
+const LIST = partitionThreads(listFixture.cases[0]!.input as unknown as ListInput)
+const LIST_INPUT = listFixture.cases[0]!.input as unknown as ListInput
+
+const NOW = `2026-10-13T10:00:00.000Z`
+const BASE = {
+  id: `s`,
+  teamId: `t`,
+  parentId: null,
+  rootId: `s`,
+  kind: `thread`,
+  userId: `u`,
+  status: `running`,
+  busy: false,
+  needsInput: false,
+  blocked: null,
+  shared: true,
+  title: null,
+  guide: null,
+  actionName: null,
+  name: null,
+  icon: null,
+  color: null,
+  sortOrder: 0,
+  startedAt: `2026-10-13T09:47:26.000Z`,
+  endedAt: null,
+  createdAt: `2026-10-13T09:47:00.000Z`,
+  updatedAt: `2026-10-13T09:59:00.000Z`,
 }
 
-function strip(view: Expected, activeIssue: string | null): ThreadStripEntry[] {
-  return view.strip.flatMap((child, index): ThreadStripEntry[] => {
-    if (child.kind === `conversation`) {
-      return [{ kind: `conversation`, active: activeIssue === null, onSelect: noop }]
-    }
-    if (child.kind === `issue` && `identifier` in child) {
-      return [
-        {
-          kind: `issue`,
-          key: child.issueId!,
-          identifier: child.identifier!,
-          title: child.title!,
-          lead: <StatusGlyph {...statusOf(index - 1)} className="size-3.5" />,
-          active: activeIssue === child.issueId,
-          // The issue the agent just filed fades in with its ring.
-          fresh: child.identifier === `EXP-1277`,
-          onSelect: noop,
-        },
-      ]
-    }
-    if (child.kind === `guide`) {
-      return [{ kind: `guide`, active: false, dot: Boolean(child.dot), onSelect: noop }]
-    }
-    return []
-  })
-}
+const CARDS = [
+  sessionCard({ ...BASE, busy: true }, 1, NOW),
+  sessionCard({ ...BASE, title: `Profile the launch path`, needsInput: true }, 2, NOW),
+  sessionCard({ ...BASE, title: `Review the fix` }, 3, NOW),
+  sessionCard({ ...BASE, status: `queued`, startedAt: null }, 4, NOW),
+  sessionCard({ ...BASE, blocked: { window: `5h` } }, 5, NOW),
+  sessionCard({ ...BASE, status: `ended`, endedAt: `2026-10-13T09:51:10.000Z` }, 6, NOW),
+]
 
-function chip(input: Input, issueId: string, short = false): ReactNode {
-  const index = input.issues.findIndex((issue) => issue.id === issueId)
-  const issue = input.issues[index]
-  if (!issue) return null
-  return (
-    <IssueChip
-      identifier={issue.identifier}
-      title={issue.title}
-      status={statusOf(index)}
-      size={short ? `sm` : `md`}
-    />
+const issueTitle = (issueId: string) =>
+  (threadFixture.cases[0]!.input.issues as { id: string; title: string }[]).find(
+    (issue) => issue.id === issueId
+  )?.title ?? issueId
+
+function Header({ view, active }: { view: typeof THREAD; active: string | null }) {
+  const issues = view.tabs.flatMap((tab, index) =>
+    tab.kind === `issue`
+      ? [
+          <IssueChip
+            key={tab.issueId}
+            identifier={tab.identifier}
+            title={issueTitle(tab.issueId)}
+            status={STATUS[index % STATUS.length]!}
+            className={threadTabChipClass(active === tab.issueId)}
+            onClick={noop}
+          />,
+        ]
+      : []
   )
-}
-
-const LinkMark = <ExponentialLogo variant="light" size={14} className="size-3.5" />
-
-function Conversation({ input, view }: { input: Input; view: Expected }) {
-  const nameOf = (runId: string) => input.runs.find((run) => run.id === runId)?.name ?? ``
+  const guide = view.tabs.find((tab) => tab.kind === `guide`)
   return (
-    <div className="flex max-w-2xl flex-col gap-6">
-      {(view.conversation as BlockModel[]).map((block, index) => {
-        const links = block.links.map((link) => (
-          <ThreadLinkRow key={link.itemId} lead={LinkMark} label={link.label} chip={chip(input, link.issueId)} />
-        ))
-        if (block.kind === `parallel`) {
-          return (
-            <div key={index} className="space-y-2">
-              <ThreadRunHeader
-                lead={<AgentRunMark agent="claude" ringClassName="ring-background" />}
-                label={block.label}
-                caption={block.caption}
-                state={block.state}
-              />
-              <ThreadParallelCard
-                rows={block.runs.map((row, rowIndex) => ({
-                  key: row.runId,
-                  lead: (
-                    <AgentRunMark
-                      agent="claude"
-                      state={row.state === `needs_input` ? `needs_input` : rowIndex === 0 ? `working` : undefined}
-                      ringClassName="ring-card"
-                    />
-                  ),
-                  name: row.name,
-                  chip: row.issueId ? chip(input, row.issueId, true) : undefined,
-                  meta: `${row.deviceLabel} · ${rowIndex === 0 ? `22m` : `9m`}`,
-                  onOpen: noop,
-                }))}
-              />
-              {links}
-            </div>
-          )
-        }
-        const run = block
-        return (
-          <div key={index} className="space-y-2">
-            <ThreadRunHeader
-              lead={
-                <AgentRunMark
-                  agent="claude"
-                  state={run.state === `ended` ? `ended` : `working`}
-                  ringClassName="ring-background"
-                />
-              }
-              label={run.label}
-              caption={run.caption}
-              state={run.state}
-              onOpen={noop}
-            />
-            {run.folded ? (
-              <ThreadFoldedRun name={nameOf(run.runId)} onShowWork={noop} />
-            ) : (
-              <p className="pl-[1.375rem] text-sm text-foreground/90">
-                Two separate bugs. I'll file the model picker one and keep both in this thread.
-              </p>
-            )}
-            {links}
-          </div>
-        )
-      })}
+    <div className="flex max-w-3xl flex-col gap-4">
+      <div className="flex min-w-0 items-center gap-2">
+        <h1 className="truncate text-2xl font-semibold tracking-tight">{view.title}</h1>
+        {view.private && <PrivateIcon className="size-4 shrink-0 text-muted-foreground" />}
+      </div>
+      <ThreadTabs
+        conversation={{ label: threadFixture.copy.conversation, active: active === null, onSelect: noop }}
+        issues={issues}
+        add={<ThreadTabsAddButton />}
+        guide={{
+          label: threadFixture.copy.guide,
+          active: false,
+          dot: guide?.kind === `guide` && guide.dot,
+          onSelect: noop,
+        }}
+      />
     </div>
   )
 }
 
-const MENU: MenuEntry[] = [
-  { kind: `item`, label: `Link an issue`, icon: conceptIcon(`nav-search`), onSelect: noop },
-  { kind: `item`, label: `New issue in this thread`, icon: conceptIcon(`ui-add`), onSelect: noop },
-  { kind: `item`, label: `Start a session here`, icon: conceptIcon(`action-run`), onSelect: noop },
-  { kind: `separator` },
-  { kind: `item`, label: `Unlink EXP-1270`, icon: conceptIcon(`ui-close`), onSelect: noop },
-]
+const GROUP_GLYPH: Record<ThreadsListGroup[`key`], ReactNode> = {
+  needs_you: <NeedsYouIcon className="size-3.5 shrink-0 text-amber-400" />,
+  running: <AgentWorkingMark agent={null} />,
+  recent: <RecentIcon className="size-3.5 shrink-0 text-muted-foreground" />,
+}
+
+/** The specimen's words: one per row, like the app derives them. */
+const WORDS: Record<string, { word: string; lead?: ReactNode; icon?: ReactNode }> = {
+  a: { word: `question` },
+  b: { word: `stack`, icon: <PrStackIcon className="size-3 shrink-0" /> },
+  d: { word: `ready to merge`, lead: <PrOpenIcon className="size-3.5 text-emerald-500" /> },
+}
+
+function identifierOf(sessionId: string): string | null {
+  const link = LIST_INPUT.sessionIssues.find((row) => row.sessionId === sessionId)
+  return link ? (LIST_INPUT.issues.find((issue) => issue.id === link.issueId)?.identifier ?? null) : null
+}
+
+function ThreadsList() {
+  return (
+    <div className="flex max-w-3xl flex-col gap-6" data-testid="threads-list">
+      <div>
+        <GlassSectionHeader
+          label={listFixture.copy.agents}
+          leading={<BoardGlyph board={{ icon: `bot` }} className="size-3.5 text-muted-foreground" />}
+        />
+        <ThreadsListItem
+          testId="agents-row"
+          lead={<BoardGlyph board={{ icon: `bug`, color: `#a78bfa` }} className="size-3.5" />}
+          title="Triage"
+          word="needs input"
+          onOpen={noop}
+        />
+        <ThreadsListItem
+          testId="agents-row"
+          lead={<BoardGlyph board={{ icon: `palette`, color: `#f472b6` }} className="size-3.5" />}
+          title="Designer"
+          onOpen={noop}
+        />
+      </div>
+      {LIST.map((group) => (
+        <div key={group.key}>
+          <GlassSectionHeader label={group.title} leading={GROUP_GLYPH[group.key]} />
+          {group.rows.map((row) => {
+            const word = WORDS[row.sessionId]
+            return (
+              <ThreadsListItem
+                key={row.sessionId}
+                lead={
+                  row.busy ? (
+                    <AgentWorkingMark agent="claude" />
+                  ) : (
+                    (word?.lead ?? (
+                      <AgentRunMark
+                        agent="claude"
+                        state={row.needsYou ? `needs_input` : group.key === `recent` ? `ended` : undefined}
+                        ringClassName="ring-background"
+                      />
+                    ))
+                  )
+                }
+                identifier={identifierOf(row.sessionId)}
+                title={row.title}
+                word={word?.word ?? null}
+                wordIcon={word?.icon}
+                locked={row.private}
+                onOpen={noop}
+              />
+            )
+          })}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export const entry: StyleguideEntry = {
   id: `thread-parts`,
   section: `special`,
-  owner: `EXP-1284`,
+  owner: `EXP-1293`,
   title: `Thread`,
-  blurb: `The unit of work holding n issues and m sessions. Header: the title + the muted \`thread\` word; under it the CHILD STRIP: Conversation · one tab per issue (status glyph, mono identifier, title) · "+" · Guide (green dot while the thread has a Guide), the header caption trailing; a child the viewer has not seen yet fades in with a ring. The conversation: one block per session (agent glyph, \`Session N\`, device · resumed · started by Session K, a hairline, the state word), ended sessions fold to their name + Show work, the issues the agent linked sit under their block (\`Linked\` / \`Filed and linked\` + the chip), and the sessions one parent started share ONE card. The "+" and every issue tab open the thread's ONE menu. Lists show threads: the title over the list caption. Model = \`buildThreadView()\` (fixture \`thread-view.json\` ×4). Phones: the strip is the pager.`,
+  blurb: `A thread IS a root session. Header: the title (renamed in place; a lock when private) and ONE tab strip: Conversation · one issue chip per linked issue (status glyph, mono identifier, title; its context menu unlinks) · "+" (link an issue) · Guide (a green dot while the root's Guide holds anything). No captions, no Stop, no right sidebar; phones use the strip as the pager. THE session card = the Work card's header row: the state icon, the name (\`Session N\` untitled), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat rows: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the first issue's identifier, the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`merged\`, \`question\`) or a lock; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `ThreadStrip`,
-      file: `packages/ui/src/thread-parts.tsx`,
-      note: `page: apps/web/src/routes/t/$teamSlug/threads/$threadId.tsx; model: apps/web/src/lib/thread-view.ts`,
+      symbol: `ThreadTabs / ThreadsListItem / SessionCard`,
+      file: `packages/ui/src/session-thread-view.tsx`,
+      note: `pages: apps/web/src/routes/t/$teamSlug/threads/; card: packages/ui/src/work-card.tsx`,
     },
     desktop: {
       state: `ok`,
       symbol: `ThreadScreenView`,
       file: `apps/desktop/crates/ui/src/thread_screen.rs`,
-      note: `model: crates/domain/src/thread_view.rs; styleguide/entries/thread_view.rs`,
+      note: `model: crates/domain/src/session_tree.rs`,
     },
     ios: {
       state: `ok`,
       symbol: `ThreadScreen`,
       file: `apps/ios/Exponential/UI/Thread/ThreadScreen.swift`,
-      note: `model: ExpCore ThreadView.swift`,
+      note: `model: ExpCore SessionTree.swift`,
     },
     android: {
       state: `ok`,
       symbol: `ThreadScreen`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/thread/ThreadScreen.kt`,
-      note: `model: domain/ThreadView.kt`,
+      note: `model: domain/SessionTree.kt`,
     },
   },
-  island: () => {
-    const draft1 = DRAFT_1.expected
-    const draft2 = DRAFT_2.expected
-    return (
-      <div className="flex flex-col gap-8 text-sm">
-        <div className="flex max-w-3xl flex-col gap-3">
-          <ThreadHeader title={DRAFT_1.input.runs[0]!.name} />
-          <ThreadStrip entries={strip(draft1, null)} caption={draft1.headerCaption} />
-        </div>
-        <div className="flex max-w-3xl flex-col gap-3">
-          <ThreadHeader title={draft2.title} />
-          <ThreadStrip entries={strip(draft2, null)} caption={draft2.headerCaption} />
-          <div className="flex items-start gap-6">
-            <Conversation input={DRAFT_2.input} view={draft2} />
-            <MenuPanel entries={MENU} className="w-64 shrink-0" />
-          </div>
-        </div>
-        <div className="flex max-w-sm flex-col">
-          <ThreadStrip entries={strip(draft1, null)} variant="pager" />
-          <ThreadListRow
-            lead={<AgentRunMark agent="claude" state="working" ringClassName="ring-background" />}
-            title={draft1.title}
-            caption={draft1.listCaption}
-            onClick={noop}
-          />
-          <ThreadListRow
-            lead={<ThreadGlyph />}
-            title={draft2.title}
-            caption={draft2.listCaption}
-            captionTone="amber"
-            onClick={noop}
-          />
-        </div>
+  island: () => (
+    <div className="flex flex-col gap-10 text-sm">
+      <Header view={THREAD} active={null} />
+      <Header view={PRIVATE} active={null} />
+      <div className="flex max-w-xl flex-col gap-2">
+        {CARDS.map((card) => (
+          <SessionCard key={card.name} card={card} onOpen={noop} />
+        ))}
       </div>
-    )
-  },
+      <ThreadsList />
+    </div>
+  ),
 }

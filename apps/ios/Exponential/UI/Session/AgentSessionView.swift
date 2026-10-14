@@ -6,24 +6,8 @@ import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
 
-/// The run's transcript and composer (EXP-32) — a chat-style view of a live
-/// coding session over the relay's scrubbed activity channel. NO terminal
-/// rendering: narration bubbles, compact tool rows, collapsible subagent
-/// runs, question cards. Steering is message-shaped (text + \r, perm-gated by
-/// the relay) and questions answer through the semantic `answer` frame
-/// (EXP-249). Identical UX to the Android AgentSessionScreen.
-///
-/// EXP-893: a FACE of the Work screen, never a screen of its own. The nav
-/// bar, the Stop / Resume pill and (EXP-1150) the face tabs
-/// belong to `WorkScreen`; this view reports what they need through
-/// `RunChrome` and takes the screen's requests (`RunRequest`) and its Start
-/// coding offer (`startReadiness`).
-/// EXP-1152/1251: the Run face ONLY — the run's live diff is on the Guide
-/// face (`GuideFace`), its own page beside this one in the Work screen's
-/// pager (both pages are up at once, and ONE view must consume `request` and
-/// report `RunChrome`).
-/// The feed's scroll constants — outside the view (EXP-893: it used to be
-/// generic, and a generic type cannot hold stored statics).
+/// The feed's scroll constants — outside the view (a generic type cannot hold
+/// stored statics).
 enum AgentSessionLayout {
     static let bottomAnchor = "feed-bottom"
     static let feedCoordSpace = "feed-scroll"
@@ -59,72 +43,88 @@ extension View {
     }
 }
 
+/// EXP-1295: the `agentSession` route's screen — waits for the synced
+/// `sessions` row, then hands it to `AgentSessionView` (whose model
+/// observes it from there on); none yet = `run-not-found`.
+struct AgentSessionScreen: View {
+    let sessionId: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var row: SessionEntity?
+    @State private var missing = false
+
+    var body: some View {
+        Group {
+            if let row {
+                AgentSessionView(accountId: accountId, session: row)
+            } else {
+                ZStack {
+                    AppBackground()
+                    if missing {
+                        EmptyState(.runNotFound)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .accessibilityIdentifier("session-not-found")
+                    } else {
+                        // EXP-1275 (D8): a first load is skeleton rows.
+                        SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
+                            .transcriptColumn()
+                            .frame(maxHeight: .infinity, alignment: .top)
+                            .padding(.top, 8)
+                    }
+                }
+            }
+        }
+        // OBSERVED, not read once: a push tap can land before the row syncs,
+        // and the screen resolves the moment it arrives. Only the first row
+        // is kept — the session view observes it from there on.
+        .task(id: sessionId) {
+            guard row == nil, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+            let id = sessionId
+            let observation = ValueObservation.tracking { db in
+                try SessionQueries.session(db: db, id: id)
+            }
+            do {
+                for try await found in observation.values(in: pool) {
+                    if let found {
+                        row = found
+                        return
+                    }
+                    missing = true
+                }
+            } catch {
+                missing = true
+            }
+        }
+    }
+}
+
+/// EXP-1295: a SESSION's raw work — today's session view, opened from its
+/// card in a thread (or any session ref). A chat-style view of the session
+/// over the relay's scrubbed activity channel: narration bubbles, compact tool
+/// rows, collapsible subagent runs, question cards. NO terminal rendering.
+///
+/// The header is the back button, a back row naming the THREAD (its root,
+/// EXP-1310) over the session's name, and Stop (`sessions.stop`); the composer box sends a `messages` row
+/// (`sessions.send({sessionId})`). The relay stays the LIVE layer (streaming
+/// text, tool lines, usage). Read-only for a viewer who may not post (a
+/// teammate's session on a private device).
 struct AgentSessionView: View {
     let accountId: String
-    let session: CodingSessionEntity
-    /// The screen's Stop pill asks; the kill confirm and the model are here.
-    @Binding var request: RunRequest?
-    /// EXP-935: the SCREEN's continuation hold — a Resume or an account
-    /// switch sends through it, and the screen (which outlives every face)
-    /// owns the watch and swaps the successor in.
-    let continuation: RunContinuation
-    /// EXP-1150: non-nil = the screen offers Start coding (the shown run
-    /// ended for good, own, nothing to resume, an issue subject) — the Run
-    /// bar's only trailing circle.
-    var startReadiness: CodingReadiness.Readiness? = nil
-    var onStartCoding: () -> Void = {}
-    /// EXP-1191: the Work screen's Merge PR circle (`WorkMergePill`, circle
-    /// style), right of the folded composer capsule and before the Start
-    /// circle; gone with the folded bar while the composer is open. nil = none.
-    var mergeCircle: AnyView? = nil
-    /// EXP-1175: the Work screen's ×4 display state for the shown run (its
-    /// Run tab mark's), nil when it has none — the status row then derives
-    /// it off this view's own row and working signal.
-    let runState: CodingSessionDisplayState?
-
-    /// EXP-1175: Show work — the full transcript in place of the thread.
-    /// Per ACCOUNT (= per user), never synced (`WorkFaces.showWorkDefaultsKey`),
-    /// so every Run face of that account flips together.
-    @AppStorage private var showWork: Bool
-
-    init(
-        accountId: String,
-        session: CodingSessionEntity,
-        request: Binding<RunRequest?>,
-        continuation: RunContinuation,
-        runState: CodingSessionDisplayState? = nil,
-        startReadiness: CodingReadiness.Readiness? = nil,
-        onStartCoding: @escaping () -> Void = {},
-        mergeCircle: AnyView? = nil
-    ) {
-        self.accountId = accountId
-        self.session = session
-        _request = request
-        self.continuation = continuation
-        self.runState = runState
-        self.startReadiness = startReadiness
-        self.onStartCoding = onStartCoding
-        self.mergeCircle = mergeCircle
-        _showWork = AppStorage(
-            wrappedValue: WorkFaces.showWorkDefault,
-            WorkFaces.showWorkDefaultsKey(accountId: accountId)
-        )
-    }
+    /// The row the screen opened on — the model observes it from there on.
+    let session: SessionEntity
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @Environment(\.toaster) private var toaster
+    @Environment(\.pushRoute) private var pushRoute
     /// A cache of the SteerSessionStore lookup (EXP-621) — the model itself is
     /// app-scoped, so this view neither creates nor tears it down.
     @State private var model: AgentSessionModel?
     /// This view's ONE claim on that model (`attach` / `detach` are counted).
     @State private var claimed = false
-    /// EXP-1245: the owner's turn facts (`SessionTurnLog`), re-read on every
-    /// turn edge and new feed row; empty = the single-row thread.
-    @State private var turnEvents: [SessionTurnEvent] = []
-    @State private var showKillConfirm = false
-    /// EXP-688: the Usage sheet — the per-window cards that used to be a
-    /// hairline strip under the nav bar. EXP-893: opened by the usage RING.
+    /// EXP-688: the Usage sheet — the per-window cards, opened by the usage
+    /// RING.
     @State private var showUsageSheet = false
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
@@ -134,11 +134,9 @@ struct AgentSessionView: View {
     /// subagent id focuses that agent's stream. Falls back to Main whenever
     /// the id vanishes from the feed (an `activity_reset` replay).
     @State private var agentTab: String?
-    @State private var photoItems: [PhotosPickerItem] = []
-    @State private var showPhotoPicker = false
-    /// Wave D: the `+`'s Photo | File menu and the Files importer it opens.
-    @State private var showAttachMenu = false
-    @State private var showFileImporter = false
+    /// Wave D: the `+`'s Photo | File menu, the photo picker and the Files
+    /// importer it opens (`SessionComposerCard` presents them).
+    @State private var attach = SessionComposerAttach()
     /// EXP-724: the draft the `/` menu was dismissed at (Escape / an accepted
     /// row). Keyed on the DRAFT, not a bool, so the menu comes back on its own
     /// the moment the text changes and no `onChange` has to race the accept.
@@ -159,16 +157,14 @@ struct AgentSessionView: View {
     /// View state, not model state: it is a place in the card, and a fresh
     /// screen starts on the current step.
     @State private var editingSteps: [String: String] = [:]
+    /// EXP-1310: the Stop confirm (`Prompts.StopRun`, ×4 with Android).
+    @State private var stopConfirm = false
     @Environment(\.motion) private var motion
 
     /// EXP-746: Usage opens on EITHER half — the machine's rate-limit report
-    /// (EXP-484) or this run's own context/spend off the relay. A fresh run on
-    /// a machine that reported nothing used to have no usage affordance at all.
+    /// (EXP-484) or this session's own context/spend off the relay.
     private var hasUsage: Bool {
-        // EXP-849: the readout is also the ACCOUNT surface, so a run whose
-        // machine reported logins but no numbers still opens it.
-        model?.runUsage != nil || model?.sessionUsage != nil
-            || model?.accountOptions.isEmpty == false
+        model?.runUsage != nil || model?.sessionUsage != nil || model?.runAccount != nil
     }
 
     // Three small chains instead of one long one. The whole modifier chain is
@@ -179,37 +175,32 @@ struct AgentSessionView: View {
     // new modifier costs its group and not the whole view. Nesting reads
     // inside out; the order of application is unchanged.
     var body: some View {
-        withSheets(withLifecycle(withAlerts(sessionContent)))
+        withChrome(withSheets(withLifecycle(withAlerts(sessionContent))))
             // EXP-1172: a settled `sessions_show` row finds its picture in
-            // this run's live results.
-            .environment(\.sessionResultsRaw, session.results)
+            // the thread's Guide (the ROOT's `guide`).
+            .environment(\.sessionResultsRaw, model?.root?.guide)
     }
 
     private var sessionContent: some View {
-        VStack(spacing: 0) {
-            if let model {
-                runFace(model)
-            } else {
-                Spacer()
+        ZStack {
+            AppBackground()
+            VStack(spacing: 0) {
+                if let model {
+                    runFace(model)
+                } else {
+                    Spacer()
+                }
             }
         }
     }
 
-    /// The transcript face: the ended byline, the feed, the strips and the
-    /// composer band.
+    /// The transcript and the composer band, which FLOATS over the feed
+    /// (EXP-1161): the transcript scrolls beneath it, and the feed's scroll
+    /// view takes the band's height as its bottom inset so the follow pin and
+    /// "Jump to bottom" land on the true end.
     @ViewBuilder
     private func runFace(_ model: AgentSessionModel) -> some View {
-        // EXP-974: no continuation band any more — a resumed run and its
-        // successor share ONE toggle, and the run menu picks between them.
-        // EXP-773: an ended run's close-out sits ABOVE its transcript.
-        endedHeader(model)
-        // EXP-1161: the band FLOATS over the feed instead of stacking under
-        // it — the transcript scrolls beneath the composer (no hard cut at
-        // the band's top edge), the feed's scroll view takes the band's
-        // height as its bottom inset so the follow pin and "Jump to bottom"
-        // land on the true end, and the inset still rides the keyboard. The
-        // Issue face's floating bar is the same recipe.
-        feedArea(model)
+        feedBody(model)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 bottomBand(model)
             }
@@ -224,8 +215,8 @@ struct AgentSessionView: View {
             rateLimitBanner(model)
             compactionStrip(model)
             // EXP-861: the messages the device holds until the turn ends, each
-            // with an X that revokes it. Absent when nothing is queued or the run
-            // is over.
+            // with an X that revokes it. Absent when nothing is queued or the
+            // session is over.
             if !model.queued.isEmpty, !model.isOver {
                 AgentQueueStrip(messages: model.queued) { id in
                     model.unqueue(id)
@@ -239,29 +230,92 @@ struct AgentSessionView: View {
         }
         // EXP-1162: the bottom edge strip behind the band — not behind an
         // open composer card, which is opaque and rides the keyboard.
-        // EXP-1256 (D15): in the thread's own ground — no tint, no blur.
+        // EXP-1256 (D15): in the page's own ground — no tint, no blur.
         .floatingBarEdge(bandRetired(model) || !composerOpen(model), ground: true)
     }
 
-    /// The confirms: Kill, Merge, and a `/`-command's own.
-    private func withAlerts(_ content: some View) -> some View {
+    // MARK: - Header
+
+    /// The nav bar: the system back button, a two-line title (EXP-1310, web
+    /// `session-header`, Android `SessionHeaderBar`): the back row naming
+    /// the THREAD over the session's name; and Stop while the session is
+    /// live and this viewer may stop it (EXP-942: a NATIVE bar button, not a
+    /// glass pill — the bar wraps its items in its own capsule).
+    private func withChrome(_ content: some View) -> some View {
         content
-            // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each on
-            // a zero-size node of its own (EXP-240): two presentations
-            // stacked on one node and SwiftUI drops the second.
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .principal) { headerTitle }
+                // Always mounted (EXP-942: an action-edge item that comes and
+                // goes sometimes failed to reappear); draws nothing while
+                // there is nothing to stop.
+                ToolbarItem(placement: .topBarTrailing) { stopButton }
+            }
+            // EXP-240: the confirm on a zero-size node of its own.
             .background {
                 Color.clear
                     .frame(width: 0, height: 0)
                     .allowsHitTesting(false)
-                    .glassAlert(isPresented: $showKillConfirm) {
-                        GlassAlert(
-                            prompt: Prompts.StopRun.copy(),
-                            handlers: ["stop": { Task { await model?.killSession() } }]
-                        )
+                    .glassAlert(isPresented: $stopConfirm) {
+                        GlassAlert(prompt: Prompts.StopRun.copy(), handlers: [
+                            "stop": { model?.stop() },
+                        ])
                     }
             }
+    }
+
+    private var headerTitle: some View {
+        VStack(spacing: 1) {
+            // The way back to the thread (a thread already on the stack is
+            // popped back to — `pushRoute`'s rule).
+            if let threadTitle = model?.threadTitle, !threadTitle.isEmpty {
+                Button {
+                    pushRoute(.thread(accountId: accountId, threadId: session.rootId))
+                } label: {
+                    HStack(spacing: 2) {
+                        AppIcon(AppIcons.uiChevronLeft, size: 11)
+                        Text(threadTitle)
+                            .font(.caption)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("session-back")
+            }
+            Text(model?.title ?? session.title ?? SessionTree.CardCopy.session)
+                .font(.headline)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("session-title")
+        }
+    }
+
+    /// The ending verb is the word "Stop" on every client — it stops the
+    /// session (`sessions.stop`), confirmed first (`Prompts.StopRun`).
+    @ViewBuilder
+    private var stopButton: some View {
+        if let model, model.canStop {
+            // Text, not a Label: a bar item collapses a Label to its icon.
+            Button(role: .destructive) { stopConfirm = true } label: {
+                Text("Stop").fontWeight(.medium)
+            }
+            .tint(DesignTokens.Semantic.red)
+            .accessibilityLabel("Stop the session")
+            .accessibilityIdentifier("session-stop")
+        }
+    }
+
+    /// The confirm a `/`-command asks for.
+    private func withAlerts(_ content: some View) -> some View {
+        content
             // EXP-724: `/clear` discards the conversation, so confirm rows
-            // confirm before the frames go out. Copy is byte-identical ×4.
+            // confirm before the message goes out. Copy is byte-identical ×4.
+            // EXP-240: on a zero-size node of its own.
             .background {
                 Color.clear
                     .frame(width: 0, height: 0)
@@ -273,7 +327,7 @@ struct AgentSessionView: View {
                             actions: [
                                 GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
                                 GlassAlertAction(SlashCommands.confirmButton(command), role: .destructive, id: "confirm") {
-                                    if let model { performSend(model) }
+                                    if let model { Task { await model.sendDraft() } }
                                 },
                             ]
                         )
@@ -287,51 +341,13 @@ struct AgentSessionView: View {
     private func withLifecycle(_ content: some View) -> some View {
         content
             // EXP-1031: the transient outcomes land as toasts.
-            .onChange(of: model?.killError) { _, message in
+            .onChange(of: model?.stopError) { _, message in
                 guard let message else { return }
                 toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: message)
             }
-            .onChange(of: continuation.watcher.sentCaption) { _, caption in
-                guard let caption, model?.sessionEnded != true else { return }
-                toaster.info(caption)
-            }
-            // FEED-79: a failed resume is the error toast on an ended run too
-            // (it used to be a red line over the transcript). EXP-1259: its
-            // Retry re-sends the press under the same `startId`.
-            .onChange(of: continuation.watcher.failure) { _, failure in
-                guard let failure else { return }
-                let retrying = continuation
-                let toast = ToastItem(
-                    kind: .error,
-                    title: FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
-                    description: failure,
-                    action: ToastAction(label: FeedbackStates.Errors.retry) { [weak retrying] in
-                        Task { @MainActor in retrying?.retry() }
-                    }
-                )
-                continuation.failureToastId = toast.id
-                toaster.show(toast)
-            }
-            .photosPicker(
-                isPresented: $showPhotoPicker,
-                selection: $photoItems,
-                maxSelectionCount: SteerImageMessage.maxImages,
-                matching: .images
-            )
-            .onChange(of: photoItems) { _, newItems in
-                guard !newItems.isEmpty else { return }
-                Task { await ingestPhotos(newItems) }
-            }
-            .background {
-                Color.clear
-                    .fileImporter(
-                        isPresented: $showFileImporter,
-                        allowedContentTypes: [.item],
-                        allowsMultipleSelection: true
-                    ) { result in
-                        guard case let .success(urls) = result else { return }
-                        Task { await ingestFiles(urls) }
-                    }
+            .onChange(of: model?.sendError) { _, message in
+                guard let message else { return }
+                toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
             }
             // EXP-790: blur collapses the composer ONLY when nothing would be
             // lost — empty draft, no pending images, no picker mid-flight
@@ -347,27 +363,11 @@ struct AgentSessionView: View {
             .onChange(of: model?.agentWorking) { _, _ in
                 if let model { collapseIdleComposer(model) }
             }
-            // EXP-1245: the turn slot and the feed feed the owner's turns.
-            .onChange(of: model?.turn, initial: true) { _, _ in recordTurns() }
-            .onChange(of: model?.feed.last?.id) { _, _ in recordTurns() }
-            // EXP-893: the screen's Stop pill — the confirm is still this
-            // view's, where the model is.
-            // A request already set when this view mounts (a continuation
-            // swapping in under a tapped Stop) is consumed on appear too.
-            .onChange(of: request, initial: true) { _, request in
-                requestChanged(request)
-            }
-            // EXP-893: what the Work screen draws its nav bar and tabs
-            // from. No scenePhase handler here: foreground revival (EXP-243)
-            // is app-scoped since EXP-621.
-            .preference(key: RunChrome.Key.self, value: runChrome)
             .onAppear {
                 // The socket owner is app-scoped (EXP-621): popping back to this
                 // screen re-attaches to the SAME model, so the feed is already
                 // there, the composer still holds its draft, and there is no
-                // connect phase to sit through.
-                // EXP-1152: ONE claim per view — the pager can fire these
-                // unpaired, and the store's count must not drift with it.
+                // connect phase to sit through. ONE claim per view.
                 guard !claimed else { return }
                 claimed = true
                 model = deps.attachSteerModel(accountId: accountId, session: session)
@@ -386,37 +386,22 @@ struct AgentSessionView: View {
             }
     }
 
-    /// The sheets. EXP-935: the continuation hand-off is the SCREEN's — it
-    /// watches `RunContinuation` itself, so a face switch cannot drop it.
+    /// The Usage sheet (EXP-688): every window the machine reported, grouped.
     private func withSheets(_ content: some View) -> some View {
         content
-            // EXP-688: usage lives in its own sheet now — every window the machine
-            // reported, grouped, instead of one pinned hairline.
             .sheet(isPresented: $showUsageSheet) {
                 if hasUsage, let model {
                     AgentUsageSheet(
-                        agent: model.session?.agent,
-                        // EXP-909: the login the run SPENDS, and ITS windows —
-                        // not the machine's active login's (the two differ the
-                        // moment a run is started on a second account).
+                        agent: model.session?.cli,
+                        // EXP-909: the login the session SPENDS, and ITS
+                        // windows — not the machine's active login's.
                         runAccount: model.runAccount,
                         account: model.agentAccount,
                         usage: model.runUsage,
                         sessionUsage: model.sessionUsage,
                         // EXP-1051: and where that window went.
                         contextLayout: model.sessionContextLayout,
-                        // EXP-849: the run's accounts, and the switch — a
-                        // resume under another login, claude only, between
-                        // turns, on the run's own machine.
-                        accounts: model.accountOptions,
-                        supportsSwitch: model.supportsAccountSwitch,
-                        switchRefusal: { model.accountSwitchRefusal($0) },
-                        switching: continuation.isSwitching,
-                        onSwitch: { option in
-                            showUsageSheet = false
-                            switchAccount(model, option)
-                        },
-                        // EXP-909: one refresh of the run's login per open.
+                        // EXP-909: one refresh of the session's login per open.
                         onOpen: { model.requestUsageRefresh() }
                     )
                 }
@@ -428,61 +413,32 @@ struct AgentSessionView: View {
     // EXP-790: blur collapses the composer ONLY when nothing would be lost —
     // empty draft, no pending images, no picker mid-flight (presenting one
     // resigns first responder). Copied from IssueDetailBottomBar.
-    // EXP-802: the composer's focus lives on its editor model now (a UITextView
-    // owns first responder), not in a `@FocusState`.
     private func draftEditingChanged(_ editing: Bool?) {
         // The focus `expandComposer` asked for has landed: the idle fold may
         // consider the composer again.
         if editing == true { composerFocusPending = false }
         guard composerExpanded, editing == false, let model else { return }
-        guard !showPhotoPicker, !showFileImporter, !showAttachMenu, photoItems.isEmpty else { return }
-        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty, model.pendingFiles.isEmpty else { return }
+        guard !attach.busy, !model.hasContent else { return }
         withAnimation(motion.standard) { composerExpanded = false }
     }
 
     /// EXP-931: once the agent picks the turn up, an expanded composer with
     /// nothing in it and nobody typing in it is just a lid over the work bar —
-    /// it stands down so the bar comes back. A
-    /// focused field, a draft, a pending image or an open menu all keep it
-    /// open; focusing or typing expands it again.
+    /// it stands down so the bar comes back. A focused field, a draft, a
+    /// pending image or an open menu all keep it open; focusing or typing
+    /// expands it again.
     private func collapseIdleComposer(_ model: AgentSessionModel) {
         guard composerExpanded, model.agentWorking else { return }
         // A composer the reader JUST opened: its focus lands a runloop later,
         // so the field still reads as unfocused — never fold it under them.
         guard !composerFocusPending else { return }
         guard model.draftEditor.isEditing == false else { return }
-        guard !showPhotoPicker, !showFileImporter, !showAttachMenu, photoItems.isEmpty else { return }
-        guard model.trimmedDraft.isEmpty, model.pendingImages.isEmpty, model.pendingFiles.isEmpty else { return }
+        guard !attach.busy, !model.hasContent else { return }
         guard composerMenu(model) == .none, slashConfirm == nil else { return }
         withAnimation(motion.standard) { composerExpanded = false }
     }
 
-    /// EXP-893: the screen's request, consumed once.
-    private func requestChanged(_ request: RunRequest?) {
-        guard let request else { return }
-        self.request = nil
-        switch request.kind {
-        case .stop:
-            if model?.canKill == true { showKillConfirm = true }
-        }
-    }
-
-    // MARK: - Chrome report (EXP-893)
-
-    /// Everything the Work screen's nav bar and tabs read.
-    private var runChrome: RunChrome {
-        guard let model else { return RunChrome() }
-        var chrome = RunChrome()
-        chrome.live = model.phase == .live
-        chrome.over = model.isOver
-        chrome.cardPending = model.cardPending
-        chrome.hasDiff = model.latestDiff != nil
-        chrome.canMerge = model.canMerge
-        chrome.canKill = model.canKill
-        return chrome
-    }
-
-    // MARK: - Header
+    // MARK: - Host
 
     /// Everything an `AgentMarkdownText` needs to render embedded images —
     /// agent prose can carry `![](/api/attachments/{id})` and those fetches are
@@ -492,10 +448,9 @@ struct AgentSessionView: View {
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
             httpClient: deps.httpClient,
-            // EXP-760: narration, steered messages, plans and question prompts
-            // chip issue identifiers the agent names — `#EXP-1` AND the bare
-            // `EXP-1` agents actually write — scoped to this run's team, since
-            // a batch / action / chat run has no issue to derive one from.
+            // EXP-760: narration, messages, plans and question prompts chip
+            // issue identifiers the agent names — `#EXP-1` AND the bare
+            // `EXP-1` agents actually write — scoped to the session's team.
             issueRefs: AgentIssueRefContext(
                 teamId: session.teamId,
                 db: deps.db,
@@ -506,8 +461,8 @@ struct AgentSessionView: View {
         )
     }
 
-    /// EXP-550: the host machine is asleep and the run is parked on it — the
-    /// screen says paused (grey), not "Connecting…" forever.
+    /// EXP-550: the host machine is asleep and the session is parked on it —
+    /// the screen says paused (grey), not "Connecting…" forever.
     private var hostPaused: Bool {
         guard model?.hostDeviceOffline == true else { return false }
         switch model?.phase {
@@ -517,12 +472,9 @@ struct AgentSessionView: View {
         }
     }
 
-    /// EXP-549: the CURRENT machine label off the synced devices row — the
-    /// session's own `device_label` is a start-time snapshot a rename never
-    /// rewrites.
+    /// EXP-549: the CURRENT machine label off the synced devices row.
     private var hostLabel: String {
-        model?.hostDevice.displayLabel
-            ?? SessionDevicePresentation.resolve(session: session, devices: []).displayLabel
+        model?.hostDevice.displayLabel ?? SessionHostDevice(label: nil, online: nil).displayLabel
     }
 
     /// EXP-773: the journal fetch's own status line — which machine is being
@@ -537,273 +489,14 @@ struct AgentSessionView: View {
         }
     }
 
-    // MARK: - Ended header (EXP-773)
-
-    /// The account switch's progress captions above a finished run. EXP-893:
-    /// Resume moved to the Work screen's nav bar; EXP-862 dropped the
-    /// close-out summary; EXP-1175: the byline moved into the status row
-    /// (`Ended on <device> · <elapsed>`), so nothing shows without a switch.
-    @ViewBuilder
-    private func endedHeader(_ model: AgentSessionModel) -> some View {
-        if model.sessionEnded, continuation.watcher.failure == nil,
-           continuation.watcher.sentCaption != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                if let caption = continuation.watcher.sentCaption {
-                    Text(caption)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        }
-    }
-
-    /// EXP-849: change the account this run uses — a RESUME on the same
-    /// machine naming another login profile
-    /// (`steer.startSession({ resumeSessionId, deviceId, account })`). The
-    /// device relaunches the run under that profile's config dir and the agent
-    /// re-reads this run's transcript there, once, on the account moved to
-    /// (`SessionAccountSwitch.costNote`).
-    ///
-    /// A start is a COMMAND, so the shared watcher waits for the row the
-    /// desktop inserts (linked by `resumed_from_id`) and hands that session to
-    /// the screen, which swaps it in as this run's continuation. The wall
-    /// notice that prompted the switch goes with it.
-    ///
-    /// EXP-1259: the press mints a `startId`; the failure toast's Retry
-    /// (`retry` true) re-sends the same one.
-    private func switchAccount(
-        _ model: AgentSessionModel, _ option: SessionAccountOption, retry: Bool = false
-    ) {
-        guard model.accountSwitchRefusal(option) == nil, !continuation.isPending else {
-            return
-        }
-        guard let device = model.switchDevice else { return }
-        // The picked profile VERBATIM, `system` included: the server reads
-        // the PRESENCE of `account` as "this resume is a switch", which is
-        // the only thing that lets a resume ride a LIVE run — the ×4
-        // `wireAccount` rule.
-        let account = SessionAccountSwitch.wireAccount(option)
-        // EXP-935: the hold is the screen's and stays up until the successor
-        // lands (or the watch's deadline passes) — not until this call
-        // returns, which is what let the ended edge pop the screen.
-        let startId = continuation.sending(
-            .accountSwitch,
-            target: StartIntent.resumeTarget(
-                sessionId: session.id, deviceId: device.deviceId, account: account
-            ),
-            retry: retry,
-            onRetry: { switchAccount(model, option, retry: true) }
-        )
-        model.clearRateLimit()
-        Task {
-            do {
-                try await deps.steerApi.resumeSession(
-                    accountId: accountId,
-                    sessionId: session.id,
-                    deviceId: device.deviceId,
-                    account: account,
-                    startId: startId
-                )
-                continuation.sent(
-                    key: .resumed(fromId: session.id),
-                    userId: deps.auth.userId,
-                    device: device,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            } catch {
-                continuation.failed(
-                    error,
-                    key: .resumed(fromId: session.id),
-                    userId: deps.auth.userId,
-                    db: deps.db,
-                    accountId: accountId
-                )
-            }
-        }
-    }
-
-    // MARK: - Status row + thread (EXP-1175)
-
-    /// The row's display state: the Work screen's when it has one, else this
-    /// row's own with the viewer's working signal while its socket is live.
-    private func displayState(_ model: AgentSessionModel) -> CodingSessionDisplayState {
-        runState ?? CodingSessionDisplayState.of(
-            session: model.session ?? session,
-            prState: nil,
-            agentBusy: model.phase == .live ? model.agentWorking : nil
-        )
-    }
-
-    /// Fixture `run-row.json` `states`: the viewer's live signals (a pending
-    /// card, its working predicate) folded over the display state.
-    private func runRowState(_ model: AgentSessionModel) -> RunRowState {
-        WorkFaces.runRowState(
-            paused: hostPaused,
-            ended: model.sessionEnded,
-            awaitingInput: !model.activeQuestionIds.isEmpty,
-            working: model.agentWorking,
-            display: displayState(model)
-        )
-    }
-
-    /// EXP-1271 (EXP-1259 D8): before the run's first turn the owner's status
-    /// row is the mark over "Starting on <device>" — nothing streamed,
-    /// nothing published, no turn begun (web `startingRun`).
-    private func startingRun(_ model: AgentSessionModel) -> Bool {
-        let row = model.session ?? session
-        guard row.userId == deps.auth.userId, !model.sessionEnded, !hostPaused,
-              model.feed.isEmpty, thread(model).isEmpty, model.turn.state != .started,
-              model.history != .pending
-        else { return false }
-        if case .closed = model.phase { return false }
-        if case .ended = model.phase { return false }
-        return true
-    }
-
-    private func runStatusRow(_ model: AgentSessionModel) -> some View {
-        let row = model.session ?? session
-        let state = runRowState(model)
-        let device = hostLabel
-        if startingRun(model) {
-            return RunStatusRow(
-                agent: row.agent,
-                markState: nil,
-                ended: false,
-                rowState: state,
-                caption: { _ in
-                    RunRowCaption(text: FeedbackStates.Starting.label(device: device), tone: .muted)
-                },
-                toolLine: nil,
-                showWork: showWork,
-                onToggle: { showWork.toggle() },
-                starting: true
-            )
-        }
-        return RunStatusRow(
-            agent: row.agent,
-            markState: runningRowMarkState(
-                displayState(model), paused: hostPaused, working: model.agentWorking
-            ),
-            ended: model.sessionEnded,
-            rowState: state,
-            caption: { now in
-                WorkFaces.runRowCaption(
-                    state: state,
-                    device: device,
-                    startedAt: row.startedAt,
-                    endedAt: row.endedAt ?? row.updatedAt,
-                    now: now
-                )
-            },
-            toolLine: model.phase == .live ? AgentFeed.lastToolLine(model.feed) : nil,
-            showWork: showWork,
-            onToggle: { showWork.toggle() }
-        )
-    }
-
-    /// The run's published results, publish order, the Summary as the reply.
-    private func thread(_ model: AgentSessionModel) -> SessionThread {
-        sessionThread((model.session ?? session).results)
-    }
-
-    /// EXP-1245: the thread as TURNS — the owner's relay feed (this model)
-    /// delimits them; `perTurn` false = today's single-row thread.
-    private func turns(_ model: AgentSessionModel) -> SessionTurns {
-        sessionTurns((model.session ?? session).results, feed: turnEvents)
-    }
-
-    /// Folds the model's turn slot and new feed rows into the run's log.
-    private func recordTurns() {
-        guard let model else { return }
-        let log = SessionTurnLog.log(for: session.id)
-        let now = Date().timeIntervalSince1970 * 1000
-        log.recordTurnSlot(model.turn.state, startedAt: model.turn.startedAt.map(Double.init), now: now)
-        let rows = SessionTurnLog.rows(model.feed)
-        log.recordFeedMessages(rows, now: now)
-        let start = WireTimestamps.parse((model.session ?? session).startedAt)
-            .map { $0.timeIntervalSince1970 * 1000 }
-        let events = log.turnEvents(rows, runStartedAt: start)
-        if events != turnEvents { turnEvents = events }
-    }
-
-    /// Web M6 ×4: whether the first turn's end was observed (else its row
-    /// reads `Done on <device>` with no duration).
-    private func firstEndKnown(_ model: AgentSessionModel) -> Bool {
-        let start = WireTimestamps.parse((model.session ?? session).startedAt)
-            .map { $0.timeIntervalSince1970 * 1000 }
-        return firstTurnEndKnown(turnEvents, runStartedAt: start)
-    }
-
-    /// One turn's status row: a settled turn reads `Done on <device> · <turn
-    /// time>`, the open one the run's row timed from the turn's start (with
-    /// the tool line); a message still waiting has none.
-    @ViewBuilder
-    private func turnStatusRow(
-        _ model: AgentSessionModel, turn: SessionTurn, isLast: Bool, endKnown: Bool
-    ) -> some View {
-        let row = model.session ?? session
-        let state = runRowState(model)
-        let device = hostLabel
-        let runEnd = WireTimestamps.parse(row.endedAt ?? row.updatedAt)
-        let open = turn.endedAt == nil
-        if WorkFaces.turnRowCaption(
-            turn, state: state, device: device, runEndedAt: runEnd, now: Date(), endKnown: endKnown
-        ) != nil {
-            RunStatusRow(
-                agent: row.agent,
-                markState: open
-                    ? runningRowMarkState(displayState(model), paused: hostPaused, working: model.agentWorking)
-                    : nil,
-                ended: !open || model.sessionEnded,
-                rowState: open ? state : .done,
-                caption: { now in
-                    WorkFaces.turnRowCaption(
-                        turn, state: state, device: device, runEndedAt: runEnd, now: now, endKnown: endKnown
-                    )
-                        ?? RunRowCaption(text: "", tone: .muted)
-                },
-                toolLine: open && isLast && model.phase == .live ? AgentFeed.lastToolLine(model.feed) : nil,
-                showWork: showWork,
-                onToggle: { showWork.toggle() }
-            )
-        }
-    }
-
-    /// The empty-feed placeholders: the transcript's while it has no rows;
-    /// the thread's only while it is empty too and no card waits.
-    private func feedPlaceholder(_ model: AgentSessionModel) -> Bool {
-        model.feed.isEmpty && (showWork || (thread(model).isEmpty && !model.cardPending))
-    }
-
     // MARK: - Feed
-
-    /// The status row over the body — the thread by default, the transcript
-    /// with Show work; only the row's button label flips.
-    private func feedArea(_ model: AgentSessionModel) -> some View {
-        VStack(spacing: 0) {
-            // EXP-1245: the owner's thread of turns draws a row per turn.
-            if showWork || !turns(model).perTurn {
-                runStatusRow(model)
-            }
-            feedBody(model)
-        }
-        // The thread has ONE conversation: hiding the work drops a subagent tab.
-        .onChange(of: showWork) { _, now in
-            if !now { agentTab = nil }
-        }
-    }
 
     @ViewBuilder
     private func feedBody(_ model: AgentSessionModel) -> some View {
-        if feedPlaceholder(model), let status = historyStatus(model) {
-            // EXP-773: a finished run's transcript lives on the machine that
-            // ran it, and the relay is asking that machine for it. Say which
-            // machine, and say plainly when it can't answer — this is not a
-            // connection problem the viewer can wait out.
+        if model.feed.isEmpty, let status = historyStatus(model) {
+            // EXP-773: a finished session's transcript lives on the machine
+            // that ran it, and the relay is asking that machine for it. Say
+            // which machine, and say plainly when it can't answer.
             centeredState {
                 if model.history == .pending {
                     InlineSpinner()
@@ -813,36 +506,24 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
-        } else if feedPlaceholder(model), hostPaused {
-            // EXP-550: the machine hosting this run is asleep. The session is
-            // NOT over — it resumes when the machine comes back — so say that
-            // instead of spinning on "waiting for the live stream" forever.
+        } else if model.feed.isEmpty, hostPaused {
+            // EXP-550: the machine hosting this session is asleep. The session
+            // is NOT over — it resumes when the machine comes back.
             hostOfflineState
                 .frame(maxHeight: .infinity)
-        } else if feedPlaceholder(model), startingRun(model) {
-            // EXP-1271: the status row above says "Starting on …".
-            Color.clear
-        } else if feedPlaceholder(model),
+        } else if model.feed.isEmpty,
                   model.phase == .connecting || model.phase == .starting || model.phase == .idle {
             // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
             SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
                 .transcriptColumn()
                 .frame(maxHeight: .infinity, alignment: .top)
                 .padding(.top, 8)
-        } else if feedPlaceholder(model), model.phase == .live, model.latestDiff == nil {
+        } else if model.feed.isEmpty, model.phase == .live, model.latestDiff == nil {
             centeredState {
                 Text("Waiting for activity…")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text("Update the Exponential desktop app to see the live feed.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .multilineTextAlignment(.center)
             }
-        } else if !showWork {
-            threadList(model)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("agent-thread")
         } else {
             VStack(spacing: 0) {
                 agentTabStrip(model)
@@ -1007,7 +688,7 @@ struct AgentSessionView: View {
                                 // token count, beside the agent's own pulsing
                                 // brand mark.
                                 WorkingIndicatorRow(
-                                    agent: (model.session ?? session).agent,
+                                    agent: model.session?.cli ?? session.cli,
                                     caption: { model.workingCaption(now: $0) }
                                 )
                                     .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
@@ -1103,110 +784,6 @@ struct AgentSessionView: View {
                     .animation(motion.standard, value: atBottom)
                 }
             }
-        }
-    }
-
-    /// EXP-1175: the THREAD — the run's published results in publish order
-    /// (a text item = its topic caption over the GFM, a picture = the inline
-    /// result tile), the Summary LAST as the agent's reply, then any pending
-    /// plan/question card through the transcript's own rows. No Load earlier,
-    /// no Working… footer: the status row above is the indicator.
-    private func threadList(_ model: AgentSessionModel) -> some View {
-        let runThread = thread(model)
-        let runTurns = turns(model)
-        let cards = model.cardPending ? model.rows.filter(AgentFeed.isPendingCard) : []
-        return GeometryReader { geo in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if runTurns.perTurn {
-                            ForEach(Array(runTurns.turns.enumerated()), id: \.offset) { index, turn in
-                                turnView(
-                                    model, turn: turn, isLast: index == runTurns.turns.count - 1,
-                                    endKnown: index > 0 || firstEndKnown(model)
-                                )
-                            }
-                        } else {
-                            ForEach(Array(runThread.items.enumerated()), id: \.offset) { _, item in
-                                threadItem(item)
-                            }
-                            if let reply = runThread.reply {
-                                NarrationBubble(text: reply, context: markdownContext)
-                            }
-                        }
-                        ForEach(cards, id: \.id) { row in
-                            feedRow(row, isLast: row.id == cards.last?.id)
-                        }
-                        Color.clear
-                            .frame(height: 1)
-                            .id(AgentSessionLayout.bottomAnchor)
-                    }
-                    .padding(.vertical, 8)
-                    .transcriptColumn()
-                    .frame(minHeight: geo.size.height, alignment: .top)
-                }
-                .onAppear {
-                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
-                }
-                // The thread grows as results publish and cards arrive.
-                .onChange(of: runThread) { _, _ in
-                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
-                }
-                .onChange(of: runTurns.turns.count) { _, _ in
-                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
-                }
-                .onChange(of: cards.count) { _, _ in
-                    proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
-                }
-            }
-        }
-    }
-
-    /// EXP-1245: one turn — the owner's bubble, the turn's status row, then
-    /// its results and reply under the row.
-    @ViewBuilder
-    private func turnView(
-        _ model: AgentSessionModel, turn: SessionTurn, isLast: Bool, endKnown: Bool
-    ) -> some View {
-        if let message = turn.message {
-            UserMessageBubble(
-                text: SteerImageMessage.buildMessage(
-                    text: message.text,
-                    imageIds: message.images.map {
-                        $0.replacingOccurrences(of: "/api/attachments/", with: "")
-                    },
-                    files: message.files
-                ),
-                context: markdownContext,
-                caption: userMessageCaption(name: deps.auth.userName, at: message.at, device: nil)
-            )
-        }
-        turnStatusRow(model, turn: turn, isLast: isLast, endKnown: endKnown)
-            .padding(.horizontal, -AgentSessionLayout.gutter)
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(turn.items.enumerated()), id: \.offset) { _, item in
-                threadItem(item)
-            }
-            if let reply = turn.reply {
-                NarrationBubble(text: reply, context: markdownContext)
-            }
-        }
-        .padding(.leading, SessionRowLead.markSize + SessionRowLead.gap)
-    }
-
-    @ViewBuilder
-    private func threadItem(_ item: SessionThread.Item) -> some View {
-        switch item {
-        case let .text(topic, text):
-            VStack(alignment: .leading, spacing: 4) {
-                Text(topic)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                AgentMarkdownText(text: text, context: markdownContext, options: [.autolinkBareURLs])
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        case let .picture(entry):
-            SessionInlinePicture(entry: entry)
         }
     }
 
@@ -1332,7 +909,7 @@ struct AgentSessionView: View {
             // or failed it keeps its ordinary row.
             CommentCallRow(
                 detail: detail, preview: preview, settledAt: settledAt,
-                agent: (model?.session ?? session).agent,
+                agent: model?.session?.cli ?? session.cli,
                 ownerName: runOwnerName,
                 context: markdownContext
             )
@@ -1379,8 +956,8 @@ struct AgentSessionView: View {
         ExpToolDisplay.resolve(toolName: name)?.row == CommentCallRow.tool
     }
 
-    /// EXP-1241: whose key posted a comment call — the run's owner, named
-    /// when that is the viewer (a live run is visible to its owner only).
+    /// EXP-1241: whose key posted a comment call — the session's starter,
+    /// named when that is the viewer.
     private var runOwnerName: String? {
         let row = model?.session ?? session
         guard row.userId == deps.auth.userId else { return nil }
@@ -1551,8 +1128,8 @@ struct AgentSessionView: View {
 
     // MARK: - Status banners (feed retained above)
 
-    /// EXP-804: the usage wall used to ride beside the nav-bar caption; the
-    /// Work screen's title has no caption line, so it is a banner here.
+    /// EXP-804: the usage wall — the title has no caption line, so it is a
+    /// banner here.
     private func blockedLabel(_ model: AgentSessionModel) -> String? {
         AgentUsagePresentation.blockedBadgeLabel(
             AgentUsagePresentation.parseBlocked((model.session ?? session).blocked),
@@ -1567,10 +1144,9 @@ struct AgentSessionView: View {
                 SessionBlockedBadge(blocked: (model.session ?? session).blocked)
             }
         }
-        // EXP-1031: the transient items — a failed kill (EXP-268), a refused
-        // merge (EXP-678), the switch's "sent to <machine>" and its failure
-        // (EXP-536) — are toasts now (`withLifecycle`'s `onChange`s and the
-        // merge catch sites); only the standing states stay banners.
+        // EXP-1031: the transient items — a failed Stop or send — are toasts
+        // (`withLifecycle`'s `onChange`s); only the standing states stay
+        // banners.
         // EXP-550: an offline host outranks every reconnect/starting banner —
         // the redial loops keep running underneath (untouched), they just
         // stop being what the viewer is told about.
@@ -1676,7 +1252,7 @@ struct AgentSessionView: View {
             // Web `RateLimitBanner` is the reference: ONE row, 6pt gaps,
             // centered — the usage glyph + the message in the semantic
             // yellow (one truncating line), the relative countdown as a
-            // separate muted caption, then the Switch account pill.
+            // separate muted caption.
             HStack(alignment: .center, spacing: 6) {
                 AppIcon(AppIcons.uiUsage, size: AppIcon.Size.small)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
@@ -1691,24 +1267,6 @@ struct AgentSessionView: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                 Spacer(minLength: 0)
-                // EXP-849: the wall's PRIMARY answer — the other account. It
-                // opens the readout's account rows (bars and health included),
-                // where the switch itself is confirmed per account; a run whose
-                // machine reports one login has nothing to offer and keeps the
-                // bare notice.
-                // Absent unless a switch is actually possible, so the wall
-                // never offers a dead end.
-                if model.canSwitchAnyAccount {
-                    GlassPill(
-                        SessionAccountSwitch.wallSwitchLabel,
-                        icon: AppIcons.uiSwap,
-                        size: .sm,
-                        mode: .action { showUsageSheet = true },
-                        primary: true
-                    )
-                    .fixedSize()
-                    .accessibilityIdentifier("rate-limit-switch-account")
-                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -1745,26 +1303,16 @@ struct AgentSessionView: View {
     /// field, so the composer would only compete with it. The draft stays in
     /// the model and the band is back once the card resolves. EXP-621: the
     /// composer is tied to the SESSION, not the socket — it stays up through
-    /// a reconnect (send disabled, draft intact) and only goes away once the
-    /// session is over.
+    /// a reconnect and only goes away once the session is over. EXP-1295: a
+    /// viewer who may not post (a private session) never gets one.
     private func bandRetired(_ model: AgentSessionModel) -> Bool {
-        model.isOver || model.cardPending
+        model.isOver || model.cardPending || !model.mayPost
     }
 
     @ViewBuilder
     private func bottomBar(_ model: AgentSessionModel) -> some View {
         if bandRetired(model) {
-            // EXP-1150: the trailing circles alone (EXP-1191: Merge, then
-            // Start), or no bar — the faces are the screen's tab strip.
-            if startReadiness != nil || mergeCircle != nil {
-                FloatingBottomBar {
-                    EmptyView()
-                } center: {
-                    EmptyView()
-                } trailing: {
-                    runTrailingCircle(model)
-                }
-            }
+            EmptyView()
         } else {
             // Steering is fully seamless (EXP-312) — no captions, no
             // operator state; input just sends.
@@ -1827,10 +1375,8 @@ struct AgentSessionView: View {
     }
 
     /// EXP-893: the folded composer on the shared bar — the usage ring on the
-    /// left (the Usage sheet), the capsule wearing the placeholder the open
-    /// field would, and (EXP-1150) the Start circle once the run ended for
-    /// good, after (EXP-1191) the Merge PR circle while a PR can merge. The separate
-    /// interrupt circle is gone: Stop stays the expanded composer's own glyph.
+    /// left (the Usage sheet) and the capsule wearing the placeholder the open
+    /// field would. Stop stays the header's and the expanded composer's.
     private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
         FloatingBottomBar {
             if hasUsage {
@@ -1844,18 +1390,7 @@ struct AgentSessionView: View {
             }
             .accessibilityIdentifier("agent-composer-collapsed")
         } trailing: {
-            runTrailingCircle(model)
-        }
-    }
-
-    /// EXP-1150: the Run bar's trailing circles — EXP-1191: the Merge PR
-    /// circle (`mergeCircle`, the Work screen's `WorkMergePill`) while a PR
-    /// can merge, then Start coding once the shown run ended for good.
-    @ViewBuilder
-    private func runTrailingCircle(_ model: AgentSessionModel) -> some View {
-        if let mergeCircle { mergeCircle }
-        if let startReadiness {
-            StartCodingCircle(readiness: startReadiness, onStart: onStartCoding)
+            EmptyView()
         }
     }
 
@@ -1961,132 +1496,60 @@ struct AgentSessionView: View {
 
     // MARK: - Composer card
 
-    /// EXP-554: the steer composer wears the comment composer's chrome, and
-    /// since EXP-698 that IS the same object — one `GlassComposer` holding the
-    /// transparent field, the pending strip and the footer row. EXP-893: the
-    /// footer is `SessionComposerFooter` (Plan mode · `+` · model · ring).
+    /// EXP-1295: THE session composer box (`SessionComposerCard`) with the
+    /// session's own controls: the plan chip, the model pill, the usage ring
+    /// (EXP-893), the `/` keys (EXP-724) and Stop in the send slot.
     private func composerCard(_ model: AgentSessionModel) -> some View {
-        // EXP-702: images attach to the SESSION, so every run can carry them —
-        // a batch or action run no longer has "nowhere to put them".
-        let attachFull = model.pendingImages.count >= SteerImageMessage.maxImages
-            && model.pendingFiles.count >= SteerImageMessage.maxFiles
-        let canSend = !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
-            || !model.pendingFiles.isEmpty
-        // EXP-621: only SENDING waits for the socket — the field, the picker
-        // and the strip stay usable so the draft is ready the moment the
-        // reconnect lands.
-        let sendDisabled = !canSend || model.steerSending || !model.canSteer
-        let attachDisabled = attachFull || model.steerSending
         // EXP-790: an EMPTY field while the agent works offers Stop (the
         // interrupt) in the send slot; the first typed character brings Send
         // back.
-        let showsStop = model.agentWorking && !canSend
-        return GlassComposer(isOpaque: true) {
-            // EXP-802: a caret-bearing field, so `@` members, `#` issues and
-            // `:` emoji complete here exactly as they do in a comment. The
-            // return key SENDS (the field is one message, never a document),
-            // which is also how Return accepts an open menu below.
-            MarkdownComposerField(
-                model: model.draftEditor,
-                // EXP-820: the generic prompt — a pending card's free answer
-                // is the card's own inline field, and this band hides while
-                // one is pending.
-                placeholder: model.composerPlaceholder,
-                onReturn: { handleComposerReturn(model) },
-                onPasteImage: { image in ingestPastedImage(model, image) },
-                onIssueRefTap: { issueId in
-                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
-                },
-                // One line of body text plus the field's own 12pt inset,
-                // growing to about five before it scrolls inside itself.
-                minHeight: 34,
-                maxHeight: 120
-            )
-            // EXP-724: hardware-keyboard driving of the `/` menu. Every
-            // handler returns `.ignored` while no menu is open, so a
-            // Bluetooth keyboard behaves exactly as it did before. (Return is
-            // NOT here: the text view intercepts it itself, so it works for
-            // the soft keyboard too — see `handleComposerReturn`.)
-            .onKeyPress(.upArrow) {
-                guard composerMenu(model) == .slash else { return .ignored }
-                moveSlashHighlight(-1, model)
-                return .handled
-            }
-            .onKeyPress(.downArrow) {
-                guard composerMenu(model) == .slash else { return .ignored }
-                moveSlashHighlight(1, model)
-                return .handled
-            }
-            .onKeyPress(.escape) {
-                guard composerMenu(model) == .slash else { return .ignored }
-                slashDismissedFor = model.draftText
-                return .handled
-            }
-            .onChange(of: model.draftText) { _, _ in
-                slashHighlight = 0
-            }
-            // The text view carries a 6pt inset of its own (`singleLine`), so
-            // the card's 12/12/6 band is spelled 6/6/0 here.
-            .padding(.horizontal, 6)
-            .padding(.top, 6)
-        } strip: {
-            if !model.pendingImages.isEmpty || !model.pendingFiles.isEmpty {
-                PendingAttachmentStrip(
-                    items: PendingStripItem.steer(images: model.pendingImages, files: model.pendingFiles)
-                ) { id in
-                    if model.pendingImages.contains(where: { $0.id == id }) {
-                        removePendingImage(model, id: id)
-                    } else {
-                        model.pendingFiles.removeAll { $0.id == id }
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 4)
-            }
-
-            // A pick refused for its size or type is INPUT: it stays inline
-            // under the composer (FEED-79), at the 13pt error size.
-            if let imageError = model.steerImageError {
-                Text(imageError)
-                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
-            }
-        } tools: {
-            SessionComposerFooter(
+        let showsStop = model.agentWorking && !model.hasContent
+        return SessionComposerCard(
+            draft: model,
+            // EXP-820: the generic prompt — a pending card's free answer is
+            // the card's own inline field.
+            placeholder: model.composerPlaceholder,
+            controls: SessionComposerFooter.Controls(
                 planModeActive: model.planModeActive,
-                attachEnabled: !attachDisabled,
-                onPhoto: { showPhotoPicker = true },
-                onFile: { showFileImporter = true },
-                attachMenuOpen: $showAttachMenu,
-                modelValue: WorkFaces.sessionModel(model.sessionConfig),
+                modelValue: model.sessionConfig?.modelValue,
                 agent: model.catalogAgent,
                 onPickModel: { alias in sendModelSwitch(model, alias) },
                 usageFraction: usageFraction(model),
                 usageSeverity: usageSeverity(model),
                 onUsage: { showUsageSheet = true }
-            )
-        } submit: {
-            GlassComposerSubmitButton(
-                showsStop ? AppIcons.uiStop : AppIcons.uiSubmit,
-                accessibilityLabel: showsStop ? "Stop" : "Send",
-                enabled: showsStop ? model.canSteer : !sendDisabled
-            ) {
-                if showsStop {
-                    model.sendInterrupt()
-                } else {
-                    sendMessage(model)
-                }
+            ),
+            attach: $attach,
+            // EXP-1295: a message is a `messages` row, so sending never waits
+            // for the socket — only for a send already in flight.
+            sendEnabled: model.canSend,
+            showsStop: showsStop,
+            canStop: model.canStop,
+            onStop: { model.stop() },
+            onReturn: { handleComposerReturn(model) },
+            onSend: { sendMessage(model) },
+            onIssueRefTap: { issueId in
+                deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+            },
+            onArrow: { delta in
+                guard composerMenu(model) == .slash else { return false }
+                moveSlashHighlight(delta, model)
+                return true
+            },
+            onEscape: {
+                guard composerMenu(model) == .slash else { return false }
+                slashDismissedFor = model.draftText
+                return true
             }
+        )
+        .onChange(of: model.draftText) { _, _ in
+            slashHighlight = 0
         }
     }
 
     /// EXP-877: a model switch is a PLAIN MESSAGE — `/model <alias>` — the
     /// agent answers with the next `config_state`, which repaints the pill.
     private func sendModelSwitch(_ model: AgentSessionModel, _ alias: String) {
-        _ = model.sendMessage("/model \(alias)")
+        Task { await model.sendMessage("/model \(alias)") }
     }
 
     /// The return key. With a menu open it ACCEPTS the top row and never
@@ -2119,142 +1582,7 @@ struct AgentSessionView: View {
             slashConfirm = command
             return
         }
-        performSend(model)
-    }
-
-    private func performSend(_ model: AgentSessionModel) {
-        guard !model.pendingImages.isEmpty || !model.pendingFiles.isEmpty else {
-            guard !model.trimmedDraft.isEmpty else { return }
-            // Clear ONLY once the frames are actually out (EXP-621): a send
-            // into a dropped socket used to wipe the composer with nothing
-            // sent.
-            if model.sendMessage(model.draftText) { model.draftText = "" }
-            return
-        }
-        guard !model.steerSending else { return }
-        Task { await sendWithImages(model) }
-    }
-
-    /// Upload the pending images and files and send ONE composed message
-    /// (EXP-511, wave D). A failure keeps the draft and the strip — the model
-    /// hands back both lists with their already-uploaded ids so a retry only
-    /// uploads the rest.
-    private func sendWithImages(_ model: AgentSessionModel) async {
-        if let remaining = await model.sendSteerAttachments(
-            model.draftText, images: model.pendingImages, files: model.pendingFiles
-        ) {
-            model.pendingImages = remaining.images
-            model.pendingFiles = remaining.files
-        } else {
-            model.draftText = ""
-            model.pendingImages = []
-            model.pendingFiles = []
-        }
-    }
-
-    /// Wave D: Files-app picks, ANY type — an inline image queues as an image
-    /// (marker and all), the rest as file tiles capped at four.
-    private func ingestFiles(_ urls: [URL]) async {
-        guard let model else { return }
-        model.steerImageError = nil
-        for url in urls {
-            let outcome = await AttachmentPicks.readPickedSteerFile(at: url)
-            guard let picked = outcome.attachment else {
-                model.steerImageError = outcome.failure
-                continue
-            }
-            if AttachmentFiles.isInlineImage(contentType: picked.contentType) {
-                guard model.pendingImages.count < SteerImageMessage.maxImages else { continue }
-                queuePendingImage(model, picked)
-            } else {
-                guard model.pendingFiles.count < SteerImageMessage.maxFiles else {
-                    model.steerImageError = SteerImageMessage.filesFullMessage
-                    continue
-                }
-                model.pendingFiles.append(PendingSteerFile(
-                    data: picked.data, filename: picked.filename, contentType: picked.contentType
-                ))
-            }
-        }
-    }
-
-    /// Turn a photo pick into pending images: transcode anything the server's
-    /// inline-image pipeline doesn't accept (notably HEIC) to JPEG, exactly as
-    /// the share extension does, and cap the strip at four.
-    private func ingestPhotos(_ items: [PhotosPickerItem]) async {
-        defer { photoItems = [] }
-        guard let model else { return }
-        model.steerImageError = nil
-        for item in items {
-            guard model.pendingImages.count < SteerImageMessage.maxImages else { break }
-            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
-            let type = item.supportedContentTypes.first
-            // EXP-554: one shared normalizer for every composer (steer + the two
-            // comment ones) — transcode, canonical type, 10 MB cap.
-            let outcome = AttachmentPicks.normalizedPhoto(
-                data: data,
-                contentTypeHint: type?.preferredMIMEType,
-                filenameExtensionHint: type?.preferredFilenameExtension
-            )
-            guard let normalized = outcome.attachment else {
-                model.steerImageError = outcome.failure
-                continue
-            }
-            queuePendingImage(model, normalized)
-        }
-    }
-
-    /// EXP-802: a PASTED image joins the strip like a picked one — the field
-    /// is a text view now, so an image paste actually reaches the composer. It
-    /// can never become an image BLOCK: the draft is exactly one text block.
-    private func ingestPastedImage(_ model: AgentSessionModel, _ image: UIImage) {
-        guard model.pendingImages.count < SteerImageMessage.maxImages else { return }
-        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-        model.steerImageError = nil
-        let outcome = AttachmentPicks.normalizedPhoto(
-            data: data, contentTypeHint: "image/jpeg", filenameExtensionHint: "jpg"
-        )
-        guard let normalized = outcome.attachment else {
-            model.steerImageError = outcome.failure
-            return
-        }
-        queuePendingImage(model, normalized)
-    }
-
-    /// Queue one normalized image and drop its positional `[Image #k]` marker
-    /// into the draft, so a sentence can name the picture it means (EXP-698).
-    ///
-    /// The marker lands at the END of the draft, not at the caret: the draft
-    /// now HAS a caret (EXP-802), but it is an offset into the DECORATED text,
-    /// where a resolved `#EXP-1` chip carries a title character that the sent
-    /// text does not. Mapping it back is not worth it for a token that names
-    /// the k-th of at most four images.
-    private func queuePendingImage(
-        _ model: AgentSessionModel, _ normalized: PendingCommentAttachment
-    ) {
-        model.pendingImages.append(PendingSteerImage(
-            data: normalized.data,
-            filename: normalized.filename,
-            contentType: normalized.contentType,
-            uploadedId: nil
-        ))
-        let inserted = SteerImageMessage.insertImageMarker(
-            text: model.draftText,
-            caret: (model.draftText as NSString).length,
-            index: model.pendingImages.count
-        )
-        model.draftText = inserted.text
-    }
-
-    /// Dropping a pending image renumbers the draft's markers: the removed
-    /// one goes and every higher one slides down, so `[Image #N]` keeps
-    /// naming the N-th image that will actually be sent.
-    private func removePendingImage(_ model: AgentSessionModel, id: UUID) {
-        guard let position = model.pendingImages.firstIndex(where: { $0.id == id }) else { return }
-        model.pendingImages.remove(at: position)
-        model.draftText = SteerImageMessage.renumberImageMarkers(
-            model.draftText, removedIndex: position + 1
-        )
+        Task { await model.sendDraft() }
     }
 }
 
@@ -2344,7 +1672,7 @@ extension View {
 /// (EXP-440: claude narrates in markdown, so lists, code and images have to
 /// come out as themselves). EXP-274 dropped the glass speech bubble: agent
 /// output is the feed's bulk, and the bubble insets cost real width on a phone.
-private struct NarrationBubble: View {
+struct NarrationBubble: View {
     let text: String
     let context: AgentMarkdownContext
 
@@ -2369,7 +1697,7 @@ private struct NarrationBubble: View {
 
 /// A human turn (EXP-78): the initial prompt or a steered message — rendered
 /// trailing-aligned like the sender's own chat bubble, long text folded.
-private struct UserMessageBubble: View {
+struct UserMessageBubble: View {
     let text: String
     let context: AgentMarkdownContext
     /// EXP-1245: the turn bubble's muted caption (`<name> · <time>`), under
@@ -2683,7 +2011,7 @@ private struct MarkedUpUserText: View {
 /// dedicated "Plan ready" presentation with the first wire option as the
 /// primary approve action; prompt and plan bodies render as markdown, which is
 /// what claude writes.
-private struct QuestionCard: View {
+struct QuestionCard: View {
     let question: AgentQuestion
     /// "2 of 3" for a step of a multi-question ask — the muted caption beside
     /// the heading (web `AskCard` `meta`); nil for a lone card.
@@ -3477,7 +2805,6 @@ private struct ExpToolRow: View {
     let refs: AgentIssueRefContext?
 
     @Environment(\.openURL) private var openURL
-    @Environment(\.openResultsFace) private var openResultsFace
     @Environment(\.sessionResultsRaw) private var sessionResultsRaw
 
     /// EXP-1172: a settled `sessions_show` call's picture, by the attachment
@@ -3516,11 +2843,6 @@ private struct ExpToolRow: View {
             if settled, let preview {
                 previewRow(preview)
             }
-            // EXP-933: a settled `sessions_results` call (a failed one never
-            // reaches this row) offers its report on the Results face.
-            if settled, display.result == .results, let openResultsFace {
-                openResultsButton(openResultsFace)
-            }
             // EXP-1172: a settled `sessions_show` call draws its picture as
             // ONE tile under the row, once it is in the synced results.
             if let inlinePicture {
@@ -3528,24 +2850,6 @@ private struct ExpToolRow: View {
                     .padding(.top, 4)
             }
         }
-    }
-
-    private func openResultsButton(_ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                AppIcon(AppIcons.workResults, size: 11)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(WorkFaces.openResultsLabel)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .glassRow()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("exp-tool-open-results")
     }
 
     @ViewBuilder
@@ -4331,13 +3635,14 @@ extension AppDependencies {
     /// happens to unmount first. Pair every call with
     /// `steerSessions.detach`.
     @MainActor
-    func attachSteerModel(accountId: String, session: CodingSessionEntity) -> AgentSessionModel {
+    func attachSteerModel(accountId: String, session: SessionEntity) -> AgentSessionModel {
         let model = steerSessions.attach(accountId: accountId, sessionId: session.id) {
             AgentSessionModel(
                 accountId: accountId,
                 session: session,
                 currentUserId: auth.userId,
                 steerApi: steerApi,
+                sessionsApi: SessionsApi(trpc: trpc),
                 attachmentsApi: attachmentsApi,
                 issuesApi: issuesApi,
                 db: db

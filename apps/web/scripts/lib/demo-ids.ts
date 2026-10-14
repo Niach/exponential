@@ -20,22 +20,14 @@
  */
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import {
-  actions,
-  boards,
-  codingSessions,
-  devices,
-  issues,
-  teams,
-  threads,
-} from "@/db/schema"
+import { actions, boards, devices, issues, sessions, teams } from "@/db/schema"
 import { mintReporterToken } from "@/lib/reporter/token"
 import {
+  DEMO_AGENT_ID,
   DEMO_DEVICE_ID,
-  DEMO_SESSION_IDS,
-  DEMO_STEERED_SESSION_ID,
+  DEMO_GUIDE_THREAD_ID,
+  DEMO_SESSION_ID,
   DEMO_THREAD_ID,
-  DEMO_THREAD_RUNS_ID,
   DEMO_WIDGET_ISSUE_ID,
   EMPTY_BOARD_SLUG,
   TEAM_SLUG,
@@ -86,28 +78,25 @@ export interface DemoIds {
   actionId?: string
   deviceId?: string
   /**
-   * The `coding_sessions` row the `steering` view is photographed on — the
-   * demo user's running showcase run, which the seed stamps with the pinned
-   * `DEMO_STEERED_SESSION_ID` so both the web route and the desktop's
-   * `EXP_DEV_SCREEN=session:<id>` can name it (EXP-732).
+   * EXP-1293: the session-tree rows the views are photographed on, pinned by
+   * the seed (screenshot-demo.ts) so the web routes and the desktop's
+   * `EXP_DEV_SCREEN` can name them. Each is a presence check: absent = the
+   * view skips rather than photographing a fallback screen.
+   *
+   *   sessionId        DEMO_SESSION_ID: the cold-start thread's child session
+   *                    ("Profile the launch path"), the raw session view the
+   *                    relay stub feeds (`session`, `steering`).
+   *   steeredSessionId the same id under its pre-EXP-1293 name, which the
+   *                    desktop lane's `$steeredSession` still reads.
+   *   threadId         DEMO_THREAD_ID: "Reduce cold start below 800 ms".
+   *   guideThreadId    DEMO_GUIDE_THREAD_ID: APP-15's thread with a Guide.
+   *   agentId          DEMO_AGENT_ID: the Triage agent.
    */
+  sessionId?: string
   steeredSessionId?: string
-  /**
-   * EXP-1204: the `coding_sessions` row the `run-changes` view is photographed
-   * on — Jonas's finished chat run with an open PR of its own, pinned as
-   * `DEMO_SESSION_IDS.runChanges` so the web route and the desktop's
-   * `EXP_DEV_SCREEN=session:<id>` can name it. Same presence check as the
-   * showcase run: absent = the view skips.
-   */
-  runChangesSessionId?: string
-  /**
-   * EXP-1284: the two seeded threads the `thread` / `thread-runs` views are
-   * photographed on, pinned as `DEMO_THREAD_ID` / `DEMO_THREAD_RUNS_ID` so the
-   * web route and the desktop's `EXP_DEV_SCREEN=thread:<id>` can name them.
-   * Same presence check as the showcase run: absent = the view skips.
-   */
   threadId?: string
-  threadRunsId?: string
+  guideThreadId?: string
+  agentId?: string
 }
 
 export async function resolveDemoIds(): Promise<DemoIds> {
@@ -191,41 +180,20 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(eq(devices.deviceId, DEMO_DEVICE_ID))
     .limit(1)
 
-  // The showcase run behind the `steering` shot. Its id is PINNED by the seed,
-  // so this is a presence check rather than a lookup: an older seed (or a
-  // reseed that never planted the row) leaves the desktop's
-  // `EXP_DEV_SCREEN=session:<id>` pointing at nothing, and the app would open
-  // its default screen and photograph the board under `steering`. Reported as
-  // absent so the view skips instead.
-  const [steeredSession] = await db
-    .select({ id: codingSessions.id })
-    .from(codingSessions)
-    .where(
-      and(eq(codingSessions.id, DEMO_STEERED_SESSION_ID), eq(codingSessions.teamId, team.id))
-    )
-    .limit(1)
-  const [runChangesSession] = await db
-    .select({ id: codingSessions.id })
-    .from(codingSessions)
+  // EXP-1293: the pinned session-tree rows, presence-checked — an older seed
+  // (or one that never planted the rows) leaves a route pointing at nothing,
+  // and the app would photograph its fallback under the view's name.
+  const pinned = await db
+    .select({ id: sessions.id })
+    .from(sessions)
     .where(
       and(
-        eq(codingSessions.id, DEMO_SESSION_IDS.runChanges),
-        eq(codingSessions.teamId, team.id)
+        eq(sessions.teamId, team.id),
+        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_THREAD_ID, DEMO_GUIDE_THREAD_ID, DEMO_AGENT_ID])
       )
     )
-    .limit(1)
-
-  // EXP-1284: the two pinned demo threads, presence-checked like the runs.
-  const demoThreads = await db
-    .select({ id: threads.id })
-    .from(threads)
-    .where(
-      and(
-        eq(threads.teamId, team.id),
-        inArray(threads.id, [DEMO_THREAD_ID, DEMO_THREAD_RUNS_ID])
-      )
-    )
-  const threadIds = new Set(demoThreads.map((row) => row.id))
+  const present = new Set(pinned.map((row) => row.id))
+  const ifPresent = (id: string) => (present.has(id) ? id : undefined)
 
   return {
     teamId: team.id,
@@ -244,9 +212,10 @@ export async function resolveDemoIds(): Promise<DemoIds> {
         : undefined,
     actionId: action.id,
     deviceId: device?.id,
-    steeredSessionId: steeredSession?.id,
-    runChangesSessionId: runChangesSession?.id,
-    threadId: threadIds.has(DEMO_THREAD_ID) ? DEMO_THREAD_ID : undefined,
-    threadRunsId: threadIds.has(DEMO_THREAD_RUNS_ID) ? DEMO_THREAD_RUNS_ID : undefined,
+    sessionId: ifPresent(DEMO_SESSION_ID),
+    steeredSessionId: ifPresent(DEMO_SESSION_ID),
+    threadId: ifPresent(DEMO_THREAD_ID),
+    guideThreadId: ifPresent(DEMO_GUIDE_THREAD_ID),
+    agentId: ifPresent(DEMO_AGENT_ID),
   }
 }

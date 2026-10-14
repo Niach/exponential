@@ -355,6 +355,11 @@ pub struct SurfaceView {
     ghosting: Cell<bool>,
     /// Added to the motion clock ([`Self::advance_clock`]).
     clock_skew: std::time::Duration,
+    /// The motion clock's source: gpui's executor, so a `#[gpui::test]`
+    /// reads its fake clock and an animation only moves when the test
+    /// advances it (EXP-1304: the wall clock let a loaded runner's slow
+    /// first draws carry an enter animation past its first frame).
+    executor: gpui::BackgroundExecutor,
     debug_bounds: Option<BoundsLog>,
     /// VAPP-103 rfix: component id → the props hash its painter panicked
     /// on. Until the props change it paints an empty box WITHOUT running
@@ -527,6 +532,7 @@ impl SurfaceView {
             md_dragging: false,
             ghosting: Cell::new(false),
             clock_skew: std::time::Duration::ZERO,
+            executor: cx.background_executor().clone(),
             debug_bounds: None,
             failed_paints: RefCell::new(HashMap::new()),
             this: cx.entity().downgrade(),
@@ -1140,7 +1146,7 @@ impl SurfaceView {
 
     /// The motion clock: now, plus what [`Self::advance_clock`] added.
     fn clock(&self) -> Instant {
-        Instant::now() + self.clock_skew
+        self.executor.now() + self.clock_skew
     }
 
     /// Move the motion clock forward (tests and automation: an exit fade

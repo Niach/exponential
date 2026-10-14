@@ -1,101 +1,87 @@
-// Options for a `pr`-typed action input (EXP-259): the team's OPEN
-// issue-linked pull requests, deduped by prUrl. A batch coding run links
-// several issues to ONE pull request, so a row lists every linked identifier
-// and carries the REPRESENTATIVE issue's id as its value — exactly what
-// `steer.startSession` resolves server-side (team-scoped, open-state checked).
-// Mirrors the native builders (`buildPullRequestOptions` on Android,
-// `StartPullRequestOption.build` on iOS) down to the lowest-id representative
-// and the label format.
+// Options for a `pr`-typed action input (EXP-259): the team's OPEN pull
+// requests. EXP-1293: PR state left the issues; a PR is a synced
+// `pull_requests` row (its closed issues ride `pull_request_issues`), so a
+// row is one option whose VALUE is the pull request's id. The label is the
+// PR number, then the issues it closes (else its title).
 
-export interface PrOptionIssue {
+export interface PrOptionPull {
   id: string
-  boardId: string
-  identifier: string
-  prUrl: string | null
-  prNumber: number | null
-  prState: string | null
+  teamId: string
+  number: number
+  title: string | null
+  state: string
+}
+
+export interface PrOptionLink {
+  pullRequestId: string
+  issueId: string
 }
 
 export interface PrOption {
-  /** The representative issue's id — the value the `pr` input submits. */
-  issueId: string
-  prNumber: number | null
-  /** Every issue identifier linked to this pull request, sorted. */
+  /** The pull request's id: the value the `pr` input submits. */
+  pullRequestId: string
+  number: number
+  /** Every issue identifier the pull request closes, sorted. */
   identifiers: string[]
-  /** Every linked issue's id — the set `findPrOptionForIssue` matches on. */
+  /** Every linked issue's id: the set `findPrOption` matches on. */
   linkedIssueIds: string[]
-  /** `#42 · EXP-1, EXP-2` — the PR number when known, then the linked issues. */
+  /** `#42 · EXP-1, EXP-2`, else `#42 · <title>`, else `#42`. */
   label: string
 }
 
 /**
- * Collapse open-PR issue rows into one option per pull request. Rows outside
- * `teamBoardIds`, rows whose PR isn't open, and rows without a `prUrl` are
- * skipped (such an id wouldn't resolve server-side anyway). The representative
- * is the lowest id so it doesn't depend on query order, and the list is sorted
- * by label so it doesn't reshuffle as sync lands rows.
+ * One option per OPEN pull request of `teamId`, sorted by number (newest
+ * first) so the list never reshuffles as sync lands rows. `identifierById`
+ * resolves the linked issues (an unsynced one is skipped in the label but
+ * still matched by id).
  */
 export function buildPrOptions(
-  issues: PrOptionIssue[],
-  teamBoardIds: Set<string>
+  pulls: readonly PrOptionPull[],
+  links: readonly PrOptionLink[],
+  identifierById: ReadonlyMap<string, string>,
+  teamId: string
 ): PrOption[] {
-  const byPrUrl = new Map<string, PrOption>()
-  for (const issue of [...issues].sort((left, right) =>
-    left.id.localeCompare(right.id)
-  )) {
-    if (
-      !teamBoardIds.has(issue.boardId) ||
-      issue.prState !== `open` ||
-      !issue.prUrl
-    ) {
-      continue
-    }
-    const entry = byPrUrl.get(issue.prUrl)
-    if (entry) {
-      if (issue.identifier) entry.identifiers.push(issue.identifier)
-      entry.linkedIssueIds.push(issue.id)
-    } else {
-      byPrUrl.set(issue.prUrl, {
-        issueId: issue.id,
-        prNumber: issue.prNumber,
-        identifiers: issue.identifier ? [issue.identifier] : [],
-        linkedIssueIds: [issue.id],
-        label: ``,
-      })
-    }
+  const linksByPull = new Map<string, string[]>()
+  for (const link of links) {
+    const list = linksByPull.get(link.pullRequestId) ?? []
+    list.push(link.issueId)
+    linksByPull.set(link.pullRequestId, list)
   }
-  return [...byPrUrl.values()]
-    .map((entry) => {
-      const joined = [...entry.identifiers].sort().join(`, `)
+  return pulls
+    .filter((pull) => pull.teamId === teamId && pull.state === `open`)
+    .map((pull) => {
+      const linkedIssueIds = [...new Set(linksByPull.get(pull.id) ?? [])].sort()
+      const identifiers = linkedIssueIds
+        .map((id) => identifierById.get(id))
+        .filter((ident): ident is string => Boolean(ident))
+        .sort()
+      const tail = identifiers.length > 0 ? identifiers.join(`, `) : pull.title?.trim()
       return {
-        ...entry,
-        identifiers: [...entry.identifiers].sort(),
-        label: entry.prNumber
-          ? joined
-            ? `#${entry.prNumber} · ${joined}`
-            : `#${entry.prNumber}`
-          : joined,
+        pullRequestId: pull.id,
+        number: pull.number,
+        identifiers,
+        linkedIssueIds,
+        label: tail ? `#${pull.number} · ${tail}` : `#${pull.number}`,
       }
     })
     .sort(
       (left, right) =>
-        left.label.localeCompare(right.label) ||
-        left.issueId.localeCompare(right.issueId)
+        right.number - left.number ||
+        left.pullRequestId.localeCompare(right.pullRequestId)
     )
 }
 
 /**
- * The option a given issue id belongs to — by MEMBERSHIP, not by the
- * representative id. A caller seeding the `pr` input holds whatever issue its
- * surface acts on (the Reviews rows pick the NEWEST linked issue, this builder
- * the lowest one), but only the representative id matches an option, so seeds
- * are normalised through this (EXP-323).
+ * The option a seed names: the pull request's own id, or ANY issue it closes
+ * (a play button on an issue holds the issue, not the PR).
  */
-export function findPrOptionForIssue(
-  options: PrOption[],
-  issueId: string
+export function findPrOption(
+  options: readonly PrOption[],
+  id: string
 ): PrOption | null {
   return (
-    options.find((option) => option.linkedIssueIds.includes(issueId)) ?? null
+    options.find((option) => option.pullRequestId === id) ??
+    options.find((option) => option.linkedIssueIds.includes(id)) ??
+    null
   )
 }

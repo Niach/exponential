@@ -526,7 +526,7 @@ fn dragging_a_drawer_toward_its_edge_dismisses_it(cx: &mut TestAppContext) {
     let (view, _log, cx) = surface(cx, tree, false);
     view.update(cx, |v, _| v.record_bounds(true));
     draw(cx);
-    // Finish the enter animation (a short rise on the wall clock) first, so
+    // Finish the enter animation (a short rise on the motion clock) first, so
     // the frames read below never land mid-rise on a loaded test runner.
     view.update(cx, |v, cx| v.advance_clock(Duration::from_secs(1), cx));
     draw(cx);

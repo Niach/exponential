@@ -534,19 +534,32 @@ export async function captureDesktop(
 }
 
 /**
- * A throwaway app data dir. `reposRoot` is written as a one-key settings.json:
- * the app merges it over its defaults on load (camelCase, every field
- * optional), so this moves the repos root without touching anything else.
+ * A throwaway app data dir with a settings.json the app merges over its
+ * defaults on load (camelCase, every field optional): `reposRoot` moves the
+ * repos root, and `changelogSeenId` = the head changelog entry pre-dismisses
+ * the sidebar "What's new" card, the same dismissed state the web lane seeds
+ * (`capture-web.ts`), so no client's shot carries a per-release banner.
  */
-function makeDataDir(reposRoot?: string): string {
+export function makeDataDir(reposRoot?: string): string {
   const dir = mkdtempSync(join(tmpdir(), `exp-shots-desktop-`))
-  if (reposRoot) {
-    writeFileSync(
-      join(dir, `settings.json`),
-      `${JSON.stringify({ reposRoot }, null, 2)}\n`
-    )
+  const settings = {
+    ...(reposRoot ? { reposRoot } : {}),
+    changelogSeenId: desktopChangelogHeadId(),
   }
+  writeFileSync(join(dir, `settings.json`), `${JSON.stringify(settings, null, 2)}\n`)
   return dir
+}
+
+/** The desktop changelog's `LATEST` id (the verbatim mirror of the web head
+ *  entry): the key its "What's new" card dismisses on. */
+export function desktopChangelogHeadId(): string {
+  const source = readFileSync(
+    join(repoRoot(), `apps/desktop/crates/ui/src/changelog.rs`),
+    `utf8`
+  )
+  const id = /const LATEST: ChangelogEntry = ChangelogEntry \{\s*id: "([^"]+)"/.exec(source)?.[1]
+  if (!id) throw new Error(`apps/desktop/crates/ui/src/changelog.rs names no LATEST id`)
+  return id
 }
 
 /**

@@ -1,14 +1,13 @@
-// Review #27: the Agent page's HOME column against composer-home.json: the
-// greeting is `homeGreeting` of the local wall clock (a fixture case
-// replayed through the page), the composer asks the fixture's placeholder,
-// nothing renders beneath the options line, and a board-less team's Getting
-// started block sits `composerToGettingStarted` px below it. Lives under a
-// `-` prefix so the route generator ignores it.
+// Review #27 / EXP-1293: the Agent page's HOME column against
+// composer-home.json: the DAWN (FEED-100: the brand mark's top half) over the
+// composer, no greeting, the fixture's placeholder, nothing beneath the
+// options line, and a board-less team's Getting started block
+// `composerToGettingStarted` px below it. Lives under a `-` prefix so the
+// route generator ignores it.
 import { render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/composer-home.json"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
-import type { RemoteStart } from "@/hooks/use-remote-start"
 import type { Team } from "@/db/schema"
 
 const mocks = vi.hoisted(() => ({
@@ -38,11 +37,11 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 vi.mock(`@/lib/collections`, () => ({
   actionCollection: {},
   boardCollection: {},
-  codingSessionCollection: {},
   deviceCollection: {},
-  deviceWorktreeCollection: {},
   issueCollection: {},
   issueRelationCollection: {},
+  pullRequestCollection: {},
+  pullRequestIssueCollection: {},
   teamMemberCollection: {},
   userCollection: {},
 }))
@@ -132,7 +131,6 @@ function fakeModel(): LaunchComposerModel {
     clearAction: vi.fn(),
     setInput: vi.fn(),
     seedPrIssueId: undefined,
-    fixConflicts: null,
     text: ``,
     setText: vi.fn(),
     images: [],
@@ -142,30 +140,18 @@ function fakeModel(): LaunchComposerModel {
     repoId: ``,
     setRepoId: vi.fn(),
     repoOptions: [],
-    resumeCandidate: null,
-    resume: true,
-    setResume: vi.fn(),
-    resumeActive: false,
-    blockedStart: [],
-    blockedOpen: false,
-    closeBlockedStart: vi.fn(),
-    startAnyway: vi.fn(),
-    blockedStack: { plan: null, reason: null, ident: null, first: null },
-    startStacked: vi.fn(),
     launch,
     candidateDevices: [device],
     deviceRequestNote: null,
     mcpServers: null,
     mcpConnectHref: () => null,
-    submitLabel: `Start chat`,
+    submitLabel: `Start session`,
     blocked: true,
     overCap: false,
     spansRepos: false,
     spansBranches: false,
     costHint: false,
     busy: false,
-    sentTo: null,
-    starting: null,
     submit: vi.fn(),
   } as unknown as LaunchComposerModel
 }
@@ -176,14 +162,12 @@ function renderHome() {
   return render(
     <HomeColumn
       team={team}
-      userName={fixture.cases[0]!.user}
       isMember
       steerEnabled
-      remote={{} as RemoteStart}
+      devices={[]}
       users={[]}
       seed={null}
       onSeedConsumed={() => {}}
-      onActionChange={() => {}}
     />
   )
 }
@@ -191,29 +175,26 @@ function renderHome() {
 beforeEach(() => {
   mocks.boards = [{ id: `b1` }]
   mocks.model = fakeModel()
-  // The greeting reads the LOCAL wall clock: pin it to the first case.
-  vi.useFakeTimers({ toFake: [`Date`] })
-  vi.setSystemTime(new Date(fixture.cases[0]!.local))
-})
-
-afterEach(() => {
-  vi.useRealTimers()
 })
 
 describe(`the Agent home column (composer-home.json)`, () => {
-  it(`greets with homeGreeting of the local clock and asks the fixture's question`, () => {
+  it(`draws the dawn over the composer, no greeting, and asks the fixture's question`, () => {
     renderHome()
-    expect(screen.getByTestId(fixture.testIds.greeting).textContent).toBe(
-      fixture.cases[0]!.expected
-    )
-    expect(screen.getByTestId(fixture.testIds.mark)).toBeTruthy()
-    expect(screen.getByPlaceholderText(fixture.placeholder)).toBeTruthy()
+    const dawn = screen.getByTestId(fixture.testIds.mark)
+    expect(dawn.getAttribute(`aria-hidden`)).toBe(`true`)
+    expect(screen.queryByTestId(fixture.testIds.greeting)).toBeNull()
+    const field = screen.getByPlaceholderText(fixture.placeholder)
+    // The dawn leads the column; the composer follows it.
+    expect(dawn.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByTestId(`recent-runs-toggle`)).toBeNull()
   })
 
   it(`renders nothing beneath the composer's options line`, () => {
     const { container } = renderHome()
-    const last = container.lastElementChild
-    expect(last?.contains(screen.getByPlaceholderText(fixture.placeholder))).toBe(true)
+    const column = container.firstElementChild!
+    expect(
+      column.lastElementChild?.contains(screen.getByPlaceholderText(fixture.placeholder))
+    ).toBe(true)
     expect(screen.queryByTestId(`getting-started`)).toBeNull()
   })
 
@@ -221,7 +202,7 @@ describe(`the Agent home column (composer-home.json)`, () => {
     mocks.boards = []
     const { container } = renderHome()
     const block = screen.getByTestId(`getting-started`)
-    expect(container.lastElementChild).toBe(block.parentElement)
+    expect(container.firstElementChild!.lastElementChild).toBe(block.parentElement)
     expect(block.parentElement?.style.marginTop).toBe(
       `${fixture.geometry.composerToGettingStarted}px`
     )

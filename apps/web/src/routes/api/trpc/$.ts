@@ -24,7 +24,6 @@ import { commentsRouter } from "@/lib/trpc/comments"
 import { attachmentsRouter } from "@/lib/trpc/attachments"
 import { repositoriesRouter } from "@/lib/trpc/repositories"
 import { actionsRouter } from "@/lib/trpc/actions"
-import { codingSessionsRouter } from "@/lib/trpc/coding-sessions"
 import { steerRouter } from "@/lib/trpc/steer"
 import { devicesRouter } from "@/lib/trpc/devices"
 import { billingRouter } from "@/lib/trpc/billing"
@@ -35,10 +34,13 @@ import { widgetsRouter } from "@/lib/trpc/widgets"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
 import { pinsRouter } from "@/lib/trpc/pins"
-import { threadsRouter } from "@/lib/trpc/threads"
+import { sessionsRouter } from "@/lib/trpc/sessions"
+import { pullRequestsRouter } from "@/lib/trpc/pull-requests"
 import { importsRouter } from "@/lib/trpc/imports"
 
 export const appRouter = router({
+  sessions: sessionsRouter,
+  pullRequests: pullRequestsRouter,
   teams: teamsRouter,
   boards: boardsRouter,
   issues: issuesRouter,
@@ -51,7 +53,6 @@ export const appRouter = router({
   attachments: attachmentsRouter,
   repositories: repositoriesRouter,
   actions: actionsRouter,
-  codingSessions: codingSessionsRouter,
   steer: steerRouter,
   devices: devicesRouter,
   teamInvites: teamInvitesRouter,
@@ -70,7 +71,6 @@ export const appRouter = router({
   mcpGrants: mcpGrantsRouter,
   mcpServers: mcpServersRouter,
   pins: pinsRouter,
-  threads: threadsRouter,
   imports: importsRouter,
 })
 

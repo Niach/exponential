@@ -38,7 +38,7 @@ use crate::http;
 use crate::login::normalize_instance_url;
 use crate::TokenProvider;
 
-/// EXP-637/EXP-1140: the header naming the `coding_sessions` row a request is
+/// EXP-637/EXP-1140: the header naming the `sessions` row (EXP-1292) a request is
 /// made for (`lib/mcp/session-header.ts`). The launcher pins it into the
 /// agent's MCP config and sends it itself on run-scoped calls
 /// ([`TrpcClient::mutation_in_session`]).
@@ -125,7 +125,7 @@ impl TrpcClient {
     }
 
     /// EXP-1140: [`Self::mutation`] made FROM INSIDE a coding session — the
-    /// request carries [`SESSION_HEADER`] naming the `coding_sessions` row,
+    /// request carries [`SESSION_HEADER`] naming the `sessions` row,
     /// the same header the agent's own MCP config carries. The server binds
     /// run-scoped procedures to it (`mcpServers.resolveForLaunch` hands out
     /// credentials only for that row's own pick); the id grants nothing by

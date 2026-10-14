@@ -76,9 +76,6 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
   githubAppConfigured: () => false,
   resolveRepoInstallationToken: vi.fn(),
 }))
-vi.mock(`@/lib/integrations/pr-sync`, () => ({
-  applyPrMergeState: vi.fn(),
-}))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   resolveBoardRepository: vi.fn(),
 }))

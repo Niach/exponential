@@ -32,10 +32,9 @@ enum CodingReadinessRoute {
 extension CodingReadinessModel {
     /// The issue's readiness — the ONE derivation the bar circle, the
     /// switcher row and the sheet share.
-    func readiness(vm: IssueDetailViewModel, remoteStartEnabled: Bool?) -> CodingReadiness.Readiness {
+    func readiness(vm: IssueDetailViewModel) -> CodingReadiness.Readiness {
         readiness(
             isMember: vm.permissions.isMember,
-            remoteStartEnabled: remoteStartEnabled,
             teamName: vm.team?.name ?? "",
             board: vm.board
         )
@@ -62,7 +61,6 @@ private enum ReadinessSheetTokens {
 struct CodingReadinessSheet: View {
     let model: CodingReadinessModel
     let vm: IssueDetailViewModel
-    let remoteStartEnabled: Bool?
     let accountId: String
     /// Ready + tapped: the host dismisses and starts.
     let onStart: () -> Void
@@ -82,7 +80,7 @@ struct CodingReadinessSheet: View {
     @State private var showAddDevice = false
 
     private var readiness: CodingReadiness.Readiness {
-        model.readiness(vm: vm, remoteStartEnabled: remoteStartEnabled)
+        model.readiness(vm: vm)
     }
 
     var body: some View {

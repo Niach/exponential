@@ -107,7 +107,7 @@ pub struct MapperConfig {
 
 /// One mapping step's output. Wire events go to the relay through the
 /// [`crate::sink::EventSink`]; local events go to the host's `LocalSink`;
-/// the two flags drive `coding_sessions.needs_input` (EXP-214) and
+/// the two flags drive `sessions.needs_input` (EXP-214) and
 /// `steer::TurnSignal`.
 #[derive(Default)]
 pub struct MapOut {
@@ -135,6 +135,44 @@ pub struct MapOut {
     /// carried base is recorded again too: re-writing the same number is
     /// free, and the record is the only place it survives a restart.
     pub context_base: Option<(u64, String)>,
+    /// EXP-1292: what this step adds to the Conversation (`messages` rows
+    /// with `author_kind = agent`), in order — a turn's final reply text at
+    /// its close, a question/plan card when the agent asks, a subagent card
+    /// when one completes, a picture the agent showed. The host posts them
+    /// through ONE ordered worker (`sessions.reply`); the wire events above
+    /// stay the live layer.
+    pub replies: Vec<Reply>,
+}
+
+/// EXP-1292: one agent row for the Conversation — `sessions.reply`'s input.
+/// `body` is the turn's final message (empty beside a card).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reply {
+    pub body: String,
+    pub card: Option<api::session_device::ReplyCard>,
+}
+
+impl Reply {
+    fn text(body: String) -> Reply {
+        Reply { body, card: None }
+    }
+
+    fn card(card: api::session_device::ReplyCard) -> Reply {
+        Reply {
+            body: String::new(),
+            card: Some(card),
+        }
+    }
+}
+
+/// EXP-1292: an answered question/plan card mapped back onto the engine's
+/// open ask — the same [`steer::RemoteAnswer`] a relay `answer` frame
+/// carries, plus a rejected plan's feedback, which the agent gets as the
+/// person's next message.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CardAnswer {
+    pub answer: steer::RemoteAnswer,
+    pub follow_up: Option<String>,
 }
 
 /// Identifies one parked ask so an inbound `answer` frame can find the ACP
@@ -273,6 +311,16 @@ pub struct Mapper {
     compacting_since: Option<Instant>,
     /// Disambiguates two synthetic ids whose text is identical.
     ordinal: u32,
+    /// EXP-1292: the turn's LAST top-level assistant message so far (raw;
+    /// redacted and capped once, at the close) — the Conversation's reply.
+    /// A new `message_id`, a main-lane tool call, question or user message
+    /// starts it over; a turn start clears it.
+    turn_reply: String,
+    turn_reply_id: Option<String>,
+    /// EXP-1292: the subagent/picture cards already posted (`subagent:<id>`,
+    /// `picture:<tool id>`), so a history reload re-streaming the same
+    /// edges never posts one twice.
+    carded: std::collections::HashSet<String>,
 }
 
 #[derive(Default)]
@@ -312,6 +360,11 @@ struct PermissionAsk {
     /// (option key, label) in published order — the answer's labels come
     /// from here so `question_resolved` reads like the card did.
     options: Vec<(String, String)>,
+    /// EXP-1292: the keys of the REJECT options — a plan card's `rejected`
+    /// decision picks the first of them, `approved` the first other one.
+    rejects: Vec<String>,
+    /// EXP-1292: the card is a plan (ExitPlanMode), answered by `decision`.
+    plan: bool,
     answered: bool,
 }
 
@@ -505,6 +558,9 @@ impl Mapper {
             last_workflows: Vec::new(),
             compacting_since: None,
             ordinal: 0,
+            turn_reply: String::new(),
+            turn_reply_id: None,
+            carded: std::collections::HashSet::new(),
         }
     }
 
@@ -873,6 +929,17 @@ impl Mapper {
         let header = (!plan_mode && !title.is_empty())
             .then(|| self.clean(&title, QUESTION_HEADER_MAX));
 
+        let rejects = request
+            .options
+            .iter()
+            .filter(|option| {
+                matches!(
+                    option.kind,
+                    PermissionOptionKind::RejectOnce | PermissionOptionKind::RejectAlways
+                )
+            })
+            .map(|option| steer::truncate(&option.option_id.0, ID_MAX))
+            .collect();
         self.permissions.insert(
             question_id.clone(),
             PermissionAsk {
@@ -880,11 +947,32 @@ impl Mapper {
                     .iter()
                     .map(|option| (option.key.clone(), option.label.clone()))
                     .collect(),
+                rejects,
+                plan: plan_mode,
                 answered: false,
             },
         );
         self.questions
             .insert(question_id.clone(), AskRef::Permission(question_id.clone()));
+        // EXP-1292: the ask is a Conversation card too, answered IN the card
+        // (`answer_card`); the narration before it is no longer the reply.
+        self.reset_turn_reply();
+        out.replies.push(Reply::card(if plan_mode {
+            api::session_device::ReplyCard::Plan {
+                plan: text.clone(),
+                question_id: question_id.clone(),
+            }
+        } else {
+            api::session_device::ReplyCard::Question {
+                question: text.clone(),
+                options: options
+                    .iter()
+                    .filter(|option| !option.free_text)
+                    .map(|option| option.label.clone())
+                    .collect(),
+                question_id: question_id.clone(),
+            }
+        }));
 
         emit(
             out,
@@ -1060,6 +1148,17 @@ impl Mapper {
             emit(out, ActivityEvent::user_message(text), None);
         }
         out.idle = Some(true);
+        // EXP-1292: the turn's last top-level message is its reply in the
+        // Conversation — redacted whole (a secret split across two chunks
+        // is still one secret) and capped at the server's body limit.
+        let reply = std::mem::take(&mut self.turn_reply);
+        self.turn_reply_id = None;
+        if self.turn_live && !reply.trim().is_empty() {
+            out.replies.push(Reply::text(self.clean_marked(
+                reply.trim(),
+                domain::contract::SESSIONS_SEND_MESSAGE_BODY_MAX,
+            )));
+        }
         self.move_turn(steer::TurnState::Ended, false, out);
         if out.needs_input.is_none() && self.pending_asks() == 0 {
             out.needs_input = Some(false);
@@ -1148,6 +1247,8 @@ impl Mapper {
             self.turn_started_at = Some(steer::now_unix_millis());
             self.turn_tokens = 0;
             self.turn_tokens_published_at = None;
+            // EXP-1292: a new turn, a new reply.
+            self.reset_turn_reply();
         }
         emit(out, self.turn_event(), None);
     }
@@ -1390,6 +1491,25 @@ impl Mapper {
                 Some(counted.max(edge.tool_calls.unwrap_or(0))).filter(|total| *total > 0)
             }
         };
+        // EXP-1292: a finished subagent is ONE Conversation card, posted at
+        // its completion (never at its start).
+        if edge.status == SubagentEdgeStatus::Completed && self.carded.insert(format!("subagent:{id}")) {
+            let title = edge
+                .title
+                .as_ref()
+                .map(|title| self.clean(title, TOOL_NAME_MAX))
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| agent_type.clone());
+            out.replies.push(Reply::card(api::session_device::ReplyCard::Subagent {
+                title,
+                status: steer::SubagentStatus::Completed.as_str().to_string(),
+                summary: edge
+                    .detail
+                    .as_ref()
+                    .map(|detail| self.clean(detail, TOOL_DETAIL_MAX))
+                    .filter(|detail| !detail.trim().is_empty()),
+            }));
+        }
         emit(
             out,
             ActivityEvent::Subagent {
@@ -1425,6 +1545,152 @@ impl Mapper {
             },
             None,
         );
+    }
+
+    /// EXP-1292: fold one flushed main-lane narration piece into the turn's
+    /// reply. Pieces of the SAME message append (the clients' fragment
+    /// merge, EXP-772); a piece of another message — or one with no id —
+    /// starts the reply over, so it ends up as the turn's LAST message.
+    fn note_turn_reply(&mut self, text: &str, message_id: Option<&str>) {
+        if !self.turn_live || text.trim().is_empty() {
+            return;
+        }
+        let continues = message_id.is_some_and(|id| !id.is_empty())
+            && self.turn_reply_id.as_deref() == message_id
+            && !self.turn_reply.is_empty();
+        if !continues {
+            self.turn_reply.clear();
+        }
+        // Bounded however long the message runs: the close caps it at the
+        // body limit anyway, and the tail past twice that is never sent.
+        if self.turn_reply.len() < domain::contract::SESSIONS_SEND_MESSAGE_BODY_MAX * 2 {
+            self.turn_reply.push_str(text);
+        }
+        self.turn_reply_id = message_id.map(str::to_string);
+    }
+
+    /// EXP-1292: the reply so far is not the turn's last message any more.
+    fn reset_turn_reply(&mut self) {
+        self.turn_reply.clear();
+        self.turn_reply_id = None;
+    }
+
+    /// EXP-1292: the turn's reply as it stands (raw) — tests and hosts.
+    pub fn turn_reply(&self) -> &str {
+        &self.turn_reply
+    }
+
+    /// EXP-1292: an answered Conversation card (`messages.card` with
+    /// `answer`, or a plan's `decision` + `feedback`) as the answer the open
+    /// ask takes. A question's answer matches an option by label (or key),
+    /// case-insensitively; a comma-separated answer to a multi-select step
+    /// picks every option it names; anything else is the step's typed
+    /// answer. `None` when nothing is open under `question_id` or the card
+    /// says nothing the ask can take.
+    pub fn card_answer(&self, question_id: &str, card: &Value) -> Option<CardAnswer> {
+        let text = |key: &str| {
+            card.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string)
+        };
+        let remote = |ask_id: Option<String>, keys: Vec<String>, typed: Option<String>| {
+            steer::RemoteAnswer {
+                question_id: question_id.to_string(),
+                ask_id,
+                keys,
+                text: typed,
+            }
+        };
+        match self.questions.get(question_id)? {
+            AskRef::Permission(id) => {
+                let ask = self.permissions.get(id)?;
+                if ask.plan {
+                    let approved = match card.get("decision").and_then(Value::as_str)? {
+                        "approved" => true,
+                        "rejected" => false,
+                        _ => return None,
+                    };
+                    let key = ask
+                        .options
+                        .iter()
+                        .map(|(key, _)| key)
+                        .find(|key| ask.rejects.contains(key) != approved)?
+                        .clone();
+                    return Some(CardAnswer {
+                        answer: remote(None, vec![key], None),
+                        follow_up: (!approved).then(|| text("feedback")).flatten(),
+                    });
+                }
+                let answer = text("answer")?;
+                let key = ask
+                    .options
+                    .iter()
+                    .find(|(key, label)| {
+                        label.trim().eq_ignore_ascii_case(&answer) || key == &answer
+                    })?
+                    .0
+                    .clone();
+                Some(CardAnswer {
+                    answer: remote(None, vec![key], None),
+                    follow_up: None,
+                })
+            }
+            AskRef::Elicitation(ask_id) => {
+                let ask = self.elicitations.get(ask_id)?;
+                let step = elicit_step_index(ask_id, question_id)
+                    .and_then(|index| ask.steps.get(index))?;
+                let answer = text("answer")?;
+                let find = |part: &str| {
+                    step.options
+                        .iter()
+                        .filter(|option| !option.free_text)
+                        .find(|option| {
+                            option.label.trim().eq_ignore_ascii_case(part.trim())
+                                || option.key == part.trim()
+                        })
+                        .map(|option| option.key.clone())
+                };
+                let keys = match find(&answer) {
+                    Some(key) => Some(vec![key]),
+                    None if step.multi_select => answer
+                        .split(',')
+                        .map(find)
+                        .collect::<Option<Vec<String>>>()
+                        .filter(|keys| !keys.is_empty()),
+                    None => None,
+                };
+                let (keys, typed) = match keys {
+                    Some(keys) => (keys, None),
+                    None if step.options.iter().any(|option| option.free_text) => {
+                        (vec![FREE_TEXT_KEY.to_string()], Some(answer))
+                    }
+                    None => (Vec::new(), Some(answer)),
+                };
+                Some(CardAnswer {
+                    answer: remote(Some(ask_id.clone()), keys, typed),
+                    follow_up: None,
+                })
+            }
+        }
+    }
+
+    /// EXP-1292: the stepper `question_id` belongs to now waits only for its
+    /// submit marker (the card answered its last step) — the answer that
+    /// submits the form. The Conversation never shows the marker, so an
+    /// answered last step submits by itself.
+    pub fn pending_submit(&self, question_id: &str) -> Option<steer::RemoteAnswer> {
+        let AskRef::Elicitation(ask_id) = self.questions.get(question_id)? else {
+            return None;
+        };
+        let ask = self.elicitations.get(ask_id)?;
+        (!ask.answered && ask.current >= ask.steps.len()).then(|| steer::RemoteAnswer {
+            question_id: elicit_step_id(ask_id, ask.current, ask.steps.len()),
+            ask_id: Some(ask_id.clone()),
+            keys: vec!["submit".to_string()],
+            text: None,
+        })
     }
 
     /// An adapter or transport error worth showing: one capped narration,
@@ -1570,6 +1836,9 @@ impl Mapper {
         if flushed.text.trim().is_empty() {
             return;
         }
+        if flushed.subagent_id.is_none() {
+            self.note_turn_reply(&flushed.text, flushed.message_id.as_deref());
+        }
         let text = self.clean(&flushed.text, NARRATION_MAX);
         emit(
             out,
@@ -1691,6 +1960,11 @@ impl Mapper {
         if text.trim().is_empty() {
             return;
         }
+        // EXP-1292: a main-lane user message (a person's message the agent
+        // took in mid-turn) — the reply is what comes after it.
+        if flushed.subagent_id.is_none() {
+            self.reset_turn_reply();
+        }
         if let Some(at) = self
             .pending_deliveries
             .iter()
@@ -1787,6 +2061,11 @@ impl Mapper {
         // EXP-846: only this call's OWN lane — a subagent's tool row must not
         // cut the main thread's streaming paragraph in half.
         self.flush_scope(subagent_id.as_deref(), out);
+        // EXP-1292: a main-lane tool call ends the message before it — the
+        // reply is what the agent says AFTER its last tool.
+        if subagent_id.is_none() {
+            self.reset_turn_reply();
+        }
         // EXP-748: count it for the subagent's completed edge — the rows
         // themselves are the first thing a replay drops.
         if let Some(subagent_id) = subagent_id.clone() {
@@ -2884,6 +3163,27 @@ impl Mapper {
         };
         self.questions
             .insert(question_id.clone(), AskRef::Elicitation(ask_id.to_string()));
+        // EXP-1292: every real step is a Conversation card; the submit
+        // marker is not (an answered last step submits the form itself,
+        // `pending_submit`).
+        if let ActivityEvent::Question {
+            text,
+            options,
+            index: Some(_),
+            ..
+        } = &event
+        {
+            self.reset_turn_reply();
+            out.replies.push(Reply::card(api::session_device::ReplyCard::Question {
+                question: text.clone(),
+                options: options
+                    .iter()
+                    .filter(|option| !option.free_text)
+                    .map(|option| option.label.clone())
+                    .collect(),
+                question_id: question_id.clone(),
+            }));
+        }
         emit(out, event, None);
         question_id
     }
@@ -4656,19 +4956,18 @@ mod tests {
 
     /// EXP-1202 / EXP-1220: the CLAUDE adapter's settle of an Exponential
     /// call — the answer text as content AND the `{content:[…]}` envelope as
-    /// `raw_output` — publishes `sessions_show`'s attachment as `preview.id`,
-    /// the inline picture every client renders; a failed one, which carries
-    /// no `raw_output`, publishes no preview.
+    /// `raw_output` — publishes the answer's id as `preview.id`; a failed
+    /// one, which carries no `raw_output`, publishes no preview.
     #[test]
-    fn a_claude_shaped_sessions_show_settle_publishes_the_picture() {
+    fn a_claude_shaped_exp_tool_settle_publishes_the_answer_id() {
         let mut mapper = mapper();
-        let title = "mcp__exponential__exponential_sessions_show";
-        let answer = r#"{"id":"7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99","topic":"Progress","label":"web"}"#;
+        let title = "mcp__exponential__exponential_attachments_upload";
+        let answer = r#"{"id":"7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99","fileName":"shot.png"}"#;
         for id in ["tc-show-1", "tc-show-2"] {
             let call = ToolCall::new(ToolCallId::new(id), title)
                 .kind(ToolKind::Other)
                 .status(ToolCallStatus::InProgress)
-                .raw_input(json!({"file": "/work/tree/shot.png", "text": "The header"}));
+                .raw_input(json!({"file": "/work/tree/shot.png"}));
             mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut MapOut::default());
         }
         let text = vec![ToolCallContent::from(answer.to_string())];
@@ -6158,5 +6457,312 @@ mod exp1224_tests {
         let mut out = MapOut::default();
         mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(text("late"))), &mut out);
         assert!(turns(&out).is_empty(), "{:?}", out.wire);
+    }
+}
+
+/// EXP-1292: the Conversation half of the mapper — a turn's reply, the
+/// cards, and an answered card mapped back onto the open ask.
+#[cfg(test)]
+mod conversation_tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::{
+        ContentChunk, ElicitationFormMode, ElicitationSchema, ElicitationSessionScope,
+        PermissionOption, PermissionOptionId, RequestPermissionRequest, SessionId,
+        StringPropertySchema, TextContent, ToolCallId, ToolCallUpdate, ToolCallUpdateFields,
+    };
+    use api::session_device::ReplyCard;
+    use serde_json::json;
+
+    /// A mapper whose session is LIVE (the host seeded the turn slot).
+    fn live() -> Mapper {
+        let mut mapper = Mapper::new(MapperConfig {
+            redactor: Arc::new(steer::Redactor::new(vec!["expu_supersecretkey".to_string()])),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: steer::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+        });
+        mapper.set_turn(steer::TurnState::Ended, true, &mut MapOut::default());
+        mapper
+    }
+
+    fn notify(update: SessionUpdate) -> SessionNotification {
+        SessionNotification::new(SessionId::new("acp-1"), update)
+    }
+
+    fn say(mapper: &mut Mapper, text: &str, message_id: &str, out: &mut MapOut) {
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)))
+            .message_id(agent_client_protocol::schema::v1::MessageId::new(message_id));
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(chunk)), out);
+    }
+
+    fn read_call(mapper: &mut Mapper, id: &str, out: &mut MapOut) {
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(
+                ToolCall::new(ToolCallId::new(id), "Read src/lib.rs").kind(ToolKind::Read),
+            )),
+            out,
+        );
+    }
+
+    fn texts(replies: &[Reply]) -> Vec<String> {
+        replies
+            .iter()
+            .filter(|reply| reply.card.is_none())
+            .map(|reply| reply.body.clone())
+            .collect()
+    }
+
+    #[test]
+    fn the_turn_reply_is_its_last_top_level_message() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut out);
+        say(&mut mapper, "Looking around.", "m-1", &mut out);
+        read_call(&mut mapper, "tc-1", &mut out);
+        say(&mut mapper, "All ", "m-2", &mut out);
+        mapper.flush_all(&mut out);
+        say(&mut mapper, "done.", "m-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies), vec!["All done.".to_string()]);
+
+        // The next turn starts clean; a turn that ends on a tool call (no
+        // prose after it) has no reply at all.
+        let mut out = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut out);
+        say(&mut mapper, "Let me check.", "m-3", &mut out);
+        read_call(&mut mapper, "tc-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(texts(&out.replies).is_empty(), "{:?}", out.replies);
+    }
+
+    #[test]
+    fn a_new_message_id_replaces_the_reply_and_a_subagents_prose_never_counts() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(steer::TurnState::Started, false, &mut out);
+        say(&mut mapper, "First thought.", "m-1", &mut out);
+        mapper.flush_all(&mut out);
+        say(&mut mapper, "Final answer with expu_supersecretkey inside.", "m-2", &mut out);
+        mapper.flush_all(&mut out);
+        let mut lane = serde_json::Map::new();
+        lane.insert(SUBAGENT_ID_META_KEY.to_string(), json!("task-1"));
+        let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("subagent words")))
+            .message_id(agent_client_protocol::schema::v1::MessageId::new("m-sub"));
+        mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(chunk)).meta(lane), &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        let replies = texts(&out.replies);
+        assert_eq!(replies.len(), 1, "{replies:?}");
+        assert!(replies[0].starts_with("Final answer with "), "{replies:?}");
+        assert!(!replies[0].contains("expu_supersecretkey"), "redacted: {replies:?}");
+    }
+
+    /// History streamed before the session is live (a `session/load`) is
+    /// never a reply.
+    #[test]
+    fn history_before_the_session_is_live_is_no_reply() {
+        let mut mapper = Mapper::new(MapperConfig {
+            redactor: Arc::new(steer::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: steer::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+        });
+        let mut out = MapOut::default();
+        say(&mut mapper, "old words", "m-old", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(out.replies.is_empty(), "{:?}", out.replies);
+    }
+
+    fn permission(id: &str, kind: Option<ToolKind>, body: Option<&str>) -> RequestPermissionRequest {
+        let mut fields = ToolCallUpdateFields::new().title("Write src/main.rs");
+        if let Some(kind) = kind {
+            fields = fields.kind(kind);
+        }
+        if let Some(body) = body {
+            fields = fields.content(vec![ToolCallContent::from(ContentBlock::Text(
+                TextContent::new(body),
+            ))]);
+        }
+        RequestPermissionRequest::new(
+            SessionId::new("acp-1"),
+            ToolCallUpdate::new(ToolCallId::new(id), fields),
+            vec![
+                PermissionOption::new(
+                    PermissionOptionId::new("reject"),
+                    "No, keep planning",
+                    PermissionOptionKind::RejectOnce,
+                ),
+                PermissionOption::new(
+                    PermissionOptionId::new("allow"),
+                    "Yes",
+                    PermissionOptionKind::AllowOnce,
+                ),
+            ],
+        )
+    }
+
+    #[test]
+    fn a_permission_is_a_question_card_and_its_answer_maps_by_label() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        say(&mut mapper, "I need to write.", "m-1", &mut out);
+        mapper.on_permission(&permission("tc-perm", None, None), &mut out);
+        assert_eq!(
+            out.replies,
+            vec![Reply {
+                body: String::new(),
+                card: Some(ReplyCard::Question {
+                    question: "Write src/main.rs".into(),
+                    options: vec!["Yes".into(), "No, keep planning".into()],
+                    question_id: "tc-perm".into(),
+                }),
+            }]
+        );
+        assert_eq!(mapper.turn_reply(), "", "the prose before the card is not the reply");
+
+        let mapped = mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answer": " yes "}))
+            .expect("the label matches");
+        assert_eq!(mapped.answer.keys, vec!["allow".to_string()]);
+        assert_eq!(mapped.answer.question_id, "tc-perm");
+        assert_eq!(mapped.follow_up, None);
+        assert!(mapper
+            .card_answer("tc-perm", &json!({"kind": "question", "answer": "maybe"}))
+            .is_none());
+        assert!(mapper
+            .card_answer("tc-unknown", &json!({"kind": "question", "answer": "Yes"}))
+            .is_none());
+    }
+
+    #[test]
+    fn exit_plan_mode_is_a_plan_card_answered_by_its_decision() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.on_permission(
+            &permission("tc-plan", Some(ToolKind::SwitchMode), Some("## Plan\n\n1. Do it")),
+            &mut out,
+        );
+        assert_eq!(
+            out.replies[0].card,
+            Some(ReplyCard::Plan {
+                plan: "## Plan\n\n1. Do it".into(),
+                question_id: "tc-plan".into(),
+            })
+        );
+        let approved = mapper
+            .card_answer("tc-plan", &json!({"kind": "plan", "decision": "approved"}))
+            .expect("approved maps");
+        assert_eq!(approved.answer.keys, vec!["allow".to_string()]);
+        assert_eq!(approved.follow_up, None);
+        let rejected = mapper
+            .card_answer(
+                "tc-plan",
+                &json!({"kind": "plan", "decision": "rejected", "feedback": "Smaller steps"}),
+            )
+            .expect("rejected maps");
+        assert_eq!(rejected.answer.keys, vec!["reject".to_string()]);
+        assert_eq!(rejected.follow_up.as_deref(), Some("Smaller steps"));
+        assert!(mapper
+            .card_answer("tc-plan", &json!({"kind": "plan", "decision": null}))
+            .is_none());
+    }
+
+    #[test]
+    fn every_elicitation_step_is_a_card_and_the_last_answer_owes_the_submit() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        let request = CreateElicitationRequest::new(
+            ElicitationFormMode::new(
+                ElicitationSessionScope::new(SessionId::new("acp-1")),
+                ElicitationSchema::new()
+                    .property(
+                        "approach",
+                        ElicitationPropertySchema::String(
+                            StringPropertySchema::new()
+                                .title("Which approach?")
+                                .enum_values(vec!["rewrite".into(), "patch".into()]),
+                        ),
+                        false,
+                    )
+                    .property(
+                        "why",
+                        ElicitationPropertySchema::String(StringPropertySchema::new().title("Why?")),
+                        false,
+                    ),
+            ),
+            "Two questions",
+        );
+        mapper.on_elicitation("ask-1", &request, &mut out);
+        assert_eq!(
+            out.replies,
+            vec![Reply {
+                body: String::new(),
+                card: Some(ReplyCard::Question {
+                    question: "Which approach?".into(),
+                    options: vec!["rewrite".into(), "patch".into()],
+                    question_id: "ask-1#0".into(),
+                }),
+            }]
+        );
+        let first = mapper
+            .card_answer("ask-1#0", &json!({"answer": "Patch"}))
+            .expect("an option matches");
+        assert_eq!(first.answer.keys, vec!["patch".to_string()]);
+        assert_eq!(first.answer.ask_id.as_deref(), Some("ask-1"));
+        let mut step = MapOut::default();
+        let key = mapper.ask_key(&first.answer);
+        mapper.on_answer(&key, &first.answer, &mut step);
+        assert!(mapper.pending_submit("ask-1#0").is_none(), "a step is still open");
+        // The second step is a card of its own; its free text is the answer.
+        assert!(matches!(
+            &step.replies[..],
+            [Reply { card: Some(ReplyCard::Question { question_id, options, .. }), .. }]
+                if question_id == "ask-1#1" && options.is_empty()
+        ), "{:?}", step.replies);
+        let second = mapper
+            .card_answer("ask-1#1", &json!({"answer": "It is smaller"}))
+            .expect("free text");
+        assert_eq!(second.answer.text.as_deref(), Some("It is smaller"));
+        let mut done = MapOut::default();
+        let key = mapper.ask_key(&second.answer);
+        mapper.on_answer(&key, &second.answer, &mut done);
+        assert!(done.replies.is_empty(), "the submit marker is no card: {:?}", done.replies);
+        let submit = mapper.pending_submit("ask-1#1").expect("the form waits for its submit");
+        assert_eq!(submit.question_id, "ask-1#submit");
+        let key = mapper.ask_key(&submit);
+        assert!(matches!(
+            mapper.on_answer(&key, &submit, &mut MapOut::default()),
+            AnswerDecision::Elicitation { submit: true, .. }
+        ));
+        assert!(mapper.pending_submit("ask-1#1").is_none());
+    }
+
+    #[test]
+    fn a_subagent_is_one_card_at_its_completion() {
+        let mut mapper = live();
+        let edge = |status| SubagentEdge {
+            id: "task-1".to_string(),
+            agent_type: "explore".to_string(),
+            status,
+            detail: Some("Found 3 call sites".to_string()),
+            tool_calls: None,
+            title: Some("Find the callers".to_string()),
+            workflow_id: None,
+        };
+        let mut out = MapOut::default();
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Started), &mut out);
+        assert!(out.replies.is_empty(), "no card at the start");
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Completed), &mut out);
+        mapper.on_subagent(&edge(SubagentEdgeStatus::Completed), &mut out);
+        assert_eq!(
+            out.replies,
+            vec![Reply {
+                body: String::new(),
+                card: Some(ReplyCard::Subagent {
+                    title: "Find the callers".into(),
+                    status: "completed".into(),
+                    summary: Some("Found 3 call sites".into()),
+                }),
+            }]
+        );
     }
 }

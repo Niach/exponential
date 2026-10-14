@@ -1,0 +1,299 @@
+//! EXP-1294 (Threads v2): Team settings → Agents — the Rust twin of
+//! `packages/domain-contract/src/agent-settings.ts` (iOS
+//! `AgentSettings.swift`, Android `domain/AgentSettings.kt`), byte-locked by
+//! `fixtures/agent-settings.json` (`summaryCases`, `validationCases`,
+//! `accountValueCases`).
+//!
+//! An agent is managed exactly like a board: identity (icon + color + name),
+//! Device, Account, Schedule (its triggers, one row each reading
+//! [`trigger_summary`]), Instructions, Delete. The copy and the field list
+//! come FROM the fixture ([`AGENT_SETTINGS`]); the caps from the contract
+//! (`sessionsSend`).
+
+use std::collections::BTreeMap;
+use std::sync::LazyLock;
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::contract::{
+    SESSIONS_SEND_AGENT_INSTRUCTIONS_MAX_BYTES, SESSIONS_SEND_AGENT_NAME_MAX,
+};
+
+/// One field of the agent page, top to bottom.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSettingsField {
+    /// `identity` | `device` | `account` | `schedule` | `instructions` |
+    /// `delete`.
+    pub key: String,
+    pub label: String,
+    /// `icon-color-name` | `device-picker` | `account-picker` |
+    /// `trigger-list` | `markdown` | `danger`.
+    pub control: String,
+    pub required: bool,
+    #[serde(default)]
+    pub owner_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentScheduleCopy {
+    /// `Daily at {time}`.
+    pub daily: String,
+    /// `Weekly on {weekday} at {time}`.
+    pub weekly: String,
+    /// `Monthly on day {day} at {time}`.
+    pub monthly: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentErrorCopy {
+    pub name_required: String,
+    pub name_too_long: String,
+    pub device_required: String,
+    pub instructions_too_long: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSettingsCopy {
+    /// The settings group / list title (`Agents`).
+    pub title: String,
+    /// `New agent`.
+    pub new_agent: String,
+    pub name_placeholder: String,
+    pub instructions_placeholder: String,
+    /// The Schedule row's `+ Add`.
+    pub add_trigger: String,
+    /// The Schedule row with no trigger.
+    pub no_schedule: String,
+    pub paused: String,
+    pub delete_confirm: String,
+    /// Monday … Sunday (weekday 1 … 7).
+    pub weekdays: Vec<String>,
+    pub schedule: AgentScheduleCopy,
+    /// Event trigger text by `agentTriggerEvent`.
+    pub events: BTreeMap<String, String>,
+    pub errors: AgentErrorCopy,
+    /// The Account row with no login reported (`Last used`, muted).
+    pub account_last_used: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AgentSettingsTestIds {
+    pub list: String,
+    pub page: String,
+}
+
+/// `fixtures/agent-settings.json` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentSettingsSpec {
+    pub fields: Vec<AgentSettingsField>,
+    pub copy: AgentSettingsCopy,
+    pub test_ids: AgentSettingsTestIds,
+}
+
+const AGENT_SETTINGS_JSON: &str =
+    include_str!("../../../../../packages/domain-contract/fixtures/agent-settings.json");
+
+/// The agent page's fields, copy and test ids.
+pub static AGENT_SETTINGS: LazyLock<AgentSettingsSpec> = LazyLock::new(|| {
+    serde_json::from_str(AGENT_SETTINGS_JSON).expect("agent-settings.json parses")
+});
+
+fn clock(minute_of_day: Option<i64>) -> String {
+    let minutes = minute_of_day.unwrap_or(0).clamp(0, 1439);
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+fn int(trigger: &Value, key: &str) -> Option<i64> {
+    let value = trigger.get(key)?;
+    value
+        .as_i64()
+        .or_else(|| value.as_f64().map(|number| number.floor() as i64))
+}
+
+/// One Schedule row's text for an `AgentTrigger` jsonb (`kind` schedule |
+/// event): `Daily at 09:00`, `Weekly on Monday at 16:45`, `Monthly on day 28
+/// at 01:15`, an event's copy; a disabled trigger appends ` · Paused`.
+pub fn trigger_summary(trigger: &Value) -> String {
+    let copy = &AGENT_SETTINGS.copy;
+    let text = if trigger.get("kind").and_then(Value::as_str) == Some("schedule") {
+        let time = clock(int(trigger, "minuteOfDay"));
+        match trigger.get("interval").and_then(Value::as_str) {
+            Some("weekly") => {
+                let index = (int(trigger, "weekday").unwrap_or(1) - 1).rem_euclid(7) as usize;
+                let weekday = copy.weekdays.get(index).map(String::as_str).unwrap_or_default();
+                copy.schedule
+                    .weekly
+                    .replacen("{weekday}", weekday, 1)
+                    .replacen("{time}", &time, 1)
+            }
+            Some("monthly") => copy
+                .schedule
+                .monthly
+                .replacen("{day}", &int(trigger, "dayOfMonth").unwrap_or(1).to_string(), 1)
+                .replacen("{time}", &time, 1),
+            _ => copy.schedule.daily.replacen("{time}", &time, 1),
+        }
+    } else {
+        let event = trigger.get("event").and_then(Value::as_str).unwrap_or_default();
+        copy.events.get(event).cloned().unwrap_or_else(|| event.to_string())
+    };
+    if trigger.get("enabled").and_then(Value::as_bool) == Some(false) {
+        format!("{text} · {}", copy.paused)
+    } else {
+        text
+    }
+}
+
+/// The agent form as the page edits it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgentForm {
+    pub name: String,
+    pub device_id: Option<String>,
+    pub instructions: String,
+}
+
+/// One field error (`field` = an [`AgentSettingsField::key`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentFormError {
+    pub field: String,
+    pub message: String,
+}
+
+/// Field errors in field order; empty = valid.
+pub fn validate_agent_form(form: &AgentForm) -> Vec<AgentFormError> {
+    let errors = &AGENT_SETTINGS.copy.errors;
+    let mut out = Vec::new();
+    let error = |field: &str, message: &str| AgentFormError {
+        field: field.to_string(),
+        message: message.to_string(),
+    };
+    let name = form.name.trim();
+    if name.is_empty() {
+        out.push(error("identity", &errors.name_required));
+    } else if name.chars().count() > SESSIONS_SEND_AGENT_NAME_MAX {
+        out.push(error("identity", &errors.name_too_long));
+    }
+    if form.device_id.as_deref().is_none_or(str::is_empty) {
+        out.push(error("device", &errors.device_required));
+    }
+    if form.instructions.len() > SESSIONS_SEND_AGENT_INSTRUCTIONS_MAX_BYTES {
+        out.push(error("instructions", &errors.instructions_too_long));
+    }
+    out
+}
+
+/// One login the device reports for the Account picker.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAccountOption {
+    pub id: String,
+    /// The agent CLI (`claude` | `codex`).
+    pub agent: String,
+    pub email: String,
+    pub is_last_used: bool,
+}
+
+/// What the Account row reads: the agent's brand mark + this email.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentAccountValue {
+    pub agent: String,
+    pub email: String,
+}
+
+/// EXP-1306: the Account row's value = the composer chip's (the agent mark +
+/// the email): the pinned `account` (under `cli` when set), else `cli`'s
+/// first login, else the last used one, else the first; `None` = no login
+/// reported (the row reads `copy.account_last_used`, muted).
+pub fn agent_account_value(
+    options: &[AgentAccountOption],
+    account: Option<&str>,
+    cli: Option<&str>,
+) -> Option<AgentAccountValue> {
+    let pinned = account.and_then(|account| {
+        options
+            .iter()
+            .find(|option| option.id == account && cli.is_none_or(|cli| option.agent == cli))
+    });
+    let picked = pinned
+        .or_else(|| cli.and_then(|cli| options.iter().find(|option| option.agent == cli)))
+        .or_else(|| options.iter().find(|option| option.is_last_used))
+        .or_else(|| options.first())?;
+    Some(AgentAccountValue {
+        agent: picked.agent.clone(),
+        email: picked.email.clone(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> Value {
+        serde_json::from_str(AGENT_SETTINGS_JSON).unwrap()
+    }
+
+    #[test]
+    fn the_spec_parses_from_the_fixture() {
+        let keys: Vec<&str> = AGENT_SETTINGS.fields.iter().map(|field| field.key.as_str()).collect();
+        assert_eq!(keys, ["identity", "device", "account", "schedule", "instructions", "delete"]);
+        assert!(AGENT_SETTINGS.fields.last().unwrap().owner_only);
+        assert_eq!(AGENT_SETTINGS.copy.new_agent, "New agent");
+        assert_eq!(AGENT_SETTINGS.copy.weekdays.len(), 7);
+    }
+
+    #[test]
+    fn trigger_summary_matches_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["summaryCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            assert_eq!(
+                trigger_summary(&case["trigger"]),
+                case["expected"].as_str().unwrap(),
+                "{}",
+                case["trigger"]
+            );
+        }
+    }
+
+    #[test]
+    fn validate_agent_form_matches_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["validationCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let form = &case["form"];
+            let form = AgentForm {
+                name: form["name"].as_str().unwrap_or_default().to_string(),
+                device_id: form["deviceId"].as_str().map(str::to_string),
+                instructions: form["instructions"].as_str().unwrap_or_default().to_string(),
+            };
+            let expected: Vec<AgentFormError> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(validate_agent_form(&form), expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn agent_account_value_matches_the_fixture() {
+        assert_eq!(AGENT_SETTINGS.copy.account_last_used, "Last used");
+        let fixture = fixture();
+        let cases = fixture["accountValueCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let options: Vec<AgentAccountOption> = serde_json::from_value(input["options"].clone()).unwrap();
+            let expected: Option<AgentAccountValue> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(
+                agent_account_value(&options, input["account"].as_str(), input["cli"].as_str()),
+                expected,
+                "{}",
+                case["name"]
+            );
+        }
+    }
+}

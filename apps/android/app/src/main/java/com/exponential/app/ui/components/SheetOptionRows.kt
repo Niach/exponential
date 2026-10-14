@@ -5,6 +5,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -228,6 +229,9 @@ internal fun PickerValueRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     valueIcon: ImageVector? = null,
+    /** EXP-1306: a login's agent BRAND mark before the value (the account
+     *  picker chip's look), instead of a [valueIcon]. */
+    valueAgent: String? = null,
     enabled: Boolean = true,
 ) {
     val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
@@ -250,29 +254,48 @@ internal fun PickerValueRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        // The picked option's own glyph, right before its name. Unweighted, so
-        // the value keeps the whole rest of the row (see above).
-        if (valueIcon != null) {
-            Icon(
-                valueIcon,
-                contentDescription = null,
-                modifier = Modifier.padding(start = 8.dp).size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(
+        // The picked option's own glyph, right before its name: both sit at
+        // the END of the weighted rest of the row (iOS/web), never against the
+        // label.
+        Row(
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (valueAgent != null) {
+                Icon(
+                    agentIconPainter(valueAgent),
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 6.dp).size(16.dp),
+                    tint = agentIconTint(
+                        valueAgent,
+                        MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                        ),
+                    ),
+                )
+            } else if (valueIcon != null) {
+                Icon(
+                    valueIcon,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 6.dp).size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                    ),
+                )
+            }
+            Text(
+                value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(
                     alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
                 ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f, fill = false),
             )
         }
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1f).padding(start = 8.dp),
-        )
         Icon(
             ExpIcons.uiChevronRight,
             contentDescription = null,

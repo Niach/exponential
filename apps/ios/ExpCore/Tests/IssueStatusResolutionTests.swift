@@ -46,7 +46,6 @@ final class IssueStatusResolutionTests: XCTestCase {
             priority: priority.rawValue,
             assigneeId: nil, creatorId: nil, source: nil, dueDate: nil,
             sortOrder: nil, completedAt: nil, duplicateOfId: nil,
-            prUrl: nil, prNumber: nil, prState: nil, branch: nil, prMergedAt: nil,
             createdAt: "2026-06-01 10:00:00+00", updatedAt: updatedAt
         )
     }

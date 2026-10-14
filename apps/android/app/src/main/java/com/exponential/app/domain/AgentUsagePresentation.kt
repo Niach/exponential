@@ -3,7 +3,7 @@ package com.exponential.app.domain
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.AgentUsageWindow
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.ui.issue.relativeTime
 import kotlinx.serialization.json.Json
@@ -485,17 +485,13 @@ object AgentUsagePresentation {
      * showing a placeholder.
      */
     fun sessionUsage(
-        session: CodingSessionEntity,
+        session: SessionEntity,
         devices: List<DeviceEntity>,
         nowMs: Long,
     ): AgentUsage? {
-        if (session.status != DomainContract.codingSessionStatusRunning &&
-            session.status != DomainContract.codingSessionStatusInReview
-        ) {
-            return null
-        }
-        val agent = session.agent?.takeIf { it.isNotBlank() } ?: return null
-        val deviceId = session.deviceId ?: return null
+        if (session.isEnded) return null
+        val agent = session.cli?.takeIf { it.isNotBlank() } ?: return null
+        val deviceId = session.deviceId.takeIf { it.isNotBlank() } ?: return null
         val matches = devices.filter { it.deviceId == deviceId }
         val row = matches.firstOrNull { it.userId == session.userId } ?: matches.firstOrNull() ?: return null
         val usage = parseUsageMap(row.agentUsage)?.get(agent) ?: return null

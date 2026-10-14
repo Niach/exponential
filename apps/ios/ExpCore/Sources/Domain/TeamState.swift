@@ -5,11 +5,10 @@ public final class TeamState {
     public var teams: [TeamEntity] = []
     public var boards: [BoardEntity] = []
     public var activeTeamId: String?
-    /// EXP-1075: the caller's OWN live runs per team, recomputed beside the
-    /// Agents tab dots (`AppNavigator.recomputeAgentDots`). The board
-    /// switcher SHEET reads it for its per-team dots (EXP-1210: the pill
-    /// that opens it wears none).
-    public var liveRunsByTeam: [String: CodingSessionOwnership.TeamLiveRuns] = [:]
+    /// EXP-1075: the caller's OWN working sessions per team
+    /// (`SessionTree.liveByTeam`). The board switcher SHEET reads it for its
+    /// per-team dots (EXP-1210: the pill that opens it wears none).
+    public var liveRunsByTeam: [String: SessionTree.TeamLiveSessions] = [:]
 
     public init() {}
 

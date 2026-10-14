@@ -1,36 +1,35 @@
 //! The Start-coding launcher (masterplan-v3 §7.1, DC-1) — ONE prepare
-//! sequence for both launch shapes: a single-issue session and a
-//! multi-issue batch session ([`PrepareRequest`]). A local dialog launch
-//! and a relay `start_session` frame run the SAME sequence (§08 calls this
-//! same entry point; there is no second "remote start" implementation).
+//! sequence for every session ([`PrepareRequest::Session`]): a thread
+//! session, a team agent's channel, a child an agent started. A local start
+//! and a remote one are the same thing now (EXP-1292, Threads v2): a
+//! `queued` `sessions` row naming this device, picked up off the shape by
+//! the host ([`crate::pickup`]), which CLAIMS it (`sessions.claim`) and
+//! fetches its `sessions.brief` BEFORE calling [`prepare`]. The launcher
+//! never creates a server row — the row exists before the device sees it.
 //!
 //! Split to match gpui's threading model while keeping one code path:
 //!
-//! 1. [`prepare`] — steps 0–6 (doctor → repo resolve → JIT token → git →
-//!    `.exp-mcp.json` → prompt delivery → `codingSessions.start`). **Blocking
-//!    network and git I/O, gpui-free** — run it on the background executor.
-//!    Returns either a [`PreparedLaunch`] (the composed `claude` spawn spec)
-//!    or a [`DisabledReason`] (never falsely block, always explain — none of
-//!    these are errors/panics).
-//! 2. [`spawn_prepared`] — steps 7–8 on the foreground: opens the Claude tab
-//!    through the §06 `TerminalManager` (keyed by the `coding_sessions` id)
-//!    and installs the one-shot exit hook that ends the session row
-//!    (idempotent server-side) when the child dies. The prompt rides the
-//!    spawn spec as claude's positional argument (never PTY stdin).
+//! 1. [`prepare`] — doctor → workspace (worktree on the session's branch, or
+//!    a scratch dir for a repo-less session) → `sessions.report{branch}` →
+//!    MCP wiring → the brief as the seed prompt. **Blocking network and git
+//!    I/O, gpui-free** — run it on the background executor. Returns either a
+//!    [`PreparedLaunch`] or a [`DisabledReason`] (never falsely block,
+//!    always explain — none of these are errors/panics).
+//! 2. The host hands the [`PreparedLaunch`] to the ACP engine
+//!    (`engine::start`), which owns the session from there: its turns, its
+//!    `sessions.report` state and its end.
 //!
-//! The launcher never touches PTYs (§06 owns them) and never talks to the
-//! steer relay (§3.1: `coding` does not depend on `steer`) — the app/ui layer
-//! takes `LaunchOutcome::Spawned { session_id, .. }` and hands the session id
-//! to the steer publisher (§08; EXP-249 removed the PTY tee with the binary
-//! mirror).
+//! The launcher never touches PTYs and never talks to the steer relay (§3.1:
+//! `coding` does not depend on `steer`).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use api::error::ApiError;
+use api::session_device::{self, ReportStatus, SessionBrief, SessionReport};
 use api::token_store::TokenStore;
 use api::trpc::TrpcClient;
-use api::{coding_sessions, issues, repositories, users};
+use api::users;
 use terminal::pty::SpawnSpec;
 use terminal::tab::TabId;
 
@@ -42,18 +41,9 @@ use crate::argv::{
 };
 use crate::context_layout::{self, CarriedBase, ContextLayers};
 use crate::mcp_servers::ResolvedMcp;
-use crate::action_prompt::{
-    chat_prompt, render_action_prompt_full, render_run_resume_prompt, ActionInputValue,
-    TriggerNote, WorkspaceNote,
-};
-use crate::action_prompt::{create_action_prompt, fix_pr_conflicts_prompt, tidy_up_prompt};
-use crate::batch_launcher::{
-    action_run_branch, batch_branch_name, chat_run_branch, BatchLaunchRequest, RepoGroup,
-};
 use crate::run_cleanup::RunCleanup;
-use crate::run_registry::{launch_extra, RunFix, RunInput, RunIssue, RunKind, RunRecord};
-use domain::IssueStatus;
-use crate::batch_prompt::{render_batch_prompt, BatchPromptArgs};
+use crate::run_registry::{launch_extra, RunKind, RunRecord};
+use domain::rows::SessionRow;
 use crate::doctor::{run_doctor, ToolCheck};
 use crate::git_credentials;
 use crate::git_worktree::{
@@ -61,16 +51,7 @@ use crate::git_worktree::{
     shared_cargo_target_dir, GitError, TokenUrl,
 };
 use crate::mcp_json::write_mcp_json;
-use crate::prompt::{render_prompt, render_resume_prompt};
 use crate::settings::Settings;
-
-/// Cadence of the `codingSessions.heartbeat` liveness ping while the claude
-/// child is alive. Must stay well inside the server's staleness window
-/// (`CODING_SESSION_STALE_HOURS` = 2h in `@exp/db-schema/domain`, measured
-/// from the row's `updated_at`) so that several pings would have to fail
-/// back-to-back before a live session's row could be swept.
-pub const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
-    std::time::Duration::from_secs(30 * 60);
 
 /// EXP-511: the per-worktree scratch dir the steer publisher downloads a
 /// steered message's image attachments into, so the agent reads a FILE instead
@@ -94,104 +75,6 @@ const LOCAL_EXCLUDES: &[&str] = &[
     // inside the checkout — hidden clone-wide so they never dirty the trunk.
     crate::git_worktree::CLAUDE_WORKTREES_DIR,
 ];
-
-/// Where the launch came from (§7.1). Both origins run the SAME sequence —
-/// the variant exists for the session's audit surface, not for branching.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum LaunchOrigin {
-    /// The Start-coding button on the issue-detail header.
-    Local,
-    /// EXP-1284: a person's start on THIS machine that joins a thread
-    /// ("Start a session here", the thread's reply composer): exactly
-    /// [`Self::Local`], plus the `threadId` `codingSessions.start` sends
-    /// (the api layer drops it beside a resume link).
-    LocalThread { thread_id: String },
-    /// A relay `start_session` frame (§08's control channel). `started_by`
-    /// (EXP-432) is the requesting teammate when the start targeted this
-    /// machine as a SHARED server device — echoed into
-    /// `codingSessions.start`/`heartbeat` so the session row is
-    /// requester-owned; `None` for the owner's own remote starts.
-    Relay {
-        device_id: String,
-        claimant: String,
-        started_by: Option<String>,
-        /// EXP-679: the frame's `startedReason` — `agent` when ANOTHER
-        /// coding session started this run (MCP `exponential_sessions_start`).
-        /// Echoed into `codingSessions.start`, which makes the run
-        /// unattended: its prompt closes out with `exponential_sessions_end`
-        /// LAST, and that call ends it. `None` = a person asked for this start.
-        started_reason: Option<String>,
-        /// EXP-1284: the frame's `threadId` — the thread the requester asked
-        /// this start to JOIN. Echoed into `codingSessions.start` on every
-        /// fresh subject form (the api layer drops it beside a resume link).
-        /// `None` = the start opens or joins its default thread.
-        thread_id: Option<String>,
-        /// EXP-1284 (T16): the frame's `startId`, echoed into
-        /// `codingSessions.start` on every fresh subject form (dropped beside
-        /// a resume link) so the server matches the landing session to its
-        /// pending start. `None` on frames that name none.
-        start_id: Option<String>,
-    },
-}
-
-/// The (started_by, device_id) attribution pair every `codingSessions.start`
-/// and heartbeat carries. `started_by_id` (EXP-432) is set only by a relay
-/// start that named a requesting teammate — it makes the session row
-/// requester-owned. `device_id` is the relay origin's device when there is
-/// one, otherwise THIS machine's steer deviceId ([`CodingDeps::device_id`],
-/// EXP-549) so the server can stamp `coding_sessions.device_id` and snapshot
-/// the machine's current label. `(None, None)` — the byte-identical legacy
-/// wire — when neither is known (tests). EXP-1284: a relay start also carries
-/// the thread its frame asked to join (`thread_id`).
-fn attribution<'a>(
-    origin: &'a LaunchOrigin,
-    deps: &'a CodingDeps,
-) -> coding_sessions::Attribution<'a> {
-    let (started_by_id, relay_device_id, thread_id, start_id) = match origin {
-        LaunchOrigin::Relay {
-            device_id,
-            started_by,
-            thread_id,
-            start_id,
-            ..
-        } => (
-            started_by.as_deref(),
-            Some(device_id.as_str()),
-            thread_id.as_deref(),
-            start_id.as_deref(),
-        ),
-        // A local start names no relay start.
-        LaunchOrigin::LocalThread { thread_id } => (None, None, Some(thread_id.as_str()), None),
-        LaunchOrigin::Local => (None, None, None, None),
-    };
-    coding_sessions::Attribution {
-        // Only a `started_by` relay start re-owns the row (EXP-432).
-        started_by_id,
-        device_id: relay_device_id.or(deps.device_id.as_deref()),
-        // EXP-1284: a relay frame's thread, or a local start's own pick.
-        thread_id,
-        start_id,
-    }
-}
-
-/// EXP-679 — the run's `coding_sessions.started_reason`: a trigger's trigger reason
-/// (`schedule`/`event`) when one fired it, else the reason the relay frame
-/// carried (`agent` — another coding session started this run). `None` = a
-/// person started it, and the run is ATTENDED: it stays open after the agent
-/// finishes (EXP-673); the server registers `exponential_sessions_end` for it
-/// too (EXP-1222), but its prompt says to call it only when the person asks.
-fn started_reason<'a>(
-    origin: &'a LaunchOrigin,
-    trigger: Option<&'a TriggerNote>,
-) -> Option<&'a str> {
-    if let Some(note) = trigger {
-        return Some(note.started_reason());
-    }
-    match origin {
-        LaunchOrigin::Relay { started_reason, .. } => started_reason.as_deref(),
-        LaunchOrigin::Local | LaunchOrigin::LocalThread { .. } => None,
-    }
-}
 
 /// EXP-1005 — the start-time account pick for one launch: rewrite
 /// `options.account` to the profile with the most headroom when the device
@@ -291,7 +174,7 @@ fn with_start_note(prompt: String, pick: Option<&crate::account_rotation::StartP
 }
 
 /// The machine's hostname — §7.1's `device_label` (also the server-side
-/// `coding_sessions.device_label`). Env vars first (cheap), then the
+/// device label). Env vars first (cheap), then the
 /// ubiquitous `hostname` binary; never fails (falls back to a placeholder).
 pub fn default_device_label() -> String {
     for var in ["HOSTNAME", "COMPUTERNAME", "HOST"] {
@@ -311,263 +194,170 @@ pub fn default_device_label() -> String {
     "unknown-host".to_string()
 }
 
-/// EXP-825: the pre-session upload ids a composer prompt's image embeds
-/// name (`![image](/api/attachments/<id>)`, the steer message shape shared
-/// ×4), for `codingSessions.start`'s `attachmentIds`. Wave D: the trailing
-/// FILE lines' ids follow the images'. Empty for no prompt or a prompt
-/// without attachments.
-pub fn prompt_attachment_ids(prompt: Option<&str>) -> Vec<String> {
-    prompt
-        .map(|text| {
-            let parsed = domain::image_message::parse_steer_message(text);
-            parsed
-                .attachment_ids
-                .into_iter()
-                .chain(parsed.files.into_iter().map(|file| file.id))
-                .collect()
-        })
-        .unwrap_or_default()
-}
+/// EXP-1292 — the branch of a session with no single linked issue:
+/// `exp/session-<first 8 of its id>`, lowercased so the server's
+/// issue-identifier parse (an UPPERCASE `[A-Z0-9]+-\d+` tail) can never link
+/// it to an issue.
+pub const SESSION_BRANCH_PREFIX: &str = "exp/session-";
 
-/// §7.1's single-issue launch input.
-#[derive(Clone, Debug)]
-pub struct LaunchRequest {
-    pub issue_id: String,
-    /// EXP-712: the issue's board — its `default_branch` (server-resolved
-    /// through the token mint) is the worktree base and PR target, so two
-    /// boards on one repository develop on different branches. `None` only
-    /// when the caller could not resolve it, which degrades to the
-    /// repo-level default.
-    pub board_id: Option<String>,
-    /// e.g. `EXP-42` — becomes the branch name (`<prefix><IDENTIFIER>`).
-    pub issue_identifier: String,
-    /// Status snapshot at launch time — step 6.5 flips backlog issues
-    /// to `in_progress` (EXP-194).
-    pub issue_status: IssueStatus,
-    /// Hostname; also `coding_sessions.device_label`.
-    pub device_label: String,
-    pub origin: LaunchOrigin,
-    /// The Start-coding dialog's model/effort/mode choices (settings
-    /// defaults for relay starts — [`LaunchOptions::remote`]).
-    pub options: LaunchOptions,
-    /// EXP-662: seed the RESUME prompt instead of the issue's first-launch
-    /// one — "a previous session already worked on this branch, inspect what
-    /// it left behind, continue" — and clamp `options.plan_mode` off (the
-    /// plan already happened).
-    ///
-    /// This is the DEGRADED half of resume, not resume itself: an exact
-    /// relaunch of the recorded conversation is
-    /// [`PrepareRequest::ResumeRun`], and callers resolve that first
-    /// ([`crate::run_registry::latest_for_issue`]). A record-less issue
-    /// (coded before EXP-662, on another machine, or with its transcript
-    /// gone) lands here — a fresh session in the reused worktree, told to
-    /// pick the branch work back up.
-    pub resume_prompt: bool,
-    /// EXP-825: the composer's free text — the requester's additional
-    /// instructions, appended to the seed (or degraded-resume) prompt as the
-    /// `## Additional instructions from the requester` section. Its image
-    /// embeds (`![image](/api/attachments/<id>)`, the steer message shape)
-    /// name the pre-session uploads the session row binds via
-    /// `attachmentIds`. `None`/blank leaves every prompt byte-identical.
-    pub prompt: Option<String>,
-}
-
-/// Which program an action run executes (EXP-257/EXP-259). `Team` is a
-/// user-authored action (fresh body fetched via `actions.get` right before
-/// the run — EXP-268 removed the per-device trust gate); the rest are the
-/// server-defined virtual BUILTINS whose prompts are composed from shipped
-/// constants (`body` stays empty).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ActionRunKind {
-    /// A team action row: preamble [+ inputs] + the fresh body.
-    Team,
-    /// The "Create action" creator (EXP-257): scratch cwd, prompt generated
-    /// from the `description`/`repo` input values.
-    CreateAction,
-    /// The "Fix merge conflicts" run (EXP-259): spawned in the WORKTREE of
-    /// the selected PR's branch (the caller resolved the `pr` input to the
-    /// representative issue), rebases onto the PR's LIVE base (resolved via
-    /// `issues.prepareConflictFix` at launch — EXP-324; a PR based on another
-    /// branch rebases onto it, a stale base is server-retargeted to the
-    /// default first), resolves, force-pushes, and merges via
-    /// `exponential_pr_merge`.
-    FixConflicts {
-        /// The PR's head branch (e.g. `exp/EXP-42` / `exp/batch-<id8>`).
-        branch: String,
-        /// The BOARD's base branch — the rebase-target FALLBACK for old
-        /// servers without `issues.prepareConflictFix` (EXP-324); the live
-        /// resolution in [`prepare`] wins otherwise. EXP-712: the board's own
-        /// pin when it has one, else the repo default.
-        default_branch: String,
-        /// The representative issue's board (EXP-712) — names the board on
-        /// the token mint so the run's ambient branch resolution matches the
-        /// PR's own base.
-        board_id: Option<String>,
-        /// The representative issue's identifier (prompt context + the
-        /// `exponential_pr_merge` argument).
-        identifier: String,
-        /// The representative issue's UUID — the `issues.prepareConflictFix`
-        /// argument (EXP-324).
-        issue_id: String,
-    },
-    /// The hidden "Chat" builtin (EXP-615): a conversation with the agent over
-    /// the tracker's MCP tools, no PR contract. The repository is an OPTIONAL
-    /// ANCHOR (EXP-739): given one, the run gets its own `exp/chat-<id8>`
-    /// worktree cut from the repo's default (EXP-637 — never the trunk clone);
-    /// without one it runs WORKTREE-LESS in the scratch dir every repo-less
-    /// action uses, holding nothing but `.exp-mcp.json` (no git, no token, no
-    /// launch hold, no cleanup). The `prompt` input rides to the agent
-    /// VERBATIM (no action preamble, no inputs section): this is the "just
-    /// talk to the agent" shape, so anything we wrapped around it would be
-    /// words the user did not write.
-    Chat,
-    /// The "Tidy up" builtin (FEED-50): a non-destructive cleanup of a
-    /// board's issues over MCP (duplicates, existing labels, relations). Its
-    /// repository is OPTIONAL read-only context, like [`Self::Chat`]: given
-    /// one, the run gets its own `exp/tidy-up-<id8>` worktree (the generic
-    /// action slug branch); without one it runs in the scratch dir. The
-    /// prompt is the shipped `TIDY_UP_PROGRAM` behind the action preamble,
-    /// so `## Inputs` (board/repo) and a trigger's `## Trigger` render —
-    /// the only builtin that honours a trigger (the only automatable one).
-    TidyUp,
-}
-
-impl ActionRunKind {
-    /// Whether this run is a server-defined virtual builtin (its session row
-    /// is keyed by team — `codingSessions.start` can't resolve a team from
-    /// the builtin literal).
-    pub fn is_builtin(&self) -> bool {
-        !matches!(self, Self::Team)
+/// EXP-1292 — the branch rule: the row's own `branch` when it already has
+/// one (a resume, a reclaimed row); else a ROOT with exactly one linked issue
+/// takes the issue's (`<prefix><IDENTIFIER>`, the PR-linking convention);
+/// else `exp/session-<id8>` ([`session_own_branch`]). A child never takes
+/// the issue branch — the identifiers it is handed are its ROOT's, whose
+/// session runs on that very branch.
+pub fn session_branch(row: &SessionRow, issue_identifiers: &[String], branch_prefix: &str) -> String {
+    if let Some(branch) = row.branch.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        return branch.to_string();
     }
-}
-
-/// An action run's launch input (EXP-253): no PR contract, no status flips —
-/// an interactive agent session on the repo's trunk clone (autopulled), a
-/// PR branch's worktree (the fix-conflicts builtin), or, for a repo-less
-/// action, a scratch dir holding only the MCP config.
-#[derive(Clone, Debug)]
-pub struct ActionLaunchRequest {
-    pub action_id: String,
-    /// EXP-637: the client-minted run id ([`crate::batch_launcher::new_run_id`])
-    /// — names this run's worktree branch (`exp/<slug>-<id8>` /
-    /// `exp/chat-<id8>`) and keys its `runs.json` record. Minted by the
-    /// caller (desktop `action_run`, CLI `launch`) exactly like a batch id.
-    pub run_id: String,
-    /// Display snapshot (tab title + heartbeat scope).
-    pub action_name: String,
-    /// The action's team (EXP-257): the builtin creator prompt targets it,
-    /// and builtin session rows must send it (`codingSessions.start` can't
-    /// resolve a team from the builtin literal).
-    pub team_id: String,
-    /// The FRESH body — the caller fetched it via `actions.get` right before
-    /// the run (synced rows carry no body). Empty for the builtins (their
-    /// prompts are generated).
-    pub body: String,
-    /// `Some` = run in this repo's trunk clone on the default branch (or,
-    /// for [`ActionRunKind::FixConflicts`], the PR branch's worktree —
-    /// REQUIRED there); `None` = repo-less (scratch dir). Local starts
-    /// resolve it from the window resolver; relay starts carry it in the
-    /// frame (batch precedent — the desktop syncs no repositories). Ignored
-    /// for the creator builtin (its repo INPUT only pins the authored
-    /// action's `repositoryId`). OPTIONAL for Chat and Tidy up (FEED-50):
-    /// `Some` = their own run worktree, `None` = the scratch dir.
-    pub repo: Option<RepoGroup>,
-    /// The resolved run-time input values (EXP-257), definition-ordered:
-    /// real actions inject them as the prompt's `## Inputs` section; the
-    /// creator builtin reads its `description`/`repo` inputs to build the
-    /// creator prompt.
-    pub inputs: Vec<ActionInputValue>,
-    /// Which program this run executes (team action or a virtual builtin).
-    pub kind: ActionRunKind,
-    /// `Some` when a TRIGGER started this run (EXP-530): renders the
-    /// prompt's `## Trigger` section and stamps `startedReason` on the
-    /// session row. Always `None` for user starts. Of the builtins only Tidy
-    /// up (FEED-50, the one automatable builtin) renders it; the others'
-    /// generated prompts ignore it.
-    pub trigger: Option<TriggerNote>,
-    /// EXP-583: the action trigger that fired it, stamped on the session
-    /// row beside `startedReason`. `None` on every user start — the server
-    /// refuses one without the other.
-    pub trigger_id: Option<String>,
-    pub device_label: String,
-    pub origin: LaunchOrigin,
-    /// The FULL option set (EXP-257 — same per-agent vocabulary as issue
-    /// runs; the old Claude-only clamp is gone).
-    pub options: LaunchOptions,
-    /// EXP-825: the composer's free text. For [`ActionRunKind::Chat`] it IS
-    /// the chat prompt (the retired `prompt` input), for
-    /// [`ActionRunKind::CreateAction`] the request the agent authors the
-    /// action from (the retired `description`/`name` inputs), for every
-    /// other kind the optional additional-instructions section. Image
-    /// embeds in it bind to the session row via `attachmentIds`.
-    pub prompt: Option<String>,
-}
-
-/// FEED-47 — which recorded run (if any) a remote ISSUE start relaunches.
-/// Only a start that EXPLICITLY asks to resume (the frame's `resume` flag)
-/// ever reads the run registry; every other start is FRESH: a new run and a
-/// new session id, in the reused worktree, with the requester's prompt. A
-/// recorded run on the issue alone never turns a start into a resume.
-/// `lookup` is the registry read, called only when the flag is set.
-pub fn recorded_run_for_start(
-    explicit_resume: bool,
-    lookup: impl FnOnce() -> Option<RunRecord>,
-) -> Option<RunRecord> {
-    if !explicit_resume {
-        return None;
+    if let ([identifier], false) = (issue_identifiers, is_child_session(row)) {
+        return branch_name(branch_prefix, identifier);
     }
-    lookup()
+    session_own_branch(row)
 }
 
-/// EXP-637: RESUME an ended action/chat run — same workspace, same agent,
-/// a NEW `coding_sessions` row pointing back at the old one
-/// (`resumedFromId`). Everything the resume needs comes from the recorded
-/// [`RunRecord`]; the caller only supplies the launch context.
+/// A trimmed, non-blank text field.
+fn named_text(text: &Option<String>) -> Option<String> {
+    text.as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+/// EXP-1292 — whether the row is a sub-session (it has a parent).
+pub fn is_child_session(row: &SessionRow) -> bool {
+    row.parent_id.as_deref().is_some_and(|parent| !parent.trim().is_empty())
+}
+
+/// EXP-1292 — the session's OWN branch, `exp/session-<id8>`
+/// ([`SESSION_BRANCH_PREFIX`]): nobody else's, so the session owns (and may
+/// reclaim) its worktree.
+pub fn session_own_branch(row: &SessionRow) -> String {
+    let id8: String = row
+        .id
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(8)
+        .collect::<String>()
+        .to_ascii_lowercase();
+    format!("{SESSION_BRANCH_PREFIX}{id8}")
+}
+
+/// EXP-1292 — what a session is CALLED on this device (tab title, the
+/// computer-use cursor badge, logs): its issue (`EXP-42`, `EXP-42 +2`), else
+/// its title (an agent: its name), else `Session`.
+pub fn session_label(row: &SessionRow, issue_identifiers: &[String]) -> String {
+    if let Some(first) = issue_identifiers.first() {
+        return match issue_identifiers.len() {
+            1 => first.clone(),
+            n => format!("{first} +{}", n - 1),
+        };
+    }
+    let named = |text: &Option<String>| {
+        text.as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    let preferred = if row.is_agent() {
+        named(&row.name).or_else(|| named(&row.title))
+    } else {
+        named(&row.title).or_else(|| named(&row.name))
+    };
+    preferred.unwrap_or_else(|| "Session".to_string())
+}
+
+/// EXP-1292 — the session's runner pickers layered OVER the host's launch
+/// defaults (`base`): the row's `cli` picks the agent (a different agent than
+/// the defaults' starts from that agent's own settings defaults), then its
+/// model/effort (normalized against the agent's closed sets; blank keeps the
+/// default), plan mode, ultracode, computer use and account. Capabilities
+/// mask everything (codex never plans, only claude runs ultracode).
+pub fn session_launch_options(row: &SessionRow, base: &LaunchOptions, settings: &Settings) -> LaunchOptions {
+    use crate::settings::normalize_choice;
+    let agent = row
+        .cli
+        .as_deref()
+        .and_then(CodingAgent::parse)
+        .unwrap_or(base.agent);
+    let mut options = if agent == base.agent {
+        base.clone()
+    } else {
+        LaunchOptions::defaults_for(settings, agent)
+    };
+    let picked = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    if let Some(model) = picked(&row.model) {
+        let normalized = normalize_choice(&model, agent.model_values(), "");
+        if !normalized.is_empty() {
+            options.model = normalized;
+        }
+    }
+    if let Some(effort) = picked(&row.effort) {
+        let normalized = normalize_choice(&effort, agent.effort_values(), "");
+        if !normalized.is_empty() {
+            options.effort = normalized;
+        }
+    }
+    options.plan_mode = row.plan_mode && agent.supports_plan_mode();
+    options.ultracode = row.ultracode && agent.supports_ultracode();
+    options.computer_use = Some(row.computer_use);
+    if let Some(account) = picked(&row.account) {
+        options.account = Some(account);
+    }
+    options
+}
+
+/// EXP-1292 — ONE launch input for every session: the claimed row, its
+/// `sessions.brief`, the root's linked issues and, on a resume, the run
+/// record that re-spawns its agent CLI natively.
 #[derive(Clone, Debug)]
-pub struct ResumeRunRequest {
+pub struct SessionLaunchRequest {
+    /// The claimed row (runner pickers: cli, account, model, effort,
+    /// plan_mode, computer_use, ultracode, repository_id, branch, kind).
+    pub session: SessionRow,
+    /// Seed prompt = `brief.brief`; system append layers = runbook +
+    /// `team_prompt` + `agent_instructions`; a child's worktree bases on
+    /// `parent_branch`.
+    pub brief: SessionBrief,
+    /// The root's linked issues (session_issues ⋈ issues), link order; may
+    /// be empty. One of them names the branch; they label the run.
+    pub issue_identifiers: Vec<String>,
+    /// `Some` = re-spawn THIS row's agent CLI natively from its run record
+    /// (a message woke a session with no engine on this host).
+    pub resume: Option<ResumeRun>,
+    /// Hostname, for the log and the tab.
+    pub device_label: String,
+    /// The host's launch defaults, layered UNDER the row's pickers
+    /// ([`session_launch_options`]).
+    pub options: LaunchOptions,
+}
+
+/// EXP-1292 — a native resume of a session: the SAME row (no new row, no
+/// `resumed_from_id`), its recorded run, and the first pending person
+/// message as the turn that wakes it.
+#[derive(Clone, Debug)]
+pub struct ResumeRun {
     pub record: RunRecord,
-    pub device_label: String,
-    pub origin: LaunchOrigin,
-    /// Optional per-resume overrides; `None` keeps the recorded values (a
-    /// resumed run keeps its agent and options by contract — only the model
-    /// and effort may be nudged).
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    /// EXP-825: optional composer text for the resumed run — appended to the
-    /// degraded resume prompt, or sent verbatim as the first turn when the
-    /// native conversation survived (a native resume otherwise seeds no
-    /// prompt at all). The server never sends one on a relay resume; a local
-    /// caller may.
-    pub prompt: Option<String>,
-    /// EXP-849 — SWITCH the account this run continues on (claude only).
-    /// `None` keeps `record.account()`, which is what every ordinary resume
-    /// wants: the same config dir holds the credentials, the trust flags and
-    /// the transcript.
-    ///
-    /// A mid-session switch IS a resume with this set: the transcript JSONL is
-    /// copied into the target profile's `projects` tree so `--resume` finds it
-    /// (never the credential — see [`copy_claude_transcript`]), and the new
-    /// `coding_sessions` row chains back through `resumedFromId`. Codex is
-    /// refused: its conversation lives in the profile's own rollout store and
-    /// its login is one per session.
-    pub account: Option<String>,
+    /// The first pending message's body.
+    pub prompt: String,
+    /// That message's `messages.id`, carried onto
+    /// [`PreparedLaunch::seed_message_id`] so the engine consumes it once the
+    /// seed turn is sent. `None` = nothing to consume (a resume the device
+    /// started itself, e.g. an account hop).
+    pub message_id: Option<String>,
 }
 
-/// The four launch shapes ONE [`prepare`] serves.
+/// The launch shapes ONE [`prepare`] serves. EXP-1292: ONE — the issue,
+/// batch, action and resume-row shapes all collapsed into a session.
 #[derive(Clone, Debug)]
 pub enum PrepareRequest {
-    Issue(LaunchRequest),
-    Batch(BatchLaunchRequest),
-    Action(ActionLaunchRequest),
-    ResumeRun(ResumeRunRequest),
-}
-
-/// Issue text for the seed prompt, fetched by the caller from the sync store
-/// (`coding` cannot depend on `sync` — §3.1 dependency direction).
-#[derive(Clone, Debug)]
-pub struct IssueSeed {
-    pub title: String,
-    pub description: Option<String>,
+    Session(SessionLaunchRequest),
 }
 
 /// §7.1 step 3, injectable for tests: turn (repos_root, repo, branch, token)
@@ -625,10 +415,6 @@ impl WorktreeProvider for GitWorktrees {
 
 }
 
-/// Issue title/description lookup for the seed prompt (sync-store backed; the
-/// caller owns the store — §3.1: `coding` cannot depend on `sync`).
-pub type IssueSeedFn = Arc<dyn Fn(&str) -> Option<IssueSeed> + Send + Sync>;
-
 /// The injected collaborators (§7.1) — everything the sequence needs, so the
 /// crate stays testable and both launch origins share one code path.
 pub struct CodingDeps {
@@ -640,18 +426,15 @@ pub struct CodingDeps {
     pub account_id: String,
     /// Resolved coding settings (claude path, repos root, branch prefix).
     pub settings: Settings,
-    /// Issue title/description lookup for the seed prompt (sync-store backed).
-    pub issue_seed: IssueSeedFn,
     /// Git ops ([`GitWorktrees`] in production).
     pub worktrees: Arc<dyn WorktreeProvider>,
     /// Where codex records its session rollouts, for the exact-session
-    /// recovery a resume needs ([`prepare_resume_run`] — the only reader
-    /// since EXP-662). `None` (production) = auto-detect
+    /// recovery a resume needs ([`prepare_resume`] — the only reader). `None` (production) = auto-detect
     /// [`crate::codex_sessions::default_codex_sessions_root`]; tests inject
     /// a fixture tree.
     pub codex_sessions_root: Option<PathBuf>,
-    /// The app data dir — repo-less action runs execute in
-    /// `<data_dir>/actions/<action id>/` (EXP-253).
+    /// The app data dir — repo-less sessions run in
+    /// `<data_dir>/scratch/<root id>/<session id>/` (EXP-1292).
     pub data_dir: PathBuf,
     /// EXP-637: where Claude Code writes per-cwd transcripts
     /// (`~/.claude/projects`). `None` (production) = auto-detect from `HOME`;
@@ -659,10 +442,9 @@ pub struct CodingDeps {
     /// crate cannot depend on `steer`, which owns the tailing side (§3.1).
     pub claude_projects_root: Option<PathBuf>,
     /// This machine's steer deviceId (desktop: [`api::device_identity`] via
-    /// `steer::persistent_device_id`; CLI: `cli_device_id`). Rides
-    /// `codingSessions.start`/`heartbeat` so the server stamps the session
-    /// row's `device_id` and snapshots the machine's CURRENT label
-    /// (EXP-549). `None` only in tests.
+    /// `steer::persistent_device_id`; CLI: `cli_device_id`) — the id a
+    /// `queued` sessions row names to land here (EXP-1292). `None` only in
+    /// tests.
     pub device_id: Option<String>,
     /// EXP-746: whether THIS host can run the ACP engine at all — a HOST
     /// fact, not a machine one: the engine drives its connection on the
@@ -688,7 +470,7 @@ pub enum ResumeSeed {
 /// argv — the prompt as TEXT (the engine sends it as a `session/prompt`
 /// message; PROMPT.md delivery is a TUI affordance and never happens here),
 /// the normalized options, the per-agent MCP posture already wired by
-/// [`wire_agent_mcp`], the `coding_sessions` row id and the resume seed.
+/// [`wire_agent_mcp`], the `sessions` row id and the resume seed.
 #[derive(Clone, Debug)]
 pub struct AcpLaunch {
     pub prompt: Option<String>,
@@ -706,11 +488,10 @@ pub struct AcpLaunch {
     pub reaper_settings_path: Option<PathBuf>,
     /// EXP-1025: the text on the agent's additive system-prompt channel
     /// (claude `--append-system-prompt`, codex `developer_instructions`):
-    /// the run playbook plus the team prompt, composed by
-    /// [`crate::skill::system_append`] from the team's `teams.getAgentPrompt`
-    /// at prepare time — start AND resume, so an edit reaches the next
-    /// resume of every existing run. A team without a prompt (or a fetch
-    /// that failed) gets the bare playbook.
+    /// the run playbook, the team prompt and (EXP-1292) a team agent's
+    /// instructions, composed by [`crate::skill::system_append_layers`] off
+    /// the session's `sessions.brief` at prepare time — start AND resume, so
+    /// an edit reaches the next resume of every existing session.
     pub system_append: String,
     /// EXP-1051: the RAW BYTE COUNTS of everything this launch put into the
     /// agent's context before its first turn — playbook, team prompt, seed
@@ -760,21 +541,16 @@ impl std::fmt::Debug for McpSecrets {
     }
 }
 
-/// §7.1's non-fatal "why Start coding can't run" set — each renders as a
-/// small inline error with a remediation link (never falsely block,
+/// §7.1's non-fatal "why this session can't run here" set — each renders as
+/// a small inline error with a remediation link (never falsely block,
 /// always explain). None of these panic and none are transport errors.
 #[derive(Clone, Debug)]
 pub enum DisabledReason {
-    /// `repositories.forIssue` returned null.
-    NoRepositoryLinked,
     /// The GitHub App is not installed on the repo (server 412) — install is
     /// web-only (§7.9); link out.
     GithubAppMissing { full_name: String, message: String },
-    /// `claude` or `git` failed the doctor (§7.7) — names which tool.
+    /// The agent CLI or `git` failed the doctor (§7.7) — names which tool.
     DoctorFailed(ToolCheck),
-    /// The plan's concurrent-session cap (server 412 on start) — carries the
-    /// server's upgrade copy.
-    SessionLimit { message: String },
     /// The server refused to mint the installation token (401/403).
     TokenDenied { message: String },
     /// EXP-773: the picked agent cannot run on the ACP engine — the doctor's
@@ -785,24 +561,21 @@ pub enum DisabledReason {
     AcpUnavailable { label: String, note: Option<String> },
     /// EXP-849: this resume asked to continue on a DIFFERENT account and the
     /// run cannot be handed over — codex (one login per session, its
-    /// conversation lives in the login's own rollout store), a missing target
-    /// profile, or a switch asked for while the agent is mid-turn.
+    /// conversation lives in the login's own rollout store) or a missing
+    /// target profile.
     AccountSwitchRefused { message: String },
 }
 
 impl DisabledReason {
-    /// User-facing copy (§7.1: inline error / disabled-button helper text).
+    /// User-facing copy (§7.1: inline error / disabled-button helper text,
+    /// and the agent message a refused pickup posts into the conversation).
     pub fn message(&self) -> String {
         match self {
-            DisabledReason::NoRepositoryLinked => {
-                "Link a repository to this board in team settings.".to_string()
-            }
             DisabledReason::GithubAppMissing { message, .. } => message.clone(),
             DisabledReason::DoctorFailed(check) => check
                 .error
                 .clone()
                 .unwrap_or_else(|| format!("{} is not available", check.tool)),
-            DisabledReason::SessionLimit { message } => message.clone(),
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
             DisabledReason::AcpUnavailable { label, note } => match note {
@@ -851,11 +624,12 @@ impl From<GitError> for CodingError {
 /// Steps 0–6 done: everything the foreground needs to open the Claude tab.
 #[derive(Debug)]
 pub struct PreparedLaunch {
-    /// The `coding_sessions` row id — keys the session tab (§06) and the
-    /// steer session room (§08).
+    /// The `sessions` row id — keys the session tab (§06), the steer session
+    /// room (§08) and the run record.
     pub session_id: String,
-    /// The issue identifier (`EXP-42`) — or `batch-<id8>` for a batch
-    /// session (it feeds the same log/registry surfaces).
+    /// What the session is called on this device ([`session_label`]):
+    /// `EXP-42`, `EXP-42 +2`, its title, an agent's name. Feeds the
+    /// log/registry surfaces.
     pub issue_identifier: String,
     pub worktree: PathBuf,
     /// The shared clone the worktree hangs off (`<repos_root>/<owner>/<name>`)
@@ -864,31 +638,28 @@ pub struct PreparedLaunch {
     /// the clone covers every worktree).
     pub clone: PathBuf,
     /// The team `repositories` row id — re-mints the installation token
-    /// mid-session (EXP-56 P9). `None` for a repo-less action run (nothing
-    /// to refresh: no clone, no token).
+    /// mid-session (EXP-56 P9). `None` for a repo-less session (nothing to
+    /// refresh: no clone, no token).
     pub repository_id: Option<String>,
-    /// The real git branch (keeps its `/`), e.g. `exp/EXP-42` — or the
-    /// batch branch `exp/batch-<id8>`. EXP-637: an action/chat run carries
-    /// its own run branch here too (it used to be empty), so
-    /// `LocalSessions::holds_branch` protects run worktrees and the
-    /// inventory's `busy` follows.
+    /// The real git branch (keeps its `/`), e.g. `exp/EXP-42` or
+    /// `exp/session-<id8>` ([`session_branch`]), so
+    /// `LocalSessions::holds_branch` protects the worktree and the
+    /// inventory's `busy` follows. Empty for a repo-less session.
     pub branch: String,
     /// EXP-637: what [`branch`](Self::branch) was cut from — the run
-    /// cleanup's "did anything land here" compare. `None` for issue/batch
-    /// sessions (the prune owns those) and repo-less runs.
+    /// cleanup's "did anything land here" compare. `None` for an issue's
+    /// session (the prune owns its worktree) and repo-less sessions.
     pub base_branch: Option<String>,
     /// EXP-688: the git ref "Latest changes" is measured from —
-    /// `origin/<default branch>` for every run that has a repo. Unlike
-    /// [`base_branch`](Self::base_branch) this is set for issue and batch
-    /// sessions too: it is the DIFF base, not the cleanup compare, and
-    /// without it the published diff went blank the moment the agent
-    /// committed. `None` for a repo-less scratch run — nothing to diff
-    /// against.
+    /// `origin/<base>` for every session that has a repo (a child's base is
+    /// its parent's branch). Unlike [`base_branch`](Self::base_branch) this
+    /// is set for issue sessions too: it is the DIFF base, not the cleanup
+    /// compare. `None` for a repo-less session — nothing to diff against.
     pub base_ref: Option<String>,
-    /// EXP-637: the run worktree to auto-remove when the run ends, iff it is
-    /// clean and carries no commits ([`crate::run_cleanup`]). `None` for
-    /// issue/batch sessions (their worktrees survive by design) and for
-    /// runs with no worktree of their own.
+    /// EXP-637: the session worktree to auto-remove when the session ends,
+    /// iff it is clean and carries no commits ([`crate::run_cleanup`]).
+    /// `None` for an issue's session (its worktree survives by design) and
+    /// for sessions with no worktree of their own.
     pub run_cleanup: Option<RunCleanup>,
     /// EXP-792: every picked team MCP server this run starts WITHOUT (not
     /// connected, refresh failed, removed, the resolve call failed) plus the
@@ -908,13 +679,10 @@ pub struct PreparedLaunch {
     /// `EXP-42 +2` — claude's OSC titles replace the whole tab title, so the
     /// strip shows `EXP-42 · <claude's title>`.
     pub tab_title_prefix: String,
-    /// The row's start scope, re-sent with every heartbeat (EXP-105): a ping
-    /// that finds the row swept (suspend outlived the staleness window)
-    /// re-creates it server-side under the same id.
-    pub heartbeat_scope: coding_sessions::HeartbeatScope,
-    /// EXP-253: the `actions` row this run executes, for an action or chat
-    /// run. `None` for an issue/batch session.
-    pub action_id: Option<String>,
+    /// EXP-1292: the `messages.id` the seed turn delivers (a resume's waking
+    /// message), consumed by the engine once that turn is sent. `None` for a
+    /// fresh session (its brief is no message) and a device-started resume.
+    pub seed_message_id: Option<String>,
     /// EXP-275/EXP-690: the spawn runs with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass — mirrors
     /// `permission_args`: every claude/codex run bypasses, and plan mode
@@ -950,12 +718,9 @@ pub struct PreparedLaunch {
     /// EXP-478: the clone's launch gate, held since BEFORE the worktree was
     /// created — the auto-prune's policy is a pre-fetch snapshot that cannot
     /// protect a worktree born after it, so the gate parks the prune for the
-    /// launch's whole flight. The UI `.take()`s it out (the
-    /// [`spawn_prepared_with`] destructure would drop it pre-spawn) and drops
-    /// it only after `LocalSessions` registers the session; failure paths
-    /// release via RAII. `None` for runs that never touch a session worktree
-    /// (trunk-clone and scratch-dir action runs — the prune skips the clone
-    /// root itself).
+    /// launch's whole flight. The host `.take()`s it out and drops it only
+    /// after it registered the session; failure paths release via RAII.
+    /// `None` for a repo-less session (no worktree to protect).
     pub launch_hold: Option<crate::launch_gate::LaunchHold>,
     /// EXP-1005: the start-time account pick that moved this launch off the
     /// account its options named (`None` = it runs on that account). The
@@ -970,8 +735,8 @@ pub enum Prepared {
     Disabled(DisabledReason),
 }
 
-/// §7.1's `LaunchOutcome`, produced by [`spawn_prepared`] (or directly by
-/// the caller when [`prepare`] returned [`Prepared::Disabled`]).
+/// §7.1's `LaunchOutcome`, produced by the host's spawn (or directly by the
+/// caller when [`prepare`] returned [`Prepared::Disabled`]).
 #[derive(Debug)]
 pub enum LaunchOutcome {
     Spawned {
@@ -1175,8 +940,8 @@ fn prune_hook_settings(root: &Path) {
     }
 }
 
-/// Step 4's per-agent MCP wiring, shared by the issue/batch skeleton and the
-/// action sequence (EXP-257 — action runs stopped being Claude-only). It
+/// The per-agent MCP wiring, shared by every session launch, resume and the
+/// agent shell. It
 /// authenticates the spawned agent as the real user against `/api/mcp`:
 ///
 /// - claude: the cwd `.exp-mcp.json` (any subagents it spawns inherit the
@@ -1187,11 +952,9 @@ fn prune_hook_settings(root: &Path) {
 ///   BEFORE the write so an unguardable repo never gets the key on disk).
 /// - codex: `-c mcp_servers.*` argv overrides; the raw key rides ONLY the
 ///   spawn env (EXP_MCP_TOKEN) — never disk, never argv.
-/// EXP-637: the GUARD half of [`wire_agent_mcp`], split out because it must
-/// still run BEFORE the session row exists — a repo whose ignore rules can't
-/// be verified must fail the launch before anything server-side is created,
-/// while the WRITES now have to wait for the row id (the
-/// `X-Exp-Session-Id` header is part of the config).
+/// EXP-637: the GUARD half of [`wire_agent_mcp`], split out so a repo whose
+/// ignore rules can't be verified fails the launch before any key is
+/// written.
 ///
 /// EXP-773: only the agent SHELL still writes a key file. A coding run is
 /// ACP-only, where claude gets `AgentMcp::ClaudeInline` — nothing lands in
@@ -1204,9 +967,9 @@ fn guard_agent_mcp(agent: CodingAgent, cwd: &Path, shell: bool) -> Result<(), Co
     Ok(())
 }
 
-/// EXP-637: `session_id` is the `coding_sessions` row this launch just
-/// created — it rides every MCP call as `X-Exp-Session-Id` so the server can
-/// resolve `exponential_sessions_end` (and spare a self-merged session).
+/// EXP-637: `session_id` is the `sessions` row this launch runs — it rides
+/// every MCP call as `X-Exp-Session-Id` so the server can resolve
+/// `exponential_sessions_end` (and spare a self-merged session).
 /// `None` = no session (agent shells), which keeps the pre-EXP-637 wiring
 /// byte-identical.
 ///
@@ -1299,8 +1062,7 @@ pub fn apply_account_env(
 pub const CLAUDE_SUBAGENT_MODEL_ENV: &str = "CLAUDE_CODE_SUBAGENT_MODEL";
 
 /// The subagent-model half of the spawn env, applied at every site
-/// [`apply_account_env`] is (coding sessions, action/chat runs, resumes and
-/// agent shells alike). Nothing at all for a blank pick (the CLI's own
+/// [`apply_account_env`] is (sessions, resumes and agent shells alike). Nothing at all for a blank pick (the CLI's own
 /// default) or for any agent but claude.
 ///
 /// The value is the same one the `--model` flag gets: claude takes its model
@@ -1340,18 +1102,13 @@ fn with_claude_mcp_timeout(spawn: SpawnSpec, inherited: Option<std::ffi::OsStrin
 /// starts without those tools. An empty pick resolves to nothing without
 /// touching the network (every pick-less launch and every agent shell).
 ///
-/// EXP-1140: resolved FOR `session_id` — the row `codingSessions.start` just
-/// created with this same pick on it. The server hands out only that row's
-/// persisted ids, to its owner or host, so this runs AFTER the row exists
-/// (a Disabled launch never fetches a credential) and never for the agent's
-/// own key.
-///
-/// FEED-73: `None` = the row's whole persisted pick, asked of the server
-/// without naming ids (a REAL action run: `codingSessions.start` set its
-/// pick from the action's own list, which this launcher never saw), plus
-/// the members' shared connections and the roster for the note.
-fn resolve_mcp_servers(deps: &CodingDeps, ids: Option<&[String]>, session_id: &str) -> ResolvedMcp {
-    let resolved = crate::mcp_servers::resolve(&deps.trpc, ids, session_id);
+/// EXP-1140: resolved FOR `session_id` — the server hands out only that
+/// row's persisted pick, to its owner or host, and never for the agent's own
+/// key. EXP-1292: the pick lives on the `sessions` row (set by
+/// `sessions.send`), so no ids are named here — the row's whole pick plus
+/// the members' shared connections and the roster for the note (FEED-73).
+fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
+    let resolved = crate::mcp_servers::resolve(&deps.trpc, None, session_id);
     for warning in &resolved.warnings {
         log::warn!("{warning}");
     }
@@ -1367,8 +1124,7 @@ fn resolve_mcp_servers(deps: &CodingDeps, ids: Option<&[String]>, session_id: &s
 /// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
 /// computer use (a headless session, a desktop without portals) launches without, with a
 /// warning in the log and no section in the prompt. `label` = what the agent
-/// cursor's badge shows while this run drives (`EXP-42`, `EXP-42 +1`, the
-/// action's name, `Chat`).
+/// cursor's badge shows while this run drives ([`session_label`]).
 fn attach_computer_use(
     deps: &CodingDeps,
     options: &LaunchOptions,
@@ -1421,7 +1177,7 @@ fn attach_code_mode(
 }
 
 /// EXP-1196/EXP-1236: what this launch carries beyond the playbook, for
-/// [`system_append_for_team`]: the computer-use section names the device's
+/// [`crate::skill::system_append_layers`]: the computer-use section names the device's
 /// subagent model.
 fn run_extras(deps: &CodingDeps, computer_use: bool, code_mode: bool) -> crate::skill::Extras {
     crate::skill::Extras {
@@ -1442,20 +1198,6 @@ fn apply_mcp_server_env(spawn: SpawnSpec, resolved: &ResolvedMcp) -> SpawnSpec {
         spawn = spawn.env(name, value);
     }
     spawn
-}
-
-/// EXP-637: everything between `codingSessions.start` and the spawn can
-/// still fail (an unwritable MCP config, a bad argv). Ending the row keeps a
-/// failed launch from leaving a "coding now" badge nobody can clear.
-fn end_on_error<T>(
-    trpc: &TrpcClient,
-    session_id: &str,
-    result: Result<T, CodingError>,
-) -> Result<T, CodingError> {
-    if result.is_err() {
-        let _ = coding_sessions::end(trpc, session_id);
-    }
-    result
 }
 
 /// The shared 412/401/403 mapping for `repositories.installationToken`.
@@ -1482,8 +1224,9 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// before `launch_account`/the start-time rotation rewrite its account.
 /// Last used = per agent, the login a PERSON last started or switched a run
 /// on, on that device (`agent_accounts[agent].profiles[].active`); the last
-/// used agent = `launch_defaults.defaultAgent`. Triggers,
-/// agent-started runs and auto-rotation never move it.
+/// used agent = `launch_defaults.defaultAgent`. Agent-started sessions
+/// (children, a team agent's channel), resumes and auto-rotation never move
+/// it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LastUsedStamp {
     agent: CodingAgent,
@@ -1492,8 +1235,14 @@ struct LastUsedStamp {
     account: Option<String>,
 }
 
-fn last_used_stamp(req: &PrepareRequest) -> Option<LastUsedStamp> {
-    let fresh = |options: &LaunchOptions| LastUsedStamp {
+/// EXP-1292: a person starts a thread ROOT (`sessions.send` from a
+/// composer); a child is an agent's doing and an agent root's channel wakes
+/// on its triggers, so neither stamps. A resume keeps its recorded account.
+fn last_used_stamp(req: &PrepareRequest, options: &LaunchOptions) -> Option<LastUsedStamp> {
+    let PrepareRequest::Session(session_req) = req;
+    let row = &session_req.session;
+    let person = session_req.resume.is_none() && row.parent_id.is_none() && !row.is_agent();
+    person.then(|| LastUsedStamp {
         agent: options.agent,
         account: options
             .account
@@ -1501,31 +1250,7 @@ fn last_used_stamp(req: &PrepareRequest) -> Option<LastUsedStamp> {
             .map(str::trim)
             .filter(|account| !account.is_empty())
             .map(str::to_string),
-    };
-    match req {
-        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None)
-            .is_none()
-            .then(|| fresh(&issue_req.options)),
-        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None)
-            .is_none()
-            .then(|| fresh(&batch_req.options)),
-        PrepareRequest::Action(action_req) => {
-            let person = action_req.trigger_id.is_none()
-                && started_reason(&action_req.origin, action_req.trigger.as_ref()).is_none();
-            person.then(|| fresh(&action_req.options))
-        }
-        // A resume keeps its recorded account; only a PERSON's remote
-        // mid-run switch (a relay resume naming an account) moves last used.
-        // The desktop's local switch stamps in `account_switch`, and a
-        // rotation hop never comes through as a person's relay resume.
-        PrepareRequest::ResumeRun(resume_req) => match (&resume_req.origin, &resume_req.account) {
-            (LaunchOrigin::Relay { started_reason: None, .. }, Some(account)) => Some(LastUsedStamp {
-                agent: resume_req.record.agent,
-                account: Some(account.trim().to_string()).filter(|account| !account.is_empty()),
-            }),
-            _ => None,
-        },
-    }
+    })
 }
 
 fn apply_last_used_stamp(stamp: &LastUsedStamp, data_dir: &Path) {
@@ -1556,62 +1281,92 @@ pub fn record_last_used(data_dir: &Path, agent: CodingAgent, account: Option<&st
     }
 }
 
-/// [`prepare_launch`], then (EXP-1158) the last used stamp of a launch a
+/// [`prepare_session`], then (EXP-1158) the last used stamp of a launch a
 /// PERSON started, once it is [`Prepared::Ready`]: a refused launch moves
 /// nothing.
 pub fn prepare(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    let stamp = last_used_stamp(req);
-    let prepared = prepare_launch(req, deps)?;
+    let PrepareRequest::Session(session_req) = req;
+    let options = session_launch_options(&session_req.session, &session_req.options, &deps.settings);
+    let stamp = last_used_stamp(req, &options);
+    let prepared = match &session_req.resume {
+        None => prepare_session(session_req, options, deps)?,
+        Some(resume) => prepare_resume(session_req, resume, deps)?,
+    };
     if let (Some(stamp), Prepared::Ready(_)) = (&stamp, &prepared) {
         apply_last_used_stamp(stamp, &deps.data_dir);
     }
     Ok(prepared)
 }
 
-/// Steps 0–6 of §7.1 (blocking; run on the background executor) — ONE
-/// skeleton for both launch shapes, per-shape only at the marked match
-/// points:
-///
-/// 0. doctor — `claude` (incl. the minimum-version gate) AND `git` must
-///    resolve (§7.7: a machine with git missing is blocked here, not allowed
-///    to crash at clone);
-/// 1. repo — Issue: `repositories.forIssue` (null ⇒
-///    [`DisabledReason::NoRepositoryLinked`]); Batch: the dialog already
-///    resolved the repo — trust it;
-/// 2. `repositories.installationToken` — JIT, session-gated, never persisted;
-/// 3. git: clone/worktree + branch (`<prefix><IDENTIFIER>` /
-///    `exp/batch-<id8>`) + ambient-auth install (bare origin + repo-local
-///    credential helper, EXP-73; the personal-key read/mint races this on a
-///    side thread, §7.2);
-/// 4. `.exp-mcp.json` (the ONLY place the raw `expu_` key lands on disk);
-/// 5. prompt — Issue: the single-issue template; Batch: the multi-issue
-///    template (all issues + the combined-PR contract). Both size-gated
-///    (direct argv when small, PROMPT.md otherwise);
-/// 6. `codingSessions.start` / `start_batch` — BEFORE spawn; its id keys
-///    tab + steer room.
-fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
-    // Action runs share none of the worktree/branch/PR skeleton below —
-    // they get their own sequence (EXP-253).
-    if let PrepareRequest::Action(action_req) = req {
-        return prepare_action(action_req, deps);
-    }
-    if let PrepareRequest::ResumeRun(resume_req) = req {
-        return prepare_resume_run(resume_req, deps);
-    }
-    let resume_prompt =
-        matches!(req, PrepareRequest::Issue(issue_req) if issue_req.resume_prompt);
-    let mut options = match req {
-        PrepareRequest::Issue(issue_req) => issue_req.options.clone(),
-        PrepareRequest::Batch(batch_req) => batch_req.options.clone(),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
+/// §7.2 — the personal key (the agent's MCP credential): read, or minted on
+/// first use, on a side thread so it races the git prep.
+fn spawn_personal_key(deps: &CodingDeps) -> std::thread::JoinHandle<Result<String, ApiError>> {
+    let trpc = Arc::clone(&deps.trpc);
+    let store = Arc::clone(&deps.token_store);
+    let account_id = deps.account_id.clone();
+    std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
+}
+
+fn join_personal_key(
+    handle: std::thread::JoinHandle<Result<String, ApiError>>,
+) -> Result<String, CodingError> {
+    Ok(handle
+        .join()
+        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??)
+}
+
+/// EXP-1292 — a repo-less session's scratch dir:
+/// `<data_dir>/scratch/<root id>/<session id>/` ([`crate::scratch`]), path
+/// segments sanitized (server ids are untrusted here by design, so a crafted
+/// id can never escape the scratch root). Created on demand.
+fn scratch_cwd(deps: &CodingDeps, row: &SessionRow) -> Result<PathBuf, CodingError> {
+    let (Some(root), Some(session)) = (path_segment(row.root_id_or_self()), path_segment(&row.id)) else {
+        return Err(CodingError::Io("empty session id".to_string()));
     };
-    // A resume NEVER re-enters plan mode (EXP-202): the plan already
-    // happened in the work being picked back up. The dialog clamps this too,
-    // but the invariant belongs here so every caller (remote resume included)
-    // inherits it.
-    options.plan_mode &= !resume_prompt;
+    let dir = crate::scratch::scratch_root(&deps.data_dir).join(root).join(session);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| CodingError::Io(format!("create session scratch dir: {e}")))?;
+    Ok(dir)
+}
+
+/// EXP-1292 — tell the server the branch the launcher put the session on,
+/// once its worktree exists (the host claims with no branch). Best-effort:
+/// a lost write costs the row its branch label until the agent's PR lands,
+/// never the launch.
+fn report_branch(trpc: &TrpcClient, session_id: &str, branch: &str) {
+    let report = SessionReport {
+        branch: Some(branch.to_string()),
+        ..SessionReport::default()
+    };
+    if let Err(err) = session_device::report(trpc, session_id, &report) {
+        log::warn!("coding: session {session_id}'s branch {branch} not reported: {err}");
+    }
+}
+
+/// The steps of a FRESH session launch (blocking; run on the background
+/// executor). The host already claimed the row and fetched its brief.
+///
+/// 0. doctor — the SELECTED agent (EXP-201: a missing codex never blocks a
+///    claude launch), plus `git` when the session has a repository, then the
+///    login it spends (EXP-1138) and the ACP gate (EXP-773);
+/// 1. workspace — `repository_id` set: mint the JIT installation token
+///    (session-gated, cache-seeded), then the worktree on the session's
+///    branch ([`session_branch`]) cut from `origin/<brief.parent_branch>`
+///    for a child, else the repo's resolved default; no repository: the
+///    scratch dir ([`scratch_cwd`]);
+/// 2. `sessions.report{branch}` once the worktree exists;
+/// 3. the per-agent MCP wiring pinned to the row (`X-Exp-Session-Id`), the
+///    team servers resolved FOR it, computer use and code mode;
+/// 4. the run record (`runs.json`) a later resume re-enters;
+/// 5. the seed prompt = the brief, verbatim; the system append = runbook +
+///    team prompt + agent instructions ([`crate::skill::system_append_layers`]).
+fn prepare_session(
+    req: &SessionLaunchRequest,
+    mut options: LaunchOptions,
+    deps: &CodingDeps,
+) -> Result<Prepared, CodingError> {
+    let row = &req.session;
+    let session_id = row.id.clone();
     // EXP-1005: every fresh launch on this device starts on the signed-in
     // profile of its agent with the MOST headroom, read off the usage cache
     // (`Settings.auto_rotate_accounts`, default on, turns it off; codex
@@ -1623,16 +1378,20 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     let account_pick = apply_start_pick(&mut options, deps, report.check_for(agent));
     note_start_pick(account_pick.as_ref());
     let options = &options;
-    // EXP-909: the LOGIN this run spends, in the vocabulary the server column
-    // and the usage cache share — the device-local profile id. Hoisted once so the row, the heartbeat and
-    // `apply_account_env` can never name different accounts.
-    let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
+    // EXP-1292: a child is handed its ROOT's issues (its label) but works on
+    // a branch of its own, so it owns its worktree like an issue-less one.
+    let own_issues: &[String] = if is_child_session(row) { &[] } else { &req.issue_identifiers };
+    let repository_id = row
+        .repository_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
 
-    // Step 0 — the doctor gate, PER-AGENT (EXP-201: git + the SELECTED
-    // agent must resolve — a missing codex never blocks a claude launch).
-    // Cheap relative to clone/mint and structural: the relay origin has no
-    // button whose disabled state could have gated this.
-    if let Some(failed) = doctor_gate(&report, deps, agent, options.account.as_deref(), true) {
+    // Step 0 — the doctor gate, PER-AGENT; git only when a clone is involved.
+    if let Some(failed) =
+        doctor_gate(&report, deps, agent, options.account.as_deref(), repository_id.is_some())
+    {
         return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
     }
     // EXP-773: the ACP engine is the ONE coding transport — an agent that
@@ -1640,417 +1399,189 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     if let Some(reason) = acp_gate(&report, agent, deps) {
         return Ok(Prepared::Disabled(reason));
     }
-    // Step 1 — resolve the repository (the coding-first gate).
-    let (repository_id, full_name) = match req {
-        PrepareRequest::Issue(issue_req) => {
-            let Some(repo) = repositories::for_issue(&deps.trpc, &issue_req.issue_id)? else {
-                return Ok(Prepared::Disabled(DisabledReason::NoRepositoryLinked));
+
+    // Step 1 — the workspace.
+    let mut key_handle = None;
+    let mut launch_hold: Option<crate::launch_gate::LaunchHold> = None;
+    let mut workspace: Option<RepoWorkspace> = None;
+    let cwd = match &repository_id {
+        Some(repository_id) => {
+            // Step 1a — the JIT installation token (≤1 h real TTL, never
+            // persisted/logged server-side — TokenUrl + scrubbed git errors
+            // enforce that). Through the process-wide cache, deliberately:
+            // this seeds it, so the refresher's first pass and the git-bar's
+            // next sync are cache hits (EXP-73). The margin is the
+            // refresher's LEAD: the ambient token must be born with enough
+            // life to reach the refresher's first scheduled pass.
+            let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
+                &deps.trpc,
+                repository_id,
+                // EXP-1292: sessions belong to a repository, not a board; the
+                // mint resolves the repo's own branch (team pin → GitHub).
+                None,
+                crate::token_refresh::REFRESH_LEAD,
+            ) {
+                Ok(minted) => minted,
+                Err(err) => return map_token_error(err, repository_id),
             };
-            (repo.repository_id, repo.full_name)
-        }
-        PrepareRequest::Batch(batch_req) => (
-            batch_req.repo.repository_id.clone(),
-            batch_req.repo.full_name.clone(),
-        ),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    // EXP-712: the BOARD this launch belongs to. The mint below answers with
-    // that board's branch (board pin → team pin → GitHub), which becomes the
-    // worktree base and the PR target — two boards on one repo therefore
-    // develop on different branches. A batch names any board of its set: one
-    // whose boards disagree on the branch was already refused (dialog blocker
-    // / `steer.startSession`), so they all resolve to the same branch.
-    let board_id = match req {
-        PrepareRequest::Issue(issue_req) => issue_req.board_id.clone(),
-        PrepareRequest::Batch(batch_req) => batch_req.board_id.clone(),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-
-    // Step 2 — mint the JIT installation token (session-gated, ≤1 h real
-    // TTL, never persisted/logged server-side — TokenUrl + scrubbed git
-    // errors enforce that). Through the process-wide cache, deliberately:
-    // this seeds it, so the refresher's first pass and the git-bar's next
-    // sync are cache hits instead of duplicate mints (EXP-73). The margin is
-    // the refresher's LEAD, not the smaller per-op one — the session's
-    // ambient token must be born with enough life to reach the refresher's
-    // first scheduled pass even if that pass is delayed.
-    let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
-        &deps.trpc,
-        &repository_id,
-        board_id.as_deref(),
-        crate::token_refresh::REFRESH_LEAD,
-    ) {
-        Ok(minted) => minted,
-        Err(err) => return map_token_error(err, &full_name),
-    };
-
-    // §7.2 — the personal-key read/mint races the git prep on a side thread;
-    // only step 4 (.exp-mcp.json) needs the result.
-    let key_handle = {
-        let trpc = Arc::clone(&deps.trpc);
-        let store = Arc::clone(&deps.token_store);
-        let account_id = deps.account_id.clone();
-        std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
-    };
-
-    // Step 3 — git via argv (never gh): clone → token remote → worktree on
-    // the per-shape branch.
-    let branch = match req {
-        PrepareRequest::Issue(issue_req) => {
-            branch_name(&deps.settings.branch_prefix, &issue_req.issue_identifier)
-        }
-        PrepareRequest::Batch(batch_req) => batch_branch_name(&batch_req.batch_id),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    let url = minted.url.clone();
-    let repos_root = deps.settings.repos_root_path();
-    // The clone path the worktree hangs off — the P9 token refresher's target.
-    let clone = clone_path(&repos_root, url.full_name());
-    // EXP-478: gate BEFORE the worktree exists — from here until the UI
-    // registers the session, the auto-prune must not run on this clone.
-    let launch_hold = crate::launch_gate::hold(&clone);
-    // The worktree base: the board's own base branch (the mint resolved it).
-    let base_branch = minted.default_branch.clone();
-    let worktree = deps.worktrees.prepare(
-        &repos_root,
-        url.full_name(),
-        &base_branch,
-        &branch,
-        &url,
-        minted.expires_at.as_deref(),
-    )?;
-
-    // Step 4a — the EXP-474 ignore GUARD, still before anything server-side
-    // exists. The WRITES moved after step 6 (EXP-637: the config carries the
-    // session row's `X-Exp-Session-Id`).
-    let personal_key = key_handle
-        .join()
-        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &worktree, false)?;
-
-    // Step 5 — the seed prompt (both shapes: direct argv delivery when
-    // small, PROMPT.md + seed line otherwise). EXP-662: this path ALWAYS
-    // seeds a prompt — an exact relaunch of a recorded conversation is
-    // [`prepare_resume_run`], and a `resume_prompt` request is precisely the
-    // case where no record could be resolved, so it gets a fresh session in
-    // the reused worktree told to pick the branch work back up.
-    // EXP-679: only an unattended run (relay `startedReason`) is told to
-    // report through `exponential_sessions_end` LAST — a person's run keeps
-    // its session open and ends itself only when asked (EXP-1222).
-    let run_reason = match req {
-        PrepareRequest::Issue(issue_req) => started_reason(&issue_req.origin, None),
-        PrepareRequest::Batch(batch_req) => started_reason(&batch_req.origin, None),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    let rendered = match req {
-        PrepareRequest::Issue(issue_req) if issue_req.resume_prompt => {
-            let seed = (deps.issue_seed)(&issue_req.issue_id);
-            let title = seed
-                .as_ref()
-                .map(|seed| seed.title.as_str())
-                .unwrap_or(issue_req.issue_identifier.as_str());
-            render_resume_prompt(
-                &issue_req.issue_identifier,
-                title,
+            // §7.2 — the personal-key read/mint races the git prep on a side
+            // thread; only the MCP wiring needs the result.
+            key_handle = Some(spawn_personal_key(deps));
+            let url = minted.url.clone();
+            let mut branch = session_branch(row, own_issues, &deps.settings.branch_prefix);
+            // EXP-1292: an issue sits in any number of threads; a second one
+            // starting while another LIVE session on this machine holds the
+            // issue's branch takes its own instead of sharing the checkout.
+            if row.branch.as_deref().is_none_or(|own| own.trim().is_empty())
+                && branch != session_own_branch(row)
+                && crate::run_registry::live_branch_holder(
+                    &deps.data_dir,
+                    repository_id,
+                    &branch,
+                    &session_id,
+                )
+                .is_some()
+            {
+                log::info!(
+                    "session {session_id}: {branch} is held by a live session here — taking its own branch"
+                );
+                branch = session_own_branch(row);
+            }
+            crate::git_worktree::validate_branch_arg(&branch, "session")?;
+            // EXP-1292: a child works ON its parent's branch line — its
+            // worktree is cut from `origin/<parent branch>` (and its PR then
+            // stacks on the parent's). Server data is untrusted, so the ref
+            // is validated before it can reach git argv.
+            let base_branch = match req
+                .brief
+                .parent_branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|parent| !parent.is_empty())
+            {
+                Some(parent) => {
+                    crate::git_worktree::validate_branch_arg(parent, "parent branch")?;
+                    parent.to_string()
+                }
+                None => minted.default_branch.clone(),
+            };
+            let repos_root = deps.settings.repos_root_path();
+            // The clone path the worktree hangs off — the P9 token
+            // refresher's target.
+            let clone = clone_path(&repos_root, url.full_name());
+            // EXP-478: gate BEFORE the worktree exists — from here until the
+            // host registers the session, the auto-prune must not run on
+            // this clone.
+            launch_hold = Some(crate::launch_gate::hold(&clone));
+            let worktree = deps.worktrees.prepare(
+                &repos_root,
+                url.full_name(),
                 &base_branch,
-                run_reason.is_some(),
-                issue_req.prompt.as_deref(),
-            )
+                &branch,
+                &url,
+                minted.expires_at.as_deref(),
+            )?;
+            workspace = Some(RepoWorkspace {
+                clone,
+                full_name: url.full_name().to_string(),
+                branch,
+                base_branch,
+            });
+            worktree
         }
-        PrepareRequest::Issue(issue_req) => {
-            // Title/description from the sync store.
-            let seed = (deps.issue_seed)(&issue_req.issue_id);
-            let (title, description) = match &seed {
-                Some(seed) => (seed.title.as_str(), seed.description.as_deref()),
-                None => (issue_req.issue_identifier.as_str(), None),
-            };
-            render_prompt(
-                &issue_req.issue_identifier,
-                title,
-                description,
-                run_reason.is_some(),
-                issue_req.prompt.as_deref(),
-            )
-        }
-        PrepareRequest::Batch(batch_req) => render_batch_prompt(&BatchPromptArgs {
-            default_branch: &minted.default_branch,
-            branch: &branch,
-            issues: &batch_req.issues,
-            unattended: run_reason.is_some(),
-            prompt: batch_req.prompt.as_deref(),
-        }),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    // EXP-1005: the account hop, said in the run.
-    let rendered = with_start_note(rendered, account_pick.as_ref());
-
-    // Step 6 — the session row, BEFORE spawn (the id keys everything).
-    // EXP-825: the composer text's image embeds name pre-session uploads;
-    // the row binds them (`attachmentIds`) so they outlive the orphan sweep.
-    let attachment_ids = match req {
-        PrepareRequest::Issue(issue_req) => prompt_attachment_ids(issue_req.prompt.as_deref()),
-        PrepareRequest::Batch(batch_req) => prompt_attachment_ids(batch_req.prompt.as_deref()),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    let session = match req {
-        PrepareRequest::Issue(issue_req) => coding_sessions::start(
-            &deps.trpc,
-            &issue_req.issue_id,
-            Some(&issue_req.device_label),
-            attribution(&issue_req.origin, deps),
-            run_reason,
-            // A resume is `prepare_resume_run`'s business (EXP-662); this
-            // path always starts a run of its own.
-            None,
-            agent.wire_id(),
-            Some(agent_account.as_str()),
-            &attachment_ids,
-            // EXP-1140: the pick, persisted so the resolve below is bound
-            // to exactly these servers.
-            &options.mcp_server_ids,
-        ),
-        PrepareRequest::Batch(batch_req) => coding_sessions::start_batch(
-            &deps.trpc,
-            &batch_req.team_id,
-            Some(&batch_req.device_label),
-            attribution(&batch_req.origin, deps),
-            run_reason,
-            None,
-            agent.wire_id(),
-            Some(agent_account.as_str()),
-            &attachment_ids,
-            // EXP-876: the row is NAMED by these — nothing else links a
-            // batch to its issues until `pr_open`.
-            &batch_req
-                .issues
-                .iter()
-                .map(|issue| issue.issue_id.clone())
-                .collect::<Vec<_>>(),
-            &options.mcp_server_ids,
-        ),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    let session = match session {
-        Ok(session) => session,
-        Err(ApiError::Http { status: 412, message }) => {
-            return Ok(Prepared::Disabled(DisabledReason::SessionLimit { message }))
-        }
-        Err(err) => return Err(err.into()),
+        // Repo-less: a scratch dir meant to hold only the launcher's
+        // sidecars — purged whole with the session (EXP-764). No git, no
+        // token, no launch hold.
+        None => scratch_cwd(deps, row)?,
     };
 
-    // Step 4b (EXP-637) — the per-agent MCP wiring, now that the row id
-    // exists to pin into it. Anything that fails from here on ends the row
-    // so a failed launch leaves no ghost badge.
-    let agent_mcp = end_on_error(
-        &deps.trpc,
-        &session.id,
-        wire_agent_mcp(
-            agent,
-            &worktree,
-            deps.trpc.base_url(),
-            &personal_key,
-            Some(&session.id),
-            false,
-        ),
-    )?;
-    // EXP-792/1140: the team MCP server pick, resolved FOR the row just
-    // created (unconnected or unpicked ones are skipped, never a blocker).
-    let mut team_mcp = resolve_mcp_servers(deps, Some(&options.mcp_server_ids), &session.id);
-    let run_label = match req {
-        PrepareRequest::Issue(issue_req) => issue_req.issue_identifier.clone(),
-        PrepareRequest::Batch(batch_req) => format!(
-            "{} +{}",
-            batch_req.issues.first().map(|issue| issue.issue_identifier.as_str()).unwrap_or("batch"),
-            batch_req.issues.len().saturating_sub(1)
-        ),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => String::new(),
-    };
-    let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session.id, &run_label);
-    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &run_label);
-
-    // Step 6.5 (EXP-194) — the LAUNCHER parks backlog issues in
-    // `in_progress`. Under plan mode the agent's MCP status call would only
-    // land after plan approval, so without this the issue lingers in backlog
-    // while visibly "coding now". After the session row so a Disabled
-    // outcome never flips anything; best-effort — a failed write never
-    // blocks the launch. Only backlog flips: never downgrade
-    // in_progress/in_review/done/cancelled/duplicate (client-side snapshot,
-    // same guard the dialog's state hints use).
-    //
-    // EXP-314: this stays an ENUM-only write (an anchor). The gate is
-    // therefore correct for custom statuses too — an issue in a custom
-    // `started` status carries the `in_progress` anchor and is not flipped.
-    // An issue in a custom BACKLOG/UNSTARTED status IS flipped, and the
-    // server's trigger derives `status_id` from the enum, so it lands in the
-    // team's BUILTIN In Progress row (leaving its custom status). Accepted
-    // for v1: parking is a coding-flow convenience, not a status editor.
-    let flip_ids: Vec<&str> = match req {
-        // EXP-685: `todo` is retired — `backlog` is the whole park set now.
-        PrepareRequest::Issue(issue_req) => matches!(issue_req.issue_status, IssueStatus::Backlog)
-            .then_some(issue_req.issue_id.as_str())
-            .into_iter()
-            .collect(),
-        PrepareRequest::Batch(batch_req) => batch_req
-            .issues
-            .iter()
-            .filter(|issue| matches!(issue.status, IssueStatus::Backlog))
-            .map(|issue| issue.issue_id.as_str())
-            .collect(),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    for issue_id in flip_ids {
-        let mut input = issues::IssuesUpdateInput::new(issue_id);
-        input.status = Some(IssueStatus::InProgress);
-        let _ = issues::issues_update(&deps.trpc, &input);
+    let personal_key = join_personal_key(key_handle.unwrap_or_else(|| spawn_personal_key(deps)))?;
+    // Step 2 — the branch the row runs on, now that its worktree exists.
+    if let Some(workspace) = &workspace {
+        report_branch(&deps.trpc, &session_id, &workspace.branch);
     }
 
-    // EXP-210: stamp THIS agent into the worktree's recorded-agent marker
-    // (after every can-still-fail step, so a Disabled outcome records
-    // nothing) — a later resume reads it to decide whether the agent's
-    // native reopen can work here at all. Best-effort: a failed write only
-    // costs a future resume offer.
-    let _ = crate::worktree_agents::record_worktree_agent_id(&worktree, agent.id());
+    // Step 3 — the EXP-474 ignore guard, then the per-agent MCP wiring
+    // pinned to the row.
+    guard_agent_mcp(agent, &cwd, false)?;
+    let agent_mcp = wire_agent_mcp(
+        agent,
+        &cwd,
+        deps.trpc.base_url(),
+        &personal_key,
+        Some(&session_id),
+        false,
+    )?;
+    // EXP-792/1140: the row's team MCP server pick, resolved FOR it
+    // server-side (unconnected or unpicked ones are skipped, never a
+    // blocker). The pick lives on the row, so no ids are named here.
+    let mut team_mcp = resolve_mcp_servers(deps, &session_id);
+    let label = session_label(row, &req.issue_identifiers);
+    let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
+    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
 
-    // Step 7's spawn spec — argv from [`crate::argv`]: explicit `--model`,
-    // the native permission posture, and the prompt positional-last (bytes
-    // typed into the PTY before the TUI enters raw mode get swallowed during
-    // startup, so the prompt must never be delivered via stdin).
-    let (issue_identifier, tab_title_prefix) = match req {
-        PrepareRequest::Issue(issue_req) => (
-            issue_req.issue_identifier.clone(),
-            issue_req.issue_identifier.clone(),
-        ),
-        PrepareRequest::Batch(batch_req) => {
-            let first = batch_req
-                .issues
-                .first()
-                .map(|issue| issue.issue_identifier.as_str())
-                .unwrap_or("batch");
-            let extra = batch_req.issues.len().saturating_sub(1);
-            (
-                format!("batch-{}", batch_req.batch_id),
-                format!("{first} +{extra}"),
-            )
-        }
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-    // EXP-389: pre-trust the clone in codex's own config — a remotely
-    // started session would otherwise park forever on the TUI's
-    // directory-trust screen (codex resolves a linked worktree's trust
-    // subject to the main clone, so the clone is the entry that matters).
-    // EXP-792: the flags land in the run's account PROFILE config (its
-    // `CLAUDE_CONFIG_DIR`/`CODEX_HOME`), never the ambient one.
+    // EXP-210: stamp THIS agent into the workspace's recorded-agent marker
+    // (after every can-still-fail step) — a later resume reads it to decide
+    // whether the agent's native reopen can work here at all.
+    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
+
+    // EXP-389/EXP-414: pre-trust the workspace in the run's account PROFILE
+    // config (EXP-792) — a remotely started session would otherwise park
+    // forever on a directory-trust screen. codex resolves a linked
+    // worktree's trust subject to the main clone (a scratch dir: its root's
+    // dir, stable across the tree); claude keys trust by the spawn cwd.
     let profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
         Some(agent),
         options.account.as_deref(),
     );
     if agent == CodingAgent::Codex {
-        crate::codex_trust::ensure_trusted(&clone, profile_dir.as_deref());
+        let trust_root = workspace
+            .as_ref()
+            .map(|workspace| workspace.clone.as_path())
+            .or_else(|| cwd.parent())
+            .unwrap_or(&cwd);
+        crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
     }
-    // EXP-414: same pre-accept for claude, keyed by the spawn CWD — claude's
-    // trust dialog is per-directory and every session gets a fresh worktree.
     if agent == CodingAgent::Claude {
         // EXP-690: always seed `bypassPermissionsModeAccepted` — every run
         // bypasses, and even a plan-mode run is one Shift+Tab from it.
-        crate::claude_trust::ensure_onboarded(&worktree, true, profile_dir.as_deref());
+        crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
-    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings) —
-    // the only file this launch still writes outside the worktree.
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
+    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
+    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session_id, agent);
     // EXP-443: the codex originator is stamped into its rollout metas before
-    // the spawn. The claude session id is the ACP adapter's own to mint (it
-    // doubles as the ACP session id the engine upserts), so nothing is
-    // minted here.
-    let codex_originator = (agent == CodingAgent::Codex)
-        .then(|| crate::argv::codex_session_originator(&session.id));
+    // the spawn. The claude session id is the ACP adapter's own to mint.
+    let codex_originator =
+        (agent == CodingAgent::Codex).then(|| crate::argv::codex_session_originator(&session_id));
 
-    // EXP-662: record the SESSION exactly like `prepare_action` records a
-    // run — same file, same fields, kind Issue/Batch — so a later Resume
-    // (dialog checkbox, remote frame, ended strip) relaunches THIS
-    // conversation instead of guessing at the worktree's latest one.
-    // Best-effort: a failed write only costs the Resume offer.
-    let (kind, record_issue_id, record_identifier, batch_id, issues, team_id) = match req {
-        PrepareRequest::Issue(issue_req) => (
-            RunKind::Issue,
-            Some(issue_req.issue_id.clone()),
-            Some(issue_req.issue_identifier.clone()),
-            None,
-            Vec::new(),
-            // The row's team, as the server resolved it from the issue —
-            // the request carries none.
-            session.team_id.clone().unwrap_or_default(),
-        ),
-        PrepareRequest::Batch(batch_req) => (
-            RunKind::Batch,
-            None,
-            None,
-            Some(batch_req.batch_id.clone()),
-            batch_req
-                .issues
-                .iter()
-                .map(|issue| RunIssue {
-                    issue_id: issue.issue_id.clone(),
-                    identifier: issue.issue_identifier.clone(),
-                })
-                .collect(),
-            batch_req.team_id.clone(),
-        ),
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
+    // Step 4 — the run record a later resume (a message waking this row on a
+    // host with no engine) re-enters. Best-effort: a failed write only costs
+    // that native resume.
     crate::run_registry::record(
         &deps.data_dir,
         RunRecord {
-            session_id: session.id.clone(),
+            session_id: session_id.clone(),
             account_id: deps.account_id.clone(),
             agent,
-            kind,
-            // Sessions have no action.
-            action_id: String::new(),
-            action_name: String::new(),
-            team_id: team_id.clone(),
-            issue_id: record_issue_id,
-            issue_identifier: record_identifier,
-            batch_id,
-            issues,
-            cwd: worktree.clone(),
-            clone: Some(clone.clone()),
-            repo: Some(full_name.clone()),
-            repository_id: Some(repository_id.clone()),
-            board_id: board_id.clone(),
-            branch: Some(branch.clone()),
-            base_branch: Some(base_branch.clone()),
+            kind: if row.is_agent() { RunKind::Agent } else { RunKind::Thread },
+            team_id: row.team_id.clone().unwrap_or_default(),
+            issues: own_issues.to_vec(),
+            // EXP-1134/1292: the row's REAL title (an agent: its name) —
+            // blank stays `None`, which is what asks the agent to name the
+            // conversation (`engine::session::record_wants_name`).
+            title: if row.is_agent() { named_text(&row.name) } else { named_text(&row.title) },
+            cwd: cwd.clone(),
+            clone: workspace.as_ref().map(|workspace| workspace.clone.clone()),
+            repo: workspace.as_ref().map(|workspace| workspace.full_name.clone()),
+            repository_id: repository_id.clone(),
+            branch: workspace.as_ref().map(|workspace| workspace.branch.clone()),
+            base_branch: workspace.as_ref().map(|workspace| workspace.base_branch.clone()),
             claude_session_id: None,
             codex_originator: codex_originator.clone(),
-            inputs: Vec::new(),
             model: options.model.clone(),
             effort: options.effort.clone(),
             ultracode: options.ultracode,
-            fix: None,
-            // EXP-530/EXP-679: triggers only fire action runs, but an
-            // `agent`-started issue/batch run is unattended too.
-            started_reason: run_reason.map(str::to_string),
-            resumed_from_id: None,
             // EXP-773: the engine is the ONE transport; the string stays on
             // the record so an older reader still parses it. The ACP ids land
             // later: the engine upserts this record once `session/new` answers.
@@ -2060,677 +1591,144 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
             acp_child_pid: None,
             host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
-            // EXP-792: the server pick, for a resume to re-resolve.
-            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
+            // EXP-792: the account profile, for a resume to re-enter.
+            extra: launch_extra(&[], options.account.as_deref()),
         },
     );
 
-    // EXP-773: the ACP adapter composes its own argv (stream-json /
-    // app-server / rpc) from `AcpLaunch` below.
-    let tab_title = format!("{} · {tab_title_prefix}", agent.id());
-    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
-        .cwd(&worktree)
-        // EXP-76 disk hygiene, both inherited by every cargo the session runs:
-        // one shared build cache for ALL of this repo's session worktrees
-        // (instead of a full cold tree per worktree — concurrent builds
-        // serialize on cargo's lock, which warm caches more than repay), and
-        // no incremental caches (session builds are few-shot; the per-worktree
-        // incremental dirs were ~1GB of pure waste each). Inert for non-Rust
-        // repos.
-        .env(
-            "CARGO_TARGET_DIR",
-            shared_cargo_target_dir(&clone).to_string_lossy().into_owned(),
-        )
-        .env("CARGO_INCREMENTAL", "0");
-    // The MCP credential env half of the wiring ([`apply_mcp_env`]).
-    spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
-    spawn = apply_mcp_server_env(spawn, &team_mcp);
-    spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
-    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
-    if let Some(originator) = &codex_originator {
-        spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
-    }
+    let spawn = session_spawn(
+        deps,
+        agent,
+        &cwd,
+        workspace.as_ref().map(|workspace| workspace.clone.as_path()),
+        options,
+        &personal_key,
+        &session_id,
+        &team_mcp,
+        codex_originator.as_deref(),
+    );
 
-    let heartbeat_scope = match req {
-        PrepareRequest::Issue(issue_req) => {
-            let attribution = attribution(&issue_req.origin, deps);
-            coding_sessions::HeartbeatScope {
-                issue_id: Some(issue_req.issue_id.clone()),
-                team_id: None,
-                action_id: None,
-                action_name: None,
-                started_by_id: attribution.started_by_id.map(str::to_string),
-                device_id: attribution.device_id.map(str::to_string),
-                // EXP-530: only action runs AUTOMATE — but EXP-679's `agent`
-                // reason rides an issue start too, so the scope echoes
-                // whatever the start stamped.
-                started_reason: run_reason.map(str::to_string),
-                trigger_id: None,
-                // The server refuses a branch beside an issueId.
-                branch: None,
-                // EXP-876: an issue run names itself off its issue.
-                batch_issue_ids: Vec::new(),
-                agent: agent.wire_id().map(str::to_string),
-                agent_account: Some(agent_account.clone()),
-                // EXP-1284: the thread the start placed the run in, so a
-                // resurrected row rejoins it (`None` = an older server).
-                thread_id: session.thread_id.clone(),
-            }
-        }
-        PrepareRequest::Batch(batch_req) => {
-            let attribution = attribution(&batch_req.origin, deps);
-            coding_sessions::HeartbeatScope {
-                issue_id: None,
-                team_id: Some(batch_req.team_id.clone()),
-                action_id: None,
-                action_name: None,
-                started_by_id: attribution.started_by_id.map(str::to_string),
-                device_id: attribution.device_id.map(str::to_string),
-                // EXP-679: echoed like the issue scope above.
-                started_reason: run_reason.map(str::to_string),
-                trigger_id: None,
-                // The batch branch is minted client-side and already
-                // recorded by `start_batch`; nothing to re-assert.
-                branch: None,
-                // EXP-876: the covered issues, echoed so a resurrected row
-                // keeps its name instead of degrading to "Batch run".
-                batch_issue_ids: batch_req
-                    .issues
-                    .iter()
-                    .map(|issue| issue.issue_id.clone())
-                    .collect(),
-                agent: agent.wire_id().map(str::to_string),
-                agent_account: Some(agent_account.clone()),
-                thread_id: session.thread_id.clone(),
-            }
-        }
-        PrepareRequest::Action(_) | PrepareRequest::ResumeRun(_) => {
-            unreachable!("dispatched above")
-        }
-    };
-
-    // The row id the ACP arm hands the engine (the literal below moves
-    // `session.id` into the launch).
-    let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &team_id, &run_extras(deps, computer_use, code_mode));
+    // Step 5 — the seed prompt is the brief, verbatim (EXP-1005: the account
+    // hop said first), and the layered system append.
+    let seed = Some(req.brief.brief.trim_end())
+        .filter(|brief| !brief.trim().is_empty())
+        .map(|brief| with_start_note(brief.to_string(), account_pick.as_ref()));
+    let system_append = crate::skill::system_append_layers(
+        req.brief.team_prompt.as_deref(),
+        req.brief.agent_instructions.as_deref(),
+        &run_extras(deps, computer_use, code_mode),
+    );
     // EXP-1051: a fresh session carries no base from anywhere — every layer
     // is one this launch just built.
     let context_layers = context_layers_for(
-        deps,
         agent,
-        &worktree,
+        &cwd,
         profile_dir.as_deref(),
         &system_append,
-        Some(rendered.as_str()),
+        seed.as_deref(),
         None,
     );
     // FEED-73: the team-MCP delegation note rides AFTER the measured
-    // layers (the team layer stays the team prompt's bytes).
+    // layers (the team layer stays the server layers' bytes).
     let system_append = with_delegation_note(system_append, &team_mcp);
+    // EXP-637: a session with no issue of its own owns its worktree (its
+    // `exp/session-<id8>` branch is nobody else's), so it also owns cleaning
+    // it up when it ends clean and empty. An issue's worktree is the prune's
+    // business and survives its session by design.
+    let run_cleanup = workspace
+        .as_ref()
+        .filter(|_| own_issues.is_empty())
+        .map(|workspace| RunCleanup {
+            clone: workspace.clone.clone(),
+            worktree: cwd.clone(),
+            branch: workspace.branch.clone(),
+            base_branch: workspace.base_branch.clone(),
+        });
     Ok(Prepared::Ready(PreparedLaunch {
-        session_id: session.id,
+        session_id: session_id.clone(),
         account_pick: account_pick.clone(),
-        issue_identifier,
-        worktree,
-        clone,
-        repository_id: Some(repository_id),
-        branch,
-        // Issue/batch worktrees are the prune's business, not the run
-        // cleanup's — they survive their session by design.
-        base_branch: None,
-        base_ref: Some(format!("origin/{base_branch}")),
-        run_cleanup: None,
+        issue_identifier: label.clone(),
+        worktree: cwd.clone(),
+        clone: workspace
+            .as_ref()
+            .map(|workspace| workspace.clone.clone())
+            .unwrap_or_else(|| cwd.clone()),
+        repository_id,
+        branch: workspace
+            .as_ref()
+            .map(|workspace| workspace.branch.clone())
+            .unwrap_or_default(),
+        base_branch: run_cleanup.as_ref().map(|cleanup| cleanup.base_branch.clone()),
+        base_ref: workspace
+            .as_ref()
+            .map(|workspace| format!("origin/{}", workspace.base_branch)),
+        run_cleanup,
         mcp_warnings: team_mcp.warnings.clone(),
         spawn,
-        tab_title,
-        tab_title_prefix,
-        heartbeat_scope,
+        tab_title: format!("{} · {label}", agent.id()),
+        tab_title_prefix: label,
         acp: AcpLaunch {
-            prompt: Some(rendered.clone()),
+            prompt: seed,
             options: options.clone(),
-            mcp: agent_mcp.clone(),
-            session_id: session_id_for_acp.clone(),
-            // A fresh session has nothing to reopen (EXP-662: an exact
-            // relaunch is `prepare_resume_run`'s).
+            mcp: agent_mcp,
+            session_id,
+            // A fresh session has nothing to reopen.
             resume: None,
-            reaper_settings_path: reaper_anchor.clone(),
+            reaper_settings_path: reaper_anchor,
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
-        action_id: None,
+        seed_message_id: None,
         bypass_permissions: !options.plan_mode,
         plan_mode: options.plan_mode,
         agent,
         claude_session_id: None,
         codex_originator,
-        // EXP-662: this path never reopens a rollout — a codex resume is
-        // `prepare_resume_run`'s.
         codex_resume_id: None,
-        launch_hold: Some(launch_hold),
+        launch_hold,
     }))
 }
 
-/// The action-run sequence (EXP-253; blocking, background executor) — the
-/// deliberately SHORT sibling of the issue/batch skeleton above: no PR
-/// contract, no status flips.
-///
-/// 0. doctor — the SELECTED agent always (EXP-257: action runs take the
-///    full option set, no Claude clamp); `git` only when repo-backed (a
-///    repo-less action needs no git at all);
-/// 1. cwd — repo-backed team action: mint the JIT token (cache-seeded like a
-///    session), ensure the trunk clone + ambient auth, then a BEST-EFFORT
-///    autopull (`clone_manager::auto_sync` — a dirty/diverged trunk still
-///    launches; the trunk-sync engine surfaces that state); the
-///    fix-conflicts builtin (EXP-259) instead fetches the PR branch and
-///    creates/reuses ITS worktree; repo-less:
-///    `<data_dir>/actions/<action id>/`, created on demand;
-/// 2. per-agent MCP wiring in the cwd ([`wire_agent_mcp`] — shared with the
-///    issue path; repo-backed also git-excludes the seed files);
-/// 3. prompt — [`render_action_prompt`] preamble [+ `## Inputs`] + the fresh
-///    body; the BUILTINS instead render [`create_action_prompt`] from the
-///    `description`/`repo` input values (EXP-257) or
-///    [`fix_pr_conflicts_prompt`] from the resolved PR target (EXP-259);
-///    EXP-703: an ATTENDED chat with no `prompt` input delivers nothing at
-///    all ([`SessionTail::None`] — the agent spawns interactive and waits,
-///    the terminal dock's "+" shape);
-/// 4. `codingSessions.start({actionId[, teamId]})` — BEFORE spawn; its id
-///    keys the tab + steer room like any session (teamId rides only for the
-///    builtin literals);
-/// 5. spawn spec — the selected agent's interactive session argv
-///    (model/effort/toggles + its MCP posture).
-fn prepare_action(
-    req: &ActionLaunchRequest,
+/// A repo-backed session's workspace, as step 1 left it.
+struct RepoWorkspace {
+    clone: PathBuf,
+    full_name: String,
+    branch: String,
+    /// What the branch was cut from (the parent's branch for a child).
+    base_branch: String,
+}
+
+/// The agent invocation in the workspace: program, cwd and env (the ACP
+/// adapter composes its own argv from [`AcpLaunch`]). Shared by a fresh
+/// launch and a resume so the two can never spawn differently.
+#[allow(clippy::too_many_arguments)]
+fn session_spawn(
     deps: &CodingDeps,
-) -> Result<Prepared, CodingError> {
-    // EXP-257: options apply AS-IS — same per-agent vocabulary as an issue
-    // run (the server validates remote starts identically).
-    let mut options = req.options.clone();
-    // EXP-1005: the same start-time account pick an issue launch takes (the
-    // doctor first, EXP-1138 — its gate runs below).
-    let report = run_doctor(&deps.settings, &deps.data_dir);
-    let agent = options.agent;
-    let account_pick = apply_start_pick(&mut options, deps, report.check_for(agent));
-    note_start_pick(account_pick.as_ref());
-    // EXP-909: the LOGIN this run spends — hoisted once so the row, the
-    // heartbeat and the account env can never name different accounts.
-    let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
-    // The creator builtin always runs in its scratch dir — a repo INPUT only
-    // pins the authored action's repositoryId, never this run's cwd. The
-    // fix-conflicts builtin REQUIRES its repo (checked below).
-    let repo = if matches!(req.kind, ActionRunKind::CreateAction) {
-        &None
-    } else {
-        &req.repo
-    };
-    if matches!(req.kind, ActionRunKind::FixConflicts { .. }) && repo.is_none() {
-        return Err(CodingError::Io(
-            "the fix-conflicts session needs the pull request's repository".to_string(),
-        ));
-    }
-    // EXP-712: the fix-conflicts run is the only action shape that belongs to
-    // a BOARD (the PR's). Everything else works the repo's own default.
-    let fix_board_id = match &req.kind {
-        ActionRunKind::FixConflicts { board_id, .. } => board_id.clone(),
-        _ => None,
-    };
-    // EXP-679: a trigger's trigger or a relay `agent` reason makes this
-    // run unattended — the only shape whose prompt closes out with
-    // `exponential_sessions_end` LAST (EXP-1222: every run has the tool, an
-    // attended one calls it only when asked). Computed up front because the
-    // chat validation below depends on it.
-    let run_reason = started_reason(&req.origin, req.trigger.as_ref());
-    let unattended = run_reason.is_some();
-    // EXP-739: a chat run is NOT repo-bound. The chat is a conversation with
-    // the tracker over MCP and code is an optional ANCHOR, so a repo-less one
-    // is a perfectly good run — it just lands worktree-less in the scratch dir
-    // below. (The old "a scratch-dir chat would be a shell with no code in it"
-    // rule is retired.) EXP-703 still holds: the prompt is optional for an
-    // ATTENDED chat — the terminal dock's "+" and "Chat" buttons launch
-    // exactly that shape (a steerable promptless session, the agent waiting at
-    // its prompt) — but stays required for an unattended one, where nobody is
-    // at the keyboard to type the first message and a promptless run would
-    // idle forever. Validated here, before any doctor/git/network work, so a
-    // malformed start costs nothing. EXP-825: the text rides `req.prompt`
-    // (the composer's free text), no longer a `prompt` input.
-    let chat_user_prompt = match &req.kind {
-        ActionRunKind::Chat => {
-            let prompt = req
-                .prompt
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
-            if prompt.is_none() && unattended {
-                return Err(CodingError::Io(
-                    "the chat session is missing its prompt".to_string(),
-                ));
-            }
-            prompt.map(str::to_string)
-        }
-        _ => None,
-    };
-
-    // Step 0 — doctor: the selected agent always; git only when a clone is
-    // involved ([`doctor_gate`]).
-    if let Some(failed) =
-        doctor_gate(&report, deps, agent, options.account.as_deref(), repo.is_some())
-    {
-        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
-    }
-    // EXP-773: an action run takes the same ACP gate as a session run.
-    if let Some(reason) = acp_gate(&report, agent, deps) {
-        return Ok(Prepared::Disabled(reason));
-    }
-    // §7.2 — the personal key (the MCP credential), raced like a session's.
-    let key_handle = {
-        let trpc = Arc::clone(&deps.trpc);
-        let store = Arc::clone(&deps.token_store);
-        let account_id = deps.account_id.clone();
-        std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
-    };
-
-    // Step 1 — resolve the cwd. `trunk_clone` stays the CLONE root for
-    // repo-backed runs even when the cwd is a worktree (fix-conflicts) —
-    // the shared cargo cache and the session registry key off it.
-    let mut trunk_clone: Option<PathBuf> = None;
-    // EXP-324: the fix-conflicts rebase target, resolved live inside the
-    // repo-backed arm below (None for every other kind); consumed by the
-    // prompt render in step 3.
-    let mut fix_rebase_onto: Option<String> = None;
-    // The PR is a member of an open stack (`base_kind == "open-parent"`):
-    // the prompt then pushes and stops instead of merging (the stack guard
-    // would refuse a plain merge).
-    let mut fix_stacked = false;
-    // EXP-478/EXP-637: every repo-backed run now works in its OWN worktree
-    // (fix-conflicts on the PR branch, Team/Chat on a fresh run branch), so
-    // it gates the clone for the launch's whole flight like an issue/batch
-    // launch. Only repo-less scratch runs skip it.
-    let mut launch_hold: Option<crate::launch_gate::LaunchHold> = None;
-    // EXP-637: the run branch + what it was cut from, recorded for the
-    // cleanup and the resume path. `None` for repo-less runs.
-    let mut run_branch: Option<String> = None;
-    let mut base_branch: Option<String> = None;
-    let (cwd, repository_id) = match repo {
-        Some(repo) => {
-            // Repo-backed: JIT token via the cache (same refresher-lead
-            // margin as a session — the run may outlive one token TTL).
-            let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
-                &deps.trpc,
-                &repo.repository_id,
-                // EXP-712: only the fix-conflicts run belongs to a board (the
-                // PR's own). Team/chat runs cut their branch from the REPO's
-                // default — they are not a board's work.
-                fix_board_id.as_deref(),
-                crate::token_refresh::REFRESH_LEAD,
-            ) {
-                Ok(minted) => minted,
-                Err(err) => return map_token_error(err, &repo.full_name),
-            };
-            let url = minted.url.clone();
-            // EXP-324: resolve the PR's LIVE rebase target before any git
-            // work. A PR based on another branch keeps that base, not the repo
-            // default, and a stale base (parent squash-merged, branch left
-            // behind) is healed — retargeted onto the default — by this call
-            // server-side. Guessing the base instead is exactly the EXP-320
-            // bug, and this run ends in a force-push + auto-merge, so any
-            // failure other than "old server without the procedure" (404 →
-            // legacy default-branch behavior) is a hard, retryable error.
-            fix_rebase_onto = match &req.kind {
-                ActionRunKind::FixConflicts {
-                    issue_id,
-                    default_branch,
-                    ..
-                } => match issues::prepare_conflict_fix(&deps.trpc, issue_id) {
-                    Ok(resolved) => {
-                        fix_stacked = resolved.base_kind == "open-parent";
-                        Some(resolved.rebase_onto)
-                    }
-                    Err(ApiError::Http { status: 404, .. }) => Some(default_branch.clone()),
-                    Err(err) => {
-                        return Err(CodingError::Io(format!(
-                            "could not resolve the pull request's base branch: {err}"
-                        )))
-                    }
-                },
-                _ => None,
-            };
-            let repos_root = deps.settings.repos_root_path();
-            let clone = crate::git_worktree::ensure_clone(&repos_root, url.full_name(), &url)?;
-            git_credentials::ensure(&clone, &url, minted.expires_at.as_deref())?;
-            // EXP-637: no `clone_manager::auto_sync` here any more — the
-            // trunk clone stopped being a run cwd, so a run neither needs it
-            // pulled nor may park the trunk-sync engine on its own dirt.
-            // Same best-effort [`LOCAL_EXCLUDES`] coverage as a session
-            // worktree — the action's agent may be codex since EXP-257.
-            let _ = crate::git_worktree::ensure_local_excludes(&clone, LOCAL_EXCLUDES);
-            let cwd = match &req.kind {
-                // EXP-259: the fix-conflicts run works on the PR branch, not
-                // the trunk — fetch the branch (it may only exist on origin;
-                // the PR may have been coded on another device) and
-                // create/reuse its worktree, cutting a missing local branch
-                // from origin/<branch>.
-                ActionRunKind::FixConflicts { branch, .. } => {
-                    crate::git_worktree::validate_branch_arg(branch, "fix conflicts")?;
-                    launch_hold = Some(crate::launch_gate::hold(&clone));
-                    crate::git_worktree::fetch_base(&clone, branch, &url)?;
-                    // EXP-324: the rebase target must exist as a local
-                    // remote-tracking ref too — auto_sync above is
-                    // best-effort. Server data is untrusted (same stance as
-                    // the branch arg), so the ref is validated before it can
-                    // reach git argv.
-                    if let Some(rebase_onto) = fix_rebase_onto.as_deref() {
-                        crate::git_worktree::validate_branch_arg(
-                            rebase_onto,
-                            "fix conflicts base",
-                        )?;
-                        crate::git_worktree::fetch_base(&clone, rebase_onto, &url)?;
-                    }
-                    let worktree = crate::git_worktree::create_worktree(
-                        &clone,
-                        branch,
-                        &format!("origin/{branch}"),
-                        &url,
-                    )?;
-                    // `create_worktree` reuses a stale local branch as-is
-                    // (right for ordinary sessions — their unpushed work must
-                    // survive a relaunch), but THIS run ends in a force-push
-                    // whose lease is the remote ref fetched just above: from
-                    // a stale branch it would push away remote-only commits.
-                    // Fast-forward to origin (or refuse on local-only
-                    // commits) before spawning.
-                    crate::git_worktree::ensure_branch_at_origin(
-                        &clone, &worktree, branch, &url,
-                    )?;
-                    run_branch = Some(branch.clone());
-                    base_branch = fix_rebase_onto.clone();
-                    worktree
-                }
-                // EXP-637 (decision 1): a Team action or a Chat run gets its
-                // OWN worktree + branch cut from the repo's default, instead
-                // of writing into the trunk clone. Whatever the agent
-                // changes is then either committed onto a branch that can
-                // become a PR, or discarded with the worktree — the trunk
-                // stays clean and autopull keeps running.
-                // FEED-50: Tidy up with a repo takes the same fresh branch —
-                // the generic slug gives `exp/tidy-up-<id8>`.
-                ActionRunKind::Team | ActionRunKind::Chat | ActionRunKind::TidyUp => {
-                    let branch = match &req.kind {
-                        ActionRunKind::Chat => chat_run_branch(&req.run_id),
-                        _ => action_run_branch(&req.action_name, &req.run_id),
-                    };
-                    crate::git_worktree::validate_branch_arg(&branch, "action run")?;
-                    // The gate must be held BEFORE the worktree exists: the
-                    // auto-prune's policy is a pre-fetch snapshot that cannot
-                    // protect a worktree born after it (EXP-478).
-                    launch_hold = Some(crate::launch_gate::hold(&clone));
-                    let worktree = deps.worktrees.prepare(
-                        &repos_root,
-                        url.full_name(),
-                        &minted.default_branch,
-                        &branch,
-                        &url,
-                        minted.expires_at.as_deref(),
-                    )?;
-                    run_branch = Some(branch);
-                    base_branch = Some(minted.default_branch.clone());
-                    worktree
-                }
-                // The creator builtin never reaches this arm (it is forced
-                // repo-less above).
-                _ => clone.clone(),
-            };
-            trunk_clone = Some(clone);
-            (cwd, Some(repo.repository_id.clone()))
-        }
-        // Repo-less: a scratch dir meant to hold only the MCP config (+
-        // PROMPT.md when the body is large) — purged whole with the run
-        // (EXP-764, `crate::scratch`). No git, no token. The id is a server
-        // UUID, but server data is untrusted here by design — sanitize the
-        // path segment so a crafted id can never escape `<data_dir>/actions/`.
-        None => {
-            let Some(segment) = path_segment(&req.action_id) else {
-                return Err(CodingError::Io("empty action id".to_string()));
-            };
-            // EXP-637: PER RUN, not per action — two concurrent runs of the
-            // same repo-less action would otherwise share one `.exp-mcp.json`
-            // and overwrite each other's session header. codex's trust entry
-            // still keys on the action dir (its parent), so the pre-trust
-            // below keeps working.
-            let Some(run_segment) = path_segment(&req.run_id) else {
-                return Err(CodingError::Io("empty run id".to_string()));
-            };
-            let scratch = deps
-                .data_dir
-                .join("actions")
-                .join(segment)
-                .join(run_segment);
-            std::fs::create_dir_all(&scratch)
-                .map_err(|e| CodingError::Io(format!("create action scratch dir: {e}")))?;
-            (scratch, None)
-        }
-    };
-
-    // Step 2 — the EXP-474 ignore GUARD (the WRITES moved after step 4:
-    // EXP-637 pins the session row's `X-Exp-Session-Id` into the config).
-    let personal_key = key_handle
-        .join()
-        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &cwd, false)?;
-
-    // Step 3 — the prompt (size-gated like a session's; the PROMPT.md
-    // exclude write no-ops without a `.git`). The builtins render their
-    // generated prompts; real actions get the preamble [+ inputs section] +
-    // the fresh body.
-    // EXP-637: the run's own workspace, rendered into the prompt so the
-    // agent knows where it is and how work leaves the worktree (an
-    // issue-LESS PR via `repositoryId` + `head` — EXP-626).
-    let workspace = match (&run_branch, &base_branch, &repository_id) {
-        (Some(branch), Some(default_branch), Some(repository_id)) => Some(WorkspaceNote {
-            branch: branch.clone(),
-            default_branch: default_branch.clone(),
-            repository_id: repository_id.clone(),
-        }),
-        _ => None,
-    };
-    // EXP-703: `None` = spawn with NO initial prompt at all — the attended
-    // promptless chat. Every other kind always renders.
-    let rendered = match &req.kind {
-        ActionRunKind::CreateAction => {
-            // EXP-825: the request is the composer's free text (the retired
-            // `description` input); a creator run without one has nothing
-            // to author.
-            let Some(request) = req
-                .prompt
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            else {
-                return Err(CodingError::Io(
-                    "the builtin Create-action session is missing its request text".to_string(),
-                ));
-            };
-            let repo_input = req
-                .inputs
-                .iter()
-                .find(|input| input.key == "repo" && !input.value.trim().is_empty())
-                .map(|input| {
-                    (
-                        input.value.as_str(),
-                        input.display.as_deref().unwrap_or(input.value.as_str()),
-                    )
-                });
-            // EXP-273: the icon the author picked in the run form, passed
-            // through so the created action lands with its glyph already set.
-            let icon_input = req
-                .inputs
-                .iter()
-                .find(|input| input.key == "icon" && !input.value.trim().is_empty())
-                .map(|input| input.value.trim());
-            Some(create_action_prompt(
-                &req.team_id,
-                request,
-                repo_input,
-                icon_input,
-                unattended,
-            ))
-        }
-        // EXP-615: the user's own words, verbatim — no preamble, no inputs
-        // section. Everything else (worktree cwd, MCP wiring, session row,
-        // steering) is the ordinary action-run path. EXP-703: no words at
-        // all (the attended promptless chat) renders nothing — the agent
-        // spawns interactive and waits.
-        ActionRunKind::Chat => chat_user_prompt
-            .as_deref()
-            .map(|prompt| chat_prompt(prompt, workspace.as_ref(), unattended)),
-        ActionRunKind::FixConflicts {
-            branch,
-            default_branch,
-            identifier,
-            ..
-        } => Some(fix_pr_conflicts_prompt(
-            identifier,
-            branch,
-            // The live base resolved above; the repo default only when the
-            // server predates issues.prepareConflictFix (EXP-324).
-            fix_rebase_onto.as_deref().unwrap_or(default_branch),
-            fix_stacked,
-            unattended,
-            req.prompt.as_deref(),
-        )),
-        // FEED-50: the shipped tidy-up program, with the board/repo inputs,
-        // a trigger's trigger and the composer's text.
-        ActionRunKind::TidyUp => Some(tidy_up_prompt(
-            &req.team_id,
-            &req.inputs,
-            req.trigger.as_ref(),
-            workspace.as_ref(),
-            unattended,
-            req.prompt.as_deref(),
-        )),
-        ActionRunKind::Team => Some(render_action_prompt_full(
-            &req.action_name,
-            &req.body,
-            &req.inputs,
-            req.trigger.as_ref(),
-            workspace.as_ref(),
-            unattended,
-            req.prompt.as_deref(),
-        )),
-    };
-    // EXP-1005: the account hop, said in the run (a promptless chat stays
-    // promptless — the hop is still on its row and in the log).
-    let rendered = rendered.map(|body| with_start_note(body, account_pick.as_ref()));
-    // EXP-825: pre-session image uploads named by the composer text's
-    // embeds, bound to the row below.
-    let attachment_ids = prompt_attachment_ids(req.prompt.as_deref());
-    // EXP-637: the PROMPT.md exclude belongs in the CLONE's shared
-    // `.git/info/exclude` — a run worktree has no `.git` dir of its own.
-    // Step 4 — the session row, BEFORE spawn. Only the builtin literals
-    // carry teamId (the server forbids it on real action ids).
-    let session = match coding_sessions::start_action(
-        &deps.trpc,
-        coding_sessions::ActionStart {
-            action_id: &req.action_id,
-            team_id: req.kind.is_builtin().then_some(req.team_id.as_str()),
-            started_reason: run_reason,
-            trigger_id: req.trigger_id.as_deref(),
-            device_label: Some(&req.device_label),
-            branch: run_branch.as_deref(),
-            resumed_from_id: None,
-            agent: agent.wire_id(),
-            agent_account: Some(agent_account.as_str()),
-            attribution: attribution(&req.origin, deps),
-            attachment_ids: &attachment_ids,
-            mcp_server_ids: &options.mcp_server_ids,
-        },
-    ) {
-        Ok(session) => session,
-        Err(ApiError::Http { status: 412, message }) => {
-            return Ok(Prepared::Disabled(DisabledReason::SessionLimit { message }))
-        }
-        Err(err) => return Err(err.into()),
-    };
-
-    // Step 4b (EXP-637) — the per-agent MCP wiring, now that the row id
-    // exists to pin into it. Everything after this ends the row on failure
-    // so a half-launched run leaves no ghost badge.
-    let agent_mcp = end_on_error(
-        &deps.trpc,
-        &session.id,
-        wire_agent_mcp(
-            agent,
-            &cwd,
-            deps.trpc.base_url(),
-            &personal_key,
-            Some(&session.id),
-            false,
-        ),
-    )?;
-    // EXP-792/1140: the team MCP server pick, resolved FOR the row just
-    // created (unconnected or unpicked ones are skipped, never a blocker).
-    // FEED-73: a REAL action's pick is the action's own list, set
-    // server-side, so the resolve names no ids; builtins keep the launch's.
-    let pick = req.kind.is_builtin().then_some(options.mcp_server_ids.as_slice());
-    let mut team_mcp = resolve_mcp_servers(deps, pick, &session.id);
-    let run_label = match &req.kind {
-        ActionRunKind::Chat => "Chat".to_string(),
-        _ => req.action_name.clone(),
-    };
-    let computer_use = attach_computer_use(deps, &options, &mut team_mcp, &session.id, &run_label);
-    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &run_label);
-
-    // EXP-210: stamp THIS agent into the run worktree's recorded-agent
-    // marker, exactly like the issue path — a later resume reads it to
-    // decide whether a native `--resume`/`--continue` can work here.
-    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
-
-    // Step 5 — the spawn spec: the selected agent, session argv. EXP-389:
-    // pre-trust the run's directory first (the trunk clone for repo-backed
-    // runs — a linked worktree resolves to it — or the scratch dir's PARENT,
-    // which is stable per action across runs) so codex never parks on its
-    // directory-trust screen.
-    // EXP-792: trust lands in the run's account PROFILE config.
-    let profile_dir =
-        crate::agent_profiles::account_dir(&deps.data_dir, Some(agent), options.account.as_deref());
-    if agent == CodingAgent::Codex {
-        let trust_root = trunk_clone
-            .as_deref()
-            .or_else(|| cwd.parent())
-            .unwrap_or(&cwd);
-        crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
-    }
-    // EXP-414: claude keys trust by the spawn cwd itself (worktree/scratch).
-    if agent == CodingAgent::Claude {
-        crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
-    }
-    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
-    // EXP-443: action runs share the trunk-clone cwd with each other and
-    // with agent shells, exactly the collision the codex originator
-    // disambiguates. claude's `--session-id` is the ACP adapter's to mint.
-    let codex_originator = (agent == CodingAgent::Codex)
-        .then(|| crate::argv::codex_session_originator(&session.id));
-    let (tab_prefix, tab_title) = match &req.kind {
-        ActionRunKind::Chat => chat_tab_title(
-            repo.as_ref().map(|repo| repo_short_name(&repo.full_name)),
-        ),
-        _ => (
-            req.action_name.clone(),
-            format!("action · {}", req.action_name),
-        ),
-    };
-    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent)).cwd(&cwd);
-    spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
-    spawn = apply_mcp_server_env(spawn, &team_mcp);
+    agent: CodingAgent,
+    cwd: &Path,
+    clone: Option<&Path>,
+    options: &LaunchOptions,
+    personal_key: &str,
+    session_id: &str,
+    team_mcp: &ResolvedMcp,
+    codex_originator: Option<&str>,
+) -> SpawnSpec {
+    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent)).cwd(cwd);
+    // The MCP credential env half of the wiring ([`apply_mcp_env`]).
+    spawn = apply_mcp_env(spawn, agent, personal_key, Some(session_id), false);
+    spawn = apply_mcp_server_env(spawn, team_mcp);
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
-    if let Some(originator) = &codex_originator {
+    if let Some(originator) = codex_originator {
         spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
     }
-    if let Some(clone) = &trunk_clone {
-        // Same EXP-76 shared-cache posture as a session — keyed off the
-        // CLONE (the fix-conflicts cwd is a worktree); inert repo-less.
+    if let Some(clone) = clone {
+        // EXP-76 disk hygiene, both inherited by every cargo the session
+        // runs: one shared build cache for ALL of this repo's session
+        // worktrees, and no incremental caches (session builds are
+        // few-shot). Inert for non-Rust repos and repo-less sessions.
         spawn = spawn
             .env(
                 "CARGO_TARGET_DIR",
@@ -2738,181 +1736,484 @@ fn prepare_action(
             )
             .env("CARGO_INCREMENTAL", "0");
     }
+    spawn
+}
 
-    // EXP-637: every repo-backed run carries its branch now — the EXP-102
-    // live-branch guard then blocks the prune on the run worktree exactly as
-    // it does on a session worktree. Repo-less runs keep the empty string
-    // (branch-keyed registry lookups stay a miss).
-    let branch = run_branch.clone().unwrap_or_default();
-    // EXP-637: a Team/Chat run owns its worktree, so it also owns cleaning
-    // it up — but NEVER the fix-conflicts worktree (that is the PR's branch,
-    // shared with the issue session that opened it).
-    let run_cleanup = match (&req.kind, &trunk_clone, &run_branch, &base_branch) {
-        (
-            ActionRunKind::Team | ActionRunKind::Chat | ActionRunKind::TidyUp,
-            Some(clone),
-            Some(branch),
-            Some(base_branch),
-        ) => Some(RunCleanup {
-            clone: clone.clone(),
-            worktree: cwd.clone(),
-            branch: branch.clone(),
-            base_branch: base_branch.clone(),
-        }),
+/// EXP-1292 — RESUME a session natively (blocking, background executor): a
+/// person's message reached a `running`/`idle` row this host runs no engine
+/// for (the host restarted, an agent's process exited idle), so the SAME
+/// row's agent CLI is re-spawned from its run record and the message opens
+/// its first turn. No new row, no `resumed_from_id`: the row id, the steer
+/// room and the record key all stay.
+///
+/// The recorded [`RunRecord`] already answers every question the original
+/// launch had to resolve (agent, cwd, branch, options), so this sequence is
+/// the SHORT one: doctor → workspace still there (a reclaimed worktree is
+/// re-created, a purged scratch dir re-made) → repo-backed re-auth and
+/// idempotent worktree → native transcript probe → MCP wiring → re-record.
+/// A resume never enters plan mode (whatever plan there was already ran).
+///
+/// `req.options.account` names a SWITCH (EXP-849: the EXP-1005 rotation hop,
+/// a person's account change); `None` keeps the recorded login.
+fn prepare_resume(
+    req: &SessionLaunchRequest,
+    resume: &ResumeRun,
+    deps: &CodingDeps,
+) -> Result<Prepared, CodingError> {
+    let row = &req.session;
+    let record = &resume.record;
+    let session_id = row.id.clone();
+    let agent = record.agent;
+    // EXP-849: what account this resume runs on — the one asked for (a
+    // switch), else the recorded one. A record that names none (written by
+    // a build that ran the retired ambient login) resumes on the device's
+    // resolved profile, its claude transcript handed over below.
+    let requested_account = req
+        .options
+        .account
+        .as_deref()
+        .filter(|id| !crate::agent_profiles::is_unpinned(Some(id)))
+        .map(|id| id.trim().to_string());
+    let recorded_account = record.account();
+    let legacy_ambient = requested_account.is_none() && recorded_account.is_none();
+    let resume_account = requested_account.clone().or_else(|| recorded_account.clone()).or_else(|| {
+        crate::agent_profiles::resolve_launch_account(&deps.data_dir, agent, None, |profile| {
+            profile_signed_out(deps, agent, None, profile)
+        })
+        .account
+    });
+    // A switch is a request that names a DIFFERENT login than the run used;
+    // "resume on the account it already ran on" is an ordinary resume,
+    // however the caller spelled it.
+    let switching = requested_account.is_some() && resume_account != recorded_account;
+    let picked = |value: &Option<String>| {
+        value
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let options = LaunchOptions {
+        agent,
+        // The row's pick wins (a person may change the model on a live
+        // session); the record keeps what the run last ran on.
+        model: picked(&row.model).unwrap_or_else(|| record.model.clone()),
+        effort: picked(&row.effort).unwrap_or_else(|| record.effort.clone()),
+        ultracode: record.ultracode,
+        // The plan already happened in the run being continued.
+        plan_mode: false,
+        // EXP-981: the run registry keeps no subagent pin, so a resume
+        // leaves claude's subagents on the CLI's own default.
+        subagent_model: String::new(),
+        // EXP-1292: the pick lives on the row, resolved server-side.
+        mcp_server_ids: Vec::new(),
+        // EXP-792: the SAME config dir (credentials, trust, codex rollouts)
+        // the run used — unless this resume switches (gated below).
+        account: resume_account.clone(),
+        computer_use: Some(row.computer_use),
+    };
+    let profile_dir = crate::agent_profiles::account_dir(
+        &deps.data_dir,
+        Some(agent),
+        options.account.as_deref(),
+    );
+    // EXP-849 — refuse a switch the machine cannot honor, BEFORE anything is
+    // touched: a named target that does not exist here, and codex, whose
+    // conversation lives inside the login's own rollout store.
+    if switching {
+        if agent != CodingAgent::Claude {
+            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
+                message: format!(
+                    "{} cannot continue a session on another account. Start a new session on it instead.",
+                    agent.label()
+                ),
+            }));
+        }
+        if let (Some(target), None) = (&resume_account, &profile_dir) {
+            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
+                message: format!("That account ({target}) is not set up on this machine."),
+            }));
+        }
+    }
+    // Step 0 — doctor: the RECORDED agent (a resume never switches agents),
+    // plus git when the session lives in a clone ([`doctor_gate`]), judged
+    // on the login the CONTINUATION spends (EXP-1138).
+    let report = run_doctor(&deps.settings, &deps.data_dir);
+    if let Some(failed) = doctor_gate(
+        &report,
+        deps,
+        agent,
+        options.account.as_deref(),
+        record.clone.is_some(),
+    ) {
+        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
+    }
+    // EXP-773: same ACP gate as a fresh launch.
+    if let Some(reason) = acp_gate(&report, agent, deps) {
+        return Ok(Prepared::Disabled(reason));
+    }
+    // Step 1 — the workspace. A repo-backed session whose worktree the run
+    // cleanup or the prune reclaimed (its PR landed) is re-created in step 2
+    // on its recorded branch, cut fresh from `origin/<base>` when the branch
+    // went with it; the agent hears about it in its first turn. EXP-1292: a
+    // repo-less session's scratch dir is re-made where it was (a team agent
+    // never ends, so its channel must survive a purged dir); a branch-less
+    // repo-backed record with its dir gone is a hard stop.
+    let mut cwd = record.cwd.clone();
+    let workspace_reclaimed = record.workspace_reclaimed();
+    if record.clone.is_none() {
+        std::fs::create_dir_all(&cwd)
+            .map_err(|e| CodingError::Io(format!("re-create session scratch dir: {e}")))?;
+        crate::scratch::touch(&cwd);
+    } else if !cwd.is_dir() && !workspace_reclaimed {
+        return Err(CodingError::Io(format!(
+            "this session's workspace is gone ({})",
+            cwd.display()
+        )));
+    }
+
+    // Step 2 — repo-backed: a fresh JIT token, ambient auth re-installed
+    // (the recorded one expired long ago), and an IDEMPOTENT worktree
+    // re-create through the injected [`WorktreeProvider`] (the SAME sequence
+    // a fresh launch takes; it heals a worktree git pruned under us).
+    let mut launch_hold: Option<crate::launch_gate::LaunchHold> = None;
+    let mut key_handle = None;
+    // The base the reclaimed note compares against (`origin/<base>..HEAD`).
+    let mut default_branch = record.base_branch.clone().unwrap_or_default();
+    if let (Some(clone), Some(repository_id)) = (&record.clone, &record.repository_id) {
+        let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
+            &deps.trpc,
+            repository_id,
+            None,
+            crate::token_refresh::REFRESH_LEAD,
+        ) {
+            Ok(minted) => minted,
+            Err(err) => {
+                return map_token_error(err, record.repo.as_deref().unwrap_or("repository"))
+            }
+        };
+        // §7.2 — the personal key, raced against the git work like a fresh
+        // launch's.
+        key_handle = Some(spawn_personal_key(deps));
+        let url = minted.url.clone();
+        if default_branch.is_empty() {
+            default_branch = minted.default_branch.clone();
+        }
+        launch_hold = Some(crate::launch_gate::hold(clone));
+        // A reclaimed worktree is cut from the CURRENT base: the parent's
+        // branch while the brief still names one, else the repo default (a
+        // recorded parent branch may be long merged and gone).
+        if workspace_reclaimed {
+            let current = req
+                .brief
+                .parent_branch
+                .as_deref()
+                .map(str::trim)
+                .filter(|parent| !parent.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| minted.default_branch.clone());
+            crate::git_worktree::validate_branch_arg(&current, "resume base")?;
+            if current != default_branch {
+                log::info!(
+                    "resume {}: re-cutting the reclaimed worktree from {current} (recorded base {default_branch})",
+                    record.session_id,
+                );
+                default_branch = current;
+            }
+        }
+        match &record.branch {
+            Some(branch) => {
+                crate::git_worktree::validate_branch_arg(branch, "resume run")?;
+                let worktree = deps.worktrees.prepare(
+                    &deps.settings.repos_root_path(),
+                    url.full_name(),
+                    &default_branch,
+                    branch,
+                    &url,
+                    minted.expires_at.as_deref(),
+                )?;
+                // A re-created worktree is the cwd wherever git put it (the
+                // layout path, normally — the same one the record names, so
+                // the agent's cwd-keyed transcript still resolves).
+                if workspace_reclaimed {
+                    if worktree != cwd {
+                        log::info!(
+                            "resume {}: worktree re-created at {} (recorded {})",
+                            record.session_id,
+                            worktree.display(),
+                            cwd.display()
+                        );
+                    }
+                    cwd = worktree;
+                }
+            }
+            // A branch-less repo-backed record still needs its ambient auth
+            // reinstalled.
+            None => git_credentials::ensure(clone, &url, minted.expires_at.as_deref())?,
+        }
+    }
+
+    // Step 3 — can the agent reopen its own conversation? Each agent answers
+    // differently, and a `no` is never fatal: the fallback is a fresh
+    // conversation seeded with the brief and the message.
+    let marker_allows_resume = crate::worktree_agents::worktree_agents(&cwd)
+        .is_none_or(|recorded| recorded.contains(&agent));
+    // EXP-758: a run also carries the agent's OWN handle — the engine wrote
+    // `agent_native_session_id` (claude's session uuid, codex's thread id) —
+    // which reopens the conversation when no ACP session id survived. Each
+    // agent's handles are tried in order (the recorded pin first, the native
+    // id second) and the FIRST one that still names a live conversation wins.
+    // EXP-849: the transcript is looked for in the tree the resume will RUN
+    // against — the TARGET profile's, which on a switch is not the one that
+    // holds it yet. So hand it over first (transcript only, never a
+    // credential): a switch whose copy fails degrades like a pruned one.
+    let acp_native = record.agent_native_session_id.clone();
+    let source_profile_dir = crate::agent_profiles::account_dir(
+        &deps.data_dir,
+        Some(agent),
+        recorded_account.as_deref(),
+    );
+    let claude_resume_id = (marker_allows_resume && agent == CodingAgent::Claude)
+        .then(|| {
+            record
+                .claude_session_id
+                .clone()
+                .into_iter()
+                .chain(acp_native.clone())
+                .find(|id| {
+                    if switching || legacy_ambient {
+                        copy_claude_transcript(
+                            deps,
+                            source_profile_dir.as_deref(),
+                            profile_dir.as_deref(),
+                            id,
+                        );
+                    }
+                    claude_transcript_exists_in(deps, profile_dir.as_deref(), id)
+                })
+        })
+        .flatten();
+    let codex_resume_id = (marker_allows_resume && agent == CodingAgent::Codex)
+        .then(|| {
+            acp_native.clone().or_else(|| {
+                deps.codex_sessions_root
+                    .clone()
+                    .or_else(|| crate::codex_sessions::codex_sessions_root(profile_dir.as_deref()))
+                    .and_then(|root| {
+                        crate::codex_sessions::find_codex_session_id(
+                            &root,
+                            &cwd,
+                            record.codex_originator.as_deref(),
+                        )
+                    })
+            })
+        })
+        .flatten();
+    // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
+    // session id — `session/load` replays the WHOLE thread, so it is as
+    // native a resume as the handles above.
+    let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp());
+    let native_resume = acp_resume_id.is_some()
+        || claude_resume_id.is_some()
+        || codex_resume_id.is_some();
+
+    // Step 4 — the first turn. A native resume sends the message verbatim;
+    // a conversation that did not survive starts over from the brief with
+    // the message after it. A re-created worktree is news the transcript
+    // cannot know, so its note opens the turn; an account switch (EXP-935)
+    // tells the agent to carry on, LAST.
+    let message = resume.prompt.trim();
+    let reclaimed_note = workspace_reclaimed
+        .then(|| {
+            record.branch.as_deref().map(|branch| {
+                // Which story is true depends on what the re-created worktree
+                // actually holds: a reclaimer only deletes a MERGED branch
+                // (fresh cut, nothing ahead), while a worktree a person
+                // removed leaves the branch and its commits standing.
+                let ahead = crate::run_cleanup::count_commits(
+                    &cwd,
+                    &format!("origin/{default_branch}..{branch}"),
+                )
+                .unwrap_or(0);
+                crate::prompt::reclaimed_workspace_note(
+                    branch,
+                    &default_branch,
+                    ahead,
+                    native_resume && message.is_empty() && !switching,
+                )
+            })
+        })
+        .flatten();
+    let body = if native_resume {
+        Some(message.to_string()).filter(|text| !text.is_empty())
+    } else {
+        let brief = req.brief.brief.trim_end();
+        match (brief.trim().is_empty(), message.is_empty()) {
+            (true, true) => None,
+            (true, false) => Some(message.to_string()),
+            (false, true) => Some(brief.to_string()),
+            (false, false) => Some(format!("{brief}\n\n{message}")),
+        }
+    };
+    let rendered = match (&reclaimed_note, body) {
+        (Some(note), Some(body)) => Some(format!("{note}\n\n{body}")),
+        (Some(note), None) => Some(note.clone()),
+        (None, body) => body,
+    };
+    let rendered = match (switching, rendered) {
+        (true, Some(body)) => {
+            Some(format!("{body}\n\n{}", crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT))
+        }
+        (true, None) => Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT.to_string()),
+        (false, body) => body,
+    };
+    let personal_key = join_personal_key(key_handle.unwrap_or_else(|| spawn_personal_key(deps)))?;
+    guard_agent_mcp(agent, &cwd, false)?;
+    let agent_mcp = wire_agent_mcp(
+        agent,
+        &cwd,
+        deps.trpc.base_url(),
+        &personal_key,
+        Some(&session_id),
+        false,
+    )?;
+    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
+    // EXP-792/1140: the row's team MCP server pick, re-resolved now (fresh
+    // tokens); unconnected or unpicked ones are skipped, never a blocker.
+    let mut team_mcp = resolve_mcp_servers(deps, &session_id);
+    let label = if req.issue_identifiers.is_empty() {
+        record.display_name()
+    } else {
+        session_label(row, &req.issue_identifiers)
+    };
+    let computer_use = attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
+    let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session_id, &label);
+
+    // Step 5 — the spawn spec, exactly like a fresh launch's.
+    if agent == CodingAgent::Codex {
+        let trust_root = record
+            .clone
+            .as_deref()
+            .or_else(|| cwd.parent())
+            .unwrap_or(&cwd);
+        crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
+    }
+    if agent == CodingAgent::Claude {
+        crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
+    }
+    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
+    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session_id, agent);
+    let codex_originator =
+        (agent == CodingAgent::Codex).then(|| crate::argv::codex_session_originator(&session_id));
+    let spawn = session_spawn(
+        deps,
+        agent,
+        &cwd,
+        record.clone.as_deref(),
+        &options,
+        &personal_key,
+        &session_id,
+        &team_mcp,
+        codex_originator.as_deref(),
+    );
+
+    // Only a session that OWNS its worktree may have it reclaimed — never an
+    // issue's.
+    let run_cleanup = match (&record.clone, &record.branch, &record.base_branch) {
+        (Some(clone), Some(branch), Some(base_branch)) if record.owns_run_worktree() => {
+            Some(RunCleanup {
+                clone: clone.clone(),
+                worktree: cwd.clone(),
+                branch: branch.clone(),
+                base_branch: base_branch.clone(),
+            })
+        }
         _ => None,
     };
 
-    // EXP-637: everything a RESUME of this run needs — recorded once the row
-    // and the argv identity are both known. Best-effort: a failed write only
-    // costs the Resume offer.
-    crate::run_registry::record(
-        &deps.data_dir,
-        RunRecord {
-            session_id: session.id.clone(),
-            account_id: deps.account_id.clone(),
-            agent,
-            kind: match &req.kind {
-                ActionRunKind::Team => RunKind::Team,
-                ActionRunKind::Chat => RunKind::Chat,
-                ActionRunKind::TidyUp => RunKind::TidyUp,
-                ActionRunKind::CreateAction => RunKind::CreateAction,
-                ActionRunKind::FixConflicts { .. } => RunKind::FixConflicts,
-            },
-            action_id: req.action_id.clone(),
-            action_name: req.action_name.clone(),
-            team_id: req.team_id.clone(),
-            // EXP-662's session fields: an action run has no issue subject.
-            issue_id: None,
-            issue_identifier: None,
-            batch_id: None,
-            issues: Vec::new(),
-            cwd: cwd.clone(),
-            clone: trunk_clone.clone(),
-            repo: repo.as_ref().map(|repo| repo.full_name.clone()),
-            repository_id: repository_id.clone(),
-            board_id: fix_board_id.clone(),
-            branch: run_branch.clone(),
-            base_branch: base_branch.clone(),
-            claude_session_id: None,
-            codex_originator: codex_originator.clone(),
-            inputs: req
-                .inputs
-                .iter()
-                .map(|input| RunInput {
-                    key: input.key.clone(),
-                    value: input.value.clone(),
-                    display: input.display.clone(),
-                })
-                .collect(),
-            model: options.model.clone(),
-            effort: options.effort.clone(),
-            ultracode: options.ultracode,
-            fix: match &req.kind {
-                ActionRunKind::FixConflicts {
-                    branch,
-                    default_branch,
-                    identifier,
-                    issue_id,
-                    ..
-                } => Some(RunFix {
-                    branch: branch.clone(),
-                    default_branch: default_branch.clone(),
-                    identifier: identifier.clone(),
-                    issue_id: issue_id.clone(),
-                }),
-                _ => None,
-            },
-            started_reason: run_reason.map(str::to_string),
-            resumed_from_id: None,
-            // EXP-773: same transport record as a session run.
-            transport: Some(ACP_TRANSPORT.to_string()),
-            acp_session_id: None,
-            agent_native_session_id: None,
-            acp_child_pid: None,
-            host_pid: None,
-            recorded_at: crate::run_registry::now_secs(),
-            // EXP-792: the server pick, for a resume to re-resolve.
-            extra: launch_extra(&options.mcp_server_ids, options.account.as_deref()),
-        },
-    );
+    // The SAME record, re-stamped (EXP-1292: same row, same key). The ACP
+    // ids stay until the engine upserts the reopened ones.
+    let mut resumed_record = RunRecord {
+        cwd: cwd.clone(),
+        claude_session_id: claude_resume_id.clone().or_else(|| record.claude_session_id.clone()),
+        codex_originator: codex_originator.clone(),
+        model: options.model.clone(),
+        effort: options.effort.clone(),
+        transport: Some(ACP_TRANSPORT.to_string()),
+        acp_child_pid: None,
+        host_pid: None,
+        recorded_at: crate::run_registry::now_secs(),
+        ..record.clone()
+    };
+    // EXP-849: the ACCOUNT this run actually landed on, which on a switch is
+    // not the recorded one — the next resume must re-enter the login that
+    // now holds the transcript.
+    resumed_record.set_account(options.account.as_deref());
+    // EXP-1292: the row runs again — an END its last exit owed is moot.
+    resumed_record.set_unreported_end(false);
+    crate::run_registry::record(&deps.data_dir, resumed_record);
 
-    let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &req.team_id, &run_extras(deps, computer_use, code_mode));
-    // EXP-1051: an action run's cwd is its own worktree or scratch dir, so
-    // its project memory is whatever sits there — not the trunk clone's.
+    // EXP-746 (D8): how the ACP engine reopens the conversation — the
+    // recorded ACP session id first, else the agent's OWN handle (EXP-758).
+    let acp_resume = acp_resume_id.clone().map(ResumeSeed::Acp).or_else(|| {
+        claude_resume_id
+            .clone()
+            .or_else(|| codex_resume_id.clone())
+            .map(ResumeSeed::Native)
+    });
+    let system_append = crate::skill::system_append_layers(
+        req.brief.team_prompt.as_deref(),
+        req.brief.agent_instructions.as_deref(),
+        &run_extras(deps, computer_use, code_mode),
+    );
+    // EXP-1051: a NATIVE resume re-enters a transcript whose base context
+    // this launch never built, so the recorded measured number is the only
+    // honest one to carry. A resume that fell back to a fresh conversation
+    // builds its own base and carries nothing.
     let context_layers = context_layers_for(
-        deps,
         agent,
         &cwd,
         profile_dir.as_deref(),
         &system_append,
         rendered.as_deref(),
-        None,
+        acp_resume.is_some().then(|| record.context_base()).flatten(),
     );
-    // FEED-73: the team-MCP delegation note rides AFTER the measured
-    // layers (the team layer stays the team prompt's bytes).
+    // FEED-73: the team-MCP delegation note rides AFTER the measured layers.
     let system_append = with_delegation_note(system_append, &team_mcp);
     Ok(Prepared::Ready(PreparedLaunch {
-        session_id: session.id,
-        account_pick: account_pick.clone(),
-        issue_identifier: req.action_name.clone(),
+        session_id: session_id.clone(),
+        account_pick: None,
+        issue_identifier: label.clone(),
         worktree: cwd.clone(),
-        clone: trunk_clone.unwrap_or(cwd),
-        repository_id,
-        branch,
-        base_branch: base_branch.clone(),
-        base_ref: base_branch
-            .as_ref()
-            .map(|base| format!("origin/{base}")),
+        clone: record.clone.clone().unwrap_or_else(|| cwd.clone()),
+        repository_id: record.repository_id.clone(),
+        branch: record.branch.clone().unwrap_or_default(),
+        base_branch: run_cleanup.as_ref().map(|cleanup| cleanup.base_branch.clone()),
+        base_ref: (!default_branch.is_empty()).then(|| format!("origin/{default_branch}")),
         run_cleanup,
         mcp_warnings: team_mcp.warnings.clone(),
         spawn,
-        tab_title,
-        tab_title_prefix: tab_prefix,
-        heartbeat_scope: coding_sessions::HeartbeatScope {
-            issue_id: None,
-            team_id: session.team_id.clone(),
-            action_id: Some(req.action_id.clone()),
-            action_name: Some(req.action_name.clone()),
-            started_by_id: attribution(&req.origin, deps)
-                .started_by_id
-                .map(str::to_string),
-            device_id: attribution(&req.origin, deps).device_id.map(str::to_string),
-            // EXP-530: the SAME reason the start stamped, echoed on every
-            // ping so a swept row resurrects still badged Automated (both
-            // hosts arrive here — the GUI trigger host and the CLI
-            // daemon's worker both set `req.trigger`). EXP-679 adds the
-            // relay's `agent` reason to that set.
-            started_reason: run_reason.map(str::to_string),
-            trigger_id: req.trigger_id.clone(),
-            // EXP-637: the run branch, so a resurrected row still points at
-            // the worktree the agent is working in.
-            branch: run_branch.clone(),
-            // EXP-876: an action run names itself off its snapshot.
-            batch_issue_ids: Vec::new(),
-            agent: agent.wire_id().map(str::to_string),
-            agent_account: Some(agent_account.clone()),
-            thread_id: session.thread_id.clone(),
-        },
+        tab_title: format!("{} · {label}", agent.id()),
+        tab_title_prefix: label,
         acp: AcpLaunch {
-            prompt: rendered.clone(),
+            prompt: rendered,
             options: options.clone(),
-            mcp: agent_mcp.clone(),
-            session_id: session_id_for_acp.clone(),
-            resume: None,
-            reaper_settings_path: reaper_anchor.clone(),
+            mcp: agent_mcp,
+            session_id,
+            resume: acp_resume,
+            reaper_settings_path: reaper_anchor,
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
             mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
         },
-        action_id: Some(req.action_id.clone()),
-        bypass_permissions: !options.plan_mode,
-        plan_mode: options.plan_mode,
+        seed_message_id: resume.message_id.clone(),
+        bypass_permissions: true,
+        plan_mode: false,
         agent,
         claude_session_id: None,
         codex_originator,
-        codex_resume_id: None,
+        codex_resume_id,
         launch_hold,
     }))
 }
@@ -3027,721 +2328,9 @@ pub fn claude_transcript_exists_in(
         .is_some_and(|root| locate_claude_transcript(&root, session_id).is_some())
 }
 
-/// EXP-637/EXP-662 — RESUME an ended run or SESSION (blocking, background
-/// executor): action, chat, issue and batch all come through here, told apart
-/// only by [`RunRecord::kind`].
-///
-/// The recorded [`RunRecord`] already answers every question the original
-/// launch had to resolve (agent, cwd, branch, options), so this sequence is
-/// the SHORT one: doctor → workspace still there → repo-backed re-auth and
-/// idempotent worktree → native transcript probe (else a fresh session
-/// seeded with the matching resume prompt) → a NEW session row carrying
-/// `resumedFromId` → MCP wiring with the new id → argv → re-record.
-///
-/// A resume never enters plan mode (whatever plan there was already ran) and
-/// never flips an issue's status: the launch that opened the work did that,
-/// and resuming a `done` issue must not reopen it.
-fn prepare_resume_run(
-    req: &ResumeRunRequest,
-    deps: &CodingDeps,
-) -> Result<Prepared, CodingError> {
-    let record = &req.record;
-    let agent = record.agent;
-    // EXP-849: what account this resume runs on — the one asked for (a
-    // mid-run switch), else the recorded one. A LEGACY record that ran on the
-    // retired ambient login names none: it resumes on the device's resolved
-    // profile (no run ever spends the ambient login), its claude transcript
-    // handed over from `~/.claude/projects` below.
-    let requested_account = req
-        .account
-        .as_deref()
-        .filter(|id| !crate::agent_profiles::is_unpinned(Some(id)))
-        .map(|id| id.trim().to_string());
-    let recorded_account = record.account();
-    let legacy_ambient = requested_account.is_none() && recorded_account.is_none();
-    let resume_account = requested_account.clone().or_else(|| recorded_account.clone()).or_else(|| {
-        crate::agent_profiles::resolve_launch_account(&deps.data_dir, agent, None, |profile| {
-            profile_signed_out(deps, agent, None, profile)
-        })
-        .account
-    });
-    // A switch is a request that names a DIFFERENT login than the run used;
-    // "resume on the account it already ran on" is an ordinary resume,
-    // however the caller spelled it.
-    let switching = requested_account.is_some() && resume_account != recorded_account;
-    let options = LaunchOptions {
-        agent,
-        model: req.model.clone().unwrap_or_else(|| record.model.clone()),
-        effort: req.effort.clone().unwrap_or_else(|| record.effort.clone()),
-        ultracode: record.ultracode,
-        // The plan already happened in the run being continued.
-        plan_mode: false,
-        // EXP-981: the run registry predates the subagent pin, so a resume
-        // leaves claude's subagents on the CLI's own default rather than
-        // inventing a model the original run may never have used.
-        subagent_model: String::new(),
-        // EXP-792: the recorded server pick, re-resolved below against the
-        // CURRENT secret store (a rotated token is picked up; a server that
-        // lost its credential refuses the resume by name).
-        mcp_server_ids: record.mcp_server_ids(),
-        // EXP-792: the recorded account profile — the resume must read the
-        // SAME config dir (credentials, trust, codex rollouts) the run did.
-        // EXP-849: unless the caller asked to SWITCH accounts, which is what a
-        // mid-session account change is (the gate is below).
-        account: resume_account.clone(),
-        // EXP-1249: the registry keeps no per-run pick; the device decides.
-        computer_use: None,
-    };
-    // EXP-909: the LOGIN the CONTINUATION spends. On a switch `options.account`
-    // is already the switch TARGET (`resume_account`), so the new row is
-    // stamped with the account it will actually run on — matching
-    // `resumed_record.set_account` below — never the one it came from.
-    let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
-    let profile_dir = crate::agent_profiles::account_dir(
-        &deps.data_dir,
-        Some(agent),
-        options.account.as_deref(),
-    );
-    // EXP-849 — refuse a switch the machine cannot honor, BEFORE anything is
-    // started: a named target that does not exist here, and codex, whose
-    // conversation lives inside the login's own rollout store (and whose
-    // login is one per session by contract — interface E).
-    if switching {
-        if agent != CodingAgent::Claude {
-            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
-                message: format!(
-                    "{} cannot continue a session on another account. Start a new session on it instead.",
-                    agent.label()
-                ),
-            }));
-        }
-        if let (Some(target), None) = (&resume_account, &profile_dir) {
-            return Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused {
-                message: format!("That account ({target}) is not set up on this machine."),
-            }));
-        }
-    }
-    // Step 0 — doctor: the RECORDED agent (a resume never switches agents),
-    // plus git when the run lives in a clone ([`doctor_gate`]).
-    // EXP-1138: judged on the login the CONTINUATION spends (the switch
-    // target on a switch) — a resume never falls back to another account.
-    let report = run_doctor(&deps.settings, &deps.data_dir);
-    if let Some(failed) = doctor_gate(
-        &report,
-        deps,
-        agent,
-        options.account.as_deref(),
-        record.clone.is_some(),
-    ) {
-        return Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed)));
-    }
-    // EXP-773: same ACP gate as a fresh launch — a downgraded CLI or a host
-    // with no engine refuses the resume with
-    // the doctor's own reason instead of composing an argv nothing can run.
-    if let Some(reason) = acp_gate(&report, agent, deps) {
-        return Ok(Prepared::Disabled(reason));
-    }
-    // Step 1 — the workspace. A repo-backed run whose worktree the run
-    // cleanup or the prune reclaimed (its PR landed — the ordinary way a chat
-    // run ends) is re-created in step 2 on its recorded branch, cut fresh from
-    // `origin/<base>` when the branch went with it; the agent hears about it
-    // in its first turn. A branch-less repo-backed record, or (EXP-764) a
-    // scratch dir the purge took with its ended run, is a hard stop: there is
-    // nothing to resume INTO (the callers filter on `resumable()` first; this
-    // is the backstop). A standing scratch dir is touched so a sweep racing
-    // this relaunch reads it as young (`crate::scratch`).
-    let mut cwd = record.cwd.clone();
-    let workspace_reclaimed = record.workspace_reclaimed();
-    if !cwd.is_dir() && !workspace_reclaimed {
-        return Err(CodingError::Io(format!(
-            "this session's workspace is gone ({})",
-            cwd.display()
-        )));
-    }
-    if record.clone.is_none() {
-        crate::scratch::touch(&cwd);
-    }
-
-    // §7.2 — the personal key, raced like every other launch.
-    let key_handle = {
-        let trpc = Arc::clone(&deps.trpc);
-        let store = Arc::clone(&deps.token_store);
-        let account_id = deps.account_id.clone();
-        std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
-    };
-
-    // Step 2 — repo-backed: a fresh JIT token, ambient auth re-installed
-    // (the recorded one expired long ago), and an IDEMPOTENT worktree
-    // re-create (it normally already exists; this heals a worktree whose
-    // admin files git pruned under us). EXP-662: through the injected
-    // [`WorktreeProvider`], which runs the SAME ensure_clone → credentials →
-    // fetch_base → create_worktree sequence a fresh launch takes.
-    let mut launch_hold: Option<crate::launch_gate::LaunchHold> = None;
-    // The base a fallback prompt compares against (`origin/<base>..HEAD`).
-    let mut default_branch = record.base_branch.clone().unwrap_or_default();
-    if let (Some(clone), Some(repository_id)) = (&record.clone, &record.repository_id) {
-        let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
-            &deps.trpc,
-            repository_id,
-            // EXP-712: the recorded board, so a resume whose `base_branch`
-            // was never written still lands on the board's branch.
-            record.board_id.as_deref(),
-            crate::token_refresh::REFRESH_LEAD,
-        ) {
-            Ok(minted) => minted,
-            Err(err) => {
-                return map_token_error(err, record.repo.as_deref().unwrap_or("repository"))
-            }
-        };
-        let url = minted.url.clone();
-        if default_branch.is_empty() {
-            default_branch = minted.default_branch.clone();
-        }
-        launch_hold = Some(crate::launch_gate::hold(clone));
-        // SLOP-3: a reclaimed ISSUE or BATCH worktree is cut from the board's
-        // CURRENT base. Its recorded base is that same branch for every run
-        // this build starts, but an older build's stacked run or workflow
-        // node recorded a foundation / integration branch that may be gone —
-        // such a record resumes as the plain run it was.
-        if workspace_reclaimed
-            && matches!(record.kind, RunKind::Issue | RunKind::Batch)
-            && default_branch != minted.default_branch
-        {
-            log::info!(
-                "resume {}: re-cutting the reclaimed worktree from {} (recorded base {default_branch})",
-                record.session_id,
-                minted.default_branch
-            );
-            default_branch = minted.default_branch.clone();
-        }
-        match &record.branch {
-            Some(branch) => {
-                crate::git_worktree::validate_branch_arg(branch, "resume run")?;
-                let worktree = deps.worktrees.prepare(
-                    &deps.settings.repos_root_path(),
-                    url.full_name(),
-                    &default_branch,
-                    branch,
-                    &url,
-                    minted.expires_at.as_deref(),
-                )?;
-                // A re-created worktree is the cwd wherever git put it (the
-                // layout path, normally — the same one the record names, so
-                // the agent's cwd-keyed transcript still resolves).
-                if workspace_reclaimed {
-                    if worktree != cwd {
-                        log::info!(
-                            "resume {}: worktree re-created at {} (recorded {})",
-                            record.session_id,
-                            worktree.display(),
-                            cwd.display()
-                        );
-                    }
-                    cwd = worktree;
-                }
-            }
-            // A branch-less repo-backed record (a pre-EXP-637 trunk-clone
-            // run) still needs its ambient auth reinstalled.
-            None => git_credentials::ensure(clone, &url, minted.expires_at.as_deref())?,
-        }
-    }
-
-    // Step 3 — can the agent reopen its own conversation? Each agent answers
-    // differently, and a `no` is never fatal: the fallback is a fresh
-    // session seeded with the resume prompt.
-    let marker_allows_resume = crate::worktree_agents::worktree_agents(&cwd)
-        .is_none_or(|recorded| recorded.contains(&agent));
-    // EXP-758: a run also carries the agent's OWN handle — the engine wrote
-    // `agent_native_session_id` (claude's session uuid, codex's thread id)
-    // — which is what reopens the conversation when no
-    // ACP session id survived. Each slot below is already gated on the agent
-    // it belongs to.
-    let acp_native = record.agent_native_session_id.clone();
-    // Each agent's handles are tried in order (the recorded pin first, the
-    // native id second) and the FIRST one that still names a live
-    // conversation wins — a stale pin must not mask a good fallback.
-    // EXP-849: the transcript is looked for in the tree the resume will RUN
-    // against — the TARGET profile's, which on a switch is not the one that
-    // holds it yet. So hand it over first (transcript only, never a
-    // credential): a switch whose copy fails simply degrades to a fresh
-    // session with the resume prompt, exactly like a pruned transcript.
-    let source_profile_dir = crate::agent_profiles::account_dir(
-        &deps.data_dir,
-        Some(agent),
-        recorded_account.as_deref(),
-    );
-    let claude_resume_id = (marker_allows_resume && agent == CodingAgent::Claude)
-        .then(|| {
-            record
-                .claude_session_id
-                .clone()
-                .into_iter()
-                .chain(acp_native.clone())
-                .find(|id| {
-                    if switching || legacy_ambient {
-                        copy_claude_transcript(
-                            deps,
-                            source_profile_dir.as_deref(),
-                            profile_dir.as_deref(),
-                            id,
-                        );
-                    }
-                    claude_transcript_exists_in(deps, profile_dir.as_deref(), id)
-                })
-        })
-        .flatten();
-    let codex_resume_id = (marker_allows_resume && agent == CodingAgent::Codex)
-        .then(|| {
-            acp_native.clone().or_else(|| {
-                deps.codex_sessions_root
-                    .clone()
-                    .or_else(|| crate::codex_sessions::codex_sessions_root(profile_dir.as_deref()))
-                    .and_then(|root| {
-                        crate::codex_sessions::find_codex_session_id(
-                            &root,
-                            &cwd,
-                            record.codex_originator.as_deref(),
-                        )
-                    })
-            })
-        })
-        .flatten();
-    // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
-    // session id — `session/load` replays the WHOLE thread, so it is as
-    // native a resume as the handles above. Counting it here is what
-    // keeps the seed prompt off: `engine::host` starts a turn for every
-    // `AcpLaunch::prompt`, so a prompt on top of a load would put the agent
-    // back to work unasked, which no other resume shape does.
-    let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp());
-    let native_resume = acp_resume_id.is_some()
-        || claude_resume_id.is_some()
-        || codex_resume_id.is_some();
-
-    // Step 4 — the seed prompt, only when nothing native survived. An ISSUE
-    // session gets the issue-shaped resume prompt (PR contract, comment
-    // thread, `origin/<default>` compare) — the same one a record-less
-    // resume takes through [`prepare`]; everything else gets the run-shaped
-    // one, named by [`RunRecord::display_name`].
-    // EXP-679: a resume is unattended only when the relay frame said so
-    // (`agent` — another coding session resumed this run); a person's resume
-    // stays open like any other person-started run.
-    let run_reason = started_reason(&req.origin, None);
-    // EXP-825: composer text on a resume — verbatim first turn when the
-    // native conversation survived, otherwise the additional-instructions
-    // section of the degraded resume prompt.
-    let extra = req
-        .prompt
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty());
-    // EXP-935: an account SWITCH is a resume with no prompt at all, so a
-    // native reload idled on `RESUMED_IDLE_CAPTION` until a person typed and
-    // the switch looked like it had done nothing. The switch opens the first
-    // turn itself, on every resume shape (the degraded one re-reads the
-    // transcript first and then hears this).
-    let switch_note = req.account.is_some();
-    // A re-created worktree is news the agent's transcript cannot know: it
-    // opens the first turn, alone when nothing else was sent (the one resume
-    // shape that starts a turn on top of a native reload — the alternative
-    // is an agent pushing "its" commits onto a branch that no longer has
-    // them).
-    let reclaimed_note = workspace_reclaimed
-        .then(|| {
-            record.branch.as_deref().map(|branch| {
-                // Which story is true depends on what the re-created worktree
-                // actually holds: a reclaimer only deletes a MERGED branch
-                // (fresh cut, nothing ahead), while a worktree a person
-                // removed leaves the branch and its commits standing.
-                let ahead = crate::run_cleanup::count_commits(
-                    &cwd,
-                    &format!("origin/{default_branch}..{branch}"),
-                )
-                .unwrap_or(0);
-                crate::prompt::reclaimed_workspace_note(
-                    branch,
-                    &default_branch,
-                    ahead,
-                    // EXP-935: a switch DOES ask for something, so the note
-                    // must not tell the agent to acknowledge and wait.
-                    native_resume && extra.is_none() && !switch_note,
-                )
-            })
-        })
-        .flatten();
-    let with_note = |body: Option<String>| match (&reclaimed_note, body) {
-        (Some(note), Some(body)) => Some(format!("{note}\n\n{body}")),
-        (Some(note), None) => Some(note.clone()),
-        (None, body) => body,
-    };
-    let rendered = if native_resume {
-        with_note(extra.map(str::to_string))
-    } else {
-        with_note(Some(match record.kind {
-            RunKind::Issue => {
-                let identifier = record.issue_identifier.as_deref().unwrap_or_default();
-                let seed = record
-                    .issue_id
-                    .as_deref()
-                    .and_then(|issue_id| (deps.issue_seed)(issue_id));
-                let title = seed
-                    .as_ref()
-                    .map(|seed| seed.title.as_str())
-                    .unwrap_or(identifier);
-                render_resume_prompt(
-                    identifier,
-                    title,
-                    &default_branch,
-                    run_reason.is_some(),
-                    extra,
-                )
-            }
-            _ => crate::prompt::append_additional_instructions(
-                render_run_resume_prompt(record, run_reason.is_some()),
-                extra,
-            ),
-        }))
-    };
-    // EXP-935: the continue instruction rides LAST — after whatever the
-    // resume already says (the re-read prompt, the person's own text), and
-    // after the reclaimed-workspace note `with_note` prepended.
-    let rendered = match (switch_note, rendered) {
-        (true, Some(body)) => {
-            Some(format!("{body}\n\n{}", crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT))
-        }
-        (true, None) => Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT.to_string()),
-        (false, body) => body,
-    };
-    let attachment_ids = prompt_attachment_ids(extra);
-    let personal_key = key_handle
-        .join()
-        .map_err(|_| CodingError::Io("personal-key thread panicked".to_string()))??;
-    guard_agent_mcp(agent, &cwd, false)?;
-
-    // Step 5 — a NEW session row in the recorded SUBJECT's shape, pointing
-    // back at the run it continues.
-    let session = match record.kind {
-        RunKind::Issue => coding_sessions::start(
-            &deps.trpc,
-            record.issue_id.as_deref().unwrap_or_default(),
-            Some(&req.device_label),
-            attribution(&req.origin, deps),
-            run_reason,
-            Some(&record.session_id),
-            agent.wire_id(),
-            Some(agent_account.as_str()),
-            &attachment_ids,
-            // EXP-1140: the RECORDED pick rides onto the continuation row.
-            &options.mcp_server_ids,
-        ),
-        RunKind::Batch => coding_sessions::start_batch(
-            &deps.trpc,
-            &record.team_id,
-            Some(&req.device_label),
-            attribution(&req.origin, deps),
-            run_reason,
-            Some(&record.session_id),
-            agent.wire_id(),
-            Some(agent_account.as_str()),
-            &attachment_ids,
-            // EXP-876: a resumed batch keeps the name of the run it
-            // continues — the record holds the issues it covered.
-            &record
-                .issues
-                .iter()
-                .map(|issue| issue.issue_id.clone())
-                .collect::<Vec<_>>(),
-            &options.mcp_server_ids,
-        ),
-        _ => coding_sessions::start_action(
-            &deps.trpc,
-            coding_sessions::ActionStart {
-                action_id: &record.action_id,
-                team_id: (record.kind != RunKind::Team).then_some(record.team_id.as_str()),
-                // A resume is never a TRIGGER's doing — but EXP-679's
-                // `agent` reason (another coding session resumed it) is.
-                started_reason: run_reason,
-                trigger_id: None,
-                device_label: Some(&req.device_label),
-                branch: record.branch.as_deref(),
-                resumed_from_id: Some(&record.session_id),
-                agent: agent.wire_id(),
-                agent_account: Some(agent_account.as_str()),
-                attribution: attribution(&req.origin, deps),
-                attachment_ids: &attachment_ids,
-                mcp_server_ids: &options.mcp_server_ids,
-            },
-        ),
-    };
-    let session = match session {
-        Ok(session) => session,
-        Err(ApiError::Http { status: 412, message }) => {
-            return Ok(Prepared::Disabled(DisabledReason::SessionLimit { message }))
-        }
-        Err(err) => return Err(err.into()),
-    };
-
-    let agent_mcp = end_on_error(
-        &deps.trpc,
-        &session.id,
-        wire_agent_mcp(
-            agent,
-            &cwd,
-            deps.trpc.base_url(),
-            &personal_key,
-            Some(&session.id),
-            false,
-        ),
-    )?;
-    let _ = crate::worktree_agents::record_worktree_agent_id(&cwd, agent.id());
-    // EXP-792/1140: the RECORDED team MCP server pick, re-resolved now
-    // (fresh tokens) FOR the continuation row it was just persisted on;
-    // unconnected or unpicked ones are skipped, never a blocker.
-    // FEED-73: a real action's resume keeps the row's own pick (the
-    // action's list plus shared connections): no ids named.
-    let pick = (record.kind != RunKind::Team).then_some(options.mcp_server_ids.as_slice());
-    let mut team_mcp = resolve_mcp_servers(deps, pick, &session.id);
-    let computer_use = attach_computer_use(deps, &options, &mut team_mcp, &session.id, &record.display_name());
-    let code_mode =
-        attach_code_mode(&mut team_mcp, &agent_mcp, &personal_key, &session.id, &record.display_name());
-
-    // Step 6 — the spawn spec, mirroring the fresh action path.
-    if agent == CodingAgent::Codex {
-        let trust_root = record
-            .clone
-            .as_deref()
-            .or_else(|| cwd.parent())
-            .unwrap_or(&cwd);
-        crate::codex_trust::ensure_trusted(trust_root, profile_dir.as_deref());
-    }
-    if agent == CodingAgent::Claude {
-        crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
-    }
-    // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
-    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session.id, agent);
-    // The ACP adapter mints claude's OWN `--session-id` (it doubles as the
-    // ACP session id), so a pin minted here would name no transcript and
-    // would outrank the real id in the replay's fallback chain.
-    let codex_originator = (agent == CodingAgent::Codex)
-        .then(|| crate::argv::codex_session_originator(&session.id));
-    // EXP-662: a resumed SESSION is titled like a fresh one (`claude ·
-    // EXP-42` / `claude · EXP-42 +1`) — the strip must not tell a resume
-    // apart from the launch it continues.
-    let (tab_prefix, tab_title) = match record.kind {
-        RunKind::Issue | RunKind::Batch => {
-            let prefix = record.display_name();
-            let title = format!("{} · {prefix}", agent.id());
-            (prefix, title)
-        }
-        // EXP-739: the resume reads the REPO off the record, exactly like the
-        // launch does — `display_name()` would answer "Chat" for every chat.
-        RunKind::Chat => {
-            chat_tab_title(record.repo.as_deref().map(repo_short_name))
-        }
-        _ => {
-            let prefix = record.display_name();
-            let title = format!("action · {prefix}");
-            (prefix, title)
-        }
-    };
-    let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent)).cwd(&cwd);
-    spawn = apply_mcp_env(spawn, agent, &personal_key, Some(&session.id), false);
-    spawn = apply_mcp_server_env(spawn, &team_mcp);
-    spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
-    spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
-    if let Some(originator) = &codex_originator {
-        spawn = spawn.env(crate::argv::CODEX_ORIGINATOR_ENV, originator);
-    }
-    if let Some(clone) = &record.clone {
-        spawn = spawn
-            .env(
-                "CARGO_TARGET_DIR",
-                shared_cargo_target_dir(clone).to_string_lossy().into_owned(),
-            )
-            .env("CARGO_INCREMENTAL", "0");
-    }
-
-    // Only a run that OWNS its worktree may have it reclaimed — never the
-    // fix-conflicts run's shared PR worktree, never an issue/batch one.
-    let run_cleanup = match (&record.clone, &record.branch, &record.base_branch) {
-        (Some(clone), Some(branch), Some(base_branch)) if record.kind.owns_run_worktree() => {
-            Some(RunCleanup {
-                clone: clone.clone(),
-                worktree: cwd.clone(),
-                branch: branch.clone(),
-                base_branch: base_branch.clone(),
-            })
-        }
-        _ => None,
-    };
-
-    // The resumed run gets its OWN record — a resume of a resume chains.
-    let mut resumed_record = RunRecord {
-        session_id: session.id.clone(),
-        claude_session_id: claude_resume_id.clone(),
-        codex_originator: codex_originator.clone(),
-        model: options.model.clone(),
-        effort: options.effort.clone(),
-        started_reason: run_reason.map(str::to_string),
-        resumed_from_id: Some(record.session_id.clone()),
-        // EXP-773: the ACP ids are the ENGINE's to upsert once
-        // `session/load` (or `session/new`) answers — the recorded ones
-        // belong to the run being continued, not to this one.
-        transport: Some(ACP_TRANSPORT.to_string()),
-        acp_session_id: None,
-        agent_native_session_id: None,
-        acp_child_pid: None,
-        host_pid: None,
-        recorded_at: crate::run_registry::now_secs(),
-        ..record.clone()
-    };
-    // EXP-849: the ACCOUNT this run actually landed on, which on a switch is
-    // not the recorded one — a resume of the resumed run must re-enter the
-    // login that now holds the transcript, not the one it came from.
-    resumed_record.set_account(options.account.as_deref());
-    crate::run_registry::record(&deps.data_dir, resumed_record);
-
-    // The re-created row's start scope, in the recorded subject's shape —
-    // an issue scope refuses a branch server-side, and a batch one carries
-    // the team the record already pinned.
-    let scope_attribution = attribution(&req.origin, deps);
-    let heartbeat_scope = match record.kind {
-        RunKind::Issue => coding_sessions::HeartbeatScope {
-            issue_id: record.issue_id.clone(),
-            team_id: None,
-            action_id: None,
-            action_name: None,
-            started_by_id: scope_attribution.started_by_id.map(str::to_string),
-            device_id: scope_attribution.device_id.map(str::to_string),
-            started_reason: run_reason.map(str::to_string),
-            trigger_id: None,
-            branch: None,
-            batch_issue_ids: Vec::new(),
-            agent: agent.wire_id().map(str::to_string),
-            agent_account: Some(agent_account.clone()),
-            thread_id: session.thread_id.clone(),
-        },
-        RunKind::Batch => coding_sessions::HeartbeatScope {
-            issue_id: None,
-            team_id: Some(record.team_id.clone()),
-            action_id: None,
-            action_name: None,
-            started_by_id: scope_attribution.started_by_id.map(str::to_string),
-            device_id: scope_attribution.device_id.map(str::to_string),
-            started_reason: run_reason.map(str::to_string),
-            trigger_id: None,
-            branch: None,
-            // EXP-876: the resumed batch covers what the record says it did.
-            batch_issue_ids: record
-                .issues
-                .iter()
-                .map(|issue| issue.issue_id.clone())
-                .collect(),
-            agent: agent.wire_id().map(str::to_string),
-            agent_account: Some(agent_account.clone()),
-            thread_id: session.thread_id.clone(),
-        },
-        _ => coding_sessions::HeartbeatScope {
-            issue_id: None,
-            team_id: session.team_id.clone(),
-            action_id: Some(record.action_id.clone()),
-            action_name: Some(record.action_name.clone()),
-            started_by_id: scope_attribution.started_by_id.map(str::to_string),
-            device_id: scope_attribution.device_id.map(str::to_string),
-            started_reason: run_reason.map(str::to_string),
-            trigger_id: None,
-            branch: record.branch.clone(),
-            batch_issue_ids: Vec::new(),
-            agent: agent.wire_id().map(str::to_string),
-            agent_account: Some(agent_account.clone()),
-            thread_id: session.thread_id.clone(),
-        },
-    };
-    let issue_identifier = match record.kind {
-        RunKind::Issue => record.issue_identifier.clone().unwrap_or_default(),
-        RunKind::Batch => format!("batch-{}", record.batch_id.clone().unwrap_or_default()),
-        _ => record.action_name.clone(),
-    };
-    let action_id = match record.kind {
-        RunKind::Issue | RunKind::Batch => None,
-        _ => Some(record.action_id.clone()),
-    };
-
-    // EXP-746 (D8): how the ACP engine reopens the conversation — the
-    // recorded ACP session id first, else the agent's OWN handle (EXP-758:
-    // the engine records both, and a `/clear` re-reads the native one).
-    let acp_resume = acp_resume_id
-        .clone()
-        .map(ResumeSeed::Acp)
-        .or_else(|| {
-            claude_resume_id
-                .clone()
-                .or_else(|| codex_resume_id.clone())
-                .map(ResumeSeed::Native)
-        });
-    let session_id_for_acp = session.id.clone();
-    let system_append = system_append_for_team(deps, &record.team_id, &run_extras(deps, computer_use, code_mode));
-    // EXP-1051: a NATIVE resume re-enters a transcript whose base context
-    // this launch never built, so the predecessor's measured number is the
-    // only honest one to carry. A resume that fell back to a fresh session
-    // (no `acp_resume`) builds its own base and carries nothing.
-    let context_layers = context_layers_for(
-        deps,
-        agent,
-        &cwd,
-        profile_dir.as_deref(),
-        &system_append,
-        rendered.as_deref(),
-        acp_resume
-            .is_some()
-            .then(|| record.context_base())
-            .flatten(),
-    );
-    // FEED-73: the team-MCP delegation note rides AFTER the measured
-    // layers (the team layer stays the team prompt's bytes).
-    let system_append = with_delegation_note(system_append, &team_mcp);
-    Ok(Prepared::Ready(PreparedLaunch {
-        session_id: session.id,
-        account_pick: None,
-        issue_identifier,
-        worktree: cwd.clone(),
-        clone: record.clone.clone().unwrap_or(cwd),
-        repository_id: record.repository_id.clone(),
-        branch: record.branch.clone().unwrap_or_default(),
-        base_branch: record.base_branch.clone(),
-        base_ref: (!default_branch.is_empty())
-            .then(|| format!("origin/{default_branch}")),
-        run_cleanup,
-        mcp_warnings: team_mcp.warnings.clone(),
-        spawn,
-        tab_title,
-        tab_title_prefix: tab_prefix,
-        heartbeat_scope,
-        acp: AcpLaunch {
-            prompt: rendered.clone(),
-            options: options.clone(),
-            mcp: agent_mcp.clone(),
-            session_id: session_id_for_acp.clone(),
-            resume: acp_resume.clone(),
-            reaper_settings_path: reaper_anchor.clone(),
-            system_append,
-            context_layers,
-            servers: team_mcp.servers.clone(),
-            mcp_secrets: McpSecrets::new(team_mcp.secret_values()),
-        },
-        action_id,
-        bypass_permissions: true,
-        plan_mode: false,
-        agent,
-        claude_session_id: None,
-        codex_originator,
-        codex_resume_id,
-        launch_hold,
-    }))
-}
-
 /// FEED-73 — `append` plus, when the run acts through team MCP servers with
-/// a member roster (an ACTION run), the [`crate::mcp_servers::
-/// delegation_note`], blank-line separated. Unchanged otherwise.
+/// a member roster, the [`crate::mcp_servers::delegation_note`], blank-line
+/// separated. Unchanged otherwise.
 fn with_delegation_note(append: String, team_mcp: &ResolvedMcp) -> String {
     match crate::mcp_servers::delegation_note(&team_mcp.members, &team_mcp.servers) {
         Some(note) => format!("{}\n\n{note}", append.trim_end()),
@@ -3749,46 +2338,40 @@ fn with_delegation_note(append: String, team_mcp: &ResolvedMcp) -> String {
     }
 }
 
-/// EXP-1025 — the system-prompt append for ONE launch: the run playbook plus
-/// the team prompt. Fetched at prepare time (start, resume and agent shell
-/// alike) beside the other blocking tRPC calls, BEST-EFFORT: a team without
-/// a prompt or a failed fetch degrades to the bare playbook and is logged,
-/// never a refused launch — the prompt is a nicety of the run, not a
-/// precondition of it.
-///
-/// EXP-1196/EXP-1236: `extras` = the servers this launch carries beyond
-/// `exponential` ([`attach_computer_use`], [`attach_code_mode`]), so the
-/// append also teaches them. An agent shell carries neither.
-fn system_append_for_team(deps: &CodingDeps, team_id: &str, extras: &crate::skill::Extras) -> String {
-    if team_id.trim().is_empty() {
-        return crate::skill::system_append_with(None, extras);
-    }
+/// EXP-1025 — the system-prompt append of an agent SHELL: the playbook plus
+/// the team prompt. A shell has no session row, so no `sessions.brief`
+/// either; the team prompt comes from `teams.getAgentPrompt` for the team
+/// the caller is showing. BEST-EFFORT: no team, a team without a prompt or
+/// a failed fetch degrades to the bare playbook and is logged, never a
+/// refused shell.
+fn shell_system_append(deps: &CodingDeps, team_id: Option<&str>) -> String {
+    let extras = crate::skill::Extras::NONE;
+    let Some(team_id) = team_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return crate::skill::system_append_with(None, &extras);
+    };
     match api::teams::teams_get_agent_prompt(&deps.trpc, team_id) {
-        Ok(prompt) => crate::skill::system_append_with(Some(&prompt.agent_prompt), extras),
+        Ok(prompt) => crate::skill::system_append_with(Some(&prompt.agent_prompt), &extras),
         Err(err) => {
             log::warn!("coding: team prompt for {team_id} unavailable, launching without it: {err}");
-            crate::skill::system_append_with(None, extras)
+            crate::skill::system_append_with(None, &extras)
         }
     }
 }
 
 /// EXP-1051 — the measured context layers for ONE launch ([`AcpLaunch::
 /// context_layers`]). Every number is a BYTE COUNT of something this
-/// launcher itself composed or resolved:
+/// launcher itself composed:
 ///
 /// - the playbook, verbatim ([`crate::skill::RUN_SKILL`]);
-/// - the EXP-1025 team block, read back off the composed `system_append`
-///   (which is what actually reaches the agent);
-/// - the seed prompt, `None` when there is none (a native resume);
+/// - the brief's team prompt and agent instructions, read back off the
+///   composed `system_append` (which is what actually reaches the agent);
+/// - the seed prompt, `None` when there is none;
 /// - the project memory files the agent loads on its own from `cwd`;
-/// - the Exponential MCP surface, when the server answered
-///   ([`mcp_tools_bytes`]);
 /// - a resume's carried base from the previous run, when one was recorded.
 ///
-/// Best-effort like [`system_append_for_team`]: a missing layer costs the
-/// breakdown one segment, never the launch.
+/// EXP-1292: no tools segment — the `codingSessions.contextBudget` query it
+/// read went with the old session router, and the v2 router has none.
 pub fn context_layers_for(
-    deps: &CodingDeps,
     agent: CodingAgent,
     cwd: &Path,
     profile_dir: Option<&Path>,
@@ -3801,58 +2384,17 @@ pub fn context_layers_for(
         team_bytes: context_layout::team_bytes(system_append),
         task_bytes: prompt.map(str::len),
         project: context_layout::project_memory(agent, cwd, profile_dir),
-        tools_bytes: mcp_tools_bytes(deps),
+        tools_bytes: None,
         carried_base,
-    }
-}
-
-/// EXP-1051 — the Exponential MCP surface in bytes (always-load tool defs +
-/// the server instructions), as `codingSessions.contextBudget` reports it.
-///
-/// Cached for the process: the number is a property of the INSTANCE, not of
-/// the run, and every launch would otherwise pay a round trip for it. Only a
-/// SUCCESS is cached — an instance that has not learned the procedure (or a
-/// link that was down) must be able to answer on the next launch rather than
-/// be written off for the session.
-fn mcp_tools_bytes(deps: &CodingDeps) -> Option<usize> {
-    static CACHE: OnceLock<std::sync::Mutex<Option<usize>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(None));
-    {
-        let cached = match cache.lock() {
-            Ok(guard) => *guard,
-            Err(poisoned) => *poisoned.into_inner(),
-        };
-        if cached.is_some() {
-            return cached;
-        }
-    }
-    match api::coding_sessions::context_budget(&deps.trpc) {
-        Ok(budget) => {
-            let bytes = budget
-                .mcp_always_load_bytes
-                .saturating_add(budget.mcp_instructions_bytes);
-            match cache.lock() {
-                Ok(mut guard) => *guard = Some(bytes),
-                Err(poisoned) => *poisoned.into_inner() = Some(bytes),
-            }
-            Some(bytes)
-        }
-        Err(err) => {
-            log::warn!(
-                "coding: MCP context budget unavailable, launching without a tools segment: {err}"
-            );
-            None
-        }
     }
 }
 
 /// An EXP-325 promptless agent-shell launch input: the terminal dock's "+"
 /// menu picked an installed agent and a repo; the agent spawns as a FRESH
 /// interactive session on the repo's trunk clone with the picked agent's
-/// settings defaults and the usual MCP wiring — but NO issue/batch/action
-/// subject. Deliberately no `codingSessions` row / heartbeat / exit hook /
-/// steer room: session subjects are issue XOR batch XOR action and this is
-/// none of them, so teammates never see a badge for an empty local session.
+/// settings defaults and the usual MCP wiring — but NO session
+/// subject. Deliberately no `sessions` row / exit hook / steer room: a
+/// shell is a local terminal, so teammates never see a badge for it.
 #[derive(Clone, Debug)]
 pub struct AgentShellRequest {
     /// The picked agent's settings defaults
@@ -3879,7 +2421,7 @@ pub struct AgentShellRequest {
 }
 
 /// [`prepare_agent_shell`] done: everything the foreground needs to open the
-/// tab ([`TabKind::AgentShell`], no exit hook, no heartbeat).
+/// tab ([`TabKind::AgentShell`], no exit hook).
 #[derive(Debug)]
 pub struct AgentShellLaunch {
     /// The agent invocation on the trunk clone (also the cwd).
@@ -3901,11 +2443,11 @@ pub enum PreparedAgentShell {
     Disabled(DisabledReason),
 }
 
-/// The EXP-325 promptless prepare — the repo-backed arm of [`prepare_action`]
-/// minus the prompt and the session row (blocking network/git I/O, gpui-free
+/// The EXP-325 promptless prepare — the repo-backed half of a session
+/// launch minus the prompt and the session row (blocking network/git I/O, gpui-free
 /// — run on the background executor): doctor → JIT token → clone/ambient
-/// auth → best-effort autopull → per-agent MCP wiring →
-/// [`SessionTail::None`] argv.
+/// auth → best-effort autopull → per-agent MCP wiring → the promptless
+/// [`shell_args`] argv.
 pub fn prepare_agent_shell(
     req: &AgentShellRequest,
     deps: &CodingDeps,
@@ -3932,9 +2474,9 @@ pub fn prepare_agent_shell(
         std::thread::spawn(move || users::ensure_personal_key(&trpc, &store, &account_id))
     };
 
-    // JIT token → clone → ambient auth → best-effort autopull (the action
-    // path's repo-backed arm — the session works on whatever the trunk holds
-    // and the trunk-sync engine keeps surfacing its state).
+    // JIT token → clone → ambient auth → best-effort autopull (the shell
+    // works on whatever the trunk holds and the trunk-sync engine keeps
+    // surfacing its state).
     let minted = match crate::token_cache::token_cache().get_or_mint_with_margin(
         &deps.trpc,
         &req.repository_id,
@@ -3991,7 +2533,7 @@ pub fn prepare_agent_shell(
     if agent == CodingAgent::Claude {
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
-    let system_append = system_append_for_team(deps, req.team_id.as_deref().unwrap_or(""), &crate::skill::Extras::NONE);
+    let system_append = shell_system_append(deps, req.team_id.as_deref());
     let args = shell_args(options, &agent_mcp, &system_append);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
@@ -4002,8 +2544,8 @@ pub fn prepare_agent_shell(
     spawn = apply_account_env(spawn, agent, &deps.data_dir, options.account.as_deref());
     spawn = apply_subagent_model_env(spawn, agent, &options.subagent_model);
     if agent == CodingAgent::Codex {
-        // EXP-443: shells share the trunk cwd with action runs — a distinct
-        // originator keeps their rollouts out of every session's strict pass.
+        // EXP-443: shells share the trunk cwd — a distinct originator keeps
+        // their rollouts out of every session's strict pass.
         spawn = spawn.env(
             crate::argv::CODEX_ORIGINATOR_ENV,
             crate::argv::CODEX_SHELL_ORIGINATOR,
@@ -4035,27 +2577,6 @@ fn agent_shell_cwd(req: &AgentShellRequest, clone: &Path) -> PathBuf {
         .unwrap_or_else(|| clone.to_path_buf())
 }
 
-/// The segment after the owner in a `owner/repo` full name — the tab label
-/// the agent-shell and the EXP-615 chat tabs share (`acme/web` → `web`).
-fn repo_short_name(full_name: &str) -> &str {
-    full_name.rsplit('/').next().unwrap_or(full_name)
-}
-
-/// EXP-615/EXP-739: `(tab prefix, tab title)` for a chat run, on BOTH the
-/// launch and the resume path. Anchored to a repo the tab is named after the
-/// REPO — every chat carries the same action name ("Chat"), so `chat · Chat`
-/// would make a strip of them unreadable. Repo-LESS there is nothing to
-/// disambiguate by, so the tab is simply "Chat" rather than the tautological
-/// `chat · Chat`.
-fn chat_tab_title(repo_short: Option<&str>) -> (String, String) {
-    match repo_short {
-        Some(short) => (short.to_string(), format!("chat · {short}")),
-        // The chat builtin's own name (`api::actions::BUILTIN_CHAT_NAME`),
-        // which the `coding` crate does not depend on.
-        None => ("Chat".to_string(), "Chat".to_string()),
-    }
-}
-
 /// The agent-shell tab title: `claude · <repo>` on the trunk clone, and
 /// `claude · <worktree dir>` for an EXP-369 pinned worktree (the repo name is
 /// the same for every one of them — the worktree dir is what distinguishes
@@ -4077,57 +2598,12 @@ fn agent_shell_tab_title(agent: CodingAgent, req: &AgentShellRequest, cwd: &Path
     format!("{} · {label}", agent.id())
 }
 
-/// EXP-746: the live handle on a session's heartbeat thread. DROP it (on the
-/// child-exit edge, a spawn failure, a teardown) and the thread ends — the
-/// channel it waits on disconnects.
-pub struct HeartbeatStop(#[allow(dead_code)] std::sync::mpsc::Sender<()>);
-
-/// Liveness heartbeat for a live `coding_sessions` row: the server's
-/// staleness sweep deletes `running` rows whose `updated_at` stopped
-/// advancing, so a long-lived session (an IDE tab open over a weekend, a
-/// multi-issue batch run) must keep pinging or it loses its badge and its
-/// steerability. Best-effort by design — a failed ping is at worst a swept
-/// badge, never a killed process (the sweep deletes the row; it never flips
-/// it to `ended`, which is the kill-switch signal).
-///
-/// EXP-701: the FIRST beat fires IMMEDIATELY — it stamps the row's
-/// `acked_at` (the server coalesces it on every heartbeat), so a remote
-/// starter can tell "agent spawned" from "row created, then the machine
-/// died" within seconds instead of after the first 30-minute interval.
-///
-/// EXP-746: gpui-free and extracted from [`spawn_prepared_with`] so all
-/// THREE hosts share one implementation — the desktop PTY tab, the CLI's
-/// `session_host`, and the ACP engine's lifecycle.
-pub fn start_heartbeat(
-    trpc: Arc<TrpcClient>,
-    session_id: String,
-    scope: coding_sessions::HeartbeatScope,
-) -> HeartbeatStop {
-    let (stop, stopped) = std::sync::mpsc::channel::<()>();
-    std::thread::spawn(move || {
-        let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&scope));
-        loop {
-            match stopped.recv_timeout(SESSION_HEARTBEAT_INTERVAL) {
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    let _ = coding_sessions::heartbeat(&trpc, &session_id, Some(&scope));
-                }
-                _ => return,
-            }
-        }
-    });
-    HeartbeatStop(stop)
-}
-
-/// EXP-640: observer for the outcome of EVERY `codingSessions.end` this
-/// crate (and, via [`end_session`], the host) issues. The desktop's
-/// crash-recovery registry hangs off it: an entry is dropped only once the
-/// end actually RESOLVED. Before this, the host dropped the entry as soon as
-/// the local session went away — so an end rejected by the server's 426
-/// min-version gate (every call from a just-superseded build, while the app
-/// sat on the blocking "Update required" screen) left the row `running` with
-/// nothing left to reconcile it, until the server's 2h sweep.
-pub type SessionEndObserver =
-    Arc<dyn Fn(&str, &Result<coding_sessions::CodingSession, ApiError>) + Send + Sync>;
+/// EXP-640: observer for the outcome of EVERY end this crate (and, via
+/// [`end_session`], the host) reports. The desktop's crash-recovery registry
+/// hangs off it: an entry is dropped only once the end actually RESOLVED —
+/// an end rejected by the server's 426 min-version gate must leave the
+/// entry for the reconcile to retry.
+pub type SessionEndObserver = Arc<dyn Fn(&str, &Result<(), ApiError>) + Send + Sync>;
 
 static SESSION_END_OBSERVER: OnceLock<SessionEndObserver> = OnceLock::new();
 
@@ -4137,112 +2613,137 @@ pub fn set_session_end_observer(observer: SessionEndObserver) {
     let _ = SESSION_END_OBSERVER.set(observer);
 }
 
-/// Session ids this machine is about to end ONLY to resume them itself (an
-/// account switch or rotation). Their end tells the server so (FEED-68).
-static RESUMING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-
-/// Call right before killing a live run that this machine relaunches as a
-/// resume: the run's own end then carries `resuming`, and an agent parent is
-/// told the child resumes itself instead of "ended without a report".
-pub fn mark_resuming(session_id: &str) {
-    let mut resuming = RESUMING.lock().unwrap_or_else(|e| e.into_inner());
-    if !resuming.iter().any(|id| id == session_id) {
-        resuming.push(session_id.to_string());
-    }
-}
-
-/// The resume did not happen after all (the run would not stop in time).
-pub fn unmark_resuming(session_id: &str) {
-    take_resuming(session_id);
-}
-
-fn take_resuming(session_id: &str) -> bool {
-    let mut resuming = RESUMING.lock().unwrap_or_else(|e| e.into_inner());
-    let before = resuming.len();
-    resuming.retain(|id| id != session_id);
-    resuming.len() != before
-}
-
-/// `codingSessions.end` with the outcome reported to the
+/// EXP-1292 — a THREAD session's agent process is gone:
+/// `sessions.report{status: ended}`, with the outcome reported to the
 /// [`SessionEndObserver`]. Every end this crate issues goes through here so
-/// the host's registry sees each outcome exactly where it happens.
-pub fn end_session(
-    trpc: &TrpcClient,
-    session_id: &str,
-) -> Result<coding_sessions::CodingSession, ApiError> {
-    let resuming = take_resuming(session_id);
-    let result = coding_sessions::end_with(trpc, session_id, resuming);
+/// the host's registry sees each outcome exactly where it happens. A team
+/// agent never ends — its host calls [`idle_session`] instead.
+pub fn end_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
+    let result = report_status(trpc, session_id, ReportStatus::Ended);
     if let Some(observer) = SESSION_END_OBSERVER.get() {
         observer(session_id, &result);
     }
     result
 }
 
-/// Best-effort session end for teardown paths that bypass the exit hook
-/// (app quit with a live child, relay kill). Idempotent server-side; the
-/// outcome still reaches the [`SessionEndObserver`].
+/// Best-effort session end for teardown paths that bypass the engine's own
+/// end (app quit with a live child, a spawn that failed after prepare).
+/// Idempotent server-side; the outcome still reaches the
+/// [`SessionEndObserver`].
 pub fn end_session_best_effort(trpc: &TrpcClient, session_id: &str) {
     let _ = end_session(trpc, session_id);
+}
+
+/// EXP-1292 — a team AGENT's process exited: `sessions.report{status:
+/// idle}`. Agents never end; the next message or trigger firing wakes the
+/// same row on this device.
+pub fn idle_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
+    report_status(trpc, session_id, ReportStatus::Idle)
+}
+
+fn report_status(trpc: &TrpcClient, session_id: &str, status: ReportStatus) -> Result<(), ApiError> {
+    let report = SessionReport {
+        status: Some(status),
+        ..SessionReport::default()
+    };
+    session_device::report(trpc, session_id, &report)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::batch_launcher::{BatchIssueSpec, RepoGroup};
     use crate::test_support::{
-        canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, FOR_ISSUE_OK,
-        MINT_OK, START_ACTION_OK, START_BATCH_OK, START_OK, TOKEN_OK, UPDATE_OK,
+        canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, MINT_OK,
+        REPORT_OK, RESOLVE_NONE, TOKEN_OK,
     };
     use api::token_store::SecretKind;
-    use std::collections::BTreeMap;
     use std::fs;
 
-    #[test]
-    fn prompt_attachment_ids_carries_images_then_files() {
-        let a = "11111111-1111-4111-8111-111111111111";
-        let c = "33333333-3333-4333-8333-333333333333";
-        let prompt = domain::image_message::build_steer_message(
-            "match this",
-            &[a.to_string()],
-            &[domain::image_message::SteerFile::new(c, "notes.pdf")],
-        );
-        assert_eq!(
-            prompt_attachment_ids(Some(&prompt)),
-            vec![a.to_string(), c.to_string()]
-        );
-        assert!(prompt_attachment_ids(Some("plain")).is_empty());
-        assert!(prompt_attachment_ids(None).is_empty());
+    const SESSION_ID: &str = "5ECB3C42-1f2e-4c7a-9d1b-0a7b6c5d4e3f";
+
+    /// A claimed THREAD row (EXP-1292) — the runner pickers the dialog
+    /// defaults used to carry: claude, fable, plan mode ON.
+    fn row(id: &str, repository_id: Option<&str>) -> SessionRow {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "team_id": "ws-1",
+            "kind": "thread",
+            "device_id": "dev-1",
+            "user_id": "user-1",
+            "cli": "claude",
+            "model": "fable",
+            "plan_mode": true,
+            "repository_id": repository_id,
+            "status": "running",
+            "title": "Code review",
+        }))
+        .unwrap()
     }
 
-    fn request(identifier: &str) -> LaunchRequest {
-        LaunchRequest {
-            issue_id: "issue-1".to_string(),
-            board_id: None,
-            issue_identifier: identifier.to_string(),
-            // Already in_progress ⇒ step 6.5 skips the flip, keeping the
-            // canned-server sequences below one-to-one with steps 0–6.
-            issue_status: IssueStatus::InProgress,
-            device_label: "testbox".to_string(),
-            origin: LaunchOrigin::Local,
-            // The dialog defaults: claude, fable, no effort, no ultracode,
-            // plan mode ON.
-            options: LaunchOptions {
-                agent: CodingAgent::Claude,
-                model: "fable".to_string(),
-                effort: "".to_string(),
-                ultracode: false,
-                plan_mode: true,
-                subagent_model: String::new(),
-                mcp_server_ids: Vec::new(),
-                account: None,
-                computer_use: None,
-            },
-            resume_prompt: false,
-            prompt: None,
+    /// The host defaults the row's pickers layer over.
+    fn base_options() -> LaunchOptions {
+        LaunchOptions {
+            agent: CodingAgent::Claude,
+            model: "fable".to_string(),
+            effort: String::new(),
+            ultracode: false,
+            plan_mode: false,
+            subagent_model: String::new(),
+            mcp_server_ids: Vec::new(),
+            account: None,
+            computer_use: None,
         }
     }
 
-    // ---- EXP-746: the transport decision ----
+    const BRIEF: &str = "Work on EXP-42: Fix login flicker.\n\n## Request\n\nThe login page flickers.";
+
+    fn session_request(row: SessionRow, identifiers: &[&str]) -> SessionLaunchRequest {
+        SessionLaunchRequest {
+            session: row,
+            brief: SessionBrief {
+                brief: BRIEF.to_string(),
+                ..SessionBrief::default()
+            },
+            issue_identifiers: identifiers.iter().map(|id| id.to_string()).collect(),
+            resume: None,
+            device_label: "testbox".to_string(),
+            options: base_options(),
+        }
+    }
+
+    fn ready(prepared: Result<Prepared, CodingError>) -> PreparedLaunch {
+        match prepared.unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
+        }
+    }
+
+    fn launch(req: SessionLaunchRequest, deps: &CodingDeps) -> Result<Prepared, CodingError> {
+        prepare(&PrepareRequest::Session(req), deps)
+    }
+
+    /// The seed prompt the ACP engine sends as the run's first message.
+    fn seed_prompt(prepared: &PreparedLaunch) -> &str {
+        prepared.acp.prompt.as_deref().expect("a seed prompt")
+    }
+
+    /// A repo-backed fresh launch's canned calls: the token mint, the branch
+    /// report, the team-server resolve.
+    fn repo_calls() -> Vec<(u16, String)> {
+        vec![
+            (200, TOKEN_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+        ]
+    }
+
+    fn fake_worktrees(worktree: &Path) -> Arc<FakeWorktrees> {
+        Arc::new(FakeWorktrees {
+            worktree: worktree.to_path_buf(),
+            seen: Default::default(),
+        })
+    }
+
 
     /// EXP-752: nothing about plan mode gates a launch — a plan-mode run is
     /// as ACP-ready as any other.
@@ -4327,60 +2828,6 @@ mod tests {
         assert_eq!(settings["useAutoModeDuringPlan"], false);
     }
 
-    /// EXP-773: a launch carries NO argv — the prompt is a message and the
-    /// only file left behind is the reaper's anchor, carrying the flag
-    /// settings (reaper.rs:111 matches it in the command line).
-    #[cfg(unix)]
-    #[test]
-    fn prepare_on_the_acp_arm_has_no_argv_and_keeps_the_reaper_anchor() {
-        let dir = temp_dir("transport-acp");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        let acp = &prepared.acp;
-        assert_eq!(acp.session_id, "sess-1");
-        assert!(acp.prompt.as_deref().unwrap().contains("EXP-42"));
-        // P0-h: claude's MCP server rides INLINE on the ACP arm (the key never
-        // lands on disk), keyed to the row so the server can name the run.
-        match &acp.mcp {
-            AgentMcp::ClaudeInline { url, session_id } => {
-                assert_eq!(url, &mcp_url(&base));
-                assert_eq!(session_id.as_deref(), Some("sess-1"));
-            }
-            other => panic!("expected the inline MCP posture, got {other:?}"),
-        }
-        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists(), "no .exp-mcp.json on the ACP arm");
-        assert!(acp.resume.is_none());
-        // No prompt file and no hooks/curl files — but the anchor is written.
-        let anchor = acp.reaper_settings_path.as_ref().expect("reaper anchor");
-        assert_eq!(fs::read_to_string(anchor).unwrap(), CLAUDE_FLAG_SETTINGS);
-        assert!(
-            anchor.starts_with(dir.0.join("claude-hooks")),
-            "the anchor must sit under the marker dir: {anchor:?}"
-        );
-        assert!(!anchor.with_extension("cfg").exists(), "no curl config");
-        // The record says which engine ran it, so the resume re-enters it.
-        let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
-        assert!(record.is_acp());
-        assert_eq!(record.acp_session_id, None, "the engine upserts it");
-    }
-
     /// EXP-761: claude caps a long cwd's project dir name (~200 chars) and
     /// appends a hash; the transcript is found by session id under ANY
     /// project dir, and the recomputed full-length name is never consulted.
@@ -4433,193 +2880,6 @@ mod tests {
     /// `.exp-mcp.json` still refuses a shell there, but a coding run writes no
     /// file at all (the key rides the child env), so it must launch.
     #[cfg(unix)]
-    #[test]
-    fn the_key_file_guard_gates_the_agent_shell_only() {
-        let dir = temp_dir("guard-transport");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let git = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&worktree)
-                .env("GIT_AUTHOR_NAME", "t")
-                .env("GIT_AUTHOR_EMAIL", "t@example.com")
-                .env("GIT_COMMITTER_NAME", "t")
-                .env("GIT_COMMITTER_EMAIL", "t@example.com")
-                .output()
-                .unwrap();
-            assert!(out.status.success(), "git {args:?} failed");
-        };
-        git(&["init", "--quiet", "-b", "main"]);
-        fs::write(worktree.join(".gitignore"), "!.exp-mcp.json\n").unwrap();
-        git(&["add", "."]);
-        git(&["commit", "--quiet", "-m", "reinclude"]);
-
-        // The guard itself: unguardable repo, both callers.
-        guard_agent_mcp(CodingAgent::Claude, &worktree, false)
-            .expect("a coding run has no file to guard");
-        let direct =
-            guard_agent_mcp(CodingAgent::Claude, &worktree, true).unwrap_err();
-        assert!(matches!(direct, CodingError::Git(_)), "wrong error: {direct:?}");
-
-        // And through `prepare`: the launch goes through and leaves no key
-        // on disk.
-        let stub = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
-        let acp_base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let mut deps = make_deps(
-            &acp_base,
-            &dir.0,
-            Arc::new(FakeWorktrees {
-                worktree: worktree.clone(),
-                seen: Default::default(),
-            }),
-        );
-        deps.settings.claude_path = stub.clone();
-        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(_) => {}
-            other => panic!("expected Ready, got {other:?}"),
-        }
-        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
-    }
-
-    /// EXP-746 (D8): a run recorded on the ACP path resumes into the ACP
-    /// engine, seeded with the recorded `session/load` handle.
-    #[cfg(unix)]
-    #[test]
-    fn an_acp_resume_prepares_with_the_recorded_acp_session_id() {
-        let dir = temp_dir("resume-acp");
-        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        // EXP-758: the recorded transport is re-entered only while the agent
-        // still passes its ACP check, so this resume needs a ready claude.
-        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
-        let mut record = resume_record(&dir.0, "sess-old");
-        record.transport = Some("acp".to_string());
-        record.acp_session_id = Some("acp-42".to_string());
-        // The PTY-side pin is present too and must NOT win.
-        record.claude_session_id = Some("claude-1".to_string());
-
-        let prepared =
-            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            };
-        assert!(prepared.spawn.args.is_empty());
-        let acp = &prepared.acp;
-        assert_eq!(acp.resume, Some(ResumeSeed::Acp("acp-42".to_string())));
-        // A loaded conversation is a NATIVE resume: `session/load` replays
-        // the whole thread, and a seed prompt on top of it would fire an
-        // unasked turn the moment the engine connects.
-        assert_eq!(acp.prompt, None);
-        // The PTY pin is not re-minted either — claude's ACP adapter mints
-        // its own `--session-id`, and a stale pin outranks the real ACP id
-        // in the replay's fallback chain.
-        assert_eq!(prepared.claude_session_id, None);
-        let fresh = crate::run_registry::get(&dir.0, "sess-a").expect("record");
-        assert_eq!(fresh.claude_session_id, None);
-    }
-
-    /// EXP-746 (D8): an ACP record whose engine died BEFORE `session/new`
-    /// answered has no conversation to re-enter — that resume still gets the
-    /// seed prompt, on a fresh session.
-    #[cfg(unix)]
-    #[test]
-    fn an_acp_resume_without_a_session_id_still_seeds_the_prompt() {
-        let dir = temp_dir("resume-acp-fresh");
-        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
-        let mut record = resume_record(&dir.0, "sess-old");
-        record.transport = Some("acp".to_string());
-        record.acp_session_id = None;
-
-        let prepared =
-            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            };
-        let acp = &prepared.acp;
-        assert_eq!(acp.resume, None);
-        assert!(acp.prompt.as_deref().unwrap().contains("Code review"));
-    }
-
-    /// EXP-773 (was EXP-758 #11): a run whose agent lost its ACP readiness
-    /// (a downgraded CLI, a host with no engine) has no
-    /// terminal to fall back to any more — the resume is REFUSED, with the
-    /// doctor's own reason attached.
-    #[test]
-    fn a_resume_whose_agent_lost_acp_readiness_is_refused() {
-        let dir = temp_dir("resume-acp-not-ready");
-        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        // `git --version` never parses as a claude version, so the doctor
-        // leaves `acp` unknown and the ACP gate refuses.
-        deps.settings.claude_path = "git".to_string();
-        let mut record = resume_record(&dir.0, "sess-old");
-        record.transport = Some("acp".to_string());
-        record.acp_session_id = Some("acp-42".to_string());
-
-        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::AcpUnavailable { label, .. }) => {
-                assert_eq!(label, "Claude Code");
-            }
-            other => panic!("expected AcpUnavailable, got {other:?}"),
-        }
-        // Nothing server-side was created for a launch that cannot run.
-        assert!(crate::run_registry::get(&dir.0, "sess-a").is_none());
-    }
-
-    /// EXP-773: a pre-773 record (no `transport`, or the retired `"pty"`)
-    /// carries no ACP session id to load — the resume re-enters the
-    /// conversation through the agent's OWN handle instead.
-    #[cfg(unix)]
-    #[test]
-    fn a_pre_773_record_resumes_through_the_agents_own_handle() {
-        let dir = temp_dir("resume-pre773");
-        let base = canned_server(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
-        let mut record = resume_record(&dir.0, "sess-old");
-        assert!(!record.is_acp(), "the pre-773 shape");
-        record.claude_session_id = Some("claude-native-7".to_string());
-        // A recorded transcript the resume can still find.
-        let projects = dir.0.join("claude-projects");
-        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::write(project_dir.join("claude-native-7.jsonl"), "{}\n").unwrap();
-        deps.claude_projects_root = Some(projects);
-
-        let prepared =
-            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            };
-        assert_eq!(
-            prepared.acp.resume,
-            Some(ResumeSeed::Native("claude-native-7".to_string()))
-        );
-        assert!(prepared.spawn.args.is_empty());
-    }
 
     /// EXP-474: the write-site guard — a repo whose committed `.gitignore`
     /// re-includes `.exp-mcp.json` (a `!` pattern outranks
@@ -4812,380 +3072,373 @@ mod tests {
         assert!(dir.0.join(crate::mcp_json::MCP_JSON_FILE).exists());
     }
 
-    fn batch_options() -> LaunchOptions {
-        LaunchOptions {
-            agent: CodingAgent::Claude,
-            model: "opus".to_string(),
-            effort: "high".to_string(),
-            ultracode: true,
-            plan_mode: false,
-            subagent_model: String::new(),
-            mcp_server_ids: Vec::new(),
-            account: None,
-            computer_use: None,
-        }
-    }
-
-    fn batch_request() -> BatchLaunchRequest {
-        BatchLaunchRequest {
-            batch_id: "a1b2c3d4".to_string(),
-            team_id: "ws-1".to_string(),
-            board_id: None,
-            repo: RepoGroup {
-                repository_id: "repo-1".to_string(),
-                full_name: "acme/web".to_string(),
-                default_branch: "main".to_string(),
-            },
-            issues: vec![
-                BatchIssueSpec {
-                    issue_id: "issue-1".to_string(),
-                    issue_identifier: "EXP-42".to_string(),
-                    title: "Fix login flicker".to_string(),
-                    description: Some("Steps.".to_string()),
-                    status: IssueStatus::InProgress,
-                },
-                BatchIssueSpec {
-                    issue_id: "issue-2".to_string(),
-                    issue_identifier: "EXP-43".to_string(),
-                    title: "Add badge".to_string(),
-                    description: None,
-                    status: IssueStatus::InProgress,
-                },
-            ],
-            device_label: "testbox".to_string(),
-            origin: LaunchOrigin::Local,
-            options: batch_options(),
-            prompt: None,
-        }
-    }
-
-    // ---- the disabled surfaces (explain, never crash) ----
+    // ---- EXP-1292: the branch, the label, the layered options ----
 
     #[test]
-    fn doctor_failure_disables_without_any_network_call() {
-        let dir = temp_dir("doctor");
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("wt"),
-            seen: Default::default(),
-        });
-        // Unroutable base: any network call would error the launch — proving
-        // the doctor gate fires first.
-        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
-        deps.settings.claude_path = "definitely-not-a-real-binary-exp".to_string();
-
-        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
-                assert_eq!(check.tool, crate::doctor::Tool::Claude);
-                assert_eq!(
-                    check.error.as_deref(),
-                    Some("claude not found on PATH. Set an absolute path.")
-                );
-            }
-            other => panic!("expected DoctorFailed, got {other:?}"),
-        }
+    fn the_branch_rule_is_the_rows_then_one_issue_then_the_session_id() {
+        let mut fresh = row(SESSION_ID, Some("repo-1"));
+        assert_eq!(session_branch(&fresh, &["EXP-42".to_string()], "exp/"), "exp/EXP-42");
+        // Several issues (or none): the session's own, lowercased so the
+        // server's identifier parse can never link it.
+        let two = ["EXP-42".to_string(), "EXP-43".to_string()];
+        assert_eq!(session_branch(&fresh, &two, "exp/"), "exp/session-5ecb3c42");
+        assert_eq!(session_branch(&fresh, &[], "exp/"), "exp/session-5ecb3c42");
+        assert!(SESSION_BRANCH_PREFIX.starts_with("exp/"));
+        // A row that already runs on a branch keeps it (a reclaimed row).
+        fresh.branch = Some("exp/EXP-7".to_string());
+        assert_eq!(session_branch(&fresh, &two, "exp/"), "exp/EXP-7");
+        fresh.branch = Some("  ".to_string());
+        assert_eq!(session_branch(&fresh, &[], "exp/"), "exp/session-5ecb3c42");
+        // EXP-1292: a child is handed its ROOT's issue, whose session runs on
+        // that branch — the child takes its own.
+        let mut child = row(SESSION_ID, Some("repo-1"));
+        child.parent_id = Some("parent-1".to_string());
+        assert_eq!(session_branch(&child, &["EXP-42".to_string()], "exp/"), "exp/session-5ecb3c42");
     }
 
     #[test]
-    fn null_repo_is_no_repository_linked() {
-        let dir = temp_dir("no-repo");
-        let base = canned_server(vec![(200, r#"{"result":{"data":null}}"#.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("wt"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Disabled(reason @ DisabledReason::NoRepositoryLinked) => {
-                // §7.1: the exact helper copy for the disabled button.
-                assert_eq!(
-                    reason.message(),
-                    "Link a repository to this board in team settings."
-                );
-            }
-            other => panic!("expected NoRepositoryLinked, got {other:?}"),
-        }
-        assert!(worktrees.seen.lock().unwrap().is_empty(), "no git on null repo");
+    fn the_label_is_the_issues_then_the_title_then_an_agents_name() {
+        let mut thread = row("s-1", None);
+        assert_eq!(session_label(&thread, &["EXP-42".to_string()]), "EXP-42");
+        assert_eq!(
+            session_label(&thread, &["EXP-42".to_string(), "EXP-43".to_string(), "EXP-44".to_string()]),
+            "EXP-42 +2"
+        );
+        assert_eq!(session_label(&thread, &[]), "Code review");
+        thread.title = None;
+        assert_eq!(session_label(&thread, &[]), "Session");
+        let mut agent = row("a-1", None);
+        agent.kind = Some("agent".to_string());
+        agent.name = Some("Inbox watcher".to_string());
+        assert_eq!(session_label(&agent, &[]), "Inbox watcher");
     }
 
+    /// The row's pickers win over the host's defaults, normalized against the
+    /// agent's closed sets and masked by its capabilities.
     #[test]
-    fn app_missing_412_maps_to_github_app_missing() {
-        let dir = temp_dir("app-missing");
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (412, r#"{"error":{"message":"The Exponential GitHub App is not installed on acme/web. Reconnect it in team settings.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("wt"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::GithubAppMissing { full_name, message }) => {
-                assert_eq!(full_name, "acme/web");
-                assert!(message.contains("not installed"));
-            }
-            other => panic!("expected GithubAppMissing, got {other:?}"),
-        }
+    fn the_rows_pickers_layer_over_the_host_defaults() {
+        let dir = temp_dir("options-layering");
+        let deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        let mut picked = row("s-1", None);
+        picked.effort = Some("HIGH".to_string());
+        picked.ultracode = true;
+        picked.computer_use = true;
+        picked.account = Some(" 0a1b2c3d ".to_string());
+        let options = session_launch_options(&picked, &base_options(), &deps.settings);
+        assert_eq!(options.agent, CodingAgent::Claude);
+        assert_eq!(options.model, "fable");
+        assert_eq!(options.effort, "high");
+        assert!(options.plan_mode && options.ultracode);
+        assert_eq!(options.computer_use, Some(true));
+        assert_eq!(options.account.as_deref(), Some("0a1b2c3d"));
+
+        // A model outside the set keeps the default; blank pickers keep the
+        // host's; no account on the row keeps the host's.
+        let mut sparse = row("s-2", None);
+        sparse.model = Some("not-a-model".to_string());
+        sparse.plan_mode = false;
+        let mut host = base_options();
+        host.effort = "low".to_string();
+        host.account = Some("host-profile".to_string());
+        let options = session_launch_options(&sparse, &host, &deps.settings);
+        assert_eq!(options.model, "fable");
+        assert_eq!(options.effort, "low");
+        assert!(!options.plan_mode);
+        assert_eq!(options.computer_use, Some(false));
+        assert_eq!(options.account.as_deref(), Some("host-profile"));
+
+        // Another agent starts from ITS defaults; codex never carries plan
+        // mode or ultracode.
+        let mut codex = row("s-3", None);
+        codex.cli = Some("codex".to_string());
+        codex.model = Some("gpt-5.6-sol".to_string());
+        codex.ultracode = true;
+        let options = session_launch_options(&codex, &base_options(), &deps.settings);
+        assert_eq!(options.agent, CodingAgent::Codex);
+        assert_eq!(options.model, "gpt-5.6-sol");
+        assert!(!options.plan_mode && !options.ultracode);
     }
 
-    #[test]
-    fn token_403_maps_to_token_denied() {
-        let dir = temp_dir("denied");
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (403, r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("wt"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::TokenDenied { message }) => {
-                assert!(message.contains("not a member"));
-            }
-            other => panic!("expected TokenDenied, got {other:?}"),
-        }
-    }
+    // ---- the fresh session happy path ----
 
+    /// EXP-1292: one claimed row with one issue — the brief is the seed
+    /// prompt verbatim, the worktree sits on `exp/<IDENTIFIER>`, the branch
+    /// is reported once the worktree exists, and no row is created.
+    #[cfg(unix)]
     #[test]
-    fn session_limit_412_maps_to_session_limit_with_upgrade_copy() {
-        let dir = temp_dir("limit");
+    fn prepare_session_full_sequence() {
+        let dir = temp_dir("session-happy");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (412, r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree,
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::SessionLimit { message }) => {
-                assert!(message.contains("upgrade"));
+        let (base, captured) = canned_server_recording(repo_calls());
+        let worktrees = fake_worktrees(&worktree);
+        let mut deps = make_deps(&base, &dir.0, worktrees.clone());
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+
+        let prepared = ready(launch(session_request(row("sess-1", Some("repo-happy")), &["EXP-42"]), &deps));
+
+        assert_eq!(prepared.session_id, "sess-1");
+        assert_eq!(prepared.acp.session_id, "sess-1");
+        assert_eq!(prepared.branch, "exp/EXP-42");
+        assert_eq!(prepared.worktree, worktree);
+        assert_eq!(prepared.tab_title, "claude · EXP-42");
+        assert_eq!(prepared.tab_title_prefix, "EXP-42");
+        assert_eq!(prepared.issue_identifier, "EXP-42");
+        assert_eq!(prepared.repository_id.as_deref(), Some("repo-happy"));
+        assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
+        assert_eq!(prepared.base_ref.as_deref(), Some("origin/main"));
+        // An issue's worktree is the prune's, never the run cleanup's.
+        assert!(prepared.run_cleanup.is_none());
+        assert_eq!(prepared.base_branch, None);
+        assert_eq!(prepared.seed_message_id, None);
+
+        // The spawn: configured program, worktree cwd, NO argv (the ACP
+        // adapter composes it); the brief is the first message, verbatim.
+        assert_eq!(prepared.spawn.program, deps.settings.claude_path);
+        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
+        assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
+        assert_eq!(seed_prompt(&prepared), BRIEF);
+        assert_eq!(prepared.acp.options.model, "fable");
+        assert!(prepared.acp.options.plan_mode, "the row's pick");
+        assert!(!prepared.bypass_permissions);
+        assert!(prepared.acp.resume.is_none());
+
+        let seen = worktrees.seen.lock().unwrap().clone();
+        assert_eq!(
+            seen,
+            vec![(
+                "acme/web".to_string(),
+                "main".to_string(),
+                "exp/EXP-42".to_string(),
+                Some("2026-07-03T12:55:00.000Z".to_string())
+            )]
+        );
+
+        // Claude's MCP server rides INLINE, keyed to the row; the key never
+        // lands on disk.
+        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        match &prepared.acp.mcp {
+            AgentMcp::ClaudeInline { url, session_id } => {
+                assert_eq!(url, &mcp_url(&base));
+                assert_eq!(session_id.as_deref(), Some("sess-1"));
             }
-            other => panic!("expected SessionLimit, got {other:?}"),
+            other => panic!("expected the inline MCP posture, got {other:?}"),
         }
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
+        // The reaper's anchor carries the flag settings.
+        let anchor = prepared.acp.reaper_settings_path.as_ref().expect("reaper anchor");
+        assert_eq!(fs::read_to_string(anchor).unwrap(), CLAUDE_FLAG_SETTINGS);
+        assert!(anchor.starts_with(dir.0.join("claude-hooks")), "{anchor:?}");
+
+        // The wire: mint, branch report, resolve — and never a row creation.
+        let requests = captured.lock().unwrap();
+        assert_eq!(requests.len(), 3, "{requests:?}");
+        assert!(requests[0].contains("repositories.installationToken"), "{}", requests[0]);
+        assert!(requests[1].starts_with("POST /api/trpc/sessions.report"), "{}", requests[1]);
+        assert!(
+            requests[1].ends_with(r#"{"sessionId":"sess-1","branch":"exp/EXP-42"}"#),
+            "{}",
+            requests[1]
+        );
+        assert!(requests[2].contains("mcpServers.resolveForLaunch"), "{}", requests[2]);
+        assert!(!requests[2].contains("serverIds"), "{}", requests[2]);
+        assert!(requests[2].to_ascii_lowercase().contains("x-exp-session-id: sess-1"));
+        assert!(!requests.iter().any(|r| r.contains("codingSessions")));
+        drop(requests);
+
+        // The record a later message's resume re-enters.
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
+        assert_eq!(record.kind, RunKind::Thread);
+        assert_eq!(record.issues, vec!["EXP-42".to_string()]);
+        assert_eq!(record.display_name(), "EXP-42");
+        assert_eq!(record.team_id, "ws-1");
+        assert_eq!(record.cwd, worktree);
+        assert_eq!(record.repo.as_deref(), Some("acme/web"));
+        assert_eq!(record.repository_id.as_deref(), Some("repo-happy"));
+        assert_eq!(record.branch.as_deref(), Some("exp/EXP-42"));
+        assert_eq!(record.base_branch.as_deref(), Some("main"));
+        assert_eq!(record.account().as_deref(), Some(crate::test_support::TEST_PROFILE));
+        assert!(record.is_acp());
+        assert_eq!(record.acp_session_id, None, "the engine upserts it");
+        assert!(!record.owns_run_worktree());
     }
 
-    /// A base repo-less action request — tests override the fields they
-    /// exercise (EXP-257: team_id/inputs/kind ride every request).
-    fn action_request() -> ActionLaunchRequest {
-        ActionLaunchRequest {
-            action_id: "act-1".to_string(),
-            run_id: "1a2b3c4d".to_string(),
-            action_name: "Code review".to_string(),
-            team_id: "ws-1".to_string(),
-            body: "# Review\nScan the backlog.".to_string(),
-            repo: None,
-            inputs: Vec::new(),
-            kind: ActionRunKind::Team,
-            trigger: None,
-            trigger_id: None,
-            device_label: "box".to_string(),
-            origin: LaunchOrigin::Local,
-            options: LaunchOptions {
-                agent: CodingAgent::Claude,
-                model: "fable".to_string(),
-                effort: String::new(),
-                ultracode: false,
-                plan_mode: false,
-                subagent_model: String::new(),
-                mcp_server_ids: Vec::new(),
-                account: None,
-                computer_use: None,
-            },
-            prompt: None,
-        }
-    }
-
-    // ---- the issue happy path through steps 0–6 ----
-
+    /// EXP-1292: a CHILD's worktree is cut from its parent's branch (the
+    /// brief names it), and a session with no single issue runs on — and
+    /// owns — `exp/session-<id8>`.
     #[test]
-    fn prepare_action_repo_less_runs_in_the_scratch_dir() {
-        // EXP-253: a repo-less action needs NO git, NO token mint — one
-        // request total (codingSessions.start with the actionId).
-        let dir = temp_dir("action-scratch");
-        let (base, captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
+    fn a_child_session_cuts_its_worktree_from_the_parent_branch() {
+        let dir = temp_dir("session-child");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(repo_calls());
+        let worktrees = fake_worktrees(&worktree);
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut child = row(SESSION_ID, Some("repo-child"));
+        child.parent_id = Some("parent-1".to_string());
+        child.root_id = Some("root-1".to_string());
+        // Handed its ROOT's one issue: still its own branch and worktree.
+        let mut req = session_request(child, &["EXP-41"]);
+        req.brief.parent_branch = Some("exp/EXP-41".to_string());
 
-        let req = action_request();
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
-        };
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.branch, "exp/session-5ecb3c42");
+        let seen = worktrees.seen.lock().unwrap().clone();
+        assert_eq!(seen[0].1, "exp/EXP-41", "based on the parent's branch");
+        assert_eq!(seen[0].2, "exp/session-5ecb3c42");
+        assert_eq!(prepared.base_ref.as_deref(), Some("origin/exp/EXP-41"));
+        let cleanup = prepared.run_cleanup.as_ref().expect("its own worktree");
+        assert_eq!(cleanup.branch, "exp/session-5ecb3c42");
+        assert_eq!(cleanup.base_branch, "exp/EXP-41");
+        assert_eq!(prepared.base_branch.as_deref(), Some("exp/EXP-41"));
+        assert_eq!(prepared.tab_title, "claude · EXP-41");
+        let requests = captured.lock().unwrap();
+        assert!(
+            requests[1].ends_with(&format!(
+                r#"{{"sessionId":"{SESSION_ID}","branch":"exp/session-5ecb3c42"}}"#
+            )),
+            "{}",
+            requests[1]
+        );
+        drop(requests);
+        let record = crate::run_registry::get(&dir.0, SESSION_ID).expect("record");
+        assert!(record.owns_run_worktree());
+        assert_eq!(record.base_branch.as_deref(), Some("exp/EXP-41"));
+    }
 
-        // EXP-637: the scratch dir is PER RUN (`actions/<action>/<run>`) —
-        // concurrent runs of the same repo-less action must not share one
-        // `.exp-mcp.json` and overwrite each other's session header.
-        let scratch = dir.0.join("actions").join("act-1").join("1a2b3c4d");
+    /// EXP-1292: an issue sits in many threads — a second one starting while
+    /// a LIVE session here holds the issue's branch takes its own branch
+    /// instead of sharing the checkout.
+    #[test]
+    fn a_second_thread_on_a_held_issue_branch_takes_its_own() {
+        let dir = temp_dir("session-held-branch");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let mut holder: RunRecord = serde_json::from_value(serde_json::json!({
+            "sessionId": "holder-1",
+            "accountId": "acct",
+            "agent": "claude",
+            "kind": "thread",
+            "teamId": "ws-1",
+            "cwd": worktree.to_string_lossy(),
+            "recordedAt": 1,
+        }))
+        .unwrap();
+        holder.repository_id = Some("repo-held".to_string());
+        holder.branch = Some("exp/EXP-41".to_string());
+        holder.host_pid = Some(std::process::id());
+        crate::run_registry::record(&dir.0, holder);
+        let (base, _captured) = canned_server_recording(repo_calls());
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        let req = session_request(row(SESSION_ID, Some("repo-held")), &["EXP-41"]);
+
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.branch, "exp/session-5ecb3c42");
+    }
+
+    /// Server data is untrusted: a parent branch that could smuggle a git
+    /// option refuses the launch before any git work.
+    #[test]
+    fn a_hostile_parent_branch_is_refused() {
+        let dir = temp_dir("session-hostile-parent");
+        let (base, _captured) = canned_server_recording(repo_calls());
+        let worktrees = fake_worktrees(&dir.0.join("wt"));
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut req = session_request(row("s-hostile", Some("repo-hostile")), &[]);
+        req.brief.parent_branch = Some("--upload-pack=evil".to_string());
+        assert!(launch(req, &deps).is_err());
+        assert!(worktrees.seen.lock().unwrap().is_empty());
+    }
+
+    /// EXP-1292: a row with no repository runs in its scratch dir — no
+    /// token, no git, no branch report; ONE call (the resolve).
+    #[test]
+    fn a_repo_less_session_runs_in_its_scratch_dir() {
+        let dir = temp_dir("session-scratch");
+        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string())]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let mut child = row("child-1", None);
+        child.root_id = Some("root-1".to_string());
+        child.parent_id = Some("root-1".to_string());
+
+        let prepared = ready(launch(session_request(child, &[]), &deps));
+        let scratch = dir.0.join("scratch").join("root-1").join("child-1");
         assert_eq!(prepared.worktree, scratch);
-        // EXP-773: claude's MCP server rides INLINE — no key file on disk.
+        assert!(scratch.is_dir());
+        assert!(crate::scratch::is_scratch_dir(&dir.0, &scratch));
         assert!(!scratch.join(crate::mcp_json::MCP_JSON_FILE).exists());
-        // No repo: nothing for the token refresher, no branch to track.
         assert_eq!(prepared.repository_id, None);
         assert_eq!(prepared.branch, "");
-        assert_eq!(prepared.session_id, "sess-a");
-        assert_eq!(prepared.tab_title, "action · Code review");
-        assert_eq!(prepared.action_id, Some("act-1".to_string()));
-
-        // The ACP half: the adapter composes the argv, so the spawn carries
-        // none; plan mode off (the request's choice — EXP-257 honors the
-        // options as-is); the prompt is the preamble + body.
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        assert!(!prepared.acp.options.plan_mode);
-        assert!(matches!(prepared.acp.mcp, AgentMcp::ClaudeInline { .. }));
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("team action \"Code review\""));
-        assert!(prompt.contains("Scan the backlog."));
-
-        // Heartbeat scope: team (from the start response) + action id + the
-        // client-held name snapshot — the deleted-action degrade contract.
-        assert_eq!(prepared.heartbeat_scope.issue_id, None);
-        assert_eq!(prepared.heartbeat_scope.team_id.as_deref(), Some("ws-1"));
-        assert_eq!(prepared.heartbeat_scope.action_id.as_deref(), Some("act-1"));
-        assert_eq!(
-            prepared.heartbeat_scope.action_name.as_deref(),
-            Some("Code review")
-        );
-
-        // Exactly one request — the session start; never a repo/token call.
+        assert_eq!(prepared.base_ref, None);
+        assert!(prepared.run_cleanup.is_none());
+        assert!(prepared.launch_hold.is_none());
+        assert_eq!(prepared.tab_title, "claude · Code review");
+        assert_eq!(seed_prompt(&prepared), BRIEF);
         let requests = captured.lock().unwrap();
         assert_eq!(requests.len(), 1, "{requests:?}");
-        assert!(requests[0].starts_with("POST /api/trpc/codingSessions.start"));
-        assert!(requests[0].contains(r#""actionId":"act-1""#));
-        // EXP-909: the row names the LOGIN it spends — an account-less launch
-        // runs on the device's resolved profile, never the ambient login.
-        assert!(
-            requests[0].contains(&format!(r#""agentAccount":"{}""#, crate::test_support::TEST_PROFILE)),
-            "{requests:?}"
-        );
-
-        // EXP-773: claude's session id is the ACP adapter's to mint, and a
-        // claude run has no codex originator.
-        assert_eq!(prepared.claude_session_id, None);
-        assert_eq!(prepared.codex_originator, None);
-        assert_eq!(prepared.codex_resume_id, None);
+        assert!(requests[0].contains("mcpServers.resolveForLaunch"));
+        drop(requests);
+        let record = crate::run_registry::get(&dir.0, "child-1").expect("record");
+        assert_eq!(record.clone, None);
+        assert_eq!(record.cwd, scratch);
     }
 
+    /// A crafted id must stay under `<data_dir>/scratch/` (defense in
+    /// depth — real ids are UUIDs).
     #[test]
-    fn prepare_action_sanitizes_a_hostile_action_id() {
-        // Server data is untrusted: a crafted id must stay under
-        // <data_dir>/actions/ (defense-in-depth — real ids are UUIDs).
-        let dir = temp_dir("action-traversal");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = action_request();
-        req.action_id = "../../escape".to_string();
-        req.action_name = "Evil".to_string();
-        req.body = "x".to_string();
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
-        };
-        assert!(prepared.worktree.starts_with(dir.0.join("actions")));
+    fn a_hostile_session_id_stays_under_the_scratch_root() {
+        let dir = temp_dir("session-traversal");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let prepared = ready(launch(session_request(row("../../escape", None), &[]), &deps));
+        assert!(prepared.worktree.starts_with(dir.0.join("scratch")));
         assert!(!prepared.worktree.to_string_lossy().contains(".."));
     }
 
+    /// EXP-1292: a team AGENT's channel records as `agent` (it never ends),
+    /// and its instructions ride the system append after the team prompt.
     #[test]
-    fn prepare_action_412_maps_to_session_limit() {
-        let dir = temp_dir("action-limit");
-        let base = canned_server(vec![(
-            412,
-            r#"{"error":{"message":"limit","code":-32012,"data":{"httpStatus":412}}}"#.to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = action_request();
-        req.action_name = "Groom".to_string();
-        req.body = "do it".to_string();
-        match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::SessionLimit { message }) => {
-                assert!(message.contains("limit"));
-            }
-            other => panic!("expected SessionLimit, got {other:?}"),
-        }
+    fn an_agent_root_carries_its_instructions_and_records_as_an_agent() {
+        let dir = temp_dir("session-agent");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let mut agent = row("agent-1", None);
+        agent.kind = Some("agent".to_string());
+        agent.name = Some("Inbox watcher".to_string());
+        agent.plan_mode = false;
+        let mut req = session_request(agent, &[]);
+        req.brief.team_prompt = Some("Always write tests.".to_string());
+        req.brief.agent_instructions = Some("Triage new issues.".to_string());
+
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.tab_title, "claude · Inbox watcher");
+        let append = &prepared.acp.system_append;
+        let team = append.find(crate::skill::TEAM_PROMPT_HEADING).expect("team block");
+        let agent = append.find(crate::skill::AGENT_INSTRUCTIONS_HEADING).expect("agent block");
+        assert!(append.starts_with(crate::skill::RUN_SKILL.trim_end()));
+        assert!(team < agent, "{append}");
+        assert!(append.ends_with("Triage new issues.\n"), "{append}");
+        // Both server layers count as the team segment.
+        assert_eq!(
+            prepared.acp.context_layers.team_bytes,
+            context_layout::team_bytes(append)
+        );
+        assert_eq!(prepared.acp.context_layers.task_bytes, Some(BRIEF.len()));
+        assert_eq!(prepared.acp.context_layers.tools_bytes, None);
+        let record = crate::run_registry::get(&dir.0, "agent-1").expect("record");
+        assert_eq!(record.kind, RunKind::Agent);
+        assert_eq!(record.display_name(), "Inbox watcher");
     }
 
-    /// EXP-530: a trigger-started run stamps startedReason on the start
-    /// mutation and renders the `## Trigger` prompt section — one flag, two
-    /// seams, locked together.
-    #[test]
-    fn prepare_action_trigger_rides_the_start_and_the_prompt() {
-        let dir = temp_dir("action-trigger");
-        // FEED-73: a REAL action run resolves the row's own MCP pick, ids
-        // unnamed (the action's list is set server-side).
-        let (base, captured) = canned_server_recording(vec![
-            (200, START_ACTION_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"servers":[],"skipped":[],"warnings":[]}}}"#.to_string(),
-            ),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        let mut req = action_request();
-        req.trigger = Some(TriggerNote {
-            kind: crate::action_prompt::TriggerNoteKind::Schedule {
-                phrase: "daily at 07:00".to_string(),
-            },
-        });
-        req.trigger_id = Some("auto-1".to_string());
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
-        };
-
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("## Trigger"));
-        assert!(prompt.contains("started automatically by the action's schedule \
-(daily at 07:00, device time)"));
-
-        // The heartbeat carries it too — a row the staleness sweep reaped
-        // must resurrect still badged Automated, not hand-started.
-        assert_eq!(
-            prepared.heartbeat_scope.started_reason.as_deref(),
-            Some("schedule")
-        );
-        // EXP-583: and which trigger fired it.
-        assert_eq!(
-            prepared.heartbeat_scope.trigger_id.as_deref(),
-            Some("auto-1")
-        );
-
-        let requests = captured.lock().unwrap();
-        assert_eq!(requests.len(), 2, "{requests:?}");
-        assert!(requests[0].contains(r#""startedReason":"schedule""#));
-        assert!(requests[0].contains(r#""triggerId":"auto-1""#));
-        assert!(requests[1].contains("POST /api/trpc/mcpServers.resolveForLaunch"));
-        assert!(!requests[1].contains("serverIds"), "{}", requests[1]);
-        assert!(requests[1].ends_with("\r\n\r\n{}"), "{}", requests[1]);
-    }
-
-    /// FEED-73: an action run whose resolve carries a member roster gets the
+    /// FEED-73: a session whose resolve carries a member roster gets the
     /// delegation note at the END of its `system_append`, after the layers
-    /// were measured — `context_layers.team` stays the team prompt's bytes.
+    /// were measured — `context_layers.team` stays the brief layers' bytes.
     #[test]
-    fn an_action_run_with_a_roster_appends_the_delegation_note() {
-        let dir = temp_dir("action-mcp-note");
+    fn a_session_with_a_roster_appends_the_delegation_note() {
+        let dir = temp_dir("session-mcp-note");
         let resolve = serde_json::json!({"result":{"data":{
             "servers":[
                 {"id":"s-lin","name":"linear","transport":"http","url":"https://l/mcp",
@@ -5203,154 +3456,179 @@ mod tests {
             ]
         }}})
         .to_string();
-        let team_prompt = r#"{"result":{"data":{"agentPrompt":"Always write tests."}}}"#;
-        let (base, captured) = canned_server_recording(vec![
-            (200, START_ACTION_OK.to_string()),
-            (200, resolve),
-            (200, team_prompt.to_string()),
-        ]);
-        let deps = make_deps(
-            &base,
-            &dir.0,
-            Arc::new(FakeWorktrees {
-                worktree: dir.0.join("unused"),
-                seen: Default::default(),
-            }),
-        );
-        let prepared = match prepare(&PrepareRequest::Action(action_request()), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
+        let (base, _captured) = canned_server_recording(vec![(200, resolve)]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let mut req = session_request(row("s-roster", None), &[]);
+        req.brief.team_prompt = Some("Always write tests.".to_string());
+        let prepared = ready(launch(req, &deps));
         let append = &prepared.acp.system_append;
         let note = "## Team MCP connections\n\
 linear = your connection (Danny). linear_as_chris = acts as Chris (shared).\n\
-Not shared: Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them with exponential_notifications_send.";
+Not shared: Max (not connected). Until a member shares their connection (Settings → MCP servers → Share with team), act through your own and say on whose behalf you write; you may ask them by @email in your reply.";
         assert!(append.ends_with(&format!("\n\n{note}")), "{append}");
         let before = append.strip_suffix(&format!("\n\n{note}")).unwrap();
-        assert!(before.contains("Always write tests."), "{before}");
         // EXP-1236: every launch carries the code-mode server, so its
         // section rides between the playbook and the team prompt.
         let extras = crate::skill::Extras { computer_use: None, code_mode: true };
-        let unnoted = crate::skill::system_append_with(Some("Always write tests."), &extras);
+        let unnoted = crate::skill::system_append_layers(Some("Always write tests."), None, &extras);
         assert_eq!(before, unnoted.trim_end());
         assert_eq!(
             prepared.acp.context_layers.team_bytes,
             context_layout::team_bytes(&unnoted)
         );
-        assert!(prepared.acp.context_layers.team_bytes.is_some());
         let names: Vec<&str> = prepared.acp.servers.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, vec!["linear", "linear_as_chris", "codemode"]);
-        assert_eq!(
-            prepared.acp.servers[1].actor.as_ref().map(|a| a.name.as_str()),
-            Some("Chris")
-        );
-        let requests = captured.lock().unwrap();
-        let resolve = requests
-            .iter()
-            .find(|request| request.contains("mcpServers.resolveForLaunch"))
-            .expect("resolved");
-        assert!(!resolve.contains("serverIds"), "{resolve}");
     }
 
-    /// EXP-257: action runs honor the full claude option set — plan mode ON
-    /// composes the plan permission args exactly like an issue session (the
-    /// old Claude-only clamp forced it off).
-    #[test]
-    fn prepare_action_honors_claude_plan_mode() {
-        let dir = temp_dir("action-plan");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = action_request();
-        req.options.plan_mode = true;
-        req.options.effort = "high".to_string();
+    // ---- the disabled surfaces (explain, never crash) ----
 
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert!(prepared.acp.options.plan_mode);
-        assert!(prepared.plan_mode);
-        assert_eq!(prepared.acp.options.effort, "high");
+    #[test]
+    fn doctor_failure_disables_without_any_network_call() {
+        let dir = temp_dir("doctor");
+        // Unroutable base: any network call would error the launch — proving
+        // the doctor gate fires first.
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        deps.settings.claude_path = "definitely-not-a-real-binary-exp".to_string();
+        match launch(session_request(row("s-doc", Some("repo-doc")), &["EXP-42"]), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
+                assert_eq!(check.tool, crate::doctor::Tool::Claude);
+                assert_eq!(
+                    check.error.as_deref(),
+                    Some("claude not found on PATH. Set an absolute path.")
+                );
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
     }
 
-    /// EXP-257: a CODEX action run — codex argv + env-token MCP posture, no
-    /// on-disk `.exp-mcp.json`, tab titled `action · …` with the codex
-    /// program.
+    /// EXP-201 per-agent doctor gate: a missing codex blocks a CODEX session
+    /// with the codex copy — while claude (the settings stub) stays fine.
     #[test]
-    fn prepare_action_codex_uses_overrides_and_env_token() {
-        let dir = temp_dir("action-codex");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = action_request();
-        req.options = LaunchOptions {
-            agent: CodingAgent::Codex,
-            model: "gpt-5.6-sol".to_string(),
-            effort: "high".to_string(),
-            ultracode: false,
-            plan_mode: false,
-            subagent_model: String::new(),
-            mcp_server_ids: Vec::new(),
-            account: None,
-            computer_use: None,
-        };
+    fn missing_selected_agent_blocks_with_its_own_copy() {
+        let dir = temp_dir("codex-missing");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        deps.settings.codex_path = "definitely-not-a-real-binary-exp".to_string();
+        let mut codex = row("s-codex-missing", Some("repo-codex-missing"));
+        codex.cli = Some("codex".to_string());
+        match launch(session_request(codex, &["EXP-42"]), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
+                assert_eq!(check.tool, crate::doctor::Tool::Codex);
+                assert_eq!(
+                    check.error.as_deref(),
+                    Some("codex did not start at the configured path. Remove codexPath from settings.json or set an absolute path.")
+                );
+            }
+            other => panic!("expected DoctorFailed, got {other:?}"),
+        }
+    }
 
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // NO on-disk MCP config for codex — the key must not land in the
-        // scratch dir.
-        let scratch = dir.0.join("actions").join("act-1");
-        assert!(!scratch.join(".exp-mcp.json").exists());
-        // The MCP posture the codex adapter composes its `-c` overrides from,
-        // and the key in the spawn env only — never argv, never disk.
+    #[test]
+    fn app_missing_412_maps_to_github_app_missing() {
+        let dir = temp_dir("app-missing");
+        let base = canned_server(vec![
+            (412, r#"{"error":{"message":"The Exponential GitHub App is not installed on acme/web. Reconnect it in team settings.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#.to_string()),
+        ]);
+        let worktrees = fake_worktrees(&dir.0.join("wt"));
+        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        match launch(session_request(row("s-412", Some("repo-412")), &["EXP-42"]), &deps).unwrap() {
+            Prepared::Disabled(reason @ DisabledReason::GithubAppMissing { .. }) => {
+                assert!(reason.message().contains("not installed"));
+            }
+            other => panic!("expected GithubAppMissing, got {other:?}"),
+        }
+        assert!(worktrees.seen.lock().unwrap().is_empty(), "no git without a token");
+    }
+
+    #[test]
+    fn token_403_maps_to_token_denied() {
+        let dir = temp_dir("denied");
+        let base = canned_server(vec![
+            (403, r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string()),
+        ]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("wt")));
+        match launch(session_request(row("s-403", Some("repo-403")), &["EXP-42"]), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::TokenDenied { message }) => {
+                assert!(message.contains("not a member"));
+            }
+            other => panic!("expected TokenDenied, got {other:?}"),
+        }
+    }
+
+    /// EXP-690: plan mode OFF rides the classic bypass flag — every run
+    /// bypasses, there is nothing left to opt into.
+    #[test]
+    fn plan_mode_off_bypasses_permissions() {
+        let dir = temp_dir("skip-flag");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(repo_calls());
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        let mut picked = row("s-bypass", Some("repo-bypass"));
+        picked.plan_mode = false;
+        picked.effort = Some("xhigh".to_string());
+        let prepared = ready(launch(session_request(picked, &["EXP-42"]), &deps));
+        assert_eq!(prepared.acp.options.model, "fable");
+        assert_eq!(prepared.acp.options.effort, "xhigh");
+        assert!(!prepared.acp.options.plan_mode);
+        assert!(prepared.bypass_permissions);
+        assert!(!prepared.plan_mode);
+    }
+
+    /// EXP-201: a CODEX session writes NO `.exp-mcp.json` (the raw key rides
+    /// only the spawn env as EXP_MCP_TOKEN), and titles the tab `codex · …`.
+    #[test]
+    fn prepare_codex_full_sequence() {
+        let dir = temp_dir("codex-happy");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(repo_calls());
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        let mut codex = row("sess-1", Some("repo-codex"));
+        codex.cli = Some("codex".to_string());
+        codex.model = Some("gpt-5.6-sol".to_string());
+        codex.effort = Some("high".to_string());
+
+        let prepared = ready(launch(session_request(codex, &["EXP-42"]), &deps));
+        assert_eq!(prepared.tab_title, "codex · EXP-42");
+        assert_eq!(prepared.spawn.program, deps.settings.codex_path);
+        assert!(!worktree.join(".exp-mcp.json").exists());
+        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
         match &prepared.acp.mcp {
             AgentMcp::CodexOverrides { url, session_id } => {
                 assert_eq!(url, &mcp_url(&base));
-                assert_eq!(session_id.as_deref(), Some("sess-a"));
+                assert_eq!(session_id.as_deref(), Some("sess-1"));
             }
             other => panic!("expected the codex MCP posture, got {other:?}"),
         }
-        assert!(prepared.spawn.args.is_empty());
         assert!(prepared
             .spawn
             .env
             .contains(&("EXP_MCP_TOKEN".to_string(), "expu_seeded".to_string())));
+        assert!(prepared.bypass_permissions, "codex never plans");
         assert_eq!(prepared.acp.options.model, "gpt-5.6-sol");
-        assert!(seed_prompt(&prepared).contains("Scan the backlog."));
+        assert_eq!(prepared.acp.options.effort, "high");
+        // EXP-443: the per-session originator is minted and stamped into the
+        // spawn env for rollout discovery.
+        assert_eq!(prepared.claude_session_id, None);
+        let originator = crate::argv::codex_session_originator("sess-1");
+        assert_eq!(prepared.codex_originator.as_deref(), Some(originator.as_str()));
+        assert_eq!(prepared.codex_resume_id, None);
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&(crate::argv::CODEX_ORIGINATOR_ENV.to_string(), originator)));
     }
 
     /// EXP-478: `prepare` gates the clone from before the worktree exists,
-    /// and the hold rides the `PreparedLaunch` until the caller drops it —
-    /// the auto-prune's `try_exclusive` must refuse for that whole span.
+    /// and the hold rides the `PreparedLaunch` until the caller drops it.
     #[test]
     fn prepare_takes_the_launch_gate_hold_until_dropped() {
         let dir = temp_dir("launch-gate");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
+        let base = canned_server(repo_calls());
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        let prepared = ready(launch(session_request(row("s-gate", Some("repo-gate")), &["EXP-42"]), &deps));
         let clone = prepared.clone.clone();
         assert!(prepared.launch_hold.is_some());
         assert!(
@@ -5364,738 +3642,196 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         );
     }
 
-    /// EXP-257: a missing selected agent blocks an action run with ITS copy
-    /// (no Claude clamp — the codex doctor row gates a codex action).
+    /// §7.2: the first session ever on a machine mints the hidden personal
+    /// key (after the token mint, before the branch report), stores it, and
+    /// the spawn env carries the fresh key.
     #[test]
-    fn prepare_action_missing_selected_agent_blocks() {
-        let dir = temp_dir("action-agent-missing");
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        // Unroutable base: any network call would error — the doctor gate
-        // must fire first.
-        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
-        deps.settings.codex_path = "definitely-not-a-real-binary-exp".to_string();
-        let mut req = action_request();
-        req.options.agent = CodingAgent::Codex;
-
-        match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
-                assert_eq!(check.tool, crate::doctor::Tool::Codex);
-            }
-            other => panic!("expected DoctorFailed, got {other:?}"),
-        }
-    }
-
-    /// EXP-257: resolved input values land in the delivered prompt as the
-    /// `## Inputs` section, between the preamble and the body.
-    #[test]
-    fn prepare_action_inputs_land_in_the_prompt() {
-        let dir = temp_dir("action-inputs");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = action_request();
-        req.inputs = vec![
-            ActionInputValue {
-                key: "scope".to_string(),
-                label: "Scope".to_string(),
-                input_type: "text".to_string(),
-                value: "only urgent issues".to_string(),
-                display: None,
-            },
-            ActionInputValue {
-                key: "board".to_string(),
-                label: "Board".to_string(),
-                input_type: "board".to_string(),
-                value: "board-uuid-1".to_string(),
-                display: Some("Web".to_string()),
-            },
-        ];
-
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("## Inputs"));
-        assert!(prompt.contains("- Scope (text): only urgent issues"));
-        assert!(prompt.contains("- Board (board): Web (`board-uuid-1`)"));
-        // Body still verbatim after the divider.
-        assert!(prompt.ends_with("---\n\n# Review\nScan the backlog."));
-    }
-
-    /// EXP-257: the BUILTIN "Create action" run — creator prompt from the
-    /// description/repo input values, sanitized scratch cwd, repo IGNORED
-    /// (never a clone/token call), and the session start carries teamId.
-    #[test]
-    fn prepare_action_builtin_renders_the_creator_prompt_in_scratch() {
-        let dir = temp_dir("action-builtin");
-        let (base, captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-c","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Create action","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut req = action_request();
-        req.action_id = "builtin:create-action".to_string();
-        req.action_name = "Create action".to_string();
-        req.body = String::new();
-        req.kind = ActionRunKind::CreateAction;
-        // A repo group riding in must be IGNORED — the builtin always runs
-        // in its scratch dir (the repo INPUT below is what Claude binds).
-        req.repo = Some(RepoGroup {
-            repository_id: "repo-1".to_string(),
-            full_name: "acme/web".to_string(),
-            default_branch: "main".to_string(),
-        });
-        // EXP-825: the request is the composer text, not an input.
-        req.prompt = Some("triage new widget feedback weekly".to_string());
-        req.inputs = vec![ActionInputValue {
-            key: "repo".to_string(),
-            label: "Repository".to_string(),
-            input_type: "repo".to_string(),
-            value: "repo-1".to_string(),
-            display: Some("acme/web".to_string()),
-        }];
-
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // Scratch cwd under actions/, colon sanitized; repo fully ignored
-        // (no git call, no token, no repository to refresh).
-        assert!(prepared.worktree.starts_with(dir.0.join("actions")));
-        assert!(!prepared.worktree.to_string_lossy().contains(':'));
-        assert_eq!(prepared.repository_id, None);
-        assert!(worktrees.seen.lock().unwrap().is_empty(), "no git for the builtin");
-        // The creator prompt, seeded from the input VALUES.
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("create ONE new action"));
-        assert!(prompt.contains("ws-1"));
-        assert!(prompt.contains("triage new widget feedback weekly"));
-        assert!(prompt.contains("Set `repositoryId` to `repo-1` (acme/web)"));
-        // Exactly one request — the session start with the builtin literal +
-        // teamId (the server inserts actionId NULL + the constant name).
-        let requests = captured.lock().unwrap();
-        assert_eq!(requests.len(), 1, "{requests:?}");
-        assert!(requests[0].contains(r#""actionId":"builtin:create-action""#));
-        assert!(requests[0].contains(r#""teamId":"ws-1""#));
-        assert_eq!(prepared.session_id, "sess-c");
-    }
-
-    /// EXP-257/EXP-825: a creator run without its request text is a hard
-    /// error (the composer/relay validated upstream — this is the guard).
-    #[test]
-    fn prepare_action_builtin_requires_the_request_text() {
-        let dir = temp_dir("action-builtin-missing");
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
-        let mut req = action_request();
-        req.action_id = "builtin:create-action".to_string();
-        req.kind = ActionRunKind::CreateAction;
-        req.inputs = Vec::new();
-        req.prompt = Some("   ".to_string());
-
-        match prepare(&PrepareRequest::Action(req), &deps) {
-            Err(CodingError::Io(message)) => assert!(message.contains("request text")),
-            other => panic!("expected the missing-request error, got {other:?}"),
-        }
-    }
-
-    /// EXP-259: the fix-conflicts builtin is repo-backed by definition — a
-    /// request without the PR's repo group is a hard error BEFORE any
-    /// doctor/network work (the caller resolves it upstream).
-    #[test]
-    fn prepare_action_fix_conflicts_requires_the_repo() {
-        let dir = temp_dir("action-fix-conflicts-repoless");
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
-        let mut req = action_request();
-        req.action_id = "builtin:fix-conflicts".to_string();
-        req.action_name = "Fix merge conflicts".to_string();
-        req.body = String::new();
-        req.kind = ActionRunKind::FixConflicts {
-            branch: "exp/EXP-42".to_string(),
-            default_branch: "main".to_string(),
-            board_id: None,
-            identifier: "EXP-42".to_string(),
-            issue_id: "issue-1".to_string(),
-        };
-        req.repo = None;
-
-        match prepare(&PrepareRequest::Action(req), &deps) {
-            Err(CodingError::Io(message)) => {
-                assert!(message.contains("repository"), "{message}");
-            }
-            other => panic!("expected the missing-repo error, got {other:?}"),
-        }
-    }
-
-    /// A chat request (EXP-615) — the hidden builtin's shape: no body, the
-    /// two inputs the dialog fills, and the picked repository's group.
-    fn chat_request(repository_id: &str) -> ActionLaunchRequest {
-        let mut req = action_request();
-        req.action_id = "builtin:chat".to_string();
-        req.action_name = "Chat".to_string();
-        req.body = String::new();
-        req.kind = ActionRunKind::Chat;
-        req.repo = Some(RepoGroup {
-            repository_id: repository_id.to_string(),
-            full_name: "acme/web".to_string(),
-            default_branch: "main".to_string(),
-        });
-        // EXP-825: the chat text rides `prompt`, not an input.
-        req.prompt = Some("  where does the widget rate limit live?  ".to_string());
-        req.inputs = vec![ActionInputValue {
-            key: "repo".to_string(),
-            label: "Repository".to_string(),
-            input_type: "repo".to_string(),
-            value: repository_id.to_string(),
-            display: Some("acme/web".to_string()),
-        }];
-        req
-    }
-
-    /// EXP-615/EXP-739: the ONE chat tab namer, shared by the launch and the
-    /// resume. Anchored to a repo the tab wears the repo's short name;
-    /// repo-LESS there is nothing to disambiguate by, so it is just "Chat"
-    /// (never the tautological `chat · Chat` a naive `display_name()` gives,
-    /// since every chat carries the same action name).
-    #[test]
-    fn chat_tab_title_names_the_repo_or_just_chat() {
-        assert_eq!(
-            chat_tab_title(Some(repo_short_name("acme/web"))),
-            ("web".to_string(), "chat · web".to_string())
-        );
-        assert_eq!(
-            chat_tab_title(None),
-            ("Chat".to_string(), "Chat".to_string())
-        );
-    }
-
-    /// EXP-739: the repo is an optional ANCHOR — a chat without one is a
-    /// conversation with the tracker over MCP, so it runs WORKTREE-LESS in
-    /// the same scratch dir every repo-less action uses. No git, no token
-    /// mint, no branch, no cleanup, no launch hold: ONE request total
-    /// (`codingSessions.start`).
-    #[test]
-    fn prepare_action_chat_without_a_repo_runs_in_the_scratch_dir() {
-        let dir = temp_dir("action-chat-repoless");
-        let (base, captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut req = chat_request("repo-chat-none");
-        req.run_id = "1a2b3c4d".to_string();
-        req.repo = None;
-        req.inputs.clear();
-
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        // The CreateAction scratch shape, per run.
-        let scratch = dir.0.join("actions").join("builtin_chat").join("1a2b3c4d");
-        assert_eq!(prepared.worktree, scratch);
-        assert!(!scratch.join(crate::mcp_json::MCP_JSON_FILE).exists());
-        assert_eq!(prepared.repository_id, None);
-        assert_eq!(prepared.branch, "");
-        assert_eq!(prepared.base_branch, None);
-        // Nothing to clean up and no clone whose prune gate needs holding.
-        assert!(prepared.run_cleanup.is_none());
-        assert!(prepared.launch_hold.is_none());
-        assert!(worktrees.seen.lock().unwrap().is_empty());
-        // Nothing to disambiguate by, so the tab is just "Chat" — never the
-        // tautological `chat · Chat`.
-        assert_eq!(prepared.tab_title, "Chat");
-        assert_eq!(prepared.tab_title_prefix, "Chat");
-        // The user's own words, last and verbatim; no branch preamble, since
-        // there is no branch.
-        let prompt = seed_prompt(&prepared);
-        assert!(!prompt.contains("You work on branch"), "{prompt}");
-        assert!(
-            prompt.ends_with("where does the widget rate limit live?"),
-            "{prompt}"
-        );
-        assert_eq!(prepared.session_id, "sess-chat");
-        // One request: the session start. No token mint — there is no repo.
-        let requests = captured.lock().unwrap();
-        assert_eq!(requests.len(), 1, "{requests:?}");
-        assert!(requests[0].contains(r#""actionId":"builtin:chat""#), "{:?}", requests[0]);
-        assert!(!requests[0].contains("branch"), "{:?}", requests[0]);
-    }
-
-    /// EXP-703 × EXP-739: the dock's "Chat" button — an ATTENDED, repo-LESS,
-    /// promptless chat. It still spawns, in the scratch dir, with NOTHING
-    /// delivered: no positional prompt, no PROMPT.md — the agent waits for
-    /// the first message.
-    #[test]
-    fn prepare_action_chat_without_a_repo_attended_promptless_spawns_waiting() {
-        let dir = temp_dir("action-chat-repoless-no-prompt");
-        let (base, _captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = chat_request("repo-chat-none");
-        req.run_id = "1a2b3c4d".to_string();
-        req.repo = None;
-        req.inputs.clear();
-
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let scratch = dir.0.join("actions").join("builtin_chat").join("1a2b3c4d");
-        assert_eq!(prepared.worktree, scratch);
-        assert_eq!(prepared.session_id, "sess-chat");
-        assert!(
-            !prepared
-                .spawn
-                .args
-                .iter()
-                .any(|arg| arg.contains("You work on branch")
-                    || arg.contains("session stays open")),
-            "{:?}",
-            prepared.spawn.args
-        );
-        assert!(!scratch.join("PROMPT.md").exists());
-    }
-
-    /// EXP-703 flipped EXP-615's rule for ATTENDED chats only: an UNATTENDED
-    /// chat (here: an agent-started one) still requires its prompt — nobody
-    /// is at the keyboard to type the first message, so a promptless run
-    /// would idle forever. EXP-739: the rule is the same with and without a
-    /// repository.
-    #[test]
-    fn prepare_action_chat_unattended_requires_the_prompt() {
-        let dir = temp_dir("action-chat-promptless");
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
-        for repo_less in [false, true] {
-            let mut req = chat_request("repo-chat-empty");
-            req.prompt = None;
-            if repo_less {
-                req.repo = None;
-                req.inputs.clear();
-            }
-            req.origin = LaunchOrigin::Relay {
-                device_id: "dev-1".to_string(),
-                claimant: "claim-1".to_string(),
-                started_by: None,
-                started_reason: Some("agent".to_string()),
-                thread_id: None,
-                start_id: None,
-            };
-
-            match prepare(&PrepareRequest::Action(req), &deps) {
-                Err(CodingError::Io(message)) => {
-                    assert_eq!(message, "the chat session is missing its prompt");
-                }
-                other => panic!("expected the missing-prompt error (repo_less={repo_less}), got {other:?}"),
-            }
-        }
-    }
-
-    /// EXP-615/EXP-637: the happy path — the run lands in its OWN worktree
-    /// on `exp/chat-<run id>` (never the trunk clone), the user's words ride
-    /// VERBATIM and LAST (no action preamble, no `## Inputs` section), and
-    /// the tab is named after the repository, not after the
-    /// always-identical action name.
-    #[test]
-    fn prepare_action_chat_runs_in_its_own_worktree() {
-        let dir = temp_dir("action-chat-ok");
-        let (base, captured) = canned_server_recording(vec![
+    fn first_session_auto_mints_the_hidden_personal_key() {
+        let dir = temp_dir("auto-mint");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let base = canned_server(vec![
             (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
-                    .to_string(),
-            ),
+            (200, MINT_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
         ]);
-        // Pre-seed the clone at the §7.1 layout path so `ensure_clone` reuses
-        // it instead of cloning over the network (the autopull and the
-        // excludes write are best-effort and no-op on it).
-        let clone = dir.0.join("repos").join("acme").join("web");
-        fs::create_dir_all(&clone).unwrap();
-        for args in [
-            &["init", "--quiet"][..],
-            // `git_credentials::ensure` re-points origin at the bare URL —
-            // the seeded clone needs the remote to exist for that.
-            &["remote", "add", "origin", "https://github.com/acme/web.git"][..],
-        ] {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&clone)
-                .status()
-                .unwrap();
-            assert!(status.success(), "git {args:?}");
-        }
-        let run_worktree = dir.0.join("chat-worktree");
-        fs::create_dir_all(&run_worktree).unwrap();
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: run_worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        deps.token_store.delete("acct", SecretKind::PersonalApiKey);
+        assert_eq!(deps.token_store.get("acct", SecretKind::PersonalApiKey), None);
 
-        let mut req = chat_request("repo-chat-ok");
-        req.run_id = "1a2b3c4d".to_string();
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // EXP-637: its OWN worktree on `exp/chat-<id8>`, cut from the repo's
-        // default branch — the trunk clone stays untouched (and autopull
-        // keeps running on it).
-        assert_eq!(prepared.worktree, run_worktree);
-        assert_eq!(prepared.clone, clone);
-        assert_eq!(prepared.branch, "exp/chat-1a2b3c4d");
-        assert_eq!(prepared.base_branch.as_deref(), Some("main"));
-        let seen = worktrees.seen.lock().unwrap().clone();
-        assert_eq!(seen.len(), 1, "{seen:?}");
-        assert_eq!(seen[0].0, "acme/web");
-        assert_eq!(seen[0].2, "exp/chat-1a2b3c4d");
-        // The clone's prune gate is held for the launch's whole flight.
-        assert!(prepared.launch_hold.is_some());
-        // A clean chat worktree cleans itself up when the run ends.
-        let cleanup = prepared.run_cleanup.as_ref().expect("run cleanup");
-        assert_eq!(cleanup.worktree, run_worktree);
-        assert_eq!(cleanup.branch, "exp/chat-1a2b3c4d");
-        assert_eq!(cleanup.base_branch, "main");
-        assert_eq!(prepared.repository_id.as_deref(), Some("repo-chat-ok"));
-        // The prompt is the user's own words, LAST and verbatim — only the
-        // two-line workspace/close-out preamble precedes them.
-        let prompt = seed_prompt(&prepared);
-        assert!(
-            prompt.ends_with("---\n\nwhere does the widget rate limit live?"),
-            "{prompt}"
+        let prepared = ready(launch(session_request(row("sess-1", Some("repo-mint")), &["EXP-42"]), &deps));
+        assert_eq!(prepared.session_id, "sess-1");
+        assert_eq!(
+            deps.token_store.get("acct", SecretKind::PersonalApiKey).as_deref(),
+            Some("expu_minted_runtime")
         );
-        assert!(prompt.starts_with("You work on branch `exp/chat-1a2b3c4d`"));
-        // EXP-679: a person's chat is never told to close out — it stays open.
-        assert!(!prompt.contains("exponential_sessions_end"), "{prompt}");
-        assert!(prompt.contains("the session stays open afterwards"));
-        // Named after the repo (`owner/repo` → `repo`).
-        assert_eq!(prepared.tab_title, "chat · web");
-        assert_eq!(prepared.tab_title_prefix, "web");
-        // The session row is a BUILTIN row: the literal id + teamId, and the
-        // heartbeat keeps re-sending the action scope.
+        assert_eq!(
+            deps.token_store.get("acct", SecretKind::PersonalApiKeyId).as_deref(),
+            Some("key-9")
+        );
+        assert!(!worktree.join(".exp-mcp.json").exists());
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&(MCP_TOKEN_ENV.to_string(), "expu_minted_runtime".to_string())));
+    }
+
+    /// §7.6: N sessions = N worktrees/branches (per-launch state never
+    /// bleeds across sessions).
+    #[test]
+    fn two_sessions_prepare_into_isolated_worktrees() {
+        let dir = temp_dir("concurrent-prep");
+        let wt_a = dir.0.join("wt-a");
+        let wt_b = dir.0.join("wt-b");
+        fs::create_dir_all(&wt_a).unwrap();
+        fs::create_dir_all(&wt_b).unwrap();
+        let launch_one = |identifier: &str, session: &str, worktree: &PathBuf| {
+            let base = canned_server(repo_calls());
+            let deps = make_deps(&base, &dir.0, fake_worktrees(worktree));
+            ready(launch(session_request(row(session, Some("repo-pair")), &[identifier]), &deps))
+        };
+        let a = launch_one("EXP-1", "sess-a", &wt_a);
+        let b = launch_one("EXP-2", "sess-b", &wt_b);
+        assert_eq!(a.branch, "exp/EXP-1");
+        assert_eq!(b.branch, "exp/EXP-2");
+        assert_ne!(a.worktree, b.worktree);
+        assert_ne!(a.session_id, b.session_id);
+        assert_eq!(a.tab_title, "claude · EXP-1");
+        assert_eq!(b.tab_title, "claude · EXP-2");
+        assert_eq!(a.spawn.cwd.as_deref(), Some(wt_a.as_path()));
+        assert_eq!(b.spawn.cwd.as_deref(), Some(wt_b.as_path()));
+    }
+
+    /// EXP-773: the EXP-474 ignore guard belongs to the FILE-writing arm — the
+    /// agent SHELL. A repo whose committed `.gitignore` re-includes
+    /// `.exp-mcp.json` still refuses a shell there, but a session writes no
+    /// file at all (the key rides the child env), so it must launch.
+    #[cfg(unix)]
+    #[test]
+    fn the_key_file_guard_gates_the_agent_shell_only() {
+        let dir = temp_dir("guard-transport");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&worktree)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.com")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.com")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?} failed");
+        };
+        git(&["init", "--quiet", "-b", "main"]);
+        fs::write(worktree.join(".gitignore"), "!.exp-mcp.json\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "--quiet", "-m", "reinclude"]);
+
+        guard_agent_mcp(CodingAgent::Claude, &worktree, false)
+            .expect("a session has no file to guard");
+        let direct = guard_agent_mcp(CodingAgent::Claude, &worktree, true).unwrap_err();
+        assert!(matches!(direct, CodingError::Git(_)), "wrong error: {direct:?}");
+
+        let base = canned_server(repo_calls());
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        ready(launch(session_request(row("s-guard", Some("repo-guard")), &["EXP-42"]), &deps));
+        assert!(!worktree.join(crate::mcp_json::MCP_JSON_FILE).exists());
+    }
+
+    // ---- EXP-792: the team servers ----
+
+    /// A pick the member cannot use (here: the resolve call fails outright)
+    /// never refuses a launch: the resolver warns and hands back no servers.
+    /// The call names the row and no ids — the pick lives on the row.
+    #[test]
+    fn an_unusable_mcp_pick_degrades_to_a_warning_never_a_blocker() {
+        let dir = temp_dir("mcp-degraded");
+        let (base, captured) =
+            canned_server_recording(vec![(500, r#"{"error":{"message":"boom"}}"#.to_string())]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let resolved = resolve_mcp_servers(&deps, "sess-1");
+        assert!(resolved.servers.is_empty() && resolved.env.is_empty());
+        assert_eq!(resolved.warnings.len(), 1, "{:?}", resolved.warnings);
         let requests = captured.lock().unwrap();
-        assert!(requests
-            .iter()
-            .any(|request| request.contains(r#""actionId":"builtin:chat""#)
-                && request.contains(r#""teamId":"ws-1""#)));
-        assert_eq!(prepared.session_id, "sess-chat");
-        assert_eq!(
-            prepared.heartbeat_scope.action_id.as_deref(),
-            Some("builtin:chat")
+        assert!(requests[0].contains("mcpServers.resolveForLaunch"));
+        assert!(!requests[0].contains("serverIds"), "{}", requests[0]);
+        assert!(
+            requests[0].to_ascii_lowercase().contains("x-exp-session-id: sess-1"),
+            "{}",
+            requests[0]
         );
-        assert_eq!(prepared.heartbeat_scope.action_name.as_deref(), Some("Chat"));
     }
 
-    /// EXP-703: the terminal dock's "+" shape — an ATTENDED chat with no
-    /// `prompt` input. Same rails as the prompted chat (own worktree on
-    /// `exp/chat-<id8>`, session row, cleanup), but NOTHING is delivered:
-    /// no positional prompt, no PROMPT.md — the agent spawns interactive and
-    /// waits for the person at the terminal.
+    /// The warning RIDES the prepared launch so the hosts can show it; the
+    /// run still prepares, with only the device's own code-mode server.
+    #[cfg(unix)]
     #[test]
-    fn prepare_action_chat_attended_promptless_spawns_waiting() {
-        let dir = temp_dir("action-chat-no-prompt-ok");
-        let (base, _captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-chat","issueId":null,"teamId":"ws-1","actionId":null,"actionName":"Chat","status":"running"}}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let clone = dir.0.join("repos").join("acme").join("web");
-        fs::create_dir_all(&clone).unwrap();
-        for args in [
-            &["init", "--quiet"][..],
-            &["remote", "add", "origin", "https://github.com/acme/web.git"][..],
-        ] {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&clone)
-                .status()
-                .unwrap();
-            assert!(status.success(), "git {args:?}");
-        }
-        let run_worktree = dir.0.join("chat-worktree");
-        fs::create_dir_all(&run_worktree).unwrap();
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: run_worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        let mut req = chat_request("repo-chat-ok");
-        req.run_id = "1a2b3c4d".to_string();
-        req.prompt = None;
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // The chat rails are unchanged: own worktree, branch, cleanup.
-        assert_eq!(prepared.worktree, run_worktree);
-        assert_eq!(prepared.branch, "exp/chat-1a2b3c4d");
-        assert!(prepared.run_cleanup.is_some());
-        assert_eq!(prepared.session_id, "sess-chat");
-        // But there is NO seed prompt at all — the agent waits for the user.
-        assert_eq!(prepared.acp.prompt, None);
-    }
-
-    /// EXP-637 (decision 1): a repo-backed TEAM action gets its own worktree
-    /// on `exp/<slug>-<id8>` cut from the repo default — it never writes into
-    /// the trunk clone any more — and the prompt tells it how work leaves
-    /// that worktree (an issue-LESS PR via `repositoryId` + `head`).
-    #[test]
-    fn prepare_action_team_repo_backed_cuts_a_run_worktree() {
-        let dir = temp_dir("action-run-worktree");
-        let (base, _captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (200, START_ACTION_OK.to_string()),
-        ]);
-        let clone = dir.0.join("repos").join("acme").join("web");
-        fs::create_dir_all(&clone).unwrap();
-        for args in [
-            &["init", "--quiet"][..],
-            &["remote", "add", "origin", "https://github.com/acme/web.git"][..],
-        ] {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&clone)
-                .status()
-                .unwrap();
-            assert!(status.success(), "git {args:?}");
-        }
-        let run_worktree = dir.0.join("run-worktree");
-        fs::create_dir_all(&run_worktree).unwrap();
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: run_worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-
-        let mut req = action_request();
-        req.run_id = "1a2b3c4d".to_string();
-        req.repo = Some(RepoGroup {
-            repository_id: "repo-run-wt".to_string(),
-            full_name: "acme/web".to_string(),
-            default_branch: "main".to_string(),
-        });
-        let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(prepared.worktree, run_worktree);
-        assert_eq!(prepared.clone, clone);
-        // The slug comes from the action NAME, lowercased and hyphenated.
-        assert_eq!(prepared.branch, "exp/code-review-1a2b3c4d");
-        assert_eq!(prepared.base_branch.as_deref(), Some("main"));
-        let seen = worktrees.seen.lock().unwrap().clone();
-        assert_eq!(seen.len(), 1, "{seen:?}");
-        assert_eq!(seen[0].2, "exp/code-review-1a2b3c4d");
-        assert!(prepared.launch_hold.is_some());
-        assert!(prepared.run_cleanup.is_some());
-        // The run branch rides the heartbeat scope so a swept row resurrects
-        // still pointing at this worktree.
+    fn a_skipped_mcp_pick_rides_the_prepared_launch() {
+        let dir = temp_dir("mcp-degraded-prepared");
+        let base = canned_server(vec![(
+            200,
+            r#"{"result":{"data":{"servers":[],"skipped":[{"id":"srv-9","name":"Linear","reason":"not connected"}],"warnings":[]}}}"#.to_string(),
+        )]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        let prepared = ready(launch(session_request(row("s-skip", None), &[]), &deps));
         assert_eq!(
-            prepared.heartbeat_scope.branch.as_deref(),
-            Some("exp/code-review-1a2b3c4d")
+            prepared.mcp_warnings,
+            vec![
+                "MCP server Linear: not connected; starting without it. Connect it in Settings → MCP servers."
+                    .to_string()
+            ]
         );
-        // The prompt's `## Workspace` section names the branch and the
-        // issue-less pr_open shape (EXP-626).
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("## Workspace"), "{prompt}");
-        assert!(prompt.contains("branch `exp/code-review-1a2b3c4d`"));
-        assert!(prompt.contains("`repositoryId: \"repo-run-wt\"`"));
-        // EXP-679 / EXP-1222: a hand-started action run keeps its session
-        // open and ends itself only when the person asks.
-        assert!(prompt.contains("only when the person asks you to end the session"), "{prompt}");
-        assert!(!prompt.contains("That call ends this session"), "{prompt}");
-        assert!(prompt.contains("This session stays open after you finish"));
-        // The run is recorded so it can be resumed after it ends.
-        let record = crate::run_registry::get(&dir.0, "sess-a").expect("run record");
-        assert_eq!(record.branch.as_deref(), Some("exp/code-review-1a2b3c4d"));
-        assert_eq!(record.base_branch.as_deref(), Some("main"));
-        assert_eq!(record.cwd, run_worktree);
-        assert_eq!(record.clone.as_deref(), Some(clone.as_path()));
-        assert_eq!(record.agent, CodingAgent::Claude);
-        assert_eq!(record.kind, crate::run_registry::RunKind::Team);
-    }
-
-    // ---- EXP-637: resume ----
-
-    /// A repo-LESS recorded run — the shortest resume path (no token, no
-    /// git), so the tests below exercise identity + wire, not plumbing.
-    fn resume_record(dir: &Path, session_id: &str) -> crate::run_registry::RunRecord {
-        let cwd = dir.join("scratch");
-        fs::create_dir_all(&cwd).unwrap();
-        crate::run_registry::RunRecord {
-            session_id: session_id.to_string(),
-            board_id: None,
-            account_id: "acct".to_string(),
-            agent: CodingAgent::Claude,
-            kind: crate::run_registry::RunKind::Team,
-            action_id: "act-1".to_string(),
-            action_name: "Code review".to_string(),
-            team_id: "ws-1".to_string(),
-            issue_id: None,
-            issue_identifier: None,
-            batch_id: None,
-            issues: Vec::new(),
-            cwd,
-            clone: None,
-            repo: None,
-            repository_id: None,
-            branch: None,
-            base_branch: None,
-            claude_session_id: Some("claude-1".to_string()),
-            codex_originator: None,
-            inputs: Vec::new(),
-            model: "fable".to_string(),
-            effort: String::new(),
-            ultracode: false,
-            fix: None,
-            started_reason: Some("schedule".to_string()),
-            resumed_from_id: None,
-            recorded_at: crate::run_registry::now_secs(),
-            extra: BTreeMap::new(),
-            transport: None,
-            acp_session_id: None,
-            agent_native_session_id: None,
-            acp_child_pid: None,
-            host_pid: None,
-        }
-    }
-
-    fn resume_request(record: crate::run_registry::RunRecord) -> ResumeRunRequest {
-        ResumeRunRequest {
-            record,
-            device_label: "box".to_string(),
-            origin: LaunchOrigin::Local,
-            model: None,
-            effort: None,
-            prompt: None,
-            account: None,
-        }
+        let names: Vec<&str> = prepared.acp.servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["codemode"]);
+        assert_eq!(prepared.acp.servers[0].token_env.as_deref(), Some(codemode::TOKEN_ENV));
+        assert!(!prepared.acp.mcp_secrets.is_empty());
+        assert!(prepared.acp.system_append.contains("# Code mode"));
     }
 
     // ---- EXP-1158: the last used stamp ----
 
-    fn relay(started_reason: Option<&str>) -> LaunchOrigin {
-        LaunchOrigin::Relay {
-            device_id: "dev-1".to_string(),
-            claimant: "acct".to_string(),
-            started_by: None,
-            started_reason: started_reason.map(str::to_string),
-            thread_id: None,
-            start_id: None,
-        }
-    }
-
-    /// Only a launch a PERSON started moves last used — with the account
-    /// they NAMED (before the launcher resolves or rotates it), or the agent
-    /// alone when they named none.
+    /// Only a thread ROOT a person sent stamps last used — with the account
+    /// they NAMED, or the agent alone. A child (an agent's), a team agent's
+    /// channel and every resume never do.
     #[test]
-    fn a_person_start_stamps_last_used_and_unattended_starts_do_not() {
-        let mut person = request("EXP-1");
-        person.options.agent = CodingAgent::Codex;
-        person.options.account = Some(" 0a1b2c3d ".to_string());
+    fn a_person_started_root_stamps_last_used_and_nothing_else_does() {
+        let options = |account: Option<&str>| LaunchOptions {
+            agent: CodingAgent::Codex,
+            account: account.map(str::to_string),
+            ..base_options()
+        };
+        let root = PrepareRequest::Session(session_request(row("s-root", None), &[]));
         assert_eq!(
-            last_used_stamp(&PrepareRequest::Issue(person.clone())),
+            last_used_stamp(&root, &options(Some(" 0a1b2c3d "))),
             Some(LastUsedStamp { agent: CodingAgent::Codex, account: Some("0a1b2c3d".to_string()) })
         );
-        // A remote person start (no reason) stamps too; nothing named =
-        // the agent alone.
-        person.origin = relay(None);
-        person.options.account = None;
         assert_eq!(
-            last_used_stamp(&PrepareRequest::Issue(person.clone())),
+            last_used_stamp(&root, &options(None)),
             Some(LastUsedStamp { agent: CodingAgent::Codex, account: None })
         );
-        // The retired `system` rides through (the stamp clears the pointer).
-        let mut batch = batch_request();
-        batch.options.account = Some("system".to_string());
-        assert_eq!(
-            last_used_stamp(&PrepareRequest::Batch(batch.clone())).and_then(|stamp| stamp.account),
-            Some("system".to_string())
-        );
-
-        // An agent child (MCP `sessions_start`) never stamps.
-        let mut child = request("EXP-2");
-        child.origin = relay(Some("agent"));
-        assert_eq!(last_used_stamp(&PrepareRequest::Issue(child)), None);
-
-        // An action a person started stamps; a trigger's never does.
-        assert!(last_used_stamp(&PrepareRequest::Action(action_request())).is_some());
-        let mut automated = action_request();
-        automated.trigger_id = Some("auto-1".to_string());
-        automated.trigger = Some(TriggerNote {
-            kind: crate::action_prompt::TriggerNoteKind::Schedule { phrase: "daily".to_string() },
-        });
-        assert_eq!(last_used_stamp(&PrepareRequest::Action(automated)), None);
-    }
-
-    /// A resume keeps its recorded account and moves nothing — except a
-    /// person's REMOTE mid-run switch. A rotation hop resumes with a LOCAL
-    /// origin, so it never stamps.
-    #[test]
-    fn only_a_persons_relay_switch_stamps_on_resume() {
+        let mut child_row = row("s-child", None);
+        child_row.parent_id = Some("s-root".to_string());
+        let child = PrepareRequest::Session(session_request(child_row, &[]));
+        assert_eq!(last_used_stamp(&child, &options(Some("0a1b2c3d"))), None);
+        let mut agent_row = row("s-agent", None);
+        agent_row.kind = Some("agent".to_string());
+        let agent = PrepareRequest::Session(session_request(agent_row, &[]));
+        assert_eq!(last_used_stamp(&agent, &options(None)), None);
         let dir = temp_dir("stamp-resume");
-        let record = resume_record(&dir.0, "sess-old");
-        let mut switch = resume_request(record);
-        switch.origin = relay(None);
-        switch.account = Some("0a1b2c3d".to_string());
-        assert_eq!(
-            last_used_stamp(&PrepareRequest::ResumeRun(switch.clone())),
-            Some(LastUsedStamp { agent: CodingAgent::Claude, account: Some("0a1b2c3d".to_string()) })
-        );
-        // A plain remote resume names no account.
-        let mut plain = switch.clone();
-        plain.account = None;
-        assert_eq!(last_used_stamp(&PrepareRequest::ResumeRun(plain)), None);
-        // The rotation's switch (local origin) and an agent's resume never stamp.
-        let mut rotation = switch.clone();
-        rotation.origin = LaunchOrigin::Local;
-        assert_eq!(last_used_stamp(&PrepareRequest::ResumeRun(rotation)), None);
-        let mut agent = switch;
-        agent.origin = relay(Some("agent"));
-        assert_eq!(last_used_stamp(&PrepareRequest::ResumeRun(agent)), None);
+        let mut resumed = session_request(row("sess-old", None), &[]);
+        resumed.resume = Some(ResumeRun {
+            record: resume_record(&dir.0, "sess-old"),
+            prompt: "go on".to_string(),
+            message_id: None,
+        });
+        assert_eq!(last_used_stamp(&PrepareRequest::Session(resumed), &options(None)), None);
     }
+
 
     /// The stamp writes the login pointer and `defaultAgent`; the retired
     /// `system` clears the pointer (back to the first profile).
@@ -6126,1840 +3862,10 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), Some(first.id));
     }
 
-    /// The claude native path: the recorded transcript still exists under
-    /// `~/.claude/projects/<munged cwd>/<id>.jsonl`, so the resume reopens
-    /// THAT conversation (`--resume <id>`, no seed prompt, no `--session-id`).
-    #[test]
-    fn prepare_resume_run_reuses_the_recorded_claude_transcript() {
-        let dir = temp_dir("resume-claude");
-        let (base, captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        let record = resume_record(&dir.0, "sess-old");
-        // Seed the transcript claude would have written for this cwd.
-        let projects = dir.0.join("claude-projects");
-        // The dir name is claude's business (EXP-761: capped + hashed on a
-        // long cwd); the launcher finds the file by session id alone.
-        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
-        deps.claude_projects_root = Some(projects);
-
-        let prepared =
-            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            };
-        assert_eq!(
-            prepared.acp.resume,
-            Some(ResumeSeed::Native("claude-1".to_string()))
-        );
-        assert_eq!(prepared.session_id, "sess-new");
-        assert_eq!(prepared.action_id, Some("act-1".to_string()));
-        // The NEW row points back at the run it continues, and a resume is
-        // never a trigger.
-        let requests = captured.lock().unwrap();
-        assert!(
-            requests
-                .iter()
-                .any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
-            "{requests:?}"
-        );
-        assert!(!requests.iter().any(|r| r.contains("startedReason")));
-        drop(requests);
-        // ... and the resumed run is recorded in its own right.
-        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
-        assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
-        assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
-        assert_eq!(fresh.started_reason, None);
-    }
-
-    /// EXP-849 — a mid-session account SWITCH (claude only): the resume runs
-    /// on the target profile, the transcript is HANDED OVER into that
-    /// profile's own `projects` tree so `--resume` still finds the
-    /// conversation, and the new row chains back through `resumedFromId` like
-    /// any other resume. No credential is read, copied or written.
-    #[test]
-    fn prepare_resume_run_hands_the_transcript_to_the_target_account() {
-        let dir = temp_dir("resume-switch");
-        let (base, captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        // The run happened on the AMBIENT login, whose tree the fixture root
-        // stands in for.
-        let projects = dir.0.join("claude-projects");
-        let project_dir = projects.join("-Users-u-worktree--71h4ur");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::write(project_dir.join("claude-1.jsonl"), "{\"turn\":1}\n").unwrap();
-        deps.claude_projects_root = Some(projects);
-        let target =
-            crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
-        // A credential in the SOURCE tree must stay exactly where it is.
-        let credential = dir.0.join("claude-projects").join("..").join("creds.json");
-        fs::write(&credential, "secret").unwrap();
-
-        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
-        req.account = Some(target.id.clone());
-        let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // The conversation survived the handover …
-        assert_eq!(
-            prepared.acp.resume,
-            Some(ResumeSeed::Native("claude-1".to_string()))
-        );
-        // … because the file is now in the TARGET profile's tree, under
-        // claude's own project directory name.
-        let handed = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id)
-            .unwrap()
-            .join("projects")
-            .join("-Users-u-worktree--71h4ur")
-            .join("claude-1.jsonl");
-        assert!(handed.is_file(), "{}", handed.display());
-        assert_eq!(fs::read_to_string(&handed).unwrap(), "{\"turn\":1}\n");
-        // Nothing credential-shaped travelled with it.
-        let target_dir =
-            crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id).unwrap();
-        assert!(!target_dir.join("creds.json").exists());
-        assert!(!target_dir.join(".credentials.json").exists());
-        assert_eq!(fs::read_to_string(&credential).unwrap(), "secret");
-        // The run now reads the TARGET profile's config dir …
-        assert!(prepared
-            .spawn
-            .env
-            .iter()
-            .any(|(key, value)| key == "CLAUDE_CONFIG_DIR"
-                && value == &target_dir.to_string_lossy().to_string()));
-        // … and is a continuation, not a new run.
-        let requests = captured.lock().unwrap();
-        assert!(
-            requests
-                .iter()
-                .any(|r| r.contains(r#""resumedFromId":"sess-old""#)),
-            "{requests:?}"
-        );
-        // EXP-909: the continuation row is stamped with the TARGET login —
-        // the account it will actually spend, not the one it came from.
-        assert!(
-            requests
-                .iter()
-                .any(|r| r.contains(&format!(r#""agentAccount":"{}""#, target.id))),
-            "{requests:?}"
-        );
-        drop(requests);
-        assert_eq!(
-            prepared.heartbeat_scope.agent_account.as_deref(),
-            Some(target.id.as_str())
-        );
-        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
-        assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
-        assert_eq!(fresh.account().as_deref(), Some(target.id.as_str()));
-    }
-
-    /// EXP-935 — a mid-run account switch is a resume with no prompt of its
-    /// own, so the reloaded conversation used to idle until a person typed:
-    /// from the outside the switch did nothing. The switch itself opens the
-    /// first turn with the continue instruction; an ordinary resume still
-    /// seeds no prompt at all.
-    #[test]
-    fn an_account_switch_resume_opens_the_first_turn_with_the_continue_prompt() {
-        let seed_projects = |dir: &Path, deps: &mut CodingDeps| {
-            let projects = dir.join("claude-projects");
-            let project_dir = projects.join("-Users-u-worktree--71h4ur");
-            fs::create_dir_all(&project_dir).unwrap();
-            fs::write(project_dir.join("claude-1.jsonl"), "{\"turn\":1}\n").unwrap();
-            deps.claude_projects_root = Some(projects);
-        };
-        let canned = || {
-            canned_server_recording(vec![(
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                    .to_string(),
-            )])
-        };
-
-        // A plain resume: nothing is asked, the agent waits.
-        let plain_dir = temp_dir("resume-no-switch-prompt");
-        let (base, _captured) = canned();
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: plain_dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &plain_dir.0, worktrees);
-        seed_projects(&plain_dir.0, &mut deps);
-        let plain = match prepare(
-            &PrepareRequest::ResumeRun(resume_request(resume_record(&plain_dir.0, "sess-old"))),
-            &deps,
-        )
-        .unwrap()
-        {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(plain.acp.prompt, None, "an ordinary native resume seeds nothing");
-
-        // The same resume, switching the account: the continue prompt.
-        let dir = temp_dir("resume-switch-prompt");
-        let (base, _captured) = canned();
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        seed_projects(&dir.0, &mut deps);
-        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
-        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
-        req.account = Some(target.id.clone());
-        let switched = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(
-            switched.acp.prompt.as_deref(),
-            Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT),
-            "the switch opens the turn itself"
-        );
-
-        // A switch that ALSO carries composer text keeps both, the person's
-        // words first.
-        let both_dir = temp_dir("resume-switch-prompt-text");
-        let (base, _captured) = canned();
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: both_dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &both_dir.0, worktrees);
-        seed_projects(&both_dir.0, &mut deps);
-        let target = crate::agent_profiles::create(&both_dir.0, CodingAgent::Claude).unwrap();
-        let mut req = resume_request(resume_record(&both_dir.0, "sess-old"));
-        req.account = Some(target.id.clone());
-        req.prompt = Some("and rerun the tests".to_string());
-        let both = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let prompt = both.acp.prompt.as_deref().expect("a seed prompt");
-        assert!(prompt.starts_with("and rerun the tests"), "{prompt}");
-        assert!(prompt.ends_with(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT), "{prompt}");
-    }
-
-    /// EXP-909 — a resume that SWITCHES logins starts the continuation row on
-    /// the NEW account, never the one the previous run spent. Without this the
-    /// usage overlay of a switched run keeps reading the old login's numbers,
-    /// which is exactly the account the switch was made to get away from.
-    #[test]
-    fn a_resume_onto_another_account_starts_the_row_on_the_new_one() {
-        let dir = temp_dir("resume-switch-row");
-        let (base, captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let from = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
-        let to = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
-
-        // The run happened on `from`; the resume asks for `to`.
-        let mut record = resume_record(&dir.0, "sess-old");
-        record.set_account(Some(&from.id));
-        let mut req = resume_request(record);
-        req.account = Some(to.id.clone());
-        let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        let requests = captured.lock().unwrap();
-        let start = requests
-            .iter()
-            .find(|r| r.contains("codingSessions.start"))
-            .expect("start mutation");
-        assert!(
-            start.contains(&format!(r#""agentAccount":"{}""#, to.id)),
-            "{start}"
-        );
-        assert!(!start.contains(&from.id), "the old login is gone: {start}");
-        drop(requests);
-        assert_eq!(
-            prepared.heartbeat_scope.agent_account.as_deref(),
-            Some(to.id.as_str()),
-            "and a resurrect keeps the new one"
-        );
-    }
-
-    /// EXP-849 — the two switches the launcher refuses outright, before it
-    /// starts anything: codex (one login per session — its conversation lives
-    /// in the login's own rollout store), and an account this machine does
-    /// not have.
-    #[test]
-    fn prepare_resume_run_refuses_a_switch_it_cannot_honor() {
-        let dir = temp_dir("resume-switch-refused");
-        let (base, _captured) = canned_server_recording(vec![]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
-        req.account = Some("deadbeef".to_string());
-        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
-                assert!(message.contains("deadbeef"), "{message}");
-            }
-            other => panic!("expected a refusal, got {other:?}"),
-        }
-
-        let target =
-            crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
-        let mut record = resume_record(&dir.0, "sess-old");
-        record.agent = CodingAgent::Codex;
-        let mut req = resume_request(record);
-        req.account = Some(target.id);
-        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
-                assert!(message.to_lowercase().contains("codex"), "{message}");
-            }
-            other => panic!("expected a refusal, got {other:?}"),
-        }
-
-        // Naming the account the run ALREADY used is not a switch: `system`
-        // against an ambient-login record resumes as it always did.
-        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
-        req.account = Some("system".to_string());
-        assert!(
-            !matches!(
-                prepare(&PrepareRequest::ResumeRun(req), &deps),
-                Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused { .. }))
-            ),
-            "same-account resume must not be refused"
-        );
-    }
-
-    /// EXP-679: a resume ANOTHER coding session asked for is unattended —
-    /// the relay frame's reason rides the new row (the local resume above
-    /// locks the `None` a person's resume still sends).
-    #[test]
-    fn prepare_resume_run_carries_a_relay_started_reason() {
-        let dir = temp_dir("resume-agent");
-        let (base, captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
-        req.origin = LaunchOrigin::Relay {
-            device_id: "dev-1".to_string(),
-            claimant: "acct".to_string(),
-            started_by: None,
-            started_reason: Some("agent".to_string()),
-            thread_id: None,
-            start_id: None,
-        };
-
-        let prepared = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(
-            prepared.heartbeat_scope.started_reason.as_deref(),
-            Some("agent")
-        );
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("`exponential_sessions_end`"), "{prompt}");
-        let requests = captured.lock().unwrap();
-        assert!(
-            requests.iter().any(|r| r.contains(r#""startedReason":"agent""#)),
-            "{requests:?}"
-        );
-        drop(requests);
-        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
-        assert_eq!(fresh.started_reason.as_deref(), Some("agent"));
-    }
-
-    /// Claude caps long project directory names and appends a hash; the
-    /// probe finds the transcript by its uuid anywhere under the projects
-    /// root (EXP-761: there is no munged-cwd path at all any more).
-    #[test]
-    fn prepare_resume_run_finds_the_transcript_under_a_hashed_project_dir() {
-        let dir = temp_dir("resume-claude-hashed");
-        let (base, _captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        let record = resume_record(&dir.0, "sess-old");
-        let projects = dir.0.join("claude-projects");
-        let project_dir = projects.join("-some-truncated-prefix-nvsi4o");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
-        // A stray FILE at the root and an unrelated dir must not confuse it.
-        fs::write(projects.join("notes.txt"), "").unwrap();
-        fs::create_dir_all(projects.join("-other-project")).unwrap();
-        deps.claude_projects_root = Some(projects);
-
-        let prepared =
-            match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            };
-        assert_eq!(
-            prepared.acp.resume,
-            Some(ResumeSeed::Native("claude-1".to_string()))
-        );
-        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
-        assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
-    }
-
-    /// No recoverable transcript: a FRESH session in the same workspace,
-    /// seeded with the resume prompt (and a fresh `--session-id` pin).
-    #[test]
-    fn prepare_resume_run_seeds_the_resume_prompt_without_a_transcript() {
-        let dir = temp_dir("resume-fallback");
-        let (base, _captured) = canned_server_recording(vec![(
-            200,
-            r#"{"result":{"data":{"session":{"id":"sess-new2","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                .to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        deps.claude_projects_root = Some(dir.0.join("empty-projects"));
-
-        let prepared = match prepare(
-            &PrepareRequest::ResumeRun(resume_request(resume_record(&dir.0, "sess-old2"))),
-            &deps,
-        )
-        .unwrap()
-        {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(prepared.acp.resume, None);
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("RESUMING the session \"Code review\""), "{prompt}");
-        // EXP-679: a LOCAL resume is a person's — attended close-out.
-        assert!(prompt.contains("only when the person asks you to end the session"), "{prompt}");
-        assert!(!prompt.contains("That call ends this session"), "{prompt}");
-        assert!(prompt.contains("This session stays open after you finish"));
-    }
-
-    /// A REPO-BACKED workspace the prune (or the user) reclaimed has nothing
-    /// to resume INTO — the launch must refuse, not spawn in a fabricated
-    /// directory. (`repository_id` stays `None`, so no token is minted before
-    /// the check.)
-    #[test]
-    fn prepare_resume_run_refuses_a_missing_workspace() {
-        let dir = temp_dir("resume-gone");
-        let (base, _captured) = canned_server_recording(vec![]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut record = resume_record(&dir.0, "sess-old3");
-        record.clone = Some(dir.0.join("clone"));
-        record.cwd = dir.0.join("vanished");
-
-        match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps) {
-            Err(CodingError::Io(message)) => {
-                assert!(message.contains("workspace is gone"), "{message}");
-            }
-            other => panic!("expected the missing-workspace error, got {other:?}"),
-        }
-    }
-
-    /// A repo-backed CHAT run whose worktree the prune reclaimed once its PR
-    /// merged (the ordinary end of a chat run): the resume re-creates the
-    /// worktree through the provider on the recorded branch + base, spawns
-    /// INTO it, and opens with the reclaimed-workspace note — alone, since a
-    /// native transcript survived and no composer text rode the resume.
-    #[test]
-    fn prepare_resume_run_recreates_a_reclaimed_worktree() {
-        let dir = temp_dir("resume-reclaimed");
-        let (base, _captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","status":"running"}}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("chat-1a2b3c4d");
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: layout.clone(),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut record = resume_record(&dir.0, "sess-old5");
-        record.kind = RunKind::Chat;
-        record.action_id = domain::contract::BUILTIN_CHAT_ID.to_string();
-        record.action_name = "Chat".to_string();
-        record.cwd = layout.clone();
-        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
-        record.repo = Some("acme/web".to_string());
-        record.repository_id = Some("repo-resume-reclaimed".to_string());
-        record.branch = Some("exp/chat-1a2b3c4d".to_string());
-        record.base_branch = Some("main".to_string());
-        record.started_reason = None;
-        assert!(!layout.exists(), "the worktree is gone");
-        assert!(record.resumable() && record.workspace_reclaimed());
-        let projects = dir.0.join("claude-projects").join("-repos-acme-web-worktrees-chat");
-        fs::create_dir_all(&projects).unwrap();
-        fs::write(projects.join("claude-1.jsonl"), "{}\n").unwrap();
-        deps.claude_projects_root = Some(projects.parent().unwrap().to_path_buf());
-
-        let prepared = match prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps)
-            .unwrap()
-        {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        // Re-created on the recorded branch, off the recorded base.
-        let seen = worktrees.seen.lock().unwrap().clone();
-        assert_eq!(seen.len(), 1, "{seen:?}");
-        assert_eq!(seen[0].1, "main");
-        assert_eq!(seen[0].2, "exp/chat-1a2b3c4d");
-        assert_eq!(prepared.spawn.cwd.as_deref(), Some(layout.as_path()));
-        assert_eq!(prepared.worktree, layout);
-        // The native transcript still resumes; the note is the first turn.
-        assert_eq!(
-            prepared.acp.resume,
-            Some(ResumeSeed::Native("claude-1".to_string()))
-        );
-        let prompt = prepared.acp.prompt.as_deref().expect("the reclaimed note");
-        assert!(prompt.starts_with("Your worktree was reclaimed"), "{prompt}");
-        assert!(prompt.contains("`exp/chat-1a2b3c4d` now starts fresh from `origin/main`"), "{prompt}");
-        assert!(prompt.ends_with("acknowledge this in one line and wait."), "{prompt}");
-        // The re-created worktree is the run's own again.
-        assert_eq!(
-            prepared.run_cleanup.as_ref().map(|c| c.worktree.clone()),
-            Some(layout.clone())
-        );
-        let _ = fs::remove_dir_all(&dir.0);
-    }
-
-    /// EXP-764: a repo-LESS run's scratch dir was purged with the run when it
-    /// ended. The record no longer resumes it, and the backstop refuses
-    /// rather than re-creating an empty dir under a transcript that names
-    /// files which are gone.
-    #[test]
-    fn prepare_resume_run_refuses_a_purged_scratch_dir() {
-        let dir = temp_dir("resume-scratch-purged");
-        let (base, _captured) = canned_server_recording(vec![]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        deps.claude_projects_root = Some(dir.0.join("empty-projects"));
-        let record = resume_record(&dir.0, "sess-old4");
-        let scratch = record.cwd.clone();
-        fs::remove_dir_all(&scratch).unwrap();
-        assert!(!record.resumable(), "a purged scratch dir is not resumable");
-
-        let err = prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps)
-            .expect_err("a purged scratch dir is a hard stop");
-        assert!(err.to_string().contains("workspace is gone"), "{err}");
-        assert!(!scratch.exists(), "the resume must not re-create it");
-    }
-
-    /// A fix-conflicts action request with the PR's repo group attached
-    /// (EXP-324 tests). Unique repository ids per test — the token cache is
-    /// process-global, and a shared id would swallow the mint request and
-    /// misalign the canned-server sequence.
-    fn fix_conflicts_request(repository_id: &str) -> ActionLaunchRequest {
-        let mut req = action_request();
-        req.action_id = "builtin:fix-conflicts".to_string();
-        req.action_name = "Fix merge conflicts".to_string();
-        req.body = String::new();
-        req.kind = ActionRunKind::FixConflicts {
-            branch: "exp/EXP-42".to_string(),
-            default_branch: "main".to_string(),
-            board_id: None,
-            identifier: "EXP-42".to_string(),
-            issue_id: "issue-fix-1".to_string(),
-        };
-        req.repo = Some(RepoGroup {
-            repository_id: repository_id.to_string(),
-            full_name: "acme/web".to_string(),
-            default_branch: "main".to_string(),
-        });
-        req
-    }
-
-    /// EXP-324: the run rebases onto the PR's LIVE base and ends in a
-    /// force-push + auto-merge — proceeding on a guessed base is the EXP-320
-    /// bug, so a failed `issues.prepareConflictFix` (other than 404) is a
-    /// hard, retryable error BEFORE any git work.
-    #[test]
-    fn prepare_action_fix_conflicts_hard_errors_when_base_resolution_fails() {
-        let dir = temp_dir("action-fix-conflicts-base-502");
-        let (base, captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                502,
-                r#"{"error":{"message":"GitHub returned 500 for acme/web#241","code":-32603,"data":{"code":"BAD_GATEWAY","httpStatus":502}}}"#.to_string(),
-            ),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        match prepare(
-            &PrepareRequest::Action(fix_conflicts_request("repo-fix-502")),
-            &deps,
-        ) {
-            Err(CodingError::Io(message)) => {
-                assert!(
-                    message.contains("could not resolve the pull request's base branch"),
-                    "{message}"
-                );
-            }
-            other => panic!("expected the base-resolution error, got {other:?}"),
-        }
-        let requests = captured.lock().unwrap();
-        assert!(requests[0].starts_with("POST /api/trpc/repositories.installationToken"));
-        assert!(requests[1].starts_with("POST /api/trpc/issues.prepareConflictFix"));
-        assert!(requests[1].ends_with(r#"{"issueId":"issue-fix-1"}"#));
-        // Hard-stopped before any git work.
-        assert!(!dir.0.join("repos").join("acme").exists());
-    }
-
-    /// EXP-324: an OLD server without `issues.prepareConflictFix` answers
-    /// 404 — the launch degrades to the legacy default-branch rebase instead
-    /// of failing. The pre-seeded clone (no `origin` remote) makes the flow
-    /// die at the branch fetch — a GIT error, past the base resolution —
-    /// without any network.
-    #[test]
-    fn prepare_action_fix_conflicts_falls_back_to_default_branch_on_404() {
-        let dir = temp_dir("action-fix-conflicts-base-404");
-        let (base, captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                404,
-                r#"{"error":{"message":"No procedure found on path \"issues.prepareConflictFix\"","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}"#.to_string(),
-            ),
-        ]);
-        // Pre-seed the clone at the §7.1 layout path so ensure_clone reuses
-        // it instead of cloning over the network.
-        let clone = dir.0.join("repos").join("acme").join("web");
-        fs::create_dir_all(&clone).unwrap();
-        let git = |args: &[&str]| {
-            let status = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&clone)
-                .status()
-                .unwrap();
-            assert!(status.success(), "git {args:?}");
-        };
-        git(&["init", "--quiet"]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        let result = prepare(
-            &PrepareRequest::Action(fix_conflicts_request("repo-fix-404")),
-            &deps,
-        );
-        match result {
-            // Died on git plumbing (the seeded clone has no `origin`
-            // remote) — i.e. PAST the 404'd base resolution, on the legacy
-            // path. The exact op doesn't matter; NOT being the
-            // base-resolution Io error is the assertion.
-            Err(CodingError::Git(_)) => {}
-            other => panic!("expected a git error past the base resolution, got {other:?}"),
-        }
-        let requests = captured.lock().unwrap();
-        assert!(requests[1].starts_with("POST /api/trpc/issues.prepareConflictFix"));
-    }
-
-    /// EXP-773: the seed prompt the ACP engine sends as the run's first
-    /// message — what used to ride the spawn argv as claude's positional.
-    fn seed_prompt(prepared: &PreparedLaunch) -> &str {
-        prepared.acp.prompt.as_deref().expect("a seed prompt")
-    }
-
-    #[test]
-    fn prepare_issue_full_sequence() {
-        let dir = temp_dir("happy");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
-        };
-
-        // Session id from codingSessions.start keys everything downstream.
-        assert_eq!(prepared.session_id, "sess-1");
-        assert_eq!(prepared.branch, "exp/EXP-42");
-        assert_eq!(prepared.worktree, worktree);
-        assert_eq!(prepared.tab_title, "claude · EXP-42");
-        // EXP-145: the identifier rides along so live OSC titles keep it.
-        assert_eq!(prepared.tab_title_prefix, "EXP-42");
-        // P9 refresher inputs: the server-confirmed repo id + the clone path
-        // under the repos root (independent of the fake worktree location).
-        assert_eq!(prepared.repository_id.as_deref(), Some("repo-1"));
-        assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
-
-        // Step 7's spawn spec: configured program, worktree cwd, NO argv
-        // (EXP-773: the ACP adapter composes it). The rendered prompt is the
-        // run's first message and the options ride the ACP half.
-        assert_eq!(prepared.spawn.program, deps.settings.claude_path);
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
-        assert_eq!(
-            seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), false, None)
-        );
-        assert_eq!(prepared.acp.options.model, "fable");
-        assert!(prepared.acp.options.plan_mode, "the issue default");
-        // EXP-275: plan mode wins the starting mode, so no bypass posture.
-        assert!(!prepared.bypass_permissions);
-
-        // Step 3 got the server-confirmed repo + §7.1 branch name + the
-        // mint's real expiry (the ambient-auth no-downgrade stamp).
-        let seen = worktrees.seen.lock().unwrap();
-        assert_eq!(
-            seen.as_slice(),
-            &[(
-                "acme/web".to_string(),
-                "main".to_string(),
-                "exp/EXP-42".to_string(),
-                Some("2026-07-03T12:55:00.000Z".to_string())
-            )]
-        );
-
-        // Step 4 (EXP-773): claude's MCP server rides INLINE — the raw key
-        // never lands in the worktree, only in the child env.
-        assert!(!worktree.join(".exp-mcp.json").exists());
-        match &prepared.acp.mcp {
-            AgentMcp::ClaudeInline { url, session_id } => {
-                assert_eq!(url, &mcp_url(&base));
-                assert_eq!(session_id.as_deref(), Some("sess-1"));
-            }
-            other => panic!("expected the inline MCP posture, got {other:?}"),
-        }
-        assert!(prepared
-            .spawn
-            .env
-            .contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
-    }
-
-    /// EXP-679: an ISSUE start another coding session asked for (the relay
-    /// frame's `startedReason: "agent"`) is UNATTENDED — the reason rides the
-    /// start mutation and the heartbeat scope, and the prompt gets the
-    /// close-out that names `exponential_sessions_end`. One flag, three
-    /// seams, locked together (the trigger twin of
-    /// `prepare_action_trigger_rides_the_start_and_the_prompt`).
-    #[test]
-    fn prepare_issue_relay_started_reason_rides_the_start_and_the_prompt() {
-        let dir = temp_dir("issue-agent-start");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, captured) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.origin = LaunchOrigin::Relay {
-            device_id: "dev-1".to_string(),
-            claimant: "acct".to_string(),
-            started_by: None,
-            started_reason: Some("agent".to_string()),
-            thread_id: None,
-            start_id: None,
-        };
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(
-            seed_prompt(&prepared),
-            render_prompt("EXP-42", "Fix login flicker", Some("Steps in the issue."), true, None)
-        );
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("`exponential_sessions_end`"), "{prompt}");
-        // The heartbeat echoes it, so a swept row resurrects unattended.
-        assert_eq!(
-            prepared.heartbeat_scope.started_reason.as_deref(),
-            Some("agent")
-        );
-        // ... and so does the run record, for a later resume.
-        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
-        assert_eq!(record.started_reason.as_deref(), Some("agent"));
-
-        let requests = captured.lock().unwrap();
-        let start = requests
-            .iter()
-            .find(|r| r.contains("codingSessions.start"))
-            .expect("start mutation");
-        assert!(start.contains(r#""startedReason":"agent""#), "{start}");
-    }
-
-    /// EXP-1284: a relay frame's `threadId` (and, T16, its `startId`) ride the
-    /// start mutation, and the
-    /// thread the server answers (`{session, threadId}`) lands in the
-    /// heartbeat scope so a resurrected row rejoins it. A local start sends
-    /// none and an older server's thread-less answer leaves the scope empty.
-    #[test]
-    fn prepare_issue_relay_thread_rides_the_start_and_the_heartbeat() {
-        let dir = temp_dir("issue-relay-thread");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, captured) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"},"threadId":"th-9"}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.origin = LaunchOrigin::Relay {
-            device_id: "dev-1".to_string(),
-            claimant: "acct".to_string(),
-            started_by: None,
-            started_reason: None,
-            thread_id: Some("th-9".to_string()),
-            // EXP-1284 (T16): the frame's startId rides the start too.
-            start_id: Some("st-9".to_string()),
-        };
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(prepared.heartbeat_scope.thread_id.as_deref(), Some("th-9"));
-        let requests = captured.lock().unwrap();
-        let start = requests
-            .iter()
-            .find(|r| r.contains("codingSessions.start"))
-            .expect("start mutation");
-        assert!(start.contains(r#""threadId":"th-9""#), "{start}");
-        assert!(start.contains(r#""startId":"st-9""#), "{start}");
-        drop(requests);
-
-        // A local start against an older server: no thread on either side.
-        let dir = temp_dir("issue-local-thread");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, captured) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(prepared.heartbeat_scope.thread_id, None);
-        let requests = captured.lock().unwrap();
-        assert!(!requests.iter().any(|r| r.contains("threadId")));
-        // A local start names no relay start.
-        assert!(!requests.iter().any(|r| r.contains("startId")));
-    }
-
-    /// EXP-1284: "Start a session here" on THIS machine — a `LocalThread` origin
-    /// sends its thread on the start like a relay frame's, and stays a
-    /// person's start (no reason, no requester).
-    #[test]
-    fn prepare_issue_local_thread_rides_the_start() {
-        let dir = temp_dir("issue-local-thread-pick");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, captured) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"},"threadId":"th-3"}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.origin = LaunchOrigin::LocalThread {
-            thread_id: "th-3".to_string(),
-        };
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(prepared.heartbeat_scope.thread_id.as_deref(), Some("th-3"));
-        assert_eq!(prepared.heartbeat_scope.started_reason, None);
-        assert_eq!(prepared.heartbeat_scope.started_by_id, None);
-        let requests = captured.lock().unwrap();
-        let start = requests
-            .iter()
-            .find(|r| r.contains("codingSessions.start"))
-            .expect("start mutation");
-        assert!(start.contains(r#""threadId":"th-3""#), "{start}");
-        assert!(!start.contains("startedReason"), "{start}");
-    }
-
-    /// EXP-679: a LOCAL issue start is a person's — no reason anywhere, and
-    /// the prompt must not name a tool that run never gets.
-    #[test]
-    fn prepare_issue_local_start_is_attended() {
-        let dir = temp_dir("issue-local-attended");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, captured) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let prompt = seed_prompt(&prepared);
-        assert!(prompt.contains("only when the person asks you to end the session"), "{prompt}");
-        assert!(!prompt.contains("That call ends this session"), "{prompt}");
-        assert_eq!(prepared.heartbeat_scope.started_reason, None);
-        let requests = captured.lock().unwrap();
-        assert!(!requests.iter().any(|r| r.contains("startedReason")));
-        // EXP-909: and the row says which login it runs on.
-        let start = requests
-            .iter()
-            .find(|r| r.contains("codingSessions.start"))
-            .expect("start mutation");
-        assert!(
-            start.contains(&format!(r#""agentAccount":"{}""#, crate::test_support::TEST_PROFILE)),
-            "{start}"
-        );
-        assert_eq!(
-            prepared.heartbeat_scope.agent_account.as_deref(),
-            Some(crate::test_support::TEST_PROFILE),
-            "the heartbeat echoes it, so a resurrected row keeps it"
-        );
-    }
-
-    /// FEED-47: a fresh start never reads the registry, whatever is recorded
-    /// for the issue; only an explicit resume relaunches the recorded run.
-    #[test]
-    fn only_an_explicit_resume_relaunches_the_recorded_run() {
-        let recorded = crate::run_registry::sample_record("sess-old");
-        let fresh = recorded_run_for_start(false, || panic!("a fresh start reads no record"));
-        assert!(fresh.is_none());
-        let resumed = recorded_run_for_start(true, || Some(recorded.clone()));
-        assert_eq!(resumed.map(|record| record.session_id), Some("sess-old".to_string()));
-        // An explicit resume with nothing recorded degrades to a fresh run.
-        assert!(recorded_run_for_start(true, || None).is_none());
-    }
-
-    /// EXP-662: `resume_prompt` is the DEGRADED half of resume — no record
-    /// could be resolved for the issue, so a FRESH session runs in the reused
-    /// worktree, seeded with the resume prompt (inspect the branch, continue,
-    /// update the PR) instead of the first-launch one.
-    #[test]
-    fn prepare_issue_resume_prompt_seeds_the_resume_prompt() {
-        let dir = temp_dir("issue-resume-prompt");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.resume_prompt = true;
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(
-            seed_prompt(&prepared),
-            render_resume_prompt("EXP-42", "Fix login flicker", "main", false, None)
-        );
-        // The plan already happened in the work being picked back up (the
-        // fixture request carries plan_mode: true).
-        assert!(!prepared.plan_mode);
-        assert!(!prepared.acp.options.plan_mode);
-        // A FRESH conversation: nothing to reopen, nothing codex-shaped.
-        assert_eq!(prepared.acp.resume, None);
-        assert_eq!(prepared.codex_resume_id, None);
-    }
-
-    /// EXP-662: an issue session is recorded in `runs.json` exactly like an
-    /// action run, so a later Resume relaunches THIS conversation.
-    #[test]
-    fn prepare_issue_records_a_run() {
-        let dir = temp_dir("issue-record");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        // A worktree git can't resolve still satisfies `resumable()`'s
-        // `.git` check — the launcher's ignore guard degrades to a no-op.
-        fs::write(worktree.join(".git"), "gitdir: /elsewhere").unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        let record = crate::run_registry::get(&dir.0, "sess-1").expect("run record");
-        assert_eq!(record.kind, RunKind::Issue);
-        assert_eq!(record.issue_id.as_deref(), Some("issue-1"));
-        assert_eq!(record.issue_identifier.as_deref(), Some("EXP-42"));
-        assert_eq!(record.display_name(), "EXP-42");
-        assert_eq!(record.batch_id, None);
-        assert!(record.issues.is_empty());
-        // A session has no action; the workspace pins are the resume's.
-        assert_eq!(record.action_id, "");
-        assert_eq!(record.action_name, "");
-        assert_eq!(record.cwd, worktree);
-        assert_eq!(
-            record.clone.as_deref(),
-            Some(dir.0.join("repos").join("acme").join("web").as_path())
-        );
-        assert_eq!(record.repo.as_deref(), Some("acme/web"));
-        assert_eq!(record.repository_id.as_deref(), Some("repo-1"));
-        assert_eq!(record.branch.as_deref(), Some("exp/EXP-42"));
-        assert_eq!(record.base_branch.as_deref(), Some("main"));
-        assert_eq!(record.claude_session_id, prepared.claude_session_id);
-        assert_eq!(record.resumed_from_id, None);
-        assert_eq!(record.started_reason, None);
-        // ... and it is what a Resume on this issue resolves to.
-        assert_eq!(
-            crate::run_registry::latest_for_issue(&dir.0, "acct", "issue-1")
-                .map(|record| record.session_id)
-                .as_deref(),
-            Some("sess-1")
-        );
-    }
-
-    /// EXP-662: the batch shape records its whole issue list, so its resume
-    /// can name itself (`EXP-42 +1`) without a sync store.
-    #[test]
-    fn prepare_batch_records_a_run() {
-        let dir = temp_dir("batch-record");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, TOKEN_OK.to_string()),
-            (200, START_BATCH_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        match prepare(&PrepareRequest::Batch(batch_request()), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        let record = crate::run_registry::get(&dir.0, "sess-b").expect("run record");
-        assert_eq!(record.kind, RunKind::Batch);
-        assert_eq!(record.batch_id.as_deref(), Some("a1b2c3d4"));
-        assert_eq!(record.issue_id, None);
-        assert_eq!(
-            record.issues,
-            vec![
-                RunIssue {
-                    issue_id: "issue-1".to_string(),
-                    identifier: "EXP-42".to_string(),
-                },
-                RunIssue {
-                    issue_id: "issue-2".to_string(),
-                    identifier: "EXP-43".to_string(),
-                },
-            ]
-        );
-        assert_eq!(record.display_name(), "EXP-42 +1");
-        assert_eq!(record.team_id, "ws-1");
-        assert_eq!(record.branch.as_deref(), Some("exp/batch-a1b2c3d4"));
-        // A batch is never an issue-keyed resume candidate.
-        assert_eq!(
-            crate::run_registry::latest_for_issue(&dir.0, "acct", "issue-1"),
-            None
-        );
-    }
-
-    /// A repo-backed ISSUE record — unique repository ids per test (the
-    /// token cache is process-global; a shared id could swallow the mint and
-    /// misalign the canned-server sequence).
-    fn issue_resume_record(
-        dir: &Path,
-        session_id: &str,
-        repository_id: &str,
-    ) -> crate::run_registry::RunRecord {
-        let cwd = dir.join(format!("wt-{session_id}"));
-        fs::create_dir_all(&cwd).unwrap();
-        fs::write(cwd.join(".git"), "gitdir: /elsewhere").unwrap();
-        crate::run_registry::RunRecord {
-            kind: RunKind::Issue,
-            action_id: String::new(),
-            action_name: String::new(),
-            issue_id: Some("issue-1".to_string()),
-            issue_identifier: Some("EXP-42".to_string()),
-            cwd,
-            clone: Some(dir.join("repos").join("acme").join("web")),
-            repo: Some("acme/web".to_string()),
-            repository_id: Some(repository_id.to_string()),
-            branch: Some("exp/EXP-42".to_string()),
-            base_branch: Some("main".to_string()),
-            started_reason: None,
-            ..resume_record(dir, session_id)
-        }
-    }
-
-    /// EXP-662: Resume on an ended ISSUE session relaunches the recorded
-    /// conversation — a new issue-scoped row linked by `resumedFromId`, the
-    /// exact `--resume <uuid>`, and NONE of the first-launch side effects
-    /// (no status flip, no run cleanup on the session worktree).
-    #[test]
-    fn prepare_resume_run_relaunches_an_issue_record() {
-        let dir = temp_dir("resume-issue");
-        let (base, captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-1","teamId":"ws-1","status":"running"}}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees.clone());
-        let record = issue_resume_record(&dir.0, "sess-old", "repo-resume-issue");
-        // The transcript claude recorded for this worktree.
-        let projects = dir.0.join("claude-projects");
-        // The dir name is claude's business (EXP-761: capped + hashed on a
-        // long cwd); the launcher finds the file by session id alone.
-        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
-        deps.claude_projects_root = Some(projects);
-        let cwd = record.cwd.clone();
-
-        let prepared = match prepare(
-            &PrepareRequest::ResumeRun(resume_request(record)),
-            &deps,
-        )
-        .unwrap()
-        {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(
-            prepared.acp.resume,
-            Some(ResumeSeed::Native("claude-1".to_string()))
-        );
-        assert_eq!(prepared.spawn.cwd.as_deref(), Some(cwd.as_path()));
-        // An issue-shaped session, indistinguishable from a fresh launch.
-        assert_eq!(prepared.session_id, "sess-new");
-        assert_eq!(prepared.issue_identifier, "EXP-42");
-        assert_eq!(prepared.tab_title, "claude · EXP-42");
-        assert_eq!(prepared.action_id, None);
-        assert_eq!(prepared.branch, "exp/EXP-42");
-        assert_eq!(
-            prepared.heartbeat_scope.issue_id.as_deref(),
-            Some("issue-1")
-        );
-        assert_eq!(prepared.heartbeat_scope.team_id, None);
-        assert_eq!(prepared.heartbeat_scope.action_id, None);
-        // The server refuses a branch beside an issueId.
-        assert_eq!(prepared.heartbeat_scope.branch, None);
-        // A session worktree is the prune's, never the run cleanup's.
-        assert!(prepared.run_cleanup.is_none());
-        assert!(prepared.launch_hold.is_some());
-        // Step 2 went through the injected provider (D6), on the recorded
-        // branch and base.
-        let seen = worktrees.seen.lock().unwrap().clone();
-        assert_eq!(
-            seen.as_slice(),
-            &[(
-                "acme/web".to_string(),
-                "main".to_string(),
-                "exp/EXP-42".to_string(),
-                Some("2026-07-03T12:55:00.000Z".to_string())
-            )]
-        );
-
-        let requests = captured.lock().unwrap();
-        assert!(
-            requests.iter().any(|r| r.contains(r#""issueId":"issue-1""#)
-                && r.contains(r#""resumedFromId":"sess-old""#)),
-            "{requests:?}"
-        );
-        // EXP-662 D3: resuming a done issue must not reopen it.
-        assert!(
-            !requests
-                .iter()
-                .any(|r| r.starts_with("POST /api/trpc/issues.update")),
-            "{requests:?}"
-        );
-        drop(requests);
-
-        // The resumed session chains onto the one it continues.
-        let fresh = crate::run_registry::get(&dir.0, "sess-new").expect("record");
-        assert_eq!(fresh.kind, RunKind::Issue);
-        assert_eq!(fresh.issue_id.as_deref(), Some("issue-1"));
-        assert_eq!(fresh.resumed_from_id.as_deref(), Some("sess-old"));
-        assert_eq!(fresh.claude_session_id.as_deref(), Some("claude-1"));
-    }
-
-    /// The issue fallback: the recorded transcript is gone, so the resume
-    /// seeds the ISSUE-shaped resume prompt (PR contract + comment thread),
-    /// not the run-shaped one.
-    #[test]
-    fn prepare_resume_run_issue_seeds_the_issue_resume_prompt() {
-        let dir = temp_dir("resume-issue-fallback");
-        let (base, _captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":"issue-1","teamId":"ws-1","status":"running"}}}}"#
-                    .to_string(),
-            ),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        deps.claude_projects_root = Some(dir.0.join("empty-projects"));
-
-        let prepared = match prepare(
-            &PrepareRequest::ResumeRun(resume_request(issue_resume_record(
-                &dir.0,
-                "sess-old",
-                "repo-resume-issue-fallback",
-            ))),
-            &deps,
-        )
-        .unwrap()
-        {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(prepared.acp.resume, None);
-        assert_eq!(
-            seed_prompt(&prepared),
-            render_resume_prompt("EXP-42", "Fix login flicker", "main", false, None)
-        );
-    }
-
-    /// EXP-662: the batch shape resumes the same way — one team-scoped row
-    /// on the recorded batch branch, named after its issue list.
-    #[test]
-    fn prepare_resume_run_relaunches_a_batch_record() {
-        let dir = temp_dir("resume-batch");
-        let (base, captured) = canned_server_recording(vec![
-            (200, TOKEN_OK.to_string()),
-            (200, START_BATCH_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("unused"),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees.clone());
-        let mut record = issue_resume_record(&dir.0, "sess-old-batch", "repo-resume-batch");
-        record.kind = RunKind::Batch;
-        record.issue_id = None;
-        record.issue_identifier = None;
-        record.batch_id = Some("a1b2c3d4".to_string());
-        record.issues = vec![
-            RunIssue {
-                issue_id: "issue-1".to_string(),
-                identifier: "EXP-42".to_string(),
-            },
-            RunIssue {
-                issue_id: "issue-2".to_string(),
-                identifier: "EXP-43".to_string(),
-            },
-        ];
-        record.branch = Some("exp/batch-a1b2c3d4".to_string());
-        let projects = dir.0.join("claude-projects");
-        // The dir name is claude's business (EXP-761: capped + hashed on a
-        // long cwd); the launcher finds the file by session id alone.
-        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
-        fs::create_dir_all(&project_dir).unwrap();
-        fs::write(project_dir.join("claude-1.jsonl"), "{}\n").unwrap();
-        deps.claude_projects_root = Some(projects);
-
-        let prepared = match prepare(
-            &PrepareRequest::ResumeRun(resume_request(record)),
-            &deps,
-        )
-        .unwrap()
-        {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(prepared.session_id, "sess-b");
-        assert_eq!(prepared.issue_identifier, "batch-a1b2c3d4");
-        assert_eq!(prepared.tab_title, "claude · EXP-42 +1");
-        assert_eq!(prepared.action_id, None);
-        assert_eq!(prepared.branch, "exp/batch-a1b2c3d4");
-        assert_eq!(prepared.heartbeat_scope.issue_id, None);
-        assert_eq!(prepared.heartbeat_scope.team_id.as_deref(), Some("ws-1"));
-        assert!(prepared.run_cleanup.is_none());
-        let seen = worktrees.seen.lock().unwrap().clone();
-        assert_eq!(seen.len(), 1, "{seen:?}");
-        assert_eq!(seen[0].2, "exp/batch-a1b2c3d4");
-
-        let requests = captured.lock().unwrap();
-        assert!(
-            requests.iter().any(|r| r.contains(r#""teamId":"ws-1""#)
-                && r.contains(r#""resumedFromId":"sess-old-batch""#)),
-            "{requests:?}"
-        );
-    }
-
-
-    /// Step 6.5 (EXP-194): a backlog issue is flipped to `in_progress`
-    /// by the LAUNCHER, after the session row (request order proves it), so
-    /// the issue never lingers in backlog while plan mode holds the agent's
-    /// MCP calls back.
-    #[test]
-    fn prepare_flips_a_backlog_issue_to_in_progress() {
-        let dir = temp_dir("flip");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, requests) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-            (200, UPDATE_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree,
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.issue_status = IssueStatus::Backlog;
-
-        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => assert_eq!(prepared.session_id, "sess-1"),
-            other => panic!("expected Ready, got {other:?}"),
-        }
-        let seen = requests.lock().unwrap();
-        let update = seen
-            .iter()
-            .find(|request| request.starts_with("POST /api/trpc/issues.update"))
-            .expect("the launcher must send the in_progress flip");
-        assert!(update.ends_with(r#"{"id":"issue-1","status":"in_progress"}"#));
-        // After codingSessions.start — a Disabled outcome never flips.
-        assert!(
-            seen.iter()
-                .position(|r| r.starts_with("POST /api/trpc/codingSessions.start"))
-                < seen
-                    .iter()
-                    .position(|r| r.starts_with("POST /api/trpc/issues.update"))
-        );
-    }
-
-    /// Step 6.5 only ever PROMOTES backlog — an issue already
-    /// in_progress (or beyond) is left alone.
-    #[test]
-    fn prepare_skips_the_flip_for_non_backlog() {
-        let dir = temp_dir("no-flip");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, requests) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree,
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-
-        // request() snapshots in_progress — the default fixture is the guard.
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(prepared.session_id, "sess-1");
-        assert!(
-            !requests
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|request| request.contains("issues.update")),
-            "an in_progress issue must not be re-flipped"
-        );
-    }
-
-    /// EXP-690: plan mode OFF rides the classic bypass flag — every run
-    /// bypasses, there is nothing left to opt into.
-    #[test]
-    fn plan_mode_off_bypasses_permissions() {
-        let dir = temp_dir("skip-flag");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.options.plan_mode = false;
-        req.options.effort = "xhigh".to_string();
-
-        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => {
-                assert_eq!(prepared.acp.options.model, "fable");
-                assert_eq!(prepared.acp.options.effort, "xhigh");
-                assert!(!prepared.acp.options.plan_mode);
-                // EXP-773: the posture the adapter spawns with.
-                assert!(prepared.bypass_permissions);
-                assert!(!prepared.plan_mode);
-            }
-            other => panic!("expected Ready, got {other:?}"),
-        }
-    }
-
-    /// EXP-201: a CODEX launch writes NO `.exp-mcp.json` (the raw key rides
-    /// only the spawn env as EXP_MCP_TOKEN), composes the `-c mcp_servers.*`
-    /// overrides + the EXP-690 bypass flag, and titles the tab `codex · …`.
-    #[test]
-    fn prepare_codex_full_sequence() {
-        let dir = temp_dir("codex-happy");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        let mut req = request("EXP-42");
-        req.options = LaunchOptions {
-            agent: CodingAgent::Codex,
-            model: "gpt-5.6-sol".to_string(),
-            effort: "high".to_string(),
-            ultracode: false,
-            plan_mode: false,
-            subagent_model: String::new(),
-            mcp_server_ids: Vec::new(),
-            account: None,
-            computer_use: None,
-        };
-
-        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-
-        assert_eq!(prepared.tab_title, "codex · EXP-42");
-        assert_eq!(prepared.spawn.program, deps.settings.codex_path);
-        // NO on-disk MCP config for codex — the key must not land in the tree.
-        assert!(!worktree.join(".exp-mcp.json").exists());
-        // The MCP posture the codex adapter composes its `-c` overrides from
-        // points at the instance /api/mcp; the token itself never rides argv…
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        match &prepared.acp.mcp {
-            AgentMcp::CodexOverrides { url, session_id } => {
-                assert_eq!(url, &mcp_url(&base));
-                assert_eq!(session_id.as_deref(), Some("sess-1"));
-            }
-            other => panic!("expected the codex MCP posture, got {other:?}"),
-        }
-        // …it rides the spawn env.
-        assert!(prepared
-            .spawn
-            .env
-            .contains(&("EXP_MCP_TOKEN".to_string(), "expu_seeded".to_string())));
-        // EXP-690: every codex run bypasses (the adapter's spawn posture).
-        assert!(prepared.bypass_permissions);
-        assert_eq!(prepared.acp.options.model, "gpt-5.6-sol");
-        assert_eq!(prepared.acp.options.effort, "high");
-        assert!(seed_prompt(&prepared).contains("EXP-42"));
-        // EXP-443: no claude session id, but the per-session originator is
-        // minted and stamped into the spawn env for rollout discovery.
-        assert_eq!(prepared.claude_session_id, None);
-        let originator = crate::argv::codex_session_originator("sess-1");
-        assert_eq!(prepared.codex_originator.as_deref(), Some(originator.as_str()));
-        assert_eq!(prepared.codex_resume_id, None);
-        assert!(prepared
-            .spawn
-            .env
-            .contains(&(crate::argv::CODEX_ORIGINATOR_ENV.to_string(), originator)));
-    }
-
-    /// EXP-201 per-agent doctor gate: a missing codex blocks a CODEX launch
-    /// with the codex copy — while claude (the settings stub) stays fine.
-    #[test]
-    fn missing_selected_agent_blocks_with_its_own_copy() {
-        let dir = temp_dir("codex-missing");
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: dir.0.join("wt"),
-            seen: Default::default(),
-        });
-        // Unroutable base: any network call would error the launch — proving
-        // the doctor gate fires first.
-        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, worktrees);
-        deps.settings.codex_path = "definitely-not-a-real-binary-exp".to_string();
-        let mut req = request("EXP-42");
-        req.options.agent = CodingAgent::Codex;
-
-        match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::DoctorFailed(check)) => {
-                assert_eq!(check.tool, crate::doctor::Tool::Codex);
-                assert_eq!(
-                    check.error.as_deref(),
-                    Some("codex did not start at the configured path. Remove codexPath from settings.json or set an absolute path.")
-                );
-            }
-            other => panic!("expected DoctorFailed, got {other:?}"),
-        }
-    }
-
-    // ---- the batch happy path through the SAME prepare ----
-
-    #[test]
-    fn prepare_batch_full_sequence() {
-        let dir = temp_dir("batch-happy");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, TOKEN_OK.to_string()),
-            (200, START_BATCH_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees.clone());
-
-        let prepared = match prepare(&PrepareRequest::Batch(batch_request()), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
-        };
-
-        assert_eq!(prepared.session_id, "sess-b");
-        assert_eq!(prepared.branch, "exp/batch-a1b2c3d4");
-        assert_eq!(prepared.tab_title, "claude · EXP-42 +1");
-        assert_eq!(prepared.tab_title_prefix, "EXP-42 +1");
-        assert_eq!(prepared.issue_identifier, "batch-a1b2c3d4");
-        // P9 refresher inputs ride along (repo id from the request's group,
-        // clone path under the repos root).
-        assert_eq!(prepared.repository_id.as_deref(), Some("repo-1"));
-        assert_eq!(prepared.clone, dir.0.join("repos").join("acme").join("web"));
-
-        // Git prepared the BATCH branch from the dialog-resolved repo (no
-        // repositories.forIssue call — the canned server held only token +
-        // start).
-        let seen = worktrees.seen.lock().unwrap();
-        assert_eq!(
-            seen.as_slice(),
-            &[(
-                "acme/web".to_string(),
-                "main".to_string(),
-                "exp/batch-a1b2c3d4".to_string(),
-                Some("2026-07-03T12:55:00.000Z".to_string())
-            )]
-        );
-
-        // EXP-773: claude's MCP rides inline, so no key file in the tree.
-        assert!(!worktree.join(".exp-mcp.json").exists());
-        assert!(matches!(prepared.acp.mcp, AgentMcp::ClaudeInline { .. }));
-
-        // The ACP half: the batch options (ultracode on, plan mode off) and
-        // the FULL rendered batch prompt as the run's first message.
-        assert_eq!(prepared.spawn.program, deps.settings.claude_path);
-        assert!(prepared.spawn.args.is_empty(), "{:?}", prepared.spawn.args);
-        assert_eq!(prepared.acp.options.model, "opus");
-        assert!(prepared.acp.options.ultracode);
-        assert!(!prepared.acp.options.plan_mode);
-        // EXP-275: the emitter's permission posture mirrors the options.
-        assert!(prepared.bypass_permissions);
-        let positional = seed_prompt(&prepared);
-        assert!(positional.contains("implement ALL 2 issues"));
-        assert!(positional.contains("### EXP-42: Fix login flicker"));
-        assert!(positional.contains("### EXP-43: Add badge"));
-        assert!(positional.contains("exp/batch-a1b2c3d4"));
-        assert!(positional.contains("issueIds: [\"issue-1\", \"issue-2\"]"));
-        assert_eq!(prepared.spawn.cwd.as_deref(), Some(worktree.as_path()));
-    }
-
-    #[test]
-    fn batch_session_limit_and_token_denied_map_like_the_issue_path() {
-        let dir = temp_dir("batch-limit");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, TOKEN_OK.to_string()),
-            (412, r#"{"error":{"message":"Concurrent coding session limit reached — upgrade to run more.","code":-32012,"data":{"code":"PRECONDITION_FAILED","httpStatus":412}}}"#.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees { worktree, seen: Default::default() });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        match prepare(&PrepareRequest::Batch(batch_request()), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::SessionLimit { message }) => {
-                assert!(message.contains("upgrade"));
-            }
-            other => panic!("expected SessionLimit, got {other:?}"),
-        }
-
-        let dir = temp_dir("batch-denied");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![(
-            403,
-            r#"{"error":{"message":"You are not a member of this team","code":-32003,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#.to_string(),
-        )]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree,
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        match prepare(&PrepareRequest::Batch(batch_request()), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::TokenDenied { message }) => {
-                assert!(message.contains("not a member"));
-            }
-            other => panic!("expected TokenDenied, got {other:?}"),
-        }
-    }
-
-    // ---- The hidden key auto-mints on the FIRST coding session ----
-
-    /// §7.2 runtime path: an EMPTY token store at launch time silently mints
-    /// via `users.mintPersonalApiKey` (request 3 — the key race lands between
-    /// `installationToken` and `codingSessions.start`), stores the raw key +
-    /// row id, and the spawn env carries the fresh key. No manual key UI
-    /// exists anywhere; this is the only way the key ever comes to be.
-    #[test]
-    fn first_session_auto_mints_the_hidden_personal_key() {
-        let dir = temp_dir("auto-mint");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, MINT_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let deps = make_deps(&base, &dir.0, worktrees);
-        // The launcher finds NO stored key — the runtime auto-mint must fire.
-        deps.token_store.delete("acct", SecretKind::PersonalApiKey);
-        assert_eq!(deps.token_store.get("acct", SecretKind::PersonalApiKey), None);
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(prepared.session_id, "sess-1");
-
-        // Minted key + row id kept for later sessions / Regenerate (§7.2).
-        assert_eq!(
-            deps.token_store
-                .get("acct", SecretKind::PersonalApiKey)
-                .as_deref(),
-            Some("expu_minted_runtime")
-        );
-        assert_eq!(
-            deps.token_store
-                .get("acct", SecretKind::PersonalApiKeyId)
-                .as_deref(),
-            Some("key-9")
-        );
-        // EXP-773: the freshly minted key rides the child env — nothing on disk.
-        assert!(!worktree.join(".exp-mcp.json").exists());
-        assert!(prepared
-            .spawn
-            .env
-            .contains(&(MCP_TOKEN_ENV.to_string(), "expu_minted_runtime".to_string())));
-    }
-
-    // ---- §7.6: N issues = N worktrees/branches/sessions (client never
-    //      self-throttles; per-launch state never bleeds across issues) ----
-
-    #[test]
-    fn two_issues_prepare_into_isolated_worktrees_and_sessions() {
-        let dir = temp_dir("concurrent-prep");
-        let wt_a = dir.0.join("wt-a");
-        let wt_b = dir.0.join("wt-b");
-        fs::create_dir_all(&wt_a).unwrap();
-        fs::create_dir_all(&wt_b).unwrap();
-
-        let launch = |identifier: &str, issue_id: &str, session: &str, worktree: &PathBuf| {
-            let base = canned_server(vec![
-                (200, FOR_ISSUE_OK.to_string()),
-                (200, TOKEN_OK.to_string()),
-                (
-                    200,
-                    format!(
-                        r#"{{"result":{{"data":{{"session":{{"id":"{session}","issueId":"{issue_id}","status":"running"}}}}}}}}"#
-                    ),
-                ),
-            ]);
-            let worktrees = Arc::new(FakeWorktrees {
-                worktree: worktree.clone(),
-                seen: Default::default(),
-            });
-            let deps = make_deps(&base, &dir.0, worktrees);
-            let mut req = request(identifier);
-            req.issue_id = issue_id.to_string();
-            match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
-                Prepared::Ready(prepared) => prepared,
-                other => panic!("expected Ready, got {other:?}"),
-            }
-        };
-
-        let a = launch("EXP-1", "issue-a", "sess-a", &wt_a);
-        let b = launch("EXP-2", "issue-b", "sess-b", &wt_b);
-
-        // Distinct branches, worktrees, session ids, tab titles — the §7.6
-        // "no collision" invariant at the prepare layer (the manager-side
-        // PTY/tab isolation is tests/concurrent.rs).
-        assert_eq!(a.branch, "exp/EXP-1");
-        assert_eq!(b.branch, "exp/EXP-2");
-        assert_ne!(a.worktree, b.worktree);
-        assert_ne!(a.session_id, b.session_id);
-        assert_eq!(a.tab_title, "claude · EXP-1");
-        assert_eq!(b.tab_title, "claude · EXP-2");
-        // Both spawn specs are cwd-bound to their OWN worktree.
-        assert_eq!(a.spawn.cwd.as_deref(), Some(wt_a.as_path()));
-        assert_eq!(b.spawn.cwd.as_deref(), Some(wt_b.as_path()));
-    }
 
     #[test]
     fn default_device_label_is_never_empty() {
         assert!(!default_device_label().trim().is_empty());
-    }
-
-    #[test]
-    fn prompt_falls_back_to_identifier_when_sync_store_misses() {
-        let dir = temp_dir("fallback");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let base = canned_server(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-        ]);
-        let worktrees = Arc::new(FakeWorktrees {
-            worktree: worktree.clone(),
-            seen: Default::default(),
-        });
-        let mut deps = make_deps(&base, &dir.0, worktrees);
-        deps.issue_seed = Arc::new(|_| None);
-
-        let prepared = match prepare(&PrepareRequest::Issue(request("EXP-7")), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let positional = seed_prompt(&prepared);
-        assert!(positional.contains("**EXP-7: EXP-7**"));
-        assert!(positional.contains("(no description)"));
     }
 
     fn agent_shell_request(cwd_override: Option<PathBuf>) -> AgentShellRequest {
@@ -8097,175 +4003,392 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert!(McpSecrets::default().is_empty());
     }
 
-    /// A picked server the member cannot use (here: the resolve call fails
-    /// outright) never refuses a launch: the resolver warns and hands back
-    /// no servers, and the one call it made named the pick.
-    #[test]
-    fn an_unusable_mcp_pick_degrades_to_a_warning_never_a_blocker() {
-        let dir = temp_dir("mcp-degraded");
-        let (base, captured) =
-            canned_server_recording(vec![(500, r#"{"error":{"message":"boom"}}"#.to_string())]);
-        let deps = make_deps(
-            &base,
-            &dir.0,
-            Arc::new(FakeWorktrees {
-                worktree: dir.0.join("unused"),
-                seen: Default::default(),
-            }),
-        );
-        let resolved = resolve_mcp_servers(&deps, Some(&["srv-9".to_string()]), "sess-1");
-        assert!(resolved.servers.is_empty() && resolved.env.is_empty());
-        assert_eq!(resolved.warnings.len(), 1, "{:?}", resolved.warnings);
-        let requests = captured.lock().unwrap();
-        assert!(requests[0].contains("mcpServers.resolveForLaunch"));
-        assert!(requests[0].contains(r#"{"serverIds":["srv-9"]}"#));
-        // EXP-1140: the call names the run it resolves for.
-        assert!(
-            requests[0].to_ascii_lowercase().contains("x-exp-session-id: sess-1"),
-            "{}",
-            requests[0]
-        );
-        // An empty pick makes no call at all.
-        drop(requests);
-        assert_eq!(resolve_mcp_servers(&deps, Some(&[]), "sess-1"), ResolvedMcp::default());
-        assert_eq!(captured.lock().unwrap().len(), 1);
+
+    // ---- EXP-1292: the native resume of the SAME row ----
+
+    /// A repo-LESS recorded session — the shortest resume path (no token,
+    /// no git), so the tests below exercise identity + wire, not plumbing.
+    fn resume_record(dir: &Path, session_id: &str) -> RunRecord {
+        let cwd = dir.join("scratch");
+        fs::create_dir_all(&cwd).unwrap();
+        RunRecord {
+            session_id: session_id.to_string(),
+            account_id: "acct".to_string(),
+            agent: CodingAgent::Claude,
+            kind: RunKind::Thread,
+            team_id: "ws-1".to_string(),
+            issues: Vec::new(),
+            title: Some("Code review".to_string()),
+            cwd,
+            clone: None,
+            repo: None,
+            repository_id: None,
+            branch: None,
+            base_branch: None,
+            claude_session_id: Some("claude-1".to_string()),
+            codex_originator: None,
+            model: "fable".to_string(),
+            effort: String::new(),
+            ultracode: false,
+            recorded_at: crate::run_registry::now_secs(),
+            extra: std::collections::BTreeMap::new(),
+            transport: None,
+            acp_session_id: None,
+            agent_native_session_id: None,
+            acp_child_pid: None,
+            host_pid: None,
+        }
     }
 
-    /// The second half of the rule above: the warning is not just logged
-    /// and dropped, it RIDES the prepared launch so the hosts can show it
-    /// (the desktop as a toast, the CLI as a log line). A pick the member
-    /// has not connected lands as `skipped` and the run still prepares,
-    /// with no team servers and that one note.
-    ///
-    /// EXP-1140: the order is load-bearing — the pick rides
-    /// `codingSessions.start` onto the row FIRST, and the resolve names that
-    /// row (`X-Exp-Session-Id`), because the server resolves only a live
-    /// row's own persisted pick.
-    #[cfg(unix)]
-    #[test]
-    fn a_skipped_mcp_pick_rides_the_prepared_launch() {
-        let dir = temp_dir("mcp-degraded-prepared");
-        let worktree = dir.0.join("wt");
-        fs::create_dir_all(&worktree).unwrap();
-        let (base, captured) = canned_server_recording(vec![
-            (200, FOR_ISSUE_OK.to_string()),
-            (200, TOKEN_OK.to_string()),
-            (200, START_OK.to_string()),
-            (
-                200,
-                r#"{"result":{"data":{"servers":[],"skipped":[{"id":"srv-9","name":"Linear","reason":"not connected"}],"warnings":[]}}}"#.to_string(),
-            ),
-        ]);
-        let mut deps = make_deps(
-            &base,
-            &dir.0,
-            Arc::new(FakeWorktrees {
-                worktree: worktree.clone(),
-                seen: Default::default(),
-            }),
-        );
-        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
-        let mut request = request("EXP-42");
-        request.options.mcp_server_ids = vec!["srv-9".to_string()];
+    const MESSAGE: &str = "Please also fix the flaky test.";
 
-        let prepared = match prepare(&PrepareRequest::Issue(request), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        assert_eq!(
-            prepared.mcp_warnings,
-            vec![
-                "MCP server Linear: not connected; starting without it. Connect it in Settings → MCP servers."
-                    .to_string()
-            ]
-        );
-        // EXP-1236: the skipped pick leaves only the device's own code-mode
-        // server, behind its token env; the token is the one secret.
-        let names: Vec<&str> = prepared.acp.servers.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, vec!["codemode"]);
-        assert_eq!(prepared.acp.servers[0].token_env.as_deref(), Some(codemode::TOKEN_ENV));
-        assert!(!prepared.acp.mcp_secrets.is_empty());
-        assert!(prepared.acp.system_append.contains("# Code mode"), "{}", prepared.acp.system_append);
-
-        let requests = captured.lock().unwrap();
-        let start = requests
-            .iter()
-            .position(|request| request.contains("codingSessions.start"))
-            .expect("the row was created");
-        let resolve = requests
-            .iter()
-            .position(|request| request.contains("mcpServers.resolveForLaunch"))
-            .expect("the pick was resolved");
-        assert!(start < resolve, "row first, then the resolve: {requests:?}");
-        assert!(
-            requests[start].contains(r#""mcpServerIds":["srv-9"]"#),
-            "{}",
-            requests[start]
-        );
-        assert!(requests[resolve].contains(r#"{"serverIds":["srv-9"]}"#));
-        // START_OK's row id, as the run the credentials are for.
-        assert!(
-            requests[resolve].to_ascii_lowercase().contains("x-exp-session-id: sess-1"),
-            "{}",
-            requests[resolve]
-        );
+    /// The resume of `record`'s own row, woken by [`MESSAGE`].
+    fn resume_request(record: RunRecord) -> SessionLaunchRequest {
+        let mut row = row(&record.session_id, record.repository_id.as_deref());
+        row.plan_mode = false;
+        let mut req = session_request(row, &[]);
+        req.resume = Some(ResumeRun {
+            record,
+            prompt: MESSAGE.to_string(),
+            message_id: Some("msg-1".to_string()),
+        });
+        req
     }
 
-    /// EXP-792: a resume re-resolves the RECORDED pick (fresh tokens).
-    /// EXP-1140: the recorded ids ride onto the CONTINUATION row first, and
-    /// the resolve names that new row, never the ended predecessor.
+    fn seed_transcript(dir: &Path, deps: &mut CodingDeps, id: &str) {
+        let projects = dir.join("claude-projects");
+        // The dir name is claude's business (EXP-761: capped + hashed on a
+        // long cwd); the launcher finds the file by session id alone.
+        let project_dir = projects.join("-Users-u-some-long-worktree-path--71h4ur");
+        fs::create_dir_all(&project_dir).unwrap();
+        fs::write(project_dir.join(format!("{id}.jsonl")), "{\"turn\":1}\n").unwrap();
+        deps.claude_projects_root = Some(projects);
+    }
+
+    /// EXP-746 (D8): a session recorded on the ACP path resumes into the
+    /// engine seeded with the recorded `session/load` handle, and the waking
+    /// message is the first turn — consumed once sent (its id rides along).
+    /// Same row, same record key: nothing server-side is created.
     #[cfg(unix)]
     #[test]
-    fn a_resume_re_resolves_the_recorded_mcp_pick() {
-        let dir = temp_dir("mcp-resume");
-        let (base, captured) = canned_server_recording(vec![
-            (
-                200,
-                r#"{"result":{"data":{"session":{"id":"sess-new","issueId":null,"teamId":"ws-1","actionId":"act-1","actionName":"Code review","status":"running"}}}}"#
-                    .to_string(),
-            ),
-            (
-                200,
-                r#"{"result":{"data":{"servers":[],"skipped":[],"warnings":[]}}}"#.to_string(),
-            ),
-        ]);
-        let mut deps = make_deps(
-            &base,
-            &dir.0,
-            Arc::new(FakeWorktrees {
-                worktree: dir.0.join("unused"),
-                seen: Default::default(),
-            }),
-        );
-        // Past the doctor + ACP gates, so the resume reaches its row.
+    fn an_acp_resume_reopens_the_recorded_session_with_the_message() {
+        let dir = temp_dir("resume-acp");
+        let (base, captured) = canned_server_recording(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
         let mut record = resume_record(&dir.0, "sess-old");
-        record.set_mcp_server_ids(&["srv-9".to_string()]);
-        assert_eq!(record.mcp_server_ids(), vec!["srv-9".to_string()]);
-        // The rest of the resume may succeed or fail against the canned
-        // server; only the row + resolve pair is under test here.
-        let _ = prepare(&PrepareRequest::ResumeRun(resume_request(record)), &deps);
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = Some("acp-42".to_string());
+
+        let prepared = ready(launch(resume_request(record), &deps));
+        assert_eq!(prepared.session_id, "sess-old", "the SAME row");
+        assert_eq!(prepared.acp.resume, Some(ResumeSeed::Acp("acp-42".to_string())));
+        assert_eq!(prepared.acp.prompt.as_deref(), Some(MESSAGE));
+        assert_eq!(prepared.seed_message_id.as_deref(), Some("msg-1"));
+        assert!(!prepared.plan_mode, "a resume never re-enters plan mode");
+        assert!(prepared.bypass_permissions);
+        assert_eq!(prepared.claude_session_id, None);
         let requests = captured.lock().unwrap();
-        let start = requests
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        assert!(requests[0].to_ascii_lowercase().contains("x-exp-session-id: sess-old"));
+        drop(requests);
+        let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
+        assert_eq!(record.acp_session_id.as_deref(), Some("acp-42"), "kept until the engine upserts");
+        assert_eq!(record.host_pid, None);
+    }
+
+    /// A session whose conversation did NOT survive starts over from its
+    /// brief, with the waking message after it.
+    #[cfg(unix)]
+    #[test]
+    fn a_resume_without_a_conversation_reseeds_the_brief_and_the_message() {
+        let dir = temp_dir("resume-fresh");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        deps.claude_projects_root = Some(dir.0.join("empty-projects"));
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.transport = Some("acp".to_string());
+
+        let prepared = ready(launch(resume_request(record), &deps));
+        assert_eq!(prepared.acp.resume, None);
+        assert_eq!(seed_prompt(&prepared), format!("{BRIEF}\n\n{MESSAGE}"));
+        assert_eq!(prepared.seed_message_id.as_deref(), Some("msg-1"));
+    }
+
+    /// EXP-773: a session whose agent lost its ACP readiness has no terminal
+    /// to fall back to — the resume is REFUSED with the doctor's reason.
+    #[test]
+    fn a_resume_whose_agent_lost_acp_readiness_is_refused() {
+        let dir = temp_dir("resume-acp-not-ready");
+        let base = canned_server(vec![]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        // `git --version` never parses as a claude version, so the doctor
+        // leaves `acp` unknown and the ACP gate refuses.
+        deps.settings.claude_path = "git".to_string();
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.transport = Some("acp".to_string());
+        record.acp_session_id = Some("acp-42".to_string());
+        let before = record.clone();
+        crate::run_registry::record(&dir.0, record.clone());
+
+        match launch(resume_request(record), &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AcpUnavailable { label, .. }) => {
+                assert_eq!(label, "Claude Code");
+            }
+            other => panic!("expected AcpUnavailable, got {other:?}"),
+        }
+        assert_eq!(crate::run_registry::get(&dir.0, "sess-old"), Some(before), "untouched");
+    }
+
+    /// The claude native path: the recorded transcript still exists (under a
+    /// hash-suffixed project dir), so the resume reopens THAT conversation
+    /// through the agent's own handle.
+    #[cfg(unix)]
+    #[test]
+    fn a_resume_reuses_the_recorded_claude_transcript() {
+        let dir = temp_dir("resume-claude");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+        let record = resume_record(&dir.0, "sess-old");
+        assert!(!record.is_acp(), "no ACP id to load");
+
+        let prepared = ready(launch(resume_request(record), &deps));
+        assert_eq!(prepared.acp.resume, Some(ResumeSeed::Native("claude-1".to_string())));
+        assert_eq!(prepared.acp.prompt.as_deref(), Some(MESSAGE));
+        let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
+        assert_eq!(record.claude_session_id.as_deref(), Some("claude-1"));
+    }
+
+    /// A person may change the model on a live session; the resume runs on
+    /// the row's pick and re-records it.
+    #[test]
+    fn a_resume_takes_the_rows_model() {
+        let dir = temp_dir("resume-model");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.session.model = Some("opus".to_string());
+        req.session.effort = Some("high".to_string());
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.acp.options.model, "opus");
+        assert_eq!(prepared.acp.options.effort, "high");
+        let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
+        assert_eq!(record.model, "opus");
+    }
+
+    /// EXP-849 — an account SWITCH (claude only, `options.account` on a
+    /// resume): the resume runs on the target profile, the transcript is
+    /// HANDED OVER into that profile's own `projects` tree, no credential
+    /// travels, and (EXP-935) the continue instruction closes the turn.
+    #[test]
+    fn a_resume_hands_the_transcript_to_the_target_account() {
+        let dir = temp_dir("resume-switch");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        // The run happened on the AMBIENT login, whose tree the fixture root
+        // stands in for.
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let credential = dir.0.join("creds.json");
+        fs::write(&credential, "secret").unwrap();
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.options.account = Some(target.id.clone());
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(prepared.acp.resume, Some(ResumeSeed::Native("claude-1".to_string())));
+        let target_dir =
+            crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id).unwrap();
+        let handed = target_dir
+            .join("projects")
+            .join("-Users-u-some-long-worktree-path--71h4ur")
+            .join("claude-1.jsonl");
+        assert_eq!(fs::read_to_string(&handed).unwrap(), "{\"turn\":1}\n");
+        assert!(!target_dir.join("creds.json").exists());
+        assert!(!target_dir.join(".credentials.json").exists());
+        assert_eq!(fs::read_to_string(&credential).unwrap(), "secret");
+        assert!(prepared
+            .spawn
+            .env
             .iter()
-            .find(|request| request.contains("codingSessions.start"))
-            .expect("the continuation row was created");
-        assert!(start.contains(r#""mcpServerIds":["srv-9"]"#), "{start}");
-        assert!(start.contains(r#""resumedFromId":"sess-old""#), "{start}");
-        let resolve = requests
-            .iter()
-            .find(|request| request.contains("mcpServers.resolveForLaunch"))
-            .expect("the resume re-resolved its pick");
-        // FEED-73: a REAL action's resume names no ids — the server resolves
-        // the continuation row's own pick (the action's list + shares).
-        assert_eq!(resume_record(&dir.0, "sess-x").kind, crate::run_registry::RunKind::Team);
-        assert!(!resolve.contains("serverIds"), "{resolve}");
-        assert!(resolve.ends_with("\r\n\r\n{}"), "{resolve}");
+            .any(|(key, value)| key == "CLAUDE_CONFIG_DIR"
+                && value == &target_dir.to_string_lossy().to_string()));
+        let prompt = seed_prompt(&prepared);
+        assert!(prompt.starts_with(MESSAGE), "{prompt}");
+        assert!(prompt.ends_with(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT), "{prompt}");
+        // The next resume re-enters the login that now holds the transcript.
+        let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
+        assert_eq!(record.account().as_deref(), Some(target.id.as_str()));
+    }
+
+    /// EXP-935: a switch with nothing to say still opens the turn itself.
+    #[test]
+    fn an_account_switch_without_a_message_opens_with_the_continue_prompt() {
+        let dir = temp_dir("resume-switch-prompt");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.options.account = Some(target.id.clone());
+        if let Some(resume) = req.resume.as_mut() {
+            resume.prompt = String::new();
+            resume.message_id = None;
+        }
+        let prepared = ready(launch(req, &deps));
+        assert_eq!(
+            prepared.acp.prompt.as_deref(),
+            Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT)
+        );
+        assert_eq!(prepared.seed_message_id, None);
+    }
+
+    /// EXP-849 — the switches the launcher refuses outright, before it
+    /// touches anything: an account this machine does not have, and codex.
+    /// Naming the account the run already used is no switch at all.
+    #[test]
+    fn a_resume_refuses_a_switch_it_cannot_honor() {
+        let dir = temp_dir("resume-switch-refused");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.options.account = Some("deadbeef".to_string());
+        match launch(req, &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
+                assert!(message.contains("deadbeef"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
+        let mut record = resume_record(&dir.0, "sess-old");
+        record.agent = CodingAgent::Codex;
+        let mut req = resume_request(record);
+        req.options.account = Some(target.id);
+        match launch(req, &deps).unwrap() {
+            Prepared::Disabled(DisabledReason::AccountSwitchRefused { message }) => {
+                assert!(message.to_lowercase().contains("codex"), "{message}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.options.account = Some("system".to_string());
         assert!(
-            resolve.to_ascii_lowercase().contains("x-exp-session-id: sess-new"),
-            "{resolve}"
+            !matches!(
+                launch(req, &deps),
+                Ok(Prepared::Disabled(DisabledReason::AccountSwitchRefused { .. }))
+            ),
+            "same-account resume must not be refused"
         );
     }
+
+    /// A REPO-BACKED workspace with no recorded branch has nothing to
+    /// re-create from — the resume refuses rather than spawn in a
+    /// fabricated directory.
+    #[test]
+    fn a_resume_refuses_a_missing_branchless_workspace() {
+        let dir = temp_dir("resume-gone");
+        let base = canned_server(vec![]);
+        let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let mut record = resume_record(&dir.0, "sess-old3");
+        record.clone = Some(dir.0.join("clone"));
+        record.cwd = dir.0.join("vanished");
+        match launch(resume_request(record), &deps) {
+            Err(CodingError::Io(message)) => {
+                assert!(message.contains("workspace is gone"), "{message}");
+            }
+            other => panic!("expected the missing-workspace error, got {other:?}"),
+        }
+    }
+
+    /// A session's worktree the prune reclaimed once its PR merged: the
+    /// resume re-creates it through the provider on the recorded branch,
+    /// spawns INTO it, and opens with the reclaimed-workspace note before
+    /// the message.
+    #[test]
+    fn a_resume_recreates_a_reclaimed_worktree() {
+        let dir = temp_dir("resume-reclaimed");
+        let (base, captured) = canned_server_recording(vec![
+            (200, TOKEN_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+        ]);
+        let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("session-1a2b3c4d");
+        let worktrees = fake_worktrees(&layout);
+        let mut deps = make_deps(&base, &dir.0, worktrees.clone());
+        let mut record = resume_record(&dir.0, "sess-old5");
+        record.cwd = layout.clone();
+        record.clone = Some(dir.0.join("repos").join("acme").join("web"));
+        record.repo = Some("acme/web".to_string());
+        record.repository_id = Some("repo-resume-reclaimed".to_string());
+        record.branch = Some("exp/session-1a2b3c4d".to_string());
+        record.base_branch = Some("main".to_string());
+        assert!(!layout.exists(), "the worktree is gone");
+        assert!(record.resumable() && record.workspace_reclaimed());
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+
+        let prepared = ready(launch(resume_request(record), &deps));
+        let seen = worktrees.seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert_eq!(seen[0].1, "main");
+        assert_eq!(seen[0].2, "exp/session-1a2b3c4d");
+        assert_eq!(prepared.spawn.cwd.as_deref(), Some(layout.as_path()));
+        assert_eq!(prepared.worktree, layout);
+        assert_eq!(prepared.acp.resume, Some(ResumeSeed::Native("claude-1".to_string())));
+        let prompt = seed_prompt(&prepared);
+        assert!(prompt.starts_with("Your worktree was reclaimed"), "{prompt}");
+        assert!(prompt.contains("`exp/session-1a2b3c4d` now starts fresh from `origin/main`"), "{prompt}");
+        assert!(prompt.ends_with(MESSAGE), "{prompt}");
+        assert!(!prompt.contains("acknowledge this in one line"), "{prompt}");
+        assert_eq!(
+            prepared.run_cleanup.as_ref().map(|c| c.worktree.clone()),
+            Some(layout.clone())
+        );
+        assert_eq!(prepared.repository_id.as_deref(), Some("repo-resume-reclaimed"));
+        assert!(captured.lock().unwrap()[0].contains("repositories.installationToken"));
+    }
+
+    /// EXP-1292: a repo-less session's purged scratch dir is re-made where
+    /// it was (a team agent never ends, so its channel must survive one).
+    #[test]
+    fn a_resume_re_makes_a_purged_scratch_dir() {
+        let dir = temp_dir("resume-scratch-purged");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        deps.claude_projects_root = Some(dir.0.join("empty-projects"));
+        let record = resume_record(&dir.0, "sess-old4");
+        let scratch = record.cwd.clone();
+        fs::remove_dir_all(&scratch).unwrap();
+        assert!(record.resumable());
+        let prepared = ready(launch(resume_request(record), &deps));
+        assert!(scratch.is_dir());
+        assert_eq!(prepared.worktree, scratch);
+    }
+
+    // ---- EXP-1292: the end of a session's process ----
+
+    /// A thread's agent process is gone: `sessions.report{status: ended}`,
+    /// observed; an agent's: `{status: idle}`.
+    #[test]
+    fn end_and_idle_report_the_status() {
+        let (base, captured) = canned_server_recording(vec![
+            (200, REPORT_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("tok".into())));
+        end_session(&trpc, "s-thread").expect("ended");
+        idle_session(&trpc, "s-agent").expect("idled");
+        let requests = captured.lock().unwrap();
+        assert!(requests[0].starts_with("POST /api/trpc/sessions.report"));
+        assert!(requests[0].ends_with(r#"{"sessionId":"s-thread","status":"ended"}"#), "{}", requests[0]);
+        assert!(requests[1].ends_with(r#"{"sessionId":"s-agent","status":"idle"}"#), "{}", requests[1]);
+    }
+
+    // ---- EXP-1138: the gate judges the login the launch spends ----
+
 
     // ---- EXP-1138: the gate judges the login the launch spends ----
 
@@ -8287,54 +4410,51 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         deps
     }
 
-    fn codex_action(account: Option<String>) -> ActionLaunchRequest {
-        let mut req = action_request();
+
+    fn codex_session(account: Option<&str>) -> SessionLaunchRequest {
+        let mut codex = row("s-codex", None);
+        codex.cli = Some("codex".to_string());
+        codex.model = Some("gpt-5.6-sol".to_string());
+        codex.effort = Some("high".to_string());
+        codex.account = account.map(str::to_string);
+        let mut req = session_request(codex, &[]);
         req.options = LaunchOptions {
             agent: CodingAgent::Codex,
             model: "gpt-5.6-sol".to_string(),
-            effort: "high".to_string(),
-            ultracode: false,
-            plan_mode: false,
-            subagent_model: String::new(),
-            mcp_server_ids: Vec::new(),
-            account,
-            computer_use: None,
+            ..base_options()
         };
         req
     }
 
-    /// THIS launch names no account (a server-accepted frame with no
-    /// account, an MCP `sessions_start`, a trigger with a null account)
-    /// and lands on the signed-in profile — never the ambient login. The
-    /// retired `system` reads the same.
+    fn codex_home(dir: &Path, profile: &str) -> String {
+        crate::agent_profiles::profile_dir(dir, CodingAgent::Codex, profile)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    /// A session naming no account lands on the signed-in profile — never
+    /// the ambient login. The retired `system` reads the same.
     #[cfg(unix)]
     #[test]
     fn an_unnamed_launch_lands_on_the_signed_in_profile() {
-        for account in [None, Some("system".to_string())] {
+        for account in [None, Some("system")] {
             let dir = temp_dir("gate-unnamed");
-            let (base, _captured) =
-                canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+            let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
             let deps = auth_deps(&base, &dir.0);
             let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
             crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
 
-            let prepared =
-                match prepare(&PrepareRequest::Action(codex_action(account.clone())), &deps).unwrap() {
-                    Prepared::Ready(prepared) => prepared,
-                    other => panic!("{account:?}: expected Ready, got {other:?}"),
-                };
-            let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
-                .unwrap()
-                .to_string_lossy()
-                .into_owned();
+            let prepared = match launch(codex_session(account), &deps).unwrap() {
+                Prepared::Ready(prepared) => prepared,
+                other => panic!("{account:?}: expected Ready, got {other:?}"),
+            };
             assert!(prepared
                 .spawn
                 .env
-                .contains(&("CODEX_HOME".to_string(), work_dir)));
-            assert_eq!(
-                prepared.heartbeat_scope.agent_account.as_deref(),
-                Some(work.id.as_str())
-            );
+                .contains(&("CODEX_HOME".to_string(), codex_home(&dir.0, &work.id))));
+            let record = crate::run_registry::get(&dir.0, "s-codex").expect("record");
+            assert_eq!(record.account().as_deref(), Some(work.id.as_str()));
         }
     }
 
@@ -8345,25 +4465,25 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     #[test]
     fn an_unnamed_launch_skips_a_signed_out_last_used_profile() {
         let dir = temp_dir("gate-last-used-signed-out");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
         let deps = auth_deps(&base, &dir.0);
         let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         crate::agent_profiles::note_last_used(&dir.0, CodingAgent::Codex, &work.id).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &home.id);
 
-        match prepare(&PrepareRequest::Action(codex_action(Some(work.id.clone()))), &deps).unwrap() {
+        match launch(codex_session(Some(&work.id)), &deps).unwrap() {
             Prepared::Disabled(DisabledReason::DoctorFailed(_)) => {}
             other => panic!("expected DoctorFailed, got {other:?}"),
         }
-        let prepared = match prepare(&PrepareRequest::Action(codex_action(None)), &deps).unwrap() {
+        let prepared = match launch(codex_session(None), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             other => panic!("expected Ready, got {other:?}"),
         };
-        assert_eq!(
-            prepared.heartbeat_scope.agent_account.as_deref(),
-            Some(home.id.as_str())
-        );
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&("CODEX_HOME".to_string(), codex_home(&dir.0, &home.id))));
     }
 
     /// With NO signed-in profile there is nothing to run on: the agent's own
@@ -8373,8 +4493,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     fn no_signed_in_profile_refuses_the_launch() {
         let dir = temp_dir("gate-bare");
         let deps = auth_deps("http://127.0.0.1:1", &dir.0);
-
-        match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
+        match launch(session_request(row("s-bare", Some("repo-bare")), &["EXP-42"]), &deps).unwrap() {
             Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
                 assert_eq!(
                     reason.message(),
@@ -8385,42 +4504,26 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         }
     }
 
-    /// A launch NAMING the signed-in profile starts inside that profile's dir.
+    /// A session NAMING the signed-in profile starts inside that profile's dir.
     #[cfg(unix)]
     #[test]
     fn a_named_signed_in_profile_launches_in_its_dir() {
         let dir = temp_dir("gate-profile");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
         let deps = auth_deps(&base, &dir.0);
         let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
-
-        let prepared = match prepare(
-            &PrepareRequest::Action(codex_action(Some(work.id.clone()))),
-            &deps,
-        )
-        .unwrap()
-        {
+        let prepared = match launch(codex_session(Some(&work.id)), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             other => panic!("expected Ready, got {other:?}"),
         };
-        let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
         assert!(prepared
             .spawn
             .env
-            .contains(&("CODEX_HOME".to_string(), work_dir)));
-        assert_eq!(
-            prepared.heartbeat_scope.agent_account.as_deref(),
-            Some(work.id.as_str())
-        );
+            .contains(&("CODEX_HOME".to_string(), codex_home(&dir.0, &work.id))));
     }
 
-    /// A named account that is signed out refuses by its email — the agent
-    /// stays runnable on its other profile, so the copy asks for a sign-in
-    /// OR another pick.
+    /// A named account that is signed out refuses by its email.
     #[cfg(unix)]
     #[test]
     fn a_signed_out_named_account_refuses_the_launch() {
@@ -8431,8 +4534,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         crate::agent_profiles::stamp_login(&dir.0, CodingAgent::Codex, &home.id, Some("h@acme.test"))
             .unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
-
-        match prepare(&PrepareRequest::Action(codex_action(Some(home.id))), &deps).unwrap() {
+        match launch(codex_session(Some(&home.id)), &deps).unwrap() {
             Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
                 assert_eq!(
                     reason.message(),
@@ -8443,18 +4545,18 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         }
     }
 
-    /// A LEGACY record that ran on the retired ambient login resumes on the
+    /// A record that names no login (the retired ambient one) resumes on the
     /// device's signed-in profile: it passes the gate rather than being
     /// refused on a login no run may spend.
     #[cfg(unix)]
     #[test]
-    fn a_legacy_ambient_record_resumes_on_the_signed_in_profile() {
+    fn an_ambient_record_resumes_on_the_signed_in_profile() {
         let dir = temp_dir("gate-resume");
         let deps = auth_deps("http://127.0.0.1:1", &dir.0);
         let record = resume_record(&dir.0, "sess-old");
-        assert_eq!(record.account(), None, "a legacy ambient record");
+        assert_eq!(record.account(), None);
         let req = resume_request(record);
-        if let Ok(Prepared::Disabled(reason)) = prepare(&PrepareRequest::ResumeRun(req.clone()), &deps) {
+        if let Ok(Prepared::Disabled(reason)) = launch(req.clone(), &deps) {
             assert!(
                 reason.message().starts_with("claude is installed but not signed in"),
                 "no profile: refused for that, {}",
@@ -8463,17 +4565,12 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         }
         let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
-        if let Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed))) =
-            prepare(&PrepareRequest::ResumeRun(req), &deps)
-        {
-            panic!("the legacy resume must pass the gate: {:?}", failed.error);
+        if let Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed))) = launch(req, &deps) {
+            panic!("the resume must pass the gate: {:?}", failed.error);
         }
     }
 
-    /// The agent shell takes the same rules as a session launch: with no
-    /// signed-in profile it is refused by name; with one it opens on it (the
-    /// gate passes and the prepare reaches the network — the fake server
-    /// refuses the connection, never the doctor).
+    /// The agent shell takes the same rules as a session launch.
     #[cfg(unix)]
     #[test]
     fn an_agent_shell_judges_its_login_like_a_session() {
@@ -8489,25 +4586,11 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             }
             other => panic!("expected DoctorFailed, got {other:?}"),
         }
-
         let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
         match prepare_agent_shell(&agent_shell_request(None), &deps) {
             Err(CodingError::Api(ApiError::Transport { .. })) => {}
             other => panic!("expected the launch to pass the gate and reach the network, got {other:?}"),
         }
-    }
-
-    /// FEED-50: a Tidy up run with a repo takes the generic action branch
-    /// (`exp/tidy-up-<id8>`), owns its worktree, and records as `TidyUp`.
-    #[test]
-    fn tidy_up_runs_on_the_generic_action_branch() {
-        let run_id = crate::batch_launcher::new_run_id();
-        assert_eq!(
-            action_run_branch("Tidy up", &run_id),
-            format!("exp/tidy-up-{run_id}")
-        );
-        assert!(ActionRunKind::TidyUp.is_builtin());
-        assert!(RunKind::TidyUp.owns_run_worktree());
     }
 }

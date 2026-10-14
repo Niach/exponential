@@ -7,7 +7,8 @@ import XCTest
 /// the fallback), wait for Electric to sync the demo team, then
 /// capture the seven store shots — board, issue detail, Start-coding dialog,
 /// live steering, PR review, actions, inbox (the support inbox left with the
-/// helpdesk (gone, SLOP-4)). EXP-393 replaced
+/// helpdesk (gone, SLOP-4)). EXP-1295 walks the issue's thread for the
+/// steering and review shots (Reviews and the work faces are gone). EXP-393 replaced
 /// the comments / board-switcher / agents-list / reviews-list / search shots
 /// with the three that actually differentiate the product (start coding,
 /// steering, diff + merge), and kept the set identical to Android's, where
@@ -50,13 +51,18 @@ final class StoreScreenshots: XCTestCase {
     /// session of its own — an issue the demo user is already coding on turns
     /// the bottom-bar circle into the session link instead of the start action.
     private static let startCodingTitle = "Dark mode contrast pass across settings"
-    /// APP-14: the open PR whose diff is fetched from GitHub for real.
+    /// APP-14: the open PR whose diff is fetched from GitHub for real; the
+    /// thread holding it carries the Guide.
     private static let reviewTitle = "Group board issues by assignee"
     /// A fragment of the question screenshot-desktop.ts ends its transcript on
     /// (DEMO_FEED_QUESTION) — proof that relay frames actually arrived. It has
     /// to be the LAST event: the feed is bottom-anchored and lazy, so anything
     /// above the fold is never rendered and no query can find it.
     private static let feedQuestionFragment = "Lazy-load the markdown editor too"
+    /// The thread's child session the stand-in desktop publishes to the relay
+    /// (DEMO_SESSION_ID); the thread root's own card comes first and has no
+    /// feed of its own.
+    private static let steeredSessionTitle = "Profile the launch path"
 
     @MainActor
     func testCaptureAppStoreScreenshots() throws {
@@ -112,31 +118,33 @@ final class StoreScreenshots: XCTestCase {
             print("EXP-DEBUG hierarchy after failed detail open:\n\(app.debugDescription)")
         }
         XCTAssertTrue(detailOpened, "Issue detail did not open — missing: \(commentsHeader.description)")
-        // EXP-893/1150: the reader's OWN live run grows the Work screen's Run
-        // TAB — that is what makes this shot say "an agent is coding on this
-        // right now" rather than "live steering is unavailable on this
-        // instance". Wait for the tab, never a caption.
-        let runTab = app.descendants(matching: .any)
-            .matching(identifier: "work-face-run").firstMatch
+        // EXP-1295: the thread the reader's OWN live session works in shows
+        // as the page's Threads chip — that is what makes this shot say "an
+        // agent is coding on this right now". Wait for the chip, never a
+        // caption.
+        let threadChip = app.descendants(matching: .any)
+            .matching(identifier: "issue-thread-chip").firstMatch
         expect(
-            runTab,
+            threadChip,
             within: Wait.sync,
-            "No live session on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
+            "No thread on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
         )
         snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
-        // The Run tab flips the SAME screen to its Run face (EXP-1150).
-        // EXP-1175: the face opens as the THREAD (the status row over the
-        // run's results, the pending question card still in place), so wait
-        // for the status row, which both renderings wear.
-        runTab.tap()
-        let statusRow = app.descendants(matching: .any)
-            .matching(identifier: "run-status-row").firstMatch
+        // EXP-1295: the chip opens the thread; its child's session card opens
+        // the session's raw work (the pending question card still in place).
+        // EXP-1303: picked by title, the root's own card is drawn first.
+        threadChip.tap()
+        let sessionCard = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "session-card", Self.steeredSessionTitle))
+            .firstMatch
+        expect(sessionCard, within: Wait.sync, "The thread drew no session card")
+        sessionCard.tap()
         expect(
-            statusRow,
+            app.descendants(matching: .any).matching(identifier: "agent-feed").firstMatch,
             within: Wait.nav,
-            "The Session face never appeared — is screenshots:desktop publishing to the relay?"
+            "The session view never appeared — is screenshots:desktop publishing to the relay?"
         )
         // An EMPTY feed still renders the container (a dropped relay socket
         // leaves the view "Reconnecting…" with nothing in it), so the tag alone
@@ -155,10 +163,12 @@ final class StoreScreenshots: XCTestCase {
 
         // ── 03: the Agent page composer (EXP-825, shot id unchanged) ────────
         // From a repo-backed issue the demo user is NOT already coding on, so
-        // the circle offers the start action — which PUSHES the Agent page
-        // with the issue chipped. The circle needs an online desktop: without
-        // one it shows a notice instead of navigating. EXP-893: the run is a
-        // face of the issue's screen, so ONE Back returns to the board.
+        // the circle offers the start action — which PUSHES the home
+        // composer with the issue chipped. The circle needs an online desktop:
+        // without one it shows a notice instead of navigating. Session →
+        // thread → issue → board.
+        goBack(app)
+        goBack(app)
         goBack(app)
         expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")
         openIssue(app, title: Self.startCodingTitle)
@@ -180,17 +190,20 @@ final class StoreScreenshots: XCTestCase {
         goBack(app)
 
         // ── 05: PR review (real diff + merge bar) ───────────────────────────
-        // EXP-1251: a Reviews row opens the issue's Work screen on its Guide;
-        // its "Show complete diff" row opens the whole diff page (the cards over
-        // `[files][Merge PR]`). The file list comes from GitHub via
-        // issues.prFiles — the seed points APP-14 at a real public PR so
-        // there is an actual diff to show.
-        let reviewsTab = app.buttons["tab-reviews"]
-        expect(reviewsTab, within: Wait.nav, "Reviews tab missing")
-        reviewsTab.tap()
-        let reviewPr = reviewRow(app, titled: Self.reviewTitle)
-        expect(reviewPr, within: Wait.sync, "Reviews tab never showed the seeded open PRs")
-        reviewPr.tap()
+        // EXP-1295: APP-14's Threads chip opens the thread holding it; its
+        // Guide tab's "Show complete diff" row opens the whole diff page (the
+        // cards over `[files][Merge PR]`). The file list comes from GitHub via
+        // pullRequests.files — the seed points APP-14's PR at a real public
+        // PR so there is an actual diff to show.
+        openIssue(app, title: Self.reviewTitle)
+        let reviewChip = app.descendants(matching: .any)
+            .matching(identifier: "issue-thread-chip").firstMatch
+        expect(reviewChip, within: Wait.sync, "APP-14 sits in no thread — reseed with `bun run seed:screenshots`")
+        reviewChip.tap()
+        let guideTab = app.descendants(matching: .any)
+            .matching(identifier: "thread-tab-guide").firstMatch
+        expect(guideTab, within: Wait.sync, "The thread never opened on its strip")
+        guideTab.tap()
         openGuideDiffPage(
             app,
             failure: "The PR diff never loaded — check SCREENSHOT_PR_URL is a reachable public PR"
@@ -198,6 +211,9 @@ final class StoreScreenshots: XCTestCase {
         // EXP-916: every file card starts OPEN (only a huge one folds itself
         // away), so the shot already shows patches rather than a filename list.
         snapshot("05_review", settle: 2, popRects: app)
+        // Section page → Guide, thread → issue → board.
+        anyElement(app, identified: "guide-section-back").tap()
+        goBack(app)
         goBack(app)
 
         // ── 06: actions (EXP-253) — the seed inserts three team actions.
@@ -238,13 +254,5 @@ final class StoreScreenshots: XCTestCase {
         snapshot("01_board", settle: 2, popRects: app)
 
         finished = true
-    }
-
-    /// A Reviews row by its title. EXP-1248: a row is a plain Button over
-    /// `PrRow`, which COMBINES its texts into one element, so the title is no
-    /// standalone staticText: match the button whose label contains it.
-    @MainActor
-    private func reviewRow(_ app: XCUIApplication, titled title: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
     }
 }

@@ -1,42 +1,21 @@
 //! The Actions center screen (EXP-467): the web `t/$teamSlug/actions` page
-//! 1:1 — the team's reusable action prompts as a ROW list (EXP-618: the old
-//! wrapping card grid unified onto the mobile row shape every other client
-//! draws). A row opens the action's PAGE ([`crate::action_view`], SLOP-2 —
-//! Prompt · Triggers · Runs; it replaced the edit dialog), and the rail's
-//! Actions entry navigates here.
-//! EXP-480: the page is a tab-less FULL-PAGE mode (no tool column, no tab
-//! chip — `CenterPanel` unmounts the sidebar split while it is up), leading
-//! with the web's plain-text [`crate::surface::glass_section_header`] over
-//! a GAPPED list of [`crate::surface::glass_row_card`] rows (EXP-642).
+//! 1:1 — the team's SAVED PROMPTS (EXP-1294) as a ROW list (EXP-618). A row
+//! opens the action's PAGE ([`crate::action_view`]: its prompt), and the
+//! rail's Actions entry navigates here.
+//! EXP-480: the page is a tab-less FULL-PAGE mode, leading with the web's
+//! plain-text [`crate::surface::glass_section_header`] over a GAPPED list of
+//! rows (EXP-642).
 //!
-//! EXP-686 split the old three-tab page apart: machines moved to
-//! [`crate::devices_view`]; EXP-1270 removed the suggestion seeds. SLOP-2 folded the
-//! triggers into their action: a row wears its triggers' glyphs, and the
-//! triggers and the runs they fire live on the action's page.
+//! The list is LIVE off the synced `actions` shape (body-less rows; the
+//! action page fetches the body via `actions.get` on open). ▶ Run opens the
+//! composer with the action picked; it owns agent/model/effort and the typed
+//! input fields.
 //!
-//! EXP-431 carries over: the create builtin is not a row — creation lives
-//! behind the header's "New action" button, which opens the Agent page
-//! composer with the creator builtin picked (EXP-825). The list is LIVE off
-//! the synced `actions` shape (body-less rows; the action page fetches the
-//! body via `actions.get` on open). ▶ Run opens the same composer with the
-//! action picked; it owns agent/model/effort and the typed input fields.
-//!
-//! EXP-832: `render` builds elements and NOTHING else. gpui re-renders the
-//! whole window on any `notify` (a tooltip's show-delay task, a hover on a
-//! managed control), so the list's derived data — the team's rows off the
-//! synced collections, converted and sorted, plus each action's trigger
-//! glyphs — is computed ONCE per data change in the `observe` callbacks
+//! EXP-832: `render` builds elements and NOTHING else — the team's rows are
+//! computed ONCE per data change in the `observe` callbacks
 //! ([`ActionsView::refresh`]) and read from `self` by `render`. The row's
-//! ▶ button carries a tooltip only while it is DISABLED (the EXP-367 reason):
-//! an enabled button's "Run on this device" cost ~70 full-window renders per
-//! pointer sweep over the column (the managed tooltip's delay + slide tasks
-//! each `notify`); without it the same sweep measures ~13.
+//! ▶ button carries a tooltip only while it is DISABLED (the EXP-367 reason).
 
-use std::collections::HashMap;
-
-use crate::trigger_editor::TriggerBadges;
-
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, App, ClickEvent, Entity, FontWeight, InteractiveElement, IntoElement, ParentElement,
     Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription,
@@ -80,7 +59,7 @@ pub(crate) fn page_scaffold(
     page_scaffold_with(id, scroll, column, PAGE_COLUMN_W)
 }
 
-/// [`page_scaffold`] with an explicit column cap — the Reviews page (EXP-706)
+/// [`page_scaffold`] with an explicit column cap — a list page (EXP-706)
 /// reads as a narrower list than the settings-shaped pages, matching the web
 /// route's `max-w-3xl`. Same flex rules apply verbatim; only the cap moves.
 pub(crate) fn page_scaffold_with(
@@ -122,13 +101,11 @@ pub struct ActionsView {
 struct ActionsDerived {
     /// The team the rows belong to (the active team at the last refresh).
     team_id: Option<String>,
-    /// The team's actions in list order, the two builtins already dropped.
+    /// The team's actions in list order.
     actions: Vec<api::actions::Action>,
     /// The `actions` shape's readiness (an empty list before it is "still
     /// syncing", never "no actions").
     ready: bool,
-    /// SLOP-2: which trigger glyphs each action wears, by action id.
-    trigger_badges: HashMap<String, TriggerBadges>,
 }
 
 impl ActionsDerived {
@@ -137,31 +114,11 @@ impl ActionsDerived {
         let Some(team) = team_id.as_deref() else {
             return Self { ready: true, ..Self::default() };
         };
-        let (mut actions, ready) = queries::team_actions(cx, team);
-        // EXP-431/686: NO builtin is a row here (×4). Creation lives behind
-        // the header's "New action" button, "Fix merge conflicts" is
-        // launched from Reviews (or MCP), "Tidy up" from the composer.
-        // Filtered HERE, not in `queries::team_actions`: that pool must keep
-        // them — the Reviews entry point and the Start-coding dialog's
-        // preselect dead-end in `select_action` without them.
-        actions.retain(|action| !api::actions::is_builtin_action_id(&action.id));
-        // SLOP-2: an action carries its triggers — the row wears a glyph
-        // per KIND it has (the triggers themselves live on its page).
-        let trigger_badges = actions
-            .iter()
-            .filter(|action| !action.triggers.is_empty())
-            .map(|action| {
-                let triggers = coding::triggers::parse_action_triggers(Some(
-                    &serde_json::Value::Array(action.triggers.clone()),
-                ));
-                (action.id.clone(), TriggerBadges::of(&triggers))
-            })
-            .collect();
+        let (actions, ready) = queries::team_actions(cx, team);
         Self {
             team_id,
             actions,
             ready,
-            trigger_badges,
         }
     }
 }
@@ -206,14 +163,10 @@ impl ActionsView {
     /// (EXP-825: the composer owns agent/model/effort and the typed input
     /// fields).
     fn run(&mut self, action_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(team_id) = self.team_id(cx) else {
-            return;
-        };
         // EXP-367: belt to the disabled button — no agent CLI, nothing to run.
         if crate::coding_flow::no_agent_reason(cx).is_some() {
             return;
         }
-        let _ = team_id;
         crate::navigation::navigate_to_chat(
             window,
             cx,
@@ -241,12 +194,11 @@ impl ActionsView {
     // -- render -------------------------------------------------------------
 
     /// One action row — the mobile/web `ActionRow` shape (EXP-618): glyph ·
-    /// [name + its trigger glyphs, 2-line description] · ▶ Run · ⋯ menu.
+    /// [name, 2-line description] · ▶ Run · ⋯ menu.
     fn render_action_row(
         &self,
         index: usize,
         action: &api::actions::Action,
-        badges: TriggerBadges,
         is_owner: bool,
         no_agent: Option<&SharedString>,
         cx: &mut gpui::Context<Self>,
@@ -257,10 +209,6 @@ impl ActionsView {
         let row_hover = theme.list_hover;
         let run_id = action.id.clone();
 
-        // EXP-697 retired the FEED-15 "runs in a repository" glyph. SLOP-2:
-        // beside the name sit the trigger glyphs — a clock for a schedule, a
-        // bolt for an event, muted while none of that kind is enabled. No
-        // text, no count.
         let title_row = gpui_component::h_flex()
             .w_full()
             .min_w_0()
@@ -274,8 +222,7 @@ impl ActionsView {
                     .truncate()
                     .text_color(theme.foreground)
                     .child(SharedString::from(action.name.clone())),
-            )
-            .children(badges.render(cx));
+            );
 
         let mut middle = gpui_component::v_flex()
             .flex_1()
@@ -311,10 +258,7 @@ impl ActionsView {
             run_button = run_button.tooltip(reason.clone());
         }
         // SLOP-2: a row opens the action's PAGE — for every member (a reader
-        // gets the prompt read-only, its triggers and its runs). A builtin
-        // has no page, so the pointer is only worn where a click does
-        // something; the hover wash is every flat row's.
-        let opens_page = !action.builtin;
+        // gets the prompt read-only).
         let row_edit_id = action.id.clone();
         let row = crate::surface::flat_row()
             .id(("action-row", index))
@@ -326,11 +270,9 @@ impl ActionsView {
             .px_3()
             .py_2p5()
             .hover(move |this| this.bg(row_hover))
-            .when(opens_page, |this| {
-                this.cursor_pointer()
-                    .on_click(move |_: &ClickEvent, window, cx| {
-                        open_action_page(window, cx, row_edit_id.clone());
-                    })
+            .cursor_pointer()
+            .on_click(move |_: &ClickEvent, window, cx| {
+                open_action_page(window, cx, row_edit_id.clone());
             })
             .child(
                 div().flex_shrink_0().child(
@@ -350,11 +292,9 @@ impl ActionsView {
             .on_click(|_: &ClickEvent, _, cx| cx.stop_propagation())
             // EXP-615/686: the shared round glass ▶ (web/mobile parity).
             .child(run_button);
-        // The ⋯ menu renders on non-builtin rows — builtins have no
-        // editable row, no delete, and (EXP-778) no pin (they are not DB
-        // rows). Pin/Unpin is personal, so every member gets it; Edit and
-        // Delete stay owner-only (web parity).
-        if !action.builtin {
+        // Pin/Unpin is personal, so every member gets it; Edit and Delete
+        // stay owner-only (web parity).
+        {
             let edit_id = action.id.clone();
             let delete_view = cx.entity().downgrade();
             let delete_id = action.id.clone();
@@ -431,59 +371,6 @@ impl ActionsView {
         row.child(controls).into_any_element()
     }
 
-    /// The web `NoCustomActionsNudge`: a dashed full-width strip below the
-    /// list that opens the creator run, shown while every listed action is a
-    /// builtin (EXP-618 — the old grid cell, stretched to the list shape).
-    fn render_nudge(&self, team_id: String, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let hover = cx.theme().list_hover;
-        div()
-            .id("actions-empty-nudge")
-            .w_full()
-            .min_w_0()
-            .rounded(px(theme::tokens::radius::MD))
-            .border_1()
-            .border_dashed()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .p_3()
-            .cursor_pointer()
-            .hover(move |this| this.bg(hover))
-            .on_click(move |_: &ClickEvent, window, cx| {
-                let _ = &team_id;
-                crate::navigation::navigate_to_chat(
-                    window,
-                    cx,
-                    crate::navigation::ChatSeed::action(api::actions::BUILTIN_CREATE_ACTION_ID),
-                );
-            })
-            .child(
-                gpui_component::v_flex()
-                    .gap_1()
-                    .child(
-                        gpui_component::h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Icon::from(registry::ACTION_CREATE)
-                                    .xsmall()
-                                    .text_color(muted),
-                            )
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(muted)
-                                    .child("No custom actions yet"),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(muted)
-                            .child("Describe one and your agent will build it."),
-                    ),
-            )
-            .into_any_element()
-    }
 }
 
 impl Render for ActionsView {
@@ -496,54 +383,17 @@ impl Render for ActionsView {
         let is_owner = team_id
             .as_deref()
             .is_some_and(|team_id| crate::settings::is_owner(cx, team_id));
-        let has_custom = self.derived.actions.iter().any(|action| !action.builtin);
-
-        // Owner-only "New action" (EXP-367: disabled with the reason when no
-        // agent CLI is installed, never hidden). Read ONCE per render for the
-        // header and every row.
+        // EXP-367: read ONCE per render for every row.
         let no_agent = crate::coding_flow::no_agent_reason(cx);
-        let new_action = is_owner
-            .then(|| team_id.clone())
-            .flatten()
-            .map(|new_team| {
-                crate::surface::glass_pill_button("actions-new", crate::surface::PillSize::Sm, cx)
-                    .icon(Icon::from(registry::ACTION_CREATE))
-                    .label("New action")
-                    .tooltip(no_agent.clone().unwrap_or_else(|| "New action".into()))
-                    .disabled(no_agent.is_some())
-                    .on_click(move |_, window, cx| {
-                        let _ = &new_team;
-                        crate::navigation::navigate_to_chat(
-                            window,
-                            cx,
-                            crate::navigation::ChatSeed::action(
-                                api::actions::BUILTIN_CREATE_ACTION_ID,
-                            ),
-                        );
-                    })
-                    .into_any_element()
-            });
         let rows: Vec<gpui::AnyElement> = self
             .derived
             .actions
             .iter()
             .enumerate()
             .map(|(index, action)| {
-                let badges = self
-                    .derived
-                    .trigger_badges
-                    .get(&action.id)
-                    .copied()
-                    .unwrap_or_default();
-                self.render_action_row(index, action, badges, is_owner, no_agent.as_ref(), cx)
+                self.render_action_row(index, action, is_owner, no_agent.as_ref(), cx)
             })
             .collect();
-        // The nudge is a full-width strip (web parity) — appended after the
-        // list.
-        let nudge = (!loading && is_owner && !has_custom)
-            .then(|| team_id.clone())
-            .flatten()
-            .map(|team_id| self.render_nudge(team_id, cx));
 
         // EXP-642: each row is its OWN card — a gapped column, no fused
         // bordered block. The rows render as soon as they hydrate (never
@@ -553,7 +403,7 @@ impl Render for ActionsView {
         let header = crate::surface::glass_section_header_loading(
             "Actions",
             loading && !rows.is_empty(),
-            new_action,
+            None,
             cx,
         );
         let mut body = gpui_component::v_flex().min_w_0().gap_2();
@@ -566,6 +416,12 @@ impl Render for ActionsView {
                 ACTION_ROW_H,
                 cx,
             ));
+        } else {
+            body = body.child(crate::controls::empty_state_list(
+                Icon::new(registry::ACTION_RUN),
+                crate::empty_state_copy::ACTIONS,
+                cx,
+            ));
         }
         // NO gap on the section (EXP-697): the header's own `pb_2` IS the
         // 8px to the list — a gap here doubles it. The rows keep their gap
@@ -573,7 +429,7 @@ impl Render for ActionsView {
         let actions_section = gpui_component::v_flex()
             .min_w_0()
             .child(header)
-            .child(body.children(nudge));
+            .child(body);
 
         page_scaffold(
             "actions-screen-scroll",
@@ -585,11 +441,8 @@ impl Render for ActionsView {
 
 /// Open one action's page (SLOP-2) — the row's click, its menu's "Edit",
 /// an entity chip and the legacy `action-editor:<uuid>` dev id all land
-/// here. A builtin has no page (it is not a DB row).
+/// here.
 pub(crate) fn open_action_page(window: &mut Window, cx: &mut App, action_id: String) {
-    if api::actions::is_builtin_action_id(&action_id) {
-        return;
-    }
     navigate(window, cx, Screen::Action { action_id });
 }
 

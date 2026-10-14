@@ -53,7 +53,6 @@ import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.TeamLiveRuns
-import com.exponential.app.domain.workFaceFromParam
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
 import com.exponential.app.data.push.DeepLinkBus
@@ -80,18 +79,18 @@ import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.IssueDraftScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.personal.PersonalScreen
-import com.exponential.app.ui.reviews.ReviewsScreen
-import com.exponential.app.domain.ReviewsNav
 import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.actions.ActionDetailScreen
 import com.exponential.app.ui.actions.ActionsScreen
 import com.exponential.app.ui.search.SearchScreen
-import com.exponential.app.ui.work.RunChangesScreen
-import com.exponential.app.ui.work.WorkScreen
-import com.exponential.app.domain.WorkFaceKind
-import com.exponential.app.ui.work.WorkSubject
 import com.exponential.app.ui.thread.ThreadScreen
+import com.exponential.app.ui.threads.ThreadsScreen
+import com.exponential.app.ui.threads.ThreadsViewModel
+import com.exponential.app.ui.session.AgentSessionScreen
+import com.exponential.app.ui.issue.IssueScreen
+import com.exponential.app.ui.settings.AgentSettingsScreen
+import com.exponential.app.ui.settings.AgentsSettingsScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
@@ -160,7 +159,7 @@ fun AppNavHost() {
             // keeps the only thing single top bought us: a re-tap for what is
             // already on screen stays a no-op.
             is DeepLinkBus.Target.Issue -> guarded {
-                navController.navigateIssueDeepLink(target.id, target.face, target.comment)
+                navController.navigateIssueDeepLink(target.id, target.comment)
             }
             is DeepLinkBus.Target.Invite -> guarded {
                 navController.navigateDeepLink("invite/${target.token}")
@@ -175,11 +174,27 @@ fun AppNavHost() {
             // snapshot hazard as the issue route — the session screen reads
             // its id from SavedStateHandle once.
             is DeepLinkBus.Target.Session -> guarded {
-                navController.navigateDeepLink("steer/${target.id}")
+                navController.navigateDeepLink(Routes.session(target.id))
             }
-            // EXP-1284: a thread link opens the Thread screen.
+            // EXP-1291: a thread link opens the thread (a root session).
             is DeepLinkBus.Target.Thread -> guarded {
-                navController.navigateDeepLink(threadRoute(target.id))
+                navController.navigateDeepLink(Routes.thread(target.id))
+            }
+            // EXP-1291: `/t/{team}/sessions/{id}` in prose (the PR body
+            // footer): a synced root IS a thread, so it opens there (on the
+            // Guide for `?view=guide`); a child or unsynced row opens the
+            // raw session view.
+            is DeepLinkBus.Target.SessionLink -> {
+                val isRoot = webLinkResolver.isLocalRoot(target.id) == true
+                guarded {
+                    navController.navigateDeepLink(
+                        if (isRoot) {
+                            Routes.thread(target.id, Routes.THREAD_TAB_GUIDE.takeIf { target.guide })
+                        } else {
+                            Routes.session(target.id)
+                        },
+                    )
+                }
             }
             // EXP-825: the web's `/t/{team}/agent` — the composer, empty,
             // which IS the Agent tab.
@@ -202,7 +217,6 @@ fun AppNavHost() {
                         // EXP-1241: a web link's `?comment=` lands on that comment.
                         navController.navigateIssueDeepLink(
                             resolution.id,
-                            rawFace = null,
                             commentId = target.uri.getQueryParameter("comment"),
                         )
                     }
@@ -217,7 +231,14 @@ fun AppNavHost() {
                         if (resolution.accountId != state.activeAccountId) {
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        navController.navigateDeepLink(threadRoute(resolution.id))
+                        navController.navigateDeepLink(
+                            when {
+                                !resolution.isRoot -> Routes.session(resolution.id)
+                                target.sessionPath && target.uri.getQueryParameter("view") == Routes.THREAD_TAB_GUIDE ->
+                                    Routes.thread(resolution.id, Routes.THREAD_TAB_GUIDE)
+                                else -> Routes.thread(resolution.id)
+                            },
+                        )
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -314,7 +335,6 @@ fun AppNavHost() {
             val agentsNeedInput by viewModel.agentsNeedInput.collectAsStateWithLifecycle()
             // EXP-1075: the board switcher sheet's per-team live-run dots.
             val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
-            val reviewsNav by viewModel.reviewsNav.collectAsStateWithLifecycle()
             val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
             val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()
             val syncHealth by viewModel.syncHealth.collectAsStateWithLifecycle()
@@ -332,7 +352,6 @@ fun AppNavHost() {
                 agentsRunning = agentsRunning,
                 agentsNeedInput = agentsNeedInput,
                 liveRunsByTeam = liveRunsByTeam,
-                reviewsNav = reviewsNav,
                 currentBoardId = currentBoardId,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
                 onRetrySync = { viewModel.retrySync() },
@@ -392,7 +411,6 @@ private fun AuthenticatedNav(
     agentsRunning: Boolean,
     agentsNeedInput: Boolean,
     liveRunsByTeam: Map<String, TeamLiveRuns>,
-    reviewsNav: ReviewsNav,
     currentBoardId: String?,
     onSetInstanceUrl: (String) -> Unit,
     onRetrySync: () -> Unit,
@@ -430,26 +448,9 @@ private fun AuthenticatedNav(
     val barSuppression = remember { BottomBarSuppression() }
     val barShown = barVisible && !barSuppression.suppressed
 
-    // EXP-1105/EXP-1244: yolo mode hides the Reviews tab unless the Reviews
-    // queue is non-empty (in yolo mode an open PR = a failed auto-merge, which
-    // must still surface) — `ReviewsQueue.nav` over every member team. If it
-    // flips off while the Reviews tab is up, switch to Issues instead of
-    // stranding a tab-less screen, and drop its saved stack — ONLY on a
-    // true→false TRANSITION of the flag (iOS AppNavigator's `.onChange` parity, REV2-2):
-    // the flag recomputes through a fresh Room flow that can never emit
-    // synchronously, so a guard re-run on the route change alone would read
-    // the PREVIOUS team's stale value and bounce a tap straight back to Issues.
-    val showsReviews = reviewsNav.shows
-    var hadReviews by remember { mutableStateOf(showsReviews) }
-    LaunchedEffect(showsReviews) {
-        val flippedOff = hadReviews && !showsReviews
-        hadReviews = showsReviews
-        if (flippedOff) {
-            val onReviews = navController.currentTab() == MainTabs.REVIEWS
-            if (onReviews) navController.selectTab(MainTabs.ISSUES, tabSwitch)
-            navController.clearBackStack(MainTabs.REVIEWS)
-        }
-    }
+    // EXP-1291: the Threads tab's amber dot (a thread needs a person).
+    val threadsVm: ThreadsViewModel = hiltViewModel()
+    val threadsNeedYou by threadsVm.needsYou.collectAsStateWithLifecycle()
     // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
     // with a preselection seed — every play button with what it acts on.
     // The seed rides the route string, so the concrete route differs per seed:
@@ -501,7 +502,7 @@ private fun AuthenticatedNav(
             when (target) {
                 is EntityTarget.Issue -> navController.navigate(issueRoute(target.id, commentId = target.commentId))
                 is EntityTarget.Board -> navController.navigate("board/${target.id}")
-                is EntityTarget.Session -> navController.navigate("steer/${target.id}")
+                is EntityTarget.Session -> navController.navigate(Routes.session(target.id))
                 // SLOP-2: an `action` ref opens that action's page.
                 is EntityTarget.Action -> navController.navigate("action/${target.id}")
                 // EXP-1210: a tab is never pushed — its ref switches to it.
@@ -556,10 +557,11 @@ private fun AuthenticatedNav(
             // finds no args on this route), no back button, the bar over it.
             AgentScreen(
                 onBack = null,
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                // EXP-1284: the Running / Recent rows are THREADS.
-                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
+                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                // EXP-1291: an accepted send lands on its thread.
+                onLandInThread = { id -> navController.navigate(Routes.thread(id)) },
             )
         }
         composable("home") {
@@ -615,7 +617,6 @@ private fun AuthenticatedNav(
             ActionDetailScreen(
                 onBack = { navController.popBackStack() },
                 onOpenAgent = openAgent,
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
             )
         }
         composable(
@@ -635,10 +636,10 @@ private fun AuthenticatedNav(
         ) {
             AgentScreen(
                 onBack = { navController.popBackStack() },
-                onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
+                onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
-                // T-N2: the seeded composer gives way to the thread it started in.
+                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                // The seeded composer gives way to the thread it started.
                 onLandInThread = { id -> navController.landOnThread(id, replaceCurrent = true) },
             )
         }
@@ -654,29 +655,15 @@ private fun AuthenticatedNav(
                     navController.openIssueDraft(boardId, draftId = draftId)
                 },
                 // EXP-980: a blocked-run row opens the run it is about.
-                onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
-                // EXP-933: an agent message's issue row → its Guide face.
-                onOpenIssueGuide = { id -> navController.navigate("issue/$id?face=guide") },
+                onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
+                // EXP-1291: an agent message's issue row opens the issue.
+                onOpenIssueGuide = { id -> navController.navigate("issue/$id") },
             )
         }
-        composable("reviews") {
-            // Reviews — its own bottom-bar destination beside My Work
-            // (EXP-147; it used to be a PersonalScreen segment). EXP-1154: rows
-            // open the issue's Work screen on its Guide face (the review IS
-            // the issue); rows carry no long-press.
-            ReviewsScreen(
-                onOpenChanges = { id -> navController.navigate("issue/$id?face=guide") },
-                // EXP-1194: an Agent runs row opens the run's own PR in OUR diff UI.
-                onOpenRunChanges = { id -> navController.navigate("runChanges/$id") },
-            )
-        }
-        composable("runChanges/{sessionId}") { entry ->
-            // EXP-1194: the Guide of a run's own issue-less PR.
-            val sessionId = entry.arguments?.getString("sessionId").orEmpty()
-            RunChangesScreen(
-                sessionId = sessionId,
-                onBack = { navController.popBackStack() },
-            )
+        composable(Routes.THREADS) {
+            // EXP-1291: the Threads tab (it replaced Reviews) — a row opens
+            // its thread, an agent row its channel (the same screen).
+            ThreadsScreen(onOpenThread = { id -> navController.navigate(Routes.thread(id)) })
         }
         composable("settings") {
             SettingsScreen(
@@ -728,7 +715,11 @@ private fun AuthenticatedNav(
             ServerDetailScreen(accountId = accountId, onBack = { navController.popBackStack() })
         }
         composable("team-settings") {
-            TeamSettingsScreen(onBack = { navController.popBackStack() })
+            TeamSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
+                onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
+            )
         }
         composable("share-compose") {
             // Single-screen share composer: the prefilled create form with the
@@ -805,19 +796,14 @@ private fun AuthenticatedNav(
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
                 // T11: a thread draft (opened from the thread, or reopened
                 // from Drafts) lands on the thread with its new issue's tab.
-                onCreatedInThread = { issueId, threadId ->
-                    navController.landOnThread(threadId, child = issueId, replaceCurrent = true)
+                onCreatedInThread = { _, threadId ->
+                    navController.landOnThread(threadId, replaceCurrent = true)
                 },
             )
         }
         composable(
             ISSUE_ROUTE,
             arguments = listOf(
-                navArgument("face") {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
                 // EXP-1241: a comment call's card lands scrolled to its comment.
                 navArgument("comment") {
                     type = NavType.StringType
@@ -826,24 +812,14 @@ private fun AuthenticatedNav(
                 },
             ),
         ) { entry ->
-            // EXP-893: the Work screen on its Issue face — the run and the
-            // diff are FACES of the same screen, never routes. `?face=guide`
-            // (an agent message's inbox row or push, a Reviews row) opens it on
-            // the Guide; the old words results/changes/diff land there too.
             val issueId = entry.arguments?.getString("issueId").orEmpty()
-            val initialFace = entry.arguments?.getString("face")?.let { face ->
-                workFaceFromParam(face)
-            }
-            WorkScreen(
-                subject = WorkSubject.Issue(issueId),
-                initialFace = initialFace,
+            IssueScreen(
+                issueId = issueId,
                 focusCommentId = entry.arguments?.getString("comment"),
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 onOpenAgent = openAgent,
-                // EXP-1284: the run's / issue's thread.
-                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
+                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
@@ -852,49 +828,63 @@ private fun AuthenticatedNav(
                 },
             )
         }
-        composable("steer/{codingSessionId}") { entry ->
-            // EXP-893: the Work screen on its Run face (EXP-32's viewer);
-            // the route string is unchanged, push taps and lists land here.
-            val sessionId = entry.arguments?.getString("codingSessionId").orEmpty()
-            WorkScreen(
-                subject = WorkSubject.Session(sessionId),
+        composable(Routes.SESSION_PATTERN) { entry ->
+            // EXP-1291: the RAW session view (the live transcript).
+            AgentSessionScreen(
+                sessionId = entry.arguments?.getString("sessionId").orEmpty(),
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=guide") },
-                onOpenAgent = openAgent,
-                // EXP-1284: the run's / issue's thread.
-                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
-                onOpenTeamSettings = openReadinessTeamSettings,
-                onOpenDevices = openReadinessDevices,
-                onCreateSubIssue = { boardId, parentId ->
-                    // Single-top: a double-tap on `+` pushes ONE page.
-                    navController.openIssueDraft(boardId, parentId = parentId, singleTop = true)
-                },
+                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
             )
         }
         composable(
-            // EXP-1284: the THREAD screen — `?child=guide|<issue id>` opens
-            // on that child (absent = the Conversation).
-            THREAD_ROUTE,
+            Routes.THREAD_PATTERN,
             arguments = listOf(
-                navArgument("child") {
+                navArgument("tab") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
                 },
             ),
-        ) { entry ->
+        ) {
+            // EXP-1291: a thread root OR an agent root — ONE conversation screen.
             ThreadScreen(
                 onBack = { navController.popBackStack() },
+                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenRun = { id -> navController.navigate("steer/$id") },
-                onOpenAgent = openAgent,
-                onNewIssue = { boardId, threadId ->
-                    navController.openIssueDraft(boardId, threadId = threadId, singleTop = true)
+                onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
+                onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
+                // The "+"'s New issue: filed + linked to this root on create.
+                onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, threadId = rootId) },
+            )
+        }
+        composable(Routes.AGENTS_SETTINGS) {
+            AgentsSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
+                onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
+            )
+        }
+        composable(Routes.AGENT_SETTINGS_PATTERN) {
+            AgentSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenChannel = { id -> navController.navigate(Routes.thread(id)) },
+                onCreated = {},
+                onDeleted = { navController.popBackStack() },
+            )
+        }
+        composable(Routes.AGENT_NEW) {
+            AgentSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenChannel = { id -> navController.navigate(Routes.thread(id)) },
+                // A created agent replaces the `new` page with its own.
+                onCreated = { id ->
+                    val newId = navController.currentBackStackEntry?.destination?.id
+                    navController.navigate(Routes.agentSettings(id)) {
+                        if (newId != null) popUpTo(newId) { inclusive = true }
+                    }
                 },
-                initialChild = entry.arguments?.getString("child"),
-                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
-                onGoToAgent = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
+                onDeleted = { navController.popBackStack() },
             )
         }
         composable("invite/{token}") { entry ->
@@ -959,12 +949,11 @@ private fun AuthenticatedNav(
             devicesActive = currentTab == MainTabs.DEVICES,
             actionsActive = currentTab == MainTabs.ACTIONS,
             personalActive = currentTab == MainTabs.INBOX,
-            reviewsActive = currentTab == MainTabs.REVIEWS,
+            threadsActive = currentTab == MainTabs.THREADS,
             unreadCount = unreadCount,
             agentsRunning = agentsRunning,
             agentsNeedInput = agentsNeedInput,
-            reviewsOpen = reviewsNav.dot,
-            showsReviews = showsReviews,
+            threadsNeedYou = threadsNeedYou,
             // The Chat arm (the Agent page, with its sessions list and live
             // dot) rides every top-level surface, with New issue beside it in
             // one capsule (EXP-827/EXP-973) — dimmed while the team has no
@@ -980,7 +969,7 @@ private fun AuthenticatedNav(
             onDevices = { navController.selectTab(MainTabs.DEVICES, tabSwitch) },
             onActions = { navController.selectTab(MainTabs.ACTIONS, tabSwitch) },
             onPersonal = { navController.selectTab(MainTabs.INBOX, tabSwitch) },
-            onReviews = { navController.selectTab(MainTabs.REVIEWS, tabSwitch) },
+            onThreads = { navController.selectTab(MainTabs.THREADS, tabSwitch) },
             onCompose = {
                 composeBoardId?.let { navController.openIssueDraft(it) }
             },
@@ -1007,26 +996,18 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwap(
 private const val ISSUE_DRAFT_ROUTE =
     "drafts/{draftId}?board={board}&status={status}&parent={parent}&thread={thread}"
 
-/** EXP-1284: the Thread screen — `thread/{threadId}?child=`. */
-private const val THREAD_ROUTE = "thread/{threadId}?child={child}"
-
-/** The concrete thread route, on [child] (`guide` or an issue id) or the
- *  Conversation. */
-internal fun threadRoute(threadId: String, child: String? = null): String =
-    if (child == null) "thread/$threadId" else "thread/$threadId?child=${Uri.encode(child)}"
-
 /**
- * EXP-1284 (T-N2/T11): land on the THREAD with [child] on show (an issue id,
- * or null = the Conversation). The page that started it is replaced when
- * [replaceCurrent]; when that page sat on this very thread, the old thread
- * entry goes too, so Back never returns to a stale copy of it.
+ * EXP-1291: land on the THREAD [threadId] (a root session). The page that
+ * started it is replaced when [replaceCurrent]; when that page sat on this
+ * very thread, the old thread entry goes too, so Back never returns to a
+ * stale copy of it.
  */
-private fun NavHostController.landOnThread(threadId: String, child: String? = null, replaceCurrent: Boolean) {
+private fun NavHostController.landOnThread(threadId: String, replaceCurrent: Boolean) {
     val current = currentBackStackEntry
     val previous = previousBackStackEntry
-    val overSameThread = previous?.destination?.route == THREAD_ROUTE &&
-        previous.arguments?.getString("threadId") == threadId
-    navigate(threadRoute(threadId, child)) {
+    val overSameThread = previous?.destination?.route == Routes.THREAD_PATTERN &&
+        previous.arguments?.getString("sessionId") == threadId
+    navigate(Routes.thread(threadId)) {
         when {
             overSameThread && previous != null -> popUpTo(previous.destination.id) { inclusive = true }
             replaceCurrent && current != null -> popUpTo(current.destination.id) { inclusive = true }

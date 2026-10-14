@@ -13,24 +13,30 @@ import {
   useIsMobile,
   ListEmpty,
 } from "@exp/ui"
-import type { Board, CodingSession, Issue } from "@/db/schema"
+import type { Board, Issue } from "@/db/schema"
 import {
   boardCollection,
   issueCollection,
   issueRelationCollection,
+  pullRequestCollection,
+  pullRequestIssueCollection,
 } from "@/lib/collections"
 import {
   badgeChip,
   badgeShape,
   type BadgeShape,
   batchPartners,
+  issuePrRows,
   overlaySections,
   PR_GRAPH_OVERLAY_COPY,
   prGraph,
   RELATED_WORK_TITLE,
   stackOthers,
   type OverlaySection,
+  type PrGraph,
   type PrGraphEntry,
+  type PrIssueLinkLike,
+  type PrLike,
 } from "@/lib/pr-graph"
 import {
   RELATIONS_BAND_CAP,
@@ -50,13 +56,13 @@ import { cn } from "@/lib/utils"
 
 // EXP-897 Part 4: the ONE "Related work" badge. A piece of work can be related
 // to other work three ways: open BLOCKERS (`blocks` rows), a BATCH (issues
-// sharing one `pr_url`), a PR STACK (`pr_base_branch`).
+// sharing one pull request), a PR STACK (pull requests based on each other).
+// EXP-1293: the PR facts come off `pull_requests` + `pull_request_issues`
+// (`issuePrRows`), never the legacy issue columns.
 //
-// SLOP-16: in the work header (the Issue, Run and Changes faces share
-// `WorkHeader`, EXP-877) it is a quiet ICON BUTTON: the glyph names the shape
-// (`badgeShape`: stack, batch, open blockers; face-independent), a muted `+N`
-// counts the rest (`badgeChip`); in the Reviews queue, the glyph on a batch
-// row.
+// SLOP-16: in the issue header it is a quiet ICON BUTTON: the glyph names the
+// shape (`badgeShape`: stack, batch, open blockers), a muted `+N` counts the
+// rest (`badgeChip`).
 //
 // SLOP-16 r5: click opens THE "Related work" view: the standard `Dialog`
 // (its bottom-sheet arm on phones) whose body is EXACTLY the relations card's
@@ -89,37 +95,16 @@ const BAND_ICON: Record<OverlaySection, typeof StackIcon> = {
   stack: StackIcon,
 }
 
-/** EXP-1097: the `blocked` shape's name: the relations band's own title. */
-export const BLOCKED_BADGE_NAME = RELATIONS_VIEW_COPY.blockedBy
+/** A team issue joined to its pull request (`issuePrRows`). */
+export type IssuePrRow = ReturnType<typeof issuePrRows<Issue>>[number]
 
-export function PrGraphBadge({
-  teamId,
-  teamSlug,
-  issue = null,
-  session = null,
-  variant = `chip`,
-  fallback = null,
-  className,
-}: {
-  teamId: string
-  teamSlug: string
-  issue?: Issue | null
-  session?: CodingSession | null
-  /** `chip` = the work header's icon button (glyph + `+N`); `glyph` = a list
-   *  row's lead icon (the Reviews queue's batch rows). */
-  variant?: `chip` | `glyph`
-  /** EXP-916: what to draw when the graph has NO badge (a batch row whose
-   *  siblings have not synced yet). A `glyph` badge sits in a fixed lead cell
-   *  of a grid row, and returning nothing shifted the whole row one column. */
-  fallback?: ReactNode
-  className?: string
-}) {
-  const [open, setOpen] = useState(false)
-
-  // EXP-980: an issue row carries no `team_id` on the client (the issues shape
-  // drops its scoping columns), so `eq(i.teamId, …)` matched NOTHING and the
-  // overlay never resolved a batch partner or a blocker. The team's issues =
-  // the issues of the team's boards.
+/**
+ * The team's issues, each joined to ITS pull request off the synced
+ * `pull_requests` + `pull_request_issues` rows. EXP-980: an issue row
+ * carries no `team_id` on the client, so the team's issues = the issues of
+ * the team's boards.
+ */
+export function useTeamIssuePrRows(teamId: string): IssuePrRow[] {
   const boardIds = useTeamBoardIds(teamId)
   const { data: issueRows } = useLiveQuery(
     (query) =>
@@ -130,9 +115,50 @@ export function PrGraphBadge({
         : undefined,
     [boardIds.join(`,`)]
   )
-  // The team's `blocks` rows: the subject's direct open blockers. EXP-1097:
-  // fetched for a run subject too: its issue's open blockers earn the badge.
-  const subjectIssueId = issue?.id ?? session?.issueId ?? null
+  const { data: prRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ prs: pullRequestCollection })
+        .where(({ prs }) => eq(prs.teamId, teamId)),
+    [teamId]
+  )
+  const { data: linkRows } = useLiveQuery(
+    (query) =>
+      query
+        .from({ links: pullRequestIssueCollection })
+        .where(({ links }) => eq(links.teamId, teamId)),
+    [teamId]
+  )
+  return useMemo(
+    () =>
+      issuePrRows(
+        (issueRows ?? []) as Issue[],
+        (prRows ?? []) as PrLike[],
+        (linkRows ?? []) as PrIssueLinkLike[]
+      ),
+    [issueRows, prRows, linkRows]
+  )
+}
+
+/** EXP-1097: the `blocked` shape's name: the relations band's own title. */
+export const BLOCKED_BADGE_NAME = RELATIONS_VIEW_COPY.blockedBy
+
+export function PrGraphBadge({
+  teamId,
+  teamSlug,
+  issue = null,
+  className,
+}: {
+  teamId: string
+  teamSlug: string
+  issue?: Issue | null
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+
+  const issues = useTeamIssuePrRows(teamId)
+  // The team's `blocks` rows: the subject's direct open blockers (EXP-1097).
+  const subjectIssueId = issue?.id ?? null
   const { data: relationRows } = useLiveQuery(
     (query) =>
       subjectIssueId
@@ -156,7 +182,6 @@ export function PrGraphBadge({
     [boardRows]
   )
 
-  const issues = useMemo(() => (issueRows ?? []) as Issue[], [issueRows])
   const relations = useMemo(
     () =>
       (relationRows ?? []) as {
@@ -167,13 +192,20 @@ export function PrGraphBadge({
     [relationRows]
   )
   const graph = useMemo(
-    () => prGraph({ issue, session, issues, relations }),
-    [issue, session, issues, relations]
+    () =>
+      prGraph({
+        issue: issue
+          ? (issues.find((row) => row.id === issue.id) ?? null)
+          : null,
+        issues,
+        relations,
+      }),
+    [issue, issues, relations]
   )
 
   const kind = badgeShape(graph)
   const chipSpec = badgeChip(graph)
-  if (!kind || !chipSpec) return fallback
+  if (!kind || !chipSpec) return null
   const name =
     kind === `blocked`
       ? BLOCKED_BADGE_NAME
@@ -185,51 +217,34 @@ export function PrGraphBadge({
   // SLOP-16: the header trigger is a quiet ICON BUTTON, not a chip: a chip
   // restated the title right beside it. The glyph names the SHAPE, `+N` the
   // rest of it; the name rides the tooltip.
-  const Glyph = variant === `glyph` ? BatchIcon : BADGE_GLYPH[kind]
-  const trigger =
-    variant === `glyph` ? (
-      <button
-        type="button"
-        aria-label={name}
-        title={name}
-        data-testid="pr-graph-badge"
-        className={cn(
-          `flex size-4 items-center justify-center text-muted-foreground hover:text-foreground`,
-          className
-        )}
-        // The Radix trigger owns the toggle (it wraps this node); this
-        // handler only keeps the click off the list row underneath.
-        onClick={(event) => event.stopPropagation()}
-      >
-        <Glyph className="size-4" />
-      </button>
-    ) : (
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label={name}
-        title={name}
-        data-testid="pr-graph-badge"
-        data-shape={kind}
-        className={cn(
-          `shrink-0 text-muted-foreground hover:text-foreground`,
-          chipSpec.count > 0 && `w-auto gap-1 px-2`,
-          className
-        )}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <Glyph className="size-4" data-testid="pr-graph-badge-glyph" />
-        {chipSpec.count > 0 && (
-          <span
-            className="font-mono text-xs text-muted-foreground"
-            data-testid="pr-graph-badge-count"
-          >
-            +{chipSpec.count}
-          </span>
-        )}
-      </Button>
-    )
+  const Glyph = BADGE_GLYPH[kind]
+  const trigger = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label={name}
+      title={name}
+      data-testid="pr-graph-badge"
+      data-shape={kind}
+      className={cn(
+        `shrink-0 text-muted-foreground hover:text-foreground`,
+        chipSpec.count > 0 && `w-auto gap-1 px-2`,
+        className
+      )}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <Glyph className="size-4" data-testid="pr-graph-badge-glyph" />
+      {chipSpec.count > 0 && (
+        <span
+          className="font-mono text-xs text-muted-foreground"
+          data-testid="pr-graph-badge-count"
+        >
+          +{chipSpec.count}
+        </span>
+      )}
+    </Button>
+  )
 
   // SLOP-16 r3: ONE surface at every size: the standard dialog, which drops
   // to its bottom-sheet arm (16px gutter) on a phone by itself.
@@ -240,7 +255,7 @@ export function PrGraphBadge({
         data-testid="pr-graph-overlay"
         aria-describedby={undefined}
         // A portal still bubbles React events to the row that hosts the
-        // trigger (the Reviews queue): keep clicks inside the dialog there.
+        // trigger (a list row): keep clicks inside the dialog there.
         onClick={(event) => event.stopPropagation()}
       >
         <DialogHeader>
@@ -269,7 +284,7 @@ export function PrGraphOverlay({
   teamSlug,
   onClose,
 }: {
-  graph: ReturnType<typeof prGraph<Issue, CodingSession>>
+  graph: PrGraph<IssuePrRow>
   /** EXP-930: board slug per board id: what turns an issue into a link.
    *  Absent (or missing the issue's board) = an inert row. */
   boardSlugById?: ReadonlyMap<string, string>
@@ -288,16 +303,13 @@ export function PrGraphOverlay({
 
   // EXP-930: EVERY issue the view lists opens: a real `<Link>`, so ⌘-click
   // and middle-click work like anywhere else; the dialog closes behind it.
-  // EXP-1251: a PR row opens the issue on its Guide (`?view=guide`), the
-  // review of that PR.
-  const issueLink = (row: Issue, view?: `guide`) => {
+  const issueLink = (row: IssuePrRow) => {
     const boardSlug = boardSlugById?.get(row.boardId)
     if (!boardSlug) return undefined
     return ({ className, children }: RelationIssueRowLinkProps) => (
       <Link
         to="/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier"
         params={{ teamSlug, boardSlug, issueIdentifier: row.identifier }}
-        search={view ? { view } : {}}
         onClick={onClose}
         className={className}
       >
@@ -307,7 +319,7 @@ export function PrGraphOverlay({
   }
 
   /** The relations card's row, verbatim. */
-  const issueRow = (row: Issue) => (
+  const issueRow = (row: IssuePrRow) => (
     <RelationIssueRow
       key={row.id}
       issue={row}
@@ -319,9 +331,8 @@ export function PrGraphOverlay({
   )
 
   /** A pull request as the relations card's row: PR glyph · `#n` · the
-   *  representative issue's title · its state pill; opens the issue's
-   *  Changes face (EXP-1154). */
-  const prRow = (entry: PrGraphEntry<Issue>) => {
+   *  representative issue's title · its state pill; opens the issue. */
+  const prRow = (entry: PrGraphEntry<IssuePrRow>) => {
     const row = entry.issue
     const glyphClass = phone ? `size-4 shrink-0` : `size-3.5 shrink-0`
     const glyph =
@@ -344,7 +355,7 @@ export function PrGraphOverlay({
         glyph={glyph}
         code={row.prNumber ? `#${row.prNumber}` : row.identifier}
         noAssignee
-        link={issueLink(row, `guide`)}
+        link={issueLink(row)}
         trailing={
           <span className="flex shrink-0 items-center">
             <PrStateBadge state={row.prState} />

@@ -31,6 +31,7 @@ export function BoardIdentityRow({
   onColorChange,
   disabled,
   invalid,
+  placeholder = `Name`,
 }: {
   name: string
   onNameChange: (value: string) => void
@@ -43,6 +44,8 @@ export function BoardIdentityRow({
   disabled?: boolean
   /** FEED-79: the name was refused (taken); the FieldError sits below. */
   invalid?: boolean
+  /** The name field's hint (EXP-1293: an agent says `Agent name`). */
+  placeholder?: string
 }) {
   // Two board forms can share a document (the create dialog opens from the
   // settings nav while a board's settings page is mounted), so the control
@@ -79,7 +82,7 @@ export function BoardIdentityRow({
             e.currentTarget.blur()
           }
         }}
-        placeholder="Name"
+        placeholder={placeholder}
         className={BARE_FIELD_CLASS}
         autoFocus={autoFocus}
         disabled={disabled}

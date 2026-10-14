@@ -1,4 +1,4 @@
-//! On-disk record of the `coding_sessions` rows THIS install launched —
+//! On-disk record of the `sessions` rows THIS install runs (EXP-1292) —
 //! byte-format parity with the desktop's `ui/src/session_registry.rs`
 //! (`{data_dir}/coding-session-registry.json`, entries `{id, accountId,
 //! pid}`), so a machine running both the desktop app and the CLI daemon
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// Serializes every load-modify-save (desktop parity — its registry takes
 /// the same in-process lock). The CLI genuinely needs it: `record` runs on
-/// per-remote-start threads while supervisors `remove` concurrently, and an
+/// per-launch pickup threads while engines `remove` concurrently, and an
 /// unguarded interleave loses a live session's entry (which a later crash
 /// then never reconciles). Poison-tolerant like everything else here.
 static LOCK: Mutex<()> = Mutex::new(());
@@ -92,8 +92,8 @@ pub fn remove(data_dir: &Path, session_id: &str) {
     }
 }
 
-/// EXP-641: the session is over locally but its `codingSessions.end` did not
-/// resolve (426 gate, dead network, 5xx), so the entry stays for the next
+/// EXP-641: the session is over locally but its final status report
+/// (`sessions.report`, EXP-1292) did not resolve (426 gate, dead network, 5xx), so the entry stays for the next
 /// launch's reconcile — with its pid cleared, because no process runs it any
 /// more. Without this an ended-but-retained row still counted as a live
 /// session in [`sessions_owned_by`], and `exponential update` refused to
@@ -123,23 +123,44 @@ fn process_alive(pid: u32) -> bool {
     result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// One stale entry ([`stale_entries`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StaleEntry {
+    pub id: String,
+    /// `true` = its process died with the session still running (a crash, a
+    /// kill -9, an exec); `false` = the session ENDED here but its final
+    /// report never resolved ([`mark_ended`]) — or a pre-pid entry.
+    pub crashed: bool,
+}
+
 /// Stale rows this account left behind: recorded entries not owned by a
 /// LIVE sibling process (desktop app or another daemon on this machine).
-/// The caller ends each id (`codingSessions.end`, idempotent) and calls
-/// [`remove`] on 2xx/4xx outcomes — 4xx means swept/foreign, stop retrying.
-pub fn stale_ids(data_dir: &Path, account_id: &str) -> Vec<String> {
+/// EXP-1292: the caller reports a CRASHED one `idle` (never an end — the
+/// next message resumes the SAME row), re-sends the final report of one
+/// that ended here, and calls [`remove`] on 2xx/4xx outcomes — 4xx means
+/// swept/foreign, stop retrying.
+pub fn stale_entries(data_dir: &Path, account_id: &str) -> Vec<StaleEntry> {
     let _guard = locked();
     let own_pid = std::process::id();
     load(data_dir)
         .into_iter()
         .filter(|entry| entry.account_id == account_id)
-        .filter(|entry| match entry.pid {
+        .filter_map(|entry| match entry.pid {
             // A live process that is not us owns this row — leave it alone.
-            Some(pid) => pid == own_pid || !process_alive(pid),
+            Some(pid) if pid != own_pid && process_alive(pid) => None,
+            Some(_) => Some(StaleEntry { id: entry.id, crashed: true }),
             // No owner: a pre-pid entry (desktop parity) or one whose
             // session already ended ([`mark_ended`]) — reconcile it.
-            None => true,
+            None => Some(StaleEntry { id: entry.id, crashed: false }),
         })
+        .collect()
+}
+
+/// [`stale_entries`]' ids.
+#[cfg(test)]
+fn stale_ids(data_dir: &Path, account_id: &str) -> Vec<String> {
+    stale_entries(data_dir, account_id)
+        .into_iter()
         .map(|entry| entry.id)
         .collect()
 }
@@ -178,7 +199,7 @@ pub fn sessions_owned_by(data_dir: &Path, pid: u32) -> usize {
 /// transport/401/5xx — and the 426 min-version gate, `UpgradeRequired`, which
 /// rejects the CALL while the row stays `running` — keep it for the next
 /// start's reconcile.
-pub fn end_outcome_resolves(result: &Result<api::coding_sessions::CodingSession, api::ApiError>) -> bool {
+pub fn end_outcome_resolves(result: &Result<(), api::ApiError>) -> bool {
     match result {
         Ok(_) => true,
         Err(api::ApiError::Http { status, .. }) => (400..500).contains(status),
@@ -192,7 +213,7 @@ pub fn end_outcome_resolves(result: &Result<api::coding_sessions::CodingSession,
 pub fn apply_end_outcome(
     data_dir: &Path,
     session_id: &str,
-    result: &Result<api::coding_sessions::CodingSession, api::ApiError>,
+    result: &Result<(), api::ApiError>,
 ) {
     if end_outcome_resolves(result) {
         remove(data_dir, session_id);
@@ -201,7 +222,7 @@ pub fn apply_end_outcome(
     mark_ended(data_dir, session_id);
     if let Err(err) = result {
         log::info!(
-            "end of coding session {session_id} did not resolve ({err}) — kept for the next start's reconcile"
+            "final report of session {session_id} did not resolve ({err}) — kept for the next start's reconcile"
         );
     }
 }
@@ -209,9 +230,10 @@ pub fn apply_end_outcome(
 /// EXP-746: install the process-wide [`coding::SessionEndObserver`] that
 /// applies [`apply_end_outcome`] to EVERY end the coding crate issues —
 /// desktop parity (`ui::session_registry::install_end_observer`). Call once
-/// at startup, before any session can launch: the PTY supervisor and the ACP
-/// engine both end their rows through `coding::end_session`, so this is the
-/// ONE place the CLI's registry decision lives. First caller wins.
+/// at startup, before any session can launch: the engine ends a THREAD's row
+/// through `coding::end_session`, so this is the ONE place the CLI's registry
+/// decision lives (an agent root's idle report reaches it through
+/// `session_host`'s exit hook instead — EXP-1292). First caller wins.
 pub fn install_end_observer(data_dir: PathBuf) {
     coding::set_session_end_observer(std::sync::Arc::new(move |session_id, result| {
         apply_end_outcome(&data_dir, session_id, result);
@@ -341,6 +363,23 @@ mod tests {
         assert_eq!(stale_ids(&dir.path, "acct-1"), vec!["sess-old"]);
     }
 
+    /// EXP-1292: a dead owner's entry is a CRASH (its row goes idle); a
+    /// pid-less one ended here (its final report is re-sent).
+    #[test]
+    fn stale_entries_tell_a_crash_from_an_unresolved_end() {
+        let dir = TempDir::new("stale-kinds");
+        record(&dir.path, "sess-crashed", "acct-1");
+        record(&dir.path, "sess-ended", "acct-1");
+        mark_ended(&dir.path, "sess-ended");
+        assert_eq!(
+            stale_entries(&dir.path, "acct-1"),
+            vec![
+                StaleEntry { id: "sess-crashed".into(), crashed: true },
+                StaleEntry { id: "sess-ended".into(), crashed: false },
+            ]
+        );
+    }
+
     #[test]
     fn corrupt_file_reads_empty_and_the_next_record_heals_it() {
         let dir = TempDir::new("corrupt");
@@ -364,9 +403,7 @@ mod tests {
     /// resolve; transport / 401 / 5xx / the 426 gate keep the entry.
     #[test]
     fn end_outcome_resolution_matrix() {
-        let session: api::coding_sessions::CodingSession =
-            serde_json::from_str(r#"{"id":"sess-1"}"#).unwrap();
-        assert!(end_outcome_resolves(&Ok(session)));
+        assert!(end_outcome_resolves(&Ok(())));
         for status in [400u16, 403, 404] {
             assert!(end_outcome_resolves(&Err(api::ApiError::Http {
                 status,

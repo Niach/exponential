@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-13-threads-v2",
+    date: "2026-10-13",
+    title: "Threads v2: one list of your work, team agents, and one way to start",
+    summary: "Threads replace Reviews and the session history: every piece of work is one conversation with its sessions as cards, team agents look after a board from their own device, and everything starts from the same composer.",
+    body: r#"- **Threads**: the rail's Threads page lists your work as Needs you, Running and Recent. Reviews and the Agent page's history are gone.
+- **One conversation**: a thread shows the people, the agent's replies and one card per session. Tap a card to see the session's raw work. Reply in the same composer you start sessions with.
+- **Private or shared**: a thread started on a device shared with the team is visible to the whole team, who can reply, answer and stop it. A thread on your own device stays yours.
+- **Team agents**: Settings → Agents adds agents like boards: a name, an icon, a color, a device, an account, a schedule and instructions. An agent waits for messages or its schedule and starts a thread for each piece of work. Agents sit in the rail above Boards.
+- **One start**: the composer, Start on an issue, an action, an agent's schedule and a follow-up all start a session the same way, in the team you have open.
+- **Actions are saved prompts**: an action is a name, an icon, a prompt and the things it asks for. Schedules moved to team agents.
+- **Pull requests**: a thread can open several pull requests, and each one's body is the thread's Guide. Merging no longer ends a session."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_45: ChangelogEntry = ChangelogEntry {
     id: "2026-10-12-threads",
     date: "2026-10-12",
     title: "Threads: one place for a piece of work, its issues and its sessions",

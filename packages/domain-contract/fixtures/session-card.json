@@ -1,0 +1,418 @@
+{
+  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, ordinal, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `blocked` when blocked is set, else `queued` when status queued, else `working` when busy, else `waiting`. name = the trimmed title, else '<copy.session> <ordinal>' (ordinal = 1-based place in the tree's creation order, ties by id). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working. tone = `tones[state]`.",
+  "copy": {
+    "session": "Session",
+    "states": {
+      "queued": "Queued",
+      "working": "Working",
+      "waiting": "Waiting",
+      "needs_you": "Needs you",
+      "blocked": "Usage limit",
+      "ended": "Ended"
+    }
+  },
+  "icons": {
+    "queued": "ui-clock",
+    "working": "coding-running",
+    "waiting": "coding-assistant",
+    "needs_you": "coding-needs-input",
+    "blocked": "notification-session-blocked",
+    "ended": "coding-ended"
+  },
+  "tones": {
+    "queued": "muted",
+    "working": "foreground",
+    "waiting": "muted",
+    "needs_you": "amber",
+    "blocked": "rose",
+    "ended": "muted"
+  },
+  "testIds": {
+    "card": "session-card"
+  },
+  "cases": [
+    {
+      "name": "a working root reads Working with the elapsed ladder and a spinner",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s1",
+          "id": "s1"
+        },
+        "ordinal": 1,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s1",
+        "icon": "coding-running",
+        "name": "Session 1",
+        "kindWord": "Working",
+        "state": "working",
+        "tone": "foreground",
+        "elapsed": "12m 34s",
+        "running": true,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "an idle session waits, its stored title wins",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "idle",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": "Fix the login race",
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s2",
+          "id": "s2"
+        },
+        "ordinal": 2,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s2",
+        "icon": "coding-assistant",
+        "name": "Fix the login race",
+        "kindWord": "Waiting",
+        "state": "waiting",
+        "tone": "muted",
+        "elapsed": "12m 34s",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "a queued child has no elapsed",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": "s1",
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "queued",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": null,
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s1",
+          "id": "s3"
+        },
+        "ordinal": 3,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s3",
+        "icon": "ui-clock",
+        "name": "Session 3",
+        "kindWord": "Queued",
+        "state": "queued",
+        "tone": "muted",
+        "elapsed": null,
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "needs input outranks busy and blocked",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": true,
+          "needsInput": true,
+          "blocked": {
+            "window": "session"
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s4",
+          "id": "s4"
+        },
+        "ordinal": 1,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s4",
+        "icon": "coding-needs-input",
+        "name": "Session 1",
+        "kindWord": "Needs you",
+        "state": "needs_you",
+        "tone": "amber",
+        "elapsed": "12m 34s",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "a usage wall reads Usage limit",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": false,
+          "needsInput": false,
+          "blocked": {
+            "window": "weekly",
+            "resetsAt": null
+          },
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s5",
+          "id": "s5"
+        },
+        "ordinal": 1,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s5",
+        "icon": "notification-session-blocked",
+        "name": "Session 1",
+        "kindWord": "Usage limit",
+        "state": "blocked",
+        "tone": "rose",
+        "elapsed": "12m 34s",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "an ended session measures to endedAt",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "ended",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": "2026-10-13T11:03:00.000Z",
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s6",
+          "id": "s6"
+        },
+        "ordinal": 4,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s6",
+        "icon": "coding-ended",
+        "name": "Session 4",
+        "kindWord": "Ended",
+        "state": "ended",
+        "tone": "muted",
+        "elapsed": "1h 03m",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "an ended session without endedAt measures to updatedAt",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "ended",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:37.000Z",
+          "rootId": "s7",
+          "id": "s7"
+        },
+        "ordinal": 1,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s7",
+        "icon": "coding-ended",
+        "name": "Session 1",
+        "kindWord": "Ended",
+        "state": "ended",
+        "tone": "muted",
+        "elapsed": "37s",
+        "running": false,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "a blank title falls back to Session N",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": "   ",
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-13T10:10:30.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s8",
+          "id": "s8"
+        },
+        "ordinal": 2,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s8",
+        "icon": "coding-running",
+        "name": "Session 2",
+        "kindWord": "Working",
+        "state": "working",
+        "tone": "foreground",
+        "elapsed": "2m 04s",
+        "running": true,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "an unparsable startedAt drops the elapsed",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "status": "running",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "soon",
+          "endedAt": null,
+          "createdAt": "2026-10-13T10:00:00.000Z",
+          "updatedAt": "2026-10-13T10:00:00.000Z",
+          "rootId": "s9",
+          "id": "s9"
+        },
+        "ordinal": 1,
+        "now": "2026-10-13T10:12:34.000Z"
+      },
+      "expected": {
+        "sessionId": "s9",
+        "icon": "coding-assistant",
+        "name": "Session 1",
+        "kindWord": "Waiting",
+        "state": "waiting",
+        "tone": "muted",
+        "elapsed": null,
+        "running": false,
+        "testId": "session-card"
+      }
+    }
+  ]
+}

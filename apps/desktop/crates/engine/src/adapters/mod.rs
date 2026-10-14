@@ -77,7 +77,7 @@ pub struct AdapterSpec {
     pub servers: Vec<coding::McpServerWire>,
     /// The worktree (`session/new { cwd }`).
     pub cwd: PathBuf,
-    /// The `coding_sessions` row id — rides the MCP `X-Exp-Session-Id` header.
+    /// The `sessions` row id — rides the MCP `X-Exp-Session-Id` header.
     pub session_id: String,
     /// The seed prompt as TEXT: the engine sends it as `session/prompt`.
     /// PROMPT.md delivery is a TUI affordance and never happens here.
@@ -104,9 +104,10 @@ pub struct AdapterSpec {
     /// — the adapter turns them into the `context_layout` frame once the
     /// agent reports what its first request actually carried.
     pub context_layers: coding::ContextLayers,
-    /// EXP-1134: a CHAT run, the only kind listed under its agent's own name
-    /// for the conversation (an issue run reads its issue, an action run its
-    /// action), so the only one whose adapter asks the agent for that name.
+    /// EXP-1134: the session is listed under its agent's own name for the
+    /// conversation, so its adapter asks the agent for that name. EXP-1292: a
+    /// fresh thread with no linked issue and no title (one with an issue reads
+    /// its issue, an agent root its own name).
     pub name_conversation: bool,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of

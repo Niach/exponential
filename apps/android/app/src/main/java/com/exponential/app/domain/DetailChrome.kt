@@ -55,32 +55,6 @@ object DetailChrome {
     /** The needs-input badge on the mark's top end corner, wide. */
     const val FACE_MARK_BADGE = 6f
 
-    /**
-     * Which face tabs wear a state dot, in the session-dot tones. The Run tab
-     * while its run is LIVE (`NeedsInput` while it waits on a person, else
-     * `Running`); an OPEN pull request puts `Review` on the Guide (EXP-1251).
-     * A face not on show carries no dot, an
-     * ended run none.
-     */
-    fun faceDots(
-        faces: List<WorkFaceKind>,
-        runLive: Boolean,
-        needsInput: Boolean,
-        prOpen: Boolean,
-    ): Map<WorkFaceKind, SessionDotTone> = buildMap {
-        if (runLive && WorkFaceKind.Run in faces) {
-            put(WorkFaceKind.Run, if (needsInput) SessionDotTone.NeedsInput else SessionDotTone.Running)
-        }
-        if (prOpen && WorkFaceKind.Guide in faces) put(WorkFaceKind.Guide, SessionDotTone.Review)
-    }
-
-    /** What a dotted tab says after its label ("Run, running"); null = no dot. */
-    fun faceDotCaption(tone: SessionDotTone?): String? = when (tone) {
-        SessionDotTone.Running -> "running"
-        SessionDotTone.NeedsInput -> "needs input"
-        SessionDotTone.Review -> "pull request open"
-        else -> null
-    }
 
     /**
      * `collapsed = !hasTitleRow || titleBottom <= headerBottom`, both in the

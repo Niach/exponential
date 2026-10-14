@@ -1,59 +1,56 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
-import { MAX_ACTION_PROMPT_PLACEHOLDER, type BoardIcon } from "@exp/db-schema/domain"
+import {
+  MAX_ACTION_INPUT_LABEL,
+  MAX_ACTION_INPUTS,
+  MAX_ACTION_PROMPT_PLACEHOLDER,
+  type ActionInputDef,
+  type ActionInputType,
+  type BoardIcon,
+} from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
 import {
   BARE_FIELD_CLASS,
   BOARD_ICON_OPTIONS,
+  conceptIcon,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   FEEDBACK_ERRORS,
   FEEDBACK_WORDS,
   FieldError,
   IconPicker,
   Button,
-  RepositoryPicker,
   GlassGroup,
+  GlassSectionHeader,
   Input,
-  McpServerPicker,
-  PickerTrigger,
-  pickerSummary,
+  Picker,
+  Pill,
   SkeletonRows,
+  Switch,
   Textarea,
 } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import type { BuiltinAction } from "@/lib/builtin-actions"
 import { trpc } from "@/lib/trpc-client"
-import { useMcpServers } from "@/hooks/use-mcp-servers"
-import { isTeamMcp } from "@/lib/mcp-servers"
+import { actionCollection } from "@/lib/collections"
 
-// The Prompt part of an action's page (EXP-253; a dialog until SLOP-2) —
-// owner-only writes (the server enforces it; a non-owner gets the same form
-// `readOnly`, exactly as the native screens do). EDIT-ONLY since EXP-257: new
-// actions are authored by the builtin "Create action" run.
-// The body is the GFM prompt an agent session executes on a member's device —
-// synced rows exclude it (EXP-268), so the form fetches it via tRPC
-// `actions.get` when the action changes.
-// FEED-73: the action's MCP servers ride the same fetch/save path — every run
-// of the action connects to THIS list (the server sets it on start), and only
-// team MCPs (no sign-in, or a member's shared connection) can be on it.
-
-/** One action as the clients list them: a synced (body-less) row or the
- * client-constructed builtin. */
-export type TeamAction = (SyncedAction & { builtin: false }) | BuiltinAction
-
-export interface ActionRepoOption {
-  id: string
-  fullName: string
-}
-
-// An empty string is no usable option identity — sentinel for the
-// "no repository" choice.
-const NO_REPO = `none`
+// An action = a SAVED PROMPT (EXP-1293 Threads v2): a name, an icon, the
+// markdown body a session runs, the typed picks the requester fills in
+// (`inputs`: repo | board | pr | issue) and the composer hint
+// (`promptPlaceholder`). Running one seeds the home composer; there are no
+// triggers (they moved onto team agents), no runs list, no repository and
+// no MCP picks any more. Owner-only writes (the server enforces it; a
+// non-owner reads the same form `readOnly`, as the native screens do). The
+// body is excluded from the synced rows (EXP-268), so an existing action's
+// form fetches it via `actions.get`; a NEW action is authored here too
+// (`CreateActionDialog`), since the builtin "Create action" run is gone.
 
 // EXP-694 — the editor controls are the SAME on every client: fields sit as
 // rows inside the grouped card stack, with no label above them (the
 // placeholder carries the title) and no chrome of their own (the group's fill
-// and hairlines ARE the field). Mirrors the desktop `action_editor_dialog` and
-// the native action screens. Exported for the other grouped forms.
+// and hairlines ARE the field). Exported for the other grouped forms.
 export const GROUPED_FIELD = `rounded-none border-0 bg-transparent text-sm shadow-none focus-visible:border-0 focus-visible:ring-0 md:text-sm`
 // 16h/12v is the row padding of the whole ladder (the Picker `row` trigger
 // and GlassToggleRow).
@@ -63,125 +60,172 @@ export const GROUPED_FIELD_ROW = `${GROUPED_FIELD} px-4 py-3`
  *  characters): over it is an input error under the prompt, never a save. */
 export const ACTION_BODY_MAX_CHARS = 64 * 1024
 
+const UiAddIcon = conceptIcon(`ui-add`)
+const UiCloseIcon = conceptIcon(`ui-close`)
+
+/** The pick kinds an input may ask for, in picker order. */
+export const ACTION_INPUT_TYPE_LABELS: Record<ActionInputType, string> = {
+  repo: `Repository`,
+  board: `Board`,
+  pr: `Pull request`,
+  issue: `Issue`,
+}
+
+/** One input row as edited: `key` is kept for an existing input (runs and
+ *  the prompt refer to it), minted from the label for a new one. */
+export interface ActionInputDraft {
+  key?: string
+  label: string
+  type: ActionInputType
+  required: boolean
+  placeholder?: string
+}
+
+/** A label → a snake_case key (`[a-z][a-z0-9_]{0,31}`), never empty. */
+export function inputKeyFromLabel(label: string): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, `_`)
+    .replace(/^_+|_+$/g, ``)
+    .replace(/^[^a-z]+/, ``)
+    .slice(0, 32)
+    .replace(/_+$/, ``)
+  return slug === `` ? `input` : slug
+}
+
+/** The drafts as the strict `inputs` array: blank rows dropped, every key
+ *  unique (a clash gets `_2`, `_3`…), existing keys kept verbatim. */
+export function draftsToInputs(drafts: readonly ActionInputDraft[]): ActionInputDef[] {
+  const kept = drafts.filter((draft) => draft.label.trim() !== ``)
+  const taken = new Set(kept.flatMap((draft) => (draft.key ? [draft.key] : [])))
+  return kept.map((draft) => {
+    let key = draft.key
+    if (!key) {
+      const base = inputKeyFromLabel(draft.label)
+      key = base
+      for (let n = 2; taken.has(key); n++) {
+        const suffix = `_${n}`
+        key = `${base.slice(0, 32 - suffix.length)}${suffix}`
+      }
+      taken.add(key)
+    }
+    return {
+      key,
+      label: draft.label.trim(),
+      type: draft.type,
+      required: draft.required,
+      ...(draft.placeholder ? { placeholder: draft.placeholder } : {}),
+    }
+  })
+}
+
+function draftsOf(inputs: readonly ActionInputDef[] | null | undefined): ActionInputDraft[] {
+  return (inputs ?? []).map((input) => ({
+    key: input.key,
+    label: input.label,
+    type: input.type,
+    required: input.required,
+    placeholder: input.placeholder,
+  }))
+}
+
+const sameInputs = (a: readonly ActionInputDef[], b: readonly ActionInputDef[]) =>
+  JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * The action's ONE form. `action` = the synced row to edit; null = create
+ * a new action in `teamId` (`onCreated` gets its id).
+ */
 export function ActionPromptForm({
-  repos,
   action,
+  teamId,
   readOnly = false,
+  onCreated,
+  onCancel,
 }: {
-  /** The team's connected repos, for the optional clone-target select. */
-  repos: ActionRepoOption[]
-  /** The action being edited (never the builtin — it has no editable body). */
-  action: TeamAction
-  /** EXP-694: writes are owner-only (the server enforces it), so a NON-owner
-   * reads the action instead of filling in a form whose save would be
-   * refused — the same read-only form the natives fall back to. */
+  action: SyncedAction | null
+  teamId: string
+  /** EXP-694: writes are owner-only; a NON-owner reads the action. */
   readOnly?: boolean
+  onCreated?: (actionId: string) => void
+  /** Create mode inside a dialog: the Cancel beside Create. */
+  onCancel?: () => void
 }) {
+  const creating = action === null
   const [name, setName] = useState(``)
-  const [description, setDescription] = useState(``)
-  // EXP-825: the composer's field hint while this action is picked.
   const [promptPlaceholder, setPromptPlaceholder] = useState(``)
-  const [repoValue, setRepoValue] = useState(NO_REPO)
-  // EXP-273: the action's display glyph, from the same curated set as boards.
   const [icon, setIcon] = useState<BoardIcon>(BOARD_ICON_OPTIONS[0].name)
+  const [inputs, setInputs] = useState<ActionInputDraft[]>([])
   const [body, setBody] = useState(``)
-  // Synced rows carry no body (EXP-268) — fetched on open; the prompt field
-  // stays disabled until it lands so a save can never blank it.
+  const [savedBody, setSavedBody] = useState(``)
   const [bodyLoading, setBodyLoading] = useState(false)
-  // The load on open failed: the field holds its empty state + Retry (no
-  // toast, FEED-79) and Save stays off so the real body is never blanked.
   const [bodyFailed, setBodyFailed] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   // FEED-79: a duplicate-name CONFLICT renders under the name field (input);
   // every other failed load/save is a toast.
   const [nameError, setNameError] = useState<string | null>(null)
-  // The body as last loaded or saved — Save lights up once a field differs.
-  const [savedBody, setSavedBody] = useState(``)
-  // FEED-73: the action's MCP list (row ids), loaded with the body. Ids the
-  // picker does not list (a server no longer shared) are kept, not dropped.
-  const [mcpServerIds, setMcpServerIds] = useState<string[]>([])
-  const [savedMcpServerIds, setSavedMcpServerIds] = useState<string[]>([])
-  const { servers } = useMcpServers(action.teamId)
-  const teamMcps = useMemo(
-    () => (servers ?? []).filter(isTeamMcp),
-    [servers]
-  )
-  const listedMcp = (id: string) => teamMcps.some((server) => server.id === id)
-  const pickedMcps = teamMcps.filter((server) =>
-    mcpServerIds.includes(server.id)
-  )
 
-  // The body (+ MCP list) fetch; a newer load or another action drops a
-  // stale answer. The load on open fails quietly (the field's empty state +
-  // Retry); only a failed Retry tap, the person's own action, toasts.
+  // The body fetch; a newer load or another action drops a stale answer.
   const loadSeq = useRef(0)
-  // The action on screen (null once unmounted): a late Retry for another
-  // action, or after the page left, does nothing.
-  const shownId = useRef<string | null>(action.id)
-  shownId.current = action.id
-  const loadBody = useCallback((retried = false) => {
-    const id = action.id
-    if (shownId.current !== id) return
-    const seq = ++loadSeq.current
-    const stale = () => seq !== loadSeq.current || shownId.current !== id
-    setBodyLoading(true)
-    trpc.actions.get
-      .query({ id })
-      .then((res) => {
-        if (stale()) return
-        setBody(res.action.body)
-        setSavedBody(res.action.body)
-        setMcpServerIds([...res.action.mcpServerIds])
-        setSavedMcpServerIds([...res.action.mcpServerIds])
-        setBodyFailed(false)
-        setBodyLoading(false)
-      })
-      .catch((err) => {
-        if (stale()) return
-        setBodyFailed(true)
-        setBodyLoading(false)
-        if (retried) failedAction(`load`, `the prompt`, err, { retry: () => loadBody(true) })
-      })
-  }, [action.id])
-  useEffect(() => {
-    shownId.current = action.id
-    return () => {
-      shownId.current = null
-    }
-  }, [action.id])
+  const actionId = action?.id ?? null
+  const loadBody = useCallback(
+    (retried = false) => {
+      if (!actionId) return
+      const seq = ++loadSeq.current
+      setBodyLoading(true)
+      trpc.actions.get
+        .query({ id: actionId })
+        .then((res) => {
+          if (seq !== loadSeq.current) return
+          setBody(res.action.body)
+          setSavedBody(res.action.body)
+          setBodyFailed(false)
+          setBodyLoading(false)
+        })
+        .catch((err) => {
+          if (seq !== loadSeq.current) return
+          setBodyFailed(true)
+          setBodyLoading(false)
+          // The load on open fails quietly (the field's empty state + Retry);
+          // only a failed Retry tap, the person's own action, toasts.
+          if (retried) failedAction(`load`, `the prompt`, err, { retry: () => loadBody(true) })
+        })
+    },
+    [actionId]
+  )
 
-  // Seed the fields when the ACTION changes (never on a resync of the same
-  // one: that would wipe what is being typed); the body comes from tRPC.
+  // Seed when the ACTION changes (never on a resync of the same one: that
+  // would wipe what is being typed); the body comes from tRPC.
   useEffect(() => {
-    setName(action.name)
-    setDescription(action.description ?? ``)
-    setPromptPlaceholder(action.promptPlaceholder ?? ``)
-    setRepoValue(action.repositoryId ?? NO_REPO)
-    setIcon((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name)
+    setName(action?.name ?? ``)
+    setPromptPlaceholder(action?.promptPlaceholder ?? ``)
+    setIcon((action?.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name)
+    setInputs(draftsOf(action?.inputs))
     setBody(``)
     setSavedBody(``)
-    setMcpServerIds([])
-    setSavedMcpServerIds([])
+    setBodyFailed(false)
     setSubmitting(false)
     setNameError(null)
     loadBody()
+    return () => {
+      loadSeq.current++
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [action.id])
+  }, [actionId])
 
-  const mcpDirty =
-    mcpServerIds.length !== savedMcpServerIds.length ||
-    mcpServerIds.some((id) => !savedMcpServerIds.includes(id))
+  const nextInputs = draftsToInputs(inputs)
+  const inputsDirty = !sameInputs(nextInputs, action?.inputs ?? [])
   const dirty =
-    name.trim() !== action.name ||
-    description.trim() !== (action.description ?? ``) ||
-    promptPlaceholder.trim() !== (action.promptPlaceholder ?? ``) ||
-    repoValue !== (action.repositoryId ?? NO_REPO) ||
-    icon !== ((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name) ||
+    creating ||
+    name.trim() !== (action?.name ?? ``) ||
+    promptPlaceholder.trim() !== (action?.promptPlaceholder ?? ``) ||
+    icon !== ((action?.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name) ||
     body !== savedBody ||
-    mcpDirty
-  // Input errors under their fields (FEED-79): a blank name, a body over
-  // the server's cap (`MAX_ACTION_BODY`, characters).
-  const nameRequired = !readOnly && name.trim() === `` ? `Enter a name` : null
+    inputsDirty
+  // Input errors under their fields (FEED-79).
+  const [touched, setTouched] = useState(false)
+  const nameRequired =
+    !readOnly && (touched || !creating) && name.trim() === `` ? `Enter a name` : null
   const bodyTooLong =
     body.length > ACTION_BODY_MAX_CHARS
       ? `Too long: ${body.length} of ${ACTION_BODY_MAX_CHARS} characters`
@@ -194,20 +238,24 @@ export function ActionPromptForm({
     !bodyLoading &&
     !bodyFailed
 
+  const isConflict = (err: unknown) =>
+    err instanceof TRPCClientError &&
+    (err.data as { code?: string } | undefined)?.code === `CONFLICT`
+
+  const fields = () => ({
+    name: name.trim(),
+    icon,
+    body,
+    inputs: nextInputs,
+    promptPlaceholder: promptPlaceholder.trim() === `` ? null : promptPlaceholder.trim(),
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setTouched(true)
     if (readOnly || !canSubmit || submitting) return
-    await save({
-      id: action.id,
-      name: name.trim(),
-      description: description.trim() === `` ? null : description.trim(),
-      icon,
-      repositoryId: repoValue === NO_REPO ? null : repoValue,
-      body,
-      promptPlaceholder:
-        promptPlaceholder.trim() === `` ? null : promptPlaceholder.trim(),
-      ...(mcpDirty ? { mcpServerIds } : {}),
-    })
+    if (creating) await create(fields())
+    else if (action) await save({ id: action.id, ...fields() })
   }
 
   type ActionUpdate = Parameters<typeof trpc.actions.update.mutate>[0]
@@ -217,24 +265,42 @@ export function ActionPromptForm({
     try {
       await trpc.actions.update.mutate(input, SKIP_ERROR_TOAST)
       setSavedBody(input.body ?? body)
-      if (input.mcpServerIds) setSavedMcpServerIds(input.mcpServerIds)
     } catch (err) {
-      if (
-        err instanceof TRPCClientError &&
-        (err.data as { code?: string } | undefined)?.code === `CONFLICT`
-      ) {
-        setNameError(err.message)
-      } else {
-        // An update is idempotent: Retry sends the same fields again.
-        failedAction(`save`, `the action`, err, { retry: () => void save(input) })
-      }
+      if (isConflict(err)) setNameError((err as Error).message)
+      // An update is idempotent: Retry sends the same fields again.
+      else failedAction(`save`, `the action`, err, { retry: () => void save(input) })
     } finally {
       setSubmitting(false)
     }
   }
 
+  type ActionCreate = Omit<Parameters<typeof trpc.actions.create.mutate>[0], `teamId`>
+  const create = async (input: ActionCreate) => {
+    setSubmitting(true)
+    setNameError(null)
+    try {
+      const { action: created, txId } = await trpc.actions.create.mutate(
+        { teamId, ...input },
+        SKIP_ERROR_TOAST
+      )
+      // Open the page once the row has synced (it reads the live shape).
+      await actionCollection.utils.awaitTxId(txId).catch(() => {})
+      onCreated?.(created.id)
+    } catch (err) {
+      if (isConflict(err)) setNameError((err as Error).message)
+      else failedAction(`create`, `the action`, err)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const patchInput = (index: number, patch: Partial<ActionInputDraft>) =>
+    setInputs((current) =>
+      current.map((input, at) => (at === index ? { ...input, ...patch } : input))
+    )
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3" data-testid="action-prompt-form">
       {/* Wide on desktop (EXP-267): metadata left, prompt right — the prompt
           is the tall field. On a phone the grid stacks to one column. */}
       <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-x-6">
@@ -261,16 +327,9 @@ export function ActionPromptForm({
                 aria-describedby={nameError ?? nameRequired ? `action-name-error` : undefined}
                 className={BARE_FIELD_CLASS}
                 readOnly={readOnly}
+                autoFocus={creating}
               />
             </div>
-            <Textarea
-              id="action-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Description"
-              className={`${GROUPED_FIELD_ROW} min-h-16`}
-              readOnly={readOnly}
-            />
             {/* EXP-825: what the requester should type beside this action
                 — shown as the composer's field hint. */}
             <Input
@@ -287,62 +346,89 @@ export function ActionPromptForm({
             {nameError ?? nameRequired}
           </FieldError>
 
-          <GlassGroup>
-            <RepositoryPicker
-              triggerVariant="row"
-              mobileTitle="Repository"
-              value={repoValue === NO_REPO ? null : repoValue}
-              onChange={setRepoValue}
-              noneLabel="None"
-              onNone={() => setRepoValue(NO_REPO)}
-              triggerLabel="None"
-              disabled={readOnly}
-              repositories={repos.map((repo) => ({
-                id: repo.id,
-                fullName: repo.fullName,
-              }))}
-            />
-          </GlassGroup>
-
-          {teamMcps.length > 0 && (
-            <GlassGroup>
-              <McpServerPicker
-                servers={teamMcps.map((server) => ({
-                  id: server.id,
-                  name: server.name,
-                  url: server.url,
-                  command: server.command,
-                }))}
-                // Only listed rows are pickable; ids it cannot list ride along.
-                value={pickedMcps.map((server) => server.id)}
-                onChange={(next) =>
-                  setMcpServerIds([
-                    ...mcpServerIds.filter((id) => !listedMcp(id)),
-                    ...next,
-                  ])
-                }
-                disabled={readOnly || bodyLoading}
-                search={teamMcps.length > 6}
-                width="md"
-                trigger={
-                  <PickerTrigger
-                    variant="row"
-                    label="MCP servers"
-                    value={
-                      pickedMcps.length > 0
-                        ? pickerSummary(
-                            pickedMcps.map((server) => server.name),
-                            `None`
-                          )
-                        : undefined
+          <div>
+            <GlassSectionHeader
+              label="Inputs"
+              trailing={
+                !readOnly && inputs.length < MAX_ACTION_INPUTS ? (
+                  <Pill
+                    mode="action"
+                    onClick={() =>
+                      setInputs((current) => [
+                        ...current,
+                        { label: ``, type: `issue`, required: false },
+                      ])
                     }
-                    placeholder="None"
-                    disabled={readOnly || bodyLoading}
-                  />
-                }
-              />
-            </GlassGroup>
-          )}
+                    data-testid="action-add-input"
+                  >
+                    <UiAddIcon className="size-3" />
+                    Add input
+                  </Pill>
+                ) : undefined
+              }
+            />
+            {inputs.length === 0 ? (
+              <p className="px-1 py-2 text-xs text-muted-foreground">
+                No inputs. The prompt runs as written.
+              </p>
+            ) : (
+              <GlassGroup>
+                {inputs.map((input, index) => (
+                  <div
+                    key={input.key ?? `new-${index}`}
+                    className="flex items-center gap-2 py-1 pr-2"
+                    data-testid="action-input-row"
+                  >
+                    <Input
+                      aria-label="Input label"
+                      value={input.label}
+                      onChange={(e) => patchInput(index, { label: e.target.value })}
+                      placeholder="Label"
+                      maxLength={MAX_ACTION_INPUT_LABEL}
+                      className={`${GROUPED_FIELD_ROW} min-w-0 flex-1`}
+                      readOnly={readOnly}
+                    />
+                    <Picker
+                      mode="single"
+                      triggerVariant="inline"
+                      mobileTitle="Picks"
+                      width="sm"
+                      value={input.type}
+                      disabled={readOnly}
+                      items={(Object.keys(ACTION_INPUT_TYPE_LABELS) as ActionInputType[]).map(
+                        (type) => ({ value: type, label: ACTION_INPUT_TYPE_LABELS[type] })
+                      )}
+                      onChange={(value) => {
+                        if (value !== null) patchInput(index, { type: value as ActionInputType })
+                      }}
+                    />
+                    <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      Required
+                      <Switch
+                        checked={input.required}
+                        disabled={readOnly}
+                        onCheckedChange={(required) => patchInput(index, { required })}
+                        aria-label={`Required: ${input.label || `input`}`}
+                      />
+                    </span>
+                    {!readOnly && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove ${input.label || `input`}`}
+                        onClick={() =>
+                          setInputs((current) => current.filter((_, at) => at !== index))
+                        }
+                      >
+                        <UiCloseIcon />
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </GlassGroup>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -378,17 +464,59 @@ export function ActionPromptForm({
 
       {/* Read-only draws no save strip at all, like the native screens. */}
       {!readOnly && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          {onCancel && (
+            <Button type="button" variant="outline" onClick={onCancel} disabled={submitting}>
+              Cancel
+            </Button>
+          )}
           <Button
             type="submit"
             disabled={!canSubmit}
             pending={submitting}
             pendingLabel={FEEDBACK_WORDS.pending.save}
           >
-            Save changes
+            {creating ? `Create action` : `Save changes`}
           </Button>
         </div>
       )}
     </form>
+  )
+}
+
+/** "New action": the same form in create mode, in a dialog (a sheet on a
+ *  phone); `onCreated` opens the new action's page. */
+export function CreateActionDialog({
+  open,
+  onOpenChange,
+  teamId,
+  onCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  teamId: string
+  onCreated: (actionId: string) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent mobile="sheet-full" className="sm:max-h-[85dvh] sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>New action</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          {open && (
+            <ActionPromptForm
+              action={null}
+              teamId={teamId}
+              onCancel={() => onOpenChange(false)}
+              onCreated={(id) => {
+                onOpenChange(false)
+                onCreated(id)
+              }}
+            />
+          )}
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   )
 }

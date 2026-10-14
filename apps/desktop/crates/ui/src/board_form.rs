@@ -1,8 +1,8 @@
 //! Shared board form pieces (EXP-288): the icon picker over the curated
 //! contract glyphs and the color swatch grid, used by the create-board
-//! dialog, the per-board settings page, the action editor and the
-//! start-coding action inputs. Callback-style so each host owns its own state
-//! (dialog draft vs immediate `boards.update`).
+//! dialog, the per-board settings page, the action editor and (EXP-1294) the
+//! agent settings page + the New agent dialog. Callback-style so each host
+//! owns its own state (dialog draft vs an immediate write).
 
 use std::rc::Rc;
 

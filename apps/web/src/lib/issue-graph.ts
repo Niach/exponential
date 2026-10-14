@@ -1,5 +1,5 @@
-// EXP-980: the `blocks` graph behind the list badge, the mini-graph overlay
-// and the blocked-start dialog.
+// EXP-980: the `blocks` graph behind the list badge and the mini-graph
+// overlay.
 //
 // ONE pure rule, mirrored ×4 (iOS `ExpCore/Sources/Domain/IssueGraph.swift`,
 // Android `domain/IssueGraph.kt`, desktop `domain::issue_graph`) and locked by
@@ -66,8 +66,6 @@ export interface IssueGraph {
 export const ISSUE_GRAPH_TRUNCATED_NOTE = `Showing the nearest ${ISSUE_GRAPH_MAX_NODES} issues.`
 /** Under a graph that holds a cycle. Byte-identical ×4. */
 export const ISSUE_GRAPH_CYCLE_NOTE = `Red issues block each other in a cycle.`
-
-// The blocked-start dialog's copy lives in `lib/blocked-start.ts`.
 
 /** The badge's accessible label: `Blocked by 2`, `Blocking 1` or
  *  `Blocked by 2, blocking 1`. Byte-identical ×4. */

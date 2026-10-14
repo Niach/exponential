@@ -1,5 +1,6 @@
-//! Settings → Agents (EXP-288 — split out of the old Coding pane; the
-//! remaining this-device knobs live in [`super::tools`]).
+//! Settings → Coding CLIs (EXP-288 — split out of the old Coding pane, the
+//! remaining this-device knobs live in [`super::tools`]; EXP-1294 renamed
+//! the entry from "Agents", which are the team's agents now).
 //!
 //! The JetBrains-SDK-settings-style pane for the Start-coding launcher,
 //! grouped HARD by agent (EXP-206):
@@ -15,7 +16,7 @@
 //! Model/effort are [`crate::coding_selects`] choice selects (never free
 //! text — the closed alias sets the CLI accepts). The per-agent toggles are
 //! what the shared Start-coding dialog prefills from — ONE set of defaults
-//! for single-issue and batch runs alike (EXP-206).
+//! for single- and multi-issue sessions alike (EXP-206).
 //!
 //! EXP-694: the pane wears the SHARED grouped agent picker
 //! ([`crate::launch_options::AgentDefaultsGroup`]) — the exact component the
@@ -88,7 +89,7 @@ pub struct AgentsPane {
     /// persisted (EXP-206).
     agent_tab: CodingAgent,
     /// Per-agent run defaults (the shared dialog's prefill — EXP-206: one
-    /// set for issue and batch runs alike): Claude plan mode ON out of the
+    /// set for single- and multi-issue sessions alike): Claude plan mode ON out of the
     /// box, everything else OFF.
     claude_ultracode: bool,
     claude_plan_mode: bool,

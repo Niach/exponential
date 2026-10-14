@@ -1,12 +1,11 @@
 //! EXP-849 (interface C/D) — continuing a run on ANOTHER agent account.
 //!
 //! A "switch" is not a new concept: it is a RESUME that names a different
-//! account profile. The launcher does the work (`coding::prepare`'s resume
-//! path copies the claude transcript into the target profile's `projects`
-//! tree, re-resolves the MCP servers and chains the new row back through
-//! `resumedFromId`); this module is the decision surface over it — which
-//! accounts the run could move to, whether it may move right now, and the one
-//! call that starts it.
+//! account profile (EXP-1294: of the SAME `sessions` row, asked for with one
+//! `sessions.send` message naming the `account`; the hosting device does the
+//! work). This module is the decision surface over it — which accounts the
+//! run could move to, whether it may move right now, and the one call that
+//! starts it.
 //!
 //! Three rules the UI must never relax, each enforced here rather than at the
 //! call sites (there are several):
@@ -244,7 +243,7 @@ impl SwitchContext {
 impl SwitchContext {
     /// EXP-909 — the account the run SPENDS, as this client can know it: the
     /// local run record for a run hosted here (the launcher wrote it), else
-    /// the synced `coding_sessions.agent_account` the host stamped at start.
+    /// the synced `sessions.account` the host stamped at start.
     ///
     /// `None` = genuinely unknown — an older host that never stamped the
     /// column, or a row that has not synced yet. It is never guessed:
@@ -261,11 +260,10 @@ impl SwitchContext {
             }
         }
         let store = sync::Store::try_global(cx)?;
-        let sessions = store.collections().coding_sessions.read(cx);
+        let sessions = store.collections().sessions.read(cx);
         sessions
-            .iter()
-            .find(|row| row.id == self.session_id)
-            .and_then(|row| row.agent_account.as_deref())
+            .get(&self.session_id)
+            .and_then(|row| row.account.as_deref())
             .map(str::trim)
             .filter(|account| !account.is_empty())
             .map(str::to_string)
@@ -337,7 +335,7 @@ impl SwitchContext {
         targets: &[SwitchTarget],
         cx: &App,
     ) -> Option<AnyElement> {
-        let device_id = self.device_id.clone()?;
+        self.device_id.as_ref()?;
         let others: Vec<&SwitchTarget> = targets.iter().filter(|target| !target.current).collect();
         if others.is_empty() {
             return None;
@@ -347,7 +345,6 @@ impl SwitchContext {
         let mut block = v_flex().w_full().min_w_0().gap_2p5();
         for (index, target) in others.into_iter().enumerate() {
             let session_id = self.session_id.clone();
-            let device = device_id.clone();
             let local = self.local;
             let profile_id = target.profile_id.clone();
             let offerable = target.blocked.is_none();
@@ -387,7 +384,6 @@ impl SwitchContext {
                             .on_click(move |_, window, cx| {
                                 switch_to(
                                     session_id.clone(),
-                                    Some(device.clone()),
                                     local,
                                     profile_id.clone(),
                                     window,
@@ -451,63 +447,29 @@ impl SwitchContext {
     }
 }
 
-/// EXP-849 — start the switch: a RESUME of `session_id` on `profile_id`.
+/// EXP-849 — start the switch of `session_id` onto `profile_id`.
 ///
-/// A live run is STOPPED first (the agent cannot be in two processes in one
-/// worktree) and the resume fires once its row is gone; an already-ended run
-/// resumes straight away. A run this machine does not host goes over the relay
-/// as a resume naming the account, exactly like a remote start.
-///
-/// `profile_id` rides VERBATIM: a switch always names its account — the
-/// server reads the PRESENCE of `account` as "this resume is a switch" and
-/// that is the only thing that lets a resume ride a LIVE run (×4
-/// `SessionAccountSwitch.wireAccount`).
+/// EXP-1294: the database is the bus, so a switch is ONE `sessions.send`
+/// message naming the `account` — the hosting device (this one or another of
+/// mine) stops the agent between turns and resumes the SAME row on that
+/// login. `profile_id` rides VERBATIM: the presence of `account` is what
+/// makes the message a switch (×4 `SessionAccountSwitch.wireAccount`).
 pub(crate) fn switch_to(
     session_id: String,
-    device_id: Option<String>,
     local: bool,
     profile_id: String,
     window: &mut Window,
     cx: &mut App,
 ) {
-    if !local {
-        let Some(device_id) = device_id.filter(|id| !id.is_empty()) else {
-            crate::toast::show(
-                crate::action_error::failed_toast(
-                    "switch",
-                    "the account",
-                    Some("This session's machine is unknown.".into()),
-                ),
-                window,
-                cx,
-            );
-            return;
-        };
-        crate::session_screen::resume_remote_on_account(
-            session_id,
-            device_id,
-            Some(profile_id),
-            window,
-            cx,
-        );
-        return;
-    }
-    let target = Some(window.window_handle());
     // EXP-1158: a person's local switch moves this machine's last used login
-    // (a remote one is stamped by the launcher; a rotation hop never comes
-    // through here).
-    let data_dir = crate::coding_flow::coding_data_dir(cx);
-    let agent = coding::run_registry::get(&data_dir, &session_id).map(|record| record.agent);
-    if !end_then_resume_on_account(
-        session_id,
-        profile_id.clone(),
-        target,
-        coding::LaunchOrigin::Local,
-        None,
-        crate::steer_wiring::StartReport::none(),
-        false,
-        cx,
-    ) {
+    // (a remote one is stamped by its launcher).
+    let agent = local
+        .then(|| {
+            coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), &session_id)
+                .map(|record| record.agent)
+        })
+        .flatten();
+    if !end_then_resume_on_account(session_id, profile_id.clone(), None, cx) {
         crate::toast::show(
             crate::action_error::failed_toast("switch", "the account", Some(REASON_BUSY.into())),
             window,
@@ -516,118 +478,60 @@ pub(crate) fn switch_to(
         return;
     }
     if let Some(agent) = agent {
-        coding::record_last_used(&data_dir, agent, Some(&profile_id));
+        coding::record_last_used(&crate::coding_flow::coding_data_dir(cx), agent, Some(&profile_id));
         crate::device_sync::beat_soon(cx);
     }
 }
 
-/// EXP-849 — the DEVICE side of a mid-run switch: continue `session_id` on
-/// `profile_id` on THIS machine, whether or not the run is still live here.
-/// The one body behind the local control AND a relay resume frame that names an
-/// account (`steer_wiring`), so both paths end the run the same way.
+/// EXP-849 — continue `session_id` on `profile_id`: the ONE body behind a
+/// person's switch and the account-rotation host (EXP-1005).
 ///
-/// A live run is ended FIRST — the agent cannot be in two processes in one
-/// worktree — through the engine's own end sequence, which flips the row to
-/// `ended_by: client` (never `merge`/`system`: nothing merged, and the person
-/// asked). The resume waits for the registration to go rather than racing it: a
-/// resume that started first would hit the one-session-per-issue guard against
-/// the very run it replaces.
+/// `false` = refused because the agent is MID-TURN (a switch then would
+/// truncate exactly the output the reader is waiting for; the caller says so,
+/// [`REASON_BUSY`] is the ×4 sentence). The turn slot is the authority: the
+/// local engine's own signal for a session hosted here, the synced `busy`
+/// column otherwise.
 ///
-/// `false` = refused because the agent is MID-TURN; a switch then would truncate
-/// exactly the output the reader is waiting for. The caller says so ([
-/// `REASON_BUSY`] is the ×4 sentence).
-///
-/// EXP-1005: `prompt` = the resume's own first message. A person's switch and
-/// the relay frame pass `None` (the launcher's continue prompt alone); the
-/// account-rotation host (`account_rotation_host`) passes the rotation's
-/// "moved this run from … to …" line, which the launcher prefixes to the
-/// continue prompt.
-///
-/// FEED-67: `report` = a relay frame's start (`StartReport::none()` for a
-/// local switch); a resume that then fails or is refused reports its reason
-/// through it. The caller reports the mid-turn `false` itself.
+/// EXP-1294: the switch is a `sessions.send{sessionId, account, text}`
+/// message the host acts on; `prompt` = the resume's first message (the
+/// rotation's "moved this run from … to …" line), `None` for a person's
+/// switch. A refusal is the usual "Couldn't switch the account" toast.
 pub(crate) fn end_then_resume_on_account(
     session_id: String,
     profile_id: String,
-    target: Option<gpui::AnyWindowHandle>,
-    origin: coding::LaunchOrigin,
     prompt: Option<String>,
-    report: crate::steer_wiring::StartReport,
-    rotation: bool,
     cx: &mut App,
 ) -> bool {
-    // EXP-1271: a person's switch from the run's own window (`target`) opens
-    // the continuation there; a relay frame or a rotation hop stays in
-    // Running. Review #9: a rotation hop (`rotation`) never toasts.
-    let landing = if target.is_some() {
-        crate::coding_flow::RunLanding::ThisWindow
-    } else if rotation {
-        crate::coding_flow::RunLanding::Rotation
-    } else {
-        crate::coding_flow::RunLanding::Background
-    };
-    let live = crate::coding_flow::LocalSessions::global(cx)
+    let local_busy = crate::coding_flow::LocalSessions::global(cx)
         .read(cx)
         .session_for_id(&session_id)
-        .map(|session| session.host.session.clone());
-    let Some(session) = live else {
-        crate::action_run::resume_run_reporting(
-            session_id,
-            target,
-            landing,
-            origin,
-            Some(profile_id),
-            prompt,
-            report,
-            cx,
-        );
-        return true;
-    };
-    // The turn slot is the authority on both sides of the wire (EXP-848); the
-    // engine's own signal is the local half of it.
-    if !session.turn_signal().is_idle() {
+        .map(|session| !session.host.session.turn_signal().is_idle());
+    let busy = local_busy.unwrap_or_else(|| {
+        crate::session_data::session(&session_id, cx).is_some_and(|row| row.busy)
+    });
+    if busy {
         return false;
     }
-    // FEED-68: this end is half of a resume — an agent parent must not read
-    // it as "ended without a report" and resume the run a second time.
-    coding::mark_resuming(&session_id);
-    session.kill("ended");
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        crate::action_error::failed_action("switch", "the account", None, cx);
+        return true;
+    };
+    let mut input = api::sessions::SendInput::message(
+        &session_id,
+        prompt.as_deref().unwrap_or_default(),
+        Vec::new(),
+    );
+    input.account = Some(profile_id);
     cx.spawn(async move |cx| {
-        // ~10 s at 100 ms: an engine teardown is sub-second; past that the
-        // switch gives up and says so rather than launching into a worktree
-        // something may still hold.
-        for _ in 0..100 {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(100))
-                .await;
-            let gone = cx.update(|cx| {
-                crate::coding_flow::LocalSessions::global(cx)
-                    .read(cx)
-                    .session_for_id(&session_id)
-                    .is_none()
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::sessions::send(&trpc, &input) })
+            .await;
+        if let Err(err) = result {
+            let _ = cx.update(|cx| {
+                crate::action_error::failed_action_err("switch", "the account", &err, cx);
             });
-            if gone {
-                let _ = cx.update(|cx| {
-                    crate::action_run::resume_run_reporting(
-                        session_id.clone(),
-                        target,
-                        landing,
-                        origin,
-                        Some(profile_id.clone()),
-                        prompt.clone(),
-                        report.clone(),
-                        cx,
-                    );
-                });
-                return;
-            }
         }
-        let _ = cx.update(|cx| {
-            coding::unmark_resuming(&session_id);
-            let message = "The session did not stop in time. Switch accounts again once it has.";
-            crate::action_run::notify_target_error(target, message, cx);
-            report.fail(message, cx);
-        });
     })
     .detach();
     true

@@ -5371,7 +5371,7 @@
                     "id": "nav-reviews.icon",
                     "component": "Icon",
                     "props": {
-                      "name": "nav-reviews",
+                      "name": "pr-open",
                       "size": "sm"
                     },
                     "children": [],

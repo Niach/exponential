@@ -9,11 +9,12 @@
 // the authorize URL, the anonymous hosted callback exchanges the code
 // (lib/mcp-oauth/callback.ts). `resolveForLaunch` hands a launcher the
 // caller's OWN values (on a shared device: the device owner's) for the
-// servers its live run picked, named by `X-Exp-Session-Id` (EXP-1140); an
-// unconnected or unpicked one is skipped with a reason, never a launch
-// blocker. FEED-73: a member may SHARE their connection (`setShared`); an
-// ACTION run then also gets one `<server>-as-<member>` entry per other
-// member's shared connection to a picked http server, like device sharing.
+// servers its live session picked, named by `X-Exp-Session-Id` (EXP-1140,
+// a `sessions` row since EXP-1291); an unconnected or unpicked one is skipped
+// with a reason, never a launch blocker. FEED-73: a member may SHARE their
+// connection (`setShared`); a session that runs an ACTION then also gets one
+// `<server>-as-<member>` entry per other member's shared connection to a
+// picked http server, like device sharing.
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray } from "drizzle-orm"
@@ -27,10 +28,10 @@ import {
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, type Context } from "@/lib/trpc"
 import {
-  codingSessions,
   mcpCredentials,
   mcpOauthFlows,
   mcpServers,
+  sessions,
   teamMembers,
   type McpServer,
 } from "@/db/schema"
@@ -607,23 +608,24 @@ export const mcpServersRouter = router({
   // EXP-1140 — this is the one procedure that hands out decrypted secrets,
   // and the agent's `expu_` key reaches tRPC, so it is bound to a run:
   //   - `X-Exp-Session-Id` (the launcher's own request; the agent's MCP
-  //     config carries the same header) names the `coding_sessions` row;
+  //     config carries the same header) names the `sessions` row;
   //     missing → refused;
   //   - the row must be LIVE and the caller its owner or its host (a shared
   //     device's daemon calls as the device OWNER while the row belongs to
   //     the requester — the run then spends the owner's credentials, like
   //     its `expu_` key and GitHub token);
-  //   - exactly the row's persisted pick (`mcp_server_ids`) resolves; a
-  //     picked server removed since is skipped, never a blocker;
+  //   - exactly the row's persisted pick (`sessions.mcp_server_ids`, the
+  //     composer's pick at `sessions.send`) resolves; a picked server
+  //     removed since is skipped, never a blocker;
   //   - the agent's OWN key (`kind: agent`, lib/auth/api-key-kind.ts) is
   //     refused outright, so a prompt-injected agent cannot mint itself a
   //     row with a wider pick and read it back.
   //
-  // FEED-73 — an ACTION run (`action_id` set; its pick is the action's own
-  // list) also gets every OTHER current member's SHARED connection to a
-  // picked http server as an extra `<server>-as-<member>` entry carrying
-  // them as `actor`, plus `members`: the roster of who is in, who is not.
-  // Any other run: no extras, `members: []`.
+  // FEED-73 — a session that runs an ACTION (`action_id` set on the row)
+  // also gets every OTHER current member's SHARED connection to a picked
+  // http server as an extra `<server>-as-<member>` entry carrying them as
+  // `actor`, plus `members`: the roster of who is in, who is not. Any other
+  // session: no extras, `members: []`.
   resolveForLaunch: authedProcedure
     // `serverIds`: accepted and ignored since the 0.14.66 floor.
     .input(z.object({ serverIds: z.array(z.string().uuid()).max(16).optional() }))
@@ -644,16 +646,16 @@ export const mcpServersRouter = router({
       }
       const [run] = await ctx.db
         .select({
-          id: codingSessions.id,
-          userId: codingSessions.userId,
-          hostUserId: codingSessions.hostUserId,
-          teamId: codingSessions.teamId,
-          status: codingSessions.status,
-          mcpServerIds: codingSessions.mcpServerIds,
-          actionId: codingSessions.actionId,
+          id: sessions.id,
+          userId: sessions.userId,
+          hostUserId: sessions.hostUserId,
+          teamId: sessions.teamId,
+          status: sessions.status,
+          mcpServerIds: sessions.mcpServerIds,
+          actionId: sessions.actionId,
         })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, sessionId))
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
         .limit(1)
       if (
         !run ||

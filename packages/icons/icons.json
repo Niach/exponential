@@ -114,7 +114,7 @@
     "nav-issues": "list",
     "nav-my-issues": "list",
     "nav-boards": "folder-kanban",
-    "nav-reviews": "git-pull-request",
+    "nav-threads": "list-tree",
     "nav-devices": "monitor",
     "nav-actions": "rocket",
     "nav-settings": "settings",

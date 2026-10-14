@@ -21,9 +21,9 @@ import {
 } from "@/lib/detail-origin"
 
 // EXP-825: "start something" is ONE call — every play button (issue detail,
-// the bulk bar, an action's Run, New action / a suggestion, a device's play,
-// Reviews' Fix conflicts) hands this hook a preselection instead of building
-// its own launcher. ONE place decides what that opens.
+// the bulk bar, an action's Run, a device's play) hands this hook a
+// preselection instead of building its own launcher. ONE place decides what
+// that opens.
 //
 // EXP-1019: what it opens is now a DIALOG over the current surface whenever
 // the seed carries a subject (issues or an action) — navigating away to the
@@ -58,7 +58,7 @@ export interface OpenComposerOptions {
 
 /**
  * EXP-1186: start something in a GIVEN team — the phone's cross-team lists
- * (Actions, Reviews) start in the ROW's team. The route's own team keeps the
+ * (Actions) start in the ROW's team. The route's own team keeps the
  * dialog (`useOpenComposer`); another team's start travels to THAT team's
  * Agent page with the seed in its search, which the page honours as a
  * one-shot like any deep link — the launcher is bound to the route's team.
@@ -114,17 +114,10 @@ export function useOpenComposer(): (
       // where they were, and the dialog's headline says what pressing send
       // will do. Only a subjectless start (the Agent nav entry, a plain
       // chat) still travels to the page, which is where a chat lives.
-      // The caller's ORIGIN rides along (EXP-870: a pinned action's `null`
-      // = context-free); the dialog's run watch hands it to `useOpenSession`
-      // so the run opens where the click said, not where the URL was.
+      // EXP-1293: the started session opens its thread, so the origin only
+      // matters to the page navigation below.
       if (seedHasSubject(seed)) {
-        requestLaunchDialog({
-          ...seed,
-          issueIds: seed.issueIds ?? [],
-          ...(options && `origin` in options
-            ? { origin: options.origin ?? null }
-            : {}),
-        })
+        requestLaunchDialog({ ...seed, issueIds: seed.issueIds ?? [] })
         return
       }
       const screen = screenFromPath(location ?? ``)

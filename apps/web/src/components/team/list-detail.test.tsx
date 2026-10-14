@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { SidebarProvider } from "@exp/ui"
 
 // EXP-1246: the ONE list-detail host. On the list screen itself nothing is
-// selected (no back row for the Inbox; Recent's row shuts the panel); beside a
-// detail the back row returns to the list, which stays mounted.
+// selected (no back row); beside a detail the back row returns to the list,
+// which stays mounted.
 
 const location = vi.hoisted(() => ({ pathname: `/t/acme/inbox` }))
 const navigate = vi.hoisted(() => vi.fn())
@@ -21,27 +21,17 @@ vi.mock(`@/components/team/list-nav`, () => ({
     return <div data-testid="inbox-list" />
   },
 }))
-vi.mock(`@/components/team/recent-runs-nav`, () => ({
-  RecentRunsNav: () => <div data-testid="recent-list" />,
-}))
 
 import {
   ListDetailEmpty,
   ListDetailPane,
   listDetailKey,
 } from "@/components/team/list-detail"
-import {
-  setRecentRunsPanelOpen,
-  useRecentRunsPanelOpen,
-} from "@/lib/recent-runs-panel"
-import type { Team } from "@/db/schema"
-
-const team = { id: `t1`, slug: `acme` } as Team
 
 function renderPane(origin: Parameters<typeof ListDetailPane>[0][`origin`]) {
   return render(
     <SidebarProvider>
-      <ListDetailPane teamSlug="acme" team={team} origin={origin} currentUserId="u1" />
+      <ListDetailPane teamSlug="acme" origin={origin} />
     </SidebarProvider>
   )
 }
@@ -49,7 +39,6 @@ function renderPane(origin: Parameters<typeof ListDetailPane>[0][`origin`]) {
 afterEach(() => {
   navigate.mockReset()
   inboxProps.value = null
-  setRecentRunsPanelOpen(false)
   location.pathname = `/t/acme/inbox`
 })
 
@@ -84,37 +73,9 @@ describe(`ListDetailPane`, () => {
     )
   })
 
-  it(`shuts Recent on the Agent page, and returns a run to it`, () => {
-    location.pathname = `/t/acme/agent`
-    setRecentRunsPanelOpen(true)
-    const { unmount } = renderPane({ kind: `agent`, tab: `recent` })
-    expect(screen.getByTestId(`recent-list`)).toBeTruthy()
-    fireEvent.click(screen.getByRole(`button`, { name: `Back to Agent` }))
-    expect(navigate).not.toHaveBeenCalled()
-    unmount()
-
-    let open = false
-    function Probe() {
-      open = useRecentRunsPanelOpen()
-      return null
-    }
-    render(<Probe />)
-    expect(open).toBe(false)
-
-    location.pathname = `/t/acme/sessions/s1`
-    renderPane({ kind: `agent`, tab: `recent` })
-    fireEvent.click(screen.getByRole(`button`, { name: `Back to Agent` }))
-    expect(navigate).toHaveBeenCalledWith(
-      expect.objectContaining({ to: `/t/$teamSlug/agent` })
-    )
-  })
-
   it(`keys one host per list`, () => {
     expect(listDetailKey({ kind: `inbox` })).toBe(
       listDetailKey({ kind: `inbox`, tab: `my-issues` })
-    )
-    expect(listDetailKey({ kind: `agent`, tab: `recent` })).not.toBe(
-      listDetailKey({ kind: `inbox` })
     )
   })
 })

@@ -151,22 +151,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
         },
         tab_title: "claude · EXP-12".to_string(),
         tab_title_prefix: "EXP-12".to_string(),
-        heartbeat_scope: api::coding_sessions::HeartbeatScope {
-            issue_id: None,
-            team_id: None,
-            action_id: None,
-            action_name: None,
-            started_by_id: None,
-            device_id: None,
-            started_reason: None,
-            trigger_id: None,
-            branch: None,
-            batch_issue_ids: Vec::new(),
-            agent: None,
-            agent_account: None,
-            thread_id: None,
-        },
-        action_id: None,
+        seed_message_id: None,
         bypass_permissions: true,
         plan_mode: false,
         agent: coding::CodingAgent::Claude,
@@ -199,7 +184,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
             account_id: "acct-1".to_string(),
             own_user_id: Some("user-1".to_string()),
             personal_key: Some("expu_test-key".to_string()),
-            issue_id: Some("issue-1".to_string()),
+            agent_root: false,
             foreign_host: false,
             rotation_host: false,
             publish: false,
@@ -211,6 +196,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
             adapter,
             child_exit,
             sink: Some(sink.clone() as Arc<dyn EventSink>),
+            conversation: None,
         },
     )
     .expect("the engine starts");
@@ -406,8 +392,8 @@ fn settle_of(sink: &RecordingSink, id: &str) -> Option<serde_json::Value> {
 /// EXP-1202 / EXP-1220: a CLAUDE run publishes an Exponential tool's preview
 /// like a codex one does. The CLI hands an MCP answer over as a `tool_result`
 /// whose content is the server's `[{type:"text",text:"<json>"}]` envelope; the
-/// adapter forwards it as the settle's `raw_output`, so `sessions_show`
-/// settles with `preview.id` = the attachment every client renders inline.
+/// adapter forwards it as the settle's `raw_output`, so `attachments_upload`
+/// settles with `preview.id` = the uploaded attachment.
 /// A FAILED call settles with no preview, even when its text parses as a row.
 ///
 /// The side finding: a `Bash` settle's wire `output` is what the command
@@ -428,7 +414,7 @@ fn a_claude_exponential_call_publishes_its_preview() {
     assert_eq!(
         shown["preview"]["id"],
         serde_json::json!("7c0b9f3e-2d4a-4e8b-9a61-3f5d2c1b0a99"),
-        "the settle carries the shown attachment: {shown}"
+        "the settle carries the uploaded attachment: {shown}"
     );
 
     let failed = settle_of(&harness.sink, "toolu_thefailedcall").expect("the failed call settled");

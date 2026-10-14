@@ -12,7 +12,7 @@ import type { StyleguideEntry } from "./types.ts"
 // UI cleanup batch — the composer's options line, drawn by the REAL words it
 // is made of (apps/web/src/components/launch-dialog/launch-options-line.tsx):
 // every word is a typed picker in its `inline` variant — Device, Account,
-// Model, Repository — then the Plan switch. Effort, Subagents and Ultracode
+// Model, Repository — then the Plan switch. Effort and Ultracode
 // live in the composer's "+" menu (EXP-1249, the `menu` entry).
 
 const noop = (): void => {}
@@ -40,7 +40,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1249`,
   title: `Composer options`,
-  blurb: `The muted line under the composer card, as the real components it is made of: every word is a TYPED picker in its inline variant (DevicePicker, AccountPicker, ModelPicker, RepositoryPicker — the repository only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say; then the Plan switch, and nothing else: Effort, Subagents and Ultracode are rows of the composer's "+" menu (composer-menu.json ×4). A pick opens the picker's popover (a bottom sheet on a phone) with the one selection language.`,
+  blurb: `The muted line under the composer card, as the real components it is made of: every word is a TYPED picker in its inline variant (DevicePicker, AccountPicker, ModelPicker, RepositoryPicker — the repository only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say; then the Plan switch, and nothing else: Effort and Ultracode are rows of the composer's "+" menu (composer-menu.json ×4). A pick opens the picker's popover (a bottom sheet on a phone) with the one selection language.`,
   status: {
     web: {
       state: `ok`,

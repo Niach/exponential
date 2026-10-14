@@ -18,7 +18,7 @@ import { IssueChip } from "@/components/issue-chip"
 import { cn } from "@/lib/utils"
 
 // EXP-980: THE blocks mini-graph. One component behind the list's blocks
-// badge, the issue rail's hover and the blocked-start dialog.
+// badge and the issue rail's hover.
 //
 // No graph library: every node arrives with a `wave` (ROW) and a `lane`
 // (COLUMN) — derived here by `lib/issue-graph.ts` — so this is a grid of

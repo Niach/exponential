@@ -4,7 +4,7 @@ import SwiftUI
 
 /// EXP-825: the picked action's typed inputs, rendered inside the composer
 /// card's leading slot. Only the four PICK types are left (`repo` / `board` /
-/// `pr` / `icon`) — free text is the composer's own field now, and an
+/// `pr` / `issue`, EXP-1291) — free text is the composer's own field now, and an
 /// unknown type blocks the run instead of silently degrading (the desktop
 /// mirrors this posture).
 struct ActionInputFieldsView: View {
@@ -55,27 +55,24 @@ struct ActionInputFieldsView: View {
                 }
             )
             .padding(.vertical, 4)
-        case "icon":
-            // EXP-273: the value is a curated registry NAME (e.g. `rocket`) —
-            // the same string a board stores — picked with the same picker as
-            // the create-board form. Optional inputs start at none and can be
-            // cleared again.
-            HStack(spacing: 12) {
-                Text(inputLabel(def))
-                    .foregroundStyle(.white.opacity(TextOpacity.primary))
-                Spacer(minLength: 8)
-                IconPicker(selection: binding(def), allowsNone: !def.isRequired)
-            }
+        case "issue":
+            // EXP-1291: the value is an issue id of the team (the eligible
+            // pool the Implement picker lists).
+            GlassPickerRow(
+                inputLabel(def),
+                selection: binding(def),
+                options: [""] + model.issues.map(\.id),
+                label: { id in
+                    guard !id.isEmpty else { return def.isRequired ? "Select an issue" : "None" }
+                    guard let option = model.issues.first(where: { $0.id == id }) else { return id }
+                    return [option.identifier, option.title].compactMap { $0 }.joined(separator: " ")
+                }
+            )
             .padding(.vertical, 4)
         case "pr":
-            // EXP-259: the value is the REPRESENTATIVE issue id of an open
-            // issue-linked PR (batch PRs dedupe by prUrl, so one row can list
-            // several identifiers). EXP-1233: the Fix merge conflicts builtin
-            // draws its own card instead (PR number, branch → base, and the
-            // refusal note when a refused merge opened the composer).
-            if model.isFixConflicts {
-                FixConflictsCard(model: model, def: def)
-            } else if model.pullRequests.isEmpty {
+            // EXP-1291: the value is the `pull_requests` row id of an open
+            // pull request of the team.
+            if model.pullRequests.isEmpty {
                 HStack(spacing: 8) {
                     Text(inputLabel(def))
                         .foregroundStyle(.white.opacity(TextOpacity.primary))
@@ -89,10 +86,10 @@ struct ActionInputFieldsView: View {
                 GlassPickerRow(
                     inputLabel(def),
                     selection: binding(def),
-                    options: [""] + model.pullRequests.map(\.issueId),
+                    options: [""] + model.pullRequests.map(\.id),
                     label: { id in
                         guard !id.isEmpty else { return def.isRequired ? "Select a pull request" : "None" }
-                        return model.pullRequests.first { $0.issueId == id }?.label ?? id
+                        return model.pullRequests.first { $0.id == id }?.label ?? id
                     }
                 )
                 .padding(.vertical, 4)

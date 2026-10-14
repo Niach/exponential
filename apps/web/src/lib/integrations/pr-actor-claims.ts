@@ -18,11 +18,6 @@ interface PrActor {
   // True when the action came in over an agent's MCP credential — gates the
   // host→requester attribution swap in fireAndForgetPrNotify (EXP-432).
   viaAgent: boolean
-  // EXP-711 (merge claims only): the caller's per-merge override of the
-  // team's end-sessions-on-merge setting. The `closed` webhook reliably
-  // beats the in-app merge write, so this is how `pr_merge({ endSessions })`
-  // reaches the sweep the webhook runs. Unset = the team setting decides.
-  endSessions?: boolean
 }
 
 interface PrActorClaim extends PrActor {

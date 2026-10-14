@@ -98,8 +98,9 @@ pub struct RefResolver {
     /// code; EXP-423: plus the status icon in the leading gutter.
     pub issue_chip: IssueChipResolver,
     /// EXP-760: also chip BARE `EXP-758` tokens (no `#`). Display-only and
-    /// opt-in — the STEERING views set it because agents narrate identifiers
-    /// that way; descriptions and comments keep the `#IDENT` contract, which
+    /// opt-in — the STEERING views and every THREAD text (EXP-1309, web
+    /// `ThreadMarkdown`) set it because agents narrate identifiers that way;
+    /// descriptions and comments keep the `#IDENT` contract, which
     /// is what auto-relations and the stored text are matched against. The
     /// pattern is the web `BARE_REF_SOURCE` (`lib/issue-refs.ts`), mirrored
     /// byte for byte here and on both natives.
@@ -2665,12 +2666,15 @@ pub(crate) fn open_agent_link(href: &str, window: &mut Window, cx: &mut App) {
             }
         }
         AppLink::Session { session_id, .. } => {
-            crate::session_screen::open_session(&session_id, window, cx);
+            let screen = crate::navigation::session_screen_for(&session_id, cx);
+            crate::navigation::navigate(window, cx, screen);
         }
         AppLink::Thread { thread_id, .. } => crate::navigation::navigate(
             window,
             cx,
-            crate::navigation::Screen::Thread { thread_id },
+            crate::navigation::Screen::Thread {
+                session_id: thread_id,
+            },
         ),
         AppLink::Issue { team_slug, identifier, .. } => {
             let team_id = sync::Store::global(cx)

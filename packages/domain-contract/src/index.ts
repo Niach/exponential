@@ -54,13 +54,10 @@ export interface DomainContract {
     model: string
     subagentModel: string
   }
-  codingSessionStatus: { values: readonly string[] }
-  /**
-   * EXP-637: how a run finished in the agent's own words
-   * (`exponential_sessions_end`) and who ended it — parity-locked with
-   * @exp/db-schema/domain by apps/web's domain-contract test.
-   */
-  codingSessionEndedBy: { values: readonly string[] }
+  /** EXP-1291: the session tree — roots are threads or team agents. */
+  sessionKind: { values: readonly string[] }
+  /** EXP-1291: queued → running ⇄ idle → ended (agents never end). */
+  sessionStatus: { values: readonly string[] }
   /**
    * EXP-804: the shape of `coding_sessions.blocked`, the agent's usage wall
    * as row state. NULL = not blocked; a blocked run still reads `running`
@@ -229,8 +226,14 @@ export interface DomainContract {
   }
   /** Who created a relation row: an explicit pick, or a `#IDENT` reference. */
   issueRelationSource: { values: readonly string[] }
-  threadItemKind: { values: readonly string[] }
-  threadItemSource: { values: readonly string[] }
+  /** EXP-1291: who linked an issue to a thread (session_issues.source). */
+  sessionIssueSource: { values: readonly string[] }
+  /** EXP-1291: a conversation row's author — a person, the agent, the server. */
+  messageAuthorKind: { values: readonly string[] }
+  /** EXP-1291: the card kinds a conversation row may carry (messages.card). */
+  messageCardKind: { values: readonly string[] }
+  /** EXP-1291: an `event` card's event. */
+  messageEventKind: { values: readonly string[] }
   /** Coding agent CLIs a desktop device may run (EXP-201; first = default). */
   codingAgent: { values: readonly string[] }
   /** Claude model aliases for coding-session launches (first = default). */
@@ -245,20 +248,12 @@ export interface DomainContract {
   codexModel: { values: readonly string[] }
   /** Codex reasoning-effort levels (`model_reasoning_effort`); blank is per-client. */
   codexEffort: { values: readonly string[] }
-  /** Typed action-input kinds (EXP-257/EXP-259/EXP-273): repo | board | pr | icon — every one a PICK. EXP-825 retired the free-text kinds: a run's free text is the start's `prompt`. */
+  /** Typed action-input kinds (EXP-257/EXP-259/EXP-273): repo | board | pr | issue — every one a PICK. EXP-825 retired the free-text kinds: a run's free text is the start's `prompt`. */
   actionInputType: { values: readonly string[] }
   /** EXP-792: how a team MCP server is reached — a remote `http` endpoint or a local `stdio` command. */
   mcpTransport: { values: readonly string[] }
   /** EXP-792: how the device authenticates to it — `none`, an `oauth` sign-in, or a typed `secret`. */
   mcpAuth: { values: readonly string[] }
-  /** Server-defined virtual actions injected into actions.list (EXP-257/EXP-259). */
-  builtinAction: {
-    createActionId: string
-    fixConflictsId: string
-    chatId: string
-    /** FEED-50: the listed, automatable board cleanup. */
-    tidyUpId: string
-  }
   /** Action-input limits — parity-locked with @exp/db-schema/domain. */
   actionInputs: { max: number; maxTextLength: number }
   /**
@@ -270,25 +265,32 @@ export interface DomainContract {
    */
   startPrompt: { maxLength: number; maxImages: number }
   /**
-   * Action triggers (EXP-530, SLOP-2): the event kinds a trigger may watch
-   * (a subset of issueEventType), the event sources, the schedule intervals,
-   * the cap on each filter id list and on an action's triggers —
+   * Agent triggers (EXP-530, SLOP-2; on team agents since EXP-1291): the
+   * event kinds a trigger may watch (a subset of issueEventType), the event
+   * sources, the schedule intervals, the cap on each filter id list and on
+   * an agent's triggers, the device-side cooldown and catch-up window —
    * parity-locked with @exp/db-schema/domain.
    */
-  actionTrigger: {
+  agentTrigger: {
     eventValues: readonly string[]
     scheduleIntervalValues: readonly string[]
     eventSourceValues: readonly string[]
     maxFilterIds: number
-    maxPerAction: number
-    /** EXP-530 trigger-host tuning: cooldown after any triggered start, and
-     *  how far back an offline device replays issue_events on reconnect. */
+    maxPerAgent: number
     cooldownSeconds: number
     eventCatchupHours: number
-    /** SLOP-17: the device cap of a build that fires triggers; devices also
-     *  advertise `legacyDeviceCap` until every client reads the new name. */
-    deviceCap: string
-    legacyDeviceCap: string
+  }
+  /** EXP-1291: `sessions.send`'s caps — parity-locked with @exp/db-schema/domain. */
+  sessionsSend: {
+    textMax: number
+    maxAttachments: number
+    maxIssues: number
+    briefMaxBytes: number
+    messageBodyMax: number
+    agentNameMax: number
+    agentInstructionsMaxBytes: number
+    treeMaxDepth: number
+    treeMaxSessions: number
   }
   /**
    * EXP-724: the curated slash commands a steering client may offer in its

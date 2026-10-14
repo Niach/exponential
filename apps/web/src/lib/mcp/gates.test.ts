@@ -5,15 +5,15 @@ import { PgDialect } from "drizzle-orm/pg-core"
 // register at all. It must stay cheap (one indexed select at most). SLOP-4
 // retired the helpdesk gate; what remains are the session-header gates.
 //
-// EXP-679 / EXP-1222: it decides whether exponential_sessions_end registers —
-// for any of the caller's OWN runs — and whether that run is unattended
-// (started_reason set), which only picks the instructions' wording.
+// EXP-1291: one header gate (`inSession`: the caller's OWN session, starter
+// or host) plus two wording flags: unattended (a child, or a root another
+// session spawned) and agent (the root is a team agent).
 
 const h = vi.hoisted(() => {
   const dbRows: { current: Array<unknown> } = { current: [] }
   const state: { capturedWhere: unknown } = { capturedWhere: undefined }
   const queryBuilder: Record<string, unknown> = {}
-  for (const method of [`from`, `limit`]) {
+  for (const method of [`from`, `leftJoin`, `limit`]) {
     queryBuilder[method] = vi.fn(() => queryBuilder)
   }
   queryBuilder.where = vi.fn((cond: unknown) => {
@@ -48,215 +48,78 @@ beforeEach(() => {
   h.state.capturedWhere = undefined
 })
 
+const CLOSED = { inSession: false, unattended: false, agent: false }
+const RUN = `44444444-4444-4444-4444-444444444444`
+const PARENT = `55555555-5555-4555-8555-555555555555`
+
 describe(`resolveMcpToolGates`, () => {
   it(`is all off without a session header, and never queries`, async () => {
-    expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual({
-      sessionsEnd: false,
-      unattended: false,
-      askParent: false,
-      sessionResults: false,
-    })
+    expect(await resolveMcpToolGates(`u`, FULL_ACCESS)).toEqual(CLOSED)
     expect(h.db.select).not.toHaveBeenCalled()
   })
 
-  it(`ignores the OAuth grant — no gate is team-scoped since SLOP-4`, async () => {
+  it(`ignores the OAuth grant`, async () => {
     const scoped: McpAccess = {
       full: false,
       fullTeamIds: new Set([WS]),
       grantedBoardIds: new Set(),
       visibleTeamIds: new Set([WS]),
     }
-    expect(await resolveMcpToolGates(`u`, scoped)).toEqual({
-      sessionsEnd: false,
+    expect(await resolveMcpToolGates(`u`, scoped)).toEqual(CLOSED)
+    expect(h.db.select).not.toHaveBeenCalled()
+  })
+
+  it(`is on and attended for the caller's own person-started root`, async () => {
+    h.dbRows.current = [
+      { userId: `u`, hostUserId: null, parentId: null, rootKind: `thread`, rootSpawnedBy: null },
+    ]
+    expect(await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).toEqual({
+      inSession: true,
       unattended: false,
-      askParent: false,
-      sessionResults: false,
+      agent: false,
     })
-    expect(h.db.select).not.toHaveBeenCalled()
-  })
-})
-
-describe(`resolveMcpToolGates — sessionsEnd (EXP-679, EXP-1222)`, () => {
-  const RUN = `44444444-4444-4444-4444-444444444444`
-
-  it(`is off without a session header, and never queries`, async () => {
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, null)
-    expect(gates).toMatchObject({ sessionsEnd: false, unattended: false })
-    expect(h.db.select).not.toHaveBeenCalled()
-  })
-
-  it(`is on for a person-started run, which is not unattended`, async () => {
-    h.dbRows.current = [
-      { userId: `u`, hostUserId: null, startedReason: null },
-    ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: true, unattended: false })
-    // One indexed select, nothing else.
+    // One indexed select, keyed on the header's id.
     expect(h.db.select).toHaveBeenCalledTimes(1)
-  })
-
-  it(`is on for the caller's own automation-started run, unattended`, async () => {
-    h.dbRows.current = [
-      { userId: `u`, hostUserId: null, startedReason: `schedule` },
-    ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: true, unattended: true })
     const { sql, params } = renderWhere()
     expect(sql).toContain(`"id" =`)
     expect(params).toContain(RUN)
   })
 
-  it(`is off when the run is someone else's`, async () => {
+  it(`is unattended for a child and for a root another session spawned`, async () => {
     h.dbRows.current = [
-      { userId: `other`, hostUserId: `other-host`, startedReason: `schedule` },
+      { userId: `u`, hostUserId: null, parentId: PARENT, rootKind: `thread`, rootSpawnedBy: null },
     ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: false, unattended: false })
-  })
-
-  it(`is off when the header names no row at all`, async () => {
-    h.dbRows.current = []
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates.sessionsEnd).toBe(false)
-  })
-})
-
-// EXP-700 / EXP-1089: askParent opens for EVERY run of the caller's (the
-// handler decides who may be asked: `to: 'user'` from any run, a starter only
-// where there is one). The parent linkage is deliberately NOT part of the
-// gate: the parent stamps parent_session_id only after its sessions_start
-// poll returns, so a child whose tools/list wins that race would otherwise
-// never see the tool.
-describe(`resolveMcpToolGates — askParent (EXP-700, EXP-1089)`, () => {
-  const RUN = `44444444-4444-4444-4444-444444444444`
-  const PARENT = `55555555-5555-4555-8555-555555555555`
-
-  it(`is off without a session header`, async () => {
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, null)
-    expect(gates.askParent).toBe(false)
-    expect(h.db.select).not.toHaveBeenCalled()
-  })
-
-  it(`is on for the caller's own agent-started run with a linked parent`, async () => {
+    expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).unattended).toBe(true)
     h.dbRows.current = [
-      {
-        userId: `u`,
-        hostUserId: null,
-        startedReason: `agent`,
-        parentSessionId: PARENT,
-      },
+      { userId: `u`, hostUserId: null, parentId: null, rootKind: `thread`, rootSpawnedBy: PARENT },
     ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
+    expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).unattended).toBe(true)
   })
 
-  it(`is on for an automation-started run (it may ask the person)`, async () => {
+  it(`flags a team agent's session`, async () => {
     h.dbRows.current = [
-      {
-        userId: `u`,
-        hostUserId: null,
-        startedReason: `schedule`,
-        parentSessionId: null,
-      },
+      { userId: `u`, hostUserId: null, parentId: null, rootKind: `agent`, rootSpawnedBy: null },
     ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
-  })
-
-  it(`is on for the caller's own person-started run, attended`, async () => {
-    // EXP-1089: a workflow's planner run pressed from the page is one of
-    // these — it clears its questions with the person before the graph exists.
-    h.dbRows.current = [
-      {
-        userId: `u`,
-        hostUserId: null,
-        startedReason: null,
-        parentSessionId: null,
-      },
-    ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({
-      sessionsEnd: true,
+    expect(await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).toEqual({
+      inSession: true,
       unattended: false,
-      askParent: true,
+      agent: true,
     })
   })
 
-  it(`is on for an agent-started run whose parent is not stamped YET`, async () => {
-    // The race the gate must not lose: the row exists (the device created it)
-    // before the parent's sessions_start poll stamps parent_session_id.
+  it(`is on for a session the caller only hosts`, async () => {
     h.dbRows.current = [
-      {
-        userId: `u`,
-        hostUserId: null,
-        startedReason: `agent`,
-        parentSessionId: null,
-      },
+      { userId: `owner`, hostUserId: `u`, parentId: null, rootKind: `thread`, rootSpawnedBy: null },
     ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates).toMatchObject({ sessionsEnd: true, askParent: true })
+    expect((await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).inSession).toBe(true)
   })
 
-  it(`is off when the run is someone else's`, async () => {
+  it(`is off for someone else's session and for a header naming no row`, async () => {
     h.dbRows.current = [
-      {
-        userId: `other`,
-        hostUserId: `other-host`,
-        startedReason: `agent`,
-        parentSessionId: PARENT,
-      },
+      { userId: `other`, hostUserId: `other-host`, parentId: null, rootKind: `thread`, rootSpawnedBy: null },
     ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates.askParent).toBe(false)
-  })
-})
-
-// EXP-879: sessionResults opens for ANY run of the caller's — attended or
-// not. The only questions are "is there a run" and "is it mine".
-describe(`resolveMcpToolGates — sessionResults (EXP-879)`, () => {
-  const RUN = `44444444-4444-4444-4444-444444444444`
-
-  it(`is off without a session header, and never queries`, async () => {
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, null)
-    expect(gates.sessionResults).toBe(false)
-    expect(h.db.select).not.toHaveBeenCalled()
-  })
-
-  it(`is on for the caller's own PERSON-started run`, async () => {
-    h.dbRows.current = [
-      {
-        userId: `u`,
-        hostUserId: null,
-        startedReason: null,
-      },
-    ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    // EXP-1222: an attended run gets the close-out and publishing alike.
-    expect(gates).toMatchObject({
-      sessionsEnd: true,
-      unattended: false,
-      sessionResults: true,
-    })
-  })
-
-  it(`is on for a run the caller only hosts`, async () => {
-    h.dbRows.current = [
-      { userId: `owner`, hostUserId: `u`, startedReason: `schedule` },
-    ]
-    const gates = await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)
-    expect(gates.sessionResults).toBe(true)
-  })
-
-  it(`is off for someone else's run and for a header naming no row`, async () => {
-    h.dbRows.current = [
-      { userId: `other`, hostUserId: `other-host`, startedReason: null },
-    ]
-    expect(
-      (await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).sessionResults
-    ).toBe(false)
+    expect(await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).toEqual(CLOSED)
     h.dbRows.current = []
-    expect(
-      (await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).sessionResults
-    ).toBe(false)
+    expect(await resolveMcpToolGates(`u`, FULL_ACCESS, RUN)).toEqual(CLOSED)
   })
 })

@@ -85,8 +85,8 @@ final class AgentComposerPromptTests: XCTestCase {
     func testSubmitTitlesFollowTheSubject() {
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .none), "Start chat")
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 1)), "Start coding")
-        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 2)), "Start batch · 2")
-        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 30)), "Start batch · 30")
+        // Several issues are still ONE thread.
+        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .issues(count: 3)), "Start coding")
         XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .action), "Run action")
     }
 
@@ -95,7 +95,7 @@ final class AgentComposerPromptTests: XCTestCase {
     func testHeadlinesFollowTheSubject() {
         XCTAssertEqual(AgentComposerPrompt.headline(for: .none), "Ask the agent")
         XCTAssertEqual(AgentComposerPrompt.headline(for: .issues(count: 1)), "Implement")
-        // A batch says the same verb — the chips carry the count.
+        // Several issues say the same verb — the chips carry the count.
         XCTAssertEqual(AgentComposerPrompt.headline(for: .issues(count: 7)), "Implement")
         XCTAssertEqual(AgentComposerPrompt.headline(for: .action), "Run")
     }
@@ -164,36 +164,5 @@ final class AgentComposerPromptTests: XCTestCase {
             AgentComposerPrompt.placeholder(for: .issues(count: 1), actionHint: "Which version?"),
             "Additional instructions (optional)…"
         )
-    }
-
-    func testTheCreateBuiltinHintReachesThePlaceholder() {
-        let create = ActionDto.builtinCreateAction(teamId: "t-1")
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .action, actionHint: create.promptPlaceholder),
-            "Describe the action — what it should do, and its name if you have one…"
-        )
-    }
-
-    // EXP-1233: the Fix merge conflicts builtin with a PICKED pull request is
-    // its own subject — the contract's headline and send; the placeholder
-    // stays the action's (the instructions prompt unless it carries a hint).
-    func testFixConflictsHasItsOwnHeadlineAndSend() {
-        XCTAssertEqual(AgentComposerPrompt.headline(for: .fixConflicts), "Fix merge conflicts")
-        XCTAssertEqual(
-            AgentComposerPrompt.headline(for: .fixConflicts),
-            DomainContract.composerUiFixConflictsHeadline
-        )
-        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .fixConflicts), "Fix conflicts")
-        XCTAssertEqual(
-            AgentComposerPrompt.submitTitle(for: .fixConflicts),
-            DomainContract.composerUiFixConflictsSubmit
-        )
-        XCTAssertEqual(
-            AgentComposerPrompt.placeholder(for: .fixConflicts, actionHint: nil),
-            "Additional instructions (optional)…"
-        )
-        // Unpicked, the builtin is a plain action: "Run" + "Run action".
-        XCTAssertEqual(AgentComposerPrompt.headline(for: .action), "Run")
-        XCTAssertEqual(AgentComposerPrompt.submitTitle(for: .action), "Run action")
     }
 }

@@ -15,14 +15,19 @@
 //! The desktop is NEVER a signer: it holds no `STEER_RELAY_SECRET` and never
 //! touches `signSteerTicket`. All authorization is decided server-side at
 //! mint time (§8.0).
+//!
+//! EXP-1292: the start path (`steer.startSession` / `killSession` /
+//! `reportStartFailure`) is gone — the database is the bus; the relay keeps
+//! only the live layer these tickets open.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::trpc::TrpcClient;
 
-/// `steer.config` output — whether remote start + live steering is available
-/// on this instance (enabled iff BOTH `STEER_RELAY_URL` and
+/// `steer.config` output — whether live steering is available on this
+/// instance (EXP-1292: starts no longer ride the relay — a start is a
+/// `queued` sessions row the device picks up off the shape) (enabled iff BOTH `STEER_RELAY_URL` and
 /// `STEER_RELAY_SECRET` are set server-side).
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -87,11 +92,11 @@ enum MintInput<'a> {
     // EXP-707: the wire name is `sessionId` (renamed from `codingSessionId`).
     Publisher {
         #[serde(rename = "sessionId")]
-        coding_session_id: &'a str,
+        session_id: &'a str,
     },
     Viewer {
         #[serde(rename = "sessionId")]
-        coding_session_id: &'a str,
+        session_id: &'a str,
     },
 }
 
@@ -114,166 +119,18 @@ pub fn mint_control_ticket(trpc: &TrpcClient) -> Result<MintTicketResult, ApiErr
 /// (only the owner's desktop may publish).
 pub fn mint_publisher_ticket(
     trpc: &TrpcClient,
-    coding_session_id: &str,
+    session_id: &str,
 ) -> Result<MintTicketResult, ApiError> {
-    mint(trpc, &MintInput::Publisher { coding_session_id })
+    mint(trpc, &MintInput::Publisher { session_id })
 }
 
 /// `steer.mintTicket({kind: "viewer", sessionId})` — watch/steer a
 /// session from this client (team members; owners get perm `steer`).
 pub fn mint_viewer_ticket(
     trpc: &TrpcClient,
-    coding_session_id: &str,
+    session_id: &str,
 ) -> Result<MintTicketResult, ApiError> {
-    mint(trpc, &MintInput::Viewer { coding_session_id })
-}
-
-/// `steer.startSession` input (EXP-696) — the same remote-start payload web
-/// and mobile send. Exactly one of `issue_id` / `issue_ids` / `action_id` /
-/// `resume_session_id` must be set; `team_id` rides built-in action starts
-/// only; `inputs` rides action starts only (BTreeMap for a deterministic
-/// wire order). Absent options mean "target device's defaults". EXP-825:
-/// `prompt` is the composer's free text (≤ `START_PROMPT_MAX_LENGTH`, images
-/// as steer embeds) — REQUIRED for the Chat and Create-action builtins,
-/// optional additional instructions elsewhere, forbidden on a resume.
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StartSessionInput {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub issue_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub issue_ids: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub action_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub team_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub inputs: Option<std::collections::BTreeMap<String, String>>,
-    pub device_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ultracode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan_mode: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resume: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resume_session_id: Option<String>,
-    /// EXP-825: LAST on the wire so every prompt-less start stays
-    /// byte-identical to the locked fixtures above.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<String>,
-    /// EXP-849: the agent ACCOUNT PROFILE on the target device to run on (a
-    /// device-local profile id, 1-64 chars; absent/`system` = its ambient
-    /// login). It rides a `resume_session_id` start too — that is how a
-    /// remote "switch account" is expressed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub account: Option<String>,
-    /// EXP-981: the model claude's SUBAGENTS run on for this start. Claude
-    /// only; blank = the CLI's own default, absent = the target machine's
-    /// own launch default. No capability gate — an older device simply
-    /// ignores the field. LAST on the wire, like every option before it, so
-    /// a start without it keeps the byte-identical shape the fixtures lock.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subagent_model: Option<String>,
-    /// EXP-1249: computer use for THIS run (the composer "+" toggle); absent
-    /// = the target machine's own switch. Sent only to a machine advertising
-    /// `computer-use-run`, and LAST on the wire like every option before it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub computer_use: Option<bool>,
-    /// EXP-1284: the thread this start JOINS (`steer.startSession({threadId})`
-    /// — a thread of the subject's team; refused beside `resume_session_id`,
-    /// whose resume stays in its predecessor's thread). The relay forwards it
-    /// on the start frame and the device echoes it into
-    /// `codingSessions.start`. LAST on the wire like every option before it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thread_id: Option<String>,
-    /// EXP-1259 (feedback-states.json `starting.startIdKey`): the client's id
-    /// for this Start PRESS (a uuid), reused by its Retry. The server forwards
-    /// it as the relay frame's `startId` and the device ignores a startId it
-    /// already started, so a late start never duplicates. LAST on the wire
-    /// like every option before it; absent = the server mints its own.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_id: Option<String>,
-}
-
-/// EXP-1259: a fresh [`StartSessionInput::start_id`] — one per Start press.
-pub fn new_start_id() -> String {
-    uuid::Uuid::new_v4().to_string()
-}
-
-#[derive(Deserialize)]
-struct OkWire {
-    /// Read only by serde (the mutation returns `{"ok": true}`).
-    #[allow(dead_code)]
-    ok: bool,
-}
-
-/// `steer.startSession` — remote-start a run on another of the caller's
-/// devices (or a shared server device). The server validates the subject,
-/// the target's registered agents and the option vocabulary, then posts the
-/// `start_session` frame to the device's control socket. `PRECONDITION_FAILED`
-/// when the relay is off or the device is offline/unregistered.
-pub fn start_session(trpc: &TrpcClient, input: &StartSessionInput) -> Result<(), ApiError> {
-    let _: OkWire = trpc.mutation("steer.startSession", input)?;
-    Ok(())
-}
-
-/// `steer.killSession` — end a live session (owner or hosting-device owner):
-/// flips the row to `ended`/`ended_by: user` and best-effort kills the relay
-/// room. Idempotent on already-ended rows. The synced row edge is the
-/// authoritative confirmation; the returned row is ignored here.
-pub fn kill_session(trpc: &TrpcClient, coding_session_id: &str) -> Result<(), ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        /// EXP-707: the wire name is `sessionId` (renamed from
-        /// `codingSessionId`).
-        session_id: &'a str,
-    }
-    let _: serde_json::Value = trpc.mutation(
-        "steer.killSession",
-        &Input { session_id: coding_session_id },
-    )?;
-    Ok(())
-}
-
-/// FEED-63: the longest `reason` the server accepts on
-/// `steer.reportStartFailure`, in chars.
-pub const START_FAILURE_REASON_MAX_CHARS: usize = 2000;
-
-/// `steer.reportStartFailure` (FEED-63), a mutation: this device could not
-/// honour the `start_session` frame whose `startId` it names, and `reason`
-/// says why (a git error, a duplicate drop, a refusal). The requester then
-/// sees the reason instead of a bare "no run within 10s". `reason` is cut
-/// to [`START_FAILURE_REASON_MAX_CHARS`] here, so callers may pass a whole
-/// error chain. Returns the server's `recorded` flag (`false` = the start id
-/// was unknown or already settled). Best-effort for callers: log a transport
-/// error, never retry in a loop.
-pub fn report_start_failure(
-    trpc: &TrpcClient,
-    start_id: &str,
-    reason: &str,
-) -> Result<bool, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        start_id: &'a str,
-        reason: String,
-    }
-    #[derive(Deserialize)]
-    struct Envelope {
-        recorded: bool,
-    }
-    let reason: String = reason.chars().take(START_FAILURE_REASON_MAX_CHARS).collect();
-    let envelope: Envelope =
-        trpc.mutation("steer.reportStartFailure", &Input { start_id, reason })?;
-    Ok(envelope.recorded)
+    mint(trpc, &MintInput::Viewer { session_id })
 }
 
 #[cfg(test)]
@@ -299,21 +156,6 @@ mod tests {
         assert_eq!(config.relay_url.as_deref(), Some("http://relay.lan:4002"));
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/steer.config HTTP/1.1"));
-    }
-
-    #[test]
-    fn report_start_failure_posts_camel_case_and_truncates() {
-        let (base, captured) =
-            one_shot_server(200, r#"{"result":{"data":{"recorded":true}}}"#);
-        let long = "x".repeat(START_FAILURE_REASON_MAX_CHARS + 50);
-        assert!(report_start_failure(&client(&base), "start-1", &long).unwrap());
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/steer.reportStartFailure HTTP/1.1"));
-        let expected = format!(
-            r#"{{"startId":"start-1","reason":"{}"}}"#,
-            "x".repeat(START_FAILURE_REASON_MAX_CHARS)
-        );
-        assert!(request.ends_with(&expected));
     }
 
     #[test]
@@ -359,177 +201,6 @@ mod tests {
         assert!(request.ends_with(
             r#"{"kind":"publisher","sessionId":"3f0f5a2e-1d4b-4c1e-9f6a-000000000001"}"#
         ));
-    }
-
-    #[test]
-    fn start_session_posts_action_subject_with_device() {
-        // EXP-825: the chat text rides the top-level `prompt` (LAST), never
-        // an `inputs.prompt` entry; the picked repo stays an input.
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        let mut inputs = std::collections::BTreeMap::new();
-        inputs.insert("repo".to_string(), "repo-1".to_string());
-        start_session(
-            &client(&base),
-            &StartSessionInput {
-                action_id: Some("11111111-1111-4111-8111-111111111111".to_string()),
-                inputs: Some(inputs),
-                device_id: "dev-1".to_string(),
-                agent: Some("claude".to_string()),
-                plan_mode: Some(true),
-                prompt: Some("do the thing".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/steer.startSession HTTP/1.1"));
-        assert!(request.ends_with(
-            r#"{"actionId":"11111111-1111-4111-8111-111111111111","inputs":{"repo":"repo-1"},"deviceId":"dev-1","agent":"claude","planMode":true,"prompt":"do the thing"}"#
-        ));
-    }
-
-    /// EXP-825: additional instructions on an issue start ride the same
-    /// `prompt` key; absent, the wire is the locked prompt-less shape.
-    #[test]
-    fn start_session_issue_subject_carries_the_prompt_last() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        start_session(
-            &client(&base),
-            &StartSessionInput {
-                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
-                device_id: "dev-2".to_string(),
-                resume: Some(true),
-                prompt: Some("Mind the retry path.".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(
-            r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","resume":true,"prompt":"Mind the retry path."}"#
-        ));
-    }
-
-    /// EXP-849: the account pick rides LAST (after `prompt`), so every start
-    /// that names no account keeps the byte-identical wire above — and a
-    /// remote "switch account" is a `resumeSessionId` start carrying one.
-    #[test]
-    fn start_session_carries_the_account_last_and_on_a_resume() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        start_session(
-            &client(&base),
-            &StartSessionInput {
-                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
-                device_id: "dev-2".to_string(),
-                account: Some("0a1b2c3d".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","account":"0a1b2c3d"}"#
-            ),
-            "{request}"
-        );
-
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        start_session(
-            &client(&base),
-            &StartSessionInput {
-                resume_session_id: Some("33333333-3333-4333-8333-333333333333".to_string()),
-                device_id: "dev-2".to_string(),
-                account: Some("0a1b2c3d".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#"{"deviceId":"dev-2","resumeSessionId":"33333333-3333-4333-8333-333333333333","account":"0a1b2c3d"}"#
-            ),
-            "{request}"
-        );
-    }
-
-    /// EXP-1249: the per-run computer-use pick rides LAST as `computerUse`.
-    #[test]
-    fn start_session_carries_the_computer_use_flag_last() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        start_session(
-            &client(&base),
-            &StartSessionInput {
-                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
-                device_id: "dev-2".to_string(),
-                account: Some("0a1b2c3d".to_string()),
-                computer_use: Some(false),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","account":"0a1b2c3d","computerUse":false}"#
-            ),
-            "{request}"
-        );
-    }
-
-    /// EXP-1284: "Start a session here" names the thread the start joins, LAST.
-    #[test]
-    fn start_session_carries_the_thread_last() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        start_session(
-            &client(&base),
-            &StartSessionInput {
-                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
-                device_id: "dev-2".to_string(),
-                computer_use: Some(false),
-                thread_id: Some("44444444-4444-4444-8444-444444444444".to_string()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(
-            request.ends_with(
-                r#""computerUse":false,"threadId":"44444444-4444-4444-8444-444444444444"}"#
-            ),
-            "{request}"
-        );
-    }
-
-    #[test]
-    fn start_session_issue_subject_omits_absent_options() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        start_session(
-            &client(&base),
-            &StartSessionInput {
-                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
-                device_id: "dev-2".to_string(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(
-            r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2"}"#
-        ));
-    }
-
-    #[test]
-    fn kill_session_posts_session_id() {
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"session":{"id":"s-1","status":"ended"},"txId":7}}}"#,
-        );
-        kill_session(&client(&base), "s-1").unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.starts_with("POST /api/trpc/steer.killSession HTTP/1.1"));
-        assert!(request.ends_with(r#"{"sessionId":"s-1"}"#));
     }
 
     #[test]

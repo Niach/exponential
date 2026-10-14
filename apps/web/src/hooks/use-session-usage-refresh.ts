@@ -25,7 +25,8 @@
 import { useEffect } from "react"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import type { contract } from "@exp/domain-contract"
-import type { CodingSession, Device } from "@/db/schema"
+import type { Device } from "@/db/schema"
+import type { SessionRow } from "@/lib/session-tree"
 import { deviceCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { refreshAllowedAt, type AgentProfileUsageRow } from "@/lib/agent-usage"
@@ -59,7 +60,7 @@ function claimFirstOpen(key: string, at: number): boolean {
 
 export function useSessionUsageRefreshOnOpen(
   open: boolean,
-  session: Pick<CodingSession, `id` | `deviceId` | `userId` | `agent`> | null,
+  session: Pick<SessionRow, `id` | `deviceId` | `userId` | `cli`> | null,
   /** The login the overlay is showing — the RUN's account (EXP-909 §1), not
    *  the machine's active one. Null while it is unknown: there is no login to
    *  name in the command, so nothing is queued. */
@@ -70,7 +71,7 @@ export function useSessionUsageRefreshOnOpen(
   currentUserId: string
 ): void {
   const deviceId = session?.deviceId ?? null
-  const agent = session?.agent ?? null
+  const agent = session?.cli ?? null
   const sessionId = session?.id ?? null
   // EXP-875: a teammate's run is read-only here — its machine takes no
   // commands from this reader, and the row's `mine` says the same thing about

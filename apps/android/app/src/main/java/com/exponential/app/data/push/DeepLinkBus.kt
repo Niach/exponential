@@ -31,6 +31,12 @@ class DeepLinkBus @Inject constructor() {
         // EXP-1284: a tapped thread link in agent prose — the Thread screen.
         data class Thread(val id: String) : Target
 
+        // EXP-1291: a tapped `/t/{team}/sessions/{id}` link in agent prose
+        // (the PR body footer's shape). A synced ROOT opens its thread (on
+        // the Guide when [guide], the link's `?view=guide`); a child, or a
+        // row this device has not synced, opens the raw session view.
+        data class SessionLink(val id: String, val guide: Boolean) : Target
+
         // A verified https `/t/{team}/agent` App Link (EXP-825): the Agent
         // page composer, opened with an empty seed on the active account.
         data object Agent : Target
@@ -54,6 +60,9 @@ class DeepLinkBus @Inject constructor() {
             val host: String,
             val teamSlug: String,
             val threadId: String,
+            // EXP-1291: the link was `/t/{team}/sessions/{id}` — a root opens
+            // its thread (Guide on `?view=guide`), a child its session view.
+            val sessionPath: Boolean = false,
         ) : Target
 
         // A verified https App Link the manifest claims but the app cannot
@@ -109,6 +118,10 @@ class DeepLinkBus @Inject constructor() {
         _target.value = Target.Thread(id)
     }
 
+    fun openSessionLink(id: String, guide: Boolean) {
+        _target.value = Target.SessionLink(id, guide)
+    }
+
     fun openAgent() {
         _target.value = Target.Agent
     }
@@ -127,8 +140,9 @@ class DeepLinkBus @Inject constructor() {
         host: String,
         teamSlug: String,
         threadId: String,
+        sessionPath: Boolean = false,
     ) {
-        _target.value = Target.WebThreadRef(uri, host, teamSlug, threadId)
+        _target.value = Target.WebThreadRef(uri, host, teamSlug, threadId, sessionPath)
     }
 
     fun openWebUrl(uri: android.net.Uri) {

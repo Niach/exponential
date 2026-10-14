@@ -19,13 +19,11 @@ import { entry as scopePicker } from "./scope-picker.tsx"
 import { entry as toast } from "./toast.tsx"
 import { entry as jumpToBottom } from "./jump-to-bottom.tsx"
 import { entry as composerDialog } from "./composer-dialog.tsx"
-import { entry as composerFixConflicts } from "./composer-fix-conflicts.tsx"
 import { entry as issueContextMenu } from "./issue-context-menu.tsx"
 import { entry as sessionRow } from "./session-row.tsx"
 import { entry as prRow } from "./pr-row.tsx"
 import { entry as prGraphBadge } from "./pr-graph-badge.tsx"
 import { entry as deviceSettings } from "./device-settings.tsx"
-import { entry as blockedStartDialog } from "./blocked-start-dialog.tsx"
 import { entry as stackMergeChoiceDialog } from "./stack-merge-choice-dialog.tsx"
 import { entry as draftLeaveDialog } from "./draft-leave-dialog.tsx"
 import { entry as readinessChecklist } from "./readiness-checklist.tsx"
@@ -40,7 +38,6 @@ import { entry as threadParts } from "./thread-parts.tsx"
 import { entry as scriptCard } from "./script-card.tsx"
 import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
-import { entry as yourAgentSettings } from "./your-agent-settings.tsx"
 import { entry as voiceCallOverlay } from "./voice-call-overlay.tsx"
 import { entry as feedbackStates } from "./feedback-states.tsx"
 import { entry as agentHome } from "./agent-home.tsx"
@@ -72,13 +69,11 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   jumpToBottom,
   feedbackStates,
   composerDialog,
-  composerFixConflicts,
   issueContextMenu,
   sessionRow,
   prRow,
   prGraphBadge,
   deviceSettings,
-  blockedStartDialog,
   stackMergeChoiceDialog,
   draftLeaveDialog,
   readinessChecklist,
@@ -93,7 +88,6 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   scriptCard,
   commentCallCard,
   teamAgentsSettings,
-  yourAgentSettings,
   voiceCallOverlay,
   agentHome,
   workTabsStrip,

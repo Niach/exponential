@@ -34,12 +34,10 @@ struct IssueListView: View {
     @State private var tapSuppression: TapSuppression?
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
     // and the selection bar (floating above the tab bar, EXP-405) acts on
-    // the whole selection. The steer state backing the bar's Start coding
-    // action (relay enabled + online desktops) resolves lazily on entry,
-    // mirroring AgentsView.
+    // the whole selection. The online start targets backing the bar's
+    // Start coding action resolve lazily on entry.
     @State private var selectionActive = false
     @State private var selectedIds: Set<String> = []
-    @State private var steerEnabled: Bool?
     @State private var steerDevices: [SteerDevice]?
     // Which bulk-property picker the selection bar is presenting (EXP-247).
     @State private var bulkSheet: BulkSheet?
@@ -625,7 +623,7 @@ struct IssueListView: View {
             selectionActive = true
             selectedIds = [issueId]
         }
-        // Resolve relay + device presence while the user is still picking, so
+        // Resolve device presence while the user is still picking, so
         // the bar's Start coding is ready by the time they tap it (repo-backed
         // boards only — the button is absent otherwise).
         if vm.board?.repositoryId != nil, steerDevices == nil {
@@ -665,12 +663,6 @@ struct IssueListView: View {
     }
 
     private func loadSteer() async {
-        let config = await SteerConfigCache.load(accountId: accountId, api: deps.steerApi)
-        steerEnabled = config.enabled
-        guard config.enabled else {
-            steerDevices = []
-            return
-        }
         // Scoped to the board's team (EXP-432) so teammates' shared servers
         // count as start targets too — otherwise the bar's Start coding would
         // hide whenever the only online machine belongs to somebody else.
@@ -745,11 +737,11 @@ struct IssueListView: View {
             }
 
             // The play pill — the bar's raison d'être (EXP-239). Only on
-            // repo-backed boards, and only while the relay isn't known-off.
+            // repo-backed boards (EXP-1291: the relay never gates a start).
             // It starts the selection on the composer at once (one issue, or
             // a batch of several): a menu with a single entry was a tap for
             // nothing (web parity).
-            if vm.board?.repositoryId != nil, steerEnabled != false {
+            if vm.board?.repositoryId != nil {
                 Button {
                     startCodingTapped()
                 } label: {
@@ -923,7 +915,7 @@ struct IssueListView: View {
         LabelPicker(
             labels: sorted.map {
                 LabelPickerLabel(
-                    id: $0.id, name: $0.name, colorHex: $0.color, checked: states[$0.id] ?? .none
+                    id: $0.id, name: $0.name, colorHex: $0.color, checked: states[$0.id] ?? PickerChecked.none
                 )
             },
             value: onAll,
@@ -1018,16 +1010,12 @@ struct IssueListView: View {
 
     /// EXP-825: Start coding is NAVIGATION — the Agent page composer with
     /// the selection pre-checked (in list order), the selection cleared on
-    /// the way. The relay-off and no-machine cases still caption the bar:
+    /// the way. The no-machine case still captions the bar:
     /// the composer would only say the same thing one screen later.
     private func startCodingTapped() {
         guard let devices = steerDevices else { return } // presence still resolving
-        guard steerEnabled == true, !devices.isEmpty else {
-            toaster.error(
-                steerEnabled == true
-                    ? "No desktop online. Open the Exponential desktop app to run here."
-                    : "Remote start isn't available on this server."
-            )
+        guard !devices.isEmpty else {
+            toaster.error("No desktop online. Open the Exponential desktop app to run here.")
             return
         }
         // EXP-980: in the NESTED display order — what the reader sees is the
@@ -1035,7 +1023,10 @@ struct IssueListView: View {
         let ids = (viewModel?.displayOrderedIssues ?? [])
             .filter { selectedIds.contains($0.id) }.map(\.id)
         exitSelection()
-        pushRoute(.agent(accountId: accountId, seed: AgentComposerSeed(issueIds: ids)))
+        pushRoute(.agent(
+            accountId: accountId,
+            seed: AgentComposerSeed(issueIds: ids, teamId: viewModel?.board?.teamId)
+        ))
     }
 
     private func formatDueDate(_ dateString: String) -> String {

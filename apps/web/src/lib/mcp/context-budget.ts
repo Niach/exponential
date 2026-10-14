@@ -3,7 +3,7 @@
 //
 // `serializeToolDefs` mirrors the MCP SDK's `tools/list` serialization — it is
 // what `context-budget.test.ts` measures the ceilings against, and (EXP-1051)
-// what `codingSessions.contextBudget` hands the launcher so a run's context
+// what the launcher's context-budget read hands the device so a run's context
 // bar can attribute its `tools` layer to a real number rather than a guess.
 //
 // Deliberately a SERVER-side constant: `mcpContextBudget()` registers the
@@ -61,7 +61,7 @@ export function serializeToolDefs(gates = ALL_MCP_TOOL_GATES) {
 export interface McpContextBudget {
   /** The always-loaded tool definitions, serialized exactly as a client
    *  receives them (`ALWAYS_LOAD_TOOLS` + `GATED_ALWAYS_LOAD_TOOLS`, the
-   *  gated one because an unattended run carries it from turn one). */
+   *  gated one because every session carries it from turn one). */
   mcpAlwaysLoadBytes: number
   /** The server `instructions` string — the only guidance a deferred-tool
    *  client sees up front. */

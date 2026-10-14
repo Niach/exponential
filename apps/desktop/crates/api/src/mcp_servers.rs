@@ -506,13 +506,10 @@ pub struct McpLaunchResolution {
 /// `mcpServers.resolveForLaunch` — the caller's OWN credentials for
 /// `server_ids`, OAuth tokens refreshed server-side when expiring. Handle the
 /// result like a password. `None` omits `serverIds`: the server resolves the
-/// run row's whole persisted pick (FEED-73: a real action run's pick is the
-/// action's own list, unknown here), plus, for action runs, one entry per
-/// member who SHARED their connection.
+/// run row's whole persisted pick.
 ///
-/// EXP-1140: the call names the run it is for (`session_id` = the
-/// `coding_sessions` row `codingSessions.start` just created, sent as
-/// `X-Exp-Session-Id`); the server hands out values ONLY for that row's own
+/// EXP-1140: the call names the run it is for (`session_id` = the claimed
+/// `sessions` row, EXP-1292, sent as `X-Exp-Session-Id`); the server hands out values ONLY for that row's own
 /// persisted pick, to its owner or host, and never to the agent's own key.
 /// So the row must exist BEFORE this is called, and a resolve after a
 /// server-side pick trim comes back `skipped`, never an error.

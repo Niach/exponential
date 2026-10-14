@@ -7,28 +7,16 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 
 // Server-pinned column allowlist — EXCLUDES `body` (EXP-268): the ≤64KB
 // markdown prompt never rides sync. Clients list actions from this shape and
-// fetch the body via tRPC `actions.get` on demand (editors on open, the
-// desktop right before a run).
-// `icon` was appended for EXP-273 — a ONE-TIME shape-identity rotation
-// (benign: small table, full resync; land in one deploy). Old native builds
-// drop unknown columns safely (verified: iOS filters to its SQLite schema,
-// Android ignoreUnknownKeys + partial-plan filter, desktop serde non-strict),
-// so this needs no CLIENT_MIN_VERSION bump — same shape as the coding-sessions
-// `action_id`/`action_name` addition. SLOP-2: `triggers` (the action's
-// schedule/event triggers, each with its runner) rides the same way.
-// FEED-73: `mcp_server_ids` (the action's own MCP list) is EXCLUDED like
-// `body` — server-only, read via `actions.get`; never add it here.
+// fetch the body via tRPC `actions.get` on demand. EXP-1291: actions are
+// SAVED PROMPTS (no repository, description, triggers or MCP list).
 const ACTION_COLUMNS = [
   `id`,
   `team_id`,
-  `repository_id`,
   `name`,
-  `description`,
   `icon`,
   `inputs`,
-  // EXP-825: the composer hint; unknown to older natives, dropped safely.
+  // EXP-825: the composer hint.
   `prompt_placeholder`,
-  `triggers`,
   `sort_order`,
   `created_at`,
   `updated_at`,

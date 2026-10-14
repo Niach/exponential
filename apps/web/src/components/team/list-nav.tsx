@@ -18,8 +18,8 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { InboxView } from "@/components/inbox/inbox-view"
 
 // EXP-851 / EXP-1246: the INBOX's list pane — the one list the list-detail
-// host (`list-detail.tsx`) keeps beside an issue besides Agent › Recent. The
-// board, reviews and action-runs panes are gone: those origins name Back only
+// host (`list-detail.tsx`) keeps beside an issue. The board and action-runs
+// panes are gone: those origins name Back only
 // (`originHasListNav`). Every row navigates to ITS detail carrying the same
 // `?from=` token, so the pane survives walking the list one detail at a time.
 

@@ -13,6 +13,9 @@ struct TeamSettingsView: View {
     @State private var members: [TeamMemberEntity] = []
     @State private var labels: [LabelEntity] = []
     @State private var boards: [BoardEntity] = []
+    // EXP-1291: the team's agent roots, listed like the boards.
+    @State private var agents: [SessionEntity] = []
+    @State private var agentTarget: AgentPageTarget?
     @State private var users: [UserEntity] = []
     // Invites of this team — the Members list badges the placeholder members
     // they created (EXP-630); minting/resending stays web-only.
@@ -44,6 +47,14 @@ struct TeamSettingsView: View {
                         boardsApi: deps.boardsApi,
                         repositoriesApi: deps.repositoriesApi,
                         onDelete: { board in deleteBoardTarget = board }
+                    )
+
+                    // EXP-1291: Agents, managed exactly like boards — a row
+                    // opens the agent page (read-only for members).
+                    TeamAgentsSection(
+                        agents: agents,
+                        isOwner: isOwner,
+                        onOpen: { agentTarget = AgentPageTarget(agentId: $0) }
                     )
 
                     // Repositories registry (server-only, read over tRPC —
@@ -133,6 +144,9 @@ struct TeamSettingsView: View {
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .navigationDestination(item: $agentTarget) { target in
+            AgentSettingsPage(teamId: teamId, agentId: target.agentId, isOwner: isOwner)
+        }
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
         // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each on a
@@ -260,6 +274,16 @@ struct TeamSettingsView: View {
         })
         observationTasks.append(Task {
             let obs = ValueObservation.tracking { db in
+                try SessionQueries.roots(db: db, teamId: teamId, kind: DomainContract.sessionKindAgent)
+            }
+            do {
+                for try await items in obs.values(in: pool) {
+                    await MainActor.run { agents = items }
+                }
+            } catch {}
+        })
+        observationTasks.append(Task {
+            let obs = ValueObservation.tracking { db in
                 try TeamInviteEntity.filter(Column("team_id") == teamId).fetchAll(db)
             }
             do {
@@ -282,4 +306,9 @@ struct TeamSettingsView: View {
         for task in observationTasks { task.cancel() }
         observationTasks = []
     }
+}
+
+/// The agent page's navigation item: an agent id, or nil for a new one.
+private struct AgentPageTarget: Hashable {
+    let agentId: String?
 }

@@ -1,5 +1,4 @@
 import type { EntityRef } from "@/lib/mcp/preview"
-import { isBuiltinActionId } from "@/lib/builtin-actions"
 
 // EXP-920: where a tool-row chip GOES — the pure half of
 // `useEntityRefTarget`. A ref carries ids, never slugs (three of the four
@@ -34,6 +33,10 @@ export interface EntityRefRouteContext {
   attachmentIssueId: (id: string) => string | null
   notificationIssueId: (id: string) => string | null
   teamSlugById: (id: string) => string | null
+  /** A synced session's ROOT id (itself for a root); null = not synced. */
+  sessionRootId: (id: string) => string | null
+  /** Whether a synced session row is a team AGENT root (kind `agent`). */
+  sessionIsAgent: (id: string) => boolean
 }
 
 function issueRoute(
@@ -78,22 +81,32 @@ export function entityRefRoute(
         : null
     }
     case `action`:
-      // A builtin has no page of its own; it lives in the list.
-      return isBuiltinActionId(ref.id)
-        ? { to: `/t/$teamSlug/actions`, params: { teamSlug } }
-        : {
-            to: `/t/$teamSlug/actions/$actionId`,
-            params: { teamSlug, actionId: ref.id },
-          }
+      return {
+        to: `/t/$teamSlug/actions/$actionId`,
+        params: { teamSlug, actionId: ref.id },
+      }
     case `comment`: {
       const issueId = ctx.commentIssueId(ref.id)
       return issueId ? issueRoute(teamSlug, ctx.issueById(issueId)) : null
     }
     case `session`:
-      return {
-        to: `/t/$teamSlug/sessions/$sessionId`,
-        params: { teamSlug, sessionId: ref.id },
+      // EXP-1293: an agent root opens its channel; a thread root IS a thread
+      // (its page); a sub-session opens raw.
+      if (ctx.sessionIsAgent(ref.id)) {
+        return {
+          to: `/t/$teamSlug/agents/$agentId`,
+          params: { teamSlug, agentId: ref.id },
+        }
       }
+      return ctx.sessionRootId(ref.id) === ref.id
+        ? {
+            to: `/t/$teamSlug/threads/$threadId`,
+            params: { teamSlug, threadId: ref.id },
+          }
+        : {
+            to: `/t/$teamSlug/sessions/$sessionId`,
+            params: { teamSlug, sessionId: ref.id },
+          }
     case `label`:
       return { to: `/t/$teamSlug/settings/labels`, params: { teamSlug } }
     case `status`:

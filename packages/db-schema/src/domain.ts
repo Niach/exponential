@@ -368,56 +368,6 @@ export const notificationTypeValues = [
 // machine (written by the MCP open_pr tool + the merge webhook/cron).
 export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 
-// Lifecycle of a live desktop coding session (coding_sessions.status). A row
-// is one interactive terminal session (one embedded terminal + one agent CLI
-// child — claude/codex — in one worktree); `running` drives the "coding
-// now" badge + Watch/Steer button.
-// `in_review` = the agent's PR is open and the terminal is still alive
-// awaiting review (EXP-194). The server writes running→in_review on PR open
-// and →ended on PR merge (EXP-498: merge ALWAYS ends the session, on every
-// merge path); →ended also comes from the explicit kills (steer.killSession,
-// codingSessions.end). The →ended flip is the desktop's remote-kill switch.
-// The legacy `merged` park state (EXP-358, reversed by EXP-498) was retired
-// by EXP-540: migration 0085 moved the last rows to `ended`, and only the PG
-// type keeps the orphan label (see schema.ts). Clients infer "done" from
-// `in_review` + prState `merged` for old servers.
-export const codingSessionStatusValues = [
-  `running`,
-  `in_review`,
-  `ended`,
-] as const
-
-// Why a coding session was started (coding_sessions.started_reason,
-// documented varchar — NULL = a person started it). Written only by the
-// server (`codingSessions.start`), set by the desktop/CLI trigger hosts
-// when an action's trigger fires (EXP-530); powers the "Automated" badge and
-// the action's run history on every client.
-// `agent` (EXP-679) = started by another coding session through
-// `exponential_sessions_start` — unattended like an automation, so its
-// close-out (`exponential_sessions_end`) ENDS it; unlike schedule/event it
-// rides every subject (issue, batch, action, builtin, resume).
-export const startedReasonValues = [`schedule`, `event`, `agent`] as const
-
-// Who ended a coding session (coding_sessions.ended_by, documented varchar —
-// EXP-637). `agent` = the run closed itself via `exponential_sessions_end`
-// (the only path that also writes `summary`); `user` =
-// steer.killSession; `client` = codingSessions.end (agent exit, tab close,
-// app quit); `merge` = a PR merge path; `system` = account deletion or a
-// withdrawn share; `stale` (EXP-888) = the staleness sweep, the ONE end that
-// never kills (devices ignore it, a heartbeat revives it). NULL on rows ended
-// by pre-EXP-637 servers.
-export const codingSessionEndedByValues = [
-  `agent`,
-  `user`,
-  `client`,
-  `merge`,
-  `system`,
-  `stale`,
-] as const
-
-// Cap on the agent-written close-out (coding_sessions.summary). A paragraph,
-// not a transcript: the runs lists render it in full once expanded.
-export const MAX_CODING_SESSION_SUMMARY = 4_000
 
 // EXP-804: the agent's usage wall as coding_sessions row state. NULL = not
 // blocked. A blocked run STAYS `running` — it is still live, steerable and
@@ -498,7 +448,7 @@ export const SESSION_SHOW_DEFAULT_TOPIC = `Progress`
 // entry's server write stamp `at` (epoch ms, EXP-1245: the thread's turns).
 export const SESSION_RESULT_PR_URL_MAX = 300
 
-export interface CodingSessionResult {
+export interface GuideEntry {
   topic: string
   /** null on a text entry. */
   label: string | null
@@ -531,7 +481,7 @@ export interface CodingSessionResult {
 
 // Tolerant for the same reason codingSessionBlockedSchema is: a malformed
 // entry degrades (readers drop it) rather than 400 the whole write.
-export const codingSessionResultSchema = z.object({
+export const guideEntrySchema = z.object({
   topic: z.string().max(SESSION_RESULT_TEXT_MAX).nullish(),
   label: z.string().max(SESSION_RESULT_TEXT_MAX).nullish(),
   attachmentId: z.string().max(64).nullish(),
@@ -612,15 +562,6 @@ export const issueRelationTypeValues = [
 // comment (delta-removed once the token is gone from every text).
 export const issueRelationSourceValues = [`user`, `reference`] as const
 
-// EXP-1284 threads: what a thread_items row holds (thread_items.kind, pg
-// enum). One nullable target column per kind (issue_id / session_id), each an
-// FK cascade. An issue may sit in several threads; a run in exactly one.
-export const threadItemKindValues = [`issue`, `run`] as const
-
-// Who linked the child: `user` = a person (composer, child menu, a start),
-// `agent` = a run over MCP (`exponential_threads_link`, `issues_create
-// {threadId}`); the link row in the conversation names it.
-export const threadItemSourceValues = [`user`, `agent`] as const
 
 // Per-side display labels; byte-locked against contract.json
 // forwardLabels/inverseLabels on every client.
@@ -645,13 +586,9 @@ export type CommentSource = (typeof commentSourceValues)[number]
 export type CommentAudience = (typeof commentAudienceValues)[number]
 export type NotificationType = (typeof notificationTypeValues)[number]
 export type PrState = (typeof prStateValues)[number]
-export type CodingSessionStatus = (typeof codingSessionStatusValues)[number]
 export type SubscriberSource = (typeof subscriberSourceValues)[number]
 export type PinKind = (typeof pinKindValues)[number]
 export type IssueEventType = (typeof issueEventTypeValues)[number]
-export type StartedReason = (typeof startedReasonValues)[number]
-export type CodingSessionEndedBy =
-  (typeof codingSessionEndedByValues)[number]
 export type CodingSessionBlockedKind =
   (typeof codingSessionBlockedKindValues)[number]
 export type CodingSessionBlockedWindow =
@@ -673,7 +610,6 @@ export const commentSourceSchema = z.enum(commentSourceValues)
 export const commentAudienceSchema = z.enum(commentAudienceValues)
 export const notificationTypeSchema = z.enum(notificationTypeValues)
 export const prStateSchema = z.enum(prStateValues)
-export const codingSessionStatusSchema = z.enum(codingSessionStatusValues)
 export const subscriberSourceSchema = z.enum(subscriberSourceValues)
 export const pinKindSchema = z.enum(pinKindValues)
 export const issueEventTypeSchema = z.enum(issueEventTypeValues)
@@ -681,16 +617,6 @@ export const issueRelationTypeSchema = z.enum(issueRelationTypeValues)
 export const issueRelationSourceSchema = z.enum(issueRelationSourceValues)
 export type IssueRelationType = (typeof issueRelationTypeValues)[number]
 export type IssueRelationSource = (typeof issueRelationSourceValues)[number]
-export const threadItemKindSchema = z.enum(threadItemKindValues)
-export const threadItemSourceSchema = z.enum(threadItemSourceValues)
-export type ThreadItemKind = (typeof threadItemKindValues)[number]
-export type ThreadItemSource = (typeof threadItemSourceValues)[number]
-export const startedReasonSchema = z.enum(startedReasonValues)
-export const codingSessionEndedBySchema = z.enum(codingSessionEndedByValues)
-export const codingSessionSummarySchema = z
-  .string()
-  .min(1)
-  .max(MAX_CODING_SESSION_SUMMARY)
 
 // ── Action inputs (EXP-257) ──────────────────────────────────────────────────
 // Typed inputs an action may declare: members fill them in the run dialog and
@@ -707,7 +633,7 @@ export const codingSessionSummarySchema = z
 // rides the start as `prompt` (see MAX_START_PROMPT) and reaches the run as
 // an "Additional instructions" section, so an action never declares a field
 // for it.
-export const actionInputTypeValues = [`repo`, `board`, `pr`, `icon`] as const
+export const actionInputTypeValues = [`repo`, `board`, `pr`, `issue`] as const
 export type ActionInputType = (typeof actionInputTypeValues)[number]
 
 // EXP-792: team MCP servers (server-only `mcp_servers` rows, never synced).
@@ -821,21 +747,17 @@ export const actionInputsSchema = z
     }
   })
 
-// ── Action triggers (EXP-530; one Action with triggers since SLOP-2) ────────
-// An action carries its triggers (`actions.triggers` jsonb array). `manual` is
-// implied and never stored; a stored trigger is a schedule OR an event watcher
-// plus its RUNNER: ONE device (`deviceId` = the machine's steer deviceId, never
-// the row uuid), optional agent/account/model/effort pins and `enabled`.
-// Deliberately LOCAL-ONLY: no server scheduler — the bound device (desktop GUI
-// or the CLI daemon) watches its own Electric sync and starts the run itself.
-// An event names its `source` (`exponential` today) so another provider can
-// become one later without a migration. Writes are STRICT (these schemas);
-// readers everywhere stay tolerant and treat an unparseable/unknown trigger as
-// "never fires". The event vocabulary is APPEND-ONLY.
-// `*TriggerWhen` = the WHEN-part alone (schedule or event, no runner fields),
-// what the trigger editors and filter checks work on.
+// ── Agent triggers (EXP-530 → SLOP-2 → EXP-1291: on team agents) ──────────
+// A team agent (`sessions.kind = agent`) carries its triggers (`sessions
+// .triggers` jsonb). A trigger is only its WHEN (a schedule or an event
+// watcher) plus `id` + `enabled`: the agent itself is the runner (its device,
+// account, model). LOCAL-ONLY: the agent's device watches its own Electric
+// sync and posts the firing into the agent's channel. An event names its
+// `source` (`exponential` today). Writes are STRICT (agentTriggerSchema);
+// readers stay tolerant (an unknown trigger never fires). The event
+// vocabulary is APPEND-ONLY.
 
-export const actionTriggerEventValues = [
+export const agentTriggerEventValues = [
   `created`,
   `status_changed`,
   `assignee_changed`,
@@ -844,25 +766,24 @@ export const actionTriggerEventValues = [
   `pr_opened`,
   `pr_merged`,
 ] as const
-export type ActionTriggerEvent = (typeof actionTriggerEventValues)[number]
+export type AgentTriggerEvent = (typeof agentTriggerEventValues)[number]
 
-export const actionScheduleIntervalValues = [
+export const agentScheduleIntervalValues = [
   `daily`,
   `weekly`,
   `monthly`,
 ] as const
-export type ActionScheduleInterval =
-  (typeof actionScheduleIntervalValues)[number]
+export type AgentScheduleInterval =
+  (typeof agentScheduleIntervalValues)[number]
 
-export const actionTriggerSourceValues = [`exponential`] as const
-export type ActionTriggerSource = (typeof actionTriggerSourceValues)[number]
+export const agentTriggerSourceValues = [`exponential`] as const
+export type AgentTriggerSource = (typeof agentTriggerSourceValues)[number]
 
 export const MAX_TRIGGER_FILTER_IDS = 20
-export const MAX_ACTION_TRIGGERS = 10
 
 export interface ScheduleTriggerWhen {
   kind: `schedule`
-  interval: ActionScheduleInterval
+  interval: AgentScheduleInterval
   /** 0–1439, DEVICE-LOCAL wall clock (no tz field by design). */
   minuteOfDay: number
   /** ISO weekday 1=Mon…7=Sun — required iff weekly. */
@@ -884,31 +805,12 @@ export interface EventTriggerFilters {
 
 export interface EventTriggerWhen {
   kind: `event`
-  event: ActionTriggerEvent
+  event: AgentTriggerEvent
   filters?: EventTriggerFilters
 }
 
 export type TriggerWhen = ScheduleTriggerWhen | EventTriggerWhen
 
-/** The runner half every stored trigger carries. Unset pins are OMITTED
- * (= the device's launch defaults / its last used login). */
-export interface ActionTriggerRunner {
-  /** Stable uuid: run attribution (`coding_sessions.trigger_id`) and the
-   * device's firing state key on it. */
-  id: string
-  enabled: boolean
-  deviceId: string
-  agent?: string
-  /** The agent PROFILE id on the bound device; needs `agent`. */
-  account?: string
-  model?: string
-  effort?: string
-}
-
-export type ActionScheduleTrigger = ActionTriggerRunner & ScheduleTriggerWhen
-export type ActionEventTrigger = ActionTriggerRunner &
-  EventTriggerWhen & { source: ActionTriggerSource }
-export type ActionTrigger = ActionScheduleTrigger | ActionEventTrigger
 
 // Filter arrays reject empty ([] would silently match nothing) and cap at 20.
 const triggerIdArraySchema = z
@@ -916,24 +818,10 @@ const triggerIdArraySchema = z
   .min(1)
   .max(MAX_TRIGGER_FILTER_IDS)
 
-/** devices.device_id cap — a trigger's runner binding. */
-export const triggerDeviceIdSchema = z.string().min(1).max(128)
-
-// The runner fields as WRITTEN: `id` may be omitted (the server mints it) and
-// a pin may be null/empty (= unset; the server stores it omitted).
-const triggerRunnerShape = {
-  id: z.string().uuid().optional(),
-  enabled: z.boolean().default(true),
-  deviceId: triggerDeviceIdSchema,
-  agent: z.string().max(16).nullable().optional(),
-  account: z.string().max(64).nullable().optional(),
-  model: z.string().max(64).nullable().optional(),
-  effort: z.string().max(32).nullable().optional(),
-}
 
 const scheduleTriggerShape = {
   kind: z.literal(`schedule`),
-  interval: z.enum(actionScheduleIntervalValues),
+  interval: z.enum(agentScheduleIntervalValues),
   minuteOfDay: z.number().int().min(0).max(1439),
   weekday: z.number().int().min(1).max(7).optional(),
   dayOfMonth: z.number().int().min(1).max(28).optional(),
@@ -953,13 +841,13 @@ const eventFilterShape = {
 const eventTriggerShape = {
   kind: z.literal(`event`),
   // Optional on the wire (an agent may omit it), always stored.
-  source: z.enum(actionTriggerSourceValues).default(`exponential`),
-  event: z.enum(actionTriggerEventValues),
+  source: z.enum(agentTriggerSourceValues).default(`exponential`),
+  event: z.enum(agentTriggerEventValues),
   filters: z.strictObject(eventFilterShape).optional(),
 }
 
 function refineSchedule(
-  t: { interval: ActionScheduleInterval; weekday?: number; dayOfMonth?: number },
+  t: { interval: AgentScheduleInterval; weekday?: number; dayOfMonth?: number },
   ctx: z.RefinementCtx
 ): void {
   const issue = (message: string) =>
@@ -975,7 +863,7 @@ function refineSchedule(
 }
 
 function refineEvent(
-  t: { event: ActionTriggerEvent; filters?: EventTriggerFilters },
+  t: { event: AgentTriggerEvent; filters?: EventTriggerFilters },
   ctx: z.RefinementCtx
 ): void {
   const issue = (message: string) =>
@@ -992,40 +880,10 @@ function refineEvent(
     issue(`priorities only applies to created/priority_changed`)
 }
 
-/** Strict WRITE schema for ONE trigger (tRPC + MCP); readers stay tolerant. */
-export const actionTriggerSchema = z.discriminatedUnion(`kind`, [
-  z
-    .strictObject({ ...triggerRunnerShape, ...scheduleTriggerShape })
-    .superRefine(refineSchedule),
-  z
-    .strictObject({ ...triggerRunnerShape, ...eventTriggerShape })
-    .superRefine(refineEvent),
-])
-export type ActionTriggerInput = z.infer<typeof actionTriggerSchema>
 
-/** The whole array an action update replaces its triggers with. The
- * `MAX_ACTION_TRIGGERS` cap is NOT applied here: it bounds GROWTH only
- * (`assertTriggerGrowth`, lib/action-trigger-rules.ts), because the SLOP-2
- * migration folded an unbounded number of automations into one action and an
- * over-cap action must still take a pause or a removal. */
-export const actionTriggersSchema = z
-  .array(actionTriggerSchema)
-  .superRefine((triggers, ctx) => {
-    const seen = new Set<string>()
-    for (const trigger of triggers) {
-      if (!trigger.id) continue
-      if (seen.has(trigger.id)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `Duplicate trigger id "${trigger.id}"`,
-        })
-      }
-      seen.add(trigger.id)
-    }
-  })
 
 /** The when-part of a stored trigger (schedule or event, no runner fields). */
-export function triggerWhenPart(trigger: ActionTrigger): TriggerWhen {
+export function triggerWhenPart(trigger: AgentTrigger): TriggerWhen {
   if (trigger.kind === `schedule`) {
     return {
       kind: `schedule`,
@@ -1167,16 +1025,211 @@ export const DEVICE_AGENT_DEFAULTS: DeviceAgentDefaults = {
   subagentModel: ``,
 }
 
-// EXP-1082 §4: the question a run parked on, as row state. Written by
-// `exponential_sessions_ask_parent({to: 'user'})` — today that path sets
-// `needs_input` + the 160-char `agent_caption`, which every heartbeat and the
-// next turn overwrite and which carries no time; this column is the durable
-// copy (`askedAt` ISO), cleared when the answer lands.
-export interface CodingSessionPendingQuestion {
-  question: string
-  askedAt: string
-}
-export const codingSessionPendingQuestionSchema = z.object({
-  question: z.string().max(4_000),
-  askedAt: z.string().max(64),
+
+// ── Threads v2 (EXP-1291): ONE session tree ─────────────────────────────────
+// A thread IS a root session (`sessions.kind = thread`, `parent_id` NULL); a
+// team agent is a root of kind `agent` (never ends: it idles and wakes on a
+// message or a trigger). Children are sub-sessions on any device (kind
+// `thread`). Every start, message, follow-up, action run, trigger firing and
+// agent spawn is ONE call: `sessions.send` (sessionsSendInputSchema below).
+// The database is the bus: a new session is a `queued` row naming its device,
+// a message a `messages` row; the device picks both up off its shapes.
+
+export const sessionKindValues = [`thread`, `agent`] as const
+export type SessionKind = (typeof sessionKindValues)[number]
+export const sessionKindSchema = z.enum(sessionKindValues)
+
+/** queued → running ⇄ idle → ended. A message to an idle session resumes the
+ *  SAME row; agents never reach `ended`. */
+export const sessionStatusValues = [`queued`, `running`, `idle`, `ended`] as const
+export type SessionStatus = (typeof sessionStatusValues)[number]
+export const sessionStatusSchema = z.enum(sessionStatusValues)
+
+/** Who linked an issue to a thread (session_issues.source). */
+export const sessionIssueSourceValues = [`user`, `agent`] as const
+export type SessionIssueSource = (typeof sessionIssueSourceValues)[number]
+export const sessionIssueSourceSchema = z.enum(sessionIssueSourceValues)
+
+/** messages.author_kind: a person, the session's agent (its turn's final
+ *  reply or a card), or the server (event cards). */
+export const messageAuthorKindValues = [`user`, `agent`, `system`] as const
+export type MessageAuthorKind = (typeof messageAuthorKindValues)[number]
+export const messageAuthorKindSchema = z.enum(messageAuthorKindValues)
+
+export const messageCardKindValues = [
+  `question`,
+  `plan`,
+  `subagent`,
+  `session`,
+  `picture`,
+  `event`,
+  `thread_started`,
+] as const
+export type MessageCardKind = (typeof messageCardKindValues)[number]
+
+export const messageEventKindValues = [
+  `issue_linked`,
+  `issue_filed`,
+  `issue_unlinked`,
+  `pr_opened`,
+  `pr_merged`,
+  `pr_closed`,
+  `session_ended`,
+] as const
+export type MessageEventKind = (typeof messageEventKindValues)[number]
+
+/** messages.card: what a non-text conversation row shows. `session` = ONE
+ *  child session's card (the Work card header row, EXP-1240; opens that
+ *  session), `thread_started` = an agent channel's "started ▸ Thread" card,
+ *  `question`/`plan` answer IN the card (`answer` + messages.answered_at),
+ *  `picture` = a Guide picture the session showed while it worked. */
+export type MessageCard =
+  | { kind: `question`; question: string; options?: string[]; answer?: string | null }
+  | { kind: `plan`; plan: string; decision?: `approved` | `rejected` | null; feedback?: string | null }
+  | { kind: `subagent`; title: string; status: string; summary?: string | null }
+  | { kind: `session`; sessionId: string }
+  | { kind: `picture`; attachmentId: string; width: number | null; height: number | null; caption?: string | null }
+  | {
+      kind: `event`
+      event: MessageEventKind
+      issueId?: string | null
+      pullRequestId?: string | null
+      sessionId?: string | null
+    }
+  | { kind: `thread_started`; sessionId: string }
+
+// Tolerant read schema (a future card kind must not brick a collection):
+// clients render unknown kinds as nothing.
+export const messageCardSchema = z
+  .object({ kind: z.string().max(32) })
+  .passthrough()
+
+/** The Guide (ONE per thread, on the root): the PR body of every PR of the
+ *  thread. Same entry shape and caps as the EXP-879/1154 results. */
+
+// ── Agent triggers (agent roots only; SLOP-2's action triggers moved here) ──
+// A trigger carries only its WHEN: the runner is the agent itself (its
+// device, account, model). LOCAL-ONLY like before: the agent's device reads
+// them off the sessions shape and posts the firing as a message into the
+// agent's channel (`sessions.send({sessionId: agent})`).
+export const MAX_AGENT_TRIGGERS = 10
+
+export type AgentTrigger = { id: string; enabled: boolean } & (
+  | ScheduleTriggerWhen
+  | (EventTriggerWhen & { source: AgentTriggerSource })
+)
+
+export const agentTriggerSchema = z.discriminatedUnion(`kind`, [
+  z
+    .strictObject({
+      id: z.string().uuid().optional(),
+      enabled: z.boolean().default(true),
+      ...scheduleTriggerShape,
+    })
+    .superRefine(refineSchedule),
+  z
+    .strictObject({
+      id: z.string().uuid().optional(),
+      enabled: z.boolean().default(true),
+      ...eventTriggerShape,
+    })
+    .superRefine(refineEvent),
+])
+export const agentTriggersSchema = z.array(agentTriggerSchema).max(MAX_AGENT_TRIGGERS)
+
+// ── sessions.send (THE entrypoint) ──────────────────────────────────────────
+export const SESSIONS_SEND_TEXT_MAX = 16384
+export const SESSIONS_SEND_MAX_ATTACHMENTS = 10
+export const SESSIONS_SEND_MAX_ISSUES = 30
+export const SESSION_BRIEF_MAX_BYTES = 65536
+export const MESSAGE_BODY_MAX = 65536
+export const AGENT_NAME_MAX = 64
+export const AGENT_INSTRUCTIONS_MAX_BYTES = 16384
+/** Follow-up trees: depth below a root, sessions per tree. */
+export const SESSION_TREE_MAX_DEPTH = 3
+export const SESSION_TREE_MAX_SESSIONS = 10
+
+export const agentFacetsSchema = z.object({
+  name: z.string().trim().min(1).max(AGENT_NAME_MAX),
+  icon: boardIconSchema,
+  color: hexColorSchema,
+  instructions: z.string().max(AGENT_INSTRUCTIONS_MAX_BYTES).default(``),
+  triggers: agentTriggersSchema.default([]),
 })
+export type AgentFacetsInput = z.infer<typeof agentFacetsSchema>
+
+const sendUuid = z.string().uuid()
+
+/**
+ * `sessions.send`: message an existing session (`sessionId`; resumes it when
+ * idle, an ended THREAD continues in a new child), start a CHILD
+ * (`parentId`), or start a new ROOT (neither): a thread (optionally with
+ * `issueIds` / `actionId`+`inputs` / `repositoryId`) or, with `agent`, a team
+ * agent. A new session needs `deviceId` (the composer's device picker; an
+ * agent's spawn defaults to the agent's own device). `teamId` = the ACTIVE
+ * team; omitted, it resolves from `sessionId`/`parentId`, else the CALLING
+ * session's team (MCP), else it is required.
+ */
+export const sessionsSendInputSchema = z
+  .object({
+    teamId: sendUuid.optional(),
+    sessionId: sendUuid.optional(),
+    parentId: sendUuid.optional(),
+    // Runner pickers (new sessions only).
+    deviceId: z.string().min(1).max(128).optional(),
+    cli: z.string().min(1).max(16).optional(),
+    account: z.string().min(1).max(64).optional(),
+    model: z.string().max(64).optional(),
+    effort: z.string().max(32).optional(),
+    planMode: z.boolean().optional(),
+    computerUse: z.boolean().optional(),
+    ultracode: z.boolean().optional(),
+    mcpServerIds: z.array(sendUuid).max(20).optional(),
+    // The message.
+    text: z
+      .string()
+      .max(SESSIONS_SEND_TEXT_MAX)
+      .refine((value) => !value.includes(`\u0000`), `contains NUL bytes`)
+      .optional(),
+    attachmentIds: z.array(sendUuid).max(SESSIONS_SEND_MAX_ATTACHMENTS).optional(),
+    // Facets of a NEW root thread.
+    issueIds: z.array(sendUuid).min(1).max(SESSIONS_SEND_MAX_ISSUES).optional(),
+    actionId: sendUuid.optional(),
+    inputs: z.record(z.string(), z.string().max(MAX_ACTION_INPUT_TEXT)).optional(),
+    repositoryId: sendUuid.optional(),
+    // A NEW team agent root (Settings → Agents).
+    agent: agentFacetsSchema.optional(),
+  })
+  .superRefine((input, ctx) => {
+    const issue = (message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+    const rootFacets =
+      input.issueIds !== undefined ||
+      input.actionId !== undefined ||
+      input.repositoryId !== undefined ||
+      input.agent !== undefined
+    if (input.sessionId) {
+      if (input.parentId) issue(`sessionId and parentId are exclusive`)
+      if (rootFacets) issue(`a message to a session takes no root facets`)
+      if (!input.text?.trim() && !input.attachmentIds?.length)
+        issue(`a message needs text or attachments`)
+      return
+    }
+    if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
+    if (input.agent && (input.issueIds || input.actionId))
+      issue(`an agent takes no issues or action`)
+    if (input.inputs && !input.actionId) issue(`inputs need an actionId`)
+    if (!input.agent && !input.text?.trim() && !input.issueIds && !input.actionId)
+      issue(`a new session needs text, issues or an action`)
+  })
+export type SessionsSendInput = z.infer<typeof sessionsSendInputSchema>
+export interface SessionsSendResult {
+  sessionId: string
+  /** The `messages` row the text became; null for a start without text. */
+  messageId: string | null
+  /** The session's status at return. A new session is `queued` = PENDING:
+   *  the call never waits for the device, which picks the row up off the
+   *  sessions shape (FEED-101: a start is never reported as failed while
+   *  its device is still on the way). */
+  status: SessionStatus
+}

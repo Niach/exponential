@@ -11,7 +11,7 @@
 //! view tree).
 //!
 //! Phase-2 state: `protocol.rs` (wire protocol, fixture-locked against
-//! `packages/electric-protocol`), `shapes.rs` (the 15 `ShapeSpec` entries),
+//! `packages/electric-protocol`), `shapes.rs` (the 25 `ShapeSpec` entries),
 //! `store.rs` (rusqlite/WAL generic upsert + the §5.6c atomic-refetch dance),
 //! `client.rs` (the blocking reqwest long-poll engine, one thread per shape) and
 //! `manager.rs` (per-account pipeline reconcile) are in — all gpui-free and
@@ -46,7 +46,7 @@ pub use collections::{
     ShapeRow, SharedState, Store,
 };
 pub use health::{AccountHealth, SyncHealth, ERROR_STALENESS_WINDOW, FAILURE_STREAK_GRACE};
-pub use kill_watch::{session_row_fires_kill, session_row_is_ended, session_row_is_stale_end};
+pub use kill_watch::{session_row_fires_kill, session_row_is_ended, EndedFacts};
 #[cfg(feature = "gpui")]
 pub use kill_watch::{KillWatch, OnSessionEnded};
 pub use manager::{spawn_wake_watchdog, AccountSyncConfig, SyncManager};

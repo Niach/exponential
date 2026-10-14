@@ -528,19 +528,19 @@ mod tests {
         let config = seeded_config(
             "forget",
             &[
-                "/data/actions/builtin_chat/1a2b3c4d",
-                "/private/data/actions/builtin_chat/1a2b3c4d",
+                "/data/scratch/root-1/1a2b3c4d",
+                "/private/data/scratch/root-1/1a2b3c4d",
                 "/repos/exponential.worktrees/exp-abc",
             ],
         );
         let gone = vec![
-            PathBuf::from("/data/actions/builtin_chat/1a2b3c4d"),
-            PathBuf::from("/private/data/actions/builtin_chat/1a2b3c4d"),
+            PathBuf::from("/data/scratch/root-1/1a2b3c4d"),
+            PathBuf::from("/private/data/scratch/root-1/1a2b3c4d"),
         ];
         assert_eq!(forget_in_config(&config, &gone), Ok(2));
         let root = parsed(&config);
-        assert!(project(&root, "/data/actions/builtin_chat/1a2b3c4d").is_null());
-        assert!(project(&root, "/private/data/actions/builtin_chat/1a2b3c4d").is_null());
+        assert!(project(&root, "/data/scratch/root-1/1a2b3c4d").is_null());
+        assert!(project(&root, "/private/data/scratch/root-1/1a2b3c4d").is_null());
         assert_eq!(
             project(&root, "/repos/exponential.worktrees/exp-abc")["hasTrustDialogAccepted"],
             true
@@ -556,14 +556,14 @@ mod tests {
         let config = seeded_config("forget-noop", &["/repos/kept"]);
         let before = std::fs::read_to_string(&config).unwrap();
         assert_eq!(
-            forget_in_config(&config, &[PathBuf::from("/data/actions/x/y")]),
+            forget_in_config(&config, &[PathBuf::from("/data/scratch/x/y")]),
             Ok(0)
         );
         assert_eq!(std::fs::read_to_string(&config).unwrap(), before);
         // No file at all: nothing to forget, nothing created.
         let missing = temp_config("forget-missing");
         assert_eq!(
-            forget_in_config(&missing, &[PathBuf::from("/data/actions/x/y")]),
+            forget_in_config(&missing, &[PathBuf::from("/data/scratch/x/y")]),
             Ok(0)
         );
         assert!(!missing.exists());
@@ -579,13 +579,13 @@ mod tests {
             r#"{
   "hasCompletedOnboarding": true,
   "projects": {
-    "/data/actions/builtin_chat/gone": {"hasTrustDialogAccepted": true, "history": [1]},
-    "/data/actions/builtin_chat/gone/": {"hasTrustDialogAccepted": true},
-    "/private/data/actions/builtin_chat/gone": {"hasTrustDialogAccepted": true},
-    "/data/actions/builtin_chat/alive": {"hasTrustDialogAccepted": true},
-    "/data/actions/legacy-action": {"hasTrustDialogAccepted": true},
-    "/data/actions": {"hasTrustDialogAccepted": true},
-    "/data/actions-not-ours/gone": {"hasTrustDialogAccepted": true},
+    "/data/scratch/root-1/gone": {"hasTrustDialogAccepted": true, "history": [1]},
+    "/data/scratch/root-1/gone/": {"hasTrustDialogAccepted": true},
+    "/private/data/scratch/root-1/gone": {"hasTrustDialogAccepted": true},
+    "/data/scratch/root-1/alive": {"hasTrustDialogAccepted": true},
+    "/data/scratch/stray": {"hasTrustDialogAccepted": true},
+    "/data/scratch": {"hasTrustDialogAccepted": true},
+    "/data/scratch-not-ours/gone": {"hasTrustDialogAccepted": true},
     "/repos/exponential": {"hasTrustDialogAccepted": true}
   },
   "numStartups": 7
@@ -593,10 +593,10 @@ mod tests {
         )
         .unwrap();
         let roots = vec![
-            PathBuf::from("/data/actions"),
-            PathBuf::from("/private/data/actions"),
+            PathBuf::from("/data/scratch"),
+            PathBuf::from("/private/data/scratch"),
         ];
-        let alive = |path: &Path| path == Path::new("/data/actions/builtin_chat/alive");
+        let alive = |path: &Path| path == Path::new("/data/scratch/root-1/alive");
         assert_eq!(
             forget_missing_under_in_config(&config, &roots, alive),
             Ok(4)
@@ -608,9 +608,9 @@ mod tests {
         assert_eq!(
             keys,
             vec![
-                "/data/actions",
-                "/data/actions-not-ours/gone",
-                "/data/actions/builtin_chat/alive",
+                "/data/scratch",
+                "/data/scratch-not-ours/gone",
+                "/data/scratch/root-1/alive",
                 "/repos/exponential",
             ]
         );
@@ -631,12 +631,12 @@ mod tests {
         let config = temp_config("forget-broken");
         std::fs::create_dir_all(config.parent().unwrap()).unwrap();
         std::fs::write(&config, "{ not json").unwrap();
-        assert!(forget_in_config(&config, &[PathBuf::from("/data/actions/x/y")]).is_err());
+        assert!(forget_in_config(&config, &[PathBuf::from("/data/scratch/x/y")]).is_err());
         assert_eq!(std::fs::read_to_string(&config).unwrap(), "{ not json");
 
         std::fs::write(&config, r#"{"projects": []}"#).unwrap();
         assert!(
-            forget_missing_under_in_config(&config, &[PathBuf::from("/data/actions")], |_| false)
+            forget_missing_under_in_config(&config, &[PathBuf::from("/data/scratch")], |_| false)
                 .is_err()
         );
         assert_eq!(std::fs::read_to_string(&config).unwrap(), r#"{"projects": []}"#);
@@ -644,7 +644,7 @@ mod tests {
         // No `projects` map at all: nothing to do, nothing written.
         std::fs::write(&config, r#"{"hasCompletedOnboarding": true}"#).unwrap();
         assert_eq!(
-            forget_missing_under_in_config(&config, &[PathBuf::from("/data/actions")], |_| false),
+            forget_missing_under_in_config(&config, &[PathBuf::from("/data/scratch")], |_| false),
             Ok(0)
         );
         assert_eq!(
@@ -664,11 +664,11 @@ mod tests {
         std::fs::create_dir_all(config.parent().unwrap()).unwrap();
         std::fs::write(
             &config,
-            serde_json::json!({ "projects": { "/data/actions/x/y": {} } }).to_string(),
+            serde_json::json!({ "projects": { "/data/scratch/x/y": {} } }).to_string(),
         )
         .unwrap();
         let concurrent =
-            serde_json::json!({ "numStartups": 7, "projects": { "/data/actions/x/y": {} } })
+            serde_json::json!({ "numStartups": 7, "projects": { "/data/scratch/x/y": {} } })
                 .to_string();
         assert_eq!(
             retain_projects(&config, |_| {

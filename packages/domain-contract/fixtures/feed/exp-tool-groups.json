@@ -486,7 +486,7 @@
       {
         "id": 1,
         "kind": "tool",
-        "name": "exponential_sessions_message",
+        "name": "exponential_sessions_send",
         "toolKind": "other",
         "settled": true
       },
@@ -498,21 +498,21 @@
       {
         "id": 3,
         "kind": "tool",
-        "name": "exponential_sessions_message",
+        "name": "exponential_sessions_send",
         "toolKind": "other",
         "settled": true
       },
       {
         "id": 4,
         "kind": "tool",
-        "name": "exponential_sessions_message",
+        "name": "exponential_sessions_send",
         "toolKind": "other"
       }
     ],
     "expected": [
       "tool@1",
       "user@2",
-      "expRun@3[3,4]: Messaging 2 sessions"
+      "expRun@3[3,4]: Sending to 2 sessions"
     ]
   }
 ]

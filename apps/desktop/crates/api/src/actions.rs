@@ -1,105 +1,30 @@
 //! Typed `actions.*` client (EXP-253 — team action prompts).
 //!
+//! EXP-1292: an action is a SAVED PROMPT — `name`, `icon`, markdown `body`,
+//! typed PICK `inputs` and a composer hint. Starting one is
+//! `sessions.send({actionId, inputs})` (the server renders the prompt into
+//! the session brief); the builtins, the action triggers (now an agent's),
+//! the action repository and its MCP list are gone from the device.
+//!
 //! Listing rides the Electric `actions` shape since EXP-268 (body EXCLUDED
 //! from sync — the synced row is the list projection); this client stays
-//! load-bearing for `actions.get` — the ONLY body path, fetched fresh right
-//! before a run or on editor open — and the owner-only CRUD. `actions.list`
-//! survives for pre-shape builds and tests. SLOP-2: an action carries its
-//! `triggers`; [`ActionUpdate::triggers`] (a whole-array replace) is their
-//! ONLY write path.
+//! load-bearing for `actions.get` — the ONLY body path, fetched on editor
+//! open — and the owner-only CRUD. `actions.list` survives for tests and
+//! shape-less callers.
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
-use crate::patch::Patch;
 use crate::trpc::TrpcClient;
 
-/// The virtual "Create action" row's id (EXP-257) — one of the two non-UUID
-/// action ids. `actions.get/update/delete` reject both; clients construct the
-/// rows locally ([`builtin_create_action`], [`builtin_fix_conflicts_action`])
-/// — their content is product-shipped, never owner-authored.
-pub const BUILTIN_CREATE_ACTION_ID: &str = domain::contract::BUILTIN_CREATE_ACTION_ID;
-
-/// The server-defined virtual "Fix merge conflicts" row's id (EXP-259) — the
-/// second builtin: takes a `pr` input (an issue-linked open PR), rebases its
-/// branch onto the default branch in a worktree, resolves the conflicts,
-/// pushes, and merges via the `exponential_pr_merge` MCP tool.
-pub const BUILTIN_FIX_CONFLICTS_ID: &str = domain::contract::BUILTIN_FIX_CONFLICTS_ID;
-
-/// The hidden "Chat" builtin's id (EXP-615) — a free-prompt agent session on
-/// a repository's trunk clone at its default branch. Unlike the other two it
-/// is NEVER appended to `actions.list` or any picker: the Start-coding
-/// dialog's Chat tab constructs [`builtin_chat_action`] directly.
-pub const BUILTIN_CHAT_ID: &str = domain::contract::BUILTIN_CHAT_ID;
-
-/// FEED-50: the "Tidy up" builtin — a non-destructive cleanup of a board's
-/// issues (duplicates, existing labels, relations; nothing is deleted).
-/// LISTED like Create action / Fix conflicts — unless the team owns a REAL
-/// row of that name ([`has_own_tidy_up_action`]). Builtins never carry
-/// triggers.
-pub const BUILTIN_TIDY_UP_ID: &str = domain::contract::BUILTIN_TIDY_UP_ID;
-
-/// SLOP-2: whether the team owns a REAL action named exactly `Tidy up` (the
-/// migration made one wherever the builtin was automated, so it could carry
-/// the triggers). Where it exists the virtual builtin steps aside, so no
-/// list shows Tidy up twice. Web `hasOwnTidyUpAction`.
-pub fn has_own_tidy_up_action<'a>(mut names: impl Iterator<Item = &'a str>) -> bool {
-    names.any(|name| name == BUILTIN_TIDY_UP_NAME)
-}
-
-/// Whether `id` is a server-defined virtual builtin action id.
-pub fn is_builtin_action_id(id: &str) -> bool {
-    id == BUILTIN_CREATE_ACTION_ID
-        || id == BUILTIN_TIDY_UP_ID
-        || id == BUILTIN_FIX_CONFLICTS_ID
-        || id == BUILTIN_CHAT_ID
-}
-
-/// The name each builtin renders under (web `builtinActionName`). `None` =
-/// not a builtin id. EXP-298: the action-detail TAB reads this — builtins
-/// have no synced row for the tab strip to take a title from.
-pub fn builtin_action_name(id: &str) -> Option<&'static str> {
-    match id {
-        BUILTIN_CREATE_ACTION_ID => Some(BUILTIN_CREATE_ACTION_NAME),
-        BUILTIN_FIX_CONFLICTS_ID => Some(BUILTIN_FIX_CONFLICTS_NAME),
-        BUILTIN_CHAT_ID => Some(BUILTIN_CHAT_NAME),
-        BUILTIN_TIDY_UP_ID => Some(BUILTIN_TIDY_UP_NAME),
-        _ => None,
-    }
-}
-
-/// The curated icon name each builtin carries (EXP-426: the action-detail
-/// TAB shows the glyph — builtins have no synced row to read it from). Must
-/// match the constructed rows' `icon` (lock-tested).
-pub fn builtin_action_icon(id: &str) -> Option<&'static str> {
-    match id {
-        BUILTIN_CREATE_ACTION_ID => Some("sparkles"),
-        BUILTIN_FIX_CONFLICTS_ID => Some("git-branch"),
-        BUILTIN_CHAT_ID => Some("message-circle"),
-        BUILTIN_TIDY_UP_ID => Some("brush-cleaning"),
-        _ => None,
-    }
-}
-
-const BUILTIN_CREATE_ACTION_NAME: &str = "Create action";
 /// EXP-825: the server's `actionPromptPlaceholderSchema` cap (web
 /// `MAX_ACTION_PROMPT_PLACEHOLDER`) — the editor's single-line field stops
 /// there so a save can never 400.
 pub const MAX_PROMPT_PLACEHOLDER_CHARS: usize = 200;
-/// EXP-825: the Create-action builtin's composer hint — byte-identical to
-/// the web factory (`builtinCreateAction.promptPlaceholder`).
-const BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER: &str =
-    "Describe the action — what it should do, and its name if you have one…";
-const BUILTIN_FIX_CONFLICTS_NAME: &str = "Fix merge conflicts";
-const BUILTIN_CHAT_NAME: &str = "Chat";
-const BUILTIN_TIDY_UP_NAME: &str = "Tidy up";
-/// FEED-50: the tidy-up composer's hint — byte-identical to the web factory
-/// (`builtinTidyUpAction.promptPlaceholder`).
-pub const TIDY_UP_PROMPT_PLACEHOLDER: &str =
-    "Anything the tidy-up should focus on or leave alone (optional)…";
 
-/// One typed run-time input definition on an action (EXP-257 — filled in the
-/// unified launch dialog, resolved server-side for remote starts).
+/// One typed PICK input definition on an action (EXP-257 — filled in the
+/// composer; EXP-1292: the values ride `sessions.send({inputs})` and the
+/// server renders them into the session brief).
 ///
 /// EXP-282: also `Serialize` — the desktop's action detail edits the input
 /// DEFINITIONS and sends them back through [`ActionUpdate::inputs`] as a
@@ -109,12 +34,10 @@ pub const TIDY_UP_PROMPT_PLACEHOLDER: &str =
 pub struct ActionInput {
     pub key: String,
     pub label: String,
-    /// `repo` | `board` | `pr` | `icon` (contract `actionInputType`; EXP-825
+    /// `repo` | `board` | `pr` | `issue` (contract `actionInputType`; EXP-825
     /// retired `text`/`textarea` — the composer's free text reaches every run
-    /// as its additional-instructions section instead, and a stale row still
-    /// declaring one is blocked until the owner removes it on the web). An
-    /// UNKNOWN value must block the run with "needs a newer app version" —
-    /// never a silent text fallback.
+    /// as the session's message instead). An UNKNOWN value must block the
+    /// start with "needs a newer app version" — never a silent text fallback.
     #[serde(rename = "type")]
     pub input_type: String,
     /// Absent on the wire = optional (the contract's `required` default).
@@ -132,10 +55,6 @@ pub struct ActionInput {
 pub struct Action {
     pub id: String,
     pub team_id: String,
-    /// Execution context: `Some` = run in this repo's trunk clone on the
-    /// default branch; `None` = repo-less (scratch dir).
-    #[serde(default)]
-    pub repository_id: Option<String>,
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
@@ -143,15 +62,10 @@ pub struct Action {
     /// `None` = the generic action glyph.
     #[serde(default)]
     pub icon: Option<String>,
-    /// The markdown prompt the run executes — EMPTY on shape-synced rows
-    /// (EXP-268: the proxy excludes it); [`get`] returns the real body.
+    /// The markdown prompt — EMPTY on shape-synced rows (EXP-268: the proxy
+    /// excludes it); [`get`] returns the real body.
     #[serde(default)]
     pub body: String,
-    /// The server-appended virtual "Create action" row (EXP-257). Clients
-    /// pin it FIRST by this flag (never by sort order) and hide the owner
-    /// edit/delete affordances on it.
-    #[serde(default)]
-    pub builtin: bool,
     /// The typed run-time inputs schema (EXP-257; empty on input-less
     /// actions and on rows from a pre-inputs server).
     #[serde(default)]
@@ -162,35 +76,12 @@ pub struct Action {
     /// pre-EXP-825 server.
     #[serde(default)]
     pub prompt_placeholder: Option<String>,
-    /// SLOP-2: the action's triggers, each a when-part (schedule or event)
-    /// plus its runner. Kept as loose JSON so a newer server's trigger kind
-    /// never fails decoding — `coding::triggers::parse_action_triggers`
-    /// owns the tolerant read. Always empty on a builtin.
-    #[serde(default, deserialize_with = "tolerant_triggers")]
-    pub triggers: Vec<serde_json::Value>,
-    /// FEED-73: the team MCP servers this action's runs get (`actions.get`
-    /// only; the shape does not carry it). A real action run's pick is
-    /// THIS list, set server-side by `codingSessions.start`.
-    #[serde(default)]
-    pub mcp_server_ids: Vec<String>,
     #[serde(default)]
     pub sort_order: f64,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
-}
-
-/// Anything but an array (a `null`, a pre-SLOP-2 server's absent field)
-/// reads as "no triggers" — never a failed decode of the whole action.
-fn tolerant_triggers<'de, D>(deserializer: D) -> Result<Vec<serde_json::Value>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Ok(match serde_json::Value::deserialize(deserializer)? {
-        serde_json::Value::Array(entries) => entries,
-        _ => Vec::new(),
-    })
 }
 
 #[derive(Deserialize)]
@@ -239,16 +130,11 @@ struct CreateInput<'a> {
     name: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     description: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    repository_id: Option<&'a str>,
     body: &'a str,
     /// EXP-825: the composer hint; skipped when `None` (the server schema
     /// is `.nullable().optional()`, an omitted field leaves it NULL).
     #[serde(skip_serializing_if = "Option::is_none")]
     prompt_placeholder: Option<&'a str>,
-    /// FEED-73: the action's team MCP servers; skipped when `None`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mcp_server_ids: Option<&'a [String]>,
 }
 
 /// `actions.create` — mutation, owner-only. The server appends to the end of
@@ -258,33 +144,8 @@ pub fn create(
     team_id: &str,
     name: &str,
     description: Option<&str>,
-    repository_id: Option<&str>,
     body: &str,
     prompt_placeholder: Option<&str>,
-) -> Result<Action, ApiError> {
-    create_with_mcp_servers(
-        trpc,
-        team_id,
-        name,
-        description,
-        repository_id,
-        body,
-        prompt_placeholder,
-        None,
-    )
-}
-
-/// [`create`] plus FEED-73's `mcpServerIds` (`None` omits the field).
-#[allow(clippy::too_many_arguments)]
-pub fn create_with_mcp_servers(
-    trpc: &TrpcClient,
-    team_id: &str,
-    name: &str,
-    description: Option<&str>,
-    repository_id: Option<&str>,
-    body: &str,
-    prompt_placeholder: Option<&str>,
-    mcp_server_ids: Option<&[String]>,
 ) -> Result<Action, ApiError> {
     let response: ActionResponse = trpc.mutation(
         "actions.create",
@@ -292,18 +153,14 @@ pub fn create_with_mcp_servers(
             team_id,
             name,
             description,
-            repository_id,
             body,
             prompt_placeholder,
-            mcp_server_ids,
         },
     )?;
     Ok(response.action)
 }
 
-/// `actions.update` input. Omitted fields stay unchanged; `repository_id`
-/// is the server's `.nullable().optional()` tri-state ([`Patch`]): `Null`
-/// clears the action to repo-less.
+/// `actions.update` input. Omitted fields stay unchanged.
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionUpdate {
@@ -318,8 +175,6 @@ pub struct ActionUpdate {
     /// `nullable()` half stays unused.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    #[serde(skip_serializing_if = "Patch::is_omit")]
-    pub repository_id: Patch<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     /// EXP-282: the typed run-time input DEFINITIONS, as a whole-array
@@ -333,16 +188,6 @@ pub struct ActionUpdate {
     /// convention).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_placeholder: Option<String>,
-    /// SLOP-2: the action's triggers as a WHOLE-ARRAY replace — the only
-    /// trigger write there is. Send the readable existing elements (each
-    /// keeping its `id`), a new one WITHOUT an `id` (the server mints it), or
-    /// leave one out to delete it. `None` omits the field.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub triggers: Option<Vec<serde_json::Value>>,
-    /// FEED-73: the action's team MCP servers as a whole-array replace.
-    /// `None` omits the field; `Some(vec![])` clears it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_server_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }
@@ -380,7 +225,7 @@ pub fn delete(trpc: &TrpcClient, id: &str) -> Result<(), ApiError> {
 /// Hydrate the list projection from a synced `actions` shape row (EXP-268).
 /// `body` is deliberately empty — the shape excludes it; [`get`] is the body
 /// path. Rows with an unparseable inputs payload degrade to input-less (the
-/// unknown-`type` run block still guards launches).
+/// unknown-`type` start block still guards starts).
 pub fn from_row(row: &domain::rows::ActionRow) -> Action {
     let inputs = row
         .inputs
@@ -390,187 +235,15 @@ pub fn from_row(row: &domain::rows::ActionRow) -> Action {
     Action {
         id: row.id.clone(),
         team_id: row.team_id.clone().unwrap_or_default(),
-        repository_id: row.repository_id.clone(),
         name: row.name.clone().unwrap_or_default(),
         description: row.description.clone(),
         icon: row.icon.clone(),
         body: String::new(),
-        builtin: false,
         inputs,
         prompt_placeholder: row.prompt_placeholder.clone(),
-        triggers: row
-            .triggers
-            .as_ref()
-            .and_then(serde_json::Value::as_array)
-            .cloned()
-            .unwrap_or_default(),
-        // The shape does not carry it; `get` does.
-        mcp_server_ids: Vec::new(),
         sort_order: row.sort_order.unwrap_or_default(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),
-    }
-}
-
-/// The client-constructed virtual "Create action" row (EXP-257/EXP-268):
-/// synced rows can't carry it (it isn't a DB row), so every client prepends
-/// its own local copy — pinned FIRST by the `builtin` flag, owner
-/// edit/delete hidden. Mirrors the web's `builtinCreateAction`.
-pub fn builtin_create_action(team_id: &str) -> Action {
-    Action {
-        id: BUILTIN_CREATE_ACTION_ID.to_string(),
-        team_id: team_id.to_string(),
-        repository_id: None,
-        name: BUILTIN_CREATE_ACTION_NAME.to_string(),
-        description: Some("Describe a new action and let your agent author it for the team".to_string()),
-        icon: Some("sparkles".to_string()),
-        body: String::new(),
-        builtin: true,
-        // EXP-825: the request itself (what the action should do, and its
-        // name if the user states one) is the start's `prompt`, never an
-        // input — the two remaining inputs are PICKS the creator run can't
-        // derive from prose. Byte-locked ×4 (web `builtin-actions.ts`).
-        inputs: vec![
-            ActionInput {
-                key: "repo".to_string(),
-                label: "Repository".to_string(),
-                input_type: "repo".to_string(),
-                required: false,
-                placeholder: None,
-            },
-            // EXP-273: the author picks the new action's glyph up front and
-            // the creator prompt passes it to `exponential_actions_create`.
-            ActionInput {
-                key: "icon".to_string(),
-                label: "Icon".to_string(),
-                input_type: "icon".to_string(),
-                required: false,
-                placeholder: None,
-            },
-        ],
-        // EXP-825: the composer's hint while the creator is picked (the web
-        // page's old Create-action special case, now the builtin's field).
-        prompt_placeholder: Some(BUILTIN_CREATE_ACTION_PROMPT_PLACEHOLDER.to_string()),
-        triggers: Vec::new(),
-        mcp_server_ids: Vec::new(),
-        sort_order: 1e9,
-        created_at: None,
-        updated_at: None,
-    }
-}
-
-/// The client-constructed virtual "Fix merge conflicts" row (EXP-259/EXP-268):
-/// like [`builtin_create_action`] it isn't a DB row, so it can't ride the
-/// synced shape — every client prepends its own local copy. Its `pr` input is
-/// the representative issue id of an open PR; the run rebases that PR's branch
-/// onto the default branch, resolves the conflicts, pushes, and merges via the
-/// `exponential_pr_merge` MCP tool. Mirrors the web's `builtinFixConflictsAction`.
-pub fn builtin_fix_conflicts_action(team_id: &str) -> Action {
-    Action {
-        id: BUILTIN_FIX_CONFLICTS_ID.to_string(),
-        team_id: team_id.to_string(),
-        repository_id: None,
-        name: BUILTIN_FIX_CONFLICTS_NAME.to_string(),
-        description: Some(
-            "Pick a conflicted pull request and let your agent rebase, resolve, and merge it"
-                .to_string(),
-        ),
-        icon: Some("git-branch".to_string()),
-        body: String::new(),
-        builtin: true,
-        inputs: vec![ActionInput {
-            key: "pr".to_string(),
-            label: "Pull request".to_string(),
-            input_type: "pr".to_string(),
-            required: true,
-            placeholder: None,
-        }],
-        prompt_placeholder: None,
-        triggers: Vec::new(),
-        mcp_server_ids: Vec::new(),
-        sort_order: 1e9 + 1.0,
-        created_at: None,
-        updated_at: None,
-    }
-}
-
-/// The client-constructed hidden "Chat" row (EXP-615): a conversation with your
-/// agent over the tracker's MCP tools, OPTIONALLY anchored to a repository
-/// (EXP-739). With a repo it gets its own `exp/chat-<id8>` worktree; without
-/// one it runs worktree-less in a scratch dir holding nothing but the MCP
-/// config. No PR contract either way. Deliberately appended to NO list; the
-/// Start-coding dialog's Chat tab builds it directly. Mirrors the web's
-/// `builtinChatAction`.
-pub fn builtin_chat_action(team_id: &str) -> Action {
-    Action {
-        id: BUILTIN_CHAT_ID.to_string(),
-        team_id: team_id.to_string(),
-        repository_id: None,
-        name: BUILTIN_CHAT_NAME.to_string(),
-        description: Some("Chat with your agent on a repository".to_string()),
-        icon: Some("message-circle".to_string()),
-        body: String::new(),
-        builtin: true,
-        // EXP-825: the chat text is the start's `prompt` (required for this
-        // builtin), never an input. Byte-locked ×4 (web `builtin-actions.ts`).
-        inputs: vec![ActionInput {
-            key: "repo".to_string(),
-            label: "Repository".to_string(),
-            input_type: "repo".to_string(),
-            required: false,
-            placeholder: None,
-        }],
-        prompt_placeholder: None,
-        triggers: Vec::new(),
-        mcp_server_ids: Vec::new(),
-        sort_order: 1e9 + 2.0,
-        created_at: None,
-        updated_at: None,
-    }
-}
-
-/// The client-constructed virtual "Tidy up" row (FEED-50): dedupes, labels
-/// and links one board's issues (or every board of the team without a
-/// `board` pick) over MCP; nothing is deleted. An optional `repo` gives the
-/// run an `exp/tidy-up-<id8>` worktree as READ-ONLY context, none = the
-/// scratch dir. APPENDED to the lists beside Create action / Fix conflicts
-/// and the only automatable builtin. Mirrors the web's `builtinTidyUpAction`.
-pub fn builtin_tidy_up_action(team_id: &str) -> Action {
-    Action {
-        id: BUILTIN_TIDY_UP_ID.to_string(),
-        team_id: team_id.to_string(),
-        repository_id: None,
-        name: BUILTIN_TIDY_UP_NAME.to_string(),
-        description: Some(
-            "Let your agent dedupe, label and link a board's issues. Nothing is deleted"
-                .to_string(),
-        ),
-        icon: Some("brush-cleaning".to_string()),
-        body: String::new(),
-        builtin: true,
-        // Byte-locked ×4 (web `TIDY_UP_INPUTS`): board → repo, both optional.
-        inputs: vec![
-            ActionInput {
-                key: "board".to_string(),
-                label: "Board".to_string(),
-                input_type: "board".to_string(),
-                required: false,
-                placeholder: None,
-            },
-            ActionInput {
-                key: "repo".to_string(),
-                label: "Repository".to_string(),
-                input_type: "repo".to_string(),
-                required: false,
-                placeholder: None,
-            },
-        ],
-        prompt_placeholder: Some(TIDY_UP_PROMPT_PLACEHOLDER.to_string()),
-        triggers: Vec::new(),
-        mcp_server_ids: Vec::new(),
-        sort_order: 1e9 + 4.0,
-        created_at: None,
-        updated_at: None,
     }
 }
 
@@ -593,43 +266,40 @@ mod tests {
             r##"{"result":{"data":{"actions":[
                 {"id":"act-1","teamId":"team-1","repositoryId":"repo-1",
                  "name":"Code review","description":"Review + file issues",
-                 "body":"# Review\n","sortOrder":1,
+                 "body":"# Review\n","sortOrder":1,"triggers":[],
                  "createdAt":"2026-07-24T00:00:00.000Z","updatedAt":"2026-07-24T00:00:00.000Z"}]}}}"##,
         );
         let actions = list(&client(&base), "team-1").unwrap();
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].name, "Code review");
-        assert_eq!(actions[0].repository_id.as_deref(), Some("repo-1"));
         assert_eq!(actions[0].body, "# Review\n");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/actions.list?input="));
     }
 
     #[test]
-    fn list_tolerates_null_repo_and_description() {
+    fn list_tolerates_null_description() {
         let (base, _captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"actions":[
-                {"id":"act-1","teamId":"team-1","repositoryId":null,
+                {"id":"act-1","teamId":"team-1",
                  "name":"Groom","description":null,"body":"do it","sortOrder":0}]}}}"#,
         );
         let actions = list(&client(&base), "team-1").unwrap();
-        assert_eq!(actions[0].repository_id, None);
         assert_eq!(actions[0].description, None);
     }
 
     #[test]
     fn get_unwraps_the_action_envelope() {
+        // EXP-1292: the server's leftover `mcpServerIds`/`triggers` are ignored.
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"action":
-                {"id":"act-1","teamId":"team-1","repositoryId":null,
+                {"id":"act-1","teamId":"team-1","repositoryId":null,"mcpServerIds":[],
                  "name":"Groom","description":null,"body":"fresh body","sortOrder":0}}}}"#,
         );
         let action = get(&client(&base), "act-1").unwrap();
         assert_eq!(action.body, "fresh body");
-        // A pre-FEED-73 server's row reads as no MCP servers.
-        assert!(action.mcp_server_ids.is_empty());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("GET /api/trpc/actions.get?input="));
     }
@@ -639,54 +309,19 @@ mod tests {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"action":{"id":"act-1","teamId":"team-1",
-                "repositoryId":null,"name":"Groom","description":null,
+                "name":"Groom","description":null,
                 "body":"do it","sortOrder":1}}}}"#,
         );
-        let action =
-            create(&client(&base), "team-1", "Groom", None, None, "do it", None).unwrap();
+        let action = create(&client(&base), "team-1", "Groom", None, "do it", None).unwrap();
         assert_eq!(action.id, "act-1");
-        // EXP-825: a pre-hint response decodes hint-less.
+        // EXP-825: a hint-less response decodes hint-less.
         assert_eq!(action.prompt_placeholder, None);
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/actions.create HTTP/1.1"));
-        assert!(request.contains(r#""teamId":"team-1""#));
-        assert!(request.contains(r#""body":"do it""#));
         // Omitted optionals stay off the wire (zod .optional()).
-        assert!(!request.contains(r#""description""#));
-        assert!(!request.contains(r#""repositoryId""#));
-        assert!(!request.contains(r#""promptPlaceholder""#));
-        assert!(!request.contains(r#""mcpServerIds""#));
-    }
-
-    /// FEED-73: the action's MCP servers ride `get`, `create` and `update`
-    /// under `mcpServerIds`, and stay off the wire when `None`.
-    #[test]
-    fn mcp_server_ids_round_trip() {
-        let row: Action = serde_json::from_str(
-            r#"{"id":"act-1","teamId":"team-1","name":"Groom","body":"x","mcpServerIds":["s1","s2"]}"#,
-        )
-        .unwrap();
-        assert_eq!(row.mcp_server_ids, vec!["s1".to_string(), "s2".to_string()]);
-
-        let (base, captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"action":{"id":"act-1","teamId":"team-1","name":"Groom","body":"do it","mcpServerIds":["s1"]}}}}"#,
-        );
-        let ids = vec!["s1".to_string()];
-        let action = create_with_mcp_servers(
-            &client(&base), "team-1", "Groom", None, None, "do it", None, Some(&ids),
-        )
-        .unwrap();
-        assert_eq!(action.mcp_server_ids, ids);
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.contains(r#""mcpServerIds":["s1"]"#), "{request}");
-
-        let mut update = ActionUpdate::new("act-1");
-        assert!(!serde_json::to_string(&update).unwrap().contains("mcpServerIds"));
-        update.mcp_server_ids = Some(Vec::new());
-        assert_eq!(
-            serde_json::to_string(&update).unwrap(),
-            r#"{"id":"act-1","mcpServerIds":[]}"#
+        assert!(
+            request.ends_with(r#"{"teamId":"team-1","name":"Groom","body":"do it"}"#),
+            "{request}"
         );
     }
 
@@ -697,15 +332,14 @@ mod tests {
         let (base, captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"action":{"id":"act-1","teamId":"team-1",
-                "repositoryId":null,"name":"Groom","description":null,
+                "name":"Groom","description":null,
                 "body":"do it","promptPlaceholder":"Scope: which platforms","sortOrder":1}}}}"#,
         );
         let action = create(
             &client(&base),
             "team-1",
             "Groom",
-            None,
-            None,
+            Some("Groom the backlog"),
             "do it",
             Some("Scope: which platforms"),
         )
@@ -715,12 +349,16 @@ mod tests {
             Some("Scope: which platforms")
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.contains(r#""promptPlaceholder":"Scope: which platforms""#));
+        assert!(
+            request.ends_with(
+                r#"{"teamId":"team-1","name":"Groom","description":"Groom the backlog","body":"do it","promptPlaceholder":"Scope: which platforms"}"#
+            ),
+            "{request}"
+        );
     }
 
     /// EXP-825: the wire row round-trips the hint — present (camelCase key)
-    /// and absent (a pre-EXP-825 server) alike; a literal `null` reads as
-    /// absent too.
+    /// and absent alike; a literal `null` reads as absent too.
     #[test]
     fn action_deserializes_the_prompt_placeholder_present_or_absent() {
         let present: Action = serde_json::from_str(
@@ -765,25 +403,36 @@ mod tests {
             .contains(r#""promptPlaceholder":"""#));
 
         let omitted = ActionUpdate::new("act-1");
-        assert!(!serde_json::to_string(&omitted)
-            .unwrap()
-            .contains("promptPlaceholder"));
+        assert_eq!(serde_json::to_string(&omitted).unwrap(), r#"{"id":"act-1"}"#);
     }
 
     #[test]
-    fn update_serializes_the_repository_tristate() {
-        // Omit = unchanged, Null = clear to repo-less.
+    fn update_posts_the_set_fields_only() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"action":{"id":"act-1","teamId":"team-1","name":"Renamed","body":"x"},"txId":3}}}"#,
+        );
         let mut input = ActionUpdate::new("act-1");
         input.name = Some("Renamed".to_string());
-        input.repository_id = Patch::Null;
-        let json = serde_json::to_string(&input).unwrap();
-        assert!(json.contains(r#""repositoryId":null"#));
-        assert!(json.contains(r#""name":"Renamed""#));
-        assert!(!json.contains(r#""body""#));
+        input.icon = Some("sparkles".to_string());
+        let action = update(&client(&base), &input).unwrap();
+        assert_eq!(action.name, "Renamed");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/actions.update HTTP/1.1"));
+        assert!(
+            request.ends_with(r#"{"id":"act-1","name":"Renamed","icon":"sparkles"}"#),
+            "{request}"
+        );
+    }
 
-        let omitted = ActionUpdate::new("act-1");
-        let json = serde_json::to_string(&omitted).unwrap();
-        assert!(!json.contains("repositoryId"));
+    #[test]
+    fn delete_posts_the_id() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"ok":true,"id":"act-1","txId":4}}}"#);
+        delete(&client(&base), "act-1").unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/actions.delete HTTP/1.1"));
+        assert!(request.ends_with(r#"{"id":"act-1"}"#));
     }
 
     #[test]
@@ -794,11 +443,11 @@ mod tests {
         let mut input = ActionUpdate::new("act-1");
         input.inputs = Some(vec![
             ActionInput {
-                key: "scope".to_string(),
-                label: "Scope".to_string(),
-                input_type: "text".to_string(),
+                key: "issue".to_string(),
+                label: "Issue".to_string(),
+                input_type: "issue".to_string(),
                 required: true,
-                placeholder: Some("e.g. backlog".to_string()),
+                placeholder: Some("e.g. EXP-1".to_string()),
             },
             ActionInput {
                 key: "repo".to_string(),
@@ -809,8 +458,11 @@ mod tests {
             },
         ]);
         let json = serde_json::to_string(&input).unwrap();
-        assert!(json.contains(r#""inputs":[{"key":"scope","label":"Scope","type":"text","required":true,"placeholder":"e.g. backlog"}"#));
+        assert!(json.contains(r#""inputs":[{"key":"issue","label":"Issue","type":"issue","required":true,"placeholder":"e.g. EXP-1"}"#));
         assert!(json.contains(r#"{"key":"repo","label":"Repository","type":"repo","required":false}"#));
+        for def in input.inputs.as_ref().unwrap() {
+            assert!(domain::contract::ACTION_INPUT_TYPE_VALUES.contains(&def.input_type.as_str()));
+        }
         // An omitted array leaves the schema untouched; an empty one clears it.
         let untouched = ActionUpdate::new("act-1");
         assert!(!serde_json::to_string(&untouched).unwrap().contains("inputs"));
@@ -822,34 +474,27 @@ mod tests {
     }
 
     #[test]
-    fn list_decodes_inputs_and_builtin() {
-        // EXP-257: the server appends the virtual builtin row and real rows
-        // may carry a typed inputs schema (`type` on the wire, `required`
-        // absent = optional).
+    fn list_decodes_inputs() {
+        // EXP-257: rows may carry a typed inputs schema (`type` on the wire,
+        // `required` absent = optional); an input-less row defaults.
         let (base, _captured) = one_shot_server(
             200,
             r#"{"result":{"data":{"actions":[
-                {"id":"act-1","teamId":"team-1","repositoryId":null,
+                {"id":"act-1","teamId":"team-1",
                  "name":"Groom","description":null,"body":"do it","sortOrder":0,
-                 "inputs":[{"key":"scope","label":"Scope","type":"text","required":true,
+                 "inputs":[{"key":"board","label":"Board","type":"board","required":true,
                             "placeholder":"e.g. backlog"},
                            {"key":"repo","label":"Repository","type":"repo"}]},
-                {"id":"builtin:create-action","teamId":"team-1","repositoryId":null,
-                 "name":"Create action","description":"Describe a new action","body":"",
-                 "builtin":true,"sortOrder":1000000000,
-                 "inputs":[{"key":"description","label":"Description","type":"text","required":true},
-                           {"key":"repo","label":"Repository","type":"repo"}]}]}}}"#,
+                {"id":"act-2","teamId":"team-1","name":"Plain","body":"x","sortOrder":1}]}}}"#,
         );
         let actions = list(&client(&base), "team-1").unwrap();
-        assert_eq!(actions.len(), 2);
-        assert!(!actions[0].builtin);
         assert_eq!(
             actions[0].inputs,
             vec![
                 ActionInput {
-                    key: "scope".to_string(),
-                    label: "Scope".to_string(),
-                    input_type: "text".to_string(),
+                    key: "board".to_string(),
+                    label: "Board".to_string(),
+                    input_type: "board".to_string(),
                     required: true,
                     placeholder: Some("e.g. backlog".to_string()),
                 },
@@ -863,41 +508,20 @@ mod tests {
                 },
             ]
         );
-        assert!(actions[1].builtin);
-        assert_eq!(actions[1].id, BUILTIN_CREATE_ACTION_ID);
-        assert!(actions[1].inputs[0].required);
-    }
-
-    #[test]
-    fn pre_inputs_rows_decode_with_defaults() {
-        // A row from a pre-EXP-257 server (or an input-less action) carries
-        // neither field — both default.
-        let (base, _captured) = one_shot_server(
-            200,
-            r#"{"result":{"data":{"actions":[
-                {"id":"act-1","teamId":"team-1","repositoryId":null,
-                 "name":"Groom","description":null,"body":"do it","sortOrder":0}]}}}"#,
-        );
-        let actions = list(&client(&base), "team-1").unwrap();
-        assert!(!actions[0].builtin);
-        assert!(actions[0].inputs.is_empty());
+        assert!(actions[1].inputs.is_empty());
     }
 
     #[test]
     fn from_row_hydrates_the_synced_list_projection() {
         // EXP-268: a synced actions row (no body on the wire) hydrates to the
-        // list projection — body empty, inputs re-parsed from the stored
-        // JSON, never builtin.
+        // list projection — body empty, inputs re-parsed from the stored JSON.
         let row: domain::rows::ActionRow = serde_json::from_value(serde_json::json!({
             "id": "act-1",
             "team_id": "team-1",
-            "repository_id": "repo-1",
             "name": "Code review",
             "description": "Review + file issues",
-            "inputs": r#"[{"key":"scope","label":"Scope","type":"text","required":true}]"#,
-            // EXP-583: a pre-drop install can still carry a local `trigger`
-            // column — the projection must ignore it, not choke on it.
-            "trigger": r#"{"kind":"schedule"}"#,
+            "icon": "sparkles",
+            "inputs": r#"[{"key":"pr","label":"Pull request","type":"pr","required":true}]"#,
             // EXP-825: the synced composer hint (snake_case on the shape).
             "prompt_placeholder": "Scope: which platforms, which version",
             "sort_order": "1.5"
@@ -906,20 +530,19 @@ mod tests {
         let action = from_row(&row);
         assert_eq!(action.id, "act-1");
         assert_eq!(action.team_id, "team-1");
-        assert_eq!(action.repository_id.as_deref(), Some("repo-1"));
         assert_eq!(action.name, "Code review");
+        assert_eq!(action.icon.as_deref(), Some("sparkles"));
         assert!(action.body.is_empty());
-        assert!(!action.builtin);
         assert_eq!(action.sort_order, 1.5);
         assert_eq!(action.inputs.len(), 1);
-        assert_eq!(action.inputs[0].key, "scope");
+        assert_eq!(action.inputs[0].key, "pr");
         assert!(action.inputs[0].required);
         assert_eq!(
             action.prompt_placeholder.as_deref(),
             Some("Scope: which platforms, which version")
         );
 
-        // A row from a pre-EXP-825 server carries no hint column.
+        // A hint-less row reads as the generic hint.
         let old: domain::rows::ActionRow = serde_json::from_value(serde_json::json!({
             "id": "act-2",
             "team_id": "team-1",
@@ -927,202 +550,5 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(from_row(&old).prompt_placeholder, None);
-    }
-
-    #[test]
-    fn builtin_action_icons_stay_in_lockstep_with_the_factories() {
-        // EXP-426: the tab strip reads `builtin_action_icon`; the detail and
-        // list rows read the constructed rows — the two must never drift.
-        assert_eq!(
-            builtin_action_icon(BUILTIN_CREATE_ACTION_ID),
-            builtin_create_action("team-1").icon.as_deref()
-        );
-        assert_eq!(
-            builtin_action_icon(BUILTIN_FIX_CONFLICTS_ID),
-            builtin_fix_conflicts_action("team-1").icon.as_deref()
-        );
-        assert_eq!(
-            builtin_action_icon(BUILTIN_CHAT_ID),
-            builtin_chat_action("team-1").icon.as_deref()
-        );
-        assert_eq!(
-            builtin_action_icon(BUILTIN_TIDY_UP_ID),
-            builtin_tidy_up_action("team-1").icon.as_deref()
-        );
-        assert_eq!(builtin_action_icon("act-1"), None);
-    }
-
-    /// EXP-615: the hidden chat builtin — byte parity with the web factory
-    /// (`builtinChatAction`), including its required prompt, its OPTIONAL repo
-    /// (EXP-739 — a repo-less chat runs worktree-less in a scratch dir) and the
-    /// sortOrder that keeps it behind the other two builtins wherever a naive
-    /// renderer ever sees it.
-    #[test]
-    fn builtin_chat_action_matches_the_web_factory() {
-        let builtin = builtin_chat_action("team-1");
-        assert_eq!(builtin.id, BUILTIN_CHAT_ID);
-        assert_eq!(builtin.id, "builtin:chat");
-        assert!(builtin.builtin);
-        assert!(builtin.body.is_empty());
-        assert_eq!(builtin.name, "Chat");
-        assert_eq!(
-            builtin.description.as_deref(),
-            Some("Chat with your agent on a repository")
-        );
-        assert_eq!(builtin.icon.as_deref(), Some("message-circle"));
-        // EXP-825: the chat text rides the start's `prompt`; the ONE input
-        // left is the optional repo pick (web `CHAT_INPUTS`, byte-locked).
-        assert_eq!(builtin.inputs.len(), 1);
-        assert_eq!(builtin.inputs[0].key, "repo");
-        assert_eq!(builtin.inputs[0].label, "Repository");
-        assert_eq!(builtin.inputs[0].input_type, "repo");
-        assert!(!builtin.inputs[0].required);
-        assert_eq!(builtin.inputs[0].placeholder, None);
-        // EXP-825: no composer hint — the chat field asks on its own.
-        assert_eq!(builtin.prompt_placeholder, None);
-        assert_eq!(builtin.sort_order, 1e9 + 2.0);
-        // The name snapshot the session row carries.
-        assert_eq!(builtin_action_name(BUILTIN_CHAT_ID), Some("Chat"));
-        assert!(is_builtin_action_id(BUILTIN_CHAT_ID));
-    }
-
-    #[test]
-    fn builtin_tidy_up_action_matches_the_web_factory() {
-        let builtin = builtin_tidy_up_action("team-1");
-        assert_eq!(builtin.id, "builtin:tidy-up");
-        assert_eq!(builtin.team_id, "team-1");
-        assert_eq!(builtin.repository_id, None);
-        assert_eq!(builtin.name, "Tidy up");
-        assert_eq!(
-            builtin.description.as_deref(),
-            Some("Let your agent dedupe, label and link a board's issues. Nothing is deleted")
-        );
-        assert_eq!(builtin.icon.as_deref(), Some("brush-cleaning"));
-        assert!(builtin.body.is_empty());
-        assert!(builtin.builtin);
-        let inputs: Vec<(&str, &str, &str, bool)> = builtin
-            .inputs
-            .iter()
-            .map(|i| (i.key.as_str(), i.label.as_str(), i.input_type.as_str(), i.required))
-            .collect();
-        assert_eq!(
-            inputs,
-            vec![("board", "Board", "board", false), ("repo", "Repository", "repo", false)]
-        );
-        assert!(builtin.inputs.iter().all(|i| i.placeholder.is_none()));
-        assert_eq!(
-            builtin.prompt_placeholder.as_deref(),
-            Some("Anything the tidy-up should focus on or leave alone (optional)…")
-        );
-        assert_eq!(builtin.sort_order, 1e9 + 4.0);
-        assert_eq!(builtin_action_name(BUILTIN_TIDY_UP_ID), Some("Tidy up"));
-        assert!(is_builtin_action_id(BUILTIN_TIDY_UP_ID));
-        // Builtins never carry triggers.
-        assert!(builtin.triggers.is_empty());
-    }
-
-    /// SLOP-2: a team's REAL `Tidy up` row (exact name) hides the builtin.
-    #[test]
-    fn own_tidy_up_action_is_matched_by_exact_name() {
-        assert!(has_own_tidy_up_action(["Groom", "Tidy up"].into_iter()));
-        assert!(!has_own_tidy_up_action(["Groom", "tidy up", "Tidy up "].into_iter()));
-        assert!(!has_own_tidy_up_action(std::iter::empty()));
-    }
-
-    /// SLOP-2: `triggers` rides `actions.list`/`get` as loose JSON, and the
-    /// update sends the whole array (omitted when untouched).
-    #[test]
-    fn triggers_decode_tolerantly_and_update_as_a_whole_array() {
-        let action: Action = serde_json::from_value(serde_json::json!({
-            "id": "act-1", "teamId": "team-1", "name": "Groom",
-            "triggers": [{"id": "t-1", "deviceId": "d-1", "kind": "moon_phase"}],
-        }))
-        .unwrap();
-        assert_eq!(action.triggers.len(), 1, "an unknown kind still decodes");
-        for absent in [
-            serde_json::json!({"id": "a", "teamId": "t", "name": "n"}),
-            serde_json::json!({"id": "a", "teamId": "t", "name": "n", "triggers": null}),
-        ] {
-            assert!(serde_json::from_value::<Action>(absent).unwrap().triggers.is_empty());
-        }
-
-        let mut update = ActionUpdate::new("act-1");
-        assert_eq!(
-            serde_json::to_value(&update).unwrap(),
-            serde_json::json!({"id": "act-1"})
-        );
-        update.triggers = Some(Vec::new());
-        assert_eq!(
-            serde_json::to_value(&update).unwrap(),
-            serde_json::json!({"id": "act-1", "triggers": []}),
-            "an empty array deliberately clears them"
-        );
-
-        let row: domain::rows::ActionRow = serde_json::from_value(serde_json::json!({
-            "id": "act-1", "team_id": "team-1", "name": "Groom",
-            "triggers": "[{\"id\":\"t-1\"}]",
-        }))
-        .unwrap();
-        assert_eq!(from_row(&row).triggers, vec![serde_json::json!({"id": "t-1"})]);
-    }
-
-    #[test]
-    fn builtin_create_action_matches_the_web_factory() {
-        let builtin = builtin_create_action("team-1");
-        assert_eq!(builtin.id, BUILTIN_CREATE_ACTION_ID);
-        assert!(builtin.builtin);
-        assert!(builtin.body.is_empty());
-        assert_eq!(builtin.name, "Create action");
-        assert_eq!(
-            builtin.description.as_deref(),
-            Some("Describe a new action and let your agent author it for the team")
-        );
-        // EXP-825: the request (and any stated name) rides the start's
-        // `prompt`; only the two PICK inputs remain, in the web's order
-        // (`CREATE_ACTION_INPUTS`, byte-locked): repo → icon.
-        assert_eq!(builtin.inputs.len(), 2);
-        assert_eq!(builtin.inputs[0].key, "repo");
-        assert_eq!(builtin.inputs[0].label, "Repository");
-        assert_eq!(builtin.inputs[0].input_type, "repo");
-        assert!(!builtin.inputs[0].required);
-        assert_eq!(builtin.inputs[1].key, "icon");
-        assert_eq!(builtin.inputs[1].label, "Icon");
-        assert_eq!(builtin.inputs[1].input_type, "icon");
-        assert!(!builtin.inputs[1].required);
-        for input in &builtin.inputs {
-            assert_eq!(input.placeholder, None);
-            assert!(domain::contract::ACTION_INPUT_TYPE_VALUES.contains(&input.input_type.as_str()));
-        }
-        assert_eq!(builtin.icon.as_deref(), Some("sparkles"));
-        // EXP-825: the composer's hint while the creator is picked — byte
-        // parity with the web factory's `promptPlaceholder`.
-        assert_eq!(
-            builtin.prompt_placeholder.as_deref(),
-            Some("Describe the action — what it should do, and its name if you have one…")
-        );
-        // Pinned first by flag; the huge sortOrder only keeps naive
-        // sortOrder-asc renderers from interleaving it.
-        assert_eq!(builtin.sort_order, 1e9);
-    }
-
-    #[test]
-    fn builtin_fix_conflicts_action_matches_the_web_factory() {
-        let builtin = builtin_fix_conflicts_action("team-1");
-        assert_eq!(builtin.id, BUILTIN_FIX_CONFLICTS_ID);
-        assert!(builtin.builtin);
-        // The prompt is generated from shipped constants — never a synced body.
-        assert!(builtin.body.is_empty());
-        assert_eq!(builtin.name, "Fix merge conflicts");
-        // The single required `pr` input (EXP-259) — the run has no target
-        // without it.
-        assert_eq!(builtin.inputs.len(), 1);
-        assert_eq!(builtin.inputs[0].key, "pr");
-        assert_eq!(builtin.inputs[0].input_type, "pr");
-        assert!(builtin.inputs[0].required);
-        assert_eq!(builtin.icon.as_deref(), Some("git-branch"));
-        // EXP-825: no composer hint — the generic extra-instructions one.
-        assert_eq!(builtin.prompt_placeholder, None);
-        // Sorts right after "Create action" (web parity: 1e9 + 1).
-        assert_eq!(builtin.sort_order, 1e9 + 1.0);
     }
 }

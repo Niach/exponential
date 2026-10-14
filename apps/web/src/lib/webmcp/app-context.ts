@@ -8,7 +8,7 @@ export type WebMcpNavigateTarget =
   | { kind: `board`; boardSlug: string }
   | { kind: `issue`; boardSlug: string; issueIdentifier: string }
   | { kind: `inbox` }
-  | { kind: `reviews` }
+  | { kind: `threads` }
 
 export interface WebMcpAppContext {
   teamId: string

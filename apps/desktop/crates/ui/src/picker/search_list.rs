@@ -1146,10 +1146,11 @@ impl gpui::Render for MenuSearchList {
         div()
             .id(self.id.clone())
             // The crate pads an element row 8px a side: the list spans the
-            // whole submenu instead.
+            // whole submenu instead, at EXACTLY its width (EXP-1294: a
+            // content-sized list grew with long titles while typing).
             .mx(px(-8.))
-            .flex_1()
-            .min_w_0()
+            .w(px(MENU_LIST_WIDTH))
+            .flex_none()
             .cursor_default()
             .capture_action(move |_: &MoveUp, window, cx| {
                 up(window, cx);
@@ -1193,6 +1194,26 @@ impl gpui::Render for MenuSearchList {
 /// A menu search list's width (the web submenu's).
 pub(crate) const MENU_LIST_WIDTH: f32 = 400.;
 
+/// The submenu's own box: the list plus the crate's `p_1` items container
+/// (4px a side). Pinned as BOTH its min and max width, so the submenu never
+/// changes width with its rows (EXP-1294).
+pub(crate) const MENU_SUBMENU_WIDTH: f32 = MENU_LIST_WIDTH + 8.;
+
+/// EXP-1294 — the max width a PARENT menu holding a search-list submenu
+/// declares. gpui-component decides which side a submenu opens on from the
+/// parent's origin + its `max_width` (default 500px), not from the
+/// submenu's real width; with this (a 240px parent + the submenu) a parent
+/// near the window's right edge opens it on the left instead of under the
+/// edge.
+pub(crate) const MENU_PARENT_MAX_WIDTH: f32 = 240. + MENU_SUBMENU_WIDTH;
+
+/// Give a parent menu [`MENU_PARENT_MAX_WIDTH`] (see there).
+pub(crate) fn search_submenu_parent(
+    menu: gpui_component::menu::PopupMenu,
+) -> gpui_component::menu::PopupMenu {
+    menu.max_w(px(MENU_PARENT_MAX_WIDTH))
+}
+
 /// Build `source`'s list as the ONE row of `submenu` (a `PopupMenu` built by
 /// `submenu_with_icon`): the composer's Implement issue › / Run action ›.
 pub(crate) fn menu_search_list_submenu(
@@ -1206,8 +1227,8 @@ pub(crate) fn menu_search_list_submenu(
     let this = cx.entity().downgrade();
     let list = cx.new(|cx| MenuSearchList::new(id, source, this, root, window, cx));
     submenu
-        .min_w(px(MENU_LIST_WIDTH))
-        .max_w(px(MENU_LIST_WIDTH + 16.))
+        .min_w(px(MENU_SUBMENU_WIDTH))
+        .max_w(px(MENU_SUBMENU_WIDTH))
         .item(gpui_component::menu::PopupMenuItem::element(move |_, _| list.clone()).disabled(true))
 }
 

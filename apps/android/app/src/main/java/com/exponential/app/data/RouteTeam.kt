@@ -63,7 +63,7 @@ fun routeTeamIdFlow(
                     db.issueDao().observeById(subject.id),
                     db.boardDao().observeAll(),
                 ) { issue, boards -> boards.firstOrNull { it.id == issue?.boardId }?.teamId }
-                is RouteSubject.Thread -> db.threadDao().observeById(subject.id).map { it?.teamId }
+                is RouteSubject.Thread -> db.sessionDao().observeById(subject.id).map { it?.teamId }
             }
         }
     }

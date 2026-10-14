@@ -6,8 +6,9 @@
 //!
 //! * [`enums`] — typed enums with tolerant-unknown deserialization + the
 //!   board display orders (locked to the generated contract by test);
-//! * [`rows`] — the 16 hand-written shape row structs mirroring
-//!   `packages/db-schema`, hydrated from the sync store's snake_case JSON;
+//! * [`rows`] — the 25 hand-written shape row structs mirroring
+//!   `packages/db-schema`, hydrated from the sync store's snake_case JSON
+//!   (EXP-1294: the session tree `SessionRow` + messages + pull requests);
 //! * [`hydrate`] — the tolerant `string → native` serde helpers (§5.5 — NOT
 //!   `BoolFromInt`; Electric booleans surface in many forms);
 //! * [`options`] — the status/priority icon+color option tables mirroring
@@ -22,20 +23,18 @@
 //! * [`relations_view`] — EXP-1097's issue-detail relations view (the
 //!   "Sub-issue of" line, the Sub-issues section, one foldable band per side),
 //!   byte-locked ×4 by `fixtures/issue-relations-view.json`;
-//! * [`pr_stack`]: the `pr_base_branch` edge and the bottom-up chain (web
-//!   `lib/pr-stack.ts`'s twin);
+//! * [`pr_stack`]: the `pull_requests` base edge and the bottom-up chain
+//!   (web `lib/pr-stack.ts`'s twin);
 //! * [`pr_graph`]: blockers + batch + stack for ONE subject, the model
 //!   behind the work header's related-work badge and its overlay;
-//! * [`blocked_start`]: SLOP-3's blocked-start dialog (Cancel / Start
-//!   anyway / Stacked PR), byte-locked ×4 by `fixtures/blocked-start.json`;
-//! * [`batch_run`] — EXP-876 `coding_sessions.batch_issue_ids`: which issues
-//!   a batch run covers and the `EXP-874 +2` name every list shows for it
-//!   (web `lib/batch-run.ts`'s twin);
-//! * [`session_results`] — EXP-879 `coding_sessions.results`: the tolerant
-//!   reader, the topic grouping and the equal-height tile geometry behind
-//!   the Results face (web `lib/session-results.ts`'s twin);
-//! * [`session_tree`] — EXP-818 `nest_sessions`: the parent/child nesting
-//!   every session list renders (web `lib/session-tree.ts` twin);
+//! * [`session_results`] — EXP-879 the Guide reader (`sessions.guide`): the
+//!   tolerant reader, the topic grouping and the tile geometry (web
+//!   `lib/session-results.ts`'s twin);
+//! * [`session_tree`] — EXP-1294 Threads v2: the session card, the thread
+//!   screen, the Threads page and the rail's Agents, byte-locked ×4 by
+//!   `fixtures/{session-card,session-thread,threads-list}.json`;
+//! * [`agent_settings`] — EXP-1294 Team settings → Agents (trigger summary,
+//!   form validation), byte-locked ×4 by `fixtures/agent-settings.json`;
 //! * [`tree_guides`] — EXP-965 `guides_for`: the elbow/tee/pass-through
 //!   connector a nested list draws over that nesting, ×4;
 //! * [`issue_nesting`] — EXP-980 `nest_issue_rows`: sub-issues follow their
@@ -77,10 +76,7 @@
 //!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`;
 //! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
 //!   opens (issue | run in-app, another instance page, external, ignored),
-//!   byte-locked ×4 by `fixtures/app-link.json`;
-//! * [`thread_view`] — EXP-1284: a THREAD's title, child strip, captions and
-//!   conversation blocks + the Running/Recent list split, byte-locked ×4 by
-//!   `fixtures/thread-view.json`.
+//!   byte-locked ×4 by `fixtures/app-link.json`.
 //!
 //! gpui-free — headless-testable.
 
@@ -89,10 +85,10 @@ pub mod contract {
 }
 
 pub mod activity_fold;
+// EXP-1294: Team settings → Agents (trigger summary, validation), fixture-locked ×4.
+pub mod agent_settings;
 // EXP-1188: what a clicked link in agent prose opens, fixture-locked ×4.
 pub mod app_link;
-pub mod batch_run;
-pub mod blocked_start;
 pub mod board;
 pub mod client_version;
 // EXP-1121: the Start coding readiness checklist, fixture-locked ×4.
@@ -104,8 +100,6 @@ pub mod diff_tree;
 pub mod edit_card;
 pub mod entity_preview;
 pub mod enums;
-// EXP-1233: the Fix merge conflicts card's PR + `branch → base` (×4).
-pub mod fix_conflicts;
 pub mod hydrate;
 pub mod image_message;
 pub mod issue_draft;
@@ -126,16 +120,11 @@ pub mod relations;
 // EXP-1097: the issue detail's relations view (parent line, sub-issues, bands).
 pub mod relations_view;
 pub mod reporter_reply;
-// EXP-1244: the Reviews queue (board / run / repo bands), fixture-locked ×4.
-pub mod reviews_queue;
 pub mod rows;
 pub mod session_results;
-// EXP-1248: the big session row's caption, fixture-locked ×4.
-pub mod session_row;
+// EXP-1294: the session tree's views (card, thread, Threads page, Agents), fixture-locked ×4.
 pub mod session_tree;
 pub mod statuses;
-// EXP-1284: the thread view model (title, strip, captions, conversation), fixture-locked ×4.
-pub mod thread_view;
 pub mod tree_guides;
 
 pub use enums::{IssuePriority, IssueStatus};

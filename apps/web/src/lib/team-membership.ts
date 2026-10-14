@@ -35,6 +35,7 @@ export {
   buildWhereClause,
   buildTextInClause,
   buildTeamScopedChildWhere,
+  buildSessionVisibleWhere,
   buildArrayOverlapClause,
   andClauses,
   orClauses,

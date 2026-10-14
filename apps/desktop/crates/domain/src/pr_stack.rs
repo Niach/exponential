@@ -1,29 +1,157 @@
-//! PR STACKS, client side only: the pure chain the related-work badge
-//! derives its stack band from (SLOP-3 keeps the badge, not the stack system),
-//! and the ONE confirm a stack merge asks first ([`stack_merge_confirm`]).
+//! PR STACKS, client side only: the pure chain the related-work badge and
+//! the stack rail derive from, and the ONE confirm a stack merge asks first
+//! ([`stack_merge_confirm`]).
 //!
-//! A stack edge is one synced fact: `child.pr_base_branch == lower.branch`
-//! (both non-empty), within ONE repository. There is no `pr_stacks` table and
-//! no server-computed tree: the clients chain the rows they already sync.
+//! EXP-1294: a stack member is a synced [`PullRequestRow`] (all PR state
+//! left `issues`). The edge is EXPLICIT: `upper.base_pull_request_id ==
+//! lower.id`; a row without it (or naming a PR outside the list) falls back
+//! to `upper.base == lower.head` within ONE repository (both non-empty). The
+//! issues a PR closes come from `pull_request_issues` ([`PrSet`]): a PR that
+//! closes several reads as ONE member named by its lowest identifier
+//! (`EXP-874 +2` in the confirm).
 //!
 //! 1. `numbers a member from the bottom of the chain`: position is 1-BASED
-//!    counted from the bottom (the PR nothing else is based on), `size` is
-//!    the whole chain, `below`/`above` name the direct neighbours.
-//! 2. `stops at a base nobody in the list owns`: a base branch no listed PR
-//!    owns (the repo's default branch, or a merged PR the caller filtered
-//!    out) ENDS the walk; it is never rendered as a missing member.
-//! 3. `breaks a cycle where it first appears`: defensive, a base chain that
-//!    loops stops at the first repeat rather than spinning.
+//!    counted from the bottom, `size` is the whole chain, `below`/`above`
+//!    name the direct neighbours.
+//! 2. `stops at a base nobody in the list owns`: a base no listed PR owns
+//!    (the default branch, or a merged PR the caller filtered out) ENDS the
+//!    walk; it is never rendered as a missing member.
+//! 3. `breaks a cycle where it first appears`: defensive.
 //!
-//! Callers scope the input list themselves (one team, and in practice one
-//! repository): the rule matches branch NAMES.
+//! Callers scope the input themselves (one team).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::rows::Issue;
+use crate::rows::{Issue, PullRequestIssueRow, PullRequestRow};
 
 // ---------------------------------------------------------------------------
-// The rule
+// The synced PR world
+// ---------------------------------------------------------------------------
+
+/// The pull requests, their issue links and the issues they name. All three
+/// are the caller's synced rows (one team).
+#[derive(Debug, Clone, Copy)]
+pub struct PrSet<'a> {
+    pub pulls: &'a [&'a PullRequestRow],
+    pub links: &'a [&'a PullRequestIssueRow],
+    pub issues: &'a [&'a Issue],
+}
+
+impl<'a> PrSet<'a> {
+    /// The issues `pr` closes, identifier order (unsynced issues drop out).
+    pub fn issues_of(&self, pr: &PullRequestRow) -> Vec<&'a Issue> {
+        let ids: HashSet<&str> = self
+            .links
+            .iter()
+            .filter(|link| link.pull_request_id == pr.id)
+            .map(|link| link.issue_id.as_str())
+            .collect();
+        let mut issues: Vec<&'a Issue> = self
+            .issues
+            .iter()
+            .copied()
+            .filter(|issue| ids.contains(issue.id.as_str()))
+            .collect();
+        issues.sort_by(|a, b| a.identifier.cmp(&b.identifier));
+        issues
+    }
+
+    /// The issue that names `pr` (its lowest identifier); `None` for an
+    /// issue-less PR.
+    pub fn representative(&self, pr: &PullRequestRow) -> Option<&'a Issue> {
+        self.issues_of(pr).into_iter().next()
+    }
+
+    /// The PR's short name: its representative's identifier, else `#<n>`.
+    pub fn name(&self, pr: &PullRequestRow) -> String {
+        match self.representative(pr) {
+            Some(issue) => issue.identifier.clone(),
+            None => pr.number.map(|number| format!("#{number}")).unwrap_or_default(),
+        }
+    }
+
+    /// [`Self::name`] plus ` +N` for the other issues it closes.
+    pub fn label(&self, pr: &PullRequestRow) -> String {
+        let others = self.issues_of(pr).len().saturating_sub(1);
+        if others > 0 {
+            format!("{} +{others}", self.name(pr))
+        } else {
+            self.name(pr)
+        }
+    }
+
+    /// Every PR linked to `issue_id`, input order.
+    pub fn pull_requests_of_issue(&self, issue_id: &str) -> Vec<&'a PullRequestRow> {
+        let ids: HashSet<&str> = self
+            .links
+            .iter()
+            .filter(|link| link.issue_id == issue_id)
+            .map(|link| link.pull_request_id.as_str())
+            .collect();
+        self.pulls
+            .iter()
+            .copied()
+            .filter(|pr| ids.contains(pr.id.as_str()))
+            .collect()
+    }
+
+    /// THE pull request of an issue: the newest OPEN one, else the newest
+    /// (`created_at`, ISO strings compare chronologically).
+    pub fn issue_pull_request(&self, issue_id: &str) -> Option<&'a PullRequestRow> {
+        let mut pulls = self.pull_requests_of_issue(issue_id);
+        pulls.sort_by(|a, b| {
+            b.is_open()
+                .cmp(&a.is_open())
+                .then_with(|| b.created_at.cmp(&a.created_at))
+                .then_with(|| b.number.cmp(&a.number))
+        });
+        pulls.into_iter().next()
+    }
+
+    /// The PR with this id.
+    pub fn pull(&self, id: &str) -> Option<&'a PullRequestRow> {
+        self.pulls.iter().copied().find(|pr| pr.id == id)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The edge
+// ---------------------------------------------------------------------------
+
+/// A non-empty trimmed field, or `None`: the fallback edge only ever matches
+/// real branch names.
+fn branch(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// The PR `pr` is based on, among `pulls`: the explicit
+/// `base_pull_request_id`, else the first PR (input order) of the same
+/// repository whose head is `pr.base`.
+pub fn lower_of<'a>(pr: &PullRequestRow, pulls: &[&'a PullRequestRow]) -> Option<&'a PullRequestRow> {
+    if let Some(explicit) = branch(pr.base_pull_request_id.as_deref())
+        .and_then(|id| pulls.iter().copied().find(|other| other.id == id && other.id != pr.id))
+    {
+        return Some(explicit);
+    }
+    let base = branch(pr.base.as_deref())?;
+    pulls.iter().copied().find(|other| {
+        other.id != pr.id
+            && other.repository_id == pr.repository_id
+            && branch(other.head.as_deref()) == Some(base)
+    })
+}
+
+/// The PRs based directly on `pr`, input order.
+pub fn uppers_of<'a>(pr: &PullRequestRow, pulls: &[&'a PullRequestRow]) -> Vec<&'a PullRequestRow> {
+    pulls
+        .iter()
+        .copied()
+        .filter(|candidate| lower_of(candidate, pulls).is_some_and(|lower| lower.id == pr.id))
+        .collect()
+}
+
+// ---------------------------------------------------------------------------
+// The chain
 // ---------------------------------------------------------------------------
 
 /// Where one PR sits in its stack. `None` from [`stack_position`] when the
@@ -34,114 +162,59 @@ pub struct StackPosition {
     pub position: usize,
     /// How many pull requests the whole chain holds.
     pub size: usize,
-    /// The identifier of the PR directly below (the one this is based on).
+    /// The name of the PR directly below (the one this is based on).
     pub below: Option<String>,
-    /// The identifier of the PR directly above (the one based on this).
+    /// The name of the PR directly above (the one based on this).
     pub above: Option<String>,
 }
 
-/// A non-empty trimmed field, or `None`: the edge only ever matches real
-/// branch names (`""` on both sides must never chain two unrelated rows).
-fn branch(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
-}
-
-/// One issue per BRANCH: a batch PR lands N issues on ONE branch, and a
-/// stack member is a PULL REQUEST, not an issue. First listed wins (callers
-/// hand us their own order, newest first).
-fn owners_by_branch<'a>(issues: &'a [Issue]) -> HashMap<&'a str, &'a Issue> {
-    let mut owners: HashMap<&str, &Issue> = HashMap::new();
-    for issue in issues {
-        if let Some(head) = branch(issue.branch.as_deref()) {
-            owners.entry(head).or_insert(issue);
-        }
-    }
-    owners
-}
-
-/// The whole chain `issue` belongs to, BOTTOM first, one entry per pull
-/// request (the representative issue of each). Walks down through
-/// `pr_base_branch` until a base nobody in `issues` owns, then up through the
-/// PRs based on each branch. Cycle-safe both ways.
-pub fn stack_chain<'a>(issue: &'a Issue, issues: &'a [Issue]) -> Vec<&'a Issue> {
-    let owners = owners_by_branch(issues);
-    // Down: follow the base branch while a listed PR owns it.
-    let mut below: Vec<&Issue> = Vec::new();
-    let mut seen: HashSet<&str> = HashSet::new();
-    if let Some(head) = branch(issue.branch.as_deref()) {
-        seen.insert(head);
-    }
-    let mut cursor = issue;
-    while let Some(base) = branch(cursor.pr_base_branch.as_deref()) {
-        let Some(lower) = owners.get(base).copied() else {
-            break;
-        };
-        if !seen.insert(base) {
-            // A cycle: it breaks where it first repeats.
+/// The whole chain `pr` belongs to, BOTTOM first: down through the base
+/// until a base nobody in `pulls` owns, then up through the PRs based on
+/// each (a fork above takes the lowest number). Cycle-safe both ways.
+pub fn stack_chain<'a>(pr: &'a PullRequestRow, pulls: &[&'a PullRequestRow]) -> Vec<&'a PullRequestRow> {
+    let mut seen: HashSet<&str> = HashSet::from([pr.id.as_str()]);
+    let mut below: Vec<&PullRequestRow> = Vec::new();
+    let mut cursor = pr;
+    while let Some(lower) = lower_of(cursor, pulls) {
+        if !seen.insert(lower.id.as_str()) {
             break;
         }
-        below.push(lower);
+        below.insert(0, lower);
         cursor = lower;
     }
-    below.reverse();
-
-    // Up: the PR whose base is this branch, recursively.
-    let mut above: Vec<&Issue> = Vec::new();
-    let mut cursor = issue;
+    let mut above: Vec<&PullRequestRow> = Vec::new();
+    cursor = pr;
     loop {
-        let Some(head) = branch(cursor.branch.as_deref()) else {
+        let upper = uppers_of(cursor, pulls)
+            .into_iter()
+            .filter(|candidate| !seen.contains(candidate.id.as_str()))
+            .min_by(|a, b| a.number.cmp(&b.number).then_with(|| a.id.cmp(&b.id)));
+        let Some(upper) = upper else {
             break;
         };
-        let Some(upper) = owners
-            .values()
-            .copied()
-            .filter(|candidate| branch(candidate.pr_base_branch.as_deref()) == Some(head))
-            // Deterministic when a branch was (wrongly) based on twice.
-            .min_by(|a, b| a.identifier.cmp(&b.identifier))
-        else {
-            break;
-        };
-        let Some(upper_head) = branch(upper.branch.as_deref()) else {
-            break;
-        };
-        if !seen.insert(upper_head) {
-            break;
-        }
+        seen.insert(upper.id.as_str());
         above.push(upper);
         cursor = upper;
     }
-
     let mut chain = below;
-    chain.push(issue);
+    chain.push(pr);
     chain.extend(above);
     chain
 }
 
-/// Where `issue`'s pull request sits in its stack: `None` for a lone PR
-/// (nothing below it, nothing on top).
-pub fn stack_position(issue: &Issue, issues: &[Issue]) -> Option<StackPosition> {
-    let chain = stack_chain(issue, issues);
+/// Where `pr` sits in its stack: `None` for a lone PR.
+pub fn stack_position(pr: &PullRequestRow, set: &PrSet<'_>) -> Option<StackPosition> {
+    let subject = set.pull(&pr.id).unwrap_or(pr);
+    let chain = stack_chain(subject, set.pulls);
     if chain.len() < 2 {
         return None;
     }
-    let index = chain
-        .iter()
-        .position(|member| member.id == issue.id)
-        // A batch member is represented by another of its issues: fall back
-        // to the branch it shares.
-        .or_else(|| {
-            let head = branch(issue.branch.as_deref())?;
-            chain
-                .iter()
-                .position(|member| branch(member.branch.as_deref()) == Some(head))
-        })?;
+    let index = chain.iter().position(|member| member.id == pr.id)?;
     Some(StackPosition {
         position: index + 1,
         size: chain.len(),
-        below: index
-            .checked_sub(1)
-            .map(|lower| chain[lower].identifier.clone()),
-        above: chain.get(index + 1).map(|up| up.identifier.clone()),
+        below: index.checked_sub(1).map(|lower| set.name(chain[lower])),
+        above: chain.get(index + 1).map(|upper| set.name(upper)),
     })
 }
 
@@ -153,8 +226,7 @@ pub const MERGE_STACK_LABEL: &str = crate::contract::DIFF_UI_MERGE_STACK;
 // ---------------------------------------------------------------------------
 //
 // ×4 off `fixtures/pr-stack-view.json` (`open_pr_shape` + `stack_view`) and
-// `fixtures/stack-merge-choice.json` `confirm` (`stack_merge_confirm`): web
-// `lib/pr-stack.ts` `openPrShape` / `stackView` / `stackMergeConfirm`.
+// `fixtures/stack-merge-choice.json` `confirm` (`stack_merge_confirm`).
 
 /// A base-chained component's shape: `Tree` = a fork anywhere (follow-up
 /// runs; nests with tree guides), `Stack` = linear (GitHub stacks it; the
@@ -184,63 +256,36 @@ pub const MERGE_THROUGH_LABEL: &str = crate::contract::DIFF_UI_MERGE_THROUGH;
 /// The confirm's dismiss button.
 pub const STACK_CONFIRM_CANCEL_LABEL: &str = "Cancel";
 
-/// Branch → its FIRST owner in input order (web `ownerMap`).
-fn first_owners<'a>(nodes: &[&'a Issue]) -> HashMap<&'a str, &'a Issue> {
-    let mut owners: HashMap<&str, &Issue> = HashMap::new();
-    for node in nodes {
-        if let Some(head) = branch(node.branch.as_deref()) {
-            owners.entry(head).or_insert(node);
-        }
-    }
-    owners
-}
-
-/// Every node base-chained to `node` (either direction), in input order.
-pub fn pr_component<'a>(node: &'a Issue, nodes: &[&'a Issue]) -> Vec<&'a Issue> {
-    let owners = first_owners(nodes);
-    let mut seen: HashSet<&str> = HashSet::from([node.id.as_str()]);
-    let mut queue: std::collections::VecDeque<&Issue> = std::collections::VecDeque::from([node]);
+/// Every PR base-chained to `pr` (either direction), in input order.
+pub fn pr_component<'a>(pr: &'a PullRequestRow, pulls: &[&'a PullRequestRow]) -> Vec<&'a PullRequestRow> {
+    let mut seen: HashSet<&str> = HashSet::from([pr.id.as_str()]);
+    let mut queue: VecDeque<&PullRequestRow> = VecDeque::from([pr]);
     while let Some(current) = queue.pop_front() {
-        let mut linked: Vec<&Issue> = Vec::new();
-        if let Some(lower) = branch(current.pr_base_branch.as_deref()).and_then(|b| owners.get(b)) {
-            linked.push(lower);
-        }
-        if let Some(head) = branch(current.branch.as_deref()) {
-            linked.extend(
-                nodes
-                    .iter()
-                    .copied()
-                    .filter(|candidate| branch(candidate.pr_base_branch.as_deref()) == Some(head)),
-            );
-        }
+        let mut linked: Vec<&PullRequestRow> = lower_of(current, pulls).into_iter().collect();
+        linked.extend(uppers_of(current, pulls));
         for next in linked {
             if seen.insert(next.id.as_str()) {
                 queue.push_back(next);
             }
         }
     }
-    nodes
+    pulls
         .iter()
         .copied()
         .filter(|candidate| seen.contains(candidate.id.as_str()))
         .collect()
 }
 
-/// Tree (any node with two children), stack (linear) or single (< 2).
-pub fn pr_graph_shape(component: &[&Issue]) -> PrGraphShape {
+/// Tree (any PR with two PRs on it), stack (linear) or single (< 2).
+pub fn pr_graph_shape(component: &[&PullRequestRow]) -> PrGraphShape {
     if component.len() < 2 {
         return PrGraphShape::Single;
     }
-    let owners = first_owners(component);
     let mut children: HashMap<&str, usize> = HashMap::new();
-    for node in component {
-        let Some(parent) = branch(node.pr_base_branch.as_deref()).and_then(|b| owners.get(b))
-        else {
+    for pr in component {
+        let Some(parent) = lower_of(pr, component) else {
             continue;
         };
-        if parent.id == node.id {
-            continue;
-        }
         let count = children.entry(parent.id.as_str()).or_insert(0);
         *count += 1;
         if *count > 1 {
@@ -250,145 +295,50 @@ pub fn pr_graph_shape(component: &[&Issue]) -> PrGraphShape {
     PrGraphShape::Stack
 }
 
-/// Web `stackChain` over already-picked nodes: bottom first, ids as the seen
-/// key, a fork above takes the first by identifier.
-fn chain_by_id<'a>(issue: &'a Issue, issues: &[&'a Issue]) -> Vec<&'a Issue> {
-    let owners = first_owners(issues);
-    let mut seen: HashSet<&str> = HashSet::from([issue.id.as_str()]);
-    let mut below: Vec<&Issue> = Vec::new();
-    let mut current = issue;
-    while let Some(base) = branch(current.pr_base_branch.as_deref()) {
-        let Some(lower) = owners.get(base).copied() else {
-            break;
-        };
-        if lower.id == current.id || !seen.insert(lower.id.as_str()) {
-            break;
-        }
-        below.insert(0, lower);
-        current = lower;
-    }
-    let mut above: Vec<&Issue> = Vec::new();
-    current = issue;
-    while let Some(head) = branch(current.branch.as_deref()) {
-        let upper = issues
-            .iter()
-            .copied()
-            .filter(|candidate| {
-                candidate.id != current.id
-                    && branch(candidate.pr_base_branch.as_deref()) == Some(head)
-                    && !seen.contains(candidate.id.as_str())
-            })
-            .min_by(|a, b| a.identifier.cmp(&b.identifier));
-        let Some(upper) = upper else {
-            break;
-        };
-        seen.insert(upper.id.as_str());
-        above.push(upper);
-        current = upper;
-    }
-    let mut chain = below;
-    chain.push(issue);
-    chain.extend(above);
-    chain
-}
-
-/// The OPEN rows (identifier order) with ONE representative per pull request
-/// and the subject's representative; `None` without an open PR.
-struct OpenPick<'a> {
-    open: Vec<&'a Issue>,
-    reps: Vec<&'a Issue>,
-    subject: &'a Issue,
-}
-
-fn open_representatives<'a>(issue: &'a Issue, issues: &'a [Issue]) -> Option<OpenPick<'a>> {
-    if issue.pr_state.as_deref() != Some("open") {
+/// The OPEN pull requests (input order) with `pr` itself; `None` unless `pr`
+/// is open.
+fn open_pulls<'a>(pr: &'a PullRequestRow, set: &PrSet<'a>) -> Option<(Vec<&'a PullRequestRow>, &'a PullRequestRow)> {
+    if !pr.is_open() {
         return None;
     }
-    let mut open: Vec<&Issue> = issues
-        .iter()
-        .filter(|row| row.pr_state.as_deref() == Some("open"))
-        .collect();
-    if !open.iter().any(|row| row.id == issue.id) {
-        open.push(issue);
-    }
-    open.sort_by(|a, b| a.identifier.cmp(&b.identifier));
-    let mut reps: Vec<&Issue> = Vec::new();
-    let mut subject: Option<&Issue> = None;
-    for row in &open {
-        let url = row.pr_url.as_deref();
-        let rep = url.and_then(|url| reps.iter().copied().find(|other| other.pr_url.as_deref() == Some(url)));
-        let rep = match rep {
-            Some(rep) => rep,
-            None => {
-                reps.push(row);
-                row
-            }
-        };
-        if row.id == issue.id {
-            subject = Some(rep);
+    let mut open: Vec<&PullRequestRow> = set.pulls.iter().copied().filter(|row| row.is_open()).collect();
+    let subject = match open.iter().copied().find(|row| row.id == pr.id) {
+        Some(subject) => subject,
+        None => {
+            open.push(pr);
+            pr
         }
-    }
-    Some(OpenPick {
-        open,
-        reps,
-        subject: subject?,
-    })
+    };
+    Some((open, subject))
 }
 
-/// The shape of the open component `issue`'s pull request sits in
-/// (`Single` without an open pull request).
-pub fn open_pr_shape(issue: &Issue, issues: &[Issue]) -> PrGraphShape {
-    match open_representatives(issue, issues) {
-        Some(pick) => pr_graph_shape(&pr_component(pick.subject, &pick.reps)),
+/// The shape of the open component `pr` sits in (`Single` when `pr` is not
+/// open).
+pub fn open_pr_shape(pr: &PullRequestRow, set: &PrSet<'_>) -> PrGraphShape {
+    match open_pulls(pr, set) {
+        Some((open, subject)) => pr_graph_shape(&pr_component(subject, &open)),
         None => PrGraphShape::Single,
     }
 }
 
-/// The linear open stack `issue` sits in: the chain bottom → top, the
-/// subject's representative and every open row (for a batch's partners).
-struct OpenStack<'a> {
-    chain: Vec<&'a Issue>,
-    subject: &'a Issue,
-    open: Vec<&'a Issue>,
-}
-
-impl OpenStack<'_> {
-    /// A member's label: `EXP-874 +2` for a batch PR.
-    fn label(&self, row: &Issue) -> String {
-        let siblings = match row.pr_url.as_deref() {
-            Some(url) => self
-                .open
-                .iter()
-                .filter(|other| other.id != row.id && other.pr_url.as_deref() == Some(url))
-                .count(),
-            None => 0,
-        };
-        if siblings > 0 {
-            format!("{} +{siblings}", row.identifier)
-        } else {
-            row.identifier.clone()
-        }
-    }
-}
-
-fn open_stack<'a>(issue: &'a Issue, issues: &'a [Issue]) -> Option<OpenStack<'a>> {
-    let pick = open_representatives(issue, issues)?;
-    if pr_graph_shape(&pr_component(pick.subject, &pick.reps)) != PrGraphShape::Stack {
+/// The linear open stack `pr` sits in, bottom → top, and its subject row.
+fn open_stack<'a>(pr: &'a PullRequestRow, set: &PrSet<'a>) -> Option<(Vec<&'a PullRequestRow>, &'a PullRequestRow)> {
+    let (open, subject) = open_pulls(pr, set)?;
+    if pr_graph_shape(&pr_component(subject, &open)) != PrGraphShape::Stack {
         return None;
     }
-    let chain = chain_by_id(pick.subject, &pick.reps);
-    Some(OpenStack {
-        chain,
-        subject: pick.subject,
-        open: pick.open,
-    })
+    Some((stack_chain(subject, &open), subject))
 }
 
 /// One stack-rail row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StackViewRow {
-    pub issue_id: String,
+    pub pull_request_id: String,
+    /// The representative issue (`None` = an issue-less PR).
+    pub issue_id: Option<String>,
+    /// The representative's identifier, else `#<n>`.
     pub identifier: String,
+    /// The representative's title, else the PR's own title.
     pub title: String,
     pub pr_number: Option<i64>,
     /// The subject's pull request: the row wears the active wash.
@@ -403,28 +353,33 @@ pub struct StackView {
     pub base_branch: Option<String>,
 }
 
-/// The stack rail of `issue`'s pull request (the Guide's Stack card, a
-/// Reviews stack group): `None` unless it sits in a linear open stack of 2+
-/// pull requests.
-pub fn stack_view(issue: &Issue, issues: &[Issue]) -> Option<StackView> {
-    let stack = open_stack(issue, issues)?;
-    if stack.chain.len() < 2 {
+/// The stack rail of `pr` (the Guide's Stack card): `None` unless it sits in
+/// a linear open stack of 2+ pull requests.
+pub fn stack_view(pr: &PullRequestRow, set: &PrSet<'_>) -> Option<StackView> {
+    let (chain, subject) = open_stack(pr, set)?;
+    if chain.len() < 2 {
         return None;
     }
     Some(StackView {
-        rows: stack
-            .chain
+        rows: chain
             .iter()
             .rev()
-            .map(|row| StackViewRow {
-                issue_id: row.id.clone(),
-                identifier: row.identifier.clone(),
-                title: row.title.clone(),
-                pr_number: row.pr_number,
-                is_current: row.id == stack.subject.id,
+            .map(|row| {
+                let issue = set.representative(row);
+                StackViewRow {
+                    pull_request_id: row.id.clone(),
+                    issue_id: issue.map(|issue| issue.id.clone()),
+                    identifier: set.name(row),
+                    title: issue
+                        .map(|issue| issue.title.clone())
+                        .or_else(|| row.title.clone())
+                        .unwrap_or_default(),
+                    pr_number: row.number,
+                    is_current: row.id == subject.id,
+                }
             })
             .collect(),
-        base_branch: branch(stack.chain[0].pr_base_branch.as_deref()).map(str::to_string),
+        base_branch: branch(chain[0].base.as_deref()).map(str::to_string),
     })
 }
 
@@ -441,39 +396,33 @@ pub enum StackConfirmMode {
 pub struct StackMergeConfirm {
     /// The title AND the primary button.
     pub title: String,
-    /// What lands, bottom first; a batch PR = `EXP-874 +2`.
+    /// What lands, bottom first; a PR closing several issues = `EXP-874 +2`.
     pub landing: Vec<String>,
     /// What stays open above it (GitHub retargets it).
     pub stays_open: Vec<String>,
     pub body: String,
-    /// `issues.mergePr({issueId, mergeStack: true})`'s issue.
-    pub issue_id: String,
+    /// `pullRequests.merge({pullRequestId, stack: true})`'s pull request.
+    pub pull_request_id: String,
 }
 
 /// EXP-1248: the confirm for `mode`; `None` = not in a linear open stack (the
 /// plain merge confirm).
 pub fn stack_merge_confirm(
-    issue: &Issue,
-    issues: &[Issue],
+    pr: &PullRequestRow,
+    set: &PrSet<'_>,
     mode: StackConfirmMode,
 ) -> Option<StackMergeConfirm> {
-    let stack = open_stack(issue, issues)?;
-    if stack.chain.len() < 2 {
+    let (chain, subject) = open_stack(pr, set)?;
+    if chain.len() < 2 {
         return None;
     }
-    let index = stack
-        .chain
-        .iter()
-        .position(|row| row.id == stack.subject.id)?;
+    let index = chain.iter().position(|row| row.id == subject.id)?;
     let through = match mode {
-        StackConfirmMode::Stack => stack.chain.len() - 1,
+        StackConfirmMode::Stack => chain.len() - 1,
         StackConfirmMode::Through => index,
     };
-    let landing: Vec<String> = stack.chain[..=through].iter().map(|row| stack.label(row)).collect();
-    let stays_open: Vec<String> = stack.chain[through + 1..]
-        .iter()
-        .map(|row| stack.label(row))
-        .collect();
+    let landing: Vec<String> = chain[..=through].iter().map(|row| set.label(row)).collect();
+    let stays_open: Vec<String> = chain[through + 1..].iter().map(|row| set.label(row)).collect();
     let lands = if landing.len() == 1 {
         format!("Lands 1 pull request: {}.", landing[0])
     } else {
@@ -496,10 +445,7 @@ pub fn stack_merge_confirm(
         landing,
         stays_open,
         body: format!("{lands}{open}"),
-        issue_id: match mode {
-            StackConfirmMode::Stack => stack.chain[stack.chain.len() - 1].id.clone(),
-            StackConfirmMode::Through => issue.id.clone(),
-        },
+        pull_request_id: chain[through].id.clone(),
     })
 }
 
@@ -507,87 +453,188 @@ pub fn stack_merge_confirm(
 pub(crate) mod tests {
     use super::*;
 
-    /// A minimal issue row with the three columns the rule reads.
-    pub(crate) fn issue(identifier: &str, head: Option<&str>, base: Option<&str>) -> Issue {
-        serde_json::from_value(serde_json::json!({
-            "id": format!("id-{identifier}"),
-            "board_id": "board-1",
-            "number": 1,
-            "identifier": identifier,
-            "title": identifier,
-            "status": "in_progress",
-            "branch": head,
-            "pr_base_branch": base,
-            "pr_url": head.map(|head| format!("https://github.com/o/r/pull/{head}")),
-            "pr_state": head.map(|_| "open"),
-        }))
-        .unwrap()
+    /// A test PR world built from issue-shaped rows (the fixtures' form):
+    /// rows sharing a PR url are ONE pull request closing all of them.
+    pub(crate) struct World {
+        pub pulls: Vec<PullRequestRow>,
+        pub links: Vec<PullRequestIssueRow>,
+        pub issues: Vec<Issue>,
+    }
+
+    /// One issue-shaped row: identifier, head, base, url, state, number,
+    /// title.
+    pub(crate) struct Spec<'a> {
+        pub id: &'a str,
+        pub identifier: &'a str,
+        pub title: Option<&'a str>,
+        pub head: Option<&'a str>,
+        pub base: Option<&'a str>,
+        pub url: Option<&'a str>,
+        pub state: Option<&'a str>,
+        pub number: Option<i64>,
+    }
+
+    impl World {
+        pub(crate) fn build(specs: &[Spec<'_>]) -> World {
+            let mut pulls: Vec<PullRequestRow> = Vec::new();
+            let mut links = Vec::new();
+            let mut issues = Vec::new();
+            for spec in specs {
+                issues.push(
+                    serde_json::from_value::<Issue>(serde_json::json!({
+                        "id": spec.id,
+                        "board_id": "board-1",
+                        "number": 1,
+                        "identifier": spec.identifier,
+                        "title": spec.title.unwrap_or(spec.identifier),
+                        "status": "in_review",
+                    }))
+                    .unwrap(),
+                );
+                let Some(url) = spec.url else {
+                    continue;
+                };
+                if !pulls.iter().any(|pr| pr.id == url) {
+                    pulls.push(
+                        serde_json::from_value(serde_json::json!({
+                            "id": url,
+                            "repository_id": "repo-1",
+                            "number": spec.number,
+                            "url": url,
+                            "head": spec.head,
+                            "base": spec.base,
+                            "state": spec.state,
+                        }))
+                        .unwrap(),
+                    );
+                }
+                links.push(
+                    serde_json::from_value(serde_json::json!({
+                        "id": format!("link-{}", spec.id),
+                        "pull_request_id": url,
+                        "issue_id": spec.id,
+                    }))
+                    .unwrap(),
+                );
+            }
+            World { pulls, links, issues }
+        }
+
+        pub(crate) fn refs(&self) -> (Vec<&PullRequestRow>, Vec<&PullRequestIssueRow>, Vec<&Issue>) {
+            (self.pulls.iter().collect(), self.links.iter().collect(), self.issues.iter().collect())
+        }
+
+        pub(crate) fn pr_of(&self, issue_id: &str) -> Option<&PullRequestRow> {
+            let link = self.links.iter().find(|link| link.issue_id == issue_id)?;
+            self.pulls.iter().find(|pr| pr.id == link.pull_request_id)
+        }
+    }
+
+    /// An open PR row for issue `identifier`: head/base branch names.
+    pub(crate) fn spec<'a>(identifier: &'a str, head: Option<&'a str>, base: Option<&'a str>) -> Spec<'a> {
+        Spec {
+            id: identifier,
+            identifier,
+            title: None,
+            head,
+            base,
+            url: head,
+            state: head.map(|_| "open"),
+            number: Some(1),
+        }
     }
 
     /// EXP-11 sits on main, EXP-12 on EXP-11's branch, EXP-13 on EXP-12's.
-    fn chain_fixture() -> Vec<Issue> {
-        vec![
-            issue("EXP-13", Some("exp/EXP-13"), Some("exp/EXP-12")),
-            issue("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
-            issue("EXP-11", Some("exp/EXP-11"), Some("master")),
-        ]
+    fn chain_world() -> World {
+        World::build(&[
+            spec("EXP-13", Some("exp/EXP-13"), Some("exp/EXP-12")),
+            spec("EXP-12", Some("exp/EXP-12"), Some("exp/EXP-11")),
+            spec("EXP-11", Some("exp/EXP-11"), Some("master")),
+        ])
     }
 
     #[test]
     fn numbers_a_member_from_the_bottom_of_the_chain() {
-        let issues = chain_fixture();
-        let middle = stack_position(&issues[1], &issues).unwrap();
+        let world = chain_world();
+        let (pulls, links, issues) = world.refs();
+        let set = PrSet { pulls: &pulls, links: &links, issues: &issues };
+        let middle = stack_position(world.pr_of("EXP-12").unwrap(), &set).unwrap();
         assert_eq!(middle.position, 2);
         assert_eq!(middle.size, 3);
         assert_eq!(middle.below.as_deref(), Some("EXP-11"));
         assert_eq!(middle.above.as_deref(), Some("EXP-13"));
-        let bottom = stack_position(&issues[2], &issues).unwrap();
+        let bottom = stack_position(world.pr_of("EXP-11").unwrap(), &set).unwrap();
         assert_eq!((bottom.position, bottom.size), (1, 3));
         assert_eq!(bottom.below, None);
-        assert_eq!(bottom.above.as_deref(), Some("EXP-12"));
-        let top = stack_position(&issues[0], &issues).unwrap();
+        let top = stack_position(world.pr_of("EXP-13").unwrap(), &set).unwrap();
         assert_eq!((top.position, top.size), (3, 3));
         assert_eq!(top.above, None);
-        // The chain always reads bottom-first, whoever asked.
-        let chain: Vec<&str> = stack_chain(&issues[0], &issues)
+        let chain: Vec<String> = stack_chain(world.pr_of("EXP-13").unwrap(), &pulls)
             .iter()
-            .map(|issue| issue.identifier.as_str())
+            .map(|pr| set.name(pr))
             .collect();
         assert_eq!(chain, ["EXP-11", "EXP-12", "EXP-13"]);
     }
 
     #[test]
+    fn the_explicit_base_pull_request_wins() {
+        // `base_pull_request_id` chains even when the branch names do not.
+        let mut world = World::build(&[
+            spec("EXP-2", Some("feature"), Some("renamed")),
+            spec("EXP-1", Some("exp/EXP-1"), Some("master")),
+        ]);
+        world.pulls[0].base_pull_request_id = Some("exp/EXP-1".to_string());
+        let (pulls, _, _) = world.refs();
+        let chain: Vec<&str> = stack_chain(&world.pulls[0], &pulls).iter().map(|pr| pr.id.as_str()).collect();
+        assert_eq!(chain, ["exp/EXP-1", "feature"]);
+        // Another repository's head never chains by name.
+        let mut other = World::build(&[
+            spec("EXP-4", Some("exp/EXP-4"), Some("exp/EXP-3")),
+            spec("EXP-3", Some("exp/EXP-3"), Some("master")),
+        ]);
+        other.pulls[1].repository_id = Some("repo-2".to_string());
+        let (pulls, _, _) = other.refs();
+        assert_eq!(stack_chain(&other.pulls[0], &pulls).len(), 1);
+    }
+
+    #[test]
     fn stops_at_a_base_nobody_in_the_list_owns() {
-        // `master` is nobody's head branch: the walk stops there, and the
-        // bottom member is not "missing its base".
-        let issues = chain_fixture();
-        let only_top = vec![issues[0].clone()];
-        assert_eq!(stack_position(&issues[0], &only_top), None);
-        assert_eq!(stack_chain(&issues[0], &only_top).len(), 1);
-        // A lone PR straight on the default branch is no stack either.
-        let lone = vec![issue("EXP-20", Some("exp/EXP-20"), Some("master"))];
-        assert_eq!(stack_position(&lone[0], &lone), None);
+        let world = chain_world();
+        let top = world.pr_of("EXP-13").unwrap();
+        let only_top = vec![top];
+        assert_eq!(stack_chain(top, &only_top).len(), 1);
+        let lone = World::build(&[spec("EXP-20", Some("exp/EXP-20"), Some("master"))]);
+        let (pulls, links, issues) = lone.refs();
+        let set = PrSet { pulls: &pulls, links: &links, issues: &issues };
+        assert_eq!(stack_position(&lone.pulls[0], &set), None);
         // An EMPTY base never chains two unrelated rows.
-        let blanks = vec![
-            issue("EXP-30", Some("exp/EXP-30"), Some("")),
-            issue("EXP-31", Some(""), Some("")),
-        ];
-        assert_eq!(stack_position(&blanks[0], &blanks), None);
+        let blanks = World::build(&[
+            spec("EXP-30", Some("exp/EXP-30"), Some("")),
+            Spec { url: Some("u-31"), ..spec("EXP-31", Some(""), Some("")) },
+        ]);
+        let (pulls, _, _) = blanks.refs();
+        assert_eq!(stack_chain(&blanks.pulls[0], &pulls).len(), 1);
     }
 
     #[test]
     fn breaks_a_cycle_where_it_first_appears() {
-        let issues = vec![
-            issue("EXP-40", Some("a"), Some("b")),
-            issue("EXP-41", Some("b"), Some("a")),
-        ];
-        let chain: Vec<&str> = stack_chain(&issues[0], &issues)
-            .iter()
-            .map(|issue| issue.identifier.as_str())
-            .collect();
+        let world = World::build(&[spec("EXP-40", Some("a"), Some("b")), spec("EXP-41", Some("b"), Some("a"))]);
+        let (pulls, links, issues) = world.refs();
+        let set = PrSet { pulls: &pulls, links: &links, issues: &issues };
+        let chain: Vec<String> = stack_chain(&world.pulls[0], &pulls).iter().map(|pr| set.name(pr)).collect();
         assert_eq!(chain, ["EXP-41", "EXP-40"]);
-        let position = stack_position(&issues[0], &issues).unwrap();
-        assert_eq!((position.position, position.size), (2, 2));
+    }
+
+    #[test]
+    fn an_issue_resolves_its_open_pull_request_first() {
+        let world = World::build(&[
+            Spec { url: Some("old"), state: Some("merged"), ..spec("EXP-1", Some("a"), Some("master")) },
+            Spec { id: "EXP-1", url: Some("new"), ..spec("EXP-1", Some("b"), Some("master")) },
+        ]);
+        let (pulls, links, issues) = world.refs();
+        let set = PrSet { pulls: &pulls, links: &links, issues: &issues };
+        assert_eq!(set.pull_requests_of_issue("EXP-1").len(), 2);
+        assert_eq!(set.issue_pull_request("EXP-1").map(|pr| pr.id.as_str()), Some("new"));
     }
 
     /// The fixture row `pr-stack-view.json` / `stack-merge-choice.json` share.
@@ -606,21 +653,21 @@ pub(crate) mod tests {
         pr_url: Option<String>,
     }
 
-    fn view_issue(row: &ViewRow) -> Issue {
-        serde_json::from_value(serde_json::json!({
-            "id": row.id,
-            "board_id": "board-1",
-            "number": 1,
-            "identifier": row.identifier,
-            "title": row.title.clone().unwrap_or_else(|| row.identifier.clone()),
-            "status": "in_review",
-            "branch": row.branch,
-            "pr_base_branch": row.pr_base_branch,
-            "pr_url": row.pr_url,
-            "pr_state": row.pr_state,
-            "pr_number": row.pr_number,
-        }))
-        .unwrap()
+    fn view_world(rows: &[ViewRow]) -> World {
+        let specs: Vec<Spec<'_>> = rows
+            .iter()
+            .map(|row| Spec {
+                id: &row.id,
+                identifier: &row.identifier,
+                title: row.title.as_deref(),
+                head: row.branch.as_deref(),
+                base: row.pr_base_branch.as_deref(),
+                url: row.pr_url.as_deref(),
+                state: row.pr_state.as_deref(),
+                number: row.pr_number,
+            })
+            .collect();
+        World::build(&specs)
     }
 
     /// EXP-1248: `pr-stack-view.json` locks `openPrShape` + `stackView` ×4.
@@ -659,18 +706,19 @@ pub(crate) mod tests {
         .expect("pr-stack-view.json parses");
         assert!(!fixture.cases.is_empty());
         for case in fixture.cases {
-            let issues: Vec<Issue> = case.issues.iter().map(view_issue).collect();
-            let issue = issues
-                .iter()
-                .find(|row| row.id == case.issue)
-                .unwrap_or_else(|| panic!("{}: the subject is listed", case.name));
-            assert_eq!(open_pr_shape(issue, &issues).as_str(), case.shape, "{}", case.name);
+            let world = view_world(&case.issues);
+            let (pulls, links, issues) = world.refs();
+            let set = PrSet { pulls: &pulls, links: &links, issues: &issues };
+            let subject = set.issue_pull_request(&case.issue);
+            let shape = subject.map_or(PrGraphShape::Single, |pr| open_pr_shape(pr, &set));
+            assert_eq!(shape.as_str(), case.shape, "{}", case.name);
             let expected = case.view.map(|view| StackView {
                 rows: view
                     .rows
                     .into_iter()
                     .map(|row| StackViewRow {
-                        issue_id: row.issue_id,
+                        pull_request_id: world.pr_of(&row.issue_id).unwrap().id.clone(),
+                        issue_id: Some(row.issue_id),
                         identifier: row.identifier,
                         title: row.title,
                         pr_number: row.pr_number,
@@ -679,28 +727,25 @@ pub(crate) mod tests {
                     .collect(),
                 base_branch: view.base_branch,
             });
-            assert_eq!(stack_view(issue, &issues), expected, "{}", case.name);
+            assert_eq!(subject.and_then(|pr| stack_view(pr, &set)), expected, "{}", case.name);
         }
     }
 
-    /// EXP-1248: a fork anywhere is a tree; a line is a stack (web
-    /// `prGraphShape` `tells a fork from a line`).
+    /// EXP-1248: a fork anywhere is a tree; a line is a stack.
     #[test]
     fn pr_graph_shape_tells_a_fork_from_a_line() {
-        let line = chain_fixture();
-        let refs: Vec<&Issue> = line.iter().collect();
-        assert_eq!(pr_graph_shape(&refs), PrGraphShape::Stack);
-        assert_eq!(pr_graph_shape(&refs[..1]), PrGraphShape::Single);
-        let fork = vec![
-            issue("EXP-1", Some("a"), Some("master")),
-            issue("EXP-2", Some("b"), Some("a")),
-            issue("EXP-3", Some("c"), Some("a")),
-        ];
-        let refs: Vec<&Issue> = fork.iter().collect();
-        assert_eq!(pr_graph_shape(&refs), PrGraphShape::Tree);
-        // The whole component, from any member.
-        let component = pr_component(&fork[2], &refs);
-        assert_eq!(component.len(), 3);
+        let line = chain_world();
+        let (pulls, _, _) = line.refs();
+        assert_eq!(pr_graph_shape(&pulls), PrGraphShape::Stack);
+        assert_eq!(pr_graph_shape(&pulls[..1]), PrGraphShape::Single);
+        let fork = World::build(&[
+            spec("EXP-1", Some("a"), Some("master")),
+            spec("EXP-2", Some("b"), Some("a")),
+            spec("EXP-3", Some("c"), Some("a")),
+        ]);
+        let (pulls, _, _) = fork.refs();
+        assert_eq!(pr_graph_shape(&pulls), PrGraphShape::Tree);
+        assert_eq!(pr_component(pulls[2], &pulls).len(), 3);
     }
 
     /// EXP-1248: `stack-merge-choice.json` `confirm` locks the ONE confirm ×4.
@@ -755,11 +800,9 @@ pub(crate) mod tests {
         assert_eq!(STACK_CONFIRM_CANCEL_LABEL, fixture.confirm.labels.cancel);
         assert!(!fixture.confirm.cases.is_empty());
         for case in fixture.confirm.cases {
-            let issues: Vec<Issue> = case.issues.iter().map(view_issue).collect();
-            let issue = issues
-                .iter()
-                .find(|row| row.id == case.issue)
-                .unwrap_or_else(|| panic!("{}: the subject is listed", case.name));
+            let world = view_world(&case.issues);
+            let (pulls, links, issues) = world.refs();
+            let set = PrSet { pulls: &pulls, links: &links, issues: &issues };
             let mode = match case.mode.as_str() {
                 "stack" => StackConfirmMode::Stack,
                 "through" => StackConfirmMode::Through,
@@ -772,10 +815,16 @@ pub(crate) mod tests {
                     landing: confirm.landing,
                     stays_open: confirm.stays_open,
                     body: confirm.body,
-                    issue_id: confirm.input.issue_id,
+                    pull_request_id: world.pr_of(&confirm.input.issue_id).unwrap().id.clone(),
                 }
             });
-            assert_eq!(stack_merge_confirm(issue, &issues, mode), expected, "{}", case.name);
+            let subject = set.issue_pull_request(&case.issue);
+            assert_eq!(
+                subject.and_then(|pr| stack_merge_confirm(pr, &set, mode)),
+                expected,
+                "{}",
+                case.name
+            );
         }
     }
 }

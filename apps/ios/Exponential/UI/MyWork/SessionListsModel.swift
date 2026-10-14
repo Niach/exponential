@@ -1,0 +1,202 @@
+import ExpCore
+import Foundation
+import GRDB
+
+/// EXP-1291: the session tree as the phone's LISTS read it — ONE observation
+/// of the synced `sessions` / `session_issues` / `messages` /
+/// `pull_requests` rows, owned by
+/// the navigator for its whole lifetime and handed down through the
+/// environment, so the Threads tab, its dot, Home's Running band and the
+/// board switcher's per-team dots never disagree. Every rule is ExpCore's
+/// `SessionTree` (fixture-locked ×4); this model only maps rows and keeps
+/// the derived lists.
+@MainActor @Observable
+final class SessionListsModel {
+    /// Every team's thread groups (`partitionThreads(teamId: nil)` — phones
+    /// band the rows per team).
+    private(set) var groups: [ThreadsListGroup] = []
+    /// Every team's agents (`listAgents(teamId: nil)`).
+    private(set) var agents: [AgentRow] = []
+    /// Home's Running band: my live threads — needs-you first, then running,
+    /// each newest activity first.
+    private(set) var running: [ThreadsListRow] = []
+    /// A thread's first linked issue identifier (the row's mono id).
+    private(set) var identifiers: [String: String] = [:]
+    /// A root's agent CLI (the row's run mark), by root id.
+    private(set) var clis: [String: String] = [:]
+    /// EXP-1309: a Threads row's quiet word off its pull requests, by root id
+    /// (`SessionTree.threadRowWord`).
+    private(set) var words: [String: ThreadRowWord] = [:]
+    /// The board switcher's per-team dots (`liveByTeam`).
+    private(set) var liveByTeam: [String: SessionTree.TeamLiveSessions] = [:]
+    /// The first emission landed (before it, lists draw skeleton rows).
+    private(set) var loaded = false
+
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var boundAccountId: String?
+
+    nonisolated init() {}
+
+    /// The Threads tab's green dot: a thread runs.
+    var threadsRunning: Bool {
+        groups.contains { $0.key == .running }
+    }
+
+    /// The Threads tab's amber dot: a thread or an agent waits on a person.
+    var needsYou: Bool {
+        groups.contains { $0.key == .needsYou } || agents.contains(where: \.needsYou)
+    }
+
+    /// The launcher's dot: one of my sessions is live (queued or running).
+    var agentsRunning: Bool {
+        liveByTeam.values.contains { $0.count > 0 || $0.needsInput }
+    }
+
+    /// The launcher's amber: one of my live sessions needs me.
+    var agentsNeedInput: Bool {
+        liveByTeam.values.contains(where: \.needsInput)
+    }
+
+    /// (Re)binds to an account's pool; a no-op while already bound to it.
+    func bind(accountId: String, userId: String?, db: DatabaseManager) {
+        guard boundAccountId != accountId || task == nil else { return }
+        stop()
+        boundAccountId = accountId
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            try Self.read(db)
+        }
+        task = Task { [weak self] in
+            do {
+                for try await rows in observation.values(in: pool) {
+                    self?.apply(Self.derive(rows, userId: userId))
+                }
+            } catch {}
+        }
+    }
+
+    func stop() {
+        task?.cancel()
+        task = nil
+        boundAccountId = nil
+        groups = []
+        agents = []
+        running = []
+        identifiers = [:]
+        clis = [:]
+        words = [:]
+        liveByTeam = [:]
+        loaded = false
+    }
+
+    // MARK: - Rows
+
+    private struct Rows: Sendable {
+        var sessions: [TreeSession]
+        var sessionIssues: [TreeSessionIssue]
+        var issues: [TreeIssue]
+        var messages: [TreeMessage]
+        var clis: [String: String]
+        var pullRequests: [PullRequestEntity]
+    }
+
+    private struct Derived: Sendable {
+        var groups: [ThreadsListGroup]
+        var agents: [AgentRow]
+        var running: [ThreadsListRow]
+        var identifiers: [String: String]
+        var clis: [String: String]
+        var words: [String: ThreadRowWord]
+        var liveByTeam: [String: SessionTree.TeamLiveSessions]
+    }
+
+    private func apply(_ derived: Derived) {
+        groups = derived.groups
+        agents = derived.agents
+        running = derived.running
+        identifiers = derived.identifiers
+        clis = derived.clis
+        words = derived.words
+        liveByTeam = derived.liveByTeam
+        loaded = true
+    }
+
+    /// The whole session table (the shape already scopes it to what I may
+    /// read), the root links, their issues, and the roots' OWN person
+    /// messages (`threadTitle`'s last fallback — never a whole transcript).
+    nonisolated private static func read(_ db: Database) throws -> Rows {
+        let sessions = try SessionEntity.fetchAll(db)
+        let links = try SessionIssueEntity.order(Column("sort_order")).fetchAll(db)
+        let issueIds = Array(Set(links.map(\.issueId)))
+        let issues = issueIds.isEmpty
+            ? []
+            : try IssueEntity.filter(issueIds.contains(Column("id"))).fetchAll(db)
+        let messages = try MessageEntity
+            .filter(Column("session_id") == Column("root_id"))
+            .filter(Column("author_kind") == DomainContract.messageAuthorKindUser)
+            .order(Column("created_at"))
+            .fetchAll(db)
+        return Rows(
+            sessions: sessions.map { TreeSession(sessionRow: $0) },
+            sessionIssues: links.map { TreeSessionIssue(sessionIssueRow: $0) },
+            issues: issues.map { TreeIssue(issueRow: $0) },
+            messages: messages.map { TreeMessage(messageRow: $0) },
+            clis: Dictionary(
+                sessions.filter(\.isRoot).map { ($0.id, $0.cli ?? "") },
+                uniquingKeysWith: { a, _ in a }
+            ),
+            pullRequests: try PullRequestEntity.fetchAll(db)
+        )
+    }
+
+    nonisolated private static func derive(_ rows: Rows, userId: String?) -> Derived {
+        let groups = SessionTree.partitionThreads(
+            sessions: rows.sessions,
+            sessionIssues: rows.sessionIssues,
+            issues: rows.issues,
+            messages: rows.messages,
+            teamId: nil
+        )
+        // Roots holding a live session of mine (any depth of the tree).
+        let mine = Set(rows.sessions.filter {
+            $0.userId == userId && $0.status != DomainContract.sessionStatusEnded
+        }.map(\.rootId))
+        let running = groups
+            .filter { $0.key != .recent }
+            .flatMap(\.rows)
+            .filter { mine.contains($0.sessionId) }
+        let identifierById = Dictionary(
+            rows.issues.map { ($0.id, $0.identifier) }, uniquingKeysWith: { a, _ in a }
+        )
+        var identifiers: [String: String] = [:]
+        // `sessionIssues` arrive in link order: the first link per root wins.
+        for link in rows.sessionIssues where identifiers[link.sessionId] == nil {
+            if let identifier = identifierById[link.issueId], !identifier.isEmpty {
+                identifiers[link.sessionId] = identifier
+            }
+        }
+        // A stack edge may cross threads, never teams.
+        let prsByTeam = Dictionary(grouping: rows.pullRequests, by: \.teamId)
+        let prsByRoot = Dictionary(grouping: rows.pullRequests.filter { $0.rootSessionId != nil }) {
+            $0.rootSessionId ?? ""
+        }
+        var words: [String: ThreadRowWord] = [:]
+        for row in groups.flatMap(\.rows) {
+            words[row.sessionId] = SessionTree.threadRowWord(
+                busy: row.busy,
+                needsYou: row.needsYou,
+                prs: prsByRoot[row.sessionId] ?? [],
+                teamPrs: prsByTeam[row.teamId] ?? []
+            )
+        }
+        return Derived(
+            groups: groups,
+            agents: SessionTree.listAgents(rows.sessions, teamId: nil),
+            running: running,
+            identifiers: identifiers,
+            clis: rows.clis,
+            words: words,
+            liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId)
+        )
+    }
+}

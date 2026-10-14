@@ -63,8 +63,9 @@ export interface IssueDraftEditorOptions {
   initialBoardId: string
   /** The group status a "+" seeded (`?status=`). */
   initialStatusId?: string | null
-  /** EXP-1284: `New issue in this thread` (`?thread=`) — the created issue
-   *  is linked into that thread (`issues.create({threadId})`). */
+  /** EXP-1284: `New issue in this thread` (`?thread=`, a root session id) —
+   *  the created issue is linked into that thread
+   *  (`issues.create({sessionId})`, EXP-1291). */
   threadId?: string | null
   /** The synced row — LIVE. Seeds the page ONCE when present on open;
    *  afterwards only its presence is read (EXP-1231). */
@@ -83,6 +84,7 @@ export type DraftConsumedElsewhere =
   | { kind: `discarded` }
 
 export interface CreatedIssue {
+  id: string
   identifier: string
   boardSlug: string | null
 }
@@ -135,7 +137,7 @@ export function useIssueDraftEditor({
   // EXP-1284: the thread this draft files into — a reopened draft keeps its
   // own (persisted by the upsert), a fresh page takes `?thread=`.
   const [threadId] = useState<string | null>(
-    seed ? seed.threadId : requestedThreadId
+    seed ? seed.sessionId : requestedThreadId
   )
   const [files, setFiles] = useState<FilesSectionFile[]>([])
   const [creating, setCreating] = useState(false)
@@ -167,7 +169,7 @@ export function useIssueDraftEditor({
     assigneeId,
     labelIds,
     dueDate,
-    threadId,
+    sessionId: threadId,
     attachmentCount: files.length,
   }
   const statusRef = useRef(status)
@@ -464,7 +466,7 @@ export function useIssueDraftEditor({
     creatingRef.current = true
     const snapshot = snapshotRef.current
     const statusOption = statusRef.current
-    let created: { identifier: string }
+    let created: { id: string; identifier: string }
     let txId: number
     try {
       const result = await trpc.issues.create.mutate({
@@ -480,7 +482,7 @@ export function useIssueDraftEditor({
         dueDate: snapshot.dueDate ?? undefined,
         labelIds: snapshot.labelIds.length > 0 ? snapshot.labelIds : undefined,
         draftId: rowExistsRef.current ? draftId : undefined,
-        ...(threadId ? { threadId } : {}),
+        ...(threadId ? { sessionId: threadId } : {}),
       }, SKIP_ERROR_TOAST)
       created = result.issue
       txId = result.txId
@@ -507,7 +509,11 @@ export function useIssueDraftEditor({
       // The issue exists; the detail route catches up on its own.
     }
     const board = boardsRef.current.find((row) => row.id === snapshot.boardId)
-    return { identifier: created.identifier, boardSlug: board?.slug ?? null }
+    return {
+      id: created.id,
+      identifier: created.identifier,
+      boardSlug: board?.slug ?? null,
+    }
   }
 
   /** Throw the draft away: delete the row if there is one, write nothing on

@@ -44,8 +44,10 @@ pub struct EngineStart {
     /// The `expu_` personal key: the redactor's exact-match secret (REV2-17)
     /// AND the codex MCP bearer that rides the spawn env.
     pub personal_key: Option<String>,
-    /// The relay room's subject; `None` for batch and action rooms.
-    pub issue_id: Option<String>,
+    /// EXP-1292: the session is a team agent's ROOT. Agents never end: the
+    /// run's end idles the row (`sessions.report{status: idle}`) where a
+    /// thread session's ends it.
+    pub agent_root: bool,
     /// EXP-444: a foreign requester on a shared host — suppresses login
     /// affordances.
     pub foreign_host: bool,
@@ -74,12 +76,15 @@ pub struct EngineParts<A> {
     /// Publish through this instead of a relay room. `None` = the room (or
     /// nothing at all when `publish` is false).
     pub sink: Option<Arc<dyn EventSink>>,
+    /// EXP-1292: write the Conversation (replies, consumes) through this
+    /// instead of the run's tRPC client — a test's recording fake.
+    pub conversation: Option<Arc<dyn crate::outbox::ConversationApi>>,
 }
 
 /// Open an ENDED run's transcript read-only (a Past row on the desktop).
-/// Creates no `coding_sessions` row, no heartbeat, no publisher and no kill
-/// watch: it replays history through the same mapper and stops. Resuming is a
-/// different action entirely (`steer.startSession { resumeSessionId }`).
+/// Writes nothing to the `sessions` row, runs no publisher and no kill feed:
+/// it replays history through the same mapper and stops. Resuming is a
+/// different action entirely (EXP-1292: a message to the session).
 pub struct OpenTranscript {
     pub runtime: Arc<steer::SteerRuntime>,
     pub data_dir: PathBuf,
@@ -197,7 +202,8 @@ impl EngineSession {
             account_id: String::new(),
             own_user_id: None,
             personal_key,
-            issue_id: None,
+            agent_root: false,
+            seed_message_id: None,
             foreign_host: false,
             rotation_host: false,
             publish: false,
@@ -280,6 +286,37 @@ impl EngineSession {
         self.send(EngineCommand::Steer(text));
     }
 
+    /// EXP-1292: a person's `messages` row into the session — between turns
+    /// it starts one, mid-turn it goes to the agent like a steer (held while
+    /// a compaction is open). The row id is the queue line's id
+    /// ([`EngineSession::unqueue`] revokes it) and the engine reports it
+    /// consumed (`sessions.consume`) once the agent has it.
+    pub fn deliver(&self, message_id: String, text: String) {
+        self.send(EngineCommand::Deliver { message_id, text });
+    }
+
+    /// EXP-1292: a question/plan card answered IN the Conversation (the
+    /// `messages.card` JSON: `answer`, or `decision` + `feedback`), fed to
+    /// the open ask `question_id` exactly like a relay answer.
+    pub fn answer_card(&self, question_id: &str, card: &serde_json::Value) {
+        self.send(EngineCommand::AnswerCard {
+            question_id: question_id.to_string(),
+            card: card.clone(),
+        });
+    }
+
+    /// EXP-1292: the question/plan cards this run posted that are still
+    /// open — `messages.id` → the engine's question id (the host's
+    /// `LiveView::open_cards`). Empty on a replay.
+    pub fn open_cards(&self) -> std::collections::HashMap<String, String> {
+        self.0
+            .ctx
+            .outbox
+            .get()
+            .map(crate::outbox::Outbox::open_cards)
+            .unwrap_or_default()
+    }
+
     /// Answer a pending question card. Resolves the parked ACP `Responder`,
     /// then acks (D3).
     pub fn answer(&self, answer: steer::RemoteAnswer) {
@@ -332,7 +369,8 @@ impl EngineSession {
     /// EXP-861: revoke ONE message the host holds queued behind the running
     /// turn — the local composer's × on the queue bar (a viewer's arrives as
     /// the relay `unqueue` frame). The re-published `queue` slot is the
-    /// confirmation; an unknown id is a no-op.
+    /// confirmation; an unknown id is a no-op. EXP-1292: a delivered row's
+    /// id is its `messages.id` (the pickup's revoke of an unqueued row).
     pub fn unqueue(&self, id: &str) {
         self.send(EngineCommand::Unqueue(id.to_string()));
     }
@@ -376,9 +414,8 @@ impl EngineSession {
     }
 
     /// EXP-850 §8: the in-process workflow caption of THIS run — the second
-    /// line a session row hosted here renders, with no round trip through the
-    /// `agent_caption` column this process is writing (the `turn_signal`
-    /// precedence rule, applied to the caption).
+    /// line a session row hosted here renders. EXP-1292: local only; no
+    /// column carries it any more.
     pub fn caption_signal(&self) -> Arc<steer::CaptionSignal> {
         self.0.ctx.caption_signal.clone()
     }
@@ -400,8 +437,8 @@ impl EngineSession {
         self.0.ctx.exit.is_done()
     }
 
-    /// Blocks until the run ends. The FULL exit (with the
-    /// `coding::end_session` result) went to
+    /// Blocks until the run ends. The FULL exit (with the row's last status
+    /// write) went to
     /// [`EngineHost::on_exit`](crate::EngineHost::on_exit); this rebuilds the
     /// same exit with `end: None`, which is all a waiter needs — the
     /// `SessionEndObserver` already applied that result (EXP-641).
@@ -453,12 +490,9 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         reaper_settings_path: acp.reaper_settings_path.clone(),
         system_append: acp.system_append.clone(),
         context_layers: acp.context_layers.clone(),
-        // A chat run's scope carries the builtin's id (the server stores it
-        // as a NULL `action_id` beside the reserved `Chat` snapshot).
-        name_conversation: start.prepared.heartbeat_scope.action_id.as_deref()
-            == Some(api::actions::BUILTIN_CHAT_ID),
-    exit: child_exit.clone(),
-})?;
+        name_conversation: names_conversation(&start.data_dir, &start.prepared),
+        exit: child_exit.clone(),
+    })?;
     start_with(
         start,
         host,
@@ -466,6 +500,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
             adapter,
             child_exit,
             sink: None,
+            conversation: None,
         },
     )
 }
@@ -487,7 +522,7 @@ where
         account_id,
         own_user_id,
         personal_key,
-        issue_id,
+        agent_root,
         foreign_host,
         rotation_host,
         publish,
@@ -504,7 +539,6 @@ where
             base_ref: prepared.base_ref.clone(),
             repository_id: prepared.repository_id.clone(),
             clone: prepared.clone.clone(),
-            heartbeat_scope: Some(prepared.heartbeat_scope.clone()),
         },
         trpc,
         runtime,
@@ -512,7 +546,8 @@ where
         account_id,
         own_user_id,
         personal_key,
-        issue_id,
+        agent_root,
+        seed_message_id: prepared.seed_message_id.clone(),
         foreign_host,
         rotation_host,
         publish,
@@ -528,7 +563,84 @@ where
     if let Some(sink) = parts.sink {
         let _ = ctx.sink.set(sink);
     }
+    // EXP-1292: set before the lifecycle attaches, which then keeps it.
+    if let Some(conversation) = parts.conversation {
+        let _ = ctx
+            .outbox
+            .set(crate::outbox::Outbox::spawn(conversation, &ctx.session_id));
+    }
     spawn_engine(ctx, agent, parts.adapter, kill, host)
+}
+
+/// EXP-1134/EXP-1292: whether the adapter asks the agent to name this
+/// conversation — a FRESH thread session with nothing else to be listed
+/// under: no linked issue and no title of its own (its run record says
+/// which, as `prepare` wrote it). A resume keeps the name its transcript
+/// carries; an agent root is listed under its own name.
+fn names_conversation(data_dir: &Path, prepared: &coding::PreparedLaunch) -> bool {
+    prepared.acp.resume.is_none()
+        && coding::run_registry::get(data_dir, &prepared.session_id)
+            .is_some_and(|record| record_wants_name(&record))
+}
+
+fn record_wants_name(record: &coding::run_registry::RunRecord) -> bool {
+    record.kind == coding::run_registry::RunKind::Thread
+        && record.issues.is_empty()
+        && record
+            .title
+            .as_deref()
+            .is_none_or(|title| title.trim().is_empty())
+}
+
+/// EXP-1292: the session pickup drives a live engine through this — the
+/// database is the bus, so a person's message, an unqueue, an answered card
+/// and an ended row all arrive off the synced shapes instead of the relay.
+impl coding::pickup::LiveEngine for EngineSession {
+    fn deliver(&self, message_id: String, text: String) {
+        EngineSession::deliver(self, message_id, text);
+    }
+
+    fn unqueue(&self, message_id: &str) {
+        EngineSession::unqueue(self, message_id);
+    }
+
+    fn answer_card(&self, question_id: &str, card: &serde_json::Value) {
+        EngineSession::answer_card(self, question_id, card);
+    }
+
+    fn open_cards(&self) -> std::collections::HashMap<String, String> {
+        EngineSession::open_cards(self)
+    }
+
+    /// EXP-1292: the row ended on the server — the agent's own
+    /// `sessions_end` mid-turn, or a person. EXP-637's graceful stop: a turn
+    /// in flight finishes first (≤ `steer::STOP_GRACE`), so its close-out
+    /// reply still reaches the conversation; between turns (or before the
+    /// session is live) it goes at once.
+    fn kill(&self, outcome: &'static str) {
+        if self.is_done() {
+            return;
+        }
+        let waiter = self.0.ctx.turn_signal.subscribe();
+        if self.phase() != Some(EnginePhase::Live) || waiter.try_recv().is_ok() {
+            EngineSession::kill(self, outcome);
+            return;
+        }
+        let session = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("engine-graceful-kill".to_string())
+            .spawn(move || {
+                let _ = waiter.recv_timeout(steer::STOP_GRACE);
+                EngineSession::kill(&session, outcome);
+            });
+        if spawned.is_err() {
+            EngineSession::kill(self, outcome);
+        }
+    }
+
+    fn is_done(&self) -> bool {
+        EngineSession::is_done(self)
+    }
 }
 
 struct CtxSpec {
@@ -540,7 +652,8 @@ struct CtxSpec {
     account_id: String,
     own_user_id: Option<String>,
     personal_key: Option<String>,
-    issue_id: Option<String>,
+    agent_root: bool,
+    seed_message_id: Option<String>,
     foreign_host: bool,
     rotation_host: bool,
     publish: bool,
@@ -612,7 +725,10 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         data_dir: spec.data_dir,
         account_id: spec.account_id,
         own_user_id: spec.own_user_id,
-        issue_id: spec.issue_id,
+        agent_root: spec.agent_root,
+        seed_message_id: spec.seed_message_id,
+        outbox: OnceLock::new(),
+        message_ids: Mutex::new(std::collections::HashSet::new()),
         foreign_host: spec.foreign_host,
         rotation_host: spec.rotation_host,
         publish: spec.publish,
@@ -917,6 +1033,31 @@ mod tests {
         let bare = steer::Redactor::new(session_secrets(&dir, None, Vec::new()));
         assert_eq!(bare.redact_exact_only("plain text"), "plain text");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1134/EXP-1292: only a bare thread asks its agent for a name.
+    #[test]
+    fn only_a_thread_with_no_issue_and_no_title_is_named_by_its_agent() {
+        let record = |kind: &str, issues: serde_json::Value, title: serde_json::Value| {
+            let record: coding::run_registry::RunRecord = serde_json::from_value(serde_json::json!({
+                "sessionId": "sess-1",
+                "accountId": "acct-1",
+                "agent": "claude",
+                "kind": kind,
+                "issues": issues,
+                "title": title,
+                "cwd": "/tmp/worktree",
+                "recordedAt": 1_700_000_000u64,
+            }))
+            .expect("the record decodes");
+            record
+        };
+        let none = serde_json::Value::Null;
+        assert!(record_wants_name(&record("thread", serde_json::json!([]), none.clone())));
+        assert!(record_wants_name(&record("thread", serde_json::json!([]), serde_json::json!(" "))));
+        assert!(!record_wants_name(&record("thread", serde_json::json!(["EXP-1"]), none.clone())));
+        assert!(!record_wants_name(&record("thread", serde_json::json!([]), serde_json::json!("Named"))));
+        assert!(!record_wants_name(&record("agent", serde_json::json!([]), none)));
     }
 
     #[test]

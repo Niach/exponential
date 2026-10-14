@@ -1,8 +1,6 @@
 package com.exponential.app.ui.agent
 
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.builtinCreateAction
-import com.exponential.app.data.api.builtinFixConflictsAction
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -76,26 +74,6 @@ class ComposerPlaceholderTest {
         assertEquals(
             "Which version?",
             composerPlaceholder(picked, plain.copy(promptPlaceholder = "  Which version?  ")),
-        )
-    }
-
-    @Test
-    fun `the builtins follow the same rule`() {
-        val create = builtinCreateAction("t-1")
-        assertEquals(
-            "Describe the action — what it should do, and its name if you have one…",
-            composerPlaceholder(ComposerSubject.Action(create.id, emptyMap()), create),
-        )
-        val fix = builtinFixConflictsAction("t-1")
-        assertEquals(
-            "Additional instructions (optional)…",
-            composerPlaceholder(ComposerSubject.Action(fix.id, emptyMap()), fix),
-        )
-        // EXP-1233: a picked pull request changes the verb and the send, not
-        // the field's prompt.
-        assertEquals(
-            "Additional instructions (optional)…",
-            composerPlaceholder(ComposerSubject.Action(fix.id, mapOf("pr" to "i-1")), fix),
         )
     }
 }

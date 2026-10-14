@@ -1,14 +1,10 @@
 import { useMemo } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { deviceCollection } from "@/lib/collections"
-import type {
-  CodingSession,
-  Device,
-  DeviceAgentAccount,
-  DeviceAgentUsage,
-} from "@/db/schema"
+import type { Device, DeviceAgentAccount, DeviceAgentUsage } from "@/db/schema"
 import { useNow } from "@/hooks/use-now"
 import { sessionAgentUsage } from "@/lib/agent-usage"
+import type { SessionRow } from "@/lib/session-tree"
 
 // EXP-484: the usage bar a session view draws — the host machine's FRESH
 // report for the run's own agent, off the synced devices row. All the
@@ -17,10 +13,7 @@ import { sessionAgentUsage } from "@/lib/agent-usage"
 // just the live query plus the 30 s tick that ages a report out on its own
 // (the use-session-device idiom).
 export function useSessionAgentUsage(
-  session: Pick<
-    CodingSession,
-    `deviceId` | `userId` | `agent` | `status`
-  > | null
+  session: Pick<SessionRow, `deviceId` | `userId` | `cli` | `status`> | null
 ): {
   agent: string
   usage: DeviceAgentUsage
@@ -39,7 +32,8 @@ export function useSessionAgentUsage(
   )
   const now = useNow(30_000)
   const userId = session?.userId ?? null
-  const agent = session?.agent ?? null
+  // EXP-1291: the session's agent CLI (contract codingAgent).
+  const agent = session?.cli ?? null
   const status = session?.status ?? null
   return useMemo(() => {
     if (userId === null || status === null) return null

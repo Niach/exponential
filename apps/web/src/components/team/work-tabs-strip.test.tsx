@@ -4,8 +4,7 @@ import type { Issue } from "@/db/schema"
 
 // EXP-907: the browser gesture on the work tabs — a MIDDLE click anywhere on
 // a tab closes it, exactly like its ×, and the browser's own middle-click
-// behaviour (autoscroll, open-in-new-tab) never fires. EXP-923: EVERY tab
-// takes it, a live one included — the "permanent" live tab is gone.
+// behaviour (autoscroll, open-in-new-tab) never fires. EVERY tab takes it.
 
 const updateWorkTabs = vi.hoisted(() => vi.fn())
 const openNewRunPage = vi.hoisted(() => vi.fn())
@@ -24,17 +23,24 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   return { ...actual, useLiveQuery: () => ({ data: issues.value }) }
 })
 vi.mock(`@/lib/collections`, () => ({
-  codingSessionCollection: {},
   issueCollection: {},
+  sessionCollection: { get: () => ({ cli: `claude` }) },
+}))
+const threadGroups = vi.hoisted(() => ({ value: [] as unknown[] }))
+const agents = vi.hoisted(() => ({ value: [] as unknown[] }))
+vi.mock(`@/hooks/use-session-tree`, () => ({
+  useThreadsList: () => ({
+    groups: threadGroups.value,
+    extras: { identifierByRoot: new Map() },
+    isReady: true,
+  }),
+  useAgents: () => ({ agents: agents.value, isReady: true }),
 }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@/hooks/use-work-tabs`, () => ({
   useWorkTabs: () => ({ tabs: tabs.value }),
   updateWorkTabs,
   openNewRunPage,
-}))
-vi.mock(`@/lib/session-row-caption`, () => ({
-  LIVE_DOT_TONE_BY_SESSION_TONE: { muted: `muted` },
 }))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
   IssueStatusIcon: () => null,
@@ -77,7 +83,7 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
 
   it(`closes the tab on a middle click, and swallows the browser's own`, () => {
     tabs.value = [
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
+      { kind: `issue`, issueId: `i1`, from: null },
     ]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-issue:i1`)
@@ -93,7 +99,7 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
 
   it(`leaves a left click and a right click alone`, () => {
     tabs.value = [
-      { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false },
+      { kind: `issue`, issueId: `i1`, from: null },
     ]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-issue:i1`)
@@ -102,12 +108,17 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
     expect(updateWorkTabs).not.toHaveBeenCalled()
   })
 
-  // EXP-923: a live run has no chip of its own any more, but a tab that is
-  // BOUND to one (you opened its issue) closes like every other.
-  it(`closes a tab bound to a live run`, () => {
-    tabs.value = [{ kind: `run`, runId: `r1`, from: null, live: true }]
+  it(`closes a running thread's tab like every other`, () => {
+    threadGroups.value = [
+      {
+        key: `running`,
+        title: `Running`,
+        rows: [{ sessionId: `t1`, teamId: `t1`, title: `Reduce cold start`, private: false, busy: true, needsYou: false, activityAt: `` }],
+      },
+    ]
+    tabs.value = [{ kind: `thread`, threadId: `t1`, from: null }]
     renderStrip()
-    const tab = screen.getByTestId(`work-tab-run:r1`)
+    const tab = screen.getByTestId(`work-tab-thread:t1`)
     expect(screen.getAllByLabelText(`Close tab`).length).toBeGreaterThan(0)
     auxClick(tab, 1)
     expect(updateWorkTabs).toHaveBeenCalledTimes(1)
@@ -118,7 +129,7 @@ describe(`WorkTabsStrip middle click (EXP-907)`, () => {
 // keyboard focus shows it), a "+" after the last tab opens the New run tab,
 // and the New run chip is the Agent page's tab.
 describe(`WorkTabsStrip New run (EXP-1255)`, () => {
-  const issueTab = { kind: `issue`, issueId: `i1`, face: `issue`, runId: null, from: null, live: false }
+  const issueTab = { kind: `issue`, issueId: `i1`, from: null }
 
   beforeEach(() => {
     updateWorkTabs.mockClear()
@@ -152,13 +163,52 @@ describe(`WorkTabsStrip New run (EXP-1255)`, () => {
   })
 
   it(`draws the New run chip, active on the Agent page`, () => {
-    tabs.value = [issueTab, { kind: `new`, runId: null, from: null, live: false }]
+    tabs.value = [issueTab, { kind: `new`, from: null }]
     pathname.value = `/t/acme/agent`
     renderStrip()
     const chip = screen.getByTestId(`work-tab-new`)
     expect(chip.textContent).toContain(`New session`)
     expect(chip.getAttribute(`data-active`)).toBe(`true`)
     expect(screen.getByTestId(`work-tab-issue:i1`).getAttribute(`data-active`)).toBeNull()
+  })
+})
+
+// EXP-1293: thread chips read the Threads list (title + the agent mark),
+// agent chips the agent's name; each is active on its own route.
+describe(`WorkTabsStrip session-tree chips (EXP-1293)`, () => {
+  beforeEach(() => {
+    issues.value = []
+    threadGroups.value = [
+      {
+        key: `needs_you`,
+        title: `Needs you`,
+        rows: [{ sessionId: `th1`, teamId: `t1`, title: `Reduce cold start`, private: false, busy: false, needsYou: true, activityAt: `` }],
+      },
+    ]
+    agents.value = [
+      { sessionId: `ag1`, teamId: `t1`, name: `Triage`, icon: `bug`, color: `#a855f7`, busy: false, needsYou: false },
+    ]
+  })
+
+  it(`titles a thread chip and marks it as needing you`, () => {
+    tabs.value = [{ kind: `thread`, threadId: `th1`, from: null }]
+    pathname.value = `/t/acme/threads/th1`
+    renderStrip()
+    const chip = screen.getByTestId(`work-tab-thread:th1`)
+    expect(chip.textContent).toContain(`Reduce cold start`)
+    expect(chip.getAttribute(`data-active`)).toBe(`true`)
+    expect(chip.querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(
+      `needs_input`
+    )
+  })
+
+  it(`names an agent chip, active on its channel`, () => {
+    tabs.value = [{ kind: `agent`, agentId: `ag1`, from: null }]
+    pathname.value = `/t/acme/agents/ag1`
+    renderStrip()
+    const chip = screen.getByTestId(`work-tab-agent:ag1`)
+    expect(chip.textContent).toContain(`Triage`)
+    expect(chip.getAttribute(`data-active`)).toBe(`true`)
   })
 })
 
@@ -172,7 +222,7 @@ describe(`WorkTabsStrip unloaded subject (D8)`, () => {
 
   it(`keeps the tab and draws the placeholder bar instead of text`, () => {
     tabs.value = [
-      { kind: `issue`, issueId: `i9`, face: `issue`, runId: null, from: null, live: false },
+      { kind: `issue`, issueId: `i9`, from: null },
     ]
     renderStrip()
     const tab = screen.getByTestId(`work-tab-issue:i9`)

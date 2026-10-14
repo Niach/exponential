@@ -9,17 +9,18 @@ import os
 /// the activity channel is that it is scrubbed, and a log is not.
 private let logger = Logger(subsystem: "at.exponential", category: "AgentSessionModel")
 
-/// Viewer side of the steer relay's ACTIVITY channel (EXP-32 — the chat-style
-/// "Agent session" screen; apps/steer-relay/src/protocol.ts). Mints a viewer
-/// ticket over tRPC, dials the returned ws(s) URL with URLSessionWebSocketTask,
-/// joins with {"t":"join","channel":"activity"}, and receives scrubbed
-/// {t:'activity', event} frames (narration / tool headlines / questions /
-/// subagents / permissions / worktree diffs). EXP-249 removed the PTY mirror
-/// from the protocol, so every frame is JSON now — a stray BINARY frame (an old
-/// desktop's 0x01 output) is ignored. Steering is message-shaped and fully
-/// seamless (EXP-312 — no operator claim, no view/steer perm split; the mint
-/// is owner-only, so a live connection just steers): chunked input + a
-/// separate \r for prose, and ONE semantic `answer` frame per question card.
+/// Viewer side of the steer relay's ACTIVITY channel (EXP-32 — the session's
+/// raw work; apps/steer-relay/src/protocol.ts). Mints a viewer ticket over
+/// tRPC, dials the returned ws(s) URL with URLSessionWebSocketTask, joins with
+/// {"t":"join","channel":"activity"}, and receives scrubbed {t:'activity',
+/// event} frames (narration / tool headlines / questions / subagents /
+/// permissions / worktree diffs). Every frame is JSON — a stray BINARY frame
+/// is ignored.
+///
+/// EXP-1295 (Model v3): the relay is the LIVE layer only. A message is a
+/// `messages` row (`sessions.send({sessionId})`), Stop is `sessions.stop`,
+/// a queued message is revoked with `sessions.unqueue` — the database is the
+/// bus. A question card still answers over ONE semantic `answer` frame.
 /// Mirrors the Android AgentSessionViewModel.
 @MainActor @Observable
 final class AgentSessionModel {
@@ -155,11 +156,6 @@ final class AgentSessionModel {
     }
 
     private(set) var history: HistoryState?
-    /// EXP-773: the machine a Resume of this ENDED run would go to, or nil
-    /// when there is none (a live run, someone else's, a machine that is away
-    /// or too old to advertise `resume-run`). Display gating only — the
-    /// server re-decides the same rule.
-    private(set) var resumeDevice: SteerDevice?
     /// EXP-724: a context compaction is running on the host agent — the
     /// composer grows an indeterminate strip for as long as this is non-nil,
     /// so the 10–170s of silence reads as work instead of a hang. Set by the
@@ -223,68 +219,55 @@ final class AgentSessionModel {
     /// EXP-784: the agent's rate-limit window, the fourth latest-wins slot.
     /// Nil = not limited (or cleared by an empty/`ok` status).
     private(set) var sessionRateLimit: AgentSessionRateLimit?
-    /// The synced coding_sessions row — flips to ended via Electric.
-    private(set) var session: CodingSessionEntity?
+    /// The synced `sessions` row — flips to ended via Electric.
+    private(set) var session: SessionEntity?
+    /// EXP-1295: the session's ROOT row (the row itself on a root) — the
+    /// thread's Guide lives there, and a `sessions_show` picture resolves
+    /// against it.
+    private(set) var root: SessionEntity?
+    /// The session's name as its card reads it (its title, else `Session N`
+    /// by its place in the tree) — the screen's title.
+    private(set) var title: String?
+    /// EXP-1310: the thread's title (the ROOT's `threadTitle`) — the header's
+    /// back row, ×4 (web `session-back`, Android `session-open-thread`).
+    private(set) var threadTitle: String?
     /// EXP-549/550: the host machine as it presents right now — the LIVE
-    /// `devices` row's label (renames land; the session's `device_label` is a
-    /// start-time snapshot) and whether that machine stopped heartbeating.
-    private(set) var hostDevice = SessionDevicePresentation(label: nil, online: nil)
+    /// `devices` row's label and whether that machine stopped heartbeating.
+    private(set) var hostDevice = SessionHostDevice(label: nil, online: nil)
     /// EXP-484: how much of its rate-limit window the agent running THIS
     /// session has used, off the host machine's synced report. Nil whenever
-    /// there is nothing honest to draw — a finished run, a pre-EXP-484 row
-    /// with no agent, no matching devices row, or numbers older than the
-    /// freshness window (all decided by `AgentUsagePresentation.sessionUsage`).
-    /// Recomputed on the same three inputs as `hostDevice`.
+    /// there is nothing honest to draw (`AgentUsagePresentation.sessionUsage`).
     private(set) var agentUsage: SessionAgentUsage?
     /// EXP-688: the host machine's sign-in status for THIS session's agent,
     /// for the Usage sheet's caption. Read-only visibility off the same synced
     /// row — nothing here holds or forwards a credential.
     private(set) var agentAccount: AgentAccount?
-    /// EXP-849: the logins the HOST machine reports for THIS run's agent — the
-    /// rows the usage/context readout opens into, each with its own usage bars,
-    /// one of them switchable to (`SessionAccountSwitch.options`, the ×4 rule).
-    /// Empty when the machine said nothing about the agent: there is then
-    /// nothing to switch between. Derived off the same synced `devices` rows as
-    /// `agentUsage`, so it repaints on every heartbeat.
-    private(set) var accountOptions: [SessionAccountOption] = []
-    /// EXP-909: WHICH of those logins this run SPENDS — the synced
-    /// `coding_sessions.agent_account` when it names one, else the login whose
-    /// email the machine reports for the agent, else the machine's active one
-    /// (`SessionAccountSwitch.activeAccountIndex`, the ×4 order). Nil = the
-    /// machine listed nothing, or nothing resolved: UNKNOWN, never a guess.
-    private(set) var runAccount: SessionAccountOption?
+    /// EXP-909: WHICH login this session SPENDS — the synced
+    /// `sessions.account` when it names one of the host's profiles, else the
+    /// login whose email the machine reports for the agent, else its active
+    /// one. Nil = the machine listed nothing: UNKNOWN, never a guess.
+    private(set) var runAccount: AgentProfileUsageRow?
     /// EXP-909: the RESOLVED account's own rate-limit windows — the overlay's
     /// header block. The profile's own report, falling back to the machine's
     /// top-level `agentUsage[agent]` only when that profile is its ACTIVE
-    /// login (the only login those top-level numbers can belong to) or the
-    /// run's account is unknown. Unlike `agentUsage` this is NOT gated on
-    /// freshness: EXP-909 dims and dates old numbers instead of hiding them.
+    /// login or the account is unknown. Not gated on freshness: old numbers
+    /// dim and date themselves instead of hiding.
     private(set) var runUsage: AgentUsage?
     /// EXP-829/EXP-909: the command queue the overlay's one-shot usage refresh
     /// rides. Set by the session screen; nil = nothing is ever queued.
     var devicesApi: DevicesApi?
-    /// EXP-849: the machine a switch (a resume naming another login) would go
-    /// to — the run's OWN machine as the devices shape presents it, live runs
-    /// included (`resumeDevice` is the ENDED-run affordance and stays that).
-    private(set) var switchDevice: SteerDevice?
-    /// EXP-678: the issue whose PR the Merge pill merges — this session's own
-    /// issue, or (EXP-1165) the covered issue carrying a BATCH run's combined
-    /// PR. Nil for every other issue-less run (action, chat: their PR rides
-    /// the session row) and whenever there is nothing to merge through.
-    private(set) var mergeIssue: IssueEntity?
-    /// EXP-1165: a batch run's covered issue rows (synced), the carrier input.
-    private var batchMergeIssues: [IssueEntity] = []
-    /// EXP-734: WHAT the Merge pill merges — `mergeIssue`'s PR, or (an
-    /// issue-less run that opened its own PR) this session row's own.
-    /// Nil whenever there is nothing to merge.
-    private(set) var mergeTarget: MergeTarget?
-    /// Kill-switch failure (EXP-268), surfaced as an inline banner — cleared
-    /// on each attempt. Success needs no local state: the synced row flips to
-    /// `ended` and the view already reacts.
-    private(set) var killError: String?
-    /// An image-carrying steer message is uploading (EXP-511) — the composer
-    /// dims its send button until the whole batch is out.
-    private(set) var steerSending = false
+    /// The host machine as the devices shape presents it — the usage
+    /// refresh's target.
+    private(set) var hostSteerDevice: SteerDevice?
+    /// A failed Stop, surfaced as a toast — cleared on each attempt. Success
+    /// needs no local state: the turn's own edge is the confirmation.
+    private(set) var stopError: String?
+    /// Why the last plain message failed to send — a toast, cleared on the
+    /// next attempt (the draft stays put).
+    private(set) var sendError: String?
+    /// A message is out — uploads included (EXP-511): the composer dims its
+    /// send button until the whole batch is out (`SessionComposerDraft`).
+    var steerSending = false
     /// Why the last image-carrying send failed, shown under the thumbnail
     /// strip; cleared on the next attempt.
     var steerImageError: String?
@@ -298,16 +281,9 @@ final class AgentSessionModel {
     /// `@` member / `#` issue / `:` emoji typeahead the comment composer has —
     /// all three need a caret to splice at, and a `TextField` binding has none.
     /// Exactly one text block (`MarkdownComposerField` keeps it that way).
+    /// `draftText` / `trimmedDraft` and the whole send are
+    /// `SessionComposerDraft`'s (THE session composer box, EXP-1295).
     let draftEditor = IssueEditorModel()
-
-    /// The draft as text. Every existing reader and writer of the draft goes
-    /// through here unchanged — including `sendMessage`, which puts THIS on the
-    /// wire: `plainText`, never the markdown serializer, because a steer
-    /// message is chat prose and must go out exactly as typed.
-    var draftText: String {
-        get { draftEditor.plainText }
-        set { draftEditor.setPlainText(newValue) }
-    }
     /// EXP-511: images picked for the next steer message, shown as a strip
     /// above the input row until they are sent or removed.
     var pendingImages: [PendingSteerImage] = []
@@ -357,19 +333,13 @@ final class AgentSessionModel {
     /// agent-less run that publishes a `config_state`, the external one that
     /// cannot name itself on the wire.
     var catalogAgent: String {
-        SlashCommands.agentId(session?.agent, acp: sessionConfig != nil)
+        SlashCommands.agentId(session?.cli, acp: sessionConfig != nil)
     }
 
     /// The catalog command the draft would SEND as, if any — what the confirm
     /// gate reads before a `/clear` goes out.
     var pendingSlashCommand: SlashCommand? {
         SlashCommands.command(for: draftText, agent: catalogAgent)
-    }
-
-    /// The draft as it would be sent — what the send button's enablement and
-    /// the empty-message guard read.
-    var trimmedDraft: String {
-        draftText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Over as far as this client can tell: an explicitly `ended` row, or a
@@ -380,10 +350,7 @@ final class AgentSessionModel {
     /// them dialing forever.
     var sessionEnded: Bool {
         guard let session else { return true }
-        // EXP-888: a sweep end (`ended_by == "stale"`) is not an end — the
-        // host ignores the flip and heartbeats the row back to `running`, so
-        // the composer stays live instead of retiring for up to 30 minutes.
-        return PastRuns.hasEnded(session)
+        return !session.isLive
     }
 
     /// EXP-621: the session is finished as far as this screen is concerned —
@@ -396,87 +363,36 @@ final class AgentSessionModel {
         return sessionEnded
     }
 
-    /// Whether a steer can go out right now — a live socket on a live session.
-    /// `connected` matters beyond the phase: a silent slow-consumer redial
-    /// (4008) deliberately keeps `phase == .live` while the socket is briefly
-    /// down, and the send button should dim honestly for that gap instead of
-    /// offering a tap that would no-op.
+    /// Whether a RELAY frame can go out right now (a question's `answer`, a
+    /// mode switch) — a live socket on a live session. `connected` matters
+    /// beyond the phase: a silent slow-consumer redial (4008) deliberately
+    /// keeps `phase == .live` while the socket is briefly down.
     var canSteer: Bool { phase == .live && connected && !sessionEnded }
 
-    /// EXP-550: the host machine is offline while the run is still coding —
-    /// the session is PAUSED, not ended (it resumes when the machine comes
-    /// back), so the viewer shows that instead of an endless "waiting for the
-    /// live stream". Mirrors `SessionDevicePresentation.isPaused`: an
-    /// in_review/ended row is past caring where its machine is.
-    var hostDeviceOffline: Bool {
-        guard hostDevice.offline, let session, !sessionEnded else { return false }
-        return session.status == DomainContract.codingSessionStatusRunning
-    }
-
-    /// Whether this viewer may kill the session (EXP-268): a live (not-ended)
-    /// synced row owned by the caller — everything about a live session is
-    /// owner-only (EXP-312). Display gating only — the server enforces the
-    /// same rule again.
-    var canKill: Bool {
-        guard !sessionEnded else { return false }
+    /// EXP-1295: this viewer may post to the session and Stop it — a live row
+    /// that is the caller's own or SHARED with the team (Model v3's one
+    /// visibility rule). Display gating only — the server re-decides it.
+    var mayPost: Bool {
+        guard let session, !sessionEnded else { return false }
+        if session.shared { return true }
         guard let currentUserId else { return false }
-        return session?.userId == currentUserId
+        return session.userId == currentUserId
     }
 
-    // MARK: - Account switch (EXP-849)
+    /// Whether a message can go out right now. Messages ride the database
+    /// (`sessions.send`), so a dropped socket does not stop one — an idle
+    /// session resumes on it.
+    var canSend: Bool { mayPost && !steerSending }
 
-    /// Why switching this run onto `option` would be refused right now, or nil
-    /// when it would go through. The ×4 `SessionAccountSwitch.refusal` rule:
-    /// claude, the owner, a live run, its own online machine advertising both
-    /// `resume-run` and `account-switch`, not mid-turn (EXP-848's turn slot),
-    /// and a login that actually works.
-    ///
-    /// Display gating only — the server and the machine re-check all of it.
-    func accountSwitchRefusal(_ option: SessionAccountOption) -> String? {
-        guard let session else { return SessionAccountSwitch.reasonEnded }
-        return SessionAccountSwitch.refusal(
-            option: option,
-            agent: session.agent,
-            mine: CodingSessionOwnership.isOwn(session, userId: currentUserId),
-            sessionEnded: sessionEnded,
-            deviceOnline: switchDevice?.isOnline == true,
-            canResume: switchDevice?.canResumeRun == true,
-            canSwitchAccount: switchDevice?.canSwitchAccount == true,
-            turnState: turnState
-        )
+    /// EXP-550: the host machine is offline while the session is live — it
+    /// is PAUSED, not ended (it resumes when the machine comes back), so the
+    /// viewer shows that instead of an endless "waiting for the live stream".
+    var hostDeviceOffline: Bool {
+        hostDevice.offline && !sessionEnded
     }
 
-    /// EXP-849: whether the run's agent can switch login at all — what decides
-    /// if the readout offers the control in the first place (a codex run gets
-    /// the account rows read-only).
-    var supportsAccountSwitch: Bool {
-        SessionAccountSwitch.supports(agent: session?.agent)
-    }
-
-    /// EXP-849: is there an account this run could move to RIGHT NOW? What the
-    /// rate-limit wall's primary button gates on — a notice offering a switch
-    /// that every row refuses would only mislead.
-    var canSwitchAnyAccount: Bool {
-        supportsAccountSwitch
-            && accountOptions.contains { !$0.active && accountSwitchRefusal($0) == nil }
-    }
-
-    /// EXP-849: a switch was just sent, so the wall notice that prompted it has
-    /// nothing left to say on THIS screen — the run continues as a new row, on
-    /// its own screen. The next `rate_limit` frame (there will be none for an
-    /// ended run) would set it again.
-    func clearRateLimit() {
-        sessionRateLimit = nil
-    }
-
-    /// EXP-678: whether the Merge pill shows — merging always ends the run too
-    /// (EXP-498), so it only offers while there IS an open PR on a session
-    /// this screen still considers live. The button then vanishes on its own
-    /// when the merged `pr_state` and the ended row sync back. EXP-734: that
-    /// PR may be the run's OWN issue-less one, so the target decides.
-    var canMerge: Bool {
-        mergeTarget != nil && !isOver
-    }
+    /// Whether this viewer may Stop the agent's turn (`sessions.stop`).
+    var canStop: Bool { mayPost }
 
     /// Recompute the cached projections (ids of the still-answerable question
     /// items, the collapsed render rows, the subagent runs) — the pure rules
@@ -639,9 +555,12 @@ final class AgentSessionModel {
     /// EXP-820: a card is waiting on THIS steerer — live, not ended, and an
     /// unresolved question card in the feed. The session view drops the
     /// composer band while this holds (the draft stays here, so it is back
-    /// intact once the card resolves).
+    /// intact once the card resolves). The rule = ExpCore
+    /// `SessionTree.composerYieldsToCard` (fixture `composerCases` ×4).
     var cardPending: Bool {
-        phase == .live && !sessionEnded && !activeQuestionIds.isEmpty
+        SessionTree.composerYieldsToCard(
+            live: phase == .live && !sessionEnded, pendingAsk: !activeQuestionIds.isEmpty
+        )
     }
 
     /// EXP-848: the agent is actively working — the ONE predicate this screen
@@ -750,9 +669,10 @@ final class AgentSessionModel {
     }
 
     private let accountId: String
-    private let codingSessionId: String
+    private let sessionId: String
     private let currentUserId: String?
     private let steerApi: SteerApi
+    private let sessionsApi: SessionsApi
     private let attachmentsApi: AttachmentsApi
     private let issuesApi: IssuesApi
     private let db: DatabaseManager
@@ -834,8 +754,6 @@ final class AgentSessionModel {
     /// "we don't know" back into knowledge.
     private var deviceFreshnessTask: Task<Void, Never>?
     private var deviceRows: [DeviceEntity] = []
-    /// EXP-678: the row behind `mergeIssue` — the session's own issue.
-    private var mergeObservationTask: Task<Void, Never>?
     /// EXP-802: the rows behind the composer's @-mention vocabulary — every
     /// synced user plus the membership rows that scope them to THIS run's team.
     private var mentionObservationTask: Task<Void, Never>?
@@ -879,12 +797,6 @@ final class AgentSessionModel {
     /// predates them, so the commit re-appends whatever it didn't carry back.
     @ObservationIgnored private var stagedLocalEchoes: [String] = []
 
-    // Relay rejects input frames > 8 KiB; chunk pastes well under that. The
-    // cap is measured in UTF-16 code units (the relay validates against JS
-    // string length), so chunking counts UTF-16 units too — counting Swift
-    // Characters (grapheme clusters, up to 11 units each) could serialize a
-    // chunk past the cap and get the frame silently dropped (REV-15).
-    private static let inputChunkUtf16 = 4096
     /// How long an optimistic answer lock holds without an `answer_ack` or a
     /// `question_resolved` — long enough to cover a slow desktop injection,
     /// short enough that a lost frame doesn't strand the card. Web/Android
@@ -936,23 +848,24 @@ final class AgentSessionModel {
 
     init(
         accountId: String,
-        session: CodingSessionEntity,
+        session: SessionEntity,
         currentUserId: String?,
         steerApi: SteerApi,
+        sessionsApi: SessionsApi,
         attachmentsApi: AttachmentsApi,
         issuesApi: IssuesApi,
         db: DatabaseManager
     ) {
         self.accountId = accountId
-        self.codingSessionId = session.id
+        self.sessionId = session.id
         self.currentUserId = currentUserId
         self.steerApi = steerApi
+        self.sessionsApi = sessionsApi
         self.attachmentsApi = attachmentsApi
         self.issuesApi = issuesApi
         self.db = db
         self.session = session
-        // Snapshot-only until the devices observation lands (EXP-549).
-        self.hostDevice = SessionDevicePresentation.resolve(session: session, devices: [])
+        self.root = session.isRoot ? session : nil
     }
 
     /// Bind the synced session row and auto-connect once when presented;
@@ -960,7 +873,6 @@ final class AgentSessionModel {
     func start() {
         startObservingSession()
         startObservingHostDevice()
-        startObservingMergeIssue()
         startObservingMentionMembers()
         configureDraftEditor()
         startActivityClock()
@@ -1068,7 +980,6 @@ final class AgentSessionModel {
         guard stopped else { return }
         startObservingSession()
         startObservingHostDevice()
-        startObservingMergeIssue()
         startActivityClock()
         connect()
     }
@@ -1097,8 +1008,6 @@ final class AgentSessionModel {
         deviceFreshnessTask = nil
         activityClockTask?.cancel()
         activityClockTask = nil
-        mergeObservationTask?.cancel()
-        mergeObservationTask = nil
         mentionObservationTask?.cancel()
         mentionObservationTask = nil
         connected = false
@@ -1114,64 +1023,41 @@ final class AgentSessionModel {
         task = nil
     }
 
-    // MARK: - Kill switch (EXP-268)
+    // MARK: - Messages (EXP-1295: the database is the bus)
 
-    /// Force-end the session: `steer.killSession` flips the synced row to
-    /// `ended` (the desktop watches its own row over Electric, so the run
-    /// aborts even when the relay is unreachable) and best-effort fans a kill
-    /// through the relay so the run tears down immediately. On success
-    /// nothing changes locally — the synced row flips and the view reacts.
-    func killSession() async {
-        killError = nil
-        do {
-            try await steerApi.killSession(accountId: accountId, codingSessionId: codingSessionId)
-        } catch {
-            killError = error.trpcUserMessage
-        }
-    }
-
-    // MARK: - Steering (message-shaped; owner-only — the mint refuses others)
-
-    /// Send one message to the agent: the text (chunked ≤4 KiB), then a
-    /// SEPARATE `\r` frame — bundled into one write TUI apps treat the
-    /// trailing return as a paste, which inserts instead of submitting.
+    /// Send one message to the session: a `messages` row through
+    /// `sessions.send({sessionId})`. An idle session resumes on it; sent
+    /// mid-turn, the device holds it until the turn ends (the relay's
+    /// `queue` slot shows it meanwhile).
     ///
-    /// Returns whether the message actually went out (EXP-621): the composer
-    /// stays usable while the socket is down, and a caller that cleared the
-    /// draft on this no-op wiped it with nothing sent.
+    /// Returns whether the message actually went out (EXP-621): a caller
+    /// clears the draft only then.
     ///
     /// EXP-820: the text is ALWAYS a message. A pending card's free answer is
     /// its own inline field (`sendAnswer` with `text`, or `answerThenSend` for
-    /// a plan's feedback) — the composer no longer routes into cards, it hides
-    /// while one is pending.
+    /// a plan's feedback).
     @discardableResult
-    func sendMessage(_ text: String) -> Bool {
-        guard !text.isEmpty, connected else { return false }
-        // Chunk by UTF-16 code units, never splitting a surrogate pair —
-        // web parity (agent-session.tsx extends the boundary by one unit
-        // when it would land mid-pair; 4097 units still sit well under the
-        // relay's 8 KiB cap).
-        let units = Array(text.utf16)
-        var start = 0
-        while start < units.count {
-            var end = min(start + Self.inputChunkUtf16, units.count)
-            if end < units.count, UTF16.isLeadSurrogate(units[end - 1]) {
-                end += 1
-            }
-            let chunk = String(decoding: units[start..<end], as: UTF16.self)
-            start = end
-            let frame: [String: Any] = ["t": "input", "data": chunk]
-            if let data = try? JSONSerialization.data(withJSONObject: frame),
-               let json = String(data: data, encoding: .utf8) {
-                sendText(json)
-            }
+    func sendMessage(_ text: String, attachmentIds: [String]? = nil) async -> Bool {
+        guard !text.isEmpty || attachmentIds?.isEmpty == false, mayPost else { return false }
+        sendError = nil
+        // One send at a time: the composer dims while this is out (an
+        // attachment send already holds the flag through its uploads).
+        let holdsFlag = !steerSending
+        if holdsFlag { steerSending = true }
+        defer { if holdsFlag { steerSending = false } }
+        do {
+            try await sessionsApi.send(
+                accountId: accountId,
+                .message(sessionId: sessionId, text: text, attachmentIds: attachmentIds)
+            )
+        } catch {
+            sendError = error.trpcUserMessage
+            return false
         }
-        sendText(#"{"t":"input","data":"\r"}"#)
-        // EXP-861: sent mid-turn or mid-compaction, the DEVICE queues it
-        // instead of starting a turn — no local echo then: the next `queue`
-        // frame shows it in the strip, and the real `user_message` row lands
-        // when it is delivered. The raw slot values decide, not the full
-        // working predicate (×4 parity).
+        // EXP-861: sent mid-turn or mid-compaction, the DEVICE holds it — no
+        // local echo then: the next `queue` frame shows it in the strip, and
+        // the real `user_message` row lands when it is delivered. The raw
+        // slot values decide, not the full working predicate (×4 parity).
         if turn.state == .started || compacting != nil { return true }
         // Local echo (EXP-78): show the sent message immediately; its
         // transcript-derived `user_message` event is deduped via the FIFO.
@@ -1184,82 +1070,6 @@ final class AgentSessionModel {
         // commit re-appends it unless the replay happened to carry it back.
         if isStaging { stagedLocalEchoes.append(text) }
         return true
-    }
-
-    /// Send a steer message carrying attached images (EXP-511): upload every
-    /// not-yet-uploaded image to THIS SESSION, then send ONE message composed
-    /// of the text plus a markdown embed per attachment (the host device
-    /// downloads each embed and hands the agent a local file path).
-    ///
-    /// EXP-702: the upload goes to `/api/sessions/{id}/files`, not to the
-    /// issue's — a steered screenshot is not an issue attachment, and a batch
-    /// or action run (no issue at all) can carry images too.
-    ///
-    /// Returns nil once the message is out; on failure it returns the images
-    /// and files with whatever ids were already stamped, so the caller can
-    /// keep the strip and a retry re-uploads only the rest.
-    ///
-    /// Wave D: files upload to the same session route (any content type) and
-    /// ride after the image embeds as `[<filename>](/api/attachments/<id>)`
-    /// lines, named by the server's sanitized filename.
-    func sendSteerAttachments(
-        _ text: String, images: [PendingSteerImage], files: [PendingSteerFile]
-    ) async -> (images: [PendingSteerImage], files: [PendingSteerFile])? {
-        let sessionId = codingSessionId
-        guard connected else {
-            steerImageError = "Not connected. Wait for the session to reconnect."
-            return (images, files)
-        }
-        steerSending = true
-        steerImageError = nil
-        defer { steerSending = false }
-        var pending = images
-        var pendingFiles = files
-        for index in pending.indices where pending[index].uploadedId == nil {
-            do {
-                let uploaded = try await attachmentsApi.uploadSessionImage(
-                    accountId: accountId,
-                    sessionId: sessionId,
-                    data: pending[index].data,
-                    filename: pending[index].filename,
-                    contentType: pending[index].contentType
-                )
-                pending[index].uploadedId = uploaded.id
-            } catch {
-                steerImageError = error.localizedDescription
-                return (pending, pendingFiles)
-            }
-        }
-        for index in pendingFiles.indices where pendingFiles[index].uploadedId == nil {
-            do {
-                let uploaded = try await attachmentsApi.uploadSessionImage(
-                    accountId: accountId,
-                    sessionId: sessionId,
-                    data: pendingFiles[index].data,
-                    filename: pendingFiles[index].filename,
-                    contentType: pendingFiles[index].contentType
-                )
-                pendingFiles[index].stamp(uploaded)
-            } catch {
-                steerImageError = error.localizedDescription
-                return (pending, pendingFiles)
-            }
-        }
-        // The socket can drop across the uploads; sendMessage would silently
-        // no-op and the composer would clear with nothing sent.
-        guard connected else {
-            steerImageError = "Not connected. Wait for the session to reconnect."
-            return (pending, pendingFiles)
-        }
-        guard sendMessage(SteerImageMessage.buildMessage(
-            text: text,
-            imageIds: pending.compactMap(\.uploadedId),
-            files: pendingFiles.compactMap(\.wireFile)
-        )) else {
-            steerImageError = "Not connected. Wait for the session to reconnect."
-            return (pending, pendingFiles)
-        }
-        return nil
     }
 
     /// Answer a protocol-v2 question card (EXP-249): ONE semantic `answer`
@@ -1304,7 +1114,7 @@ final class AgentSessionModel {
         )
         let message = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
-        sendMessage(message)
+        Task { await sendMessage(message) }
     }
 
     /// EXP-746: switch to one of the modes `config_state.modes[]` advertised.
@@ -1325,20 +1135,29 @@ final class AgentSessionModel {
         send(frame: ["t": "set_mode", "id": id])
     }
 
-    /// EXP-790: stop the agent's current turn — the composer's Stop glyph
-    /// while the agent works and the field is empty. Fire-and-forget like
-    /// `sendMode`: the turn's own `idle` edge is the confirmation. Same
-    /// `canSteer` gate, so a paused or ended run offers no dead tap.
+    /// EXP-790/EXP-1295: stop the agent's current turn (`sessions.stop`) —
+    /// the header's Stop and the composer's Stop glyph while the agent works
+    /// and the field is empty. The turn's own `idle` edge is the
+    /// confirmation; a refusal lands in `stopError`.
     ///
     /// EXP-873: a Stop drops every message the agent has not read yet (the
-    /// queue strip, held and sent alike — the CLI's own `cancel_queued`), so
-    /// their text goes back into the composer, in order, instead of
-    /// vanishing; the device's empty `queue` frame confirms. A draft in
-    /// progress keeps its place, the queued text lands after a blank line.
-    func sendInterrupt() {
-        guard canSteer else { return }
-        send(frame: ["t": "interrupt"])
+    /// queue strip), so their text goes back into the composer, in order,
+    /// instead of vanishing; the device's empty `queue` frame confirms. A
+    /// draft in progress keeps its place, the queued text lands after a
+    /// blank line.
+    func stop() {
+        guard canStop else { return }
+        stopError = nil
         restoreQueueToDraft()
+        let accountId = accountId
+        let sessionId = sessionId
+        Task { [weak self] in
+            do {
+                try await self?.sessionsApi.stop(accountId: accountId, sessionId: sessionId)
+            } catch {
+                self?.stopError = error.trpcUserMessage
+            }
+        }
     }
 
     /// EXP-873: hand the strip's text back to the composer and clear it.
@@ -1355,16 +1174,19 @@ final class AgentSessionModel {
         sendText(json)
     }
 
-    /// EXP-861: revoke a queued message. Fire-and-forget — the device's next
-    /// `queue` frame is the confirmation — but the line leaves the strip at
-    /// once, and its text goes back into an EMPTY draft so it can be edited
-    /// and re-sent (the CLI's "edit queued message"); a draft in progress is
-    /// never overwritten.
+    /// EXP-861/EXP-1295: revoke a queued message (`sessions.unqueue` — a
+    /// queued line IS its `messages` row). Fire-and-forget — the device's
+    /// next `queue` frame is the confirmation — but the line leaves the strip
+    /// at once, and its text goes back into an EMPTY draft so it can be
+    /// edited and re-sent; a draft in progress is never overwritten.
     func unqueue(_ id: String) {
         guard let index = queued.firstIndex(where: { $0.id == id }) else { return }
         let message = queued.remove(at: index)
-        send(frame: ["t": "unqueue", "id": id])
         if trimmedDraft.isEmpty { draftText = message.text }
+        let accountId = accountId
+        Task { [sessionsApi] in
+            try? await sessionsApi.unqueue(accountId: accountId, messageId: id)
+        }
     }
 
     /// Lock a card and arm ITS OWN expiry that frees it again (flagged
@@ -1394,9 +1216,13 @@ final class AgentSessionModel {
     private func startObservingSession() {
         guard sessionObservationTask == nil else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let id = codingSessionId
-        let observation = ValueObservation.tracking { db in
-            try CodingSessionEntity.filter(Column("id") == id).fetchOne(db)
+        let id = sessionId
+        let observation = ValueObservation.tracking { db -> (SessionEntity?, SessionEntity?, String?, String?) in
+            guard let row = try SessionQueries.session(db: db, id: id) else { return (nil, nil, nil, nil) }
+            let root = row.isRoot ? row : try SessionQueries.session(db: db, id: row.rootId)
+            let tree = try SessionQueries.tree(db: db, rootId: row.rootId)
+            let threadTitle = try root.map { try SessionTree.threadTitle(db: db, root: $0) }
+            return (row, root, row.cardName(in: tree), threadTitle)
         }
         sessionObservationTask = Task { [weak self] in
             // The GRDB stream is one-shot: any error (a busy database, a
@@ -1407,7 +1233,7 @@ final class AgentSessionModel {
             // (EXP-410; Android's Room flow re-subscribes on its own).
             while !Task.isCancelled {
                 do {
-                    for try await row in observation.values(in: pool) {
+                    for try await (row, root, title, threadTitle) in observation.values(in: pool) {
                         guard let self else { return }
                         // A nil row is published (not swallowed): the row is
                         // gone, which `sessionEnded` reads as ended. Holding
@@ -1415,16 +1241,13 @@ final class AgentSessionModel {
                         // waiting for an `ended` status a deleted row can
                         // never report.
                         self.session = row
+                        self.root = root
+                        if let title { self.title = title }
+                        if let threadTitle { self.threadTitle = threadTitle }
                         // EXP-724: the run is over (or gone) — no `ended`
                         // compaction frame will ever arrive for it.
                         if self.sessionEnded { self.clearLiveWork() }
                         self.rebuildHostDevice()
-                        // EXP-678: a batch run's Merge target only appears
-                        // once THIS row flips to in_review (the pr_open
-                        // transaction), long after its issue rows landed.
-                        // EXP-734: an action or chat run's own PR is stamped
-                        // on THIS row too, so its pill lives or dies here.
-                        self.rebuildMergeTarget()
                     }
                     // The sequence only finishes cleanly on cancellation.
                     return
@@ -1511,60 +1334,44 @@ final class AgentSessionModel {
     private func rebuildHostDevice() {
         guard let session else { return }
         let now = Date()
+        let hostRow = Self.hostRow(session: session, devices: deviceRows)
         // EXP-656: a `last_seen_at` we haven't refreshed since before the
         // suspension is ignorance, not evidence — presence resolves to unknown
         // (never "Paused") until the devices shape has polled inside its
         // contract window.
-        hostDevice = SessionDevicePresentation.resolve(
-            session: session, devices: deviceRows, now: now,
-            devicesFresh: DeviceFreshness.isTrustworthy(
-                devicesPolledAt: SyncFreshness.shared.devicesPolledAt(accountId: accountId),
-                now: now
-            )
+        let devicesFresh = DeviceFreshness.isTrustworthy(
+            devicesPolledAt: SyncFreshness.shared.devicesPolledAt(accountId: accountId),
+            now: now
+        )
+        hostDevice = SessionHostDevice(
+            label: hostRow.flatMap { $0.label.isEmpty ? nil : $0.label },
+            online: hostRow.map { row in
+                DeviceLiveness.isOnline(lastSeenAt: row.lastSeenAt, now: now)
+                    ? true : (devicesFresh ? false : nil)
+            } ?? nil
         )
         agentUsage = AgentUsagePresentation.sessionUsage(
-            session: session, devices: deviceRows, now: now
+            status: session.status,
+            cli: session.cli,
+            deviceId: session.deviceId,
+            userId: session.userId,
+            devices: deviceRows,
+            now: now
         )
-        // ONE devices-row join for everything below it — the same match
-        // `AgentUsagePresentation.sessionUsage` makes internally (the stamped
-        // device id, preferring the session owner's own row, since two users
-        // can see one machine through a shared server row). It used to be
-        // spelled out three times in this method, once per consumer.
-        let hostRow = Self.hostRow(session: session, devices: deviceRows)
         let hostAccounts = AgentUsagePresentation.parseAccounts(hostRow?.agentAccounts)
-        agentAccount = session.agent.flatMap { hostAccounts?[$0] }
-        // EXP-773: Resume moved from the list row into this screen's header,
-        // so the machine a Resume would go to is resolved here — the same ×4
-        // rule the lists used (own ended run, its own machine, online and
-        // `resume-run`-capable), re-decided on every heartbeat.
-        let presented = deviceRows.map {
+        agentAccount = session.cli.flatMap { hostAccounts?[$0] }
+        hostSteerDevice = hostRow.map {
             SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
         }
-        resumeDevice = RunResume.target(
-            for: session,
-            devices: presented,
-            currentUserId: currentUserId
-        )
-        // EXP-849: the host machine and the logins it reports for this run's
-        // agent — the switch surface. The rows come off the same ×4
-        // derivation the Devices page uses, so a login reads identically on
-        // both surfaces.
-        switchDevice = hostRow.map {
-            SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
-        }
-        accountOptions = SessionAccountSwitch.options(
-            accounts: hostAccounts,
-            agent: session.agent,
-            // EXP-909: the run's OWN account, synced since the coding-sessions
-            // shape carries `agent_account`.
-            currentAccount: session.agentAccount
-        )
-        // EXP-909: which of them the run spends, and that login's numbers.
-        runAccount = SessionAccountSwitch.currentOption(
-            accountOptions,
-            reportedEmail: session.agent.flatMap { hostAccounts?[$0]?.email }
-        )
-        let reportedUsage = session.agent.flatMap {
+        // EXP-909: which of the host's logins this session spends, and that
+        // login's numbers — off the same ×4 rows the Devices page draws.
+        let logins = hostSteerDevice.map(AgentAccountsRows.deviceLoginRows)?
+            .filter { $0.agent == session.cli } ?? []
+        let reportedEmail = session.cli.flatMap { hostAccounts?[$0]?.email }
+        runAccount = logins.first { $0.profileId == session.account }
+            ?? reportedEmail.flatMap { email in logins.first { $0.email == email } }
+            ?? logins.first { $0.active }
+        let reportedUsage = session.cli.flatMap {
             AgentUsagePresentation.parseMap(hostRow?.agentUsage)?[$0]
         }
         // The machine only ever puts its ACTIVE login's numbers in the
@@ -1573,10 +1380,10 @@ final class AgentSessionModel {
         runUsage = runAccount?.usage ?? (runAccount?.active != false ? reportedUsage : nil)
     }
 
-    /// The run's host `devices` row: the stamped `device_id`, preferring the
-    /// session owner's own row.
+    /// The session's host `devices` row: the stamped `device_id`, preferring
+    /// the session starter's own row.
     private static func hostRow(
-        session: CodingSessionEntity,
+        session: SessionEntity,
         devices: [DeviceEntity]
     ) -> DeviceEntity? {
         let byId = devices.filter { $0.deviceId == session.deviceId }
@@ -1593,7 +1400,7 @@ final class AgentSessionModel {
     /// command still queued from a previous open is a CONFLICT, and the next
     /// open simply looks again.
     func requestUsageRefresh() {
-        guard let devicesApi, let device = switchDevice, let agent = session?.agent else { return }
+        guard let devicesApi, let device = hostSteerDevice, let agent = session?.cli else { return }
         guard device.isMine, device.isOnline,
               device.caps?.contains(AgentAccountsRows.refreshCap) == true,
               AgentAccountsRows.refreshAllowedAt(runUsage, now: Date()) == nil
@@ -1615,9 +1422,9 @@ final class AgentSessionModel {
 
     /// Point the draft editor's three typeaheads at this run's team.
     ///
-    /// `#` refs resolve through the `.team` scope the steering feed's chips
-    /// already use (EXP-760) — a run may be issue-less (batch, action, chat),
-    /// so there is no issue or board to derive a team from. `:` emoji need
+    /// `#` refs resolve through the `.team` scope the feed's chips already use
+    /// (EXP-760) — a session has no single issue or board to derive a team
+    /// from. `:` emoji need
     /// nothing scoped: the catalog is process-global. The `@` vocabulary is
     /// membership, so it arrives on the observation below instead.
     private func configureDraftEditor() {
@@ -1703,89 +1510,6 @@ final class AgentSessionModel {
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 
-    // MARK: - Merge target (EXP-678)
-
-    /// Watch whatever the Merge pill would merge through. WHICH query that is
-    /// is decided once, off the row the model was constructed with: a
-    /// session's `issue_id` and `action_name` never change over its life.
-    /// EXP-734: an issue-less run observes no issue rows — its own PR rides
-    /// the SESSION row, so the session observation's `rebuildMergeTarget` is
-    /// the only input it needs.
-    private func startObservingMergeIssue() {
-        guard mergeObservationTask == nil else { return }
-        guard let session else { return }
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        if let issueId = session.issueId {
-            let observation = ValueObservation.tracking { db in
-                try IssueEntity.filter(Column("id") == issueId).fetchOne(db)
-            }
-            mergeObservationTask = Task { [weak self] in
-                // Same one-shot re-subscribe loop as the session observation
-                // (EXP-410): a dead stream would freeze the PR state at its
-                // last value, leaving a Merge button up over a merged PR.
-                while !Task.isCancelled {
-                    do {
-                        for try await row in observation.values(in: pool) {
-                            guard let self else { return }
-                            self.mergeIssue = row
-                            self.rebuildMergeTarget()
-                        }
-                        return
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                        try? await Task.sleep(for: .seconds(1))
-                    }
-                }
-            }
-        } else if BatchRun.isBatch(session) {
-            // EXP-1165: a batch merges through the covered issue that carries
-            // its combined PR (stack choice + Fix conflicts), so watch them.
-            let ids = BatchRun.issueIds(session.batchIssueIds)
-            guard !ids.isEmpty else { return }
-            let observation = ValueObservation.tracking { db in
-                try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
-            }
-            mergeObservationTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    do {
-                        for try await rows in observation.values(in: pool) {
-                            guard let self else { return }
-                            self.batchMergeIssues = rows
-                            self.rebuildMergeTarget()
-                        }
-                        return
-                    } catch is CancellationError {
-                        return
-                    } catch {
-                        try? await Task.sleep(for: .seconds(1))
-                    }
-                }
-            }
-        }
-    }
-
-    /// Re-derive what the Merge pill merges. Two inputs move independently —
-    /// the observed issue row and the session's own row (the pr_open
-    /// transaction flips its status, and EXP-734 stamps an issue-less run's
-    /// own PR right onto it) — so every observer calls this.
-    private func rebuildMergeTarget() {
-        guard let session else {
-            mergeTarget = nil
-            return
-        }
-        if session.issueId == nil {
-            // EXP-1165: a batch's carrier stands in as the merge issue, so
-            // the pill reads its stack/branch exactly as on the issue path.
-            mergeIssue = MergeTargetResolution.batchCarrier(
-                session: session, batchIssues: batchMergeIssues
-            )
-        }
-        mergeTarget = MergeTargetResolution.resolve(
-            session: session, issue: mergeIssue, batchIssues: batchMergeIssues
-        )
-    }
-
     // MARK: - Connect lifecycle
 
     private func resetDialState() {
@@ -1816,7 +1540,7 @@ final class AgentSessionModel {
         joinAckTask = nil
         let ticket: SteerTicket
         do {
-            ticket = try await steerApi.mintViewerTicket(accountId: accountId, codingSessionId: codingSessionId)
+            ticket = try await steerApi.mintViewerTicket(accountId: accountId, sessionId: sessionId)
         } catch {
             guard !stopped, generation == dialGeneration else {
                 if generation == dialGeneration { dialInFlight = false }
@@ -1826,7 +1550,7 @@ final class AgentSessionModel {
             logger.info("dial mint failed code=\(error.trpcErrorCode ?? "none", privacy: .public)")
             switch error.trpcErrorCode {
             case "NOT_FOUND":
-                // The coding_sessions row is gone (stale rows get swept), so
+                // The sessions row is gone (stale rows get swept), so
                 // the mint answers NOT_FOUND forever AND the row can never
                 // report `ended` again — the only other exit from the
                 // reconnect loop. Terminal, or the screen would sit at the 30s
@@ -2669,9 +2393,9 @@ final class AgentSessionModel {
             phase = .ended(detail: nil)
             return
         }
-        if retryStarting, session.map({ CodingSessionLiveness.isLive($0) }) == true {
-            // Liveness (not just status) gates the redial — a heartbeat-stale
-            // row is a phantom, not a session that's still starting (EXP-153).
+        if retryStarting, !sessionEnded {
+            // A queued or live row: the device is still dialing its
+            // publisher, so keep asking.
             phase = .starting
             scheduleStartingRetry()
             return
@@ -2801,5 +2525,29 @@ struct PendingSteerFile: Identifiable, Equatable, Sendable {
     /// The message's file line, once uploaded.
     var wireFile: SteerImageMessage.File? {
         uploadedId.map { SteerImageMessage.File(id: $0, name: uploadedName ?? filename) }
+    }
+}
+
+/// EXP-549/550: the session's host machine as it presents right now — the
+/// LIVE `devices` row's label, and whether it stopped heartbeating (nil =
+/// unknown: no row, or a devices cursor too stale to vouch for an offline).
+struct SessionHostDevice: Equatable {
+    let label: String?
+    let online: Bool?
+
+    var offline: Bool { online == false }
+    var displayLabel: String { label ?? "Desktop" }
+}
+
+extension AgentSessionModel: SessionComposerDraft {
+    /// EXP-702: a pick attaches to THIS session.
+    func uploadAttachment(data: Data, filename: String, contentType: String) async throws -> UploadedAttachment {
+        try await attachmentsApi.uploadSessionImage(
+            accountId: accountId,
+            sessionId: sessionId,
+            data: data,
+            filename: filename,
+            contentType: contentType
+        )
     }
 }

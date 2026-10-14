@@ -129,12 +129,11 @@ pub mod result {
     pub const BOARD: &str = "board";
     pub const ACTION: &str = "action";
     pub const LIST: &str = "list";
-    /// EXP-933: `sessions_results` — the run's Results face (the report the
-    /// agent is filing); a settled row offers `Open Results`.
+    /// EXP-933 → EXP-1291: `guide_write` — the thread's Guide (the report
+    /// the agent is filing); a settled row offers to open it.
     pub const RESULTS: &str = "results";
-    /// EXP-1172: `sessions_show` — ONE picture the run filed mid-work; a
-    /// settled row renders it as a tile under the call (`preview.id` = the
-    /// attachment, looked up in the run's synced results).
+    /// EXP-1172: a contract kind for ONE picture; no tool answers with it
+    /// since EXP-1291 (the server cards a Guide picture itself).
     pub const PICTURE: &str = "picture";
 }
 
@@ -235,7 +234,7 @@ mod tests {
     /// EXP-933: every named result kind is one the contract lists.
     #[test]
     fn every_named_result_kind_is_a_contract_kind() {
-        let display = exp_tool_display("mcp__exponential__exponential_sessions_guide", true)
+        let display = exp_tool_display("mcp__exponential__exponential_guide_write", true)
             .expect("ours");
         assert_eq!(display.result, result::RESULTS);
         for kind in [
@@ -256,17 +255,17 @@ mod tests {
         }
     }
 
-    /// The Guide tool (`sessions_guide`) answers the RESULTS kind (it used to
-    /// be `session`), with its own captions.
+    /// The Guide tool (`guide_write`, EXP-1291) answers the RESULTS kind,
+    /// with its own captions.
     #[test]
-    fn sessions_guide_answers_the_results_kind() {
-        let running = exp_tool_display("mcp__exponential__exponential_sessions_guide", false)
+    fn guide_write_answers_the_results_kind() {
+        let running = exp_tool_display("mcp__exponential__exponential_guide_write", false)
             .expect("ours");
-        assert_eq!(running.row, "sessions_guide");
+        assert_eq!(running.row, "guide_write");
         assert_eq!(running.result, result::RESULTS);
         assert_eq!(running.subject_key, "topic");
         assert_eq!(running.caption, "Writing the Guide");
-        let done = exp_tool_display("exponential_sessions_guide", true).expect("ours");
+        let done = exp_tool_display("exponential_guide_write", true).expect("ours");
         assert_eq!(done.caption, "Wrote the Guide");
     }
 

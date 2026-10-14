@@ -21,9 +21,13 @@ import type { Board, Team } from "@/db/schema"
 import { useSession } from "@/hooks/use-session"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
-import { useReviewsNav } from "@/hooks/use-nav-counts"
+import type { AgentRow } from "@/lib/session-tree"
 import { SidebarPinnedIcons } from "@/components/team/sidebar-pinned"
-import { SidebarRunningIcons } from "@/components/team/sidebar-running"
+import {
+  SidebarRunningIcons,
+  type SidebarThreads,
+} from "@/components/team/sidebar-running"
+import { SidebarAgentsIcons } from "@/components/team/sidebar-agents"
 import {
   ACTIONS_LABEL,
   DRAFTS_LABEL,
@@ -34,7 +38,8 @@ import {
 
 // EXP-870: the rail never leaves. Beside a list nav or the settings nav the
 // main menu MORPHS into this 48px icon column instead of sliding away —
-// Inbox, Agent, the boards, the pins and the account stay one click away in
+// Inbox, Agent, Threads, the agents, the boards, the pins and the running
+// threads and the account stay one click away in
 // every state (desktop `compact_rail.rs`). Strictly derived from the URL
 // (`sidebarOccupant`), never a user toggle. 32px ghost buttons centred in
 // the column, the name in a right-hand tooltip, badges top-right.
@@ -48,7 +53,7 @@ const NavAgentIcon = conceptIcon(`action-chat`)
 const NavChangelogIcon = conceptIcon(`nav-changelog`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
-const NavReviewsIcon = conceptIcon(`nav-reviews`)
+const NavThreadsIcon = conceptIcon(`nav-threads`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const NavSignOutIcon = conceptIcon(`nav-sign-out`)
 
@@ -76,11 +81,11 @@ function NavDot({
   )
 }
 
-/** EXP-1075: live runs of MINE in ANOTHER team — the team picker's dot
+/** EXP-1075: live sessions of MINE in ANOTHER team — the team picker's dot
  * (`lib/sessions/team-live-runs.ts` decides where it hangs). Same tones as
- * the mobile tab bar's Agent badge: amber while one of those runs waits on
- * the person, green otherwise. A dot, never a count — the picker only says
- * "look over there"; the team you are in counts its runs in the Running
+ * the mobile tab bar's chat badge: amber while one of them waits on the
+ * person, green otherwise. A dot, never a count — the picker only says
+ * "look over there"; the team you are in lists its threads in the Running
  * section.
  * `corner` hangs it off an icon (the switcher chevron), `trailing` sits at
  * the right edge of a team row. */
@@ -120,16 +125,22 @@ export function InboxUnreadBadge({ placement }: { placement: BadgePlacement }) {
   return <NavDot className="bg-primary" placement={placement} />
 }
 
-/** Anything to review (`useReviewsNav().dot`, EXP-1244). */
-export function ReviewsOpenBadge({
-  dot,
+/** EXP-1293: the Threads entry's dot — green while a thread of the team
+ *  runs, amber while one needs you (`threadsNavState`). */
+export function ThreadsLiveBadge({
+  state,
   placement,
 }: {
-  dot: boolean
+  state: { live: boolean; needsYou: boolean }
   placement: BadgePlacement
 }) {
-  if (!dot) return null
-  return <NavDot className="bg-green-500" placement={placement} />
+  if (!state.live) return null
+  return (
+    <NavDot
+      className={state.needsYou ? `bg-yellow-400` : `bg-green-500`}
+      placement={placement}
+    />
+  )
 }
 
 /** The account menu's items — one list for the expanded footer and the
@@ -235,17 +246,22 @@ export function TeamSidebarRail({
   teamSlug,
   team,
   boards,
+  agents,
+  threads,
+  threadsNav,
   onWhatsNew,
 }: {
   teamSlug: string
   team: Team | null | undefined
   boards: Board[] | undefined
+  /** The team's agents (`useAgents`), read once by the sidebar. */
+  agents: readonly AgentRow[]
+  /** The Threads list (`useThreadsList`), read once by the sidebar. */
+  threads: SidebarThreads
+  threadsNav: { live: boolean; needsYou: boolean }
   onWhatsNew: () => void
 }) {
   const params = { teamSlug }
-  const { data: session } = useSession()
-  const reviewsNav = useReviewsNav(team ? [team] : [])
-  const showsReviews = reviewsNav.shows
   const draftCount = useDraftCount(team?.id)
   // EXP-862: while a pinned action seeds the composer, its pin owns the
   // highlight — the Agent icon must not claim the page too.
@@ -263,7 +279,7 @@ export function TeamSidebarRail({
   return (
     <div className="flex h-full w-12 flex-col" data-testid="sidebar-compact-rail">
       <div className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-x-hidden overflow-y-auto py-2 [scrollbar-width:none]">
-        {/* Order ×4 (EXP-1229): Agent, Inbox, Devices, Reviews, Actions, Drafts. */}
+        {/* Order ×4 (EXP-1293): Agent, Inbox, Threads, Devices, Actions, Drafts. */}
         <RailItem
           label="Agent"
           link={{ to: `/t/$teamSlug/agent`, params }}
@@ -278,15 +294,13 @@ export function TeamSidebarRail({
           <NavInboxIcon className="size-4" />
           <InboxUnreadBadge placement="icon" />
         </RailItem>
+        <RailItem label="Threads" link={{ to: `/t/$teamSlug/threads`, params }}>
+          <NavThreadsIcon className="size-4" />
+          <ThreadsLiveBadge state={threadsNav} placement="icon" />
+        </RailItem>
         <RailItem label="Devices" link={{ to: `/t/$teamSlug/devices`, params }}>
           <NavDevicesIcon className="size-4" />
         </RailItem>
-        {showsReviews && (
-          <RailItem label="Reviews" link={{ to: `/t/$teamSlug/reviews`, params }}>
-            <NavReviewsIcon className="size-4" />
-            <ReviewsOpenBadge dot={reviewsNav.dot} placement="icon" />
-          </RailItem>
-        )}
         <RailItem label={ACTIONS_LABEL} link={{ to: `/t/$teamSlug/actions`, params }}>
           <NavActionsIcon className="size-4" />
         </RailItem>
@@ -299,6 +313,18 @@ export function TeamSidebarRail({
         {team && (
           <PinnedIconGroup teamId={team.id} teamSlug={teamSlug} />
         )}
+
+        {/* EXP-1293: the team's agents, above the boards. */}
+        <SidebarAgentsIcons
+          teamSlug={teamSlug}
+          agents={agents}
+          separator={<Separator className="my-1 w-6! shrink-0" />}
+          renderItem={(item) => (
+            <RailItem key={item.key} label={item.label} link={item.link}>
+              {item.icon}
+            </RailItem>
+          )}
+        />
 
         {boards && boards.length > 0 && (
           <>
@@ -321,11 +347,12 @@ export function TeamSidebarRail({
           </>
         )}
 
-        {/* EXP-923: the live runs, under the boards — brand mark plus the
-            amber badge, the expanded row's whole label in the tooltip. */}
+        {/* EXP-923 / EXP-1293: the running threads, under the boards —
+            the agent mark plus the amber badge, the expanded row's whole
+            label in the tooltip. */}
         <SidebarRunningIcons
-          teamId={team?.id}
-          currentUserId={session?.user?.id}
+          teamSlug={teamSlug}
+          threads={threads}
           separator={<Separator className="my-1 w-6! shrink-0" />}
           renderItem={(item) => (
             <RailItem

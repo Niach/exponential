@@ -1,12 +1,12 @@
 import { TRPCError } from "@trpc/server"
 import { boardVisible } from "@/lib/board-visibility"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, isNull } from "drizzle-orm"
 import {
   attachments,
   issueDrafts,
   issues,
   boards,
-  sessionAttachments,
+  messages,
   teamMembers,
   teams,
 } from "@/db/schema"
@@ -310,23 +310,39 @@ export async function getDraftAttachmentTeamContext(attachmentId: string) {
   return attachmentContext
 }
 
-// EXP-702: server-only steer images (session_attachments). Served by the
-// same /api/attachments/{id} read route as issue attachments — this is its
-// fallback lookup when the id has no attachments row. No board, so no
-// trash/archive predicate; team membership is the whole gate.
+// EXP-1291: a conversation file or Guide picture — a team-scoped
+// `attachments` row owned by no issue and no draft (a sent message's file
+// carries `message_id`; a Guide picture and an unsent upload carry nothing).
+// Served by the same /api/attachments/{id} read route as issue attachments.
+// No board, so no trash/archive predicate; the read route gates on team
+// membership plus, for a message's file, the message's session visibility
+// (`messageShared` / `messageOwnerId`: a private session's files are its
+// starter's alone).
 export async function getSessionAttachmentTeamContext(attachmentId: string) {
   const db = await getDb()
   const [attachmentContext] = await db
     .select({
-      attachmentId: sessionAttachments.id,
-      storageKey: sessionAttachments.storageKey,
-      teamId: sessionAttachments.teamId,
-      contentType: sessionAttachments.contentType,
-      filename: sessionAttachments.filename,
-      sizeBytes: sessionAttachments.sizeBytes,
+      attachmentId: attachments.id,
+      storageKey: attachments.storageKey,
+      posterStorageKey: attachments.posterStorageKey,
+      durationMs: attachments.durationMs,
+      teamId: attachments.teamId,
+      contentType: attachments.contentType,
+      filename: attachments.filename,
+      sizeBytes: attachments.sizeBytes,
+      messageId: attachments.messageId,
+      messageShared: messages.shared,
+      messageOwnerId: messages.ownerId,
     })
-    .from(sessionAttachments)
-    .where(eq(sessionAttachments.id, attachmentId))
+    .from(attachments)
+    .leftJoin(messages, eq(messages.id, attachments.messageId))
+    .where(
+      and(
+        eq(attachments.id, attachmentId),
+        isNull(attachments.issueId),
+        isNull(attachments.draftId)
+      )
+    )
     .limit(1)
 
   if (!attachmentContext) {

@@ -10,9 +10,9 @@
 // (a stale sibling of the real clone, confidently wrong); offering repo-less
 // beside the repos kept that failure one click away.
 //
-// The rule lives here so the picker's option list, its default and the
-// inputs the start carries are one testable thing (EXP-825: the Agent page
-// composer is the only chat launcher left).
+// The rule lives here so the picker's option list and its default are one
+// testable thing. EXP-1293: a subjectless start sends the pick as
+// `sessions.send({repositoryId})` (absent = repo-less).
 
 /** The team's connected repos, as `repositories.list` returns them. */
 export interface ChatRepoOption {
@@ -34,15 +34,4 @@ export function chatRepoOptions(
  * person move it). Empty only when the team has no repo at all. */
 export function defaultChatRepoId(repos: ChatRepoOption[]): string {
   return repos[0]?.id ?? ``
-}
-
-/** The chat builtin's input values for a start. The `repo` key is emitted
- * ONLY when one is picked — an absent key is what the server reads as
- * repo-less, and an empty-string value is not the same thing. EXP-825: the
- * chat text is the start's `prompt` now, not an input, so with no repo there
- * are no inputs at all (`undefined`, the `buildInputsPayload` convention). */
-export function chatStartInputs(
-  repoId: string
-): Record<string, string> | undefined {
-  return repoId ? { repo: repoId } : undefined
 }

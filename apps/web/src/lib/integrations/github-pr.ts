@@ -48,6 +48,8 @@ export async function createPullRequest(opts: {
   title: string
   body: string
   token: string
+  /** EXP-1291: open it as a GitHub draft. */
+  draft?: boolean
 }): Promise<CreatedPull> {
   const res = await fetch(`https://api.github.com/repos/${opts.repo}/pulls`, {
     method: `POST`,
@@ -60,6 +62,7 @@ export async function createPullRequest(opts: {
       head: opts.head,
       base: opts.base,
       body: opts.body,
+      ...(opts.draft ? { draft: true } : {}),
     }),
   })
   if (!res.ok) {
@@ -379,6 +382,41 @@ export async function updatePullRequest(opts: {
   )
   if (!res.ok) {
     throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  }
+}
+
+// EXP-1291: flip a PR between draft and ready for review. REST cannot
+// (PATCH ignores `draft`); GraphQL's two mutations take the PR's node id.
+export async function setPullRequestDraft(opts: {
+  repo: string
+  prNumber: number
+  draft: boolean
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<void> {
+  const doFetch = opts.fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
+  const read = await doFetch(
+    `https://api.github.com/repos/${opts.repo}/pulls/${opts.prNumber}`,
+    { headers: githubApiHeaders(opts.token) }
+  )
+  if (!read.ok) {
+    throw new GitHubMergeError(read.status, await githubErrorMessage(read))
+  }
+  const pull = (await read.json()) as { node_id?: string; draft?: boolean }
+  if (!pull.node_id) throw new GitHubMergeError(502, `GitHub sent no node id for the pull request`)
+  if (Boolean(pull.draft) === opts.draft) return
+  const mutation = opts.draft
+    ? `mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { clientMutationId } }`
+    : `mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { clientMutationId } }`
+  const res = await doFetch(`https://api.github.com/graphql`, {
+    method: `POST`,
+    headers: { ...githubApiHeaders(opts.token), "content-type": `application/json` },
+    body: JSON.stringify({ query: mutation, variables: { id: pull.node_id } }),
+  })
+  if (!res.ok) throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  const data = (await res.json()) as { errors?: Array<{ message?: string }> }
+  if (data.errors?.length) {
+    throw new GitHubMergeError(422, data.errors.map((e) => e.message ?? `error`).join(`; `))
   }
 }
 

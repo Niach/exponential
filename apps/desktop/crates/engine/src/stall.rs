@@ -25,7 +25,7 @@
 //!    the interrupt is dead → the run ends with a
 //!    [`crate::local::EnginePhase::Failed`] banner that says why, so the
 //!    session tab / CLI show the reason instead of an empty "ended", and the
-//!    user resumes it (`resumed_from_id`) rather than hunting a zombie.
+//!    user wakes it with a message (EXP-1292) rather than hunting a zombie.
 //!
 //! Silence is measured on the mapper's output (see `SessionCtx::dispatch`)
 //! and on the bytes an agent's `terminal/*` command writes (which never reach

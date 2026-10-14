@@ -302,10 +302,6 @@ describe(`icon registry`, () => {
     }
   })
 
-  it(`the actionInputType contract carries the icon picker type`, () => {
-    expect(contract.actionInputType.values).toContain(`icon`)
-  })
-
   it(`covers every enum value that clients render an icon for`, () => {
     // The inbox derives its icons from `notification-<kebab>` concepts, and
     // the status/priority tables from `status-*`/`priority-*`. A new enum
@@ -482,9 +478,11 @@ describe(`icon call sites`, () => {
       webNav.set(m[1], m[2])
     }
     // desktop: `SettingsSection::General => Icon::from(registry::SETTINGS_GENERAL)`
+    // (EXP-1294: an or-pattern arm, `AgentClis | Agent(_) => { … }`, counts
+    // once under its first variant).
     const desktopNav = new Map<string, string>()
     for (const m of desktop.matchAll(
-      /SettingsSection::(\w+)(?:\(_\))? => Icon::from\(registry::([A-Z0-9_]+)\)/g
+      /SettingsSection::(\w+)(?:\(_\))?(?:\s*\|\s*SettingsSection::\w+(?:\(_\))?)* => \{?\s*Icon::from\(registry::([A-Z0-9_]+)\)/g
     )) {
       desktopNav.set(m[1], m[2].toLowerCase().replace(/_/g, `-`))
     }
