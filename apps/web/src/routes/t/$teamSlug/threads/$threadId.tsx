@@ -151,7 +151,11 @@ function ThreadPage() {
     threadId,
     search.tab === `session` ? (search.session ?? null) : null
   )
-  usePageTitle(thread.view ? pageTitle(thread.view.title, THREADS_LIST_COPY.title) : undefined)
+  usePageTitle(
+    thread.view && thread.titleReady
+      ? pageTitle(thread.view.title, THREADS_LIST_COPY.title)
+      : undefined
+  )
 
   // A thread opened right after its start may land before its row: wait a
   // beat before saying it is gone.
@@ -173,8 +177,11 @@ function ThreadPage() {
     )
   }
 
-  if (!team || !thread.view || !thread.root) {
-    if (team && thread.isReady && graceOver) {
+  // EXP-1316: until the issue shapes reported ready the title could still
+  // flip from the request text to `Implement EXP-12` (and the chips pop in):
+  // hold the page on its placeholder.
+  if (!team || !thread.view || !thread.root || !thread.titleReady) {
+    if (team && thread.isReady && !thread.root && graceOver) {
       return (
         <div className="flex h-full flex-col items-center justify-center">
           <EmptyState

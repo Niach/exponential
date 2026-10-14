@@ -7,7 +7,7 @@ import {
   messageCollection,
   sessionIssueCollection,
 } from "@/lib/collections"
-import { useSessionRow, useThreadsOfIssue } from "@/hooks/use-session-tree"
+import { titleShapesReady, useSessionRow, useThreadsOfIssue } from "@/hooks/use-session-tree"
 import {
   threadTitle,
   toTreeIssue,
@@ -32,10 +32,10 @@ export const DRAFT_THREAD_LABEL = `In`
 
 /** `threadTitle` for each root: its linked issues (sort order) and its first
  *  person message, read in three live queries for the whole set. */
-function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> {
+function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> | null {
   const rootIds = roots.map((root) => root.id).sort()
   const key = rootIds.join(`,`)
-  const { data: links } = useLiveQuery(
+  const { data: links, isReady: linksReady } = useLiveQuery(
     (query) =>
       rootIds.length > 0
         ? query
@@ -47,7 +47,7 @@ function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> {
   const linkRows = (links ?? []) as SessionIssueRow[]
   const issueIds = [...new Set(linkRows.map((link) => link.issueId))].sort()
   const issueKey = issueIds.join(`,`)
-  const { data: issues } = useLiveQuery(
+  const { data: issues, isReady: issuesReady } = useLiveQuery(
     (query) =>
       issueIds.length > 0
         ? query
@@ -61,7 +61,7 @@ function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> {
         : undefined,
     [issueKey]
   )
-  const { data: messages } = useLiveQuery(
+  const { data: messages, isReady: messagesReady } = useLiveQuery(
     (query) =>
       rootIds.length > 0
         ? query
@@ -70,7 +70,15 @@ function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> {
         : undefined,
     [key]
   )
+  // EXP-1316: no title (and no chip) until the issue shapes are ready.
+  const ready = titleShapesReady({
+    linksReady,
+    issueCount: issueIds.length,
+    issuesReady,
+    messagesReady,
+  })
   return useMemo(() => {
+    if (!ready) return null
     const issueById = new Map(
       ((issues ?? []) as TreeIssue[]).map((issue) => [issue.id, toTreeIssue(issue)])
     )
@@ -86,7 +94,7 @@ function useThreadTitles(roots: readonly SessionRow[]): Map<string, string> {
     }
     return titles
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roots, links, issues, messages])
+  }, [roots, links, issues, messages, ready])
 }
 
 /** One thread as a chip: the agent's mark and the title, opening it. */
@@ -138,7 +146,7 @@ function ThreadChipRow({
   className?: string
 }) {
   const titles = useThreadTitles(roots)
-  if (roots.length === 0) return null
+  if (roots.length === 0 || titles === null) return null
   return (
     <div
       data-testid={testId}
