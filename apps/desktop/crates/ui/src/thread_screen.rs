@@ -1137,6 +1137,7 @@ pub(crate) fn picture_row(
         SharedString::from(format!("thread-picture-{id}")),
         entry.label.clone(),
         images,
+        None,
         cx,
     )
 }
@@ -1311,6 +1312,132 @@ pub(crate) fn issue_threads_row(issue_id: &str, cx: &App) -> Option<AnyElement> 
 }
 
 // ---------------------------------------------------------------------------
+// EXP-1316 (1b): the session chips and the tree popover
+// ---------------------------------------------------------------------------
+
+/// One row of the session-tree popover: the whole tree, flat, in tree
+/// order (a parent, then its children by creation), each with its tree
+/// guides (`list-item.json` SessionRow small + TreeGuides).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SessionTreeRow {
+    pub(crate) session_id: String,
+    pub(crate) name: String,
+    pub(crate) state: domain::session_tree::SessionState,
+    pub(crate) cli: Option<String>,
+    pub(crate) guides: domain::tree_guides::Guides,
+}
+
+/// The tree under `root_id` as popover rows (pure): depth-first, children in
+/// creation order, names off THE session card (`Session N` by tree
+/// ordinal).
+pub(crate) fn session_tree_rows(root_id: &str, sessions: &[&SessionRow], now_ms: i64) -> Vec<SessionTreeRow> {
+    use domain::session_tree::{session_card, tree_order};
+    let tree: Vec<&SessionRow> = sessions
+        .iter()
+        .copied()
+        .filter(|session| session.id == root_id || session.root_id_or_self() == root_id)
+        .collect();
+    let ordered = tree_order(&tree);
+    let ordinal = |id: &str| ordered.iter().position(|session| session.id == id).map_or(1, |ix| ix + 1);
+    let mut out: Vec<(&SessionRow, usize)> = Vec::new();
+    fn walk<'a>(parent: &'a SessionRow, depth: usize, ordered: &[&'a SessionRow], out: &mut Vec<(&'a SessionRow, usize)>) {
+        out.push((parent, depth));
+        for child in ordered.iter().copied().filter(|child| child.parent_id.as_deref() == Some(parent.id.as_str())) {
+            walk(child, depth + 1, ordered, out);
+        }
+    }
+    if let Some(root) = ordered.iter().copied().find(|session| session.id == root_id) {
+        walk(root, 0, &ordered, &mut out);
+    }
+    let guides = domain::tree_guides::guides_for(&out.iter().map(|(_, depth)| *depth).collect::<Vec<_>>());
+    out.into_iter()
+        .zip(guides)
+        .map(|((session, _), guides)| SessionTreeRow {
+            session_id: session.id.clone(),
+            name: session_card(session, ordinal(&session.id), now_ms).name,
+            state: domain::session_tree::session_state(session),
+            cli: session.cli.clone(),
+            guides,
+        })
+        .collect()
+}
+
+/// A chip's mark state as THE session state (the run mark reads it).
+fn chip_state(mark: domain::session_tree::SessionTabMarkState) -> domain::session_tree::SessionState {
+    use domain::session_tree::{SessionState, SessionTabMarkState};
+    match mark {
+        SessionTabMarkState::NeedsYou => SessionState::NeedsYou,
+        SessionTabMarkState::Working => SessionState::Working,
+        SessionTabMarkState::Waiting => SessionState::Waiting,
+        SessionTabMarkState::Ended => SessionState::Ended,
+    }
+}
+
+/// Open `session_id` IN PLACE (its thread hosts the raw work).
+fn open_session_in_place(session_id: String, window: &mut Window, cx: &mut App) {
+    crate::navigation::navigate(window, cx, Screen::Session { session_id });
+}
+
+/// One popover row: guides, the run mark, the name, the state word in its
+/// tone; the current session washed.
+fn tree_popover_row(row: &SessionTreeRow, active: bool, cx: &App) -> AnyElement {
+    use domain::list_item::{lead_x, BASE, GAP, SMALL};
+    let theme = cx.theme();
+    let row_hover = theme::tokens::glass::FILL_ROW.to_hsla();
+    let row_active = theme::tokens::glass::FILL_ACTIVE.to_hsla();
+    let session_id = row.session_id.clone();
+    let word = row.state.word();
+    let word_color = match row.state {
+        domain::session_tree::SessionState::NeedsYou | domain::session_tree::SessionState::Blocked => {
+            crate::work_card::session_tone_color(row.state.tone(), cx)
+        }
+        _ => theme.muted_foreground,
+    };
+    crate::surface::flat_row()
+        .id(SharedString::from(format!("thread-tree-{}", row.session_id)))
+        .relative()
+        .flex()
+        .flex_row()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap(px(GAP))
+        .h(px(SMALL))
+        .pr_3()
+        .pl(px(lead_x(row.guides.depth())))
+        .rounded(px(theme::tokens::radius::MD))
+        .when(active, |this| this.bg(row_active))
+        .cursor_pointer()
+        .hover(move |style| style.bg(if active { row_active } else { row_hover }))
+        .children(crate::tree_guides::guide_layer(&row.guides, BASE, 0.))
+        .child(crate::run_rows::run_mark(crate::run_rows::run_agent(row.cli.as_deref()), row.state, cx))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_sm()
+                .text_color(theme.foreground)
+                .child(SharedString::from(row.name.clone())),
+        )
+        .child(div().flex_shrink_0().text_sm().text_color(word_color).child(SharedString::from(word)))
+        .on_click(move |_, window, cx| open_session_in_place(session_id.clone(), window, cx))
+        .into_any_element()
+}
+
+/// Hovering the session chips (or the popover itself) keeps the tree
+/// popover open; leaving both closes it after a beat.
+#[derive(Default)]
+struct TreeHover {
+    chips: bool,
+    popover: bool,
+    open: bool,
+}
+
+/// How long the popover outlives the pointer (crossing the gap from the
+/// chips onto it).
+const TREE_CLOSE_DELAY: Duration = Duration::from_millis(160);
+
+// ---------------------------------------------------------------------------
 // The view
 // ---------------------------------------------------------------------------
 
@@ -1350,8 +1477,8 @@ impl ThreadModel {
     }
 }
 
-fn thread_model(root_id: &str, cx: &App) -> Option<ThreadModel> {
-    let view = crate::session_data::session_thread_view(root_id, None, crate::session_data::now_ms(), cx)?;
+fn thread_model(root_id: &str, focus: Option<&str>, cx: &App) -> Option<ThreadModel> {
+    let view = crate::session_data::session_thread_view(root_id, focus, crate::session_data::now_ms(), cx)?;
     let root = crate::session_data::session(root_id, cx)?;
     let store = Store::try_global(cx)?;
     let links: Vec<SessionIssueRow> = store
@@ -1414,6 +1541,12 @@ pub(crate) struct ThreadScreenView {
     follow: crate::controls::TailFollow,
     focus_handle: FocusHandle,
     _ring_tick: Option<Task<()>>,
+    /// EXP-1316 (1b): the session open IN PLACE (`Screen::Session` of this
+    /// tree): its id and the screen view whose transcript the body hosts.
+    focus: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
+    _focus_sub: Option<Subscription>,
+    tree: TreeHover,
+    _tree_close: Option<Task<()>>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -1479,6 +1612,10 @@ impl ThreadScreenView {
             follow: crate::controls::TailFollow::default(),
             focus_handle: cx.focus_handle(),
             _ring_tick: None,
+            focus: None,
+            _focus_sub: None,
+            tree: TreeHover::default(),
+            _tree_close: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
         };
@@ -1491,7 +1628,8 @@ impl ThreadScreenView {
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        let model = thread_model(&self.root_id, cx);
+        let focus = self.focus.as_ref().map(|(id, _)| id.clone());
+        let model = thread_model(&self.root_id, focus.as_deref(), cx);
         if let Some(model) = &model {
             self.note_seen(&model.links, cx);
             let team = model.root.team_id.clone();
@@ -1581,6 +1719,103 @@ impl ThreadScreenView {
         cx.notify();
     }
 
+    /// EXP-1316 (1b): show `focus`'s session IN PLACE (the panel calls this
+    /// on a `Screen::Session` of this tree), or the thread again (`None`).
+    pub(crate) fn set_focus(
+        &mut self,
+        focus: Option<(String, Entity<crate::session_screen::SessionScreenView>)>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let same = match (&self.focus, &focus) {
+            (Some((a, view_a)), Some((b, view_b))) => a == b && view_a == view_b,
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            return;
+        }
+        self._focus_sub = focus
+            .as_ref()
+            .map(|(_, view)| cx.observe(view, |_, _, cx| cx.notify()));
+        self.focus = focus;
+        self.tree.open = false;
+        self.refresh(cx);
+    }
+
+    /// The focused session's id.
+    fn focus_id(&self) -> Option<&str> {
+        self.focus.as_ref().map(|(id, _)| id.as_str())
+    }
+
+    /// A strip chip other than a session: leave the in-place session (back
+    /// to `Screen::Thread`, the same tab) and show `child`.
+    fn select_child(&mut self, child: ThreadChildSel, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.focus.is_some() {
+            let session_id = self.root_id.clone();
+            window.defer(cx, move |window, cx| {
+                crate::navigation::navigate(window, cx, Screen::Thread { session_id });
+            });
+        }
+        self.set_child(child, window, cx);
+    }
+
+    /// The session chips' / popover's hover edge.
+    fn tree_hover(&mut self, chips: Option<bool>, popover: Option<bool>, cx: &mut gpui::Context<Self>) {
+        if let Some(chips) = chips {
+            self.tree.chips = chips;
+        }
+        if let Some(popover) = popover {
+            self.tree.popover = popover;
+        }
+        if self.tree.chips || self.tree.popover {
+            self._tree_close = None;
+            if !self.tree.open {
+                self.tree.open = true;
+                cx.notify();
+            }
+            return;
+        }
+        self._tree_close = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(TREE_CLOSE_DELAY).await;
+            let _ = this.update(cx, |this, cx| {
+                if !this.tree.chips && !this.tree.popover && this.tree.open {
+                    this.tree.open = false;
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
+    /// The tree popover under the session chips.
+    fn render_tree_popover(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let sessions = crate::session_data::tree_of_root(&self.root_id, cx);
+        let refs: Vec<&SessionRow> = sessions.iter().collect();
+        let rows = session_tree_rows(&self.root_id, &refs, crate::session_data::now_ms());
+        let current = self.focus_id().map(str::to_string);
+        let theme = cx.theme();
+        let panel = v_flex()
+            .id("thread-tree-popover")
+            .min_w(px(320.))
+            .max_w(px(460.))
+            .p_1()
+            .rounded(px(theme::tokens::radius::LG))
+            .bg(theme.popover)
+            .border_1()
+            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+            .shadow_lg()
+            .children(
+                rows.iter()
+                    .map(|row| tree_popover_row(row, current.as_deref() == Some(row.session_id.as_str()), cx)),
+            )
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| this.tree_hover(None, Some(*hovered), cx)));
+        div()
+            .absolute()
+            .top(px(STRIP_CHIP_H + 6.))
+            .right_0()
+            .child(gpui::deferred(panel).with_priority(1))
+            .into_any_element()
+    }
+
     // ── the reply ────────────────────────────────────────────────────────
 
     /// THE reply: `sessions.send({sessionId: root, text})` — the server
@@ -1644,6 +1879,16 @@ impl ThreadScreenView {
                 cx,
             )
         });
+        // EXP-1316 (1b): the open session's Stop while it is live.
+        let stop = self.focus.as_ref().filter(|(_, view)| view.read(cx).stoppable(cx)).map(|(session_id, _)| {
+            let session_id = session_id.clone();
+            crate::session_screen::stop_session_pill(
+                "thread-session-stop",
+                crate::surface::PillSize::Md,
+                cx,
+            )
+            .on_click(move |_, _, cx| crate::steer_viewer::stop_session(&session_id, cx))
+        });
         let menu = guide_menu(model, cx);
         v_flex()
             .w_full()
@@ -1658,6 +1903,7 @@ impl ThreadScreenView {
                     .items_center()
                     .child(div().flex_1().min_w_0().child(title))
                     .children(merge)
+                    .children(stop)
                     .children(menu),
             )
             .child(self.render_strip(model, cx))
@@ -1669,22 +1915,23 @@ impl ThreadScreenView {
         let mut chips: Vec<AnyElement> = Vec::new();
         // The Guide (after the divider) never scrolls out of reach.
         let mut trailing: Vec<AnyElement> = Vec::new();
+        let mut sessions: Vec<AnyElement> = Vec::new();
         for tab in &model.view.tabs {
             match tab {
                 ThreadTab::Conversation => {
-                    let active = self.child == ThreadChildSel::Conversation;
+                    let active = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
                     chips.push(
                         strip_chip("thread-child-conversation", active, cx)
                             .child(Icon::new(registry::ACTION_CHAT).xsmall())
                             .child(SharedString::from(THREAD.copy.conversation.clone()))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.set_child(ThreadChildSel::Conversation, window, cx)
+                                this.select_child(ThreadChildSel::Conversation, window, cx)
                             }))
                             .into_any_element(),
                     );
                 }
                 ThreadTab::Issue { issue_id, identifier } => {
-                    let active = self.child == ThreadChildSel::Issue(issue_id.clone());
+                    let active = self.focus.is_none() && self.child == ThreadChildSel::Issue(issue_id.clone());
                     let issue = model.issues.get(issue_id);
                     let status = issue.map(|issue| crate::queries::resolve_issue_status(cx, issue));
                     let title = issue.map(|issue| issue.title.clone()).unwrap_or_default();
@@ -1701,7 +1948,7 @@ impl ThreadScreenView {
                         .children(strip_issue_body(status, identifier, &title, active, cx))
                         .when(ringed, |chip| chip.border_color(cx.theme().ring))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            this.set_child(ThreadChildSel::Issue(open.clone()), window, cx)
+                            this.select_child(ThreadChildSel::Issue(open.clone()), window, cx)
                         }))
                         .pointer_context_menu(move |menu, window, cx| thread_menu(menu, &target, window, cx));
                     chips.push(if ringed {
@@ -1730,18 +1977,52 @@ impl ThreadScreenView {
                     );
                     trailing.push(strip_divider(cx));
                 }
-                // EXP-1316 (1b): the session chips land with the in-place
-                // session view.
-                ThreadTab::Session { .. } => {}
+                // EXP-1316 (1b): the sessions at the viewed level — the
+                // agent's mark + the name, muted unless open in place.
+                ThreadTab::Session {
+                    session_id,
+                    name,
+                    mark_state,
+                } => {
+                    let active = self.focus_id() == Some(session_id.as_str());
+                    let cli = crate::session_data::session(session_id, cx).and_then(|row| row.cli);
+                    let open = session_id.clone();
+                    sessions.push(
+                        strip_chip(SharedString::from(format!("thread-session-{session_id}")), active, cx)
+                            .child(crate::run_rows::run_mark(
+                                crate::run_rows::run_agent(cli.as_deref()),
+                                chip_state(*mark_state),
+                                cx,
+                            ))
+                            .child(div().max_w(px(180.)).truncate().child(SharedString::from(name.clone())))
+                            .on_click(move |_, window, cx| open_session_in_place(open.clone(), window, cx))
+                            .into_any_element(),
+                    );
+                }
                 ThreadTab::Guide { dot } => {
-                    let active = self.child == ThreadChildSel::Guide;
+                    if !sessions.is_empty() {
+                        let group = div()
+                            .id("thread-session-chips")
+                            .relative()
+                            .flex()
+                            .flex_row()
+                            .flex_shrink_0()
+                            .items_center()
+                            .gap_1()
+                            .children(std::mem::take(&mut sessions))
+                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| this.tree_hover(Some(*hovered), None, cx)))
+                            .when(self.tree.open, |group| group.child(self.render_tree_popover(cx)));
+                        trailing.push(group.into_any_element());
+                        trailing.push(strip_divider(cx));
+                    }
+                    let active = self.focus.is_none() && self.child == ThreadChildSel::Guide;
                     trailing.push(
                         strip_chip("thread-child-guide", active, cx)
                             .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
                             .child(SharedString::from(THREAD.copy.guide.clone()))
                             .when(*dot, |chip| chip.child(guide_dot(cx)))
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                this.set_child(ThreadChildSel::Guide, window, cx)
+                                this.select_child(ThreadChildSel::Guide, window, cx)
                             }))
                             .into_any_element(),
                     );
@@ -1934,6 +2215,10 @@ impl ThreadScreenView {
                     fallback_lead: None,
                     unnumbered: false,
                     scroll: None,
+                    viewer: model.root.guide.clone().map(|guide| crate::session_results::GuideViewerSource {
+                        guide: std::rc::Rc::new(guide),
+                        team_id: model.root.team_id.clone(),
+                    }),
                 },
                 cx,
             )
@@ -2050,6 +2335,23 @@ impl Render for ThreadScreenView {
             self.set_child(ThreadChildSel::Issue(issue_id), window, cx);
         }
         let header = self.render_header(&model, cx);
+        // EXP-1316 (1b): a session open in place = its raw work under the
+        // thread's own header + strip (no session header of its own).
+        if let Some((_, view)) = self.focus.clone() {
+            let inner = view.read(cx).inner().clone();
+            let scrolled = inner.read(cx).body_scrolled();
+            return v_flex()
+                .track_focus(&self.focus_handle)
+                .size_full()
+                .min_h_0()
+                .overflow_hidden()
+                .child(header)
+                .child(crate::work_header::work_body(
+                    div().flex_1().min_h_0().child(inner).into_any_element(),
+                    false,
+                    scrolled,
+                ));
+        }
         let child = match self.child.clone() {
             ThreadChildSel::Conversation => self.render_conversation(&model, window, cx),
             ThreadChildSel::Issue(_) => self.render_issue_child(),
@@ -2103,6 +2405,31 @@ mod tests {
     #[test]
     fn thread_texts_chip_bare_identifiers() {
         assert!(thread_text_resolver("team-1").bare);
+    }
+
+    /// EXP-1316 (1b): the tree popover lists the WHOLE tree depth-first
+    /// (children by creation), names off the session card, guides off the
+    /// depths.
+    #[test]
+    fn the_tree_popover_walks_the_tree_depth_first() {
+        let row = |value: serde_json::Value| -> SessionRow { serde_json::from_value(value).unwrap() };
+        let sessions = [
+            row(serde_json::json!({"id": "r", "root_id": "r", "kind": "thread", "status": "running", "busy": true, "created_at": "2026-10-14T10:00:00Z"})),
+            row(serde_json::json!({"id": "b", "root_id": "r", "parent_id": "r", "depth": 1, "status": "ended", "created_at": "2026-10-14T10:02:00Z"})),
+            row(serde_json::json!({"id": "a", "root_id": "r", "parent_id": "r", "depth": 1, "status": "idle", "needs_input": true, "title": "Profile the launch path", "created_at": "2026-10-14T10:01:00Z"})),
+            row(serde_json::json!({"id": "a1", "root_id": "r", "parent_id": "a", "depth": 2, "status": "running", "created_at": "2026-10-14T10:03:00Z"})),
+            row(serde_json::json!({"id": "x", "root_id": "x", "kind": "thread", "status": "idle", "created_at": "2026-10-14T09:00:00Z"})),
+        ];
+        let refs: Vec<&SessionRow> = sessions.iter().collect();
+        let rows = session_tree_rows("r", &refs, 0);
+        let ids: Vec<&str> = rows.iter().map(|row| row.session_id.as_str()).collect();
+        assert_eq!(ids, vec!["r", "a", "a1", "b"]);
+        let names: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(names, vec!["Session 1", "Profile the launch path", "Session 4", "Session 3"]);
+        let depths: Vec<usize> = rows.iter().map(|row| row.guides.depth()).collect();
+        assert_eq!(depths, vec![0, 1, 2, 1]);
+        assert!(rows[1].guides.tee, "a sibling follows");
+        assert_eq!(rows[1].state, domain::session_tree::SessionState::NeedsYou);
     }
 
     /// EXP-1317: the X lives only on the author's queued row, and its id

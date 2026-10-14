@@ -4684,6 +4684,7 @@ impl SteerSessionView {
             id,
             results::session_result_tile_caption(entry).to_string(),
             &self.images,
+            None,
             cx,
         )
     }

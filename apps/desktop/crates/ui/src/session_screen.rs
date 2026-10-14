@@ -281,6 +281,17 @@ impl SessionScreenView {
         }
     }
 
+    /// EXP-1316: the transcript a thread hosts IN PLACE (its own header
+    /// stays unused there).
+    pub(crate) fn inner(&self) -> &Entity<SteerSessionView> {
+        &self.inner
+    }
+
+    /// EXP-1316: whether a reader may Stop it now (the header's rule).
+    pub(crate) fn stoppable(&self, cx: &App) -> bool {
+        !self.ended && self.inner.read(cx).killable()
+    }
+
     /// The tab closed. Drops the feed (the relay socket, the engine drain) —
     /// deliberately NOT the session: an agent keeps working when its tab goes
     /// away.

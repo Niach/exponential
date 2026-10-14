@@ -114,8 +114,17 @@ fn strip(case: &Case, cx: &App) -> AnyElement {
                 );
                 trailing.push(strip_divider(cx));
             }
-            // The session chips land with the in-place session view (1b).
-            ThreadTab::Session { .. } => {}
+            // EXP-1316 (1b): the session chips (agent mark + name, muted).
+            ThreadTab::Session { session_id, name, .. } => trailing.push(
+                strip_chip(SharedString::from(format!("sg-thread-session-{session_id}")), false, cx)
+                    .child(crate::run_rows::run_mark(
+                        crate::run_rows::run_agent(None),
+                        domain::session_tree::SessionState::Waiting,
+                        cx,
+                    ))
+                    .child(SharedString::from(name.clone()))
+                    .into_any_element(),
+            ),
             ThreadTab::Guide { dot } => trailing.push(
                 strip_chip("sg-thread-guide", false, cx)
                     .child(Icon::new(registry::GUIDE_CHANGES).xsmall())

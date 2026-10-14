@@ -89,6 +89,18 @@ pub(crate) struct GuideSpec {
     /// work body's top fade shows only once it left the top). `None` = an
     /// untracked scroll.
     pub(crate) scroll: Option<gpui::ScrollHandle>,
+    /// EXP-1283: the raw Guide (`sessions.guide`): a tile opens THE picture
+    /// viewer over it ([`crate::image_preview::open_guide_viewer`]) instead
+    /// of the bare lightbox. `None` = the lightbox.
+    pub(crate) viewer: Option<GuideViewerSource>,
+}
+
+/// EXP-1283: what a Guide tile hands THE picture viewer — the raw Guide and
+/// the team its text pills resolve against.
+#[derive(Clone)]
+pub(crate) struct GuideViewerSource {
+    pub(crate) guide: std::rc::Rc<serde_json::Value>,
+    pub(crate) team_id: Option<String>,
 }
 
 /// The coverage rule's view of a pane file.
@@ -204,7 +216,8 @@ pub(crate) fn render(
             session_result_tile_height_fitting(&pictures, available_width)
         })
         .fold(SESSION_RESULT_TILE_HEIGHT, f32::min);
-    let GuideSpec { diff, on_open, stack, fallback_lead, unnumbered, scroll } = guide;
+    let GuideSpec { diff, on_open, stack, fallback_lead, unnumbered, scroll, viewer } = guide;
+    let viewer = viewer.as_ref();
     let diff = diff.as_deref().map(guide_diff_files);
     let coverage = guide_coverage(
         groups,
@@ -239,7 +252,7 @@ pub(crate) fn render(
                 .w_full()
                 .min_w_0()
                 .gap_2()
-                .children(group_body(lead.group, group_ix, height, images, team_id, cx, |cx| {
+                .children(group_body(lead.group, group_ix, height, images, team_id, viewer, cx, |cx| {
                     lead.changes
                         .as_ref()
                         .and_then(|set| row(format!("guide-changes-lead-{group_ix}"), GuidePage::Lead, set, cx))
@@ -271,7 +284,7 @@ pub(crate) fn render(
                 .min_w_0()
                 .gap_2()
                 .child(band)
-                .children(group_body(section.group, group_ix, height, images, team_id, cx, |cx| {
+                .children(group_body(section.group, group_ix, height, images, team_id, viewer, cx, |cx| {
                     section.changes.as_ref().and_then(|set| {
                         row(
                             format!("guide-changes-{}", section.index),
@@ -373,6 +386,7 @@ fn group_body(
     height: f32,
     images: &Entity<ImageCache>,
     team_id: Option<&str>,
+    viewer: Option<&GuideViewerSource>,
     cx: &mut App,
     changes: impl FnOnce(&App) -> Option<AnyElement>,
 ) -> Vec<AnyElement> {
@@ -398,6 +412,7 @@ fn group_body(
                 SharedString::from(format!("session-result-{group_ix}-{tile_ix}")),
                 entry.label.clone(),
                 images,
+                viewer,
                 cx,
             ));
         }
@@ -412,6 +427,7 @@ fn group_body(
                 entries: group.earlier.clone(),
                 height,
                 images: images.clone(),
+                viewer: viewer.cloned(),
             }
             .into_any_element(),
         );
@@ -631,6 +647,7 @@ struct EarlierBand {
     entries: Vec<SessionResultEntry>,
     height: f32,
     images: Entity<ImageCache>,
+    viewer: Option<GuideViewerSource>,
 }
 
 impl RenderOnce for EarlierBand {
@@ -669,6 +686,7 @@ impl RenderOnce for EarlierBand {
                     // the transcript tile's alone.
                     entry.label.clone(),
                     &self.images,
+                    self.viewer.as_ref(),
                     cx,
                 ));
             }
@@ -695,8 +713,11 @@ pub(crate) fn tile(
     id: SharedString,
     caption: String,
     images: &Entity<ImageCache>,
+    viewer: Option<&GuideViewerSource>,
     cx: &mut App,
 ) -> AnyElement {
+    let viewer = viewer.cloned();
+    let attachment_id = entry.attachment_id.clone();
     // The canonical relative form — the same key the cache fetches by and
     // the lightbox opens.
     let url = format!("/api/attachments/{}", entry.attachment_id);
@@ -763,6 +784,17 @@ pub(crate) fn tile(
                     let url = url.clone();
                     let label = label.clone();
                     move |_, window, cx| {
+                        // EXP-1283: a Guide picture opens THE viewer.
+                        if let Some(viewer) = viewer.clone() {
+                            crate::image_preview::open_guide_viewer(
+                                viewer,
+                                attachment_id.clone(),
+                                images.clone(),
+                                window,
+                                cx,
+                            );
+                            return;
+                        }
                         crate::image_preview::open_image_preview(
                             url.clone(),
                             label.clone(),

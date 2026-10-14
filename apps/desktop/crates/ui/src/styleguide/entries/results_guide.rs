@@ -99,6 +99,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             fallback_lead: None,
             unnumbered: false,
             scroll: None,
+            viewer: None,
         },
         cx,
     );

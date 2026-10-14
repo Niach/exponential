@@ -413,9 +413,269 @@ impl Render for ImagePreview {
     }
 }
 
+// ---------------------------------------------------------------------------
+// EXP-1283 — THE Guide picture viewer
+// ---------------------------------------------------------------------------
+
+/// The viewer's fixed side panel width (session-results.json `viewer`).
+pub(crate) const GUIDE_VIEWER_PANEL_W: f32 = 360.;
+
+/// The viewer window over `viewport`: 90% wide (≤ 1280), 85% tall (≤ 800),
+/// never under 720×440 so the panel and a picture both fit.
+fn guide_viewer_window_size(viewport: Size<Pixels>) -> Size<Pixels> {
+    let (vw, vh) = (f32::from(viewport.width), f32::from(viewport.height));
+    size(
+        px((vw * 0.9).min(1280.).max(720.)),
+        px((vh * 0.85).min(800.).max(440.)),
+    )
+}
+
+/// The canonical attachment URL the [`ImageCache`] fetches by.
+fn attachment_url(attachment_id: &str) -> String {
+    format!("/api/attachments/{attachment_id}")
+}
+
+/// Open THE Guide picture viewer on `attachment_id` (EXP-1283, ×4): the
+/// picture large on the left, a 360px panel on the right — the topic, the
+/// picture's label pill, the topic's text (GFM), `‹ index / count ›` and
+/// `×`; ←/→ walk every Guide picture ([`domain::guide_viewer::guide_viewer`],
+/// no wrap), Esc closes. An attachment the Guide does not hold falls back to
+/// the plain lightbox.
+pub(crate) fn open_guide_viewer(
+    source: crate::session_results::GuideViewerSource,
+    attachment_id: String,
+    images: Entity<ImageCache>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(state) = domain::guide_viewer::guide_viewer(Some(&source.guide), &attachment_id) else {
+        open_image_preview(attachment_url(&attachment_id), String::new(), None, Some(images), window, cx);
+        return;
+    };
+    let spec = DialogSpec::new(state.label.clone(), guide_viewer_window_size(window.viewport_size())).chromeless();
+    native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
+        let view = cx.new(|cx| GuideViewer::new(source, attachment_id, images, window, cx));
+        DialogContent::new(view).padless()
+    });
+}
+
+struct GuideViewer {
+    source: crate::session_results::GuideViewerSource,
+    attachment_id: String,
+    images: Entity<ImageCache>,
+    focus_handle: gpui::FocusHandle,
+    _images_changed: Subscription,
+}
+
+impl GuideViewer {
+    fn new(
+        source: crate::session_results::GuideViewerSource,
+        attachment_id: String,
+        images: Entity<ImageCache>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Self {
+        let images_changed = cx.observe(&images, |_, _, cx| cx.notify());
+        let focus_handle = cx.focus_handle();
+        window.focus(&focus_handle, cx);
+        Self {
+            source,
+            attachment_id,
+            images,
+            focus_handle,
+            _images_changed: images_changed,
+        }
+    }
+
+    fn state(&self) -> Option<domain::guide_viewer::GuideViewerState> {
+        domain::guide_viewer::guide_viewer(Some(&self.source.guide), &self.attachment_id)
+    }
+
+    /// Step to `id` (‹ › and ←/→); `None` = at an end, nothing happens.
+    fn go(&mut self, id: Option<String>, cx: &mut gpui::Context<Self>) {
+        if let Some(id) = id {
+            self.attachment_id = id;
+            cx.notify();
+        }
+    }
+
+    fn picture(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let url = attachment_url(&self.attachment_id);
+        match self.images.update(cx, |cache, cx| cache.slot(&url, cx)) {
+            ImageSlot::Ready(image) => img(image)
+                .max_w_full()
+                .max_h_full()
+                .object_fit(gpui::ObjectFit::ScaleDown)
+                .rounded(cx.theme().radius)
+                .into_any_element(),
+            ImageSlot::ReadyTall(tall) => {
+                let width = (f32::from(window.viewport_size().width) - GUIDE_VIEWER_PANEL_W - 32.)
+                    .min(tall.width as f32)
+                    .max(1.);
+                div()
+                    .max_w_full()
+                    .max_h_full()
+                    .overflow_hidden()
+                    .child(crate::tall_image::render_tall(&tall, width))
+                    .into_any_element()
+            }
+            ImageSlot::Loading => crate::feedback::skeleton_block("guide-viewer-loading", 80., cx),
+            ImageSlot::Failed(_) | ImageSlot::Unrenderable => placeholder_box("Image unavailable", cx),
+        }
+    }
+}
+
+impl gpui::Focusable for GuideViewer {
+    fn focus_handle(&self, _cx: &App) -> gpui::FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
+impl Render for GuideViewer {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+        let Some(state) = self.state() else {
+            return div().size_full().into_any_element();
+        };
+        let (muted, foreground, border, background) = {
+            let theme = cx.theme();
+            (theme.muted_foreground, theme.foreground, theme.border, theme.background)
+        };
+        let picture = self.picture(window, cx);
+        let (prev, next) = (state.prev_id.clone(), state.next_id.clone());
+        let step = |id: &'static str, glyph: ExpIcon, target: Option<String>, cx: &mut gpui::Context<Self>| {
+            let disabled = target.is_none();
+            crate::controls::ghost_icon_button(id, Icon::from(glyph), cx)
+                .disabled(disabled)
+                .on_click(cx.listener(move |this, _, _, cx| this.go(target.clone(), cx)))
+        };
+        let back = step("guide-viewer-prev", crate::icons::registry::UI_CHEVRON_LEFT, prev.clone(), cx);
+        let forward = step("guide-viewer-next", crate::icons::registry::UI_CHEVRON_RIGHT, next.clone(), cx);
+        let close = crate::controls::ghost_icon_button("guide-viewer-close", Icon::from(crate::icons::registry::UI_CLOSE), cx)
+            .on_click(|_, window, cx| native_dialog::close_dialog_window(window, cx));
+        let text = state.text.clone().map(|text| {
+            let mut view = crate::markdown::MarkdownView::new(
+                SharedString::from(format!("guide-viewer-text-{}", self.attachment_id)),
+                text,
+            )
+            .selectable(true)
+            .autolink(true)
+            .on_open_link(crate::markdown::open_agent_link);
+            if let Some(team_id) = self.source.team_id.as_deref() {
+                view = view.resolver(crate::thread_screen::thread_text_resolver(team_id));
+            }
+            div().w_full().min_w_0().text_sm().text_color(foreground).child(view)
+        });
+        let panel = v_flex()
+            .w(px(GUIDE_VIEWER_PANEL_W))
+            .flex_shrink_0()
+            .h_full()
+            .border_l_1()
+            .border_color(border)
+            .bg(background)
+            .child(
+                v_flex()
+                    .id("guide-viewer-panel")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_6()
+                    .gap_3()
+                    .child(
+                        gpui_component::h_flex()
+                            .w_full()
+                            .items_start()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_lg()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(foreground)
+                                    .child(SharedString::from(state.topic.clone())),
+                            )
+                            .child(close),
+                    )
+                    .child(
+                        gpui_component::h_flex().child(
+                            div()
+                                .px_2()
+                                .py_0p5()
+                                .rounded(px(theme::tokens::radius::MD))
+                                .border_1()
+                                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                                .bg(theme::tokens::glass::FILL_ROW.to_hsla())
+                                .text_xs()
+                                .text_color(foreground)
+                                .child(SharedString::from(state.label.clone())),
+                        ),
+                    )
+                    .children(text),
+            )
+            .child(
+                gpui_component::h_flex()
+                    .w_full()
+                    .px_6()
+                    .py_4()
+                    .items_center()
+                    .justify_between()
+                    .child(back)
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(muted)
+                            .child(SharedString::from(guide_viewer_position(state.index, state.count))),
+                    )
+                    .child(forward),
+            );
+        gpui_component::h_flex()
+            .id("guide-viewer")
+            .size_full()
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(move |this, event: &gpui::KeyDownEvent, window, cx| {
+                match event.keystroke.key.as_str() {
+                    "left" => this.go(prev.clone(), cx),
+                    "right" => this.go(next.clone(), cx),
+                    "escape" => native_dialog::close_dialog_window(window, cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
+            }))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .p_4()
+                    .child(picture),
+            )
+            .child(panel)
+            .into_any_element()
+    }
+}
+
+/// The panel's `index / count`.
+pub(crate) fn guide_viewer_position(index: usize, count: usize) -> String {
+    format!("{index} / {count}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_guide_viewer_reads_its_position_and_fits_the_window() {
+        assert_eq!(guide_viewer_position(2, 3), "2 / 3");
+        let window = guide_viewer_window_size(size(px(1600.), px(1000.)));
+        assert_eq!(window, size(px(1280.), px(800.)));
+        let small = guide_viewer_window_size(size(px(600.), px(400.)));
+        assert_eq!(small, size(px(720.), px(440.)));
+        assert!(f32::from(window.width) > GUIDE_VIEWER_PANEL_W * 2.);
+    }
 
     #[test]
     fn preview_labels_fall_back_alt_then_filename_then_generic() {
