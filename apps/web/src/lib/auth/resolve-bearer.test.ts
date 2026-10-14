@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { APIError } from "better-auth/api"
 
 // Regression lock for the cross-account leak: Better Auth's `session_data`
 // cookie cache is trusted over the bearer inside getSession, so a token
@@ -13,6 +14,7 @@ const h = vi.hoisted(() => {
     user: { id: `user-token` } as { id: string } | null,
     calls: 0,
     throwNext: false,
+    rejectKeyNext: false,
     swallowDbFailureNext: false,
   }
   return { state }
@@ -27,6 +29,15 @@ vi.mock(`@/lib/auth`, () => ({
         if (h.state.throwNext) {
           h.state.throwNext = false
           throw new Error(`db down`)
+        }
+        if (h.state.rejectKeyNext) {
+          h.state.rejectKeyNext = false
+          // What the apiKey plugin does with a key it cannot verify: it
+          // THROWS rather than resolving to null (EXP-1313).
+          throw new APIError(`FORBIDDEN`, {
+            message: `Invalid API key.`,
+            code: `INVALID_API_KEY`,
+          })
         }
         if (h.state.swallowDbFailureNext) {
           h.state.swallowDbFailureNext = false
@@ -254,6 +265,30 @@ describe(`resolveSession swallowed lookup failures (REV2-20)`, () => {
       headers: { authorization: `Bearer deadtoken` },
     })
     expect(await resolveSession(request)).toBeNull()
+  })
+
+  // EXP-1313: a key the apiKey plugin REJECTS (it throws a 4xx APIError
+  // instead of answering null) is a bad credential — null, never a 500.
+  it(`treats a credential the apiKey plugin rejects as no session, uncached`, async () => {
+    h.state.rejectKeyNext = true
+    const request = () =>
+      new Request(`https://x/api/attachments/a`, {
+        headers: { "x-api-key": `expu_bogus` },
+      })
+    expect(await resolveSession(request())).toBeNull()
+    // Not cached (a null resolution never is): the next call re-resolves.
+    expect((await resolveSession(request()))?.user?.id).toBe(`user-token`)
+    expect(h.state.calls).toBe(2)
+  })
+
+  it(`keeps any other getSession failure a SessionResolveError`, async () => {
+    h.state.throwNext = true
+    const request = new Request(`https://x/api/attachments/a`, {
+      headers: { "x-api-key": `expu_bogus` },
+    })
+    await expect(resolveSession(request)).rejects.toBeInstanceOf(
+      SessionResolveError
+    )
   })
 })
 
