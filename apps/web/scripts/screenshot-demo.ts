@@ -363,6 +363,11 @@ export const DEMO_THREAD_IDS = {
 /** The thread the `guide` view opens on its Guide tab (`?tab=guide`). */
 export const DEMO_GUIDE_THREAD_ID = DEMO_THREAD_IDS.batchLabels
 
+/** The thread whose PR carries the REAL GitHub diff (APP-14's, stacked on
+ *  batchLabels): the `review-diff` and `guide-section` pages under its Guide
+ *  (EXP-1308: APP-15's Guide draws no Changes row, as on iOS + Android). */
+export const DEMO_DIFF_THREAD_ID = DEMO_THREAD_IDS.groupByAssignee
+
 /**
  * The seeded `pull_requests` rows (EXP-1293: PR state lives there, never on
  * `issues`). `groupByAssignee` is the real GitHub PR (REVIEW_PR_URL in the
