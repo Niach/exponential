@@ -1,9 +1,4 @@
-- Thread: una sessione ora vive in un thread che raccoglie le issue e le sessioni di un lavoro; l'agente collega le issue che crea o prende in carico, una ripresa continua la conversazione, e Running e Recent elencano i thread
-- Composer: il composer della pagina Agent è l'unico punto da cui avviare una sessione, con chip di issue o un chip di azione, testo libero come prompt e un menu più per file, impegno, subagenti, server MCP e Computer use
-- Ricerca issue: digita # ovunque scrivi per trovare un'issue per numero o titolo, con la stessa ricerca in ogni app
-- Primi passi: una checklist nella pagina Agent guida un nuovo team attraverso la sua prima board, il primo dispositivo e la prima sessione
-- Feedback: un'azione non riuscita mostra un avviso, l'input non valido viene segnalato sul posto, e le liste mostrano scheletri durante il caricamento
-- Sessioni: workflow, task e subagenti condividono una sola Work card, uno script della modalità codice mostra una Script card, e un commento pubblicato dall'agente è il vero commento
-- Server MCP: i server MCP del team si gestiscono nelle Impostazioni, e ogni lista vuota si legge allo stesso modo in tutta l'app
-- Account: un login dell'agente è un profilo per email, accedere con un'email nota aggiorna quel profilo, e una sessione non usa mai il login predefinito della macchina
-- Correzioni: una sessione che non si apriva su iOS si apre di nuovo, e il composer mantiene l'account giusto dopo il cambio di dispositivo
+- Thread: ogni lavoro è una conversazione, elencata come Ti aspetta, In corso e Recenti, con ogni sessione come scheda
+- Agenti del team: aggiungi in Impostazioni agenti che seguono una bacheca dal proprio dispositivo e avviano un thread per ogni lavoro
+- Thread condivisi: un thread su un dispositivo condiviso con il team è visibile a tutto il team, che può rispondere e fermarlo
+- Le azioni sono prompt salvati e il merge di una pull request non termina più una sessione

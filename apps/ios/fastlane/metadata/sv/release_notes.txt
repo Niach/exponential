@@ -1,9 +1,4 @@
-- Trådar: en session lever nu i en tråd som samlar ärendena och sessionerna för ett arbete; agenten länkar ärendena den skapar eller tar sig an, en återupptagning fortsätter samtalet, och Running och Recent listar trådar
-- Skrivfält: skrivfältet på Agent-sidan är det enda stället att starta en session, med ärendechips eller ett åtgärdschip, fri text som prompt och en plusmeny för filer, ansträngning, subagenter, MCP-servrar och Computer use
-- Ärendesök: skriv # var du än skriver för att hitta ett ärende efter nummer eller titel, med samma sökning i alla appar
-- Kom igång: en checklista på Agent-sidan leder ett nytt team genom dess första tavla, enhet och session
-- Feedback: en misslyckad åtgärd visar en notis, ogiltig inmatning markeras på plats, och listor visar skelett medan de laddas
-- Sessioner: arbetsflöden, uppgifter och subagenter delar ett Work card, ett skript i kodläge visar ett Script card, och en kommentar som agenten publicerar är den riktiga kommentaren
-- MCP-servrar: teamets MCP-servrar hanteras i Inställningar, och varje tom lista läses likadant i hela appen
-- Konton: en agentinloggning är en profil per e-postadress, inloggning med en känd e-postadress uppdaterar den profilen, och en session använder aldrig datorns standardinloggning
-- Korrigeringar: en session som inte gick att öppna på iOS öppnas igen, och skrivfältet behåller rätt konto efter byte av enhet
+- Trådar: varje arbete är en konversation, listad som Behöver dig, Pågår och Senaste, med varje session som ett kort
+- Teamagenter: lägg till agenter i Inställningar som sköter en tavla från sin egen enhet och startar en tråd för varje arbete
+- Delade trådar: en tråd på en enhet delad med teamet syns för hela teamet, som kan svara och stoppa den
+- Åtgärder är sparade prompter, och en merge av en pull request avslutar inte längre en session

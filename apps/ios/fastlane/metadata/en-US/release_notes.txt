@@ -1,9 +1,4 @@
-- Threads: a session now lives in a thread that holds the issues and sessions of one piece of work; the agent links the issues it files or picks up, a resume continues the conversation, and Running and Recent list threads
-- Composer: the Agent page composer is the one place to start a session, with issue chips or one action chip, free text as the prompt, and a plus menu for files, effort, subagents, MCP servers and computer use
-- Issue search: type # anywhere you write to find an issue by number or title, with the same search in every app
-- Getting started: a checklist on the Agent page walks a new team through its first board, device and session
-- Feedback: a failed action shows a toast, invalid input is marked inline, and lists show skeletons while they load
-- Sessions: workflows, tasks and subagents share one Work card, a code mode script shows a Script card, and a comment the agent posts is the real comment
-- MCP servers: team MCP servers are managed in Settings, and every empty list reads the same way across the app
-- Accounts: an agent login is one profile per email, signing in with a known email refreshes that profile, and a session never uses the machine's ambient login
-- Fixes: a session that failed to open on iOS opens again, and the composer keeps the right account after switching devices
+- Threads: every piece of work is one conversation, listed as Needs you, Running and Recent, with each session as a card
+- Team agents: add agents in Settings that look after a board from their own device and start a thread for each piece of work
+- Shared threads: a thread on a device shared with the team is visible to the whole team, who can reply, answer and stop it
+- Actions are saved prompts, and merging a pull request no longer ends a session

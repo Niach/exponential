@@ -1,0 +1,4 @@
+- Threads: every piece of work is one conversation with its sessions as cards, listed as Needs you, Running and Recent
+- Team agents look after a board from their own device and start a thread per piece of work
+- Threads on a team-shared device are visible to the whole team
+- Actions are saved prompts; merging a pull request no longer ends a session

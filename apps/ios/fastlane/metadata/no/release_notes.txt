@@ -1,9 +1,4 @@
-- Tråder: en økt lever nå i en tråd som samler issuene og øktene for ett stykke arbeid; agenten knytter til issuene den oppretter eller tar, en gjenopptakelse fortsetter samtalen, og Running og Recent viser tråder
-- Skrivefelt: skrivefeltet på Agent-siden er det ene stedet å starte en økt, med issue-brikker eller én handlingsbrikke, fri tekst som prompt og en plussmeny for filer, innsats, subagenter, MCP-servere og Computer use
-- Issue-søk: skriv # hvor som helst du skriver for å finne et issue etter nummer eller tittel, med det samme søket i alle apper
-- Kom i gang: en sjekkliste på Agent-siden leder et nytt team gjennom det første boardet, den første enheten og den første økten
-- Tilbakemelding: en mislykket handling viser et varsel, ugyldig inndata markeres på stedet, og lister viser skjeletter mens de lastes
-- Økter: arbeidsflyter, oppgaver og subagenter deler ett Work card, et skript i kodemodus viser et Script card, og en kommentar agenten legger inn, er den ekte kommentaren
-- MCP-servere: teamets MCP-servere administreres i Innstillinger, og alle tomme lister ser like ut i hele appen
-- Kontoer: en agentpålogging er én profil per e-postadresse, pålogging med en kjent e-postadresse oppdaterer den profilen, og en økt bruker aldri maskinens standardpålogging
-- Rettelser: en økt som ikke ville åpnes på iOS, åpnes igjen, og skrivefeltet beholder riktig konto etter bytte av enhet
+- Tråder: hvert arbeid er én samtale, listet som Trenger deg, Kjører og Nylige, med hver økt som et kort
+- Teamagenter: legg til agenter i Innstillinger som passer en tavle fra sin egen enhet og starter en tråd for hvert arbeid
+- Delte tråder: en tråd på en enhet delt med teamet er synlig for hele teamet, som kan svare og stoppe den
+- Handlinger er lagrede prompts, og en merge av en pull request avslutter ikke lenger en økt

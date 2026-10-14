@@ -1,9 +1,4 @@
-- Niti: sesija sada živi u niti koja drži zadatke i sesije jednog posla; agent povezuje zadatke koje stvori ili preuzme, nastavak nastavlja razgovor, a Running i Recent prikazuju niti
-- Pisanje: polje za pisanje na stranici Agent jedino je mjesto za pokretanje sesije, s oznakama zadataka ili jednom oznakom radnje, slobodnim tekstom kao promptom i izbornikom plus za datoteke, trud, subagente, MCP poslužitelje i Computer use
-- Pretraga zadataka: upišite # bilo gdje gdje pišete da biste pronašli zadatak po broju ili naslovu, s istom pretragom u svakoj aplikaciji
-- Prvi koraci: popis za provjeru na stranici Agent vodi novi tim kroz njegovu prvu ploču, prvi uređaj i prvu sesiju
-- Povratne informacije: neuspjela radnja prikazuje obavijest, neispravan unos označava se na mjestu, a popisi prikazuju kosture dok se učitavaju
-- Sesije: tijekovi rada, poslovi i subagenti dijele jednu Work card, skripta načina koda prikazuje Script card, a komentar koji agent objavi pravi je komentar
-- MCP poslužitelji: timskim MCP poslužiteljima upravlja se u Postavkama, a svaki prazan popis izgleda jednako u cijeloj aplikaciji
-- Računi: prijava agenta je jedan profil po adresi e-pošte, prijava poznatom adresom osvježava taj profil, a sesija nikad ne koristi zadanu prijavu računala
-- Ispravci: sesija koja se nije otvarala na iOS-u ponovno se otvara, a polje za pisanje zadržava pravi račun nakon promjene uređaja
+- Niti: svaki posao je jedan razgovor, popisan kao Treba vas, U tijeku i Nedavno, sa svakom sesijom kao karticom
+- Timski agenti: u Postavkama dodajte agente koji se sa svog uređaja brinu o ploči i pokreću nit za svaki posao
+- Dijeljene niti: nit na uređaju dijeljenom s timom vidi cijeli tim, koji može odgovoriti i zaustaviti je
+- Akcije su spremljeni promptovi, a spajanje pull requesta više ne završava sesiju

@@ -1,9 +1,4 @@
-- Vlákna: relácia teraz žije vo vlákne, ktoré drží issues a relácie jednej práce; agent prepojí issues, ktoré založí alebo prevezme, obnovenie pokračuje v konverzácii a Running a Recent zobrazujú vlákna
-- Písanie: pole na písanie na stránke Agent je jediné miesto na spustenie relácie, s čipmi issues alebo jedným čipom akcie, voľným textom ako promptom a menu plus pre súbory, úsilie, subagentov, MCP servery a Computer use
-- Hľadanie issues: napíšte # kdekoľvek, kde píšete, a nájdite issue podľa čísla alebo názvu, s rovnakým hľadaním v každej aplikácii
-- Začíname: kontrolný zoznam na stránke Agent prevedie nový tím jeho prvým boardom, zariadením a reláciou
-- Spätná väzba: neúspešná akcia zobrazí oznámenie, neplatný vstup sa označí priamo na mieste a zoznamy počas načítania ukazujú kostry
-- Relácie: workflowy, úlohy a subagenti zdieľajú jednu Work card, skript režimu kódu ukazuje Script card a komentár, ktorý agent zverejní, je skutočný komentár
-- MCP servery: tímové MCP servery sa spravujú v Nastaveniach a každý prázdny zoznam vyzerá v celej aplikácii rovnako
-- Účty: prihlásenie agenta je jeden profil na e-mail, prihlásenie známym e-mailom obnoví tento profil a relácia nikdy nepoužije predvolené prihlásenie počítača
-- Opravy: relácia, ktorá sa na iOS neotvorila, sa znova otvára, a pole na písanie si po prepnutí zariadenia ponechá správny účet
+- Vlákna: každá práca je jedna konverzácia, zoradená ako Čaká na vás, Beží a Nedávne, s každou reláciou ako kartou
+- Tímoví agenti: v Nastaveniach pridajte agentov, ktorí sa zo svojho zariadenia starajú o nástenku a pre každú prácu spustia vlákno
+- Zdieľané vlákna: vlákno na zariadení zdieľanom s tímom vidí celý tím, ktorý môže odpovedať a zastaviť ho
+- Akcie sú uložené prompty a zlúčenie pull requestu už neukončí reláciu

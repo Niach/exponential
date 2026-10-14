@@ -1,9 +1,4 @@
-- Tråde: en session lever nu i en tråd, der samler issues og sessioner for ét stykke arbejde; agenten knytter de issues, den opretter eller tager, til tråden, en genoptagelse fortsætter samtalen, og Running og Recent viser tråde
-- Editor: editoren på Agent-siden er det ene sted at starte en session, med issue-chips eller én handlingschip, fri tekst som prompt og en plusmenu til filer, indsats, subagenter, MCP-servere og Computer use
-- Issue-søgning: skriv # hvor som helst, du skriver, for at finde et issue efter nummer eller titel, med samme søgning i alle apps
-- Kom i gang: en tjekliste på Agent-siden fører et nyt team gennem dets første board, enhed og session
-- Feedback: en mislykket handling viser en notifikation, ugyldigt input markeres direkte, og lister viser skeletter, mens de indlæses
-- Sessioner: workflows, opgaver og subagenter deler ét Work card, et script i kodetilstand viser et Script card, og en kommentar, agenten skriver, er den rigtige kommentar
-- MCP-servere: teamets MCP-servere administreres i Indstillinger, og alle tomme lister ser ens ud i hele appen
-- Konti: et agentlogin er én profil pr. e-mail, login med en kendt e-mail opdaterer den profil, og en session bruger aldrig maskinens standardlogin
-- Rettelser: en session, der ikke kunne åbnes på iOS, åbner igen, og editoren beholder den rigtige konto efter skift af enhed
+- Tråde: hvert stykke arbejde er én samtale, listet som Kræver dig, Kører og Seneste, med hver session som et kort
+- Teamagenter: tilføj agenter i Indstillinger, der passer en tavle fra deres egen enhed og starter en tråd for hvert stykke arbejde
+- Delte tråde: en tråd på en enhed delt med teamet er synlig for hele teamet, som kan svare og stoppe den
+- Handlinger er gemte prompts, og en merge af en pull request afslutter ikke længere en session

@@ -1,9 +1,4 @@
-- Wątki: sesja żyje teraz w wątku, który łączy zgłoszenia i sesje jednej pracy; agent podpina zgłoszenia, które tworzy lub podejmuje, wznowienie kontynuuje rozmowę, a Running i Recent pokazują wątki
-- Pisanie: pole pisania na stronie Agent to jedyne miejsce do rozpoczęcia sesji, z chipami zgłoszeń lub jednym chipem akcji, wolnym tekstem jako promptem i menu plus z plikami, wysiłkiem, subagentami, serwerami MCP i Computer use
-- Wyszukiwanie zgłoszeń: wpisz # wszędzie, gdzie piszesz, aby znaleźć zgłoszenie po numerze lub tytule, z tym samym wyszukiwaniem w każdej aplikacji
-- Pierwsze kroki: lista kontrolna na stronie Agent prowadzi nowy zespół przez jego pierwszą tablicę, urządzenie i sesję
-- Informacje zwrotne: nieudana akcja pokazuje powiadomienie, nieprawidłowe dane są oznaczane na miejscu, a listy podczas ładowania pokazują szkielety
-- Sesje: przepływy pracy, zadania i subagenci dzielą jedną Work card, skrypt trybu kodu pokazuje Script card, a komentarz opublikowany przez agenta jest prawdziwym komentarzem
-- Serwery MCP: zespołowymi serwerami MCP zarządza się w Ustawieniach, a każda pusta lista wygląda tak samo w całej aplikacji
-- Konta: logowanie agenta to jeden profil na adres e-mail, zalogowanie znanym adresem odświeża ten profil, a sesja nigdy nie używa domyślnego logowania komputera
-- Poprawki: sesja, która nie otwierała się na iOS, znów się otwiera, a pole pisania zachowuje właściwe konto po zmianie urządzenia
+- Wątki: każda praca to jedna rozmowa, na listach Czeka na Ciebie, Trwa i Ostatnie, z każdą sesją jako kartą
+- Agenci zespołu: dodaj w Ustawieniach agentów, którzy ze swojego urządzenia dbają o tablicę i dla każdej pracy zakładają wątek
+- Wspólne wątki: wątek na urządzeniu udostępnionym zespołowi widzi cały zespół, który może odpowiadać i go zatrzymać
+- Akcje to zapisane prompty, a scalenie pull requesta nie kończy już sesji
