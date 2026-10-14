@@ -246,6 +246,7 @@ import com.exponential.app.domain.agentWorking
 import com.exponential.app.domain.askComplete
 import com.exponential.app.domain.BACK_TO_CURRENT_STEP_LABEL
 import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
+import com.exponential.app.domain.withFreeTextRow
 import com.exponential.app.domain.PLAN_FEEDBACK_PLACEHOLDER
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.projectLaneRows
@@ -2489,7 +2490,8 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
     when (row) {
         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
             askId = row.askId,
-            steps = row.steps,
+            // EXP-1316: every step offers the free-text answer.
+            steps = remember(row.steps) { row.steps.map { it.withFreeTextRow() } },
             answered = cards.answered,
             activeQuestionIds = cards.activeQuestionIds,
             answerEnabled = cards.answerEnabled,
@@ -2498,7 +2500,9 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
             onAnswer = cards.onAnswer,
         )
         is AgentFeedRow.Single -> {
-            val item = row.item as? AgentFeedItem.Question ?: return
+            val raw = row.item as? AgentFeedItem.Question ?: return
+            // EXP-1316: the free-text answer on every question card.
+            val item = remember(raw) { raw.withFreeTextRow() }
             QuestionCard(
                 item = item,
                 active = item.id in cards.activeQuestionIds,

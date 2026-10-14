@@ -73,6 +73,7 @@ import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.QuestionOption
+import com.exponential.app.domain.withFreeTextRow
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WorkCardInput
@@ -127,8 +128,6 @@ internal object ThreadUiCopy {
     const val REJECT = "Reject"
     const val APPROVED = "Approved"
     const val REJECTED = "Rejected"
-    /** The free-text row a thread question offers (claude's own wording). */
-    const val TYPE_SOMETHING = "Type something."
     const val SEND = "Send"
     const val ADD = "Add"
     const val SETTINGS = "Agent settings"
@@ -765,8 +764,6 @@ private fun UnqueueButton(onUnqueue: () -> Unit) {
     }
 }
 
-/** The free-text row's key (never an option label). */
-private const val CUSTOM_ANSWER_KEY = "__custom__"
 private const val PLAN_APPROVE_KEY = "approve"
 private const val PLAN_REJECT_KEY = "reject"
 
@@ -786,15 +783,12 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
         is SessionTree.ThreadRow.Question -> AgentFeedItem.Question(
             id = row.id.hashCode().toLong(),
             text = row.question,
-            options = row.options.map { QuestionOption(label = it, key = it) } +
-                listOfNotNull(
-                    if (row.custom) QuestionOption(ThreadUiCopy.TYPE_SOMETHING, CUSTOM_ANSWER_KEY, freeText = true) else null,
-                ),
+            options = row.options.map { QuestionOption(label = it, key = it) },
             multiSelect = false,
             resolved = row.answered,
             answer = row.answer,
             wireId = row.id,
-        )
+        ).let { if (row.custom) it.withFreeTextRow() else it }
         is SessionTree.ThreadRow.Plan -> AgentFeedItem.Question(
             id = row.id.hashCode().toLong(),
             text = row.plan,
