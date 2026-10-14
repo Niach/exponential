@@ -302,6 +302,19 @@ pub fn session_state(session: &SessionRow) -> SessionState {
     }
 }
 
+/// EXP-1312: a thread row's lead outside the Threads list (the rail's
+/// Running rows) ×4: needs you beats working, else the bare mark
+/// (`threads-list.json` `markCases`).
+pub fn thread_row_mark_state(needs_you: bool, busy: bool) -> SessionState {
+    if needs_you {
+        SessionState::NeedsYou
+    } else if busy {
+        SessionState::Working
+    } else {
+        SessionState::Waiting
+    }
+}
+
 /// Sessions of one tree in creation order (ties by id): `Session N` names.
 pub fn tree_order<'a>(sessions: &[&'a SessionRow]) -> Vec<&'a SessionRow> {
     let mut ordered = sessions.to_vec();
@@ -1164,8 +1177,8 @@ mod tests {
         }
     }
 
-    /// `threads-list.json` `cases` (partitionThreads) and `agentCases`
-    /// (listAgents), whole values.
+    /// `threads-list.json` `cases` (partitionThreads), `agentCases`
+    /// (listAgents), whole values, and `markCases` (EXP-1312).
     #[test]
     fn threads_list_matches_the_fixture() {
         let fixture = fixture(THREADS_LIST_JSON);
@@ -1198,6 +1211,13 @@ mod tests {
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             assert_whole(list_agents(&sessions, input["teamId"].as_str()), &case["expected"], name);
+        }
+        let mark_cases = fixture["markCases"].as_array().unwrap();
+        assert!(!mark_cases.is_empty());
+        for case in mark_cases {
+            let input = &case["input"];
+            let state = thread_row_mark_state(input["needsYou"].as_bool().unwrap(), input["busy"].as_bool().unwrap());
+            assert_eq!(Some(state.as_str()), case["expected"].as_str(), "{}", case["name"]);
         }
     }
 

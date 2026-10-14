@@ -190,6 +190,15 @@ object SessionTree {
         else -> SessionState.Waiting
     }
 
+    /** EXP-1312: a thread row's lead outside the Threads tab (the home's
+     *  Running band) ×4: needs you beats working, else the bare mark
+     *  (`threads-list.json` `markCases`). */
+    fun threadRowMarkState(needsYou: Boolean, busy: Boolean): SessionState = when {
+        needsYou -> SessionState.NeedsYou
+        busy -> SessionState.Working
+        else -> SessionState.Waiting
+    }
+
     /** Sessions of one tree in creation order (ties by id): `Session N` names. */
     fun treeOrder(sessions: List<Session>): List<Session> =
         sessions.sortedWith(compareBy<Session>({ ms(it.createdAt) ?: 0L }, { it.id }))

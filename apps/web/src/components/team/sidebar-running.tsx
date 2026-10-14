@@ -13,6 +13,7 @@ import {
 import { sessionCollection } from "@/lib/collections"
 import {
   THREADS_LIST_COPY,
+  threadRowMarkState,
   type ThreadsListGroup,
   type ThreadsListRow,
 } from "@/lib/session-tree"
@@ -51,13 +52,15 @@ export function threadsNavState(groups: readonly ThreadsListGroup[]): {
   return { live: needsYou || running, needsYou }
 }
 
-/** A thread row's mark state — the run marks' rule. */
+/** A thread row's mark state — the ×4 rule (`threadRowMarkState`, EXP-1312)
+ *  in the run marks' words (waiting = the bare mark). */
 export function threadRunMarkState(row: {
   needsYou: boolean
   busy: boolean
 }): RunMarkState | undefined {
-  if (row.needsYou) return `needs_input`
-  if (row.busy) return `working`
+  const state = threadRowMarkState(row)
+  if (state === `needs_you`) return `needs_input`
+  if (state === `working`) return `working`
   return undefined
 }
 

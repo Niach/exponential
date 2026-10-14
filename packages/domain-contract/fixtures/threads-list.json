@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over flat hairline rows). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (else any session queued or running) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; no cap. A row = the thread title (session-thread.json threadTitle), a lock glyph when private (!shared), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs (web `threadRowWord`: stack · ready to merge · merged · question, EXP-1309) ×4. listAgents(sessions, teamId) = the agent roots (kind `agent`) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`), spinner while busy, amber dot when needsYou; the section sits above Boards and opens the agent's channel (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value.",
+  "$comment": "EXP-1291 Threads v2: the Threads page (rail entry Threads, concept nav-threads; the composer on top) and the rail's Agents section, ×4 in the existing styleguide list (a filled group band, no count, over flat hairline rows). partitionThreads({sessions, sessionIssues, issues, messages, teamId}) = the roots of kind `thread` (teamId = the ACTIVE team on web/desktop; null = every team, phones band rows per team) grouped `needs_you` (any non-ended session of the tree has needsInput) · `running` (else any session queued or running) · `recent` (the rest), each by the tree's newest updatedAt desc (ties by id); empty groups omitted; no cap. A row = the thread title (session-thread.json threadTitle), a lock glyph when private (!shared), a spinner while busy, an amber dot when needsYou; ONE quiet trailing word off the team's PRs (web `threadRowWord`: stack · ready to merge · merged · question, EXP-1309) ×4. listAgents(sessions, teamId) = the agent roots (kind `agent`) by sortOrder, then name, then id, each icon + color like a board row (missing → `agentDefaults`), spinner while busy, amber dot when needsYou; the section sits above Boards and opens the agent's channel (the same Conversation + composer). Reference packages/domain-contract/src/session-tree.ts; mirrors replay `cases` and `agentCases` comparing the WHOLE expected value. EXP-1312: threadRowMarkState({needsYou, busy}) = the lead of a thread row outside the Threads tab (home Running band, the rail Running rows, work tabs) x4: needs_you (the brand mark with the amber badge) beats working (the working mark), else waiting (the bare brand mark); markCases replay it.",
   "copy": {
     "title": "Threads",
     "agents": "Agents",
@@ -1087,6 +1087,40 @@
           "needsYou": false
         }
       ]
+    }
+  ],
+  "markCases": [
+    {
+      "name": "needs you wears the amber badge",
+      "input": {
+        "needsYou": true,
+        "busy": false
+      },
+      "expected": "needs_you"
+    },
+    {
+      "name": "needs you beats busy",
+      "input": {
+        "needsYou": true,
+        "busy": true
+      },
+      "expected": "needs_you"
+    },
+    {
+      "name": "busy works",
+      "input": {
+        "needsYou": false,
+        "busy": true
+      },
+      "expected": "working"
+    },
+    {
+      "name": "idle is the bare mark",
+      "input": {
+        "needsYou": false,
+        "busy": false
+      },
+      "expected": "waiting"
     }
   ]
 }

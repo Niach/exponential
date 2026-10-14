@@ -211,11 +211,7 @@ internal fun ThreadListRow(
     threadsTab: Boolean = false,
     word: SessionTree.ThreadRowWord? = null,
 ) {
-    val state = meta?.state ?: when {
-        row.needsYou -> SessionTree.SessionState.NeedsYou
-        row.busy -> SessionTree.SessionState.Working
-        else -> SessionTree.SessionState.Waiting
-    }
+    val state = SessionTree.threadRowMarkState(row.needsYou, row.busy)
     Row(
         modifier = Modifier
             .fillMaxWidth()

@@ -1584,16 +1584,10 @@ fn threads_badge(needs_you: bool, running: bool) -> Option<Hsla> {
 }
 
 /// EXP-1294 — a Running row's mark state off its tree's facts: needs you
-/// first, then working, else the quiet waiting mark. Pure.
+/// first, then working, else the quiet waiting mark (EXP-1312: the ×4
+/// `thread_row_mark_state`). Pure.
 fn running_row_state(busy: bool, needs_you: bool) -> domain::session_tree::SessionState {
-    use domain::session_tree::SessionState;
-    if needs_you {
-        SessionState::NeedsYou
-    } else if busy {
-        SessionState::Working
-    } else {
-        SessionState::Waiting
-    }
+    domain::session_tree::thread_row_mark_state(needs_you, busy)
 }
 
 /// EXP-723: the sidebar's header row, the desktop mirror of the web

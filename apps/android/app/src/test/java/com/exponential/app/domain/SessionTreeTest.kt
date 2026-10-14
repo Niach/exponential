@@ -23,7 +23,7 @@ import org.junit.Test
  * EXP-1291 Threads v2: the session tree is fixture-locked ×4 — every case of
  * `session-card.json`, `session-thread.json` (cases + guidePullRequestCases +
  * composerCases + guideMenuCases) and `threads-list.json` (cases +
- * agentCases) runs here (TS `session-tree.test.ts`, desktop
+ * agentCases + markCases) runs here (TS `session-tree.test.ts`, desktop
  * `domain::session_tree`, iOS `SessionTreeTests`). Outputs are re-encoded in
  * the fixture's own JSON shape and compared as a WHOLE, so a field the port
  * forgets fails too. The embedded copy is proved equal to the fixtures'.
@@ -297,6 +297,17 @@ class SessionTreeTest {
             val input = case.getValue("input").jsonObject
             val actual = SessionTree.listAgents(input.list("sessions").map(::session), input.str("teamId"))
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(actual.map(::encode)))
+        }
+    }
+
+    @Test
+    fun `every row mark case matches the fixture`() {
+        val cases = listFixture.list("markCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val actual = SessionTree.threadRowMarkState(input.bool("needsYou"), input.bool("busy"))
+            assertEquals(case.str("name"), case.str("expected"), actual.wire)
         }
     }
 

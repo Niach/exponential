@@ -388,6 +388,18 @@ final class SessionTreeTests: XCTestCase {
         }
     }
 
+    func testThreadRowMarkStateReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("threads-list.json"), "markCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Bool])
+            let state = SessionTree.threadRowMarkState(
+                needsYou: try XCTUnwrap(input["needsYou"]),
+                busy: try XCTUnwrap(input["busy"])
+            )
+            XCTAssertEqual(state.rawValue, testCase["expected"] as? String, name)
+        }
+    }
+
     // MARK: - Board switcher dots
 
     func testCountsOwnWorkingSessionsPerTeam() throws {

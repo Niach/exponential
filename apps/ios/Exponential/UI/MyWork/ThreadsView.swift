@@ -152,13 +152,14 @@ struct ThreadsListContent: View {
     }
 }
 
-/// One thread as THE session row: the root agent's run mark (Claude's
-/// spark while it works), the first linked issue's id, the title, the lock /
-/// spinner / amber dot — no caption (`threads-list.json`; Home's Running
-/// band). EXP-1309: on the Threads tab (`word` given, web
-/// `ThreadsListView`) the row ends on ONE quiet word instead and its state
-/// moves into the lead: the working mark while busy, the mark with an amber
-/// badge when it needs you, the PR glyph `ready to merge` / `merged` name.
+/// One thread as THE session row: the root agent's run mark (Claude's spark
+/// while it works, EXP-1312: amber-badged when it needs you), the first
+/// linked issue's id, the title, the lock / spinner / amber dot — no caption
+/// (`threads-list.json`; Home's Running band). EXP-1309: on the Threads tab
+/// (`word` given, web `ThreadsListView`) the row ends on ONE quiet word
+/// instead and its state moves into the lead: the working mark while busy,
+/// the mark with an amber badge when it needs you, the PR glyph `ready to
+/// merge` / `merged` name.
 struct ThreadRowLabel: View {
     let row: ThreadsListRow
     let identifier: String?
@@ -186,13 +187,27 @@ struct ThreadRowLabel: View {
                 busy: row.busy,
                 needsYou: row.needsYou
             ) {
-                if row.busy {
-                    AgentWorkingMark(agent: cli)
-                } else {
-                    BeatingAgentMark(agent: cli, beating: false)
+                // EXP-1312: the ×4 rule (`threadRowMarkState`, web
+                // `ThreadRunMark`, Android `AgentRunMark(state = …)`).
+                switch SessionTree.threadRowMarkState(needsYou: row.needsYou, busy: row.busy) {
+                case .needsYou: needsYouMark
+                case .working: AgentWorkingMark(agent: cli)
+                default: BeatingAgentMark(agent: cli, beating: false)
                 }
             }
         }
+    }
+
+    /// The brand mark with the amber needs-you badge on its top-trailing corner.
+    private var needsYouMark: some View {
+        BeatingAgentMark(agent: cli, beating: false)
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(DesignTokens.Semantic.yellow)
+                    .frame(width: 6, height: 6)
+                    .offset(x: 2, y: -2)
+                    .accessibilityLabel("Needs you")
+            }
     }
 
     /// Web `rowLead`.
@@ -201,14 +216,7 @@ struct ThreadRowLabel: View {
         if row.busy {
             AgentWorkingMark(agent: cli)
         } else if row.needsYou {
-            BeatingAgentMark(agent: cli, beating: false)
-                .overlay(alignment: .topTrailing) {
-                    Circle()
-                        .fill(DesignTokens.Semantic.yellow)
-                        .frame(width: 6, height: 6)
-                        .offset(x: 2, y: -2)
-                        .accessibilityLabel("Needs you")
-                }
+            needsYouMark
         } else if word == .readyToMerge {
             AppIcon(AppIcons.prOpen, size: 13)
                 .foregroundStyle(DesignTokens.Semantic.green)
@@ -216,7 +224,10 @@ struct ThreadRowLabel: View {
             AppIcon(AppIcons.prMerged, size: 13)
                 .foregroundStyle(DesignTokens.Avatar.violet)
         } else {
+            // No word = a finished thread: the mark dimmed (web `ended`,
+            // EXP-1208's 0.5 ×4).
             BeatingAgentMark(agent: cli, beating: false)
+                .opacity(word == nil ? 0.5 : 1)
         }
     }
 }

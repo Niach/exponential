@@ -90,15 +90,17 @@ struct BeatingAgentMark: View {
         @ViewBuilder
         private var mark: some View {
             // A missing agent is a claude run (web parity); an id outside the
-            // contract draws the agents glyph (`AgentBrandMark`).
+            // contract draws the agents glyph (`AgentBrandMark`). EXP-1312: a
+            // template mark (codex, the glyph) takes the foreground, like web's
+            // `currentColor` and Android's content colour.
             if let image = AgentBrandMark.image(agentIsClaude(agent) ? "claude" : agent ?? "claude") {
                 image
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .foregroundStyle(.white)
             } else {
                 AppIcon(AppIcons.settingsAgents, size: DetailChrome.faceMark)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .foregroundStyle(.white)
             }
         }
     }
