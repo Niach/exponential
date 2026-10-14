@@ -20,7 +20,7 @@ Parallel work inside your task: subagents in this process (lanes own disjoint fi
 
 ## Pull requests
 
-One branch per session. `exponential_pr_open` opens it (`base` is inferred: on another open PR's branch it joins that stack) and links the root's issues. Merge with `exponential_pr_merge` only when a person asks; merge a tree root first (`stack: true` lands a stack member and every open PR beneath it). A refused child: `exponential_pr_retarget`, rebase, push `--force-with-lease`, merge again. Never use `gh`.
+One branch per session. `exponential_pr_open` opens it (`base` is inferred: on another open PR's branch it joins that stack) and links the root's issues. Merge with `exponential_pr_merge` only when a person asks; merge a tree root first (`stack: true` lands a stack member and every open PR beneath it). A refused child: `exponential_pr_retarget`, rebase, push `--force-with-lease`, merge again. A PR made obsolete by another: `exponential_pr_close` when asked. Never use `gh`.
 
 ## Guide
 

@@ -155,6 +155,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_actions_get: [`action`],
   exponential_actions_upsert: [`action`],
   exponential_guide_write: [],
+  exponential_pr_close: [`issue`],
   exponential_pr_files: [`issue`],
   exponential_pr_merge: [`issue`],
   exponential_pr_open: [`issue`, `issue`],

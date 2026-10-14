@@ -1040,6 +1040,17 @@
         "result": "none"
       },
       {
+        "name": "pr_close",
+        "title": "Close pull request",
+        "blurb": "Closes an open pull request without merging it.",
+        "progressive": "Closing pull request",
+        "done": "Closed pull request",
+        "progressiveMany": "Closing {n} pull requests",
+        "doneMany": "Closed {n} pull requests",
+        "subjectKey": "issueId",
+        "result": "pr"
+      },
+      {
         "name": "pr_files",
         "title": "Read pull request files",
         "blurb": "Lists the files a pull request changes, with their patches.",
@@ -1412,6 +1423,7 @@
       { "name": "members_list", "refs": "list:member@" },
       { "name": "notifications_list", "refs": "list:notification@" },
       { "name": "notifications_mark_read", "refs": "" },
+      { "name": "pr_close", "refs": "issue@$issueId" },
       { "name": "pr_files", "refs": "issue@$issueId" },
       { "name": "pr_merge", "refs": "issue@$issueId" },
       { "name": "pr_open", "refs": "issue@$issueId issue@$issueIds[]" },
