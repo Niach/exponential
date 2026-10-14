@@ -98,6 +98,22 @@ fn output_line_contains(term: &Terminal, needle: &str) -> bool {
         .any(|line| line.contains(needle) && !line.contains("echo"))
 }
 
+/// True once `output` has printed AND bash is back at its prompt below it.
+///
+/// EXP-1304: readline prepares the terminal for every prompt with a
+/// TIOCGWINSZ → TIOCSWINSZ round trip (bash 3.2's `rltty.c` `set_winsize`),
+/// so a resize landing between the two is overwritten with the OLD size and
+/// the next `stty size` reports it. Readline draws the prompt only after that
+/// prep, so a prompt under the output is the point a resize can no longer be
+/// lost.
+fn at_prompt_after(term: &Terminal, output: &str) -> bool {
+    let lines = term.screen_lines();
+    lines
+        .iter()
+        .position(|line| line.trim() == output)
+        .is_some_and(|at| lines[at + 1..].iter().any(|line| line.trim_end() == "$"))
+}
+
 fn dump(term: &Terminal) -> String {
     term.screen_lines().join("\n")
 }
@@ -130,7 +146,7 @@ fn resize_mid_run_delivers_sigwinch_and_reflows() {
     let mut term = Terminal::spawn(&bash_spec(), 80, 24).expect("spawn bash");
     term.write(b"stty size\n");
     assert!(
-        pump_until(&mut term, LONG, |t| grid_contains(t, "24 80")),
+        pump_until(&mut term, LONG, |t| at_prompt_after(t, "24 80")),
         "initial winsize not 24x80:\n{}",
         dump(&term)
     );
@@ -140,7 +156,7 @@ fn resize_mid_run_delivers_sigwinch_and_reflows() {
     assert_eq!(term.size(), (120, 30));
     term.write(b"stty size\n");
     assert!(
-        pump_until(&mut term, LONG, |t| grid_contains(t, "30 120")),
+        pump_until(&mut term, LONG, |t| at_prompt_after(t, "30 120")),
         "winsize after grow not 30x120:\n{}",
         dump(&term)
     );
