@@ -1,28 +1,36 @@
-// The PR STACK edge, read-only: a pull request whose base is another issue's
-// branch instead of the repository's default one. The edge is one synced
-// column, `issues.pr_base_branch` (written by `pr_open{base}`): an upper PR is
-// stacked on the lower one exactly when `upper.prBaseBranch === lower.branch`
-// and that branch is non-empty. The "Related work" badge (`lib/pr-graph.ts`)
-// draws it, and `stackMergeConfirm` below asks before a stack merges.
+// The PR STACK edge, read-only: a pull request based on another one instead
+// of the repository's default branch. EXP-1293: the edge lives on the
+// synced `pull_requests` rows: an upper PR is stacked on the lower one when
+// `upper.basePullRequestId` names it, or (an unresolved base) when
+// `upper.base === lower.head` and that branch is non-empty. The nodes below
+// are an issue's view of ITS pull request (`issuePrRows` in `lib/pr-graph.ts`:
+// `branch` = the PR's head, `prBaseBranch` = its base), never the legacy
+// issue columns. The "Related work" badge (`lib/pr-graph.ts`) draws it, and
+// `stackMergeConfirm` below asks before a stack merges.
 //
 // Test names: `numbers a member from the bottom of the chain`, `stops at a
 // base nobody in the list owns`, `breaks a cycle where it first appears`.
 //
 // EXP-1248: `prGraphShape` tells a TREE (any fork) from a linear STACK;
-// `stackView` = the stack rail (Guide card + Reviews), `stackMergeConfirm` =
+// `stackView` = the stack rail (the Guide's stack card), `stackMergeConfirm` =
 // the ONE confirm of Merge stack / Merge through here, both ×4 off
 // `fixtures/pr-stack-view.json` and `fixtures/stack-merge-choice.json`
 // (`confirm`).
 import { contract } from "@exp/domain-contract"
 
-/** What a stack member must carry: its own branch and the branch its pull
- *  request is BASED on. Both are nullable: an issue with no run has neither. */
+/** What a stack member must carry: its pull request's head and the branch
+ *  it is BASED on (+ the resolved base PR). Nullable: an issue with no pull
+ *  request has neither. */
 export interface PrStackNode {
   id: string
   /** Ordering key for a fork (two PRs on the same base); falls back to `id`. */
   identifier?: string
   branch: string | null
   prBaseBranch: string | null
+  /** `pull_requests.id` of this member's PR (absent = not resolved). */
+  pullRequestId?: string | null
+  /** `pull_requests.base_pull_request_id`: the PR this one is based on. */
+  basePullRequestId?: string | null
 }
 
 function key(node: PrStackNode): string {
@@ -31,6 +39,40 @@ function key(node: PrStackNode): string {
 
 function owned(branch: string | null | undefined): string | null {
   return branch && branch.length > 0 ? branch : null
+}
+
+/** THE edge: `upper` is based on `lower`'s pull request. */
+function stackedOn(upper: PrStackNode, lower: PrStackNode): boolean {
+  if (upper.id === lower.id) return false
+  if (
+    upper.basePullRequestId &&
+    lower.pullRequestId &&
+    upper.basePullRequestId === lower.pullRequestId
+  ) {
+    return true
+  }
+  const base = owned(upper.prBaseBranch)
+  return base !== null && base === owned(lower.branch)
+}
+
+/** The member `node` is based on: its resolved base PR first, else the
+ *  first member owning its base branch. */
+function lowerOf<T extends PrStackNode>(
+  node: T,
+  nodes: readonly T[]
+): T | undefined {
+  if (node.basePullRequestId) {
+    const resolved = nodes.find(
+      (candidate) =>
+        candidate.id !== node.id &&
+        candidate.pullRequestId === node.basePullRequestId
+    )
+    if (resolved) return resolved
+  }
+  const base = owned(node.prBaseBranch)
+  return base
+    ? nodes.find((candidate) => owned(candidate.branch) === base)
+    : undefined
 }
 
 /**
@@ -49,19 +91,12 @@ export function stackChain<T extends PrStackNode>(
   issue: T,
   issues: readonly T[]
 ): T[] {
-  const byBranch = new Map<string, T>()
-  for (const candidate of issues) {
-    const branch = owned(candidate.branch)
-    if (branch && !byBranch.has(branch)) byBranch.set(branch, candidate)
-  }
   const seen = new Set<string>([issue.id])
 
   const below: T[] = []
   let current: T = issue
   for (;;) {
-    const base = owned(current.prBaseBranch)
-    if (!base) break
-    const lower = byBranch.get(base)
+    const lower = lowerOf(current, issues)
     if (!lower || lower.id === current.id || seen.has(lower.id)) break
     seen.add(lower.id)
     below.unshift(lower)
@@ -71,15 +106,9 @@ export function stackChain<T extends PrStackNode>(
   const above: T[] = []
   current = issue
   for (;;) {
-    const branch = owned(current.branch)
-    if (!branch) break
+    const from = current
     const children = issues
-      .filter(
-        (candidate) =>
-          candidate.id !== current.id &&
-          owned(candidate.prBaseBranch) === branch &&
-          !seen.has(candidate.id)
-      )
+      .filter((candidate) => !seen.has(candidate.id) && stackedOn(candidate, from))
       .sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
     const upper = children[0]
     if (!upper) break
@@ -111,34 +140,19 @@ export interface StackMergeNode extends PrStackNode {
  *  stack rail), `single` = one pull request. */
 export type PrGraphShape = `tree` | `stack` | `single`
 
-function ownerMap<T extends PrStackNode>(nodes: readonly T[]): Map<string, T> {
-  const byBranch = new Map<string, T>()
-  for (const node of nodes) {
-    const branch = owned(node.branch)
-    if (branch && !byBranch.has(branch)) byBranch.set(branch, node)
-  }
-  return byBranch
-}
-
 /** Every node base-chained to `node` (either direction), in input order. */
 export function prComponent<T extends PrStackNode>(
   node: T,
   nodes: readonly T[]
 ): T[] {
-  const byBranch = ownerMap(nodes)
   const seen = new Set<string>([node.id])
   const queue: T[] = [node]
   while (queue.length > 0) {
     const current = queue.shift()!
-    const base = owned(current.prBaseBranch)
-    const lower = base ? byBranch.get(base) : undefined
+    const lower = lowerOf(current, nodes)
     const linked = [
       ...(lower ? [lower] : []),
-      ...nodes.filter(
-        (candidate) =>
-          owned(current.branch) !== null &&
-          owned(candidate.prBaseBranch) === owned(current.branch)
-      ),
+      ...nodes.filter((candidate) => stackedOn(candidate, current)),
     ]
     for (const next of linked) {
       if (seen.has(next.id)) continue
@@ -153,11 +167,9 @@ export function prGraphShape<T extends PrStackNode>(
   component: readonly T[]
 ): PrGraphShape {
   if (component.length < 2) return `single`
-  const byBranch = ownerMap(component)
   const children = new Map<string, number>()
   for (const node of component) {
-    const base = owned(node.prBaseBranch)
-    const parent = base ? byBranch.get(base) : undefined
+    const parent = lowerOf(node, component)
     if (!parent || parent.id === node.id) continue
     const count = (children.get(parent.id) ?? 0) + 1
     if (count > 1) return `tree`
@@ -247,8 +259,7 @@ export interface StackView {
 }
 
 /**
- * The stack rail of `issue`'s pull request (the Guide's Stack card, a Reviews
- * stack group): null unless it sits in a linear open stack of 2+ pull
+ * The stack rail of `issue`'s pull request (the Guide's Stack card): null unless it sits in a linear open stack of 2+ pull
  * requests. Only OPEN pull requests count; a fork anywhere = a tree = null.
  */
 export function stackView<T extends StackViewNode>(
@@ -283,8 +294,10 @@ export interface StackMergeConfirm {
   /** What stays open above it (GitHub retargets it). */
   staysOpen: string[]
   body: string
-  /** The `issues.mergePr` input the primary button sends. */
-  input: { issueId: string; mergeStack: true }
+  /** What the primary button merges: the member issue (fixture-locked) and,
+   *  resolved, its pull request (`pullRequests.merge({pullRequestId,
+   *  stack: true})`). */
+  input: { issueId: string; mergeStack: true; pullRequestId?: string }
 }
 
 /**
@@ -319,9 +332,12 @@ export function stackMergeConfirm<T extends StackMergeNode>(
     landing,
     staysOpen,
     body: `${lands}${open}`,
-    input: {
-      issueId: mode === `stack` ? stack.chain[stack.chain.length - 1]!.id : issue.id,
-      mergeStack: true,
-    },
+    input: (() => {
+      const target = mode === `stack` ? stack.chain[stack.chain.length - 1]! : stack.subject
+      const issueId = mode === `stack` ? target.id : issue.id
+      return target.pullRequestId
+        ? { issueId, mergeStack: true as const, pullRequestId: target.pullRequestId }
+        : { issueId, mergeStack: true as const }
+    })(),
   }
 }

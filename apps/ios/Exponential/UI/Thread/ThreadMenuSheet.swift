@@ -2,20 +2,22 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-1284: the thread's child menu on a phone — THE Menu in its SHEET
-/// presentation, the same bottom sheet Android and web-mobile open (never an
-/// inline popover): an issue tab's long press titles it with the issue's
-/// identifier and ends in `Unlink <IDENT>` (destructive); the strip's "+"
-/// opens it untitled with the three adding rows. A pick hands the action
-/// back; the host runs it once the sheet has dismissed (a push or a second
-/// sheet from under a dismissing one is dropped).
+/// EXP-1295: the strip's menu on a phone — THE Menu in its SHEET
+/// presentation (never an inline popover): the "+" opens it untitled with
+/// Link an issue · New issue; an issue tab's long press titles it with the
+/// identifier and ends in `Unlink <IDENT>` (destructive). A pick hands the
+/// action back; the host runs it once the sheet has dismissed (a push or a
+/// second sheet from under a dismissing one is dropped).
 struct ThreadMenuSheet: View {
     enum Action: Equatable {
         case linkIssue
         case newIssue
-        case startSession
         case unlink
     }
+
+    static let linkIssueLabel = "Link an issue"
+    static let newIssueLabel = "New issue"
+    static func unlinkLabel(_ identifier: String) -> String { "Unlink \(identifier)" }
 
     /// The issue tab's identifier; nil = the "+" (no title, no Unlink).
     let identifier: String?
@@ -24,11 +26,11 @@ struct ThreadMenuSheet: View {
     var body: some View {
         GlassSheetChrome(title: identifier) {
             VStack(spacing: 0) {
-                row(.linkIssue, ThreadViews.linkIssueLabel, icon: AppIcons.navSearch)
-                row(.newIssue, ThreadViews.newIssueLabel, icon: AppIcons.uiAdd)
-                row(.startSession, ThreadViews.startRunLabel, icon: AppIcons.actionRun)
                 if let identifier {
-                    row(.unlink, ThreadViews.unlinkLabel(identifier), icon: AppIcons.uiClose, destructive: true)
+                    row(.unlink, Self.unlinkLabel(identifier), icon: AppIcons.uiClose, destructive: true)
+                } else {
+                    row(.linkIssue, Self.linkIssueLabel, icon: AppIcons.navSearch)
+                    row(.newIssue, Self.newIssueLabel, icon: AppIcons.uiAdd)
                 }
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
@@ -55,7 +57,6 @@ struct ThreadMenuSheet: View {
         switch action {
         case .linkIssue: "link-issue"
         case .newIssue: "new-issue"
-        case .startSession: "start-session"
         case .unlink: "unlink"
         }
     }

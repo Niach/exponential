@@ -341,7 +341,7 @@ describe(`useLaunchOptions computer use`, () => {
       useLaunchOptions({ open: true, devices: [capable] })
     )
     act(() => result.current.setComputerUse(false))
-    const keys = Object.keys(result.current.buildOptions({ resume: true }))
+    const keys = Object.keys(result.current.buildOptions())
     for (const key of keys) {
       expect(contract.codingSession.launchKeys, key).toContain(key)
     }

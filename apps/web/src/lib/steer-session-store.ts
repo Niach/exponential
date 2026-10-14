@@ -55,7 +55,7 @@ import {
   stagePendingImages,
   type PendingAttachment,
 } from "@/lib/pending-images"
-import type { Session } from "@/db/schema"
+import type { SessionStatus } from "@exp/db-schema/domain"
 
 // EXP-621: the viewer connection to the steer relay, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
@@ -717,8 +717,9 @@ export interface SteerSessionStore {
   loadEarlier(): boolean
   /** The synced row is the truth for "still running" inside the redial
    *  loops — the OWNING view feeds it; an unwatched store falls back to the
-   *  relay's own signals plus the dock reaper. */
-  noteSessionStatus(status: Session[`status`]): void
+   *  relay's own signals plus the dock reaper. EXP-1293: the `sessions`
+   *  row's status — `queued` reads as starting, `ended` as over. */
+  noteSessionStatus(status: SessionStatus): void
   /** EXP-773: the host machine's label, for the history phases' copy. */
   noteDeviceLabel(label: string | null): void
   sendMessage(text: string): boolean
@@ -773,7 +774,7 @@ export function createSteerSessionStore(
   // Consecutive auto-redials (`starting` and slow-consumer alike) — drives
   // the backoff; a live connection resets it so the next stall starts fast.
   let retries = 0
-  let sessionStatus: Session[`status`] | null = null
+  let sessionStatus: SessionStatus | null = null
   /** EXP-773: the host machine's label, for the history phases' copy. The
    *  owning view feeds it off the synced devices row. */
   let deviceLabel: string | null = null
@@ -2024,8 +2025,8 @@ export function createSteerSessionStore(
           return
         }
         if (retryStarting) {
-          // An `in_review` terminal is still alive and steerable (EXP-194)
-          // — only a truly ended session stops the redial.
+          // An idle session is still alive and steerable (EXP-194) — only
+          // a truly ended session stops the redial.
           if (sessionStatus !== `ended`) {
             phase = { kind: `starting` }
             commit()

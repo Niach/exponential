@@ -210,11 +210,6 @@ final class SearchViewModel {
             sortOrder: nil,
             completedAt: nil,
             duplicateOfId: nil,
-            prUrl: nil,
-            prNumber: nil,
-            prState: nil,
-            branch: nil,
-            prMergedAt: nil,
             createdAt: "",
             updatedAt: ""
         )

@@ -26,10 +26,10 @@ public struct CreateIssueInput: Encodable, Sendable {
     /// team, server-checked); the server writes the `parent` relation in the
     /// create's transaction. Nil is omitted from the wire.
     public var parentId: String?
-    /// EXP-1284: file the issue INTO this thread (`issues.create({threadId})`
-    /// links it there, source `user`) — the thread's "New issue in this
-    /// thread". Nil is omitted from the wire.
-    public var threadId: String?
+    /// EXP-1291: file the issue INTO this session's thread
+    /// (`issues.create({sessionId})` links it to the session's ROOT, source
+    /// `user`) — the thread's "New issue". Nil is omitted from the wire.
+    public var sessionId: String?
 
     public init(
         boardId: String,
@@ -43,7 +43,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         labelIds: [String]? = nil,
         draftId: String? = nil,
         parentId: String? = nil,
-        threadId: String? = nil
+        sessionId: String? = nil
     ) {
         self.boardId = boardId
         self.title = title
@@ -56,7 +56,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.labelIds = labelIds
         self.draftId = draftId
         self.parentId = parentId
-        self.threadId = threadId
+        self.sessionId = sessionId
     }
 }
 
@@ -209,34 +209,6 @@ public struct DeleteIssueInput: Encodable, Sendable {
     }
 }
 
-/// Input for `issues.closePr` (EXP-100): close the issue's open PR WITHOUT
-/// merging (the reject path — the work exists but the issue got dropped).
-public struct ClosePrInput: Encodable, Sendable {
-    public let issueId: String
-
-    public init(issueId: String) {
-        self.issueId = issueId
-    }
-}
-
-/// Input for `issues.mergePr`: squash-merge the issue's open PR via the GitHub
-/// App. For a batch PR (one PR linked to several issues) the server resolves
-/// the PR to ALL its linked issues, so passing any one of them merges the PR
-/// and completes them all.
-/// EXP-498: merge always ends the linked live coding sessions.
-public struct MergePrInput: Encodable, Sendable {
-    public let issueId: String
-    /// EXP-1145: merge the open stack chain bottom-up THROUGH this issue's
-    /// pull request, one PR at a time (the stack merge dialog's buttons).
-    /// Absent (nil) = the single-PR merge; the key is omitted, never `false`.
-    public let mergeStack: Bool?
-
-    public init(issueId: String, mergeStack: Bool? = nil) {
-        self.issueId = issueId
-        self.mergeStack = mergeStack
-    }
-}
-
 /// Input for `issues.move` (EXP-57): move an issue to another board in the
 /// SAME team. The server renumbers the issue in the target board
 /// (Linear-style, EXP-42 → ABC-17) — the issue keeps its id but changes
@@ -267,18 +239,12 @@ public struct IssueResultData: Decodable, Sendable {
     }
 }
 
-// MARK: - PR diff (issues.prFiles)
-
-public struct PrFilesInput: Encodable, Sendable {
-    public let issueId: String
-    public init(issueId: String) { self.issueId = issueId }
-}
+// MARK: - GitHub PullFile (the contract's `pullFile` diff cases)
 
 public struct PrFile: Decodable, Sendable, Identifiable {
     public let filename: String
     /// EXP-895: where a renamed/copied file came from — GitHub's
-    /// `previous_filename`, passed through by `issues.prFiles` and
-    /// `repositories.branchDiff`. Absent on every other status.
+    /// `previous_filename`. Absent on every other status.
     public let previousFilename: String?
     public let status: String
     public let additions: Int
@@ -295,43 +261,6 @@ public struct PrFile: Decodable, Sendable, Identifiable {
         case additions
         case deletions
         case patch
-    }
-}
-
-public struct PrFilesResult: Decodable, Sendable {
-    public let repo: String?
-    public let prNumber: Int?
-    public let files: [PrFile]
-}
-
-// MARK: - PR description (issues.prDescription)
-
-/// EXP-1154: the issue's pull request as GitHub has it — the Results face's
-/// fallback while an open PR has no run report. Every field is nil when the
-/// issue has no PR (or no resolvable repo).
-public struct PrDescription: Decodable, Sendable, Equatable {
-    public let repo: String?
-    public let prNumber: Int?
-    public let url: String?
-    public let title: String?
-    public let body: String?
-    /// `open` / `closed` / `merged`.
-    public let state: String?
-
-    public init(
-        repo: String? = nil,
-        prNumber: Int? = nil,
-        url: String? = nil,
-        title: String? = nil,
-        body: String? = nil,
-        state: String? = nil
-    ) {
-        self.repo = repo
-        self.prNumber = prNumber
-        self.url = url
-        self.title = title
-        self.body = body
-        self.state = state
     }
 }
 
@@ -409,14 +338,6 @@ public struct FetchedIssue: Decodable, Sendable {
     public let sortOrder: Double?
     public let completedAt: String?
     public let duplicateOfId: String?
-    public let prUrl: String?
-    public let prNumber: Int?
-    public let prState: String?
-    public let branch: String?
-    /// EXP-897: the stack edge (`issues.pr_base_branch`). Optional, so a
-    /// server that predates the column decodes as nil rather than throwing.
-    public let prBaseBranch: String?
-    public let prMergedAt: String?
     /// EXP-630: story points (`issues.estimate`). Optional, so a server that
     /// predates the column decodes as nil rather than throwing.
     public let estimate: Int?
@@ -500,29 +421,6 @@ public final class IssuesApi: Sendable {
         try await trpc.mutationVoid(accountId: accountId, path: "issues.bulkDelete", input: input)
     }
 
-    /// Close the issue's open PR WITHOUT merging (EXP-100 — the reject path
-    /// for an issue that got dropped after the work was done). Server-side
-    /// via the GitHub App; the `prState` flip arrives through Electric sync.
-    public func closePr(accountId: String, issueId: String) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "issues.closePr", input: ClosePrInput(issueId: issueId))
-    }
-
-    /// Squash-merge the issue's open PR via the GitHub App (EXP-131). Server
-    /// resolves a batch PR to every linked issue, so merging completes them all;
-    /// the `prState`/`status` flips arrive through Electric sync.
-    /// Merge always ends the linked coding sessions (EXP-498).
-    /// - Parameter mergeStack: EXP-1145, merge the open chain below this
-    ///   pull request bottom-up, then this one (`PrStack.stackMergeConfirm`).
-    public func mergePr(
-        accountId: String, issueId: String, mergeStack: Bool? = nil
-    ) async throws {
-        try await trpc.mutationVoid(
-            accountId: accountId,
-            path: "issues.mergePr",
-            input: MergePrInput(issueId: issueId, mergeStack: mergeStack)
-        )
-    }
-
     /// Move the issue to another board in the same team (EXP-57). The
     /// response also carries the fresh identity (`issue` + target slug); only
     /// the standard `{issue: {id}}` envelope is decoded — clients pick up the
@@ -535,24 +433,9 @@ public final class IssuesApi: Sendable {
         )
     }
 
-    /// The changed files for the issue's PR (one issue = one PR), for the diff
-    /// view. `issues.prFiles` is a `.query`, so this uses the GET-with-input
-    /// helper. Returns `repo == nil` / empty `files` when there's no PR yet.
-    public func prFiles(accountId: String, issueId: String) async throws -> PrFilesResult {
-        try await trpc.query(accountId: accountId, path: "issues.prFiles", input: PrFilesInput(issueId: issueId))
-    }
-
-    /// EXP-1154: the PR's GitHub title + body (`issues.prDescription`, a
-    /// `.query`, same GET-with-input helper as `prFiles`).
-    public func prDescription(accountId: String, issueId: String) async throws -> PrDescription {
-        try await trpc.query(
-            accountId: accountId, path: "issues.prDescription", input: PrFilesInput(issueId: issueId)
-        )
-    }
-
     /// Server-side full-text search (title + description + comment text) over
     /// one team, relevance-ordered. `issues.search` is a `.query`, so this
-    /// uses the same GET-with-input helper as `prFiles`. Requires the caller to
+    /// uses the GET-with-input helper. Requires the caller to
     /// be a member of `teamId`.
     public func search(accountId: String, teamId: String, query: String, limit: Int? = nil) async throws -> [SearchIssueHit] {
         try await trpc.query(
@@ -565,7 +448,7 @@ public final class IssuesApi: Sendable {
     /// Point-read ONE issue by row id or human identifier ("EXP-42"), for
     /// screens that must show an issue before sync delivers it (EXP-264).
     /// `issues.get` is a `.query`, so this takes the same GET-with-input
-    /// helper `prFiles`/`search` use. Throws NOT_FOUND for an unknown or
+    /// helper `search` uses. Throws NOT_FOUND for an unknown or
     /// trashed issue, FORBIDDEN for a non-member — callers treat any error as
     /// "not available" rather than a failure worth surfacing.
     public func get(accountId: String, id: String) async throws -> IssueGetResult {

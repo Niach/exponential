@@ -237,6 +237,42 @@ pub fn board_glyph(board: &Board) -> ExpIcon {
         .unwrap_or_else(|| board_fallback_glyph(board))
 }
 
+/// EXP-1294: an agent's glyph — the stored curated `icon` when known, else
+/// the fixture default (`threads-list.json` `agentDefaults.icon`), else the
+/// agent concept. [`board_glyph`]'s twin for agent roots.
+pub fn agent_glyph(icon: Option<&str>) -> ExpIcon {
+    icon.and_then(board_icon_glyph)
+        .or_else(|| board_icon_glyph(&domain::session_tree::THREADS_LIST.agent_defaults.icon))
+        .unwrap_or(registry::UI_AGENT_SOURCE)
+}
+
+/// EXP-1294: an agent's tint — its stored `#rrggbb` `color`, else the fixture
+/// default (`agentDefaults.color`). Like a board row's color, through the one
+/// hex parser.
+pub fn agent_tint(color: Option<&str>) -> Hsla {
+    color
+        .and_then(crate::settings::parse_hex_color)
+        .or_else(|| crate::settings::parse_hex_color(&domain::session_tree::THREADS_LIST.agent_defaults.color))
+        .unwrap_or_else(|| theme::tokens::MUTED_FOREGROUND.to_hsla())
+}
+
+/// EXP-1294: an agent's rendered icon — [`agent_glyph`] tinted [`agent_tint`]
+/// (the rail row, the channel header, the settings nav).
+pub fn agent_icon(icon: Option<&str>, color: Option<&str>) -> Icon {
+    Icon::from(agent_glyph(icon)).text_color(agent_tint(color))
+}
+
+/// [`agent_icon`] of an agent root row.
+pub fn agent_session_icon(session: &domain::rows::SessionRow) -> Icon {
+    agent_icon(session.icon.as_deref(), session.color.as_deref())
+}
+
+/// [`agent_icon`] of a rail [`domain::session_tree::AgentRow`] (defaults
+/// already applied).
+pub fn agent_row_icon(row: &domain::session_tree::AgentRow) -> Icon {
+    agent_icon(Some(&row.icon), Some(&row.color))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,5 +368,21 @@ mod tests {
             IconGlyph::SignalLow => ExpIcon::SignalLow,
         };
         icon.path().to_string()
+    }
+
+    /// EXP-1294: an agent takes its own icon / color, the fixture defaults
+    /// otherwise; an unknown name or a bad hex falls back like NULL.
+    #[test]
+    fn agent_icon_falls_back_to_the_fixture_defaults() {
+        let path = |icon: ExpIcon| icon.path().to_string();
+        let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
+        let default_glyph = registry::icon_by_name(&defaults.icon).expect("default agent icon resolves");
+        assert_eq!(path(agent_glyph(Some("rocket"))), path(registry::icon_by_name("rocket").unwrap()));
+        assert_eq!(path(agent_glyph(None)), path(default_glyph.clone()));
+        assert_eq!(path(agent_glyph(Some("no-such-icon"))), path(default_glyph));
+        let default_tint = crate::settings::parse_hex_color(&defaults.color).unwrap();
+        assert_eq!(agent_tint(None), default_tint);
+        assert_eq!(agent_tint(Some("nope")), default_tint);
+        assert_eq!(agent_tint(Some("#ff0000")), crate::settings::parse_hex_color("#ff0000").unwrap());
     }
 }

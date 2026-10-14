@@ -21,7 +21,7 @@ import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import { useRemoteStart } from "@/hooks/use-remote-start"
+import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useCodingReadiness } from "@/hooks/use-coding-readiness"
 import {
   CodingReadinessOverlay,
@@ -654,7 +654,7 @@ function BulkStartCodingButton({
   )
 }
 
-// Split out so the device wiring (`useRemoteStart` over the synced devices
+// Split out so the device wiring (`useSteerDevices` over the synced devices
 // shape) mounts only once the gates above passed — same posture as
 // RemoteStartRow in issue-coding-rows.tsx.
 //
@@ -676,7 +676,7 @@ export function BulkStartCodingControl({
    *  (the `aria-label` carries the name). */
   iconOnly?: boolean
 }) {
-  const remote = useRemoteStart({ currentUserId, teamId })
+  const remote = useSteerDevices({ currentUserId, teamId })
   const openComposer = useOpenComposer()
 
   // Devices still resolving, or nothing to start on: stay quiet rather than

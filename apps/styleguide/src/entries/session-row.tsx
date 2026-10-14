@@ -1,125 +1,111 @@
 import {
-  getDeviceIcon,
-  type RunMarkState,
-  SessionRow,
-  type SessionRowSize,
-  type SessionRowTone,
-  treeGuides,
-} from "@exp/ui"
+  sessionCard,
+  type SessionState,
+  type TreeSession,
+} from "@exp/domain-contract/session-tree"
+import { type RunMarkState, SessionRow, treeGuides } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1248: THE session row, the REAL `@exp/ui` SessionRow in both sizes over
-// the same runs: small on the sidebar ground (the main menu's Running), big on
-// the page ground (Recent, the phone Agent page, an action's Sessions). The
-// captions are literal here; the app words them with `sessionRowCaption`
-// (fixture `list-item.json`).
+// EXP-1248 → EXP-1293: THE session row, the REAL `@exp/ui` SessionRow, fed
+// by the contract's `sessionCard` (the same state the session card shows).
+// The rail's Running rows: the agent mark, the issue identifier, the title.
+// No caption, no device (Threads v2 dropped both).
 
-const LAPTOP = getDeviceIcon({ kind: `desktop` })
-const SERVER = getDeviceIcon({ kind: `server` })
+const NOW = `2026-10-13T12:00:00.000Z`
 
-interface SpecimenRun {
-  depth: number
-  state: RunMarkState
-  agent: string
-  identifier: string | null
-  title: string
-  caption: string
-  tone: SessionRowTone
-  device: `macbook` | `mint`
+const session = (over: Partial<TreeSession> & { id: string }): TreeSession => ({
+  teamId: `t-acme`,
+  parentId: null,
+  rootId: over.id,
+  kind: `thread`,
+  userId: `u-alex`,
+  status: `running`,
+  busy: false,
+  needsInput: false,
+  blocked: null,
+  shared: true,
+  title: null,
+  guide: null,
+  actionName: null,
+  name: null,
+  icon: null,
+  color: null,
+  sortOrder: 0,
+  startedAt: `2026-10-13T11:40:00.000Z`,
+  endedAt: null,
+  createdAt: `2026-10-13T11:40:00.000Z`,
+  updatedAt: `2026-10-13T11:58:00.000Z`,
+  ...over,
+})
+
+/** The run mark per card state (the status row's mapping). */
+const MARK: Record<SessionState, RunMarkState | undefined> = {
+  queued: undefined,
+  working: `working`,
+  waiting: undefined,
+  needs_you: `needs_input`,
+  blocked: undefined,
+  ended: `ended`,
 }
 
-const RUNS: readonly SpecimenRun[] = [
-  // A standalone live root, a parent with the two runs it started, an ended chat.
+interface SpecimenRow {
+  depth: number
+  identifier: string | null
+  session: TreeSession
+}
+
+const ROWS: readonly SpecimenRow[] = [
   {
     depth: 0,
-    state: `working`,
-    agent: `claude`,
-    identifier: `EXP-1239`,
-    title: `ios double button`,
-    caption: `Building · macbook · 21 h`,
-    tone: `muted`,
-    device: `macbook`,
-  },
-  {
-    depth: 0,
-    state: `working`,
-    agent: `claude`,
-    identifier: null,
-    title: `Exponential UI completeness pass`,
-    caption: `Building · mint · 2 h`,
-    tone: `muted`,
-    device: `mint`,
+    identifier: `APP-5`,
+    session: session({ id: `s1`, title: `Reduce cold start below 800 ms`, needsInput: true }),
   },
   {
     depth: 1,
-    state: `needs_input`,
-    agent: `claude`,
-    identifier: `VAPP-99`,
-    title: `Exponential UI round 2: one stack, ~100% parity`,
-    caption: `Needs input · mint · 5 min`,
-    tone: `amber`,
-    device: `mint`,
-  },
-  {
-    depth: 1,
-    state: `ended`,
-    agent: `claude`,
-    identifier: `VAPP-100`,
-    title: `SwiftUI parity with the round-1/2 contract`,
-    caption: `Done · mint · 1 h`,
-    tone: `muted`,
-    device: `mint`,
+    identifier: null,
+    session: session({ id: `s2`, parentId: `s1`, rootId: `s1`, title: `Profile the launch path`, busy: true }),
   },
   {
     depth: 0,
-    state: `ended`,
-    agent: `codex`,
+    identifier: `APP-14`,
+    session: session({ id: `s3`, title: `Group board issues by status`, busy: true }),
+  },
+  {
+    depth: 0,
     identifier: null,
-    title: `Pre-cleanup release`,
-    caption: `Done · macbook · 21 h`,
-    tone: `muted`,
-    device: `macbook`,
+    session: session({
+      id: `s4`,
+      title: `Pre-cleanup release`,
+      status: `ended`,
+      endedAt: `2026-10-13T11:50:00.000Z`,
+    }),
   },
 ]
 
-function SessionRows({ size, ring }: { size: SessionRowSize; ring: string }) {
-  const guides = treeGuides(RUNS.map((run) => run.depth))
-  return (
-    <div className="flex flex-col">
-      {RUNS.map((run, index) => (
-        <SessionRow
-          key={run.title}
-          size={size}
-          agent={run.agent}
-          markState={run.state}
-          identifier={run.identifier}
-          title={run.title}
-          caption={run.caption}
-          captionTone={run.tone}
-          depth={run.depth}
-          guide={guides[index]}
-          deviceIcon={run.device === `mint` ? SERVER : LAPTOP}
-          deviceName={run.device}
-          active={index === 1 && size === `small`}
-          ringClassName={ring}
-          onClick={() => {}}
-        />
-      ))}
-    </div>
-  )
-}
-
 function SessionRowSpecimen() {
+  const guides = treeGuides(ROWS.map((row) => row.depth))
   return (
-    <div className="flex flex-wrap items-start gap-8">
-      <div className="flex w-[300px] max-w-full flex-col gap-1 rounded-lg bg-sidebar p-2">
-        <div className="px-2 py-1 text-xs text-muted-foreground">Running</div>
-        <SessionRows size="small" ring="ring-sidebar" />
-      </div>
-      <div className="flex w-[520px] max-w-full flex-col">
-        <SessionRows size="big" ring="ring-background" />
-      </div>
+    <div className="flex w-[300px] max-w-full flex-col gap-1 rounded-lg bg-sidebar p-2">
+      <div className="px-2 py-1 text-xs text-muted-foreground">Running</div>
+      {ROWS.map((row, index) => {
+        const card = sessionCard(row.session, 1, NOW)
+        return (
+          <SessionRow
+            key={row.session.id}
+            size="small"
+            agent="claude"
+            markState={MARK[card.state]}
+            identifier={row.identifier}
+            title={card.name}
+            depth={row.depth}
+            guide={guides[index]}
+            active={index === 0}
+            ringClassName="ring-sidebar"
+            onClick={() => {}}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -129,13 +115,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1248`,
   title: `Session row`,
-  blurb: `ONE list item for a session, two sizes, nested by the session tree (resumes collapsed, a \`sessions_start\` child under its parent, children ALWAYS shown). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title][caption, big only][device icon]. The session mark is the agent's brand mark (Claude's spark while it works, a badge when parked, dimmed once ended), so every mark and every title at one depth aligns. NO fold chevron, NO trailing chevron, NO buttons. small = one line, 32px (the sidebar's Running); big = two lines, 52px, the caption "Building · macbook · 21 h", "Needs input · mint · 5 min" (amber), "Ready for review · …", "Done · mint · 1 h". Fixture \`list-item.json\`.`,
+  blurb: `ONE list item for a session, nested by the session tree (a child session under its root). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title]. The mark is the agent's brand mark, its state the session card's (\`sessionCard\`: Claude's spark while it works, a badge when it needs you, dimmed once ended). EXP-1293: no caption, no device. small = one line, 32px (the rail's Running).`,
   status: {
     web: {
       state: `ok`,
       symbol: `SessionRow`,
       file: `packages/ui/src/session-row.tsx`,
-      note: `lists: components/session-tree.tsx (big), team/sidebar-running.tsx (small); caption lib/session-row-caption.ts`,
+      note: `the rail's Running (team/sidebar-running.tsx); state = sessionCard (lib/session-tree)`,
     },
     desktop: {
       state: `ok`,

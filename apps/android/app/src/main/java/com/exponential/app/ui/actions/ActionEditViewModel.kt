@@ -54,6 +54,7 @@ class ActionEditViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val actionsApi: ActionsApi,
+    private val writes: ActionWrites,
     selection: TeamSelection,
 ) : ViewModel() {
 
@@ -117,20 +118,9 @@ class ActionEditViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Save the edited row. Blank [description]/[icon]/[repositoryId]/
-     * [promptPlaceholder] clear those fields (explicit nulls on the wire); a
-     * refusal is the state's [ActionEditState.failure] (a toast with Retry).
-     */
-    fun save(
-        actionId: String,
-        name: String,
-        description: String,
-        icon: String,
-        repositoryId: String,
-        body: String,
-        promptPlaceholder: String,
-    ) {
+    /** Save the edited row (every field, inputs included); a refusal is
+     *  the state's [ActionEditState.failure] (a toast with Retry). */
+    fun save(actionId: String, fields: ActionFields) {
         if (_state.value.saving) return
         _state.value = _state.value.copy(saving = true, failure = null)
         viewModelScope.launch {
@@ -140,24 +130,35 @@ class ActionEditViewModel @Inject constructor(
                 return@launch
             }
             try {
-                val saved = actionsApi.update(
-                    accountId,
-                    id = actionId,
-                    name = name.trim(),
-                    description = description.trim().takeIf { it.isNotEmpty() },
-                    icon = icon.takeIf { it.isNotEmpty() },
-                    repositoryId = repositoryId.takeIf { it.isNotEmpty() },
-                    body = body,
-                    promptPlaceholder = promptPlaceholder.trim().takeIf { it.isNotEmpty() },
-                )
+                val saved = writes.update(accountId, actionId, fields)
                 _state.value = _state.value.copy(saving = false, action = saved)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _state.value = _state.value.copy(
                     saving = false,
                     failure = FailedAction("save", "the action", trpcErrorMessage(t, "")) {
-                        save(actionId, name, description, icon, repositoryId, body, promptPlaceholder)
+                        save(actionId, fields)
                     },
+                )
+            }
+        }
+    }
+
+    /** Owner-only, permanent; [onDeleted] leaves the page. */
+    fun delete(actionId: String, onDeleted: () -> Unit) {
+        if (_state.value.saving) return
+        _state.value = _state.value.copy(saving = true, failure = null)
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value
+            try {
+                if (accountId != null) writes.delete(accountId, actionId)
+                _state.value = _state.value.copy(saving = false)
+                onDeleted()
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _state.value = _state.value.copy(
+                    saving = false,
+                    failure = FailedAction("delete", "the action", trpcErrorMessage(t, "")),
                 )
             }
         }

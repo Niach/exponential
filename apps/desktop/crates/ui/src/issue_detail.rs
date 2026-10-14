@@ -2,11 +2,11 @@
 //! `apps/web/src/components/issue-detail-view.tsx` at compact density).
 //!
 //! Layout (EXP-417 — the right sidebar is gone on every client): the
-//! duplicate-of banner, then a FIXED header — the
-//! [`crate::issue_header::IssueHeader`]'s top row (switcher · copy link ·
-//! `…` · delete), the borderless title input (save-on-blur), its chip row
-//! and agent row — over the ONE scrolling body: the EXP-736 relations card,
-//! description, files rail and timeline. EXP-568 retired the pinned
+//! duplicate-of banner, then the header — the
+//! [`crate::issue_header::IssueHeader`]'s right cluster (EXP-1294: Start ·
+//! pin · `…`), the borderless title input (save-on-blur) and its chip row —
+//! over the ONE scrolling body: description, the EXP-736 relations card,
+//! files rail, the pull request rows and timeline. EXP-568 retired the pinned
 //! formatting toolbar that used to close the header; formatting rides a
 //! selection-triggered floating rail instead.
 //!
@@ -437,8 +437,6 @@ pub struct IssueDetailView {
     /// offset and the title sits above the viewport ("the title vanishes",
     /// EXP-67).
     body_scroll: gpui::ScrollHandle,
-    /// EXP-1261: the Guide face's page scroll (its top fade waits for it).
-    guide_scroll: gpui::ScrollHandle,
     /// EXP-1162: where the large title row's bottom edge sits in the body's
     /// CONTENT (measured as it paints, scroll-independent), `None` until the
     /// first paint — what [`domain::detail_chrome::is_title_collapsed`] reads
@@ -468,8 +466,8 @@ pub struct IssueDetailView {
     /// EXP-919: saves still waiting for their echo — shared with the editor's
     /// `on_save`, and kept ACROSS issue switches (that is the point).
     unechoed_saves: Rc<RefCell<UnechoedSaves>>,
-    /// §7.1/§4.2 header affordance: the Start-coding button (play↔stop),
-    /// driven by live `repositories.forIssue` + doctor state.
+    /// EXP-1294: the header's ONE Start button (readiness popover + repo
+    /// probe), driven by live `repositories.forIssue` + doctor state.
     start_coding: Entity<StartCodingControl>,
     header: Entity<IssueHeader>,
     timeline: Entity<IssueTimeline>,
@@ -491,45 +489,6 @@ pub struct IssueDetailView {
     /// sub-issues" affordance. Cleared on every issue switch — a half-typed
     /// child belongs to the issue it was opened under.
     sub_issue_composer: Option<(Entity<crate::issue_composer::IssueComposer>, Subscription)>,
-    /// EXP-877: the header's Resume decision reads this machine's run
-    /// registry (a file) — cached per run id
-    /// (`work_header::resume_path_cached`), cleared on every issue switch.
-    resumable: Option<(String, bool)>,
-    /// EXP-1251: the tab's GUIDE face (Changes + Results merged) is up on
-    /// THIS issue — the issue's report (`work_header::issue_results_run`,
-    /// scoped to its PR) over its open PR's files. View state, like a run's
-    /// `RunFace`: a face of this tab, not a navigation. Keyed by the issue
-    /// id because a Reviews row, a deep link or the stack card asks BEFORE
-    /// the navigation re-points this view; the switch keeps it only for that
-    /// issue, and it closes once there is nothing left to show.
-    guide_open_for: Option<String>,
-    /// EXP-1251: the Guide's diff page on show (a section's files, the
-    /// complete diff), `None` = the Guide itself.
-    guide_page: Option<crate::session_results::GuidePage>,
-    /// EXP-1248: the Stack card's hovered member (its ghost merge-through).
-    stack_hovered: Option<String>,
-    /// EXP-1154: the file a Guide pick asked the diff page to select, handed
-    /// to the pane on its next paint.
-    pending_changes_path: Option<String>,
-    /// EXP-1154: the GitHub PR body (`issues.prDescription`, never synced)
-    /// the Guide leads with for an open PR with no run report, keyed by the
-    /// issue it was fetched for.
-    pr_body: Option<(String, PrBodyState)>,
-    /// Bumped per fetch so a slow answer for the PREVIOUS issue never lands.
-    pr_body_seq: u64,
-    /// The image cache behind that face's tiles, built on first open.
-    results_images: Option<Entity<crate::markdown::ImageCache>>,
-    /// The embedded [`crate::pr_diff::PrDiffView`] behind that face, built
-    /// the first time it opens (its fetch is `issues.prFiles`, one snapshot
-    /// per issue).
-    changes: Option<Entity<crate::pr_diff::PrDiffView>>,
-    /// The issue [`Self::ensure_changes`] last pointed that pane at. The call
-    /// happens in `render`, and `PrDiffView::set_issue` with no signed-in
-    /// account records NOTHING and notifies — which re-rendered, re-pointed,
-    /// re-notified: a 100% CPU spin with the Changes face open and no account.
-    /// The latch makes the attempt once per issue; a session change (the
-    /// account landing) and a re-open of the face clear it.
-    changes_requested: Option<String>,
     /// EXP-894: what each OPEN issue tab would lose on a switch — this view
     /// is shared across tabs, so it stashes the outgoing issue's comment
     /// drafts + scroll and restores them on the way back
@@ -537,14 +496,6 @@ pub struct IssueDetailView {
     /// entry when the tab closes ([`Self::forget_tab_state`]).
     tab_states: crate::tab_state::TabStateStore<IssueTabState>,
     _subscriptions: Vec<Subscription>,
-}
-
-/// EXP-1154: the Results face's PR-body fallback, per fetch.
-enum PrBodyState {
-    Loading,
-    Ready(api::issues::PrDescription),
-    /// The fetch failed (a toast said so, FEED-79).
-    Error,
 }
 
 /// EXP-894: one issue tab's switch-surviving state.
@@ -614,7 +565,9 @@ impl IssueDetailView {
         // directly. (The former header cluster's subscribers/rail observers
         // moved to the issue header with the cluster — EXP-277.)
         subscriptions.push(cx.observe(&collections.boards, |_, _, cx| cx.notify()));
-        subscriptions.push(cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()));
+        // EXP-1294: the PR rows read the issue's pull requests.
+        subscriptions.push(cx.observe(&collections.pull_requests, |_, _, cx| cx.notify()));
+        subscriptions.push(cx.observe(&collections.pull_request_issues, |_, _, cx| cx.notify()));
         // EXP-549/550: the coding-now pill resolves the host machine's live
         // label and online-ness from the devices rows, so heartbeats (and
         // renames) must re-render it.
@@ -624,20 +577,10 @@ impl IssueDetailView {
         // EXP-736: the relations card lives in this view's body — a relation
         // added on another client (or the duplicate mirror) must re-render it.
         subscriptions.push(cx.observe(&collections.issue_relations, |_, _, cx| cx.notify()));
-        // EXP-889: the Changes pane's fetch needs a signed-in account — a
-        // cold start reaches the face before the session validates. The
-        // attempt is latched (see `changes_requested`), so the session
-        // machine moving is what licenses the retry.
-        subscriptions.push(cx.observe(&Store::global(cx).state(), |this, _, cx| {
-            this.changes_requested = None;
-            cx.notify();
-        }));
-
         Self {
             issue_id: None,
             focus_handle: cx.focus_handle(),
             body_scroll,
-            guide_scroll: gpui::ScrollHandle::new(),
             title_bottom: Rc::new(std::cell::Cell::new(None)),
             tray_top: Rc::new(std::cell::Cell::new(None)),
             tray_h: Rc::new(std::cell::Cell::new(None)),
@@ -657,327 +600,9 @@ impl IssueDetailView {
             busy_files: HashSet::new(),
             widget_submission: None,
             sub_issue_composer: None,
-            resumable: None,
-            guide_open_for: None,
-            guide_page: None,
-            stack_hovered: None,
-            pending_changes_path: None,
-            pr_body: None,
-            pr_body_seq: 0,
-            results_images: None,
-            changes: None,
-            changes_requested: None,
             tab_states: Default::default(),
             _subscriptions: subscriptions,
         }
-    }
-
-    /// EXP-1251 — put this tab on its GUIDE face (`Some(issue_id)`), or back
-    /// on the issue. A fresh open starts on the Guide itself (no diff page).
-    pub(crate) fn set_guide_open_for(
-        &mut self,
-        issue_id: Option<String>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.guide_open_for == issue_id {
-            return;
-        }
-        // Leaving the issue face unmounts the description editor without a
-        // blur — flush a pending edit first (`set_tab_face`'s rule, EXP-68).
-        if issue_id.is_some() {
-            self.flush_title(cx);
-            self.flush_description(cx);
-            // Re-opening the face is a fresh attempt at the pane's fetch.
-            self.changes_requested = None;
-        } else {
-            self.pending_changes_path = None;
-        }
-        self.guide_page = None;
-        self.guide_open_for = issue_id;
-        cx.notify();
-    }
-
-    /// Whether the Guide is up on `issue_id`.
-    fn guide_open_on(&self, issue_id: &str) -> bool {
-        self.guide_open_for.as_deref() == Some(issue_id)
-    }
-
-    /// EXP-1251 — open one of the Guide's diff pages (`None` = back to the
-    /// Guide).
-    pub(crate) fn open_guide_page(
-        &mut self,
-        page: Option<crate::session_results::GuidePage>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        if self.guide_page == page {
-            return;
-        }
-        self.guide_page = page;
-        if page.is_none() {
-            self.pending_changes_path = None;
-        }
-        cx.notify();
-    }
-
-    /// EXP-1154 — select `path` on the Guide's COMPLETE diff page (a deep
-    /// link into a file); handed to the pane on its next paint, which holds
-    /// it until the PR's files land.
-    pub(crate) fn select_changes_path(&mut self, path: String, cx: &mut gpui::Context<Self>) {
-        self.guide_page = Some(crate::session_results::GuidePage::All);
-        self.pending_changes_path = Some(path);
-        cx.notify();
-    }
-
-    /// EXP-1251 — the issue's GUIDE: the report of the run the issue shows
-    /// (`work_header::issue_results_run`, scoped to the issue's PR —
-    /// `session_results_for_pr`) over the open PR's files, with the Stack
-    /// card on top; or, with a diff page open, that page (the `← Guide` back
-    /// row over the shared diff pane filtered to the section). An open PR
-    /// with no report leads with its GitHub body. `None` = nothing (any
-    /// more) to show.
-    fn render_guide_face(
-        &mut self,
-        issue: &Issue,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        let reviewable = crate::queries::is_reviewable(issue);
-        let row = crate::work_header::issue_results_row(&issue.id, None, cx);
-        // EXP-1284: THE Guide is the run's THREAD's (`threads.results`),
-        // else the run's own.
-        let scoped = row.as_ref().map(|row| {
-            let guide = crate::threads::guide_results_of_session(row, cx);
-            domain::session_results::session_results_for_pr(guide.as_ref(), issue.pr_url.as_deref())
-        });
-        let mut groups = scoped
-            .as_ref()
-            .map(|raw| domain::session_results::parse_session_result_groups(Some(raw)))
-            .unwrap_or_default();
-        if groups.is_empty() && !reviewable {
-            return None;
-        }
-        let changes = reviewable.then(|| self.ensure_changes(issue, window, cx));
-        let diff = changes
-            .as_ref()
-            .map(|changes| changes.read(cx).pane_files(cx))
-            .filter(|files| !files.is_empty());
-        // Wave D (web M8): no report + a loaded PR body = ONE unnumbered
-        // group that claims every diff path (so `Other changes` never
-        // shows); the section pages read the same groups. Loading / failed
-        // bodies keep the fallback lead.
-        let unnumbered = groups.is_empty() && reviewable && {
-            if self.pr_body.as_ref().map(|(id, _)| id.as_str()) != Some(issue.id.as_str()) {
-                self.fetch_pr_body(issue.id.clone(), cx);
-            }
-            match self.pr_body.as_ref().map(|(_, state)| state) {
-                Some(PrBodyState::Ready(description)) => {
-                    groups.push(crate::session_results::pr_description_group(
-                        description.title.as_deref(),
-                        description.body.as_deref(),
-                        diff.as_deref(),
-                    ));
-                    true
-                }
-                _ => false,
-            }
-        };
-        // A diff page: the back row over the pane, filtered to the page.
-        if let (Some(page), Some(changes), Some(files)) = (self.guide_page, changes.as_ref(), diff.as_ref()) {
-            let diff_files = crate::session_results::guide_diff_files(files);
-            match crate::session_results::guide_page_view(&groups, &diff_files, page, unnumbered) {
-                Some(view) => {
-                    let paths = (page != crate::session_results::GuidePage::All).then(|| view.paths.clone());
-                    changes.update(cx, |pane, cx| pane.set_paths(paths, cx));
-                    if let Some(path) = self.pending_changes_path.take() {
-                        changes.update(cx, |pane, cx| pane.select_path(path, cx));
-                    }
-                    let this = cx.entity().downgrade();
-                    let back = crate::session_results::guide_page_header(
-                        &view,
-                        Rc::new(move |_window, cx| {
-                            let _ = this.update(cx, |this, cx| this.open_guide_page(None, cx));
-                        }),
-                        cx,
-                    );
-                    return Some(
-                        v_flex()
-                            .size_full()
-                            .min_h_0()
-                            .child(centered_column(div().w_full().child(back)))
-                            .child(div().flex_1().min_h_0().w_full().child(changes.clone()))
-                            .into_any_element(),
-                    );
-                }
-                // The section went away (the report was rewritten): back to
-                // the Guide.
-                None => self.guide_page = None,
-            }
-        }
-        let images = self
-            .results_images
-            .get_or_insert_with(|| {
-                let transport = queries::attachment_transport(cx);
-                cx.new(|_| crate::markdown::ImageCache::new(transport))
-            })
-            .clone();
-        let width = f32::from(window.viewport_size().width)
-            .min(crate::work_header::WORK_COLUMN_W)
-            - 2. * WORK_GUTTER;
-        let team_id = row
-            .as_ref()
-            .and_then(|row| row.team_id.clone())
-            .or_else(|| queries::issue_team_id(cx, &issue.id));
-        let fallback_lead = (groups.is_empty() && reviewable).then(|| self.pr_body_lead(issue, cx));
-        let this = cx.entity().downgrade();
-        let on_open: crate::session_results::OnOpenGuidePage = Rc::new(move |page, _window, cx| {
-            let _ = this.update(cx, |this, cx| this.open_guide_page(Some(page), cx));
-        });
-        let stack = self.stack_card(issue, cx);
-        Some(crate::session_results::render(
-            &groups,
-            width.max(200.),
-            &images,
-            team_id.as_deref(),
-            crate::session_results::GuideSpec {
-                diff,
-                on_open: Some(on_open),
-                stack,
-                fallback_lead,
-                unnumbered,
-                scroll: Some(self.guide_scroll.clone()),
-            },
-            cx,
-        ))
-    }
-
-    /// EXP-1248 — the Guide's Stack card for `issue` (`None` unless its PR
-    /// sits in a linear open stack of 2+): a member click swaps the tab's
-    /// issue IN PLACE (the Guide stays up), a hovered member merges through.
-    fn stack_card(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let team_id = queries::issue_team_id(cx, &issue.id)?;
-        let issues = queries::review_issues(cx, &team_id);
-        let view = domain::pr_stack::stack_view(issue, &issues)?;
-        let this = cx.entity().downgrade();
-        let on_pick: crate::session_results::OnPickStackRow = Rc::new(move |issue_id, window, cx| {
-            let issue_id = issue_id.to_string();
-            let _ = this.update(cx, |this, cx| this.set_guide_open_for(Some(issue_id.clone()), cx));
-            crate::navigation::navigate_replace_tab(window, cx, Screen::IssueDetail { issue_id });
-        });
-        let on_merge: crate::session_results::OnPickStackRow = Rc::new(move |issue_id, window, cx| {
-            crate::pr_merge::ask_stack_merge_mode(
-                issue_id,
-                domain::pr_stack::StackConfirmMode::Through,
-                window,
-                cx,
-            );
-        });
-        let this = cx.entity().downgrade();
-        let on_hover: crate::session_results::OnHoverStackRow = Rc::new(move |hovered, _window, cx| {
-            let _ = this.update(cx, |this, cx| {
-                if this.stack_hovered != hovered {
-                    this.stack_hovered = hovered;
-                    cx.notify();
-                }
-            });
-        });
-        Some(crate::session_results::stack_card(
-            &view,
-            queries::issue_board_default_branch(cx, &issue.id),
-            Some(on_pick),
-            Some(on_merge),
-            self.stack_hovered.clone(),
-            Some(on_hover),
-            cx,
-        ))
-    }
-
-    /// EXP-1154 — the Guide's lead for an open PR with no run report: the
-    /// GitHub PR body. Fetched once per issue (the sequence guard drops a
-    /// slow answer for the previous one).
-    fn pr_body_lead(&mut self, issue: &Issue, cx: &mut gpui::Context<Self>) -> AnyElement {
-        if self.pr_body.as_ref().map(|(id, _)| id.as_str()) != Some(issue.id.as_str()) {
-            self.fetch_pr_body(issue.id.clone(), cx);
-        }
-        use crate::session_results::{pr_body_block, PrBodyContent};
-        let team_id = queries::issue_team_id(cx, &issue.id);
-        let team_id = team_id.as_deref();
-        match self.pr_body.as_ref().map(|(_, state)| state) {
-            Some(PrBodyState::Ready(description)) => pr_body_block(
-                description.title.as_deref(),
-                PrBodyContent::Ready(description.body.as_deref().unwrap_or("")),
-                team_id,
-                cx,
-            ),
-            // A failed load on open is quiet (FEED-79): the empty body.
-            Some(PrBodyState::Error) => pr_body_block(None, PrBodyContent::Ready(""), team_id, cx),
-            Some(PrBodyState::Loading) | None => {
-                pr_body_block(None, PrBodyContent::Loading, team_id, cx)
-            }
-        }
-    }
-
-    fn fetch_pr_body(&mut self, issue_id: String, cx: &mut gpui::Context<Self>) {
-        let Some(client) = queries::trpc_client(cx) else {
-            // No account yet: stay unfetched; the session observer's notify
-            // re-renders and tries again.
-            return;
-        };
-        self.pr_body_seq += 1;
-        let seq = self.pr_body_seq;
-        self.pr_body = Some((issue_id.clone(), PrBodyState::Loading));
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::issues::pr_description(&client, &issue_id) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.pr_body_seq != seq {
-                    return;
-                }
-                if let Some((_, state)) = this.pr_body.as_mut() {
-                    *state = match result {
-                        Ok(description) => PrBodyState::Ready(description),
-                        // Fetched on open: quiet (FEED-79), the lead
-                        // falls back to the empty body.
-                        Err(err) => {
-                            log::warn!("[ui] issues.prDescription failed: {err}");
-                            PrBodyState::Error
-                        }
-                    };
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// EXP-889 — the Changes face's pane, built on first open and re-pointed
-    /// at `issue` (a same-id `set_issue` is a no-op, so a repaint refetches
-    /// nothing). [`crate::pr_diff::PrDiffView`] = `issues.prFiles` through
-    /// the shared [`crate::diff_pane`], no header of its own: the work header
-    /// above it names the issue.
-    fn ensure_changes(
-        &mut self,
-        issue: &Issue,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Entity<crate::pr_diff::PrDiffView> {
-        let changes = match self.changes.clone() {
-            Some(changes) => changes,
-            None => {
-                let changes = cx.new(|cx| crate::pr_diff::PrDiffView::new(window, cx));
-                self.changes = Some(changes.clone());
-                changes
-            }
-        };
-        // ONE attempt per issue: this runs from `render`, and a `set_issue`
-        // that cannot fetch (no account yet) notifies without recording the
-        // id, which would re-enter this on the very next frame forever.
-        if self.changes_requested.as_deref() != Some(issue.id.as_str()) {
-            self.changes_requested = Some(issue.id.clone());
-            changes.update(cx, |view, cx| view.set_issue(issue.id.clone(), cx));
-        }
-        changes
     }
 
     /// EXP-894: `issue_id`'s tab closed — its stashed drafts go with it (and,
@@ -1069,22 +694,6 @@ impl IssueDetailView {
         // EXP-760: the composer files onto the OUTGOING issue — it must not
         // survive the swap.
         self.sub_issue_composer = None;
-        // EXP-877: the Resume cache is keyed by run id, but a stale entry
-        // would only be re-read anyway — drop it with the rest of the
-        // per-issue state.
-        self.resumable = None;
-        // EXP-889: every tab opens on its ISSUE face — the Changes face is
-        // the OUTGOING issue's PR. (The pane itself is kept and re-pointed
-        // when the face opens again: `set_issue` on it is the refetch.)
-        // EXP-1154: unless the request was made FOR the incoming issue (a
-        // Reviews row, the related-work overlay).
-        // EXP-1251: the Guide request survives only FOR the incoming issue.
-        if self.guide_open_for.as_deref() != Some(issue_id.as_str()) {
-            self.guide_open_for = None;
-            self.guide_page = None;
-            self.pending_changes_path = None;
-        }
-        self.changes_requested = None;
         // The files rail's transient state belongs to the OUTGOING issue —
         // a pending upload row or a busy marker must never leak onto the
         // incoming one (the in-flight requests themselves keep running and
@@ -1567,88 +1176,127 @@ impl IssueDetailView {
     /// markdown and the editor renders them. The section re-renders off the
     /// view's existing `attachments` collection observer, so an upload,
     /// a delete or another client's change lands without any refetch.
-    /// EXP-525: the web `PrRow` (`issue-coding-rows.tsx`) — the issue's linked
-    /// PR as a clickable row: state badge · `PR #N` · branch · chevron. An
-    /// OPEN PR opens this tab's Changes face (EXP-1154); a merged/closed one
-    /// opens GitHub.
-    fn render_pr_row(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        let pr_url = issue.pr_url.clone()?;
-        let number = issue.pr_number?;
-        let state = issue.pr_state.clone().unwrap_or_else(|| "open".to_string());
-        let theme = cx.theme();
-        let muted = theme.muted_foreground;
-        let state_chip = pr_state_chip(&state, cx);
-        let is_open = state == "open";
-        let issue_id = issue.id.clone();
-        let row = h_flex()
-                .id("issue-pr-row")
-                .min_w_0()
-                .items_center()
-                .gap_2()
-                // EXP-1191: the glyph on the content edge, the hover fill
-                // hanging outside it by the row's own padding.
-                .mx(px(-PR_ROW_PX))
-                .px(px(PR_ROW_PX))
-                .py_3()
-                .text_sm()
-                .cursor_pointer()
-                .hover(|style| style.bg(theme.list_hover))
-                .rounded(px(theme::tokens::radius::SM))
-                .on_click(cx.listener(move |this, _, _window, cx| {
-                    if is_open {
-                        // EXP-1154: the review of the PR is this tab's
-                        // Changes face — opened in place.
-                        this.set_guide_open_for(Some(issue_id.clone()), cx);
-                    } else if let Err(error) = api::opener::open_in_browser(&pr_url) {
-                        log::warn!("[ui] issue detail: open PR link failed: {error}");
-                    }
-                }))
-                .child(
-                    Icon::from(ExpIcon::GitPullRequest)
-                        .small()
-                        .flex_shrink_0()
-                        .text_color(muted),
-                )
-                .child(state_chip)
-                .child(
-                    div()
-                        .flex_shrink_0()
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .child(SharedString::from(format!("PR #{number}"))),
-                )
-                .children(issue.branch.clone().map(|branch| {
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .child(SharedString::from(branch))
-                }))
-                .child(
-                    h_flex().flex_1().flex_shrink_0().justify_end().child(
-                        Icon::from(ExpIcon::ChevronRight)
-                            .small()
-                            .text_color(muted),
-                    ),
-                );
+    /// EXP-525: the web `PrRow` (`issue-coding-rows.tsx`). EXP-1294: ONE row
+    /// per pull request that closes the issue (`pull_request_issues`):
+    /// state badge · `PR #N` · head branch · [Merge PR while open] · the
+    /// GitHub link · chevron. A click opens the session that opened the PR
+    /// (its Guide), else GitHub. `None` = no pull request.
+    fn render_pr_rows(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
+        let pulls = crate::session_data::pull_requests_of_issue(&issue.id, cx);
+        if pulls.is_empty() {
+            return None;
+        }
+        let rows: Vec<gpui::AnyElement> = pulls
+            .iter()
+            .map(|pull| self.render_pr_row(pull, cx))
+            .collect();
         // The hairline spans the content box exactly.
         Some(
             div()
                 .w_full()
                 .px(px(WORK_GUTTER))
-                .child(
+                .children(rows.into_iter().map(|row| {
                     div()
                         .w_full()
                         .border_t_1()
                         .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                        .child(row),
-                )
+                        .child(row)
+                }))
                 .into_any_element(),
         )
+    }
+
+    fn render_pr_row(
+        &self,
+        pull: &domain::rows::PullRequestRow,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        let state = pull.state.clone().unwrap_or_else(|| "open".to_string());
+        let state_chip = pr_state_chip(&state, cx);
+        let merge = pull
+            .is_open()
+            .then(|| {
+                crate::work_header::merge_pill(
+                    gpui::ElementId::Name(format!("issue-pr-merge-{}", pull.id).into()),
+                    &pull.id,
+                    false,
+                    crate::work_header::header_action_size(true),
+                    cx,
+                )
+            });
+        let github = crate::work_header::github_button(
+            gpui::ElementId::Name(format!("issue-pr-github-{}", pull.id).into()),
+            pull.url.as_deref(),
+            cx,
+        );
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let root_id = pull.root_session_id.clone();
+        let url = pull.url.clone();
+        let label = match pull.number {
+            Some(number) => format!("PR #{number}"),
+            None => "PR".to_string(),
+        };
+        h_flex()
+            .id(gpui::ElementId::Name(format!("issue-pr-row-{}", pull.id).into()))
+            .min_w_0()
+            .items_center()
+            .gap_2()
+            // EXP-1191: the glyph on the content edge, the hover fill
+            // hanging outside it by the row's own padding.
+            .mx(px(-PR_ROW_PX))
+            .px(px(PR_ROW_PX))
+            .py_2()
+            .text_sm()
+            .cursor_pointer()
+            .hover(|style| style.bg(theme.list_hover))
+            .rounded(px(theme::tokens::radius::SM))
+            .on_click(move |_, window, cx| match root_id.clone() {
+                // EXP-1294: the PR's report is the Guide of the session
+                // that opened it.
+                Some(session_id) => navigate(window, cx, Screen::Thread { session_id }),
+                None => {
+                    if let Some(url) = url.as_deref() {
+                        if let Err(error) = api::opener::open_in_browser(url) {
+                            log::warn!("[ui] issue detail: open PR link failed: {error}");
+                        }
+                    }
+                }
+            })
+            .child(
+                Icon::from(ExpIcon::GitPullRequest)
+                    .small()
+                    .flex_shrink_0()
+                    .text_color(muted),
+            )
+            .child(state_chip)
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .child(SharedString::from(label)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_xs()
+                    .text_color(muted)
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .children(pull.head.clone().map(SharedString::from)),
+            )
+            .children(merge)
+            .children(github)
+            .child(
+                Icon::from(ExpIcon::ChevronRight)
+                    .small()
+                    .flex_shrink_0()
+                    .text_color(muted),
+            )
+            .into_any_element()
     }
 
     fn render_files_section(
@@ -2293,12 +1941,12 @@ impl IssueDetailView {
     fn render_body(
         &mut self,
         issue: &Issue,
-        title_rows: Option<AnyElement>,
+        title_rows: AnyElement,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let column = v_flex()
-            .children(title_rows)
+            .child(title_rows)
             // EXP-426: breathing room under the tray (EXP-1162: the old
             // header's `pb-3` + the body's `pt_2`) — the embedded editor
             // deliberately carries no insets of its own.
@@ -2315,8 +1963,8 @@ impl IssueDetailView {
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
             .child(self.render_files_section(issue, cx))
-            // EXP-525: the web `PrRow` — state badge + PR number + branch.
-            .children(self.render_pr_row(issue, cx))
+            // EXP-525: the web `PrRow`s — one per pull request.
+            .children(self.render_pr_rows(issue, cx))
             // EXP-496: widget/agent submission metadata, right above the
             // timeline (web mounts it after the PR row, before the timeline).
             .child(self.render_widget_submission_card(issue, cx));
@@ -2334,206 +1982,51 @@ impl IssueDetailView {
             .child(self.timeline.clone())
     }
 
-    /// The FIXED header (EXP-417/EXP-877): the shared `WorkHeader` — row 1 =
-    /// the editable title with the face toggle · pin · `…` cluster on the
-    /// same line, row 2 = the property tray trailing Merge PR + the ONE
-    /// coding action, then the merge-error caption.
-    ///
-    /// EXP-889: the toggle's CHANGES item is offered whenever there is a
-    /// diff to read — my run's worktree diff (which opens the run's Changes
-    /// face, as before) or, with no such diff, the issue's own OPEN pull
-    /// request, which opens right here ([`Self::set_guide_open_for`]). The web
-    /// rule verbatim (`lib/work-faces.ts`): `hasChanges = diffStats.fileCount
-    /// > 0 || issue.prState === 'open'`, and `availableFaces` pushes
-    /// `changes` outside the `hasRun` branch.
+    /// The header (EXP-417/EXP-877/EXP-1162): the FLOATING compact bar laid
+    /// over the scrolling body ([`crate::work_header::render_floating_bar`])
+    /// with the right cluster `[badge] [Start] [pin] [⋯]` (EXP-1294), and the
+    /// rows it hands to that body — the large title (under its parent line)
+    /// + the property tray.
     ///
     /// The header entity's rows are built through `entity.update` from this
     /// render (the `render_tab_strip` precedent) — they must never call back
     /// into this view synchronously.
-    ///
-    /// EXP-1162: returns the compact bar and, on the Issue face
-    /// (`has_title_row`), the rows it hands to the scrolling body — the
-    /// large title (under its parent line) + the property tray + the merge
-    /// caption; there the bar is the FLOATING one, laid over the body
-    /// ([`crate::work_header::render_floating_bar`]). The Changes / Results
-    /// faces keep a fixed bar with the tray under it (`None`).
     fn render_header(
         &mut self,
         issue: &Issue,
-        has_title_row: bool,
-        window: &mut Window,
         cx: &mut gpui::Context<Self>,
-    ) -> (AnyElement, Option<AnyElement>) {
-        use crate::work_header::{Face, FaceToggle};
+    ) -> (AnyElement, AnyElement) {
         let header = self.header.clone();
-        // EXP-870/EXP-877: the tab's face state names the run the Run face
-        // opens (the bound run when mine, else my newest on the issue) —
-        // `None` outside a shell window (an undocked issue has no tab to
-        // flip). The diff item needs that run's open screen for its totals.
-        let face_state = crate::screens::screens_for_window(window, cx)
-            .map(|panel| panel.read(cx).face_state(&issue.id, cx));
-        let run_id = face_state.as_ref().and_then(|state| state.run_id.clone());
-        // EXP-950: the Runs segment's caret — the rows only once there are
-        // several.
-        let runs = if face_state.as_ref().is_some_and(|state| state.multiple_runs) {
-            crate::run_rows::issue_run_entries(&issue.id, cx)
-        } else {
-            Vec::new()
-        };
-        // A run of mine with a live worktree diff has a Guide of its own.
-        let run_diff = run_id.as_deref().is_some_and(|run_id| {
-            crate::screens::session_views(run_id, cx)
-                .into_iter()
-                .any(|view| view.read(cx).diff_totals(cx).is_some())
-        });
-        // EXP-1251: the Guide reads the SYNCED row (`issue_results_run`,
-        // text-only reports included) and the issue's open PR — Changes and
-        // Results merged into ONE face.
-        let results_row = crate::work_header::issue_results_row(&issue.id, run_id.as_deref(), cx);
-        let pr_open = crate::queries::is_reviewable(issue);
-        let guide = results_row.is_some() || pr_open || run_diff;
-        // The issue's own Guide opens in place (its PR's files, any member's
-        // report); only a run of mine with a worktree diff and no PR yet
-        // reads better on the run's own Guide.
-        let guide_in_place = pr_open || (results_row.is_some() && !run_diff);
-        let active = match face_state.as_ref().map(|state| state.active) {
-            _ if self.guide_open_on(&issue.id) => Face::Guide,
-            Some(crate::screens::TabFace::Run) => Face::Run,
-            _ => Face::Issue,
-        };
-        let toggle = {
-            let issue_id = issue.id.clone();
-            let run_id = run_id.clone();
-            // The Guide pick reaches THIS view (it owns the face), so the
-            // toggle works in an undocked issue window too, where there is
-            // no screens panel to route through.
-            let this = cx.entity().downgrade();
-            let (menu_this, menu_issue_id) = (this.clone(), issue_id.clone());
-            crate::work_header::face_toggle(
-                FaceToggle {
-                    issue: true,
-                    run: run_id.clone(),
-                    guide,
-                    active,
-                    runs,
-                    checked_run: run_id.clone(),
-                    // EXP-1162: the run's state and the PR ride the toggle.
-                    state: crate::work_header::face_state(
-                        run_id.as_deref(),
-                        issue.pr_state.as_deref() == Some("open"),
-                        cx,
-                    ),
-                },
-                Rc::new(move |face, window, cx| match face {
-                    Face::Issue => {
-                        let _ = this.update(cx, |this, cx| this.set_guide_open_for(None, cx));
-                    }
-                    Face::Guide if guide_in_place => {
-                        let issue_id = issue_id.clone();
-                        let _ = this.update(cx, |this, cx| this.set_guide_open_for(Some(issue_id), cx));
-                    }
-                    Face::Run | Face::Guide => {
-                        let Some(run_id) = run_id.clone() else {
-                            return;
-                        };
-                        // Leaving for the RUN puts the issue side back on its
-                        // issue face: the session screen's own `Issue` pick
-                        // must land on the issue, never on its Guide.
-                        let _ = this.update(cx, |this, cx| this.set_guide_open_for(None, cx));
-                        crate::screens::set_tab_face(
-                            &issue_id,
-                            crate::screens::TabFace::Run,
-                            Some(run_id.clone()),
-                            window,
-                            cx,
-                        );
-                        // EXP-879: the run's Guide is its SUB-FACE, routed
-                        // through the panel (the face flip only notifies the
-                        // navigation; the view may not exist yet, EXP-877).
-                        let run_face = if face == Face::Guide {
-                            crate::screens::RunFace::Guide
-                        } else {
-                            crate::screens::RunFace::Run
-                        };
-                        crate::screens::set_run_face(&run_id, run_face, window, cx);
-                    }
-                }),
-                // EXP-950: the caret's pick opens THAT run on the tab's Run
-                // face — the checked one too, since none is on show here.
-                Rc::new(move |run_id, window, cx| {
-                    let _ = menu_this.update(cx, |this, cx| this.set_guide_open_for(None, cx));
-                    crate::screens::set_tab_face(
-                        &menu_issue_id,
-                        crate::screens::TabFace::Run,
-                        Some(run_id.to_string()),
-                        window,
-                        cx,
-                    );
-                }),
-                cx,
-            )
-        };
-        let action = crate::work_header::issue_coding_action(
-            &issue.id,
-            run_id.as_deref(),
-            &mut self.resumable,
-            cx,
-        );
-        // EXP-1162: on the Issue face the title row scrolls with the body,
-        // and the bar's compact title breaks in once it has gone under the
-        // bar (offset + the row's measured content bottom vs the FLOATING
-        // bar's bottom edge, `header_bottom = BAR_H` into the viewport). The
-        // Changes / Results faces have no title row: always collapsed, tray
-        // fixed.
-        let collapsed = !has_title_row
-            || crate::work_header::title_collapsed(&self.body_scroll, &self.title_bottom);
-        let guide_open = self.guide_open_on(&issue.id);
-        let (right, tray, extra) = header.update(cx, |header, cx| {
-            // EXP-916: the Changes pane has no bar of its own any more, so
-            // the tray keeps the ONE merge control on every face. (The
-            // badge's overlay still follows the face.)
-            header.set_merge_suppressed(false);
-            // EXP-949: the GitHub link rides the Changes face alone.
-            // EXP-1191: the tray never scrolls away now (it pins under the
-            // bar), so its Merge / Stop / Resume stay in it.
-            let right = header.right_cluster(issue, Vec::new(), toggle, guide_open, cx);
-            let actions = header.issue_actions(issue, action, cx);
-            (
-                right,
-                header.chip_row(issue, actions, cx),
-                // FEED-79: a merge refusal is a toast now, not a row.
-                None,
-            )
+        // EXP-1162: the title row scrolls with the body, and the bar's
+        // compact title breaks in once it has gone under the bar (offset +
+        // the row's measured content bottom vs the FLOATING bar's bottom
+        // edge, `header_bottom = BAR_H` into the viewport).
+        let collapsed = crate::work_header::title_collapsed(&self.body_scroll, &self.title_bottom);
+        let (right, tray) = header.update(cx, |header, cx| {
+            (header.right_cluster(issue, cx), header.chip_row(issue, cx))
         });
         let compact = collapsed.then(|| {
             crate::work_header::collapsed_title(
                 Some(SharedString::from(issue.identifier.clone())),
                 issue.title.clone(),
-                has_title_row.then(|| gpui::ElementId::from("issue-collapsed-title")),
+                Some(gpui::ElementId::from("issue-collapsed-title")),
                 cx,
             )
         });
-        if !has_title_row {
-            let header = crate::work_header::render_work_header(
-                crate::work_header::WorkHeader {
-                    title: compact,
-                    right,
-                    tray: Some(tray),
-                    extra,
-                },
-                cx,
-            );
-            return (header, None);
-        }
         // EXP-1097: "Sub-issue of [parent]" rides ABOVE the title.
         let parent_line = crate::issue_relations::render_parent_line(issue, cx);
         let under_parent_line = parent_line.is_some();
         // EXP-1162: the large title rides the scrolling body under the
         // FLOATING bar (EXP-1170: `work_header::scrolling_title_rows`, shared
         // with the New issue page).
+        // EXP-1294: the issue names its threads on their own line, between
+        // the title and the property tray (the issue draft).
+        let threads = crate::thread_screen::issue_threads_row(&issue.id, cx)
+            .map(|row| div().w_full().pb_2().child(row).into_any_element());
         let title = vec![
             parent_line.map(IntoElement::into_any_element),
             Some(self.render_title(under_parent_line, cx).into_any_element()),
+            threads,
         ]
         .into_iter()
         .flatten()
@@ -2551,12 +2044,12 @@ impl IssueDetailView {
             collapsed,
             title,
             tray,
-            extra.into_iter().collect(),
+            Vec::new(),
             compact,
             right,
             pinned,
         );
-        (header, Some(rows))
+        (header, rows)
     }
 }
 
@@ -2610,33 +2103,7 @@ impl Render for IssueDetailView {
             }
         }
 
-        // EXP-1251: the GUIDE face — built before the header so a Guide with
-        // nothing left to show (no report, the PR merged or closed) drops
-        // the toggle back onto the issue in the same frame.
-        let guide_face = if self.guide_open_on(&issue.id) {
-            let face = self.render_guide_face(&issue, window, cx);
-            if face.is_none() {
-                self.set_guide_open_for(None, cx);
-            }
-            face
-        } else {
-            None
-        };
-        // EXP-1162: only the Issue face has a title row of its own.
-        let has_title_row = guide_face.is_none();
-        let (header, title_rows) = self.render_header(&issue, has_title_row, window, cx);
-        if let Some(guide_face) = guide_face {
-            // EXP-1261: the top strip only once the page (or a diff page's
-            // list) left its top.
-            let scrolled = match (&self.guide_page, &self.changes) {
-                (Some(_), Some(changes)) => changes.read(cx).scrolled(cx),
-                _ => crate::work_header::scrolled(&self.guide_scroll),
-            };
-            return view
-                .child(header)
-                .child(crate::work_header::work_body(guide_face, false, scrolled))
-                .into_any_element();
-        }
+        let (header, title_rows) = self.render_header(&issue, cx);
         let body = self
             .render_body(&issue, title_rows, window, cx)
             .into_any_element();

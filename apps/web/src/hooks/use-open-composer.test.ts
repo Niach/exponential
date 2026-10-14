@@ -49,11 +49,11 @@ describe(`useOpenComposer`, () => {
   }
 
   it(`opens the dialog on the action, without navigating`, () => {
-    openLauncher({ actionId: `builtin:fix-conflicts`, prIssueId: `i9` })
+    openLauncher({ actionId: `act-1`, prIssueId: `i9` })
     expect(navigate).not.toHaveBeenCalled()
     const { result } = renderHook(() => useLaunchDialogSeed())
     expect(result.current).toEqual({
-      actionId: `builtin:fix-conflicts`,
+      actionId: `act-1`,
       prIssueId: `i9`,
       issueIds: [],
     })
@@ -68,19 +68,13 @@ describe(`useOpenComposer`, () => {
     closeLaunchDialog()
   })
 
-  // EXP-870: a pinned action is context-free. The dialog's run watch reads the
-  // origin off the request, so `origin: null` has to survive the hand-off (the
-  // KEY, not just a null: absent means "derive it from the URL").
-  it(`carries a named origin into the dialog request`, () => {
+  // EXP-1293: a started session opens its thread, so a caller's origin
+  // never rides the dialog request.
+  it(`keeps a caller's origin out of the dialog request`, () => {
     openLauncher({ actionId: `a1` }, { origin: null })
     expect(navigate).not.toHaveBeenCalled()
     const { result } = renderHook(() => useLaunchDialogSeed())
-    expect(result.current).toEqual({ actionId: `a1`, issueIds: [], origin: null })
-    expect(result.current !== null && `origin` in result.current).toBe(true)
-    closeLaunchDialog()
-    openLauncher({ actionId: `a1` }, { origin: { kind: `reviews` } })
-    const named = renderHook(() => useLaunchDialogSeed())
-    expect(named.result.current?.origin).toEqual({ kind: `reviews` })
+    expect(result.current).toEqual({ actionId: `a1`, issueIds: [] })
     closeLaunchDialog()
   })
 

@@ -47,18 +47,16 @@ final class ActionUpdateInputEncodingTests: XCTestCase {
             id: "a-1",
             patch: ActionPatch(
                 name: "Ship it",
-                description: .some(nil),
                 icon: .some(nil),
-                repositoryId: .some(nil),
                 body: "Do the thing",
                 promptPlaceholder: .some(nil)
             )
         ))
         XCTAssertEqual(
             cleared.keys.sorted(),
-            ["body", "description", "icon", "id", "name", "promptPlaceholder", "repositoryId"]
+            ["body", "icon", "id", "name", "promptPlaceholder"]
         )
-        for key in ["description", "icon", "repositoryId", "promptPlaceholder"] {
+        for key in ["icon", "promptPlaceholder"] {
             XCTAssertTrue(cleared[key] is NSNull, key)
         }
         XCTAssertEqual(cleared["name"] as? String, "Ship it")
@@ -93,33 +91,5 @@ final class ActionUpdateInputEncodingTests: XCTestCase {
         let clampedEmoji = ActionDto.clampPromptPlaceholder(emoji)
         XCTAssertEqual(clampedEmoji.utf16.count, cap)
         XCTAssertEqual(clampedEmoji.count, cap / 2)
-    }
-
-    // SLOP-2: `triggers` is a WHOLE-ARRAY replace — omitted when untouched,
-    // the full array otherwise, and an empty array (the last trigger deleted)
-    // still travels, as `[]` rather than as an absent key.
-    func testTriggersOmittedWholeArrayAndEmpty() throws {
-        let untouched = try json(ActionUpdateInput(id: "a-1", patch: ActionPatch(name: "Ship")))
-        XCTAssertNil(untouched.index(forKey: "triggers"))
-
-        let daily = TriggerWhen.schedule(
-            ScheduleTrigger(interval: "daily", minuteOfDay: 540)
-        )
-        let set = try json(ActionUpdateInput(
-            id: "a-1",
-            patch: ActionPatch(triggers: [
-                ActionTriggerInput(id: "tr-1", deviceId: "dev-1", when: daily),
-                ActionTriggerInput(deviceId: "dev-2", when: daily),
-            ])
-        ))
-        XCTAssertEqual(set.keys.sorted(), ["id", "triggers"])
-        let elements = try XCTUnwrap(set["triggers"] as? [[String: Any]])
-        XCTAssertEqual(elements.map { $0["id"] as? String }, ["tr-1", nil])
-        XCTAssertEqual(elements.map { $0["deviceId"] as? String }, ["dev-1", "dev-2"])
-
-        let emptied = try json(ActionUpdateInput(id: "a-1", patch: ActionPatch(triggers: [])))
-        XCTAssertEqual((emptied["triggers"] as? [Any])?.count, 0)
-        // Deleting the last trigger is a change.
-        XCTAssertFalse(ActionPatch(triggers: []).isEmpty)
     }
 }

@@ -3,7 +3,7 @@ import ExpCore
 import SwiftUI
 
 /// Resolves the server-only repositories registry once per team and caches
-/// it for the app's lifetime (mirrors SteerConfigCache's fetch-once pattern).
+/// it for the app's lifetime (fetch-once).
 /// The synced `boards.repositoryId` is a uuid; the fullName/defaultBranch live
 /// only behind the repositories tRPC API, so every surface that shows a repo
 /// name (board header, issue coding section) reads through this cache.

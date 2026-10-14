@@ -98,8 +98,7 @@ const GROUP_CHUNK = 200
 
 // Single Linear-style activity stream: one row per issue group, showing the
 // latest notification's sentence (titles are already full human sentences —
-// no composition, no actor avatar). Reviewing open PRs moved to the
-// dedicated Reviews page. Rendered as the "Inbox" tab of the Inbox page
+// no composition, no actor avatar). Rendered as the "Inbox" tab of the Inbox page
 // (EXP-186), whose header owns the tab switcher + "Mark all read".
 export function InboxView({
   compact = false,
@@ -387,14 +386,7 @@ export function InboxView({
                     boardSlug: g.board.slug,
                     issueIdentifier: g.issue.identifier,
                   }}
-                  // EXP-933: an agent's message about an issue opens the
-                  // issue's Results — what the agent is pointing at.
-                  search={{
-                    ...(from ? { from } : {}),
-                    ...(latest.type === `agent_message`
-                      ? { view: `guide` as const }
-                      : {}),
-                  }}
+                  search={from ? { from } : {}}
                   onClick={() => void markGroupRead(g)}
                 >
                   {issueRowBody}

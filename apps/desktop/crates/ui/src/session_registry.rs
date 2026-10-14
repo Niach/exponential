@@ -1,14 +1,14 @@
-//! EXP-229: on-disk registry of the `coding_sessions` rows THIS install
+//! EXP-229: on-disk registry of the `sessions` rows THIS install
 //! launched, so a relaunched IDE can end the orphans a crash / forced logout /
 //! failed quit-time sweep left `running` on the server.
 //!
 //! Why it exists: [`crate::coding_flow::LocalSessions`] is in-memory only —
 //! a SIGKILL, a panic, or the EXP-229 deploy-logout (token deleted, so the
-//! quit-time `codingSessions.end` could never authenticate) strands rows in
+//! quit-time `sessions.end` could never authenticate) strands rows in
 //! `running`, and every client's start-gate then blocks the issue as "coding
 //! now" until the server's 2h staleness sweep. The registry closes that
 //! window: entries are recorded on [`LocalSessions::insert`], removed when
-//! the row's `codingSessions.end` RESOLVES (EXP-640 — the coding crate's
+//! the row's `sessions.end` RESOLVES (EXP-640 — the coding crate's
 //! [`coding::SessionEndObserver`], installed by [`install_end_observer`],
 //! reports every end's outcome), and whatever survives is reconciled (ended
 //! best-effort, idempotent server-side) the next time the account connects
@@ -66,7 +66,7 @@ use gpui::App;
 use crate::coding_flow::LocalSessions;
 use crate::session::AuthContext;
 
-/// One recorded session: the synced `coding_sessions` row id, the local
+/// One recorded session: the synced `sessions` row id, the local
 /// account that started it (only that account's token can end it), and the
 /// PID of the instance that launched it (EXP-295 — the cross-instance
 /// ownership signal; `None` in pre-EXP-295 files).
@@ -152,15 +152,12 @@ pub(crate) fn remove(data_dir: &Path, session_id: &str) {
     }
 }
 
-/// EXP-640: the outcome of one `codingSessions.end` for a recorded session.
+/// EXP-640: the outcome of one session end (`sessions.end`) for a recorded
+/// session — generic over the payload, which only the error half decides.
 /// Resolved (2xx, or a 4xx meaning swept/foreign) drops the entry; anything
 /// else (transport, 5xx, 401, and the 426 min-version gate —
 /// `ApiError::UpgradeRequired`) keeps it for the next launch's reconcile.
-fn on_end_outcome(
-    data_dir: &Path,
-    session_id: &str,
-    result: &Result<api::coding_sessions::CodingSession, api::ApiError>,
-) {
+fn on_end_outcome<T>(data_dir: &Path, session_id: &str, result: &Result<T, api::ApiError>) {
     if end_outcome_resolves(result) {
         remove(data_dir, session_id);
     } else if let Err(err) = result {
@@ -297,9 +294,7 @@ fn process_is_alive(pid: u32) -> bool {
 /// row already swept, 403 = not ours anymore after an EXP-105 resurrection —
 /// our end can never succeed, stop retrying); transport / 401 / 5xx
 /// (mid-deploy) keep the entry for the next sign-in.
-pub(crate) fn end_outcome_resolves(
-    result: &Result<api::coding_sessions::CodingSession, api::ApiError>,
-) -> bool {
+pub(crate) fn end_outcome_resolves<T>(result: &Result<T, api::ApiError>) -> bool {
     match result {
         Ok(_) => true,
         Err(api::ApiError::Http { status, .. }) => (400..500).contains(status),
@@ -340,7 +335,7 @@ pub(crate) fn reconcile_stale_sessions(account: &api::Account, cx: &mut App) {
     let trpc = api::TrpcClient::new(&account.instance_url, provider);
     std::thread::spawn(move || {
         for id in stale {
-            let result = api::coding_sessions::end(&trpc, &id);
+            let result = api::sessions::end(&trpc, &id);
             match &result {
                 Ok(_) => log::info!("[session-registry] ended stale coding session {id}"),
                 Err(err) => log::warn!(
@@ -573,24 +568,22 @@ mod tests {
 
     #[test]
     fn end_outcome_resolution_matrix() {
-        let session: api::coding_sessions::CodingSession =
-            serde_json::from_str(r#"{"id":"sess-1"}"#).unwrap();
-        assert!(end_outcome_resolves(&Ok(session)));
+        assert!(end_outcome_resolves(&Ok(())));
         for status in [400u16, 403, 404] {
-            assert!(end_outcome_resolves(&Err(api::ApiError::Http {
+            assert!(end_outcome_resolves::<()>(&Err(api::ApiError::Http {
                 status,
                 message: String::new(),
             })));
         }
-        assert!(!end_outcome_resolves(&Err(api::ApiError::Http {
+        assert!(!end_outcome_resolves::<()>(&Err(api::ApiError::Http {
             status: 500,
             message: String::new(),
         })));
-        assert!(!end_outcome_resolves(&Err(api::ApiError::transport("refused"))));
-        assert!(!end_outcome_resolves(&Err(api::ApiError::Unauthorized)));
+        assert!(!end_outcome_resolves::<()>(&Err(api::ApiError::transport("refused"))));
+        assert!(!end_outcome_resolves::<()>(&Err(api::ApiError::Unauthorized)));
         // EXP-640: the min-version gate rejects the CALL, not the session —
         // the row is still `running` and must stay recorded.
-        assert!(!end_outcome_resolves(&Err(api::ApiError::UpgradeRequired)));
+        assert!(!end_outcome_resolves::<()>(&Err(api::ApiError::UpgradeRequired)));
     }
 
     #[test]
@@ -600,9 +593,9 @@ mod tests {
 
         // EXP-640: a 426-gated end (the superseded build's quit-time sweep)
         // keeps the entry for the relaunched build's reconcile.
-        on_end_outcome(&dir.path, "sess-1", &Err(api::ApiError::UpgradeRequired));
+        on_end_outcome::<()>(&dir.path, "sess-1", &Err(api::ApiError::UpgradeRequired));
         assert_eq!(session_ids_for_account(&dir.path, "acct-1"), vec!["sess-1"]);
-        on_end_outcome(
+        on_end_outcome::<()>(
             &dir.path,
             "sess-1",
             &Err(api::ApiError::transport("refused")),
@@ -610,14 +603,12 @@ mod tests {
         assert_eq!(session_ids_for_account(&dir.path, "acct-1"), vec!["sess-1"]);
 
         // A resolved end drops it.
-        let session: api::coding_sessions::CodingSession =
-            serde_json::from_str(r#"{"id":"sess-1"}"#).unwrap();
-        on_end_outcome(&dir.path, "sess-1", &Ok(session));
+        on_end_outcome(&dir.path, "sess-1", &Ok(()));
         assert!(session_ids_for_account(&dir.path, "acct-1").is_empty());
 
         // 404 = already swept server-side: resolved as well.
         record(&dir.path, "sess-2", "acct-1");
-        on_end_outcome(
+        on_end_outcome::<()>(
             &dir.path,
             "sess-2",
             &Err(api::ApiError::Http {
@@ -627,6 +618,6 @@ mod tests {
         );
         assert!(session_ids_for_account(&dir.path, "acct-1").is_empty());
         // Unknown ids are a no-op either way.
-        on_end_outcome(&dir.path, "sess-unknown", &Err(api::ApiError::Unauthorized));
+        on_end_outcome::<()>(&dir.path, "sess-unknown", &Err(api::ApiError::Unauthorized));
     }
 }

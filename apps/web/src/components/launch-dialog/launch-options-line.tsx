@@ -13,8 +13,10 @@ import {
   CLI_DEFAULT_MODEL,
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
-import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
-import { MAX_ISSUES_PER_RUN } from "@/hooks/use-launch-composer"
+import {
+  MAX_ISSUES_PER_RUN,
+  type LaunchComposerModel,
+} from "@/hooks/use-launch-composer"
 import {
   agentAllowsBlankModel,
   agentModelValues,
@@ -25,7 +27,7 @@ import { accountOptionKey } from "@/lib/accounts/account-option"
 
 // EXP-825 (variant B, decided with Danny 2026-09-10): ONE muted line under the
 // composer card — Device, Agent, Model as inline pickers, the Plan switch,
-// the Resume switch when a worktree is resumable (EXP-481), the Repository
+// the Repository
 // picker ONLY while no subject is picked (a chat's anchor, EXP-822), and a
 // `⋯` popover with the rest: Effort, Ultracode (claude), MCP servers
 // (EXP-792). The notes the dialog's option pane used to carry (not ready /
@@ -51,7 +53,8 @@ import { accountOptionKey } from "@/lib/accounts/account-option"
 // EXP-1249: the `⋯` overflow is gone — Effort, Subagents, Ultracode, MCP
 // servers and the new per-run Computer use live in the composer's ONE "+"
 // menu (`composer-plus-menu.tsx`). The line is Device · Account · Model ·
-// Plan · Resume · Repository ×4 (composer-menu.json) and nothing else.
+// Plan · Repository ×4 (composer-menu.json) and nothing else (EXP-1293:
+// Resume is gone; a session resumes by being messaged).
 
 export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   const { launch, candidateDevices, subject } = model
@@ -128,7 +131,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
             launch.setModel(value === CLI_DEFAULT_MODEL ? `` : value)
           }
         />
-        {agentSupportsPlanMode(agent) && !model.resumeActive && (
+        {agentSupportsPlanMode(agent) && (
           <Label className="cursor-pointer gap-1.5 font-normal">
             <span>Plan</span>
             <Switch
@@ -136,22 +139,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
               checked={launch.planMode}
               onCheckedChange={launch.setPlanMode}
               aria-label="Plan mode"
-            />
-          </Label>
-        )}
-        {model.resumeCandidate && (
-          /* EXP-481: a resumed session never re-enters plan mode, so the Plan
-             switch hides behind an armed resume (the desktop's clamp). */
-          <Label
-            className="gap-1.5 font-normal"
-            title={`A worktree for ${model.resumeCandidate.identifier} already exists (${model.resumeCandidate.branch}).`}
-          >
-            <span>Resume</span>
-            <Switch
-              size="sm"
-              checked={model.resume}
-              onCheckedChange={model.setResume}
-              aria-label="Resume previous session"
             />
           </Label>
         )}

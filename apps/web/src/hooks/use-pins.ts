@@ -4,14 +4,12 @@ import { toast } from "@exp/ui"
 import type { PinKind } from "@exp/db-schema/domain"
 import {
   actionCollection,
-  codingSessionCollection,
   issueCollection,
   pinCollection,
 } from "@/lib/collections"
-import { sessionIdentity } from "@/lib/session-identity"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import { trpc } from "@/lib/trpc-client"
-import type { CodingSession, Issue, Pin, SyncedAction } from "@/db/schema"
+import type { Issue, Pin, SyncedAction } from "@/db/schema"
 
 // EXP-778: personal pins — the sidebar's "Pinned" group. The `pins` shape is
 // per USER (static `user_id = me`), so the collection only ever holds the
@@ -113,46 +111,18 @@ export type PinnedEntry =
       identifier: string
       title: string
     }
-  | {
-      pin: Pin
-      kind: `session`
-      session: CodingSession
-      issue: Issue | null
-      identifier: string | null
-      title: string
-    }
   | { pin: Pin; kind: `action`; action: SyncedAction; title: string }
 
 export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
   const pins = useTeamPins(teamId)
   const boards = useTeamBoards(teamId)
-  const sessionIds = useMemo(
-    () => pins.flatMap((pin) => (pin.sessionId ? [pin.sessionId] : [])),
+  // EXP-1293: a pinned SESSION resolves to nothing — the old coding-session
+  // rows are gone, and a thread lives in the Threads list and Running.
+  const issueIds = useMemo(
+    () =>
+      [...new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : [])))].sort(),
     [pins]
   )
-  const { data: sessions } = useLiveQuery(
-    (query) =>
-      sessionIds.length > 0
-        ? query
-            .from({ s: codingSessionCollection })
-            .where(({ s }) => inArray(s.id, sessionIds))
-        : undefined,
-    [sessionIds.join(`,`)]
-  )
-  // The pinned issues PLUS the pinned sessions' issues, so a session row can
-  // name its identifier (the Sessions group's rule) — and, for a pinned BATCH,
-  // the issues it covers (EXP-876), which is all that tells it apart from
-  // every other batch. Only the ids the row STORED: a pinned batch old enough
-  // to have none keeps the generic label rather than earning this hook a
-  // second query.
-  const issueIds = useMemo(() => {
-    const ids = new Set(pins.flatMap((pin) => (pin.issueId ? [pin.issueId] : [])))
-    for (const session of (sessions ?? []) as CodingSession[]) {
-      if (session.issueId) ids.add(session.issueId)
-      for (const id of session.batchIssueIds ?? []) ids.add(id)
-    }
-    return [...ids].sort()
-  }, [pins, sessions])
   const { data: issues } = useLiveQuery(
     (query) =>
       issueIds.length > 0
@@ -177,12 +147,6 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
     const issuesById = new Map(
       ((issues ?? []) as Issue[]).map((issue) => [issue.id, issue])
     )
-    const sessionsById = new Map(
-      ((sessions ?? []) as CodingSession[]).map((session) => [
-        session.id,
-        session,
-      ])
-    )
     const actionsById = new Map(
       ((actions ?? []) as SyncedAction[]).map((action) => [action.id, action])
     )
@@ -202,28 +166,6 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
           },
         ]
       }
-      if (pin.kind === `session` && pin.sessionId) {
-        const session = sessionsById.get(pin.sessionId)
-        if (!session) return []
-        const issue = session.issueId
-          ? (issuesById.get(session.issueId) ?? null)
-          : null
-        const identity = sessionIdentity({
-          session,
-          issue: issue ?? undefined,
-          batchIssues: [...issuesById.values()],
-        })
-        return [
-          {
-            pin,
-            kind: `session`,
-            session,
-            issue,
-            identifier: identity.identifier,
-            title: identity.subject,
-          },
-        ]
-      }
       if (pin.kind === `action` && pin.actionId) {
         const action = actionsById.get(pin.actionId)
         if (!action) return []
@@ -231,5 +173,5 @@ export function usePinnedEntries(teamId: string | undefined): PinnedEntry[] {
       }
       return []
     })
-  }, [pins, boards, issues, sessions, actions])
+  }, [pins, boards, issues, actions])
 }

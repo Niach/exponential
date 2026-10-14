@@ -100,39 +100,26 @@ pub enum Screen {
     /// entry stays lit; context-free, so a run opened from its Runs shows the
     /// rail and its Back (the history) returns here.
     Action { action_id: String },
-    /// The Chat page (EXP-772 — the web `t/$teamSlug/chat` page: one centred
-    /// prompt box over a subtle row of launch pickers). Tab-less full-page
-    /// mode like Devices; sending starts a chat run and navigates to its
-    /// [`Screen::Session`].
-    Chat,
-    /// EXP-1255: a NEW RUN tab — the strip's "+" (and Cmd+T) opens one,
-    /// hosting the Agent home's column ([`crate::chat_screen`], one view per
-    /// tab keyed by `id`). It is a detail tab like an issue; the run it
-    /// starts takes its place in the strip
-    /// ([`crate::coding_flow::open_landed_session`]).
-    NewRun { id: String },
-    /// The Reviews page (EXP-706 — the web `t/$teamSlug/reviews` page: every
-    /// open PR across the team, issue-linked ones grouped by board plus the
-    /// unlinked ones grouped by repo). It used to be a sidebar TOOL WINDOW
-    /// (a split beside the diff); it is now a tab-less full-page screen like
-    /// Devices / Actions, and the PR diff is the center view its rows open.
-    Reviews,
-    /// One live/ended ACP or remote coding session (EXP-746), keyed by the
-    /// `coding_sessions` ROW id — never the issue, the branch or the tab: a
-    /// resume mints a NEW row, and the two runs are two screens (the resumed
-    /// one takes the old one's tab slot, see `ScreensPanel::sync_session_tabs`).
-    /// EXP-773: EVERY coding run is one of these — there is no terminal
-    /// surface left for a run to live on — which is why every entry point
-    /// funnels through [`crate::session_screen::open_session`] rather than
-    /// navigating here directly. EXP-870: it is the Run face of its issue's
-    /// top tab, or a Run-only top tab for an issue-less run.
+    /// HOME (EXP-1294, was the Chat/Agent page): the composer column — one
+    /// centred prompt box over its launch pickers. Tab-less full-page mode
+    /// like Devices; a send lands on the new thread ([`Screen::Thread`]).
+    Home,
+    /// EXP-1294: the Threads page — the active team's threads in the bands
+    /// Needs you / Running / Recent (`domain::session_tree::partition_threads`).
+    /// Tab-less full-page mode like Devices.
+    Threads,
+    /// EXP-1294: one thread — a ROOT `sessions` row of kind `thread`
+    /// ([`crate::thread_screen`]). A detail tab; the sessions of its tree open
+    /// INSIDE that tab ([`Screen::Session`]), never beside it.
+    Thread { session_id: String },
+    /// EXP-1294: one session of a tree (the raw transcript,
+    /// [`crate::session_screen`]), opened from its card. It shares its ROOT's
+    /// tab: the tab rebinds to it and Back returns to the thread.
     Session { session_id: String },
-    /// EXP-1284: one THREAD — the unit of work holding n issues and m runs
-    /// ([`crate::thread_screen`]): its header, the child strip (Conversation ·
-    /// each issue · "+" · Guide) and the child on show. A detail tab like a
-    /// run; keyed by the `threads` row id, so a resume (which stays in its
-    /// predecessor's thread) never moves it. The dev drive is `thread:<uuid>`.
-    Thread { thread_id: String },
+    /// EXP-1294: one agent's channel — a ROOT `sessions` row of kind `agent`
+    /// ([`crate::agent_screen`]). A detail tab chipped with the agent's
+    /// tinted icon and name.
+    Agent { session_id: String },
     /// One PTY terminal of this window's `TerminalManager` (EXP-769): a plain
     /// shell or an agent login, never a coding run (EXP-773). The
     /// terminal used to live in a sliding bottom dock; it renders FULLSCREEN
@@ -182,47 +169,37 @@ impl Screen {
     }
 
     /// EXP-769: whether the screen's tab lives in the BOTTOM bar rather than
-    /// the top strip. EXP-870: terminals only — a coding run is a face of its
-    /// issue's top tab (or a top tab of its own), and the bottom bar is this
-    /// machine's processes.
+    /// the top strip. EXP-870: terminals only — a session lives in its
+    /// thread's top tab, and the bottom bar is this machine's processes.
     pub(crate) fn is_dock_tab(&self) -> bool {
         matches!(self, Screen::Terminal { .. })
     }
 
     /// EXP-288: whether the screen is a DETAIL view — the only kind that
-    /// gets a tab chip. Settings is a tab-less full-screen mode
-    /// (leave via the settings nav's back button, or by clicking any open
-    /// tab — the rail is slid away while it is up, EXP-456); Source
-    /// Control's diff and the file viewer are TOOL-DEFAULT center content
-    /// driven by the sidebar selection, never tabs. EXP-480: Actions is a
-    /// tab-less full-page mode too — the rail stays (its Actions entry
-    /// highlights like a tool window's) but the tool column unmounts, and
-    /// any rail-tool click or tab click leaves it. (EXP-1154: the review of
-    /// a PR is the issue tab's Changes face; there is no review screen.)
-    /// EXP-746: a coding
-    /// session is a detail tab too — several run at once, and an ended one
-    /// keeps its tab as a read-only transcript instead of closing. EXP-769: so
-    /// is a PTY terminal (its chip sits in the bottom bar, [`Self::is_dock_tab`]).
+    /// gets a tab chip. Settings is a tab-less full-screen mode (leave via
+    /// the settings nav's back button, or by clicking any open tab); Source
+    /// Control's diff and the file viewer are TOOL-DEFAULT center content,
+    /// never tabs; Home, Threads, Actions and Devices are tab-less pages.
+    /// EXP-1294: a thread, a session of its tree (sharing the thread's tab)
+    /// and an agent's channel are detail tabs. EXP-769: so is a PTY terminal
+    /// (its chip sits in the bottom bar, [`Self::is_dock_tab`]).
     pub(crate) fn is_detail(&self) -> bool {
         matches!(
             self,
             Screen::IssueDetail { .. }
                 | Screen::Session { .. }
                 | Screen::Thread { .. }
+                | Screen::Agent { .. }
                 | Screen::Terminal { .. }
-                | Screen::NewRun { .. }
         )
     }
 
     /// EXP-851: whether this screen can carry the LIST it was opened from —
-    /// an issue and a coding run. EXP-1246: only the Inbox lends one by
-    /// screen ([`Self::list_origin`]); Agent › Recent pins its own
-    /// ([`recent_runs_origin`]); what it buys is the second sidebar in the
-    /// content card ([`second_sidebar_for`]). The Agent page and the New
-    /// issue page carry nothing any more; a terminal never did (EXP-791/870).
+    /// an issue, a thread and a session of it. EXP-1246: only the Inbox lends
+    /// one ([`Self::list_origin`]); what it buys is the second sidebar in the
+    /// content card ([`second_sidebar_for`]). Home, an agent's channel and the
+    /// New issue page carry nothing; a terminal never did (EXP-791/870).
     pub(crate) fn carries_list(&self) -> bool {
-        // EXP-1284: a thread opened from Agent › Recent keeps that list
-        // beside it, like the runs it replaced there.
         matches!(
             self,
             Screen::IssueDetail { .. } | Screen::Session { .. } | Screen::Thread { .. }
@@ -231,10 +208,10 @@ impl Screen {
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
     /// detail opened from it inherits. EXP-1246: the Inbox alone — the one
-    /// list SCREEN that stays beside its detail as a second sidebar. Reviews
-    /// opens its PRs full width (Back returns to it through history), a board
-    /// its issues, and everything else — Settings, Devices, Actions, the
-    /// Agent page, Files, any detail — is context-free.
+    /// list SCREEN that stays beside its detail as a second sidebar. Threads
+    /// opens its rows full width (Back returns to it through history), a
+    /// board its issues, and everything else — Settings, Devices, Actions,
+    /// Home, Files, any detail — is context-free.
     pub(crate) fn list_origin(&self) -> Option<TabOrigin> {
         use crate::sidebar::ToolWindow;
         match self {
@@ -245,17 +222,6 @@ impl Screen {
             }),
             _ => None,
         }
-    }
-}
-
-/// EXP-1246 — the origin a run opened from Agent › Recent carries, so the
-/// Recent list stays beside it ([`SecondSidebar::RecentRuns`], list-detail
-/// like the Inbox).
-pub(crate) fn recent_runs_origin() -> TabOrigin {
-    TabOrigin {
-        tool: crate::sidebar::ToolWindow::RecentRuns,
-        board_id: None,
-        inbox_tab: None,
     }
 }
 
@@ -276,7 +242,7 @@ pub(crate) struct TabOrigin {
 }
 
 impl TabOrigin {
-    /// EXP-890: whether this origin names `screen` ITSELF — the Agent page
+    /// EXP-890: whether this origin names `screen` ITSELF — a page
     /// carrying its own sessions list. That list would sit twice (column and
     /// centre) behind a back row that goes nowhere, so it is never carried.
     pub(crate) fn is_list_of(&self, screen: &Screen) -> bool {
@@ -301,10 +267,6 @@ pub(crate) enum PendingOrigin {
     /// sidebar for as long as it runs, so a chip for it would be a second
     /// copy of the same row that the run's end then leaves behind.
     LiveRail,
-    /// EXP-1248: an in-place swap of the tab showing `0` (the screen being
-    /// replaced) — a Stack card pick rebinds that tab to the picked member
-    /// instead of growing the strip by one chip per step.
-    ReplaceTab(Screen),
 }
 
 /// EXP-851: the ONE rule for which LIST a freshly opened detail carries —
@@ -314,7 +276,7 @@ pub(crate) enum PendingOrigin {
 ///   comes along, so the detail sits beside the rows it was picked from.
 /// * Opened from another detail that already CARRIES a list (an inbox issue
 ///   → its coding run): the list is inherited, one layer at a time.
-/// * Opened from anywhere ELSE — a board, the rail, the Agent page, a
+/// * Opened from anywhere ELSE — a board, the rail, Home, a
 ///   context-free page, Settings, a deep link at boot: NO list.
 ///
 /// `previous` is the screen navigated away from, `previous_origin` the list
@@ -338,38 +300,44 @@ pub(crate) fn derive_origin(
     origin.filter(|origin| !origin.is_list_of(target))
 }
 
-/// EXP-1192/EXP-1246: the two deliberate SECOND sidebars, drawn inside the
-/// content card beside the active screen (the root sidebar never folds any
-/// more). Both are list-detail: the list stays, a pick opens to its right.
+/// EXP-1192/EXP-1246: the deliberate SECOND sidebar, drawn inside the
+/// content card beside the active screen (the root sidebar never folds).
+/// List-detail: the list stays, a pick opens to its right. EXP-1294: the
+/// Inbox is the only one left (Agent › Recent went with the run lists).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SecondSidebar {
     /// The notification stream (+ My Issues) — always up on the Inbox, and
     /// beside every detail opened from it.
     Inbox,
-    /// The Agent page's Recent runs, behind its history button, and beside
-    /// every run opened from it.
-    RecentRuns,
 }
 
 /// EXP-1192: which [`SecondSidebar`] the card shows for `screen`, given the
-/// list it carries (`origin`) and the window's Recent-runs flag. Pure, so the
-/// whole table is a unit test. Boards, Settings, terminals and every full
-/// page show none.
+/// list it carries (`origin`). Pure, so the whole table is a unit test.
+/// Boards, Settings, terminals and every full page show none.
 pub(crate) fn second_sidebar_for(
     screen: Option<&Screen>,
     origin: Option<&TabOrigin>,
-    recent_runs: bool,
 ) -> Option<SecondSidebar> {
     use crate::sidebar::ToolWindow;
     match screen? {
         Screen::Inbox { .. } => Some(SecondSidebar::Inbox),
-        Screen::Chat => recent_runs.then_some(SecondSidebar::RecentRuns),
         screen if screen.carries_list() => match origin?.tool {
             ToolWindow::Inbox => Some(SecondSidebar::Inbox),
-            ToolWindow::RecentRuns => Some(SecondSidebar::RecentRuns),
             _ => None,
         },
         _ => None,
+    }
+}
+
+/// EXP-1294: the screen a `sessions` row opens as — a thread root its
+/// thread, an agent root its channel, any other session (and a row that has
+/// not synced yet) its session view, which shares its root's tab.
+pub(crate) fn session_screen_for(session_id: &str, cx: &App) -> Screen {
+    let session_id = session_id.to_string();
+    match crate::session_data::session(&session_id, cx) {
+        Some(row) if row.is_root() && row.is_agent() => Screen::Agent { session_id },
+        Some(row) if row.is_root() => Screen::Thread { session_id },
+        _ => Screen::Session { session_id },
     }
 }
 
@@ -404,8 +372,11 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
         Screen::Session { session_id } => session_tab_title(session_id, cx),
-        // EXP-1284: the thread's view title (`Thread` while it syncs).
-        Screen::Thread { thread_id } => crate::threads::thread_title(thread_id, cx),
+        // EXP-1294: the thread's title (the fixture's `untitled` while the
+        // root syncs).
+        Screen::Thread { session_id } => thread_tab_title(session_id, cx),
+        // EXP-1294: the agent's name.
+        Screen::Agent { session_id } => agent_tab_title(session_id, cx),
         // EXP-769: the manager's live tab title (OSC-updated), looked up
         // across this process's windows — a tab id is process-unique.
         Screen::Terminal { tab } => crate::session_bar::terminal_tab_title(*tab, cx)
@@ -439,9 +410,8 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .and_then(|row| row.name.clone())
             .map(gpui::SharedString::from)
             .unwrap_or_else(|| "Action".into()),
-        Screen::Chat => "Chat".into(),
-        Screen::NewRun { .. } => NEW_RUN_TITLE.into(),
-        Screen::Reviews => "Reviews".into(),
+        Screen::Home => "Home".into(),
+        Screen::Threads => domain::session_tree::THREADS_LIST.copy.title.clone().into(),
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
         Screen::ExponentialUiDevices => "Devices · Exponential UI".into(),
         Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
@@ -460,71 +430,59 @@ fn issue_tab_title(issue: &domain::rows::Issue) -> gpui::SharedString {
     }
 }
 
-/// A coding session's tab label (EXP-746) — the SAME identity the session
-/// screen's header shows (`steer_viewer::SteerSessionView::identity`, itself
-/// the web `sessionIdentity`): the linked issue's `EXP-42 · title`, else the
-/// action name, else a batch's own `EXP-42 +2 · title` (EXP-876). Every
-/// degrade (no row yet, the issue still syncing) lands on the generic label, like an issue tab's
-/// "Issue" — a tab is chrome, so it never renders a transient status string.
+/// EXP-1294: a thread tab's label — `domain::session_tree::thread_title`
+/// over the synced root (`ui::session_data`), the fixture's `untitled` while
+/// the root syncs. A tab is chrome, so it never renders a transient string.
+fn thread_tab_title(root_id: &str, cx: &App) -> gpui::SharedString {
+    Store::try_global(cx)
+        .and_then(|_| crate::session_data::thread_title_of(root_id, cx))
+        .unwrap_or_else(|| domain::session_tree::THREAD.copy.untitled.clone())
+        .into()
+}
+
+/// EXP-1294: a session's label — its tree's first linked issue identifier
+/// and the thread's title (`EXP-42 · title`), the root being what the tab
+/// shares; `Session` while the row syncs.
 fn session_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
-    let Some(store) = Store::try_global(cx) else {
+    let Some(root) = Store::try_global(cx).and_then(|_| crate::session_data::root_of(session_id, cx))
+    else {
         return "Session".into();
     };
-    let collections = store.collections();
-    let Some(row) = collections.coding_sessions.read(cx).get(session_id).cloned() else {
-        return "Session".into();
-    };
-    if let Some(issue_id) = row.issue_id.as_deref() {
-        let Some(issue) = collections.issues.read(cx).get(issue_id) else {
-            return "Session".into();
-        };
-        let title = issue.title.trim();
-        if title.is_empty() {
-            return gpui::SharedString::from(issue.identifier.clone());
-        }
-        return gpui::SharedString::from(format!("{} · {title}", issue.identifier));
-    }
-    // EXP-908: a chat run reads the agent's auto-named title, else "Chat".
-    if let Some(subject) = domain::batch_run::action_run_subject(&row) {
-        return gpui::SharedString::from(subject.trim().to_string());
-    }
-    // An issue-less, action-less run is a batch (`exp/batch-<id8>`): EXP-876
-    // names it after the issues it covers, `EXP-42 · title` like an issue tab.
-    let name = domain::batch_run::batch_run_name(&row, collections.issues.read(cx).iter());
-    match name.identifier {
-        Some(identifier) => gpui::SharedString::from(format!("{identifier} · {}", name.subject)),
-        None => gpui::SharedString::from(name.subject),
+    let title = thread_tab_title(&root.id, cx);
+    match crate::session_data::first_issue_identifier(&root.id, cx) {
+        Some(identifier) => format!("{identifier} · {title}").into(),
+        None => title,
     }
 }
 
-/// EXP-825: what a play button hands the Agent page's composer — the
-/// desktop twin of the web `/t/$teamSlug/agent` search params (`issues`,
-/// `action`, `device`, `pr`, `text`, `icon`) and the mobile `AgentComposerSeed`.
-/// Consumed ONCE by `ChatScreenView` ([`take_pending_chat_seed`]); every
-/// field is optional, an action wins over issues when both arrive.
+/// EXP-1294: an agent channel's label — the agent's name, `Agent` while the
+/// root syncs (or carries none).
+fn agent_tab_title(session_id: &str, cx: &App) -> gpui::SharedString {
+    Store::try_global(cx)
+        .and_then(|_| crate::session_data::session(session_id, cx))
+        .and_then(|row| row.name)
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .map(gpui::SharedString::from)
+        .unwrap_or_else(|| "Agent".into())
+}
+
+/// EXP-825: what a play button hands Home's composer — the desktop twin of
+/// the web `/t/$teamSlug/agent` search params (`issues`, `action`, `device`,
+/// `text`) and the mobile `AgentComposerSeed`. Consumed ONCE by
+/// `ChatScreenView` ([`take_pending_chat_seed`]); every field is optional,
+/// an action wins over issues when both arrive.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct ChatSeed {
-    /// Issues to pre-check (1 = Start coding, 2+ = a batch).
+    /// Issues to link to the new thread.
     pub(crate) issue_ids: Vec<String>,
-    /// The action to pre-pick (a row id or a builtin literal).
+    /// The saved action (prompt) to pre-pick.
     pub(crate) action_id: Option<String>,
     /// The machine to preselect in the Device pick (the `?device=` deep
     /// link — EXP-909 retired the machines row's ▶).
     pub(crate) device_id: Option<String>,
-    /// The representative issue of an open PR — fills the fix-conflicts
-    /// builtin's `pr` input.
-    pub(crate) pr_issue_id: Option<String>,
     /// Text inserted into an EMPTY draft (a suggestion's brief).
     pub(crate) text: Option<String>,
-    /// A curated icon name seeding the Create-action builtin's `icon` pick.
-    pub(crate) icon: Option<String>,
-    /// FEED-50: the board a Tidy up start cleans — fills the Tidy up
-    /// builtin's `board` input (the board list's quick-action button).
-    pub(crate) board_id: Option<String>,
-    /// EXP-1233: a merge refused by a REAL conflict opened this seed (web
-    /// `?conflict=1`) — the fix-conflicts card adds its refusal line. Only
-    /// meaningful on the fix-conflicts builtin; [`Self::with_conflict`] sets it.
-    pub(crate) conflict: bool,
 }
 
 impl ChatSeed {
@@ -544,38 +502,11 @@ impl ChatSeed {
         }
     }
 
-    /// FEED-50: the board list's Tidy up button — the Tidy up builtin as the
-    /// composer's subject with its `board` input set to that board.
-    pub(crate) fn tidy_up(board_id: impl Into<String>) -> Self {
-        Self {
-            action_id: Some(api::actions::BUILTIN_TIDY_UP_ID.to_string()),
-            board_id: Some(board_id.into()),
-            ..Default::default()
-        }
-    }
-
-    /// The fix-conflicts builtin with its PR preselected (the action picker's
-    /// PR row, the styleguide); `conflict` stays false.
-    pub(crate) fn fix_conflicts(pr_issue_id: impl Into<String>) -> Self {
-        Self {
-            action_id: Some(api::actions::BUILTIN_FIX_CONFLICTS_ID.to_string()),
-            pr_issue_id: Some(pr_issue_id.into()),
-            ..Default::default()
-        }
-    }
-
-    /// EXP-1233: the same seed, flagged as opened by a conflict-refused
-    /// merge (the Merge slot, the Reviews rows) — the card says why.
-    pub(crate) fn with_conflict(mut self) -> Self {
-        self.conflict = true;
-        self
-    }
-
     /// EXP-1037 — the ONE rule that decides where this seed opens (×4): a
     /// seed carrying a SUBJECT (issues or an action) opens the composer
     /// PREFILLED in a dialog, so the thing you pressed ▶ on is visibly one
-    /// confirm away; a subject-less seed (the Chat button, the rail's Agent
-    /// entry) still opens the Agent SCREEN, where the composer is the page.
+    /// confirm away; a subject-less seed (the rail's Home entry) opens the
+    /// Home SCREEN, where the composer is the page.
     pub(crate) fn has_subject(&self) -> bool {
         !self.issue_ids.is_empty() || self.action_id.is_some()
     }
@@ -722,16 +653,11 @@ pub struct Navigation {
     /// [`set_screen`]/[`go_back`]/[`switch_team`] so tab activation never
     /// rewrites a tab's remembered origin.
     pending_origin: Option<PendingOrigin>,
-    /// EXP-825: the composer preselection the next `Screen::Chat` render
-    /// consumes ([`take_pending_chat_seed`]). Set by [`navigate_to_chat`]
-    /// (and the dev `chat?…` route); cleared wherever `pending_origin` is,
-    /// so a tab click or go-back never replays a stale seed.
+    /// EXP-825: the composer preselection the next `Screen::Home` render
+    /// consumes ([`take_pending_chat_seed`]). Set by [`navigate_to_chat`];
+    /// cleared wherever `pending_origin` is, so a tab click or go-back never
+    /// replays a stale seed.
     pending_chat_seed: Option<ChatSeed>,
-    /// EXP-923: the Agent page's history panel is showing
-    /// ([`SecondSidebar::RecentRuns`], EXP-1192). Per window, never persisted, and
-    /// cleared by every screen change — the panel opens on the Chat screen,
-    /// by its own button, and nowhere else.
-    recent_runs: bool,
     /// EXP-1212: the New issue page's hold ([`LeaveGuard`]); every screen
     /// change in this module asks [`leave_hold`] first.
     leave_guard: Option<LeaveGuard>,
@@ -747,10 +673,6 @@ impl Navigation {
         // DEV-ONLY (EXP-851): `EXP_DEV_TOOL` beside a detail `EXP_DEV_SCREEN`
         // is the capture run asking for that list in the LEFT column.
         let pending_origin = dev_tab_origin(screen.as_ref()).map(PendingOrigin::Explicit);
-        // DEV-ONLY (EXP-1192): `EXP_DEV_SCREEN=chat EXP_DEV_TOOL=history`
-        // opens the Agent page with its Recent runs sidebar showing.
-        let recent_runs = matches!(screen, Some(Screen::Chat))
-            && std::env::var("EXP_DEV_TOOL").is_ok_and(|tool| tool.trim() == "history");
         Self {
             // DEV-ONLY (§11.4 headless verification, same family as
             // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a team and/or
@@ -770,14 +692,7 @@ impl Navigation {
                 .filter(|id| !id.is_empty()),
             repo_picks: HashMap::new(),
             pending_origin,
-            recent_runs,
-            // DEV-ONLY (EXP-825): `EXP_DEV_SCREEN='chat?issues=a,b&action=…'`
-            // seeds the composer the way a play button would, so a capture
-            // run photographs the chips without synthetic input.
-            pending_chat_seed: std::env::var("EXP_DEV_SCREEN")
-                .ok()
-                .as_deref()
-                .and_then(parse_dev_chat_seed),
+            pending_chat_seed: None,
             leave_guard: None,
         }
     }
@@ -833,8 +748,6 @@ impl Navigation {
         self.screen = Some(previous.clone());
         self.pending_origin = None;
         self.pending_chat_seed = None;
-        // EXP-923: the history panel closes with the screen it was opened on.
-        self.recent_runs = false;
         Some(previous)
     }
 
@@ -859,8 +772,6 @@ impl Navigation {
         // A real navigation forks history: the forward stack is gone.
         self.forward_stack.clear();
         self.pending_origin = Some(origin);
-        // EXP-923: the history panel closes with the screen it was opened on.
-        self.recent_runs = false;
     }
 
     /// EXP-1170: the pure rule behind [`navigate_replace`] — swap the CURRENT
@@ -871,7 +782,6 @@ impl Navigation {
         self.screen = Some(screen);
         self.forward_stack.clear();
         self.pending_origin = Some(origin);
-        self.recent_runs = false;
     }
 
     /// EXP-1170: the pure rule behind [`set_draft_board`] — every entry for
@@ -910,8 +820,6 @@ impl Navigation {
         self.screen = Some(next.clone());
         self.pending_origin = None;
         self.pending_chat_seed = None;
-        // EXP-923: the history panel closes with the screen it was opened on.
-        self.recent_runs = false;
         Some(next)
     }
 }
@@ -919,23 +827,13 @@ impl Navigation {
 /// DEV-ONLY `EXP_DEV_SCREEN` values: `settings` | `account` | `devices` |
 /// `drafts` | `draft` (EXP-1170: a fresh New issue page, active board) |
 /// `actions` | `action:<uuid>` (SLOP-2: one action's page) | `usage` |
-/// `board-issues` | `inbox` |
-/// `inbox-my-issues` | `files` | `source-control` (EXP-851 — the
-/// list screens the rail's tool windows became) | `chat` | `chat?<seed>` (EXP-825:
-/// `issues=<a>,<b>&action=<id>&pr=<issue>&device=<id>&text=<url-encoded>`
-/// &icon=<name>`, any subset — [`parse_dev_chat_seed`]) | `reviews` |
-/// `issue:<uuid>` | `issue:<uuid>?face=changes|diff|results`
-/// (EXP-1154: the issue tab on that face — the review of its PR is the
-/// Changes face, [`parse_dev_issue_face`]) | `session:<uuid>` (a coding session, keyed by
-/// its `coding_sessions` ROW id — EXP-746) | `thread:<uuid>` (EXP-1284: one
-/// thread, keyed by its `threads` row id) | `styleguide:<entry id>` (EXP-1259:
-/// one IDE styleguide entry, full-window) (anything else = no pre-route).
+/// `board-issues` | `inbox` | `inbox-my-issues` | `files` | `source-control`
+/// (EXP-851 — the list screens the rail's tool windows became) | `home` |
+/// `threads` | `issue:<uuid>` | `thread:<uuid>` / `session:<uuid>` /
+/// `agent:<uuid>` (EXP-1294: one `sessions` row — a thread root, any session
+/// of a tree, an agent root) | `styleguide:<entry id>` (EXP-1259: one IDE
+/// styleguide entry, full-window) (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
-    // EXP-825: the seeded composer route — the query is parsed separately
-    // into the nav's `pending_chat_seed`.
-    if spec.starts_with("chat?") {
-        return Some(Screen::Chat);
-    }
     match spec {
         "settings" => Some(Screen::Settings),
         // EXP-238: Account merged into Settings — the dev value keeps working.
@@ -953,9 +851,9 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         // EXP-818: Usage folded into Devices (its Accounts section); the old
         // dev value lands there.
         "usage" => Some(Screen::Devices),
-        "chat" => Some(Screen::Chat),
-        // EXP-706: Reviews left the rail's tool windows for its own page.
-        "reviews" => Some(Screen::Reviews),
+        "home" => Some(Screen::Home),
+        // EXP-1294: the Threads page.
+        "threads" => Some(Screen::Threads),
         // EXP-851: the four list screens the rail's tool windows became. A
         // board takes the window's ACTIVE board (the empty `board_id`
         // sentinel, resolved at render time) so `EXP_DEV_BOARD_ID` still
@@ -981,11 +879,15 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             Some(Screen::ExponentialUiSpecimen { id: id.to_string() })
         }
         _ => {
-            if let Some(rest) = spec.strip_prefix("issue:") {
-                // EXP-1154: `?face=…` picks the tab's face, never the id.
-                let id = rest.split_once('?').map_or(rest, |(id, _)| id);
+            if let Some(id) = spec.strip_prefix("issue:") {
                 return Some(Screen::IssueDetail {
                     issue_id: id.to_string(),
+                });
+            }
+            // EXP-1294: the three `sessions` rows a tab can show.
+            if let Some(id) = spec.strip_prefix("thread:") {
+                return Some(Screen::Thread {
+                    session_id: id.to_string(),
                 });
             }
             if let Some(id) = spec.strip_prefix("session:") {
@@ -993,10 +895,9 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                     session_id: id.to_string(),
                 });
             }
-            // EXP-1284: one thread (views `thread` / `thread-runs`).
-            if let Some(id) = spec.strip_prefix("thread:") {
-                return Some(Screen::Thread {
-                    thread_id: id.to_string(),
+            if let Some(id) = spec.strip_prefix("agent:") {
+                return Some(Screen::Agent {
+                    session_id: id.to_string(),
                 });
             }
             // EXP-1259: one IDE styleguide entry, full-window.
@@ -1004,112 +905,12 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 return crate::styleguide::entries::find(id)
                     .map(|entry| Screen::StyleguideEntry { id: entry.id.to_string() });
             }
-            // SLOP-2: one action's page (Prompt · Triggers · Runs).
+            // SLOP-2: one action's page.
             spec.strip_prefix("action:").map(|id| Screen::Action {
                 action_id: id.to_string(),
             })
         }
     }
-}
-
-/// EXP-1154 (DEV-ONLY): the face an `issue:<uuid>?face=<face>` spec opens
-/// the issue tab on — `guide` (legacy `changes`/`diff`/`results`) = the
-/// Guide, the review of its PR (the shared [`crate::screens::parse_run_face`]
-/// vocabulary). `None` for any other spec, no `face`, or `run`/`transcript`
-/// (an issue tab's own face is the issue).
-pub(crate) fn parse_dev_issue_face(spec: &str) -> Option<crate::screens::RunFace> {
-    let (_, query) = spec.strip_prefix("issue:")?.split_once('?')?;
-    let face = query
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("face="))?;
-    match crate::screens::parse_run_face(Some(face))? {
-        crate::screens::RunFace::Run => None,
-        face => Some(face),
-    }
-}
-
-/// EXP-1154 (DEV-ONLY): the issue whose Guide [`parse_dev_issue_face`] over
-/// `EXP_DEV_SCREEN` opens.
-pub(crate) fn dev_issue_face() -> Option<String> {
-    let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
-    parse_dev_issue_face(spec.trim())?;
-    match parse_dev_screen(spec.trim())? {
-        Screen::IssueDetail { issue_id } => Some(issue_id),
-        _ => None,
-    }
-}
-
-/// EXP-825 (DEV-ONLY): the composer seed of a `chat?k=v&…` spec — the web
-/// route's search params, spelled the same (`issues` csv, `action`, `pr`,
-/// `device`, `text`, `icon`), percent-decoded, `+` as a space (the web
-/// encodes `+` itself, so this is safe). `None` for anything but a `chat?`
-/// spec; a spec with no known key yields an EMPTY seed, which the composer
-/// consumes as a no-op.
-fn parse_dev_chat_seed(spec: &str) -> Option<ChatSeed> {
-    let query = spec.strip_prefix("chat?")?;
-    let mut seed = ChatSeed::default();
-    for pair in query.split('&') {
-        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        let value = percent_decode(value);
-        let value = value.trim();
-        if value.is_empty() {
-            continue;
-        }
-        match key {
-            "issues" => {
-                seed.issue_ids = value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|id| !id.is_empty())
-                    .map(str::to_string)
-                    .collect()
-            }
-            "action" => seed.action_id = Some(value.to_string()),
-            "pr" => seed.pr_issue_id = Some(value.to_string()),
-            "device" => seed.device_id = Some(value.to_string()),
-            "text" => seed.text = Some(value.to_string()),
-            "icon" => seed.icon = Some(value.to_string()),
-            // FEED-50: `chat?action=builtin:tidy-up&board=<uuid>`.
-            "board" => seed.board_id = Some(value.to_string()),
-            // EXP-1233: `chat?action=builtin:fix-conflicts&pr=<uuid>&conflict=1`.
-            "conflict" => seed.conflict = value == "1" || value == "true",
-            _ => {}
-        }
-    }
-    Some(seed)
-}
-
-/// `%XX` → byte, `+` → space; malformed escapes are kept verbatim.
-fn percent_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut at = 0;
-    while at < bytes.len() {
-        match bytes[at] {
-            b'+' => {
-                out.push(b' ');
-                at += 1;
-            }
-            b'%' if at + 2 < bytes.len() => {
-                let hex = std::str::from_utf8(&bytes[at + 1..at + 3]).unwrap_or("");
-                match u8::from_str_radix(hex, 16) {
-                    Ok(byte) => {
-                        out.push(byte);
-                        at += 3;
-                    }
-                    Err(_) => {
-                        out.push(b'%');
-                        at += 1;
-                    }
-                }
-            }
-            byte => {
-                out.push(byte);
-                at += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// DEV-ONLY back-compat for capture runs (EXP-706/EXP-851): the rail's tool
@@ -1132,11 +933,8 @@ pub(crate) fn dev_tool_screen(spec: &str) -> Option<Screen> {
         }),
         "files" => Some(Screen::Files),
         "source-control" => Some(Screen::SourceControl),
-        // EXP-818: the Agent page (its sessions list is the page now).
-        // EXP-1192: `history` = the same page with Recent runs beside it.
-        "sessions" | "agent" | "history" => Some(Screen::Chat),
-        // EXP-706: Reviews was a tool window once.
-        "reviews" => Some(Screen::Reviews),
+        // EXP-818: the Agent page, HOME since EXP-1294.
+        "sessions" | "agent" => Some(Screen::Home),
         _ => None,
     }
 }
@@ -1149,9 +947,8 @@ fn legacy_tool_screen() -> Option<Screen> {
 /// DEV-ONLY (EXP-851): the LIST a capture run wants beside a detail screen.
 /// `EXP_DEV_TOOL` names a list and `EXP_DEV_SCREEN` a detail (`issue:…`,
 /// `session:…`), so it seeds the first navigation's explicit origin — the
-/// second sidebar (EXP-1192: `inbox`/`my-issues`/`reviews`; a board lends
-/// none). `None` whenever either half is missing or the screen carries no
-/// list.
+/// second sidebar (EXP-1192: `inbox`/`my-issues`; a board lends none).
+/// `None` whenever either half is missing or the screen carries no list.
 fn dev_tab_origin(screen: Option<&Screen>) -> Option<TabOrigin> {
     if !screen?.carries_list() {
         return None;
@@ -1490,7 +1287,7 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
     };
     // EXP-870: with no explicit screen yet (a fresh window, a team switch,
     // the last tab closed) the window SHOWS the default screen (EXP-1192: the
-    // Agent page) — read it BEFORE the update (re-entering the nav inside it
+    // Home) — read it BEFORE the update (re-entering the nav inside it
     // would double-borrow) so it enters history like any screen, and Back
     // from the first navigation returns there.
     let fallback = if nav.read(cx).screen.is_none() {
@@ -1509,16 +1306,10 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
 /// new screen derives from the back stack's top, the screen the replaced one
 /// was opened from.
 pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
-    navigate_replace_inner(window, cx, screen, false);
+    navigate_replace_inner(window, cx, screen);
 }
 
-/// EXP-1248: [`navigate_replace`] that also REBINDS the tab showing the
-/// current screen to `screen` (a Stack card pick): one tab, never a new one.
-pub(crate) fn navigate_replace_tab(window: &Window, cx: &mut App, screen: Screen) {
-    navigate_replace_inner(window, cx, screen, true);
-}
-
-fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen, in_place: bool) {
+fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen) {
     if forward_to_owner_shell(window, cx, &screen) {
         return;
     }
@@ -1526,7 +1317,7 @@ fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen, in_plac
         hold(
             window,
             cx,
-            Box::new(move |window, cx| navigate_replace_inner(window, cx, screen, in_place)),
+            Box::new(move |window, cx| navigate_replace_inner(window, cx, screen)),
         );
         return;
     }
@@ -1534,24 +1325,10 @@ fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen, in_plac
         return;
     };
     nav.update(cx, |nav, cx| {
-        let origin = match (in_place, nav.screen.clone()) {
-            (true, Some(current)) => PendingOrigin::ReplaceTab(current),
-            _ => PendingOrigin::Derive,
-        };
-        nav.replace(screen, origin);
+        nav.replace(screen, PendingOrigin::Derive);
         cx.notify();
     });
 }
-
-/// EXP-1255: [`navigate`] that REBINDS the tab holding `replaced` to
-/// `screen` (a New run tab turning into its run's tab), wherever that tab
-/// sits in the strip — one tab, never a new one.
-pub(crate) fn navigate_replacing_tab(window: &Window, cx: &mut App, screen: Screen, replaced: Screen) {
-    navigate_inner(window, cx, screen, PendingOrigin::ReplaceTab(replaced));
-}
-
-/// EXP-1255: a New run tab's chip title (draft 1).
-pub(crate) const NEW_RUN_TITLE: &str = "New session";
 
 /// EXP-1170: the New issue page's board chip moved the draft to `board_id` —
 /// the screen follows (so [`active_board_id`] does), in place: no history
@@ -1567,9 +1344,9 @@ pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, boa
     });
 }
 
-/// EXP-825: open the Agent page's composer with `seed` preselected — what
+/// EXP-825: open Home's composer with `seed` preselected — what
 /// every play button does now (issue detail, the bulk bar, an action's Run,
-/// a machine's ▶, Fix conflicts). The seed lands on the nav the composer
+/// a machine's ▶). The seed lands on the nav the composer
 /// reads and the navigation itself is the ordinary [`navigate`] — EXP-851:
 /// it no longer forces a list column, so a run started from a board's issue
 /// keeps that board beside it all the way into the session.
@@ -1579,17 +1356,10 @@ pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, boa
 /// raised — the `forward_to_owner_shell` shape, only with the seed carried
 /// along (writing it onto the undocked window's nav would lose it).
 pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed) {
-    navigate_to_chat_inner(window, cx, seed, false);
+    navigate_to_chat_inner(window, cx, seed);
 }
 
-/// EXP-870: [`navigate_to_chat`] from the RAIL (a pinned action) — the
-/// composer opens full width and the rail stays; whatever list the previous
-/// screen carried must not slide in beside it.
-pub(crate) fn navigate_to_chat_from_rail(window: &mut Window, cx: &mut App, seed: ChatSeed) {
-    navigate_to_chat_inner(window, cx, seed, true);
-}
-
-fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, from_rail: bool) {
+fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed) {
     // EXP-1037: a seed with a SUBJECT opens the composer prefilled in its own
     // dialog window instead of navigating — the ONE branch for all ten play
     // buttons ([`ChatSeed::has_subject`]). A dialog can open over any window,
@@ -1607,7 +1377,7 @@ fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, fro
             // update silently no-ops.
             cx.defer(move |cx| {
                 let _ = owner.update(cx, |_, window, cx| {
-                    navigate_to_chat_inner(window, cx, seed.clone(), from_rail);
+                    navigate_to_chat_inner(window, cx, seed.clone());
                     window.activate_window();
                 });
             });
@@ -1615,16 +1385,16 @@ fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, fro
         }
     }
     // EXP-1212: held BEFORE the seed lands, so a cancelled leave leaves no
-    // stale seed for the next Agent page.
-    if let Some(hold) = leave_hold(window, cx, Some(&Screen::Chat)) {
+    // stale seed for the next Home.
+    if let Some(hold) = leave_hold(window, cx, Some(&Screen::Home)) {
         hold(
             window,
             cx,
-            Box::new(move |window, cx| navigate_to_chat_inner(window, cx, seed, from_rail)),
+            Box::new(move |window, cx| navigate_to_chat_inner(window, cx, seed)),
         );
         return;
     }
-    // EXP-851: NO list forcing. The Agent page is a full-width screen and
+    // EXP-851: NO list forcing. Home is a full-width screen and
     // carries no list (EXP-1192), nor does the session the composer starts.
     if let Some(nav) = nav_for_window_readonly(window, cx) {
         nav.update(cx, |nav, cx| {
@@ -1632,12 +1402,7 @@ fn navigate_to_chat_inner(window: &mut Window, cx: &mut App, seed: ChatSeed, fro
             cx.notify();
         });
     }
-    let origin = if from_rail {
-        PendingOrigin::Rail
-    } else {
-        PendingOrigin::Derive
-    };
-    navigate_inner(window, cx, Screen::Chat, origin);
+    navigate_inner(window, cx, Screen::Home, PendingOrigin::Derive);
 }
 
 /// EXP-825: consume the composer seed (`None` = nothing pending). The chat
@@ -1649,17 +1414,6 @@ pub(crate) fn take_pending_chat_seed(nav: &Entity<Navigation>, cx: &mut App) -> 
         return None;
     }
     nav.update(cx, |nav, _| nav.pending_chat_seed.take())
-}
-
-/// EXP-862: PEEK at the pending seed's action — the rail's pinned action rows
-/// light up on the CLICK, and the click writes the seed a beat before the
-/// chat screen mounts and consumes it (`chat_screen::active_action_id` is the
-/// answer from then on). Never consumes.
-pub(crate) fn pending_chat_action_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
-    nav.read(cx)
-        .pending_chat_seed
-        .as_ref()
-        .and_then(|seed| seed.action_id.clone())
 }
 
 /// Consume the pending tab-origin marker (EXP-288). `None` = the screen
@@ -1690,31 +1444,8 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
             nav.screen = screen;
             nav.pending_origin = None;
             nav.pending_chat_seed = None;
-            // EXP-923: the history panel belongs to the Chat screen you
-            // opened it on — leaving closes it.
-            nav.recent_runs = false;
             cx.notify();
         }
-    });
-}
-
-/// EXP-923 — whether this window's Agent page is showing its Recent-runs
-/// panel ([`SecondSidebar::RecentRuns`]).
-pub(crate) fn recent_runs_open(window: &Window, cx: &App) -> bool {
-    nav_for_window_id(window.window_handle().window_id(), cx)
-        .is_some_and(|nav| nav.read(cx).recent_runs)
-}
-
-/// EXP-923 — the Agent page's history button shows the Recent-runs panel, its
-/// back row (EXP-1119) puts it away. Not a navigation (the screen never
-/// changes), so it flips the flag the occupant rule reads and nothing else.
-pub(crate) fn toggle_recent_runs(window: &Window, cx: &mut App) {
-    let Some(nav) = nav_for_window_readonly(window, cx) else {
-        return;
-    };
-    nav.update(cx, |nav, cx| {
-        nav.recent_runs = !nav.recent_runs;
-        cx.notify();
     });
 }
 
@@ -1830,7 +1561,7 @@ pub fn go_forward(window: &Window, cx: &mut App) {
 
 /// Switch the window's active team. Resets the screen + back stack —
 /// screens are team-scoped (a board of team A is meaningless in B);
-/// the default-screen resolution then lands on the Agent page (EXP-1192).
+/// the default-screen resolution then lands on Home (EXP-1192).
 pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
@@ -1852,7 +1583,6 @@ pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
         nav.last_board_id = None;
         nav.pending_origin = None;
         nav.pending_chat_seed = None;
-        nav.recent_runs = false;
         cx.notify();
         true
     });
@@ -2258,11 +1988,11 @@ pub fn resolved_screen(nav: &Entity<Navigation>, cx: &App) -> Option<Screen> {
     default_screen(!collections.boards_in_team(&team_id, cx).is_empty())
 }
 
-/// EXP-1192/EXP-1253: the landing screen — the Agent page, HOME, with or
+/// EXP-1192/EXP-1253: the landing screen — HOME, with or
 /// without a board (a board-less team's home carries the Getting started
 /// block, whose first card creates one). Pure for the test.
 fn default_screen(_team_has_boards: bool) -> Option<Screen> {
-    Some(Screen::Chat)
+    Some(Screen::Home)
 }
 
 /// Whether the teams + boards shapes have seen their first
@@ -2405,15 +2135,14 @@ mod tests {
 
     /// EXP-1037: the ONE routing rule — a seed with a subject (issues or an
     /// action) opens the composer DIALOG, a subject-less one still navigates
-    /// to the Agent screen. Every play button funnels through it.
+    /// to Home. Every play button funnels through it.
     #[test]
     fn only_a_seed_with_a_subject_opens_the_dialog() {
         assert!(!ChatSeed::default().has_subject());
-        // A chat seed may still carry text, a device and an icon.
+        // A plain seed may still carry text and a device.
         let chat = ChatSeed {
             text: Some("hi".into()),
             device_id: Some("dev-1".into()),
-            icon: Some("rocket".into()),
             ..Default::default()
         };
         assert!(!chat.has_subject());
@@ -2422,12 +2151,6 @@ mod tests {
         // An EMPTY issue list is no subject at all.
         assert!(!ChatSeed::issues(Vec::new()).has_subject());
         assert!(ChatSeed::action("act-1").has_subject());
-        assert!(ChatSeed::fix_conflicts("issue-1").has_subject());
-        assert!(ChatSeed::fix_conflicts("issue-1").with_conflict().has_subject());
-        let tidy = ChatSeed::tidy_up("board-1");
-        assert!(tidy.has_subject());
-        assert_eq!(tidy.action_id.as_deref(), Some("builtin:tidy-up"));
-        assert_eq!(tidy.board_id.as_deref(), Some("board-1"));
     }
 
     /// EXP-686: the three full-page rail screens each have their own
@@ -2486,8 +2209,13 @@ mod tests {
             parse_dev_screen("action:act-1"),
             Some(Screen::Action { action_id: "act-1".into() })
         );
-        // EXP-706: Reviews joined them (it was a rail TOOL window before).
-        assert_eq!(parse_dev_screen("reviews"), Some(Screen::Reviews));
+        // EXP-1294: Home and the Threads page; Reviews and the old `chat`
+        // spellings are gone with their screens.
+        assert_eq!(parse_dev_screen("home"), Some(Screen::Home));
+        assert_eq!(parse_dev_screen("threads"), Some(Screen::Threads));
+        assert_eq!(parse_dev_screen("reviews"), None);
+        assert_eq!(parse_dev_screen("chat"), None);
+        assert_eq!(parse_dev_screen("chat?issues=a"), None);
         // EXP-818: Usage folded into the Devices page.
         assert_eq!(parse_dev_screen("usage"), Some(Screen::Devices));
         assert_eq!(parse_dev_screen("settings"), Some(Screen::Settings));
@@ -2541,11 +2269,12 @@ mod tests {
         assert_eq!(dev_tool_screen("files"), Some(Screen::Files));
         assert_eq!(parse_dev_screen("source-control"), Some(Screen::SourceControl));
         assert_eq!(dev_tool_screen("source-control"), Some(Screen::SourceControl));
-        // EXP-818/EXP-706 spellings the catalog still carries.
-        assert_eq!(dev_tool_screen("agent"), Some(Screen::Chat));
-        assert_eq!(dev_tool_screen("sessions"), Some(Screen::Chat));
-        assert_eq!(dev_tool_screen("history"), Some(Screen::Chat));
-        assert_eq!(dev_tool_screen("reviews"), Some(Screen::Reviews));
+        // EXP-818 spellings the catalog still carries land on Home; the
+        // Recent-runs and Reviews ones went with their surfaces (EXP-1294).
+        assert_eq!(dev_tool_screen("agent"), Some(Screen::Home));
+        assert_eq!(dev_tool_screen("sessions"), Some(Screen::Home));
+        assert_eq!(dev_tool_screen("history"), None);
+        assert_eq!(dev_tool_screen("reviews"), None);
         assert_eq!(dev_tool_screen("nonsense"), None);
     }
 
@@ -2559,51 +2288,19 @@ mod tests {
         assert_eq!(parse_dev_inbox_tab("My-Issues"), None);
     }
 
-    /// EXP-1246: Reviews is a full page that lends NO list — the PR it opens
-    /// shows full width, Back returns through history. Neither a tab nor
-    /// undockable (the ISSUE its rows open, EXP-1154, is both).
+    /// EXP-1294: the Threads page is a full page that lends NO list — the
+    /// thread it opens shows full width, Back returns through history.
+    /// Neither a tab nor undockable (an ISSUE is both).
     #[test]
-    fn reviews_lends_no_list() {
-        assert_eq!(Screen::Reviews.list_origin(), None);
-        assert!(!Screen::Reviews.is_detail());
-        assert!(!Screen::Reviews.undockable());
+    fn threads_lends_no_list() {
+        assert_eq!(Screen::Threads.list_origin(), None);
+        assert!(!Screen::Threads.is_detail());
+        assert!(!Screen::Threads.undockable());
+        assert!(!Screen::Home.is_detail());
         assert!(Screen::IssueDetail {
             issue_id: "i1".into()
         }
         .undockable());
-    }
-
-    /// EXP-1154: `issue:<uuid>?face=…` keeps a clean id — the query picks the
-    /// tab's face, never the screen.
-    #[test]
-    fn an_issue_spec_with_a_query_keeps_a_clean_id() {
-        for spec in ["issue:i1", "issue:i1?face=changes", "issue:i1?face=results&x=1"] {
-            assert_eq!(
-                parse_dev_screen(spec),
-                Some(Screen::IssueDetail {
-                    issue_id: "i1".into()
-                }),
-                "{spec}"
-            );
-        }
-        // The retired review screen's spec opens nothing.
-        assert_eq!(parse_dev_screen("pr:i1"), None);
-    }
-
-    /// EXP-1154: the face query maps through the shared run-face vocabulary;
-    /// the issue's own face (run/transcript) and junk are no face.
-    #[test]
-    fn parse_dev_issue_face_reads_the_face_query() {
-        use crate::screens::RunFace;
-        assert_eq!(parse_dev_issue_face("issue:i1?face=guide"), Some(RunFace::Guide));
-        assert_eq!(parse_dev_issue_face("issue:i1?face=changes"), Some(RunFace::Guide));
-        assert_eq!(parse_dev_issue_face("issue:i1?face=diff"), Some(RunFace::Guide));
-        assert_eq!(parse_dev_issue_face("issue:i1?face=results"), Some(RunFace::Guide));
-        assert_eq!(parse_dev_issue_face("issue:i1?x=1&face=results"), Some(RunFace::Guide));
-        assert_eq!(parse_dev_issue_face("issue:i1?face=run"), None);
-        assert_eq!(parse_dev_issue_face("issue:i1?face=nonsense"), None);
-        assert_eq!(parse_dev_issue_face("issue:i1"), None);
-        assert_eq!(parse_dev_issue_face("session:s1?face=changes"), None);
     }
 
     /// EXP-746: a capture run (and a debug session) reaches ONE coding
@@ -2628,19 +2325,27 @@ mod tests {
         );
     }
 
-    /// EXP-1284: the capture lane's `thread:<uuid>` drive (views `thread`,
-    /// `thread-runs`) opens that thread's tab; a thread is a detail tab that
-    /// can carry Agent › Recent beside it.
+    /// EXP-1294: the capture lane's `thread:<uuid>` and `agent:<uuid>`
+    /// drives open that root's tab; a thread can carry the Inbox beside it
+    /// (a notification opened it), an agent's channel carries nothing.
     #[test]
-    fn dev_screen_parses_a_thread_id() {
+    fn dev_screen_parses_a_thread_and_an_agent_id() {
         let thread = Screen::Thread {
-            thread_id: "5d7a".into(),
+            session_id: "5d7a".into(),
         };
         assert_eq!(parse_dev_screen("thread:5d7a"), Some(thread.clone()));
         assert_eq!(parse_dev_screen("thread"), None);
         assert!(thread.is_detail());
         assert!(thread.carries_list());
         assert!(!thread.undockable());
+        let agent = Screen::Agent {
+            session_id: "a1".into(),
+        };
+        assert_eq!(parse_dev_screen("agent:a1"), Some(agent.clone()));
+        assert_eq!(parse_dev_screen("agent"), None);
+        assert!(agent.is_detail());
+        assert!(!agent.carries_list());
+        assert!(!agent.undockable());
     }
 
     /// EXP-746: a session gets a tab chip (several runs are open at once, and
@@ -2674,7 +2379,7 @@ mod tests {
                 inbox_tab: Some(InboxTab::MyIssues),
             })
         );
-        assert_eq!(Screen::Reviews.list_origin(), None);
+        assert_eq!(Screen::Threads.list_origin(), None);
         for screen in [
             Screen::BoardIssues {
                 board_id: "b1".into(),
@@ -2688,7 +2393,8 @@ mod tests {
             Screen::Drafts,
             Screen::Actions,
             Screen::Action { action_id: "act-1".into() },
-            Screen::Chat,
+            Screen::Home,
+            Screen::Threads,
             Screen::Files,
             Screen::SourceControl,
             Screen::ExponentialUiKitchenSink,
@@ -2698,6 +2404,12 @@ mod tests {
             },
             Screen::Session {
                 session_id: "s1".into(),
+            },
+            Screen::Thread {
+                session_id: "t1".into(),
+            },
+            Screen::Agent {
+                session_id: "a1".into(),
             },
             draft_screen("d1", "b1"),
         ] {
@@ -2788,7 +2500,7 @@ mod tests {
         };
         // Armed on the draft: every other target holds.
         assert!(holds_leave(true, Some(&draft), Some(&issue)));
-        assert!(holds_leave(true, Some(&draft), Some(&Screen::Chat)));
+        assert!(holds_leave(true, Some(&draft), Some(&Screen::Home)));
         assert!(holds_leave(true, Some(&draft), Some(&other_draft)));
         // Back / Forward / team switch / the cleared center.
         assert!(holds_leave(true, Some(&draft), None));
@@ -2798,12 +2510,12 @@ mod tests {
         assert!(!holds_leave(false, Some(&draft), Some(&issue)));
         assert!(!holds_leave(false, Some(&draft), None));
         // Not on the draft page at all: a stale arm never holds.
-        assert!(!holds_leave(true, Some(&issue), Some(&Screen::Chat)));
+        assert!(!holds_leave(true, Some(&issue), Some(&Screen::Home)));
         assert!(!holds_leave(true, None, Some(&issue)));
     }
 
-    /// EXP-1192: only an issue and a run carry a list — the New issue page,
-    /// the Agent page and a terminal never do.
+    /// EXP-1192: only an issue, a thread and a session carry a list — the
+    /// New issue page, Home, an agent's channel and a terminal never do.
     #[test]
     fn only_an_issue_and_a_run_carry_a_list() {
         assert!(Screen::IssueDetail {
@@ -2819,7 +2531,11 @@ mod tests {
         assert!(!draft.is_detail());
         assert!(!draft.undockable());
         assert!(!draft.is_dock_tab());
-        assert!(!Screen::Chat.carries_list());
+        assert!(!Screen::Home.carries_list());
+        assert!(!Screen::Agent {
+            session_id: "a1".into()
+        }
+        .carries_list());
         // (A terminal is out too, but `TabId` has no test constructor.)
     }
 
@@ -2909,9 +2625,9 @@ mod tests {
     }
 
     /// EXP-851: the breadcrumb rule, one row per navigation the product can
-    /// make. A detail keeps the list it was opened FROM (EXP-1192: the Inbox
-    /// or Reviews), inherits one from another detail, and gets NOTHING
-    /// anywhere else.
+    /// make. A detail keeps the list it was opened FROM (EXP-1192: the
+    /// Inbox), inherits one from another detail, and gets NOTHING anywhere
+    /// else.
     #[test]
     fn derive_origin_carries_a_list_one_layer_and_never_invents_one() {
         use crate::sidebar::InboxTab;
@@ -2941,28 +2657,31 @@ mod tests {
             derive_origin(Some(&issue), Some(inbox.clone()), &session),
             Some(inbox.clone())
         );
-        // EXP-1246: Reviews → an issue: full width, no list.
-        assert_eq!(derive_origin(Some(&Screen::Reviews), None, &issue), None);
-        // Agent › Recent → a run: the Recent list, and on to its issue.
+        // EXP-1294: the Threads page → a thread: full width, no list.
+        let thread = Screen::Thread {
+            session_id: "t1".into(),
+        };
+        assert_eq!(derive_origin(Some(&Screen::Threads), None, &thread), None);
+        // The Inbox → a thread → one of its sessions: inherited.
         assert_eq!(
-            derive_origin(Some(&session), Some(recent_runs_origin()), &issue),
-            Some(recent_runs_origin())
+            derive_origin(Some(&thread), Some(inbox.clone()), &session),
+            Some(inbox.clone())
         );
         // A detail with no list of its own hands on nothing.
         assert_eq!(derive_origin(Some(&issue), None, &session), None);
-        // EXP-1192: anything via the Agent page carries nothing — the page
+        // EXP-1192: anything via Home carries nothing — the page
         // carries no list, so it neither keeps one nor hands one on.
-        assert_eq!(derive_origin(Some(&Screen::Chat), None, &session), None);
+        assert_eq!(derive_origin(Some(&Screen::Home), None, &session), None);
         assert_eq!(
-            derive_origin(Some(&issue), Some(inbox.clone()), &Screen::Chat),
+            derive_origin(Some(&issue), Some(inbox.clone()), &Screen::Home),
             None
         );
         assert_eq!(
-            derive_origin(Some(&Screen::Chat), Some(inbox.clone()), &session),
+            derive_origin(Some(&Screen::Home), Some(inbox.clone()), &session),
             None
         );
         assert_eq!(
-            derive_origin(Some(&session), Some(inbox.clone()), &Screen::Chat),
+            derive_origin(Some(&session), Some(inbox.clone()), &Screen::Home),
             None
         );
         // … and so does anything via the New issue page.
@@ -2979,6 +2698,8 @@ mod tests {
             Screen::Files,
             Screen::SourceControl,
             Screen::Action { action_id: "act-1".into() },
+            Screen::Threads,
+            Screen::Agent { session_id: "a1".into() },
             Screen::ExponentialUiKitchenSink,
             Screen::ExponentialUiDevices,
         ] {
@@ -2989,13 +2710,12 @@ mod tests {
         assert_eq!(derive_origin(None, None, &issue), None);
         // A plain LIST screen never carries a list of its own.
         assert_eq!(derive_origin(Some(&board_screen), None, &inbox_screen), None);
-        assert_eq!(derive_origin(Some(&inbox_screen), None, &Screen::Reviews), None);
+        assert_eq!(derive_origin(Some(&inbox_screen), None, &Screen::Threads), None);
     }
 
     /// EXP-1192/EXP-1246: the second-sidebar table — the Inbox screen and
-    /// every detail carrying the Inbox show the Inbox, the Agent page and a
-    /// run picked from its Recent list show Recent runs, and everything else
-    /// (a board- or Reviews-opened detail, Settings, a terminal) none.
+    /// every detail carrying the Inbox show the Inbox, and everything else
+    /// (a board-opened detail, Home, Settings, a terminal) none.
     #[test]
     fn second_sidebar_for_table() {
         use crate::sidebar::InboxTab;
@@ -3005,49 +2725,48 @@ mod tests {
         let session = Screen::Session {
             session_id: "s1".into(),
         };
+        let thread = Screen::Thread {
+            session_id: "t1".into(),
+        };
         let inbox = Screen::Inbox {
             tab: InboxTab::MyIssues,
         }
         .list_origin();
-        let recent = Some(recent_runs_origin());
         let inbox_screen = Screen::Inbox {
             tab: InboxTab::Inbox,
         };
-        let rows: [(Option<&Screen>, Option<&TabOrigin>, bool, Option<SecondSidebar>); 14] = [
-            (Some(&inbox_screen), None, false, Some(SecondSidebar::Inbox)),
-            (Some(&inbox_screen), None, true, Some(SecondSidebar::Inbox)),
-            (Some(&issue), inbox.as_ref(), false, Some(SecondSidebar::Inbox)),
-            (Some(&session), inbox.as_ref(), false, Some(SecondSidebar::Inbox)),
-            (Some(&session), recent.as_ref(), false, Some(SecondSidebar::RecentRuns)),
-            (Some(&issue), recent.as_ref(), false, Some(SecondSidebar::RecentRuns)),
+        let rows: [(Option<&Screen>, Option<&TabOrigin>, Option<SecondSidebar>); 11] = [
+            (Some(&inbox_screen), None, Some(SecondSidebar::Inbox)),
+            (Some(&issue), inbox.as_ref(), Some(SecondSidebar::Inbox)),
+            (Some(&session), inbox.as_ref(), Some(SecondSidebar::Inbox)),
+            (Some(&thread), inbox.as_ref(), Some(SecondSidebar::Inbox)),
             // A board-opened (or rail-opened) detail: none.
-            (Some(&issue), None, false, None),
-            (Some(&session), None, true, None),
-            (Some(&Screen::Chat), None, true, Some(SecondSidebar::RecentRuns)),
-            (Some(&Screen::Chat), None, false, None),
-            (Some(&Screen::Settings), None, true, None),
-            (Some(&Screen::Settings), inbox.as_ref(), false, None),
+            (Some(&issue), None, None),
+            (Some(&session), None, None),
+            (Some(&Screen::Home), None, None),
+            (Some(&Screen::Settings), None, None),
+            (Some(&Screen::Settings), inbox.as_ref(), None),
             // (A terminal falls through the same arm as Settings; `TabId`
             // has no test constructor.)
-            (Some(&Screen::Reviews), None, false, None),
-            (None, None, true, None),
+            (Some(&Screen::Threads), None, None),
+            (None, None, None),
         ];
-        for (screen, origin, recent_runs, expected) in rows {
+        for (screen, origin, expected) in rows {
             assert_eq!(
-                second_sidebar_for(screen, origin, recent_runs),
+                second_sidebar_for(screen, origin),
                 expected,
-                "{screen:?} {origin:?} {recent_runs}"
+                "{screen:?} {origin:?}"
             );
         }
     }
 
-    /// EXP-1192: the window lands on the Agent page once the team has a
-    /// board; that default enters history like any screen, so Back from the
-    /// first navigation returns to it — and it lends no list.
+    /// EXP-1192: the window lands on Home; that default enters history like
+    /// any screen, so Back from the first navigation returns to it — and it
+    /// lends no list.
     #[test]
-    fn the_default_landing_is_the_agent_page() {
-        assert_eq!(default_screen(true), Some(Screen::Chat));
-        assert_eq!(default_screen(false), Some(Screen::Chat), "home, even before a board");
+    fn the_default_landing_is_home() {
+        assert_eq!(default_screen(true), Some(Screen::Home));
+        assert_eq!(default_screen(false), Some(Screen::Home), "home, even before a board");
         let mut nav = Navigation::new();
         nav.screen = None;
         nav.back_stack.clear();
@@ -3055,14 +2774,14 @@ mod tests {
             issue_id: "i1".into(),
         };
         nav.advance(issue.clone(), PendingOrigin::Derive, default_screen(true));
-        assert_eq!(nav.previous_screen(), Some(&Screen::Chat));
+        assert_eq!(nav.previous_screen(), Some(&Screen::Home));
         assert_eq!(nav.screen(), Some(&issue));
         assert_eq!(derive_origin(nav.previous_screen(), None, &issue), None);
         // Re-entering the default itself never stacks it twice.
         let mut nav = Navigation::new();
         nav.screen = None;
         nav.back_stack.clear();
-        nav.advance(Screen::Chat, PendingOrigin::Derive, default_screen(true));
+        nav.advance(Screen::Home, PendingOrigin::Derive, default_screen(true));
         assert!(nav.back_stack.is_empty());
     }
 
@@ -3072,19 +2791,19 @@ mod tests {
     fn forward_stack_is_browser_shaped() {
         let mut nav = Navigation::new();
         nav.screen = Some(Screen::Devices);
-        nav.back_stack.push(Screen::Reviews);
+        nav.back_stack.push(Screen::Threads);
         assert!(nav.can_go_back());
         assert!(!nav.can_go_forward());
         // go_back's bookkeeping
-        assert_eq!(nav.step_back(), Some(Screen::Reviews));
-        assert_eq!(nav.screen, Some(Screen::Reviews));
+        assert_eq!(nav.step_back(), Some(Screen::Threads));
+        assert_eq!(nav.screen, Some(Screen::Threads));
         assert_eq!(nav.forward_stack, vec![Screen::Devices]);
         assert!(nav.can_go_forward());
         // go_forward's bookkeeping
         assert_eq!(nav.step_forward(), Some(Screen::Devices));
-        assert_eq!(nav.back_stack, vec![Screen::Reviews]);
+        assert_eq!(nav.back_stack, vec![Screen::Threads]);
         assert!(!nav.can_go_forward());
-        assert_eq!(nav.step_back(), Some(Screen::Reviews));
+        assert_eq!(nav.step_back(), Some(Screen::Threads));
         // a real navigation (navigate_inner's bookkeeping)
         nav.back_stack.push(nav.screen.take().unwrap());
         nav.screen = Some(Screen::Actions);
@@ -3099,14 +2818,14 @@ mod tests {
     fn purge_history_covers_both_stacks() {
         let diff = Screen::IssueDetail { issue_id: "i1".into() };
         let mut nav = Navigation::new();
-        nav.screen = Some(Screen::Reviews);
+        nav.screen = Some(Screen::Threads);
         nav.back_stack = vec![Screen::Devices, diff.clone(), Screen::Actions];
         nav.forward_stack = vec![diff.clone(), Screen::Settings, diff.clone()];
         assert!(nav.purge_history(|screen| *screen == diff));
         assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Actions]);
         assert_eq!(nav.forward_stack, vec![Screen::Settings]);
         // the current screen is not history
-        assert_eq!(nav.screen, Some(Screen::Reviews));
+        assert_eq!(nav.screen, Some(Screen::Threads));
         // idempotent: a second purge changes nothing
         assert!(!nav.purge_history(|screen| *screen == diff));
     }
@@ -3122,15 +2841,15 @@ mod tests {
         let terminal = Screen::Session { session_id: "s1".into() };
         let mut nav = Navigation::new();
         nav.screen = Some(terminal.clone());
-        nav.back_stack = vec![Screen::Reviews];
+        nav.back_stack = vec![Screen::Threads];
         // the user went back from the terminal …
-        assert_eq!(nav.step_back(), Some(Screen::Reviews));
+        assert_eq!(nav.step_back(), Some(Screen::Threads));
         assert_eq!(nav.forward_stack, vec![terminal.clone()]);
         // … then closed it (close_tab's purge)
         assert!(nav.purge_history(|screen| *screen == terminal));
         assert!(!nav.can_go_forward());
         assert_eq!(nav.step_forward(), None);
-        assert_eq!(nav.screen, Some(Screen::Reviews));
+        assert_eq!(nav.screen, Some(Screen::Threads));
     }
 
     /// EXP-771: which screens a navigation checks the undock registry for.
@@ -3146,7 +2865,7 @@ mod tests {
         assert!(!reveals_undocked_window(&Screen::Session {
             session_id: "s1".into()
         }));
-        assert!(!reveals_undocked_window(&Screen::Reviews));
+        assert!(!reveals_undocked_window(&Screen::Threads));
         assert!(!reveals_undocked_window(&Screen::Settings));
     }
 
@@ -3160,53 +2879,9 @@ mod tests {
             // EXP-1170: the New issue page names itself by the contract.
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
-            assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");
+            assert_eq!(screen_title(&Screen::Threads, cx), "Threads");
+            assert_eq!(screen_title(&Screen::Home, cx), "Home");
         });
-    }
-
-    /// EXP-825: the dev `chat?…` spec parses the web route's search params
-    /// — any subset, csv issues, percent-decoded text — and a plain `chat`
-    /// (or any other spec) seeds nothing.
-    #[test]
-    fn dev_chat_seed_parses_the_web_search_params() {
-        assert_eq!(parse_dev_chat_seed("chat"), None);
-        assert_eq!(parse_dev_chat_seed("devices"), None);
-        assert_eq!(parse_dev_chat_seed("chat?"), Some(ChatSeed::default()));
-        assert_eq!(parse_dev_screen("chat?issues=a"), Some(Screen::Chat));
-        let full = parse_dev_chat_seed(
-            "chat?issues=a,b,%20&action=builtin:fix-conflicts&pr=i-1&device=dev-1\
-&text=Review%20%23EXP-1+please&icon=bug&conflict=1&bogus=1",
-        )
-        .unwrap();
-        assert_eq!(
-            full,
-            ChatSeed {
-                board_id: None,
-                issue_ids: vec!["a".into(), "b".into()],
-                action_id: Some("builtin:fix-conflicts".into()),
-                device_id: Some("dev-1".into()),
-                pr_issue_id: Some("i-1".into()),
-                text: Some("Review #EXP-1 please".into()),
-                icon: Some("bug".into()),
-                conflict: true,
-            }
-        );
-        // EXP-1233: the views.json drive; anything but `1` is no conflict.
-        let drive = parse_dev_chat_seed("chat?action=builtin:fix-conflicts&pr=i-1&conflict=1")
-            .unwrap();
-        assert_eq!(drive, ChatSeed::fix_conflicts("i-1").with_conflict());
-        assert!(!parse_dev_chat_seed("chat?action=builtin:fix-conflicts&pr=i-1&conflict=0")
-            .unwrap()
-            .conflict);
-        // A subset leaves the rest empty; blank values are absent.
-        assert_eq!(
-            parse_dev_chat_seed("chat?action=&text=hi"),
-            Some(ChatSeed {
-                text: Some("hi".into()),
-                ..Default::default()
-            })
-        );
-        assert_eq!(percent_decode("a%2Bb%zz"), "a+b%zz");
     }
 
     /// EXP-1142: a pick lands beside the OTHER teams' persisted picks — one
@@ -3234,21 +2909,12 @@ mod tests {
         assert_eq!(broken[LAST_REPO_BY_TEAM_KEY], serde_json::json!({ "team-a": "repo-1" }));
     }
 
-    /// The seed constructors name exactly one thing each, and the
-    /// fix-conflicts one pins the builtin beside its PR.
+    /// The seed constructors name exactly one thing each.
     #[test]
     fn chat_seed_constructors() {
         assert_eq!(ChatSeed::issues(vec!["i".into()]).issue_ids, vec!["i".to_string()]);
-        assert_eq!(ChatSeed::action("act").action_id.as_deref(), Some("act"));
-        let fix = ChatSeed::fix_conflicts("issue-9");
-        assert_eq!(fix.action_id.as_deref(), Some("builtin:fix-conflicts"));
-        assert_eq!(fix.pr_issue_id.as_deref(), Some("issue-9"));
-        assert!(fix.issue_ids.is_empty());
-        // EXP-1233: only the refused merge's builder flags the conflict.
-        assert!(!fix.conflict);
-        let refused = fix.clone().with_conflict();
-        assert!(refused.conflict);
-        assert_eq!(refused.pr_issue_id, fix.pr_issue_id);
-        assert_eq!(refused.action_id, fix.action_id);
+        let action = ChatSeed::action("act");
+        assert_eq!(action.action_id.as_deref(), Some("act"));
+        assert!(action.issue_ids.is_empty());
     }
 }

@@ -3,11 +3,11 @@ import ExpUI
 import GRDB
 import SwiftUI
 
-/// EXP-1284: "Link an issue" (brief §4) — THE search list (`SearchListView`,
+/// EXP-1284: "Link an issue" — THE search list (`SearchListView`,
 /// search-list.json) in our sheet chrome, over the thread's TEAM's synced
 /// issues minus the ones already in it, ranked by the shared engine
 /// (`IssueSearch.rank`, EXP-892) at its default limit. A pick hands the id
-/// back; the host links it (`threads.link`) and toasts a refusal.
+/// back; the host links it (`sessions.linkIssues`) and toasts a refusal.
 struct ThreadLinkIssueSheet: View {
     let teamId: String
     /// Already in the thread — never offered.

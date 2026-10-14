@@ -23,7 +23,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Device picker`,
-  blurb: `The machines a session may start on, each by its device glyph and name — the Agent composer and an action trigger's "Runs on" row. A machine that cannot take the session is rendered DISABLED with the reason as its muted second line, never dropped: a list that silently shrinks reads as a bug on the machine the user was looking for. A device with no icon of its own falls back to its kind (a server glyph for a server).`,
+  blurb: `The machines a session may start on, each by its device glyph and name — the home composer and a team agent's Device row (Settings → Agents). A machine that cannot take the session is rendered DISABLED with the reason as its muted second line, never dropped: a list that silently shrinks reads as a bug on the machine the user was looking for. A device with no icon of its own falls back to its kind (a server glyph for a server).`,
   status: typedPickerStatus(`DevicePicker`, {
     web: `device-picker.tsx`,
     desktop: `device_picker.rs`,

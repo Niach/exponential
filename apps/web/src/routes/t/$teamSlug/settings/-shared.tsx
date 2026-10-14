@@ -12,6 +12,7 @@ import {
 } from "@/hooks/use-team-permissions"
 import { getRuntimeConfig, type RuntimeConfig } from "@/lib/runtime-config"
 import { conceptIcon } from "@exp/ui"
+import { AGENT_SETTINGS_COPY } from "@/lib/session-tree"
 
 export interface SettingsNavContext {
   isCloud: boolean
@@ -113,11 +114,18 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
     ],
   },
   // EXP-862: the group FLATTENS like the desktop IDE's (EXP-288) — one
-  // entry per board, then "New board", then these two. The board rows and
-  // the create entry are injected at render (they need the live board list),
-  // so only the static tail lives here.
+  // entry per board, then "New board", both injected at render (they need
+  // the live board list), so the group is static-empty.
   {
     group: `Boards`,
+    items: [],
+  },
+  // EXP-1293: team agents are managed exactly like boards — one row per
+  // agent, then "New agent", injected at render off the synced sessions
+  // shape (agents are roots of kind `agent`); Repositories (what agents
+  // code in) closes the group.
+  {
+    group: `Agents`,
     items: [
       // EXP-557 per-user sharing: every member manages their own GitHub
       // connection and shares repos here, so the section is member-visible.
@@ -223,6 +231,11 @@ export const SETTINGS_NAV: { group: string; items: SettingsNavItem[] }[] = [
 // them (the sidebar panel and the mobile strip).
 export const SETTINGS_BOARDS_GROUP = `Boards`
 export const NEW_BOARD_LABEL = `New board`
+
+// EXP-1293: the same injection for team agents (fixture agent-settings.json).
+// Members see the agent rows (the pages read-only); "New agent" is owner-only.
+export const SETTINGS_AGENTS_GROUP = `Agents`
+export const NEW_AGENT_LABEL = AGENT_SETTINGS_COPY.newAgent
 
 // Everything a settings section page needs. `resolved` flips true only once
 // the current user's own member row has synced — permissions are transiently

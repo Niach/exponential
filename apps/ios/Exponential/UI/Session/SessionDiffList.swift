@@ -2,37 +2,6 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-895: the summary line every Changes surface prints — `Changes +82 −6 ·
-/// 3 files`, the U+2212 minus the contract owns (`Diff.additionsLabel` /
-/// `deletionsLabel` / `summaryLabel`), web's `ChangesTopBar` reading order.
-struct DiffSummaryRow: View {
-    let totals: Diff.Totals
-    /// The word in front of the counts. The phone file sheet's own header
-    /// already says what it is, so it drops it.
-    var title: String?
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if let title {
-                Text(title)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-            }
-            DiffCountsLabel(additions: totals.additions, deletions: totals.deletions)
-            Text(totals.files == 1 ? "1 file" : "\(totals.files) files")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            Diff.summaryLabel(
-                files: totals.files, additions: totals.additions, deletions: totals.deletions
-            )
-        )
-    }
-}
-
 /// EXP-895: the ONE diff view as a page — the summary over `DiffFileCard`s, the
 /// publisher's cut note under them. `DiffFileList` is what the run's Changes
 /// face (the live worktree diff) and the issue's PR files both draw; the file
@@ -141,34 +110,6 @@ extension DiffFileList where Header == EmptyView {
             focusPath: focusPath,
             accessibilityId: accessibilityId,
             header: { EmptyView() }
-        )
-    }
-}
-
-/// The run's latest worktree diff as a full page — the Work screen's Changes
-/// face while the run has one. The raw `git diff` goes through the ONE parser
-/// (`Diff.parse`) and comes out as the same cards every other Changes surface
-/// draws.
-struct SessionDiffList: View {
-    let files: [Diff.File]
-    var truncatedLines: Int?
-    var focusPath: String?
-
-    var body: some View {
-        DiffFileList(
-            files: files,
-            truncatedLines: truncatedLines,
-            emptyLabel: .changedFiles,
-            focusPath: focusPath,
-            headerFade: false,
-            header: {
-                DiffSummaryRow(
-                    totals: Diff.totals(files), title: DiffPresentation.changesTitle
-                )
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassCard()
-            }
         )
     }
 }

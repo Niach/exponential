@@ -128,17 +128,18 @@ pub trait ViewerTickets: Send + Sync + 'static {
 }
 
 /// Production tickets over the account's tRPC client:
-/// `steer.mintTicket({kind:"viewer", codingSessionId})`. The server decides
+/// `steer.mintTicket({kind:"viewer", sessionId})` (EXP-1292: the `sessions`
+/// row id). The server decides
 /// authorization there and nowhere else (EXP-312: a LIVE session is
 /// viewable/steerable only by its owner).
 pub struct TrpcViewerTickets {
     pub trpc: Arc<TrpcClient>,
-    pub coding_session_id: String,
+    pub session_id: String,
 }
 
 impl ViewerTickets for TrpcViewerTickets {
     fn mint(&self) -> Result<Option<MintedTicket>, ApiError> {
-        Ok(api::steer::mint_viewer_ticket(&self.trpc, &self.coding_session_id)?.into_ticket())
+        Ok(api::steer::mint_viewer_ticket(&self.trpc, &self.session_id)?.into_ticket())
     }
 }
 
@@ -359,7 +360,7 @@ impl ViewerHandle {
         let _ = self.cmd_tx.send(ViewerCmd::Kick);
     }
 
-    /// The synced `coding_sessions` row says the run ended. The redial loops
+    /// The synced `sessions` row says the run ended. The redial loops
     /// take it as the truth: a `no_such_session` for an ended run can only
     /// park the viewer in [`ViewerPhase::Starting`] forever, because the
     /// publisher is gone (web `noteSessionStatus`, EXP-639).

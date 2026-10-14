@@ -9,15 +9,11 @@ export interface LaunchSeed {
   /** An action id — wins over `issueIds` when both arrive. */
   actionId?: string
   deviceId?: string
-  /** Any issue linked to the PR a `pr` input should open pre-picked. */
+  /** The pull request (or any issue it closes) a `pr` input should open
+   *  pre-picked on. */
   prIssueId?: string
   /** Text inserted into an EMPTY draft (a suggestion's description). */
   text?: string
-  /** Curated icon name seeding the Create action builtin's `icon` input. */
-  icon?: string
-  /** EXP-1233: a REFUSED merge opened the composer on the Fix merge
-   * conflicts builtin — its card says so under the branch row. */
-  conflict?: boolean
 }
 
 /** The route's validated search params (all optional strings). */
@@ -27,9 +23,6 @@ export interface AgentSearch {
   pr?: string
   device?: string
   text?: string
-  icon?: string
-  /** `1` = the Fix merge conflicts seed came from a refused merge. */
-  conflict?: string
 }
 
 const UUID_RE =
@@ -56,17 +49,13 @@ export function seedFromSearch(search: AgentSearch): LaunchSeed | null {
     deviceId: search.device || undefined,
     prIssueId: search.pr && UUID_RE.test(search.pr) ? search.pr : undefined,
     text: search.text || undefined,
-    icon: search.icon || undefined,
-    conflict: search.conflict === `1` ? true : undefined,
   }
   const empty =
     seed.issueIds.length === 0 &&
     !seed.actionId &&
     !seed.deviceId &&
     !seed.prIssueId &&
-    !seed.text &&
-    !seed.icon &&
-    !seed.conflict
+    !seed.text
   return empty ? null : seed
 }
 
@@ -79,7 +68,5 @@ export function searchFromSeed(seed: Partial<LaunchSeed>): AgentSearch {
   if (seed.prIssueId) out.pr = seed.prIssueId
   if (seed.deviceId) out.device = seed.deviceId
   if (seed.text) out.text = seed.text
-  if (seed.icon) out.icon = seed.icon
-  if (seed.conflict) out.conflict = `1`
   return out
 }

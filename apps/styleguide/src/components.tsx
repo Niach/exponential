@@ -114,9 +114,6 @@ import {
   WORK_COLUMN_CLASS,
   WorkHeader,
   CollapsedTitle,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  WorkFaceStrip,
   conceptIcon,
   indexEmojiData,
   type EmojiDataset,
@@ -724,47 +721,6 @@ const SESSION_RESULT_GROUPS_FIXTURE: SessionResultGroup[] = [
 
 export const COMPONENTS: readonly ComponentSpec[] = [
   {
-    id: `work-face-tabs`,
-    title: `Work face tabs`,
-    kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Session/Sessions · Guide in that fixed order (EXP-1251: Changes + Results merged into the Guide; the diff's counts moved into its body), the segmented capsule above. The Sessions segment carries a caret to the session menu with several sessions; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, the action page's Prompt · Triggers · Sessions); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Session tab wears the session's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its session-state badge), never a dot; an open pull request puts a 6px dot on the Guide. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Guide is the review of its pull request (the Reviews detail screen is gone).`,
-    status: {
-      web: ok(
-        `WorkFaceStrip`,
-        `packages/ui/src/work-face-strip.tsx`,
-        `apps/web/src/components/work-faces.tsx plugs in the session menu and the phone pager`
-      ),
-      desktop: ok(`work_header::FaceToggle`, `apps/desktop/crates/ui/src/work_header.rs`),
-      ios: ok(`WorkFaceTabs`, `apps/ios/Exponential/UI/Work/WorkFaceTabs.swift`),
-      android: ok(
-        `WorkFaceTabs`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/work/FaceTabs.kt`
-      ),
-    },
-    island: () => (
-      <WorkFaceStrip
-        face="guide"
-        // A run waiting on a person, and an open pull request.
-        dots={{ run: `needs_input`, guide: `review` }}
-        run={{ agent: `claude`, state: `needs_input` }}
-        items={[
-          { face: `issue`, label: `Issue`, onSelect: noop },
-          { face: `run`, label: `Sessions`, onSelect: noop },
-          { face: `guide`, label: `Guide`, onSelect: noop },
-        ]}
-        runMenu={{
-          // A portal: nothing renders at rest, the caret is the specimen.
-          content: (
-            <DropdownMenuContent>
-              <DropdownMenuItem>Session on macbook · Live</DropdownMenuItem>
-              <DropdownMenuItem>Session on studio · 2h ago</DropdownMenuItem>
-            </DropdownMenuContent>
-          ),
-        }}
-      />
-    ),
-  },
-  {
     id: `session-bar`,
     title: `Session bar`,
     kind: `Surfaces`,
@@ -1025,7 +981,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="nav">`,
         `<span class="item"><span class="label">Inbox</span></span>`,
         `<span class="item active"><span class="label">Mobile app</span></span>`,
-        `<span class="item"><span class="label">Reviews</span></span>`,
+        `<span class="item"><span class="label">Threads</span></span>`,
         `</div>`,
         `<div class="panel"><span class="line"></span><span class="line"></span><span class="line"></span></div>`,
         `</div>`,
@@ -2105,7 +2061,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(
         `AgentRunMark / AgentWorkingMark / ClaudeSpinner`,
         `packages/ui/src/agent-brand-mark.tsx`,
-        `the derivation is apps/web/src/lib/coding-session-display.ts; the spark steps a CSS steps(8) sprite (claude-spinner.tsx)`
+        `state = sessionState() (@exp/domain-contract/session-tree); the spark is a CSS steps(8) sprite (claude-spinner.tsx)`
       ),
       desktop: ok(
         `coding_selects::run_lead`,
@@ -2294,14 +2250,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `detail-chrome.tsx holds CollapsedTitle and the DETAIL_EDGE_* layers the phone header and bar also draw`
       ),
       desktop: ok(
-        `work_header::render_work_header`,
+        `work_header::scrolling_title_rows`,
         `apps/desktop/crates/ui/src/work_header.rs`,
         `gpui cannot blur in-window content: the edges are the scrim fade alone (surface.rs)`
       ),
       ios: ok(
         `WorkTitle`,
         `apps/ios/Exponential/UI/Work/WorkTitle.swift`,
-        `the system nav bar's .toolbar (WorkScreen.swift) over workHeaderBand; properties stay a row of the issue face`
+        `the system nav bar's .toolbar over workHeaderBand; properties stay a row of the issue face`
       ),
       android: ok(
         `WorkTopBar`,
@@ -2394,11 +2350,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     status: {
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
-      ios: leftover(
-        `WorkScreen toolbar Button (changes-github-action)`,
-        `apps/ios/Exponential/UI/Work/WorkScreen.swift`,
-        `inline on the Guide face's toolbar; RunChangesView.swift holds a second copy under the same accessibility id`
-      ),
+      ios: na(`EXP-1295: the Work screen and its Guide toolbar are gone; no Open on GitHub control yet`),
       android: ok(
         `GithubHeaderAction`,
         `apps/android/app/src/main/java/com/exponential/app/ui/work/WorkTopBar.kt`,

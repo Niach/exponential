@@ -923,7 +923,7 @@ async fn the_app_server_going_away_closes_the_connection() {
     let _session = one_session_at_a_time();
     // The crash path: codex is gone (OOM, `kill -9`, the reaper) while the
     // client still holds the connection. Nothing but this close ends the run —
-    // the bye, the heartbeat and `coding::end_session` all hang off it, so a
+    // the bye, the outbox flush and `coding::end_session` all hang off it, so a
     // connection that stays open is a session that stays "coding now" forever
     // (EXP-746 E1).
     let (fake, connection) = FakeServer::new(vec![frames("turn.jsonl")], Vec::new(), Vec::new());

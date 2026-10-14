@@ -2,24 +2,17 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-909: the run's **Usage overlay** — ONE layout on all four clients.
+/// EXP-909: the session's **Usage overlay** — ONE layout on all four clients.
 ///
-/// It answers three questions in one column, top to bottom: which account is
-/// this run spending (the header), how much of that account is left (the
-/// windows), how full is the run's own context (the Context line) — and then
-/// offers the other logins the machine holds, each with its own compact bars,
-/// so "I am out of limit" and "use my other account" stay one thought.
-///
-/// What EXP-875 found and this replaces: three-line cards per window, a
-/// full-width "Switch to this account" button on every row that cut the email,
-/// two different bar primitives, and a plan string repeated on every row.
-/// Now: two lines per window (title + countdown, then meter + `NN%`), ONE bar
-/// primitive (`AgentUsageTrack`, ExpUI), the plan said ONCE in the header, and
-/// an icon-only switch.
+/// It answers three questions in one column, top to bottom: how full is the
+/// session's own context (the Context block), which account is it spending
+/// (the header) and how much of that account is left (the windows). Two
+/// lines per window (title + countdown, then meter + `NN%`), ONE bar
+/// primitive (`AgentUsageTrack`, ExpUI), the plan said ONCE in the header.
 ///
 /// The device is still the only writer of the numbers (it probes its own CLIs
 /// and reports on heartbeat); everything here reads the synced row through the
-/// pure ×4 rules in `AgentUsagePresentation` / `SessionAccountSwitch`.
+/// pure ×4 rules in `AgentUsagePresentation` / `AgentAccountsRows`.
 
 /// Every window the machine reported for ONE login, two lines each. No group
 /// headers: the card titles already say "Current session" / "All models" /
@@ -155,8 +148,7 @@ struct AgentUsageMini: View {
     }
 }
 
-/// The steering screen's "Usage" sheet — the composer ring's destination and
-/// the rate-limit wall's "Switch account" pill.
+/// The session screen's "Usage" sheet — the composer ring's destination.
 ///
 /// Content-fitted (EXP-687): a machine reporting many windows grows the sheet
 /// up to the shared 85 % cap, then scrolls. It hides once the run has ended
@@ -164,11 +156,10 @@ struct AgentUsageMini: View {
 struct AgentUsageSheet: View {
     /// The run's agent — the header's brand mark.
     let agent: String?
-    /// EXP-909: the login this run SPENDS, resolved by the ×4 order
-    /// (`SessionAccountSwitch.activeAccountIndex`). Nil = unknown, which is
-    /// not "the ambient one": the header then falls back to the machine's own
-    /// account report.
-    let runAccount: SessionAccountOption?
+    /// EXP-909: the login this session SPENDS (`AgentSessionModel.runAccount`).
+    /// Nil = unknown, which is not "the ambient one": the header then falls
+    /// back to the machine's own account report.
+    let runAccount: AgentProfileUsageRow?
     /// The host machine's top-level report for this run's agent — the header's
     /// caption when no listed profile resolved.
     let account: AgentAccount?
@@ -184,33 +175,10 @@ struct AgentUsageSheet: View {
     /// (or empty) still draws the block: the conversation and the free rest
     /// are derived from the usage alone.
     var contextLayout: [ContextSegment]? = nil
-    /// EXP-849: EVERY login the host machine reports for this run's agent. The
-    /// header one is dropped from the Accounts section — a row saying "switch
-    /// to the account you are already on" is noise.
-    var accounts: [SessionAccountOption] = []
-    /// EXP-849: whether this run's agent can change login at all (claude). A
-    /// codex run still lists its accounts — read-only, because switching there
-    /// means starting the next run on the other one.
-    var supportsSwitch: Bool = false
-    /// EXP-849: why switching onto a given login would be refused right now
-    /// (`AgentSessionModel.accountSwitchRefusal`, the ×4 rule).
-    var switchRefusal: ((SessionAccountOption) -> String?)? = nil
-    /// A switch is on the wire — every row's control waits.
-    var switching: Bool = false
-    var onSwitch: ((SessionAccountOption) -> Void)? = nil
     /// EXP-909: ONE usage refresh, requested as the overlay opens (no polling
     /// loop — the heartbeat delivers within 30 s). The model decides whether
     /// the machine may take it.
     var onOpen: (() -> Void)? = nil
-
-    /// EXP-1051/EXP-1031: a refused switch tap prints its reason as a toast.
-    @Environment(\.toaster) private var toaster
-
-    /// The other logins — never the one the header names.
-    private var otherAccounts: [SessionAccountOption] {
-        guard let runAccount else { return accounts }
-        return accounts.filter { $0.profileId != runAccount.profileId }
-    }
 
     /// EXP-1051: the context window, folded ×4. Nil while the engine has
     /// published no usage (or a window of unknown size) — there is then no
@@ -238,7 +206,6 @@ struct AgentUsageSheet: View {
                 header
                 GlassDivider()
                 windowsBlock
-                accountsBlock
             }
             .padding(.horizontal, 16)
             .padding(.top, 4)
@@ -267,7 +234,7 @@ struct AgentUsageSheet: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
-            if let badge = runAccount?.health.badgeLabel {
+            if let badge = runAccount.flatMap(AgentAccountsRows.healthBadge) {
                 Text(badge)
                     .font(.caption2)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
@@ -284,7 +251,7 @@ struct AgentUsageSheet: View {
     }
 
     private var headerCaption: String {
-        runAccount?.caption ?? AgentUsagePresentation.accountCaption(account)
+        runAccount.map(AgentAccountsRows.loginLabel) ?? AgentUsagePresentation.accountCaption(account)
     }
 
     /// The plan rides the trailing slot only when the caption is the EMAIL —
@@ -313,134 +280,6 @@ struct AgentUsageSheet: View {
             Text("Checking…")
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        }
-    }
-
-    // MARK: - Accounts
-
-    /// EXP-849/EXP-909: the OTHER logins the host machine holds for this run's
-    /// agent — each an identity line with its compact bars, and the icon-only
-    /// switch.
-    ///
-    /// EXP-1051: no footer sentence any more, and no refusal standing under a
-    /// row. Both said, permanently, what only matters at the moment of a tap —
-    /// and between them they pushed the block that answers "how full is this
-    /// run" off the screen. A refused switch now prints its reason as a notice
-    /// when its control is tapped (`SessionAccountRow`).
-    ///
-    /// `SessionAccountSwitch.costNote` (the ×4 string, still the web/desktop
-    /// footer) goes unprinted here for now: a successful tap CLOSES this sheet
-    /// on its way to the relaunch, so a notice raised in its place would never
-    /// be read.
-    @ViewBuilder
-    private var accountsBlock: some View {
-        if !otherAccounts.isEmpty {
-            GlassDivider()
-            VStack(alignment: .leading, spacing: 10) {
-                Text(SessionAccountSwitch.sectionTitle.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                ForEach(otherAccounts) { option in
-                    SessionAccountRow(
-                        option: option,
-                        showsSwitch: supportsSwitch && onSwitch != nil,
-                        // EXP-1051: the WHOLE refusal, run-level one included
-                        // — there is no footer left to carry it, and the
-                        // notice is read on the control it refused.
-                        refusal: switchRefusal?(option),
-                        switching: switching,
-                        onSwitch: { onSwitch?(option) },
-                        onRefused: { toaster.error($0) }
-                    )
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("session-accounts")
-        }
-    }
-}
-
-/// EXP-849: one OTHER login of the run's host machine — who it is, its health,
-/// its own compact bars, and the switch. The control STAYS when a switch would
-/// be refused: a vanished button teaches nothing. Mirrors Android's
-/// `SessionAccountRow` field for field.
-///
-/// EXP-1051: the reason no longer sits under the row — the disabled control
-/// takes the tap and hands the sentence up as a transient notice, so a sheet
-/// listing three logins is three lines, not nine.
-struct SessionAccountRow: View {
-    let option: SessionAccountOption
-    /// Whether this run's agent supports switching at all (claude). A codex run
-    /// lists its accounts without controls.
-    let showsSwitch: Bool
-    /// Why a switch onto this login is refused right now, nil when it is not.
-    let refusal: String?
-    let switching: Bool
-    let onSwitch: () -> Void
-    /// EXP-1051: a tap on the refused control, carrying the reason.
-    var onRefused: (String) -> Void = { _ in }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(option.caption)
-                    .font(.subheadline)
-                    .foregroundStyle(option.signedIn ? Color.white : DesignTokens.Semantic.yellow)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if let badge = option.health.badgeLabel {
-                    Text(badge)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.yellow)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if showsSwitch {
-                    switchControl
-                }
-            }
-            AgentUsageMini(usage: option.usage)
-            if let age = AgentUsagePresentation.usageAge(option.usage) {
-                Text(age)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("session-account-\(option.profileId)")
-    }
-
-    /// EXP-909: icon-only. The labelled pill cut the email on every row it sat
-    /// beside; the label survives as the control's accessibility name, which
-    /// is the only place it was load-bearing.
-    @ViewBuilder
-    private var switchControl: some View {
-        if switching {
-            ProgressView()
-                .controlSize(.small)
-                .tint(.white)
-                .accessibilityLabel("Switching account")
-        } else {
-            CircleIconButton(
-                AppIcons.uiSwap,
-                accessibilityLabel: SessionAccountSwitch.switchLabel,
-                size: 28,
-                glyphSize: AppIcon.Size.small,
-                enabled: refusal == nil,
-                action: onSwitch
-            )
-            // EXP-1051: the disabled control still TAKES the tap — over the
-            // dimmed button, because a disabled one refuses gestures — and
-            // answers with the reason it is disabled.
-            .overlay {
-                if let refusal {
-                    Color.clear
-                        .contentShape(Circle())
-                        .onTapGesture { onRefused(refusal) }
-                        .accessibilityLabel(refusal)
-                }
-            }
-            .accessibilityIdentifier("switch-account-\(option.profileId)")
         }
     }
 }

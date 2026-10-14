@@ -1,22 +1,13 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { Issue } from "@/db/schema"
-import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
+import type { ComposerAction, LaunchComposerModel } from "@/hooks/use-launch-composer"
 import type { LaunchOptions } from "@/components/launch-dialog/use-launch-options"
 import type { SteerDevice } from "@/lib/steer-devices"
-import { builtinCreateAction, builtinFixConflictsAction } from "@/lib/builtin-actions"
-import {
-  BLOCKED_BATCH_BODY,
-  BLOCKED_BATCH_TITLE,
-  BLOCKED_START_TITLE,
-  STACKED_PR_LABEL,
-  START_ANYWAY_LABEL,
-} from "@/lib/blocked-start"
 
-// EXP-825: the composer card over a FAKE model — chips, the per-subject
-// submit label and placeholder, Enter-sends, the pending submit and the
-// starting row (EXP-1271). The hook has its own tests; this only proves the
-// chrome reads the model.
+// EXP-825: the composer card over a FAKE model: chips, the per-subject
+// submit label and placeholder, Enter-sends and the pending submit. The hook
+// has its own tests; this only proves the chrome reads the model.
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -25,18 +16,9 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
 vi.mock(`@/lib/collections`, () => ({
   actionCollection: {},
   boardCollection: {},
-  codingSessionCollection: {},
-  deviceWorktreeCollection: {},
   issueCollection: {},
-}))
-// EXP-980: the dialog's mini-graph reads the team graph; the hook has its own
-// consumers' tests, here it only has to feed one blocks edge (or a cycle).
-const graphState = vi.hoisted(() => ({
-  relations: [] as { type: string; issueId: string; relatedIssueId: string }[],
-  issues: [] as unknown[],
-}))
-vi.mock(`@/hooks/use-team-issue-graph`, () => ({
-  useTeamIssueGraph: () => ({ ...graphState, counts: new Map() }),
+  pullRequestCollection: {},
+  pullRequestIssueCollection: {},
 }))
 vi.mock(`@exp/ui`, async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -99,6 +81,20 @@ const issue = (id: string, identifier: string): Issue =>
     boardId: `b1`,
   }) as unknown as Issue
 
+const teamAction = (id: string, name: string, extra: Partial<ComposerAction> = {}) =>
+  ({
+    id,
+    teamId: `t1`,
+    name,
+    description: null,
+    icon: null,
+    inputs: [],
+    repositoryId: null,
+    promptPlaceholder: null,
+    sortOrder: 1,
+    ...extra,
+  }) as unknown as ComposerAction
+
 function fakeLaunch(): LaunchOptions {
   return {
     device,
@@ -144,7 +140,7 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     teamId: `t1`,
     subject: null,
     selectedAction: null,
-    actions: [builtinFixConflictsAction(`t1`), builtinCreateAction(`t1`)],
+    actions: [teamAction(`act-1`, `Triage`), teamAction(`act-2`, `Release`)],
     eligibleIssues: [],
     checkedIssues: [],
     toggleIssue: vi.fn(),
@@ -152,7 +148,6 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     clearAction: vi.fn(),
     setInput: vi.fn(),
     seedPrIssueId: undefined,
-    fixConflicts: null,
     text: ``,
     setText: vi.fn(),
     images: [],
@@ -162,30 +157,18 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     repoId: ``,
     setRepoId: vi.fn(),
     repoOptions: [],
-    resumeCandidate: null,
-    resume: true,
-    setResume: vi.fn(),
-    resumeActive: false,
-    blockedStart: [],
-    blockedOpen: false,
-    closeBlockedStart: vi.fn(),
-    startAnyway: vi.fn().mockResolvedValue(undefined),
-    blockedStack: { plan: null, reason: null, ident: null, first: null },
-    startStacked: vi.fn().mockResolvedValue(undefined),
     launch: fakeLaunch(),
     candidateDevices: [device],
     deviceRequestNote: null,
     mcpServers: null,
     mcpConnectHref: () => null,
-    submitLabel: `Start chat`,
+    submitLabel: `Start session`,
     blocked: true,
     overCap: false,
     spansRepos: false,
     spansBranches: false,
     costHint: false,
     busy: false,
-    sentTo: null,
-    starting: null,
     submit: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -199,7 +182,7 @@ describe(`LaunchComposer`, () => {
     expect(screen.getByPlaceholderText(`Ask the agent…`)).toBeTruthy()
     const submit = screen.getByTestId(`agent-composer-submit`) as HTMLButtonElement
     // EXP-827: the label is the button's NAME, never its text.
-    expect(submit.getAttribute(`aria-label`)).toBe(`Start chat`)
+    expect(submit.getAttribute(`aria-label`)).toBe(`Start session`)
     expect(submit.textContent).toBe(``)
     expect(submit.disabled).toBe(true)
     // EXP-1270: the suggestion rows are gone.
@@ -225,34 +208,24 @@ describe(`LaunchComposer`, () => {
     expect(screen.getByPlaceholderText(`Additional instructions (optional)…`)).toBeTruthy()
   })
 
-  // EXP-1271: after Start the submit goes pending (after the 150 ms delay)
-  // and the card leads with "Starting on <device>" + the elapsed seconds.
-  it(`shows the pending submit and the starting row while the run starts`, () => {
+  // EXP-1293: while the start uploads and sends, the submit goes pending
+  // (after the 150 ms delay).
+  it(`shows the pending submit while the session starts`, () => {
     vi.useFakeTimers()
     try {
-      vi.setSystemTime(10_000)
       render(
         <LaunchComposer
-          model={fakeModel({
-            starting: { deviceLabel: `buildbox`, since: 10_000 },
-            busy: true,
-            blocked: true,
-          })}
+          model={fakeModel({ busy: true, blocked: true })}
           users={[]}
           variant="home"
         />
       )
       const submit = screen.getByTestId(`agent-composer-submit`)
       expect(submit.getAttribute(`aria-busy`)).toBe(`true`)
-      expect(screen.queryByTestId(`composer-starting`)).toBeNull()
       act(() => vi.advanceTimersByTime(150))
       expect(submit.getAttribute(`aria-label`)).toBe(`Starting`)
       expect(submit.querySelector(`[data-slot=spinner]`)).not.toBeNull()
-      const row = screen.getByTestId(`composer-starting`)
-      expect(row.textContent).toContain(`Starting on buildbox`)
-      expect(row.querySelector(`[data-slot=feedback-mark]`)).not.toBeNull()
-      act(() => vi.advanceTimersByTime(1_300))
-      expect(row.textContent).toContain(`1.4 s`)
+      expect(screen.queryByTestId(`composer-starting`)).toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -281,18 +254,16 @@ describe(`LaunchComposer`, () => {
     expect(model.toggleIssue).toHaveBeenCalledWith(`i1`)
   })
 
-  it(`draws the action chip and asks for the request on Create action`, () => {
-    const create = builtinCreateAction(`t1`)
+  it(`draws the action chip; only its ✕ clears it`, () => {
+    const triage = teamAction(`act-1`, `Triage`)
     const model = fakeModel({
-      subject: { kind: `action`, id: create.id, inputs: {} },
-      selectedAction: create,
+      subject: { kind: `action`, id: triage.id, inputs: {} },
+      selectedAction: triage,
       submitLabel: `Run action`,
     })
     render(<LaunchComposer model={model} users={[]} />)
     const chip = screen.getByTestId(`agent-composer-chip-action`)
-    expect(chip.textContent).toContain(`Create action`)
-    expect(screen.getByPlaceholderText(/Describe the action/)).toBeTruthy()
-    // EXP-827: clicking the chip keeps the action; its ✕ clears it.
+    expect(chip.textContent).toContain(`Triage`)
     fireEvent.click(chip)
     expect(model.clearAction).not.toHaveBeenCalled()
     fireEvent.click(screen.getByTestId(`agent-composer-chip-action-remove`))
@@ -301,80 +272,23 @@ describe(`LaunchComposer`, () => {
 
   // EXP-825: an action's own hint replaces the generic one while it is picked.
   it(`shows the picked action's composer hint as the field placeholder`, () => {
-    const fix = builtinFixConflictsAction(`t1`)
+    const hinted = teamAction(`act-1`, `Triage`, { promptPlaceholder: `Scope: which platforms` })
     const model = fakeModel({
-      subject: { kind: `action`, id: fix.id, inputs: {} },
-      selectedAction: { ...fix, promptPlaceholder: `Scope: which platforms` },
+      subject: { kind: `action`, id: hinted.id, inputs: {} },
+      selectedAction: hinted,
       submitLabel: `Run action`,
     })
     render(<LaunchComposer model={model} users={[]} />)
     expect(screen.getByPlaceholderText(`Scope: which platforms`)).toBeTruthy()
 
+    const plainAction = teamAction(`act-2`, `Release`)
     const plain = fakeModel({
-      subject: { kind: `action`, id: fix.id, inputs: {} },
-      selectedAction: fix,
+      subject: { kind: `action`, id: plainAction.id, inputs: {} },
+      selectedAction: plainAction,
       submitLabel: `Run action`,
     })
     render(<LaunchComposer model={plain} users={[]} />)
     expect(screen.getByPlaceholderText(/Additional instructions/)).toBeTruthy()
-  })
-
-  // EXP-1233: the Fix merge conflicts builtin wears its own card once a
-  // pull request is picked — the PR's issue chips in the headline, the
-  // branch row (the picker) in the strip, and the refusal line when a
-  // refused merge opened the composer. No generic "Pull request" field.
-  it(`draws the conflict card for a picked Fix merge conflicts PR`, () => {
-    const fix = builtinFixConflictsAction(`t1`)
-    const pr = {
-      issueId: `i1`,
-      prNumber: 2117,
-      branch: `exp/APP-14`,
-      baseBranch: `master`,
-      issues: [issue(`i1`, `APP-14`)],
-    }
-    const model = fakeModel({
-      subject: { kind: `action`, id: fix.id, inputs: { pr: `i1` } },
-      selectedAction: fix,
-      fixConflicts: { pr, refused: true },
-      submitLabel: `Fix conflicts`,
-      blocked: false,
-    })
-    render(<LaunchComposer model={model} users={[]} />)
-    const headline = screen.getByTestId(`agent-composer-headline`)
-    expect(headline.textContent).toContain(`Fix merge conflicts`)
-    expect(headline.textContent).not.toContain(`Run`)
-    expect(screen.getByTestId(`agent-composer-chip-issue-APP-14`)).toBeTruthy()
-    expect(screen.queryByTestId(`agent-composer-chip-action`)).toBeNull()
-    const card = screen.getByTestId(`agent-composer-fix-conflicts`)
-    expect(card.textContent).toContain(`#2117`)
-    expect(card.textContent).toContain(`exp/APP-14 → master`)
-    expect(screen.getByTestId(`agent-composer-conflict-note`).textContent).toBe(
-      `Merge refused: the branch has conflicts.`
-    )
-    expect(screen.queryByText(`Pull request`)).toBeNull()
-    expect(
-      screen.getByTestId(`agent-composer-submit`).getAttribute(`aria-label`)
-    ).toBe(`Fix conflicts`)
-    // The chip's ✕ clears the PICK, not the action.
-    fireEvent.click(screen.getByTestId(`agent-composer-chip-issue-APP-14-remove`))
-    expect(model.setInput).toHaveBeenCalledWith(`pr`, ``)
-    expect(model.clearAction).not.toHaveBeenCalled()
-  })
-
-  it(`keeps the generic action chip and the picker while no PR is picked`, () => {
-    const fix = builtinFixConflictsAction(`t1`)
-    const model = fakeModel({
-      subject: { kind: `action`, id: fix.id, inputs: {} },
-      selectedAction: fix,
-      fixConflicts: { pr: null, refused: false },
-      submitLabel: `Run action`,
-    })
-    render(<LaunchComposer model={model} users={[]} />)
-    expect(screen.getByTestId(`agent-composer-headline`).textContent).toContain(`Run`)
-    expect(screen.getByTestId(`agent-composer-chip-action`)).toBeTruthy()
-    const card = screen.getByTestId(`agent-composer-fix-conflicts`)
-    expect(card.textContent).toContain(`Select a pull request…`)
-    expect(screen.queryByTestId(`agent-composer-conflict-note`)).toBeNull()
   })
 
   it(`Enter sends when not blocked, Shift+Enter breaks the line`, () => {
@@ -453,7 +367,7 @@ describe(`LaunchComposer`, () => {
   // — one action row, curated glyph over the name, description underneath;
   // a pick sets the subject and closes the menu.
   it(`picks an action through the + menu's Run action submenu`, () => {
-    const fix = builtinFixConflictsAction(`t1`)
+    const fix = teamAction(`act-1`, `Triage`)
     const model = fakeModel()
     render(<LaunchComposer model={model} users={[]} />)
     openPlus()
@@ -561,6 +475,7 @@ describe(`LaunchComposer + menu`, () => {
     expect(screen.queryByTestId(`agent-composer-image-button`)).toBeNull()
   })
 
+  // EXP-1293: no Subagents row (`sessions.send` carries no subagent model).
   it(`lists the fixture's rows for claude without MCP servers or computer use`, () => {
     render(<LaunchComposer model={fakeModel()} users={[]} />)
     openPlus()
@@ -570,7 +485,6 @@ describe(`LaunchComposer + menu`, () => {
       `add-file`,
       `-`,
       `effort`,
-      `subagents`,
       `ultracode`,
     ])
     expect(screen.getByTestId(`agent-composer-menu-effort`).textContent).toContain(
@@ -617,7 +531,7 @@ describe(`LaunchComposer + menu`, () => {
     expect(screen.getByTestId(`agent-composer-menu`)).toBeTruthy()
   })
 
-  it(`hides the MCP row while a real action owns its MCP list`, () => {
+  it(`hides the MCP row while an action owns its MCP list`, () => {
     const model = fakeModel({
       subject: { kind: `action`, id: `a-real`, inputs: {} },
       mcpServers: [{ id: `m1`, name: `Linear`, connection: { state: `connected` } }] as never,
@@ -728,138 +642,5 @@ describe(`LaunchComposer + menu`, () => {
     fireEvent.click(screen.getByTestId(`agent-composer-menu-add-file`))
     expect(click).toHaveBeenCalled()
     click.mockRestore()
-  })
-})
-
-// EXP-980: the blocked-start dialog the composer opens on a blocked issue.
-describe(`LaunchComposer blocked start`, () => {
-  it(`offers Cancel, Start anyway and a disabled Stacked PR with its reason`, () => {
-    const startAnyway = vi.fn().mockResolvedValue(undefined)
-    render(
-      <LaunchComposer
-        model={fakeModel({
-          subject: { kind: `issues`, ids: [`i1`] },
-          checkedIssues: [issue(`i1`, `APP-1`)],
-          blockedStart: [issue(`i2`, `APP-2`)],
-          blockedOpen: true,
-          blockedStack: { plan: null, reason: `running`, ident: `APP-2`, first: null },
-          startAnyway,
-          blocked: false,
-        })}
-        users={[]}
-      />
-    )
-    expect(screen.getByText(BLOCKED_START_TITLE)).toBeTruthy()
-    // The blocker rides an ordinary issue chip.
-    expect(screen.getByTestId(`blocked-start-chip-APP-2`)).toBeTruthy()
-    expect(screen.getByText(`Cancel`)).toBeTruthy()
-    // EXP-1167: one flowing sentence, the "." glued to the last chip.
-    const sentence = screen.getByTestId(`blocked-start-sentence`)
-    expect(sentence.textContent?.endsWith(` Start anyway?`)).toBe(true)
-    expect(
-      screen.getByTestId(`blocked-start-chip-APP-2`).closest(`.whitespace-nowrap`)
-        ?.textContent?.endsWith(`.`)
-    ).toBe(true)
-    const stacked = screen.getByTestId(`blocked-start-stacked`)
-    expect(stacked.textContent).toBe(STACKED_PR_LABEL)
-    expect((stacked as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByTestId(`blocked-start-stack-note`).textContent).toBe(
-      `#APP-2 is already running. Its pull request is not open yet.`
-    )
-    expect(screen.queryByTestId(`blocked-start-plan-note`)).toBeNull()
-    fireEvent.click(screen.getByText(START_ANYWAY_LABEL))
-    expect(startAnyway).toHaveBeenCalledTimes(1)
-  })
-
-  it(`starts a stacked PR and says which issue of the line starts first`, () => {
-    const startStacked = vi.fn().mockResolvedValue(undefined)
-    const blocker = issue(`i2`, `APP-2`)
-    render(
-      <LaunchComposer
-        model={fakeModel({
-          subject: { kind: `issues`, ids: [`i1`] },
-          checkedIssues: [issue(`i1`, `APP-1`)],
-          blockedStart: [blocker],
-          blockedOpen: true,
-          blockedStack: {
-            plan: { base: null, run: [`APP-2`, `APP-1`] },
-            reason: null,
-            ident: null,
-            first: blocker,
-          },
-          startStacked,
-          blocked: false,
-        })}
-        users={[]}
-      />
-    )
-    // EXP-1167: one flowing sentence, the "." glued to the last chip.
-    const sentence = screen.getByTestId(`blocked-start-sentence`)
-    expect(sentence.textContent?.endsWith(` Start anyway, or start a stacked PR?`)).toBe(true)
-    expect(
-      screen.getByTestId(`blocked-start-chip-APP-2`).closest(`.whitespace-nowrap`)
-        ?.textContent?.endsWith(`.`)
-    ).toBe(true)
-    expect(screen.queryByTestId(`blocked-start-stack-note`)).toBeNull()
-    expect(screen.getByTestId(`blocked-start-plan-note`).textContent).toBe(
-      `Starts #APP-2 first, then #APP-1.`
-    )
-    const stacked = screen.getByTestId(`blocked-start-stacked`)
-    expect((stacked as HTMLButtonElement).disabled).toBe(false)
-    fireEvent.click(stacked)
-    expect(startStacked).toHaveBeenCalledTimes(1)
-  })
-
-  it(`asks about a batch with the batch copy`, () => {
-    render(
-      <LaunchComposer
-        model={fakeModel({
-          subject: { kind: `issues`, ids: [`i1`, `i3`] },
-          checkedIssues: [issue(`i1`, `APP-1`), issue(`i3`, `APP-3`)],
-          blockedStart: [issue(`i2`, `APP-2`)],
-          blockedOpen: true,
-          blocked: false,
-        })}
-        users={[]}
-      />
-    )
-    expect(screen.getByText(BLOCKED_BATCH_TITLE)).toBeTruthy()
-    expect(screen.getByText(BLOCKED_BATCH_BODY)).toBeTruthy()
-  })
-
-  it(`draws the transitive chain as the mini-graph`, () => {
-    graphState.issues = [
-      issue(`i1`, `APP-1`),
-      issue(`i2`, `APP-2`),
-      issue(`i4`, `APP-4`),
-    ]
-    graphState.relations = [
-      { type: `blocks`, issueId: `i2`, relatedIssueId: `i1` },
-      { type: `blocks`, issueId: `i4`, relatedIssueId: `i2` },
-    ]
-    render(
-      <LaunchComposer
-        model={fakeModel({
-          subject: { kind: `issues`, ids: [`i1`] },
-          checkedIssues: [issue(`i1`, `APP-1`)],
-          blockedStart: [issue(`i2`, `APP-2`)],
-          blockedOpen: true,
-          blocked: false,
-        })}
-        users={[]}
-      />
-    )
-    const wave = (identifier: string) =>
-      screen
-        .getByTestId(`issue-graph-node-${identifier}`)
-        .getAttribute(`data-wave`)
-    expect([wave(`APP-4`), wave(`APP-2`), wave(`APP-1`)]).toEqual([`0`, `1`, `2`])
-    graphState.issues = []
-    graphState.relations = []
-  })
-
-  it(`stays shut while nothing blocks the subject`, () => {
-    render(<LaunchComposer model={fakeModel()} users={[]} />)
-    expect(screen.queryByText(BLOCKED_START_TITLE)).toBeNull()
   })
 })

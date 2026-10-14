@@ -51,7 +51,7 @@ impl CodingAgent {
         }
     }
 
-    /// The id `codingSessions.start` carries for this run. EXP-862 dropped
+    /// The id a session row's `cli` carries for this agent. EXP-862 dropped
     /// external ACP agents, so every launch names a builtin and the wire id
     /// is always there (it was `Option` while `AgentKind::External` existed).
     pub fn wire_id(self) -> Option<&'static str> {

@@ -8,8 +8,8 @@ import { FeedbackMark } from "./feedback"
 // full transcript — the run mark as the spinner, the caption in its tone,
 // the last tool line muted under it (live runs only), and the Show work /
 // Hide work toggle on the right. Label + state only. The app owns the rules
-// (`runRowCaption`, `lastToolLine`, `showWorkLabel` in apps/web; fixture
-// `run-row.json` ×4); this component only draws them. EXP-1245: the owner's
+// (`runRowCaption`, `lastToolLine`, `showWorkLabel` in apps/web); this
+// component only draws them. EXP-1245: the owner's
 // thread draws one per TURN (`turnRowCaption`); a row without `onToggle`
 // carries no Show work button. EXP-1271 (EXP-1259 D8): before the run's first
 // turn the row is `starting`: THE mark (`FeedbackMark`) in the run mark's

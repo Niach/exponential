@@ -136,17 +136,6 @@ public extension Error {
     /// pick the offline sentence up unchanged.
     var trpcUserMessage: String { userFacingMessage }
 
-    /// True only for a REAL content conflict on a PR merge (EXP-533): the
-    /// server answers `CONFLICT` / HTTP 409 for a conflict it diagnosed, and
-    /// `PRECONDITION_FAILED` for everything else it refused (stale head,
-    /// branch protection, GitHub App misconfiguration) — offering the
-    /// "Fix conflicts" recovery run there would only waste an agent run.
-    var isMergeConflict: Bool {
-        guard let trpcError = self as? TrpcError,
-              case let .httpError(status, _) = trpcError else { return false }
-        return status == 409
-    }
-
     /// The tRPC error `code` (`NOT_FOUND`, `FORBIDDEN`, `PRECONDITION_FAILED`,
     /// …) of a failed call, or nil for anything that isn't a tRPC error
     /// envelope (transport failures, non-tRPC errors). Lets a caller tell a
@@ -165,35 +154,5 @@ public extension Error {
               case let .httpError(_, body) = trpcError,
               let parsed = TrpcErrorBody.parse(body) else { return false }
         return parsed.isPlanLimit
-    }
-}
-
-/// A failed PR merge, as every merge surface renders it (EXP-533): the caption
-/// text plus whether the refusal was a real content conflict, which is the only
-/// case where the "Fix conflicts" recovery run can help. Mirrors web
-/// `lib/merge-failure.ts`, Android `domain/MergeFailure.kt` and desktop
-/// `ui/src/pr_merge.rs`.
-public struct MergeFailure: Sendable, Equatable {
-    public let message: String
-    public let isConflict: Bool
-
-    public init(message: String, isConflict: Bool) {
-        self.message = message
-        self.isConflict = isConflict
-    }
-
-    public init(error: Error) {
-        self.init(message: error.userFacingMessage, isConflict: error.isMergeConflict)
-    }
-
-    /// EXP-1145: a STACK merge lands several pull requests, so its refusal is
-    /// the server's message about whichever one stopped the chain, never a
-    /// rebase-and-resolve job for the one the control sits on: the message
-    /// only, no conflict offer (web `session-merge-button.tsx`).
-    public init(error: Error, stackMerge: Bool) {
-        self.init(
-            message: error.userFacingMessage,
-            isConflict: stackMerge ? false : error.isMergeConflict
-        )
     }
 }

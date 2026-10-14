@@ -5,6 +5,7 @@ import Foundation
 ///   issue:  {base}/t/{teamSlug}/boards/{boardSlug}/issues/{identifier}
 ///   agent:  {base}/t/{teamSlug}/agent   (EXP-825 — the team's Agent page)
 ///   thread: {base}/t/{teamSlug}/threads/{threadId}   (EXP-1284/1288)
+///   session: {base}/t/{teamSlug}/sessions/{sessionId}[?view=guide]   (EXP-1291)
 ///
 /// EXP-180 (the great rename): the web's canonical routes are `/t/…/boards/…`
 /// and the legacy `/w/` + `/projects/` forms are DEAD server-side (no
@@ -80,6 +81,9 @@ public enum WebLinks {
         case invite(token: String)
         case agent(teamSlug: String)
         case thread(teamSlug: String, threadId: String)
+        /// EXP-1291: a session — the PR body footer links its ROOT with
+        /// `?view=guide` (the thread on its Guide).
+        case session(teamSlug: String, sessionId: String, guide: Bool)
     }
 
     /// Parse `{base}/t/{team}/boards/{board}/issues/{identifier}` plus
@@ -109,6 +113,13 @@ public enum WebLinks {
         // too).
         if parts.count == 4, parts[0] == "t", parts[2] == "threads" {
             return .thread(teamSlug: parts[1], threadId: parts[3])
+        }
+        // EXP-1291: `/t/{team}/sessions/{id}`, exact length; `view=guide`
+        // asks for the Guide.
+        if parts.count == 4, parts[0] == "t", parts[2] == "sessions" {
+            let view = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "view" }?.value
+            return .session(teamSlug: parts[1], sessionId: parts[3], guide: view == "guide")
         }
         return nil
     }

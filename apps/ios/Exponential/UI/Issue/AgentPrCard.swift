@@ -2,109 +2,60 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The compact PR/branch status section on issue detail (EXP-156). EXP-240
-/// moved the remote-start affordance into the bottom bar's Start-coding
-/// circle; EXP-246 dropped the glass card wrapper (full-width rows, Linear
-/// parity); EXP-698 r4 moved the session row out into `CodingNowCard`, which
-/// sits above the description with the property chips. What is left are the two
-/// rows that belong beside the code:
-///   - PR:      a linked PR → GitHub-style capsule chip (pull icon tinted by
-///              state + "PR #n"), tapping opens the diff page.
-///   - Branch:  a pushed branch, no PR yet → branch icon + mono name chip,
-///              same diff page.
-/// No inline Close/Merge/GitHub-link/diff-count here — the review actions live
-/// on the Changes face. EXP-893: the rows are BUTTONS that switch the Work
-/// screen to its Changes face (`onOpenChanges`), never a push.
+/// The issue's pull requests (EXP-156; EXP-1295: `pull_request_issues` →
+/// `pull_requests`, newest first, never the issue's own columns). One
+/// full-width row per PR (EXP-246/327, Linear parity): the pull icon tinted
+/// by state, `PR #n`, its title, the state word; a tap opens it on GitHub.
+/// No inline Close/Merge here — merging is the thread's Guide.
 struct AgentPrCard: View {
-    let issue: IssueEntity
-    let onOpenChanges: () -> Void
+    let pullRequests: [PullRequestEntity]
 
-    private var showsCard: Bool {
-        issue.prUrl != nil || (issue.branch?.isEmpty == false)
-    }
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Group {
-            if showsCard {
-                content
+        if !pullRequests.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(pullRequests) { pr in
+                    row(pr)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
-
-    // Full-width rows, no card wrapper (EXP-246) — the PR/branch chips keep
-    // their own glassButton capsules.
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if issue.prUrl != nil {
-                prChip
-            } else if let branch = issue.branch, !branch.isEmpty {
-                branchChip(branch)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - PR / branch chips (GitHub-style, EXP-240)
 
     /// Pull-request icon tint per PR state: open green, merged blue (the
     /// done-status semantic, web/desktop parity), closed red.
-    private var prTint: Color {
-        switch issue.prState {
+    private func tint(_ state: String) -> Color {
+        switch state {
         case DomainContract.prStateMerged: DesignTokens.Semantic.blue
         case DomainContract.prStateClosed: DesignTokens.Semantic.red
         default: DesignTokens.Semantic.green
         }
     }
 
-    private var prLabel: String {
-        if let number = issue.prNumber {
-            return "PR #\(number)"
-        }
-        return "Pull request"
-    }
-
-    // EXP-327: a full-width row rather than a hug-width capsule — the linked PR
-    // is the way into the code, not a stray chip (Linear parity). The branch
-    // variant takes the same shape: they occupy the same slot.
-    private var prChip: some View {
-        Button(action: onOpenChanges) {
+    private func row(_ pr: PullRequestEntity) -> some View {
+        Button {
+            if let url = URL(string: pr.url) { openURL(url) }
+        } label: {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.prOpen, size: AppIcon.Size.small, weight: .semibold)
-                    .foregroundStyle(prTint)
-                Text(prLabel)
+                    .foregroundStyle(tint(pr.state))
+                Text("PR #\(pr.number)")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Spacer(minLength: 8)
-                if let prState = issue.prState, !prState.isEmpty {
-                    Text(prState.capitalized)
-                        .font(.caption2)
+                    .fixedSize()
+                if let title = pr.title, !title.isEmpty {
+                    Text(title)
+                        .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
                 }
-                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glassRow()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func branchChip(_ branch: String) -> some View {
-        Button(action: onOpenChanges) {
-            HStack(spacing: 8) {
-                AppIcon(AppIcons.actionRepository, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(branch)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
                 Spacer(minLength: 8)
-                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                Text(pr.state.capitalized)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                AppIcon(AppIcons.uiExternalLink, size: AppIcon.Size.small)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)
@@ -114,6 +65,7 @@ struct AgentPrCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("issue-pr-row")
     }
 }
 

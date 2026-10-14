@@ -1,5 +1,4 @@
-import { useEffect } from "react"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 import { SkeletonRows } from "@exp/ui"
 import { TeamActionsPanel } from "@/components/team-actions-panel"
 import { useTeamBySlug } from "@/hooks/use-team-data"
@@ -8,24 +7,11 @@ import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { pageTitle } from "@/lib/page-title"
 
 // The team Actions surface (EXP-686 — its own top-level route on every
-// client): the actions LIST on every viewport (EXP-1270: the phone's
-// Suggestions tab is gone ×4). An action itself is a page:
-// `actions/$actionId`.
-//
-// EXP-694: `?editAction=` is the one-shot a session row's trailing button
-// sends — since SLOP-2 it simply forwards to that action's page.
-type ActionsSearch = {
-  editAction?: string
-}
+// client): the actions LIST (EXP-1293: saved prompts) on every viewport. An
+// action itself is a page: `actions/$actionId`.
 
 export const Route = createFileRoute(`/t/$teamSlug/actions/`)({
   head: () => ({ meta: [{ title: pageTitle(`Actions`) }] }),
-  validateSearch: (search: Record<string, unknown>): ActionsSearch => ({
-    editAction:
-      typeof search.editAction === `string` && search.editAction !== ``
-        ? search.editAction
-        : undefined,
-  }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
       throw redirect({
@@ -39,21 +25,10 @@ export const Route = createFileRoute(`/t/$teamSlug/actions/`)({
 
 function ActionsPage() {
   const { teamSlug } = Route.useParams()
-  const { editAction } = Route.useSearch()
-  const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
   // EXP-1186: the phone lists every member team's actions, one band per
   // team; md+ = the active team.
   const scope = useCrossTeamScope(team)
-
-  useEffect(() => {
-    if (!editAction) return
-    void navigate({
-      to: `/t/$teamSlug/actions/$actionId`,
-      params: { teamSlug, actionId: editAction },
-      replace: true,
-    })
-  }, [editAction, navigate, teamSlug])
 
   return (
     <div className="h-full overflow-y-auto">

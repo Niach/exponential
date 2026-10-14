@@ -122,13 +122,14 @@ describe(`draftLandingNavigation`, () => {
         teamSlug: `acme`,
         threadId: `th1`,
         boardSlug: `web`,
+        issueId: `iss-9`,
         identifier: `APP-9`,
         from: `inbox`,
       })
     ).toEqual({
       to: `/t/$teamSlug/threads/$threadId`,
       params: { teamSlug: `acme`, threadId: `th1` },
-      search: { child: `APP-9` },
+      search: { tab: `issue`, issue: `iss-9`, from: `inbox` },
     })
   })
 
@@ -138,6 +139,7 @@ describe(`draftLandingNavigation`, () => {
         teamSlug: `acme`,
         threadId: null,
         boardSlug: `web`,
+        issueId: `iss-9`,
         identifier: `APP-9`,
         from: `inbox`,
       })

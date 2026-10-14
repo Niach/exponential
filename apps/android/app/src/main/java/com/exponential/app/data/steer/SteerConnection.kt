@@ -7,13 +7,12 @@ import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.domain.ActivityFeedState
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentPhase
 import com.exponential.app.domain.AnswerState
 import com.exponential.app.domain.COMPACTION_TIMEOUT_MS
-import com.exponential.app.domain.CodingSessionLiveness
 import com.exponential.app.domain.CompactionState
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HISTORY_PAGE_LIMIT
@@ -36,7 +35,6 @@ import com.exponential.app.domain.failUnacknowledged
 import com.exponential.app.domain.feedItemBytes
 import com.exponential.app.domain.lockAnswer
 import com.exponential.app.domain.locksCard
-import com.exponential.app.domain.runHasEnded
 import com.exponential.app.domain.trimmed
 import com.exponential.app.domain.withId
 import io.ktor.http.HttpStatusCode
@@ -203,7 +201,7 @@ class SteerConnection internal constructor(
     val codingSessionId: String,
     private val transport: SteerTransport,
     /** The synced coding_sessions row, already account-scoped by the store. */
-    sessionFlow: Flow<CodingSessionEntity?>,
+    sessionFlow: Flow<SessionEntity?>,
     private val json: Json,
     /** Only the image path needs these two. They default to null so the
      *  dial-loop tests can build a connection without an Android-backed
@@ -232,7 +230,7 @@ class SteerConnection internal constructor(
     /** The synced coding_sessions row — flips to ended via Electric. Shared
      *  EAGERLY: the redial loop reads it while no screen is subscribed, and a
      *  frozen row would keep it dialing a session that already finished. */
-    val session: StateFlow<CodingSessionEntity?> =
+    val session: StateFlow<SessionEntity?> =
         sessionFlow.stateIn(scope, SharingStarted.Eagerly, null)
 
     private val _phase = MutableStateFlow<AgentPhase>(AgentPhase.Idle)
@@ -568,9 +566,7 @@ class SteerConnection internal constructor(
         val row = session.value
         if (row != null) {
             sawSessionRow = true
-            // EXP-888: a sweep end is not an end — the host revives the row
-            // on its next heartbeat, so the viewer keeps dialing.
-            return runHasEnded(row)
+            return row.isEnded
         }
         return sawSessionRow
     }
@@ -795,7 +791,7 @@ class SteerConnection internal constructor(
             historyTerminal -> DialOutcome.Ended(null)
             // Heartbeat-stale rows don't warrant a redial (EXP-153) — the row
             // is a phantom, not a session that's still starting.
-            retryStarting && session.value?.let { CodingSessionLiveness.isLive(it) } == true ->
+            retryStarting && session.value?.let { !it.isEnded } == true ->
                 DialOutcome.RetryStarting
             // The close code decides the rest (EXP-621).
             else -> when (steerCloseAction(closeCode, sessionIsOver())) {
@@ -1175,6 +1171,15 @@ class SteerConnection internal constructor(
     /** A pick refused before its bytes were read (wave D: over the cap). */
     fun refusePendingAttachment(message: String) {
         _steerImageError.value = message
+    }
+
+    /** Stamp [entry]'s landed upload (EXP-1291 `sessions.send` path), so a
+     *  retry after a failed send uploads only what has not landed. Matched by
+     *  identity: a removal mid-send never stamps the wrong entry. */
+    fun stampPendingUpload(entry: PendingAttachment, id: String, name: String?) {
+        _pendingImages.value = _pendingImages.value.map {
+            if (it === entry) it.copy(uploadedId = id, uploadedName = name) else it
+        }
     }
 
     fun removePendingImage(index: Int) {

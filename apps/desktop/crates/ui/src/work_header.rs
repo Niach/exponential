@@ -1,38 +1,26 @@
-//! EXP-877 — the ONE work header shared by the issue face, the run face and
-//! the diff face of a top tab (issue detail + session screen), byte-identical
-//! with the web `WorkHeader`.
+//! EXP-877 — the ONE work header shared by the issue detail and the session
+//! view, byte-identical with the web `WorkHeader`.
 //!
 //! EXP-1162 (contract `detail-chrome.json`): a compact FIXED bar — the
-//! [`collapsed_title`] on its left, on its right the [`face_toggle`]
-//! (`Issue | Run | Changes | Results`, the changes item wearing `+N −M` once
-//! its counts are known), then, for an issue, its pin and `…` menu. The
+//! [`collapsed_title`] on its left, its right cluster on the right (EXP-1294:
+//! for an issue `[Start] [pin] [⋯]`; the session header names its own). The
 //! issue face's large title (the editable input, [`TITLE_SIZE`]) and its
 //! property tray are the first rows of its SCROLLING body, and the bar's
-//! title appears only once that row has scrolled under it; the run faces
-//! have no title row, so they are always collapsed and keep the tray fixed
-//! under the bar. The tray trails `[Merge PR] [the ONE coding action]`. The
-//! coding action is derived from the run STATE ([`coding_action`]), never
-//! from the face on show: an own live run → Stop, an own ended resumable
-//! run → Resume, else Start coding. No hairline: the body wears the edge
-//! strips ([`work_body`]). The column caps at [`WORK_COLUMN_W`], the same as
-//! the issue body, transcript and diff.
+//! title appears only once that row has scrolled under it; a face with no
+//! title row is always collapsed and keeps its tray fixed under the bar. No
+//! hairline: the body wears the edge strips ([`work_body`]). The column caps
+//! at [`WORK_COLUMN_W`], the same as the issue body, transcript and diff.
 
 use std::rc::Rc;
 
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, InteractiveElement as _,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement as _, Styled, Window,
+    IntoElement, ParentElement, SharedString, Styled, Window,
 };
-use gpui_component::{
-    button::Button, h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-};
-use sync::Store;
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 
-use crate::changes_bar::MergeTarget;
-use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{registry, ExpIcon};
 use crate::issue_detail::centered_column;
-use crate::session_screen::ResumePath;
 use crate::surface::{glass_pill_button, glass_pill_button_primary, PillSize};
 
 /// The shared work column width — web `max-w-4xl` (896px): header, issue
@@ -56,14 +44,11 @@ pub(crate) const GHOST_ICON_HANG: f32 = 8.;
 /// EXP-926 / FEED-45 — ONE size rule per PLACEMENT, and the placement is the
 /// only thing that decides it.
 ///
-/// A header action (Merge PR, Stop, Resume, Fix conflicts) sits in exactly two
-/// places: NEXT TO the face toggle in row 1 — a run with no issue, or a batch,
-/// which has no property card to put it in — or INSIDE that card's chip row
-/// beside status, priority, labels, due date and board. Beside the toggle it
-/// matches the TOGGLE ([`PillSize::Lg`], the 36px control); in the tray it
-/// matches the CHIPS ([`PillSize::Sm`], what `pickers::chip_button` wears).
-/// They used to be chip-sized in both, so the header's own cluster read as a
-/// row of stray chips floating next to a control twice their height.
+/// A header action (Start, Merge PR, Stop) sits in exactly two places: IN the
+/// compact bar's right cluster, or INSIDE the property tray beside status,
+/// priority, labels, due date and board. In the bar it matches the bar's
+/// controls ([`PillSize::Lg`], the 36px rung); in the tray it matches the
+/// CHIPS ([`PillSize::Sm`], what `pickers::chip_button` wears).
 pub(crate) fn header_action_size(in_tray: bool) -> PillSize {
     if in_tray {
         PillSize::Sm
@@ -72,814 +57,10 @@ pub(crate) fn header_action_size(in_tray: bool) -> PillSize {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Face toggle
-// ---------------------------------------------------------------------------
-
-/// Which face of a top tab is up. EXP-1251: `Guide` = Changes + Results
-/// merged — the report with ONE Changes row per section over the diff (the
-/// run's worktree diff, else the issue's open pull request).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Face {
-    Issue,
-    Run,
-    Guide,
-}
-
-/// What the toggle offers: an `Issue` item for an issue-bound tab, a `Run`
-/// item when a run exists (its id), a `Guide` item when there is a report or
-/// a diff to read. Unavailable items are HIDDEN, never disabled.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct FaceToggle {
-    pub issue: bool,
-    pub run: Option<String>,
-    /// EXP-1251: a report (results) OR a diff (a run's worktree diff, an
-    /// open PR) exists — the web `availableFaces` `hasResults || hasDiff`.
-    pub guide: bool,
-    pub active: Face,
-    /// EXP-886 / EXP-950: the issue's runs of mine
-    /// ([`crate::run_rows::issue_run_entries`]); EXP-974: for an issue-less
-    /// run, its resume chain ([`crate::run_rows::chain_run_entries`]). With
-    /// MORE THAN ONE the Run item reads "Runs" ([`run_face_label`]) and
-    /// carries a caret: the label still opens the tab's run, the caret's
-    /// menu picks between them — and the toggle shows for that caret alone.
-    pub runs: Vec<RunEntry>,
-    /// The run the menu checks: the one on show (session screen) or the one
-    /// the Run face opens (issue face).
-    pub checked_run: Option<String>,
-    /// EXP-1162: the facts behind the face dots ([`FaceToggle::dots`]).
-    pub state: FaceState,
-}
-
-/// EXP-1162 FACE DOTS — what the toggle's dots say (contract
-/// `detail-chrome.json` `faceDots`): the tab's run is live, that live run
-/// waits on a person, the issue's (or run's) pull request is open. FACE
-/// MARKS: the run's agent (`None` = an unknown one, the generic glyph) and
-/// what it is doing (EXP-1184, [`crate::queries::coding_session_display`];
-/// `None` while it is not live or its host is offline), for the Run tab's
-/// mark.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct FaceState {
-    pub run_live: bool,
-    pub needs_input: bool,
-    pub pr_open: bool,
-    pub agent: Option<coding::CodingAgent>,
-    pub run_state: Option<crate::queries::CodingSessionDisplay>,
-}
-
-/// EXP-1162 FACE MARKS: how a segment draws its tone — the Run segment as
-/// the run's agent brand mark LEADING its label (badged amber while it
-/// needs input), every other segment as a dot trailing its label.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FaceMark {
-    Agent { attention: bool },
-    Dot(domain::detail_chrome::FaceDotTone),
-}
-
-/// The [`FaceMark`] a segment wears for the tone the rule gave it.
-pub(crate) fn face_mark(face: Face, tone: domain::detail_chrome::FaceDotTone) -> FaceMark {
-    use domain::detail_chrome::FaceDotTone;
-    match face {
-        Face::Run => FaceMark::Agent {
-            attention: tone == FaceDotTone::NeedsInput,
-        },
-        _ => FaceMark::Dot(tone),
-    }
-}
-
-/// EXP-950: one row of the Run item's menu — `<device> · <when>`
-/// ([`crate::run_rows::issue_run_label`]), live runs marked.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunEntry {
-    pub id: String,
-    pub label: String,
-    pub live: bool,
-}
-
-/// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
-pub(crate) const RUN_FACE_LABEL: &str = "Session";
-pub(crate) const RUNS_FACE_LABEL: &str = "Sessions";
-/// EXP-1251: the Guide face's ONE name (contract `diffUi.guideFace`, ×4).
-pub(crate) const GUIDE_FACE_LABEL: &str = domain::contract::DIFF_UI_GUIDE_FACE;
-
-/// The Run item's label: the plural once the issue has several runs of mine.
-pub(crate) fn run_face_label(multiple_runs: bool) -> &'static str {
-    if multiple_runs {
-        RUNS_FACE_LABEL
-    } else {
-        RUN_FACE_LABEL
-    }
-}
-
-impl FaceToggle {
-    /// EXP-886: several runs of mine — the plural label and (EXP-950) the
-    /// caret's menu.
-    pub(crate) fn multiple_runs(&self) -> bool {
-        self.runs.len() > 1
-    }
-
-    /// EXP-950: is there a control at all? Two faces make a toggle; a lone
-    /// Run item still shows while it carries the run menu.
-    pub(crate) fn is_shown(&self) -> bool {
-        let items = self.items();
-        items.len() > 1 || (self.multiple_runs() && items.contains(&Face::Run))
-    }
-
-    /// The items in web order, pure so the visibility rule can be pinned —
-    /// the web `availableFaces` (`lib/work-faces.ts`) one for one: issue,
-    /// run, guide. The Guide is INDEPENDENT of a run of mine (a teammate's
-    /// report, the issue's own open PR).
-    pub(crate) fn items(&self) -> Vec<Face> {
-        let mut items = Vec::with_capacity(3);
-        if self.issue {
-            items.push(Face::Issue);
-        }
-        if self.run.is_some() {
-            items.push(Face::Run);
-        }
-        if self.guide {
-            items.push(Face::Guide);
-        }
-        items
-    }
-
-    /// EXP-1162: which segment wears which session-dot tone — the shared
-    /// rule ([`domain::detail_chrome::face_dots`]) over the items on show.
-    pub(crate) fn dots(&self) -> Vec<(Face, domain::detail_chrome::FaceDotTone)> {
-        use domain::detail_chrome::DetailFace;
-        let faces: Vec<DetailFace> = self
-            .items()
-            .into_iter()
-            .map(|face| match face {
-                Face::Issue => DetailFace::Issue,
-                Face::Run => DetailFace::Run,
-                Face::Guide => DetailFace::Guide,
-            })
-            .collect();
-        domain::detail_chrome::face_dots(
-            &faces,
-            self.state.run_live,
-            self.state.needs_input,
-            self.state.pr_open,
-        )
-        .into_iter()
-        .map(|(face, tone)| {
-            let face = match face {
-                DetailFace::Issue => Face::Issue,
-                DetailFace::Run => Face::Run,
-                DetailFace::Guide => Face::Guide,
-            };
-            (face, tone)
-        })
-        .collect()
-    }
-}
-
-/// EXP-1162: the face-dot facts for a tab whose Run face shows `run_id`
-/// (the bound or shown run, read off the synced rows): live per
-/// [`crate::queries::coding_session_is_live`], waiting per its synced
-/// `needs_input`; `pr_open` is the caller's (the issue's, or an issue-less
-/// run's own PR).
-pub(crate) fn face_state(run_id: Option<&str>, pr_open: bool, cx: &App) -> FaceState {
-    let row = run_id.and_then(|run_id| {
-        Store::try_global(cx)?
-            .collections()
-            .coding_sessions
-            .read(cx)
-            .get(run_id)
-            .cloned()
-    });
-    let now = chrono::Utc::now().timestamp();
-    let run_live = row
-        .as_ref()
-        .is_some_and(|row| crate::queries::coding_session_is_live(row, now));
-    // EXP-1184: the ONE display rule, fed like every other surface — the
-    // local engine's turn signal for a run hosted here, the issue's PR state
-    // before the run's own (EXP-734); an offline host is paused: no state.
-    let run_state = row.as_ref().filter(|_| run_live).and_then(|row| {
-        let store = Store::try_global(cx)?;
-        let collections = store.collections();
-        let pr_state = row
-            .issue_id
-            .as_deref()
-            .and_then(|id| collections.issues.read(cx).get(id).and_then(|issue| issue.pr_state.clone()))
-            .or_else(|| row.pr_state.clone());
-        let busy = crate::queries::session_agent_busy(
-            row,
-            crate::queries::local_agent_busy(&row.id, cx),
-            now,
-        );
-        let display = crate::queries::coding_session_display(row, busy, pr_state.as_deref());
-        let presentation = crate::queries::session_device_presentation(
-            row,
-            collections.devices.read(cx).iter(),
-            now * 1_000,
-        );
-        (!crate::queries::session_is_paused(display, row.status.as_deref(), &presentation))
-            .then_some(display)
-    });
-    FaceState {
-        run_live,
-        needs_input: run_live && row.as_ref().and_then(|row| row.needs_input) == Some(true),
-        pr_open,
-        // An absent agent id is claude (`codingSessions.start`'s default, the
-        // rail's fallback); an id this build does not know is `None`.
-        agent: match row.as_ref().and_then(|row| row.agent.as_deref()) {
-            None => Some(coding::CodingAgent::default()),
-            Some(id) => coding::CodingAgent::parse(id),
-        },
-        run_state,
-    }
-}
-
-/// EXP-1162: a face dot's words — the segment's tooltip.
-pub(crate) fn face_dot_label(tone: domain::detail_chrome::FaceDotTone) -> &'static str {
-    use domain::detail_chrome::FaceDotTone;
-    match tone {
-        FaceDotTone::Running => "Running",
-        FaceDotTone::NeedsInput => "Needs input",
-        FaceDotTone::Review => "Pull request open",
-    }
-}
-
-/// EXP-1184: a segment's tooltip — the Run segment names what its run is
-/// doing (web `RUN_STATE_LABEL`), any other its dot's words.
-pub(crate) fn face_tooltip(
-    face: Face,
-    tone: domain::detail_chrome::FaceDotTone,
-    run_state: Option<crate::queries::CodingSessionDisplay>,
-) -> &'static str {
-    use crate::queries::CodingSessionDisplay;
-    match (face, run_state) {
-        (Face::Run, Some(CodingSessionDisplay::Working)) => "Working",
-        (Face::Run, Some(CodingSessionDisplay::NeedsInput)) => "Needs input",
-        (Face::Run, Some(CodingSessionDisplay::Review)) => "Pull request open",
-        (Face::Run, Some(CodingSessionDisplay::Done)) => "Done",
-        _ => face_dot_label(tone),
-    }
-}
-
-/// EXP-1162: a face dot's colour — a row of the ONE session-dot table
-/// ([`crate::queries::session_dot_tone`]), never a colour of its own.
-pub(crate) fn face_dot_color(tone: domain::detail_chrome::FaceDotTone, cx: &App) -> gpui::Hsla {
-    use crate::queries::SessionDotFacts;
-    use domain::detail_chrome::FaceDotTone;
-    let facts = match tone {
-        FaceDotTone::Running => SessionDotFacts { running: true, ..Default::default() },
-        FaceDotTone::NeedsInput => SessionDotFacts {
-            running: true,
-            needs_input: true,
-            ..Default::default()
-        },
-        FaceDotTone::Review => SessionDotFacts { review: true, ..Default::default() },
-    };
-    crate::queries::session_dot_tone(facts, cx.theme().muted_foreground)
-}
-
-/// The dot itself: `faceDot` wide, `faceDotGap` after the label.
-fn face_dot(tone: domain::detail_chrome::FaceDotTone, cx: &App) -> gpui::Div {
-    div()
-        .flex_shrink_0()
-        .ml(px(domain::detail_chrome::FACE_DOT_GAP))
-        .size(px(domain::detail_chrome::FACE_DOT))
-        .rounded_full()
-        .bg(face_dot_color(tone, cx))
-}
-
-/// EXP-1162/EXP-1184 FACE MARKS: the Run segment's lead — the rail's run
-/// mark ([`crate::coding_selects::run_lead`]), `faceMark` square,
-/// `faceMarkGap` before the label: the agent's working mark mid-turn, else
-/// the brand mark with the run state's badge. A run whose state is unknown
-/// still wears the amber badge while the contract's tone says it waits.
-fn face_agent_mark(state: FaceState, attention: bool) -> AnyElement {
-    use domain::detail_chrome::{FACE_MARK, FACE_MARK_BADGE, FACE_MARK_GAP};
-    let run_state = state
-        .run_state
-        .or(attention.then_some(crate::queries::CodingSessionDisplay::NeedsInput));
-    crate::coding_selects::run_lead(state.agent, FACE_MARK, FACE_MARK_BADGE, run_state)
-        .mr(px(FACE_MARK_GAP))
-        .into_any_element()
-}
-
-/// The callback a toggle pick lands on.
-pub(crate) type OnPickFace = Rc<dyn Fn(Face, &mut Window, &mut App)>;
-/// EXP-950: the callback a run-menu pick lands on (the picked run's id). The
-/// caller decides what picking the checked run means.
-pub(crate) type OnPickRun = Rc<dyn Fn(&str, &mut Window, &mut App)>;
-
-/// The `Issue | Run | Guide` segmented control. `None` below two items — a
-/// one-item toggle names nothing to switch to — unless (EXP-950) the lone
-/// Run item carries the run menu ([`FaceToggle::is_shown`]).
-pub(crate) fn face_toggle(
-    spec: FaceToggle,
-    on_pick: OnPickFace,
-    on_pick_run: OnPickRun,
-    cx: &App,
-) -> Option<AnyElement> {
-    if !spec.is_shown() {
-        return None;
-    }
-    let items = spec.items();
-    let dots = spec.dots();
-    let dot_of = |face: Face| dots.iter().find(|(dotted, _)| *dotted == face).map(|(_, tone)| *tone);
-    // The web `TabsList` capsule as-is (h-9, 3px inset, `px-3 text-sm`
-    // triggers) — `controls::segmented` already mirrors it; only the width
-    // changes from full to content.
-    let mut control = crate::controls::segmented(cx).w_auto().flex_shrink_0();
-    for face in items {
-        let active = spec.active == face;
-        let on_pick = on_pick.clone();
-        // EXP-1162: the segment's state (its words as the tooltip): the Run
-        // segment's agent mark LEADS its label, any other's dot trails it.
-        let dot = dot_of(face);
-        let lead = dot.and_then(|tone| match face_mark(face, tone) {
-            FaceMark::Agent { attention } => Some(face_agent_mark(spec.state, attention)),
-            FaceMark::Dot(_) => None,
-        });
-        let trailing_dot = dot.filter(|tone| matches!(face_mark(face, *tone), FaceMark::Dot(_)));
-        if face == Face::Run && spec.multiple_runs() {
-            // EXP-950: the capsule holds TWO siblings — the label (the face
-            // pick) and the caret (the run menu) — so a caret click never
-            // reaches the label's handler.
-            let label = div()
-                .id("tab-face-run")
-                .h_full()
-                .flex()
-                .items_center()
-                .pl_3()
-                .pr_1()
-                .children(lead)
-                .child(run_face_label(true))
-                .when_some(dot, |label, tone| {
-                    let words = face_tooltip(face, tone, spec.state.run_state);
-                    label.tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(words).build(window, cx)
-                    })
-                })
-                .when(!active, |label| {
-                    label.on_click(move |_, window, cx| on_pick(face, window, cx))
-                });
-            let item = crate::controls::segmented_item(active, cx)
-                .flex_none()
-                .px_0()
-                .gap_0()
-                .text_sm()
-                .child(label)
-                .child(run_menu(&spec, on_pick_run.clone(), cx));
-            control = control.child(item);
-            continue;
-        }
-        let item = crate::controls::segmented_item(active, cx)
-            .id(match face {
-                Face::Issue => "tab-face-issue",
-                Face::Run => "tab-face-run",
-                Face::Guide => "tab-face-guide",
-            })
-            .flex_none()
-            .px_3()
-            // The contract's gaps are exact: no segment gap on top of them.
-            .gap_0()
-            .text_sm()
-            .children(lead)
-            .map(|item| match face {
-                Face::Issue => item.child("Issue"),
-                Face::Run => item.child(run_face_label(false)),
-                // EXP-1251: the counts moved into the Guide's body.
-                Face::Guide => item.child(GUIDE_FACE_LABEL),
-            })
-            .children(trailing_dot.map(|tone| face_dot(tone, cx)))
-            .when_some(dot, |item, tone| {
-                let words = face_tooltip(face, tone, spec.state.run_state);
-                item.tooltip(move |window, cx| {
-                    gpui_component::tooltip::Tooltip::new(words).build(window, cx)
-                })
-            })
-            .when(!active, |item| {
-                item.on_click(move |_, window, cx| on_pick(face, window, cx))
-            });
-        control = control.child(item);
-    }
-    Some(control.into_any_element())
-}
-
-/// EXP-950: the Run item's caret over the issue's runs of mine (EXP-886's
-/// switcher, folded into the toggle): each `<device> · <when>`, the checked
-/// run wearing the check. EXP-1248: every entry LEADS with the run's mark
-/// ([`crate::run_rows::run_entry_mark`], web `AgentRunMark`), never a dot or
-/// the running glyph. Web `IssueRunMenuContent`.
-fn run_menu(spec: &FaceToggle, on_pick_run: OnPickRun, cx: &App) -> AnyElement {
-    use gpui_component::button::ButtonVariants as _;
-    use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
-    let entries: Vec<(RunEntry, Option<coding::CodingAgent>, crate::run_rows::RunStatusMark)> = spec
-        .runs
-        .iter()
-        .map(|entry| {
-            let (agent, mark) = crate::run_rows::run_entry_mark(&entry.id, cx);
-            (entry.clone(), agent, mark)
-        })
-        .collect();
-    let checked = spec.checked_run.clone();
-    let muted = cx.theme().muted_foreground;
-    Button::new("tab-face-run-menu")
-        .ghost()
-        .xsmall()
-        .rounded_full()
-        .cursor_pointer()
-        .mr_1()
-        .icon(
-            Icon::new(registry::UI_CHEVRON_DOWN)
-                .with_size(px(12.))
-                .text_color(muted),
-        )
-        .tooltip("Switch session")
-        .dropdown_menu(move |mut menu, _window, _cx| {
-            for (entry, agent, mark) in entries.clone() {
-                let is_checked = checked.as_deref() == Some(entry.id.as_str());
-                let on_pick_run = on_pick_run.clone();
-                let label = SharedString::from(entry.label.clone());
-                let item = PopupMenuItem::element(move |_window, _cx| {
-                    crate::controls::pointer_fill(
-                        crate::run_rows::run_entry_row(agent, mark, label.clone()),
-                        false,
-                    )
-                })
-                .checked(is_checked);
-                menu = menu.item(
-                    item.on_click(move |_, window, cx| on_pick_run(&entry.id, window, cx)),
-                );
-            }
-            menu
-        })
-        .into_any_element()
-}
-
-// ---------------------------------------------------------------------------
-// The ONE coding action
-// ---------------------------------------------------------------------------
-
-/// The header's one coding action, derived from the run state.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CodingAction {
-    /// My run is live: Stop (the run's own confirm).
-    Stop {
-        session_id: String,
-        /// This process hosts the run (the in-process kill); otherwise the
-        /// relay's `killSession` reaches its machine.
-        local: bool,
-    },
-    /// My newest run ended and a machine can take it back up.
-    Resume {
-        session_id: String,
-        path: ResumePath,
-        host_label: Option<String>,
-    },
-    /// Nothing of mine to act on: the launcher.
-    Start,
-}
-
-/// The web `issue-coding-action.tsx` target order, pure: the bound run while
-/// it is mine AND live; else my newest LIVE run on the issue (running /
-/// in_review inside the stale window) — so an own live run never hides
-/// behind a newer ended or stale one; else my newest run overall (whatever
-/// its state — a newer stale-running row outranks an older ended one, and
-/// then earns Start coding, never Resume on the older run). `None` = no run
-/// of mine on the issue.
-pub(crate) fn coding_target<'a>(
-    rows: impl IntoIterator<Item = &'a domain::rows::CodingSession>,
-    issue_id: &str,
-    bound: Option<&str>,
-    me: &str,
-    now_epoch: i64,
-) -> Option<&'a domain::rows::CodingSession> {
-    let mine: Vec<&domain::rows::CodingSession> = rows
-        .into_iter()
-        .filter(|row| row.issue_id.as_deref() == Some(issue_id) && row.user_id.as_deref() == Some(me))
-        .collect();
-    let newest = |rows: &[&'a domain::rows::CodingSession]| -> Option<&'a domain::rows::CodingSession> {
-        rows.iter()
-            .copied()
-            .max_by(|a, b| a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id)))
-    };
-    let live: Vec<&domain::rows::CodingSession> = mine
-        .iter()
-        .copied()
-        .filter(|row| crate::queries::coding_session_is_live(row, now_epoch))
-        .collect();
-    if let Some(bound) = bound {
-        if let Some(row) = live.iter().copied().find(|row| row.id == bound) {
-            return Some(row);
-        }
-    }
-    newest(&live).or_else(|| newest(&mine))
-}
-
-/// EXP-933 — the run whose Results an ISSUE shows. Results live on the run
-/// but sync team-wide, and an agent message deep-links a teammate to the
-/// ISSUE's Results, so this is not limited to my runs: [`coding_target`] when
-/// that run has results, else the NEWEST run on the issue (`started_at`, tie
-/// the larger id) by ANY member that has any; EXP-1251: else the newest run
-/// (any issue, any member) with a topic tagged exactly the issue's PR url
-/// (`issue_pr_url`; the stacked second PR of another issue's run). The twin
-/// of the web `work-faces.ts` `issueResultsRun`, locked by
-/// `packages/domain-contract/fixtures/session-results.json` (×4).
-pub(crate) fn issue_results_run<'a>(
-    rows: impl IntoIterator<Item = &'a domain::rows::CodingSession>,
-    issue_id: &str,
-    bound: Option<&str>,
-    me: Option<&str>,
-    now_epoch: i64,
-    issue_pr_url: Option<&str>,
-) -> Option<&'a domain::rows::CodingSession> {
-    let all: Vec<&'a domain::rows::CodingSession> = rows.into_iter().collect();
-    let rows: Vec<&'a domain::rows::CodingSession> = all
-        .iter()
-        .copied()
-        .filter(|row| row.issue_id.as_deref() == Some(issue_id))
-        .collect();
-    let has = |row: &domain::rows::CodingSession| {
-        domain::session_results::has_session_results(row.results.as_ref())
-    };
-    let newest = |a: &&domain::rows::CodingSession, b: &&domain::rows::CodingSession| {
-        a.started_at.cmp(&b.started_at).then_with(|| a.id.cmp(&b.id))
-    };
-    if let Some(me) = me {
-        if let Some(own) = coding_target(rows.iter().copied(), issue_id, bound, me, now_epoch) {
-            if has(own) {
-                return Some(own);
-            }
-        }
-    }
-    let on_issue = rows.into_iter().filter(|row| has(row)).max_by(newest);
-    let Some(pr_url) = issue_pr_url.filter(|_| on_issue.is_none()) else {
-        return on_issue;
-    };
-    all.into_iter()
-        .filter(|row| {
-            domain::session_results::session_result_pr_urls(row.results.as_ref())
-                .iter()
-                .any(|tag| tag == pr_url)
-        })
-        .max_by(newest)
-}
-
-/// The pure rule. `target` is the run the tab is about ([`coding_target`]);
-/// a run that is not mine (a teammate's) never yields anything but Start, a
-/// live one Stop, an ENDED one Resume when a machine can take it, anything
-/// else (a stale-running row, an unresumable end) Start.
-pub(crate) fn coding_action(
-    target: Option<&domain::rows::CodingSession>,
-    me: Option<&str>,
-    now_epoch: i64,
-    local: bool,
-    device_label: Option<String>,
-    resume: Option<ResumePath>,
-) -> CodingAction {
-    let Some(target) = target else {
-        return CodingAction::Start;
-    };
-    let own = target.user_id.is_some() && target.user_id.as_deref() == me;
-    if !own {
-        return CodingAction::Start;
-    }
-    if crate::queries::coding_session_is_live(target, now_epoch) {
-        return CodingAction::Stop {
-            session_id: target.id.clone(),
-            local,
-        };
-    }
-    // EXP-888: a sweep end is not an end — never offer Resume on it, that
-    // would put a second agent on the run's worktree.
-    let ended = crate::run_rows::run_has_ended(target);
-    match resume {
-        Some(path) if ended => CodingAction::Resume {
-            session_id: target.id.clone(),
-            path,
-            host_label: device_label,
-        },
-        _ => CodingAction::Start,
-    }
-}
-
-/// EXP-933 — [`issue_results_run`] over the synced rows, as its row: the
-/// run whose Results the issue shows, mine or a teammate's. `None` when no
-/// run on the issue published anything.
-pub(crate) fn issue_results_row(
-    issue_id: &str,
-    bound: Option<&str>,
-    cx: &App,
-) -> Option<domain::rows::CodingSession> {
-    let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    let store = Store::try_global(cx)?;
-    let pr_url = store
-        .collections()
-        .issues
-        .read(cx)
-        .get(issue_id)
-        .and_then(|issue| issue.pr_url.clone());
-    let sessions = store.collections().coding_sessions.read(cx);
-    let now = chrono::Utc::now().timestamp();
-    issue_results_run(sessions.iter(), issue_id, bound, me.as_deref(), now, pr_url.as_deref()).cloned()
-}
-
-/// EXP-933 — open `issue_id` on its RESULTS (the inbox's `agent_message`
-/// rows and their OS notifications): the issue's results run when it is MINE
-/// opens on that run's Results sub-face (the header toggle's own path); a
-/// TEAMMATE's report opens as the issue tab's Results face; no results at all
-/// = just the issue. `open` is the caller's own issue navigation (scoped on
-/// its board, or from the inbox with its origin).
-pub(crate) fn open_issue_results(
-    issue_id: &str,
-    window: &mut gpui::Window,
-    cx: &mut App,
-    open: impl FnOnce(&mut gpui::Window, &mut App),
-) {
-    let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    let row = issue_results_row(issue_id, None, cx);
-    let mine = row
-        .as_ref()
-        .filter(|row| row.user_id.is_some() && row.user_id == me)
-        .map(|row| row.id.clone());
-    if row.is_some() && mine.is_none() {
-        // Ask BEFORE the navigation re-points the shared detail view — the
-        // switch keeps the request because it names the incoming issue.
-        crate::screens::request_issue_results(issue_id, window, cx);
-    }
-    open(window, cx);
-    if let Some(run_id) = mine {
-        crate::screens::set_tab_face(
-            issue_id,
-            crate::screens::TabFace::Run,
-            Some(run_id.clone()),
-            window,
-            cx,
-        );
-        crate::screens::set_run_face(&run_id, crate::screens::RunFace::Guide, window, cx);
-    }
-}
-
-/// [`coding_target`] over the synced rows, as its row. `None` when I have no
-/// synced run on the issue.
-pub(crate) fn issue_run_row(
-    issue_id: &str,
-    bound: Option<&str>,
-    cx: &App,
-) -> Option<domain::rows::CodingSession> {
-    let me = crate::queries::active_account(cx)?.user_id;
-    let store = Store::try_global(cx)?;
-    let sessions = store.collections().coding_sessions.read(cx);
-    let now = chrono::Utc::now().timestamp();
-    coding_target(sessions.iter(), issue_id, bound, &me, now).cloned()
-}
-
-/// [`coding_action`] for an issue, off the synced rows, this process's local
-/// registry and the devices rows. `resumable` is the caller's once-per-run
-/// cache of the registry read (`(session_id, resumable)`): the registry is a
-/// file, and a header repaints on every feed event.
-pub(crate) fn issue_coding_action(
-    issue_id: &str,
-    bound: Option<&str>,
-    resumable: &mut Option<(String, bool)>,
-    cx: &mut App,
-) -> CodingAction {
-    let now = chrono::Utc::now().timestamp();
-    // A local start ahead of its synced echo is still my live run.
-    let local_by_issue = LocalSessions::global_ref(cx)
-        .and_then(|sessions| sessions.read(cx).get(issue_id).map(|s| s.session_id.clone()));
-    let target = issue_run_row(issue_id, bound, cx);
-    let Some(target) = target else {
-        return match local_by_issue {
-            Some(session_id) => CodingAction::Stop {
-                session_id,
-                local: true,
-            },
-            None => CodingAction::Start,
-        };
-    };
-    let me = crate::queries::active_account(cx).map(|account| account.user_id);
-    let local = LocalSessions::global_ref(cx)
-        .is_some_and(|sessions| sessions.read(cx).session_by_id(&target.id).is_some());
-    let device_label = target
-        .device_id
-        .as_deref()
-        .and_then(|device_id| crate::queries::device_label_for_id(cx, device_id));
-    let ended = crate::run_rows::run_has_ended(&target);
-    let resume = ended.then(|| resume_path_cached(&target, resumable, cx)).flatten();
-    coding_action(Some(&target), me.as_deref(), now, local, device_label, resume)
-}
-
-/// [`crate::session_screen::resume_path_for`] over the cached registry read.
-pub(crate) fn resume_path_cached(
-    session: &domain::rows::CodingSession,
-    resumable: &mut Option<(String, bool)>,
-    cx: &mut App,
-) -> Option<ResumePath> {
-    let local = match resumable {
-        Some((id, known)) if *id == session.id => *known,
-        _ => {
-            let known = crate::coding_flow::run_is_resumable_ref(&session.id, cx);
-            *resumable = Some((session.id.clone(), known));
-            known
-        }
-    };
-    let own_device_id = crate::queries::own_device_id(cx);
-    let store = Store::try_global(cx)?;
-    let own_device = session.device_id.as_deref() == Some(own_device_id.as_str());
-    crate::session_screen::resume_path_for(
-        local,
-        own_device,
-        session,
-        store.collections().devices.read(cx).iter(),
-        chrono::Utc::now().timestamp_millis(),
-    )
-}
-
-/// The pill for a [`CodingAction`]. `start` is the launcher entity of the
-/// host that has one (the issue detail / an issue-bound session screen);
-/// without it a `Start` renders nothing.
-pub(crate) fn coding_action_button(
-    action: CodingAction,
-    start: Option<&gpui::Entity<StartCodingControl>>,
-    // EXP-926: the placement's size — the toggle's beside the toggle, the
-    // chips' inside the tray.
-    size: PillSize,
-    cx: &App,
-) -> Option<AnyElement> {
-    match action {
-        CodingAction::Stop {
-            session_id,
-            local,
-        } => Some(
-            crate::session_screen::stop_session_pill("work-stop", size, cx)
-                .on_click(move |_, window, cx| {
-                    let host = local
-                        .then(|| {
-                            LocalSessions::global_ref(cx).and_then(|sessions| {
-                                sessions
-                                    .read(cx)
-                                    .session_by_id(&session_id)
-                                    .map(|session| session.host.clone())
-                            })
-                        })
-                        .flatten();
-                    crate::session_bar::prompt_kill_session(
-                        host,
-                        session_id.clone(),
-                        window,
-                        cx,
-                    );
-                })
-                .into_any_element(),
-        ),
-        CodingAction::Resume {
-            session_id,
-            path,
-            host_label,
-        } => {
-            let button = resume_pill("work-resume", size, cx);
-            Some(match path {
-                ResumePath::Local => button
-                    .on_click(move |_, window, cx| {
-                        // The ONE desktop resume entry point: the transport
-                        // comes from the recorded run, never from the setting.
-                        crate::action_run::resume_run(
-                            session_id.clone(),
-                            Some(window.window_handle()),
-                            crate::coding_flow::RunLanding::ThisWindow,
-                            coding::LaunchOrigin::Local,
-                            cx,
-                        );
-                    })
-                    .into_any_element(),
-                ResumePath::Remote { device_id } => {
-                    // EXP-800: the run relaunches on the machine that hosted
-                    // it; the tooltip says so before the click.
-                    let label = host_label.unwrap_or_else(|| "its machine".to_string());
-                    let tooltip = SharedString::from(format!("Resume on {label}"));
-                    button
-                        .tooltip(tooltip)
-                        .on_click(move |_, window, cx| {
-                            crate::session_screen::resume_remote(
-                                session_id.clone(),
-                                device_id.clone(),
-                                label.clone(),
-                                window,
-                                cx,
-                            );
-                        })
-                        .into_any_element()
-                }
-            })
-        }
-        CodingAction::Start => start.map(|start| start.clone().into_any_element()),
-    }
-}
-
 /// EXP-916 — the ONE way out to GitHub: a ghost glyph in the right cluster,
 /// present exactly while the subject HAS a pull request. `None` otherwise —
-/// an empty link is worse than no link. EXP-949: it rides the CHANGES face
-/// alone (the detail's PR pane, a run's diff face, the review header), never
-/// Issue, Run or Results — the callers gate it. Callers name the element so
-/// two clusters can carry it at once.
+/// an empty link is worse than no link. Callers name the element so two
+/// clusters can carry it at once.
 pub(crate) fn github_button(
     id: impl Into<gpui::ElementId>,
     pr_url: Option<&str>,
@@ -896,49 +77,27 @@ pub(crate) fn github_button(
     )
 }
 
-/// The Resume pill — glass, `Sm`, the resume glyph and the word "Resume".
-pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, size: PillSize, cx: &App) -> Button {
-    glass_pill_button(id, size, cx)
-        .icon(
-            Icon::new(registry::RUN_RESUME)
-                .with_size(px(size.glyph()))
-                .text_color(cx.theme().muted_foreground),
-        )
-        .label("Resume")
-        .tooltip("Resume this session")
-}
-
 // ---------------------------------------------------------------------------
 // Merge
 // ---------------------------------------------------------------------------
 
-/// The ONE Merge look: a `Sm` pill (primary or glass) with the merge glyph,
+/// The ONE Merge look: a pill (primary or glass) with the merge glyph,
 /// two-click armed (`Merge PR` → `Confirm merge`, then `Merging…` until the
-/// Electric echo settles) through [`crate::pr_merge::two_click`]. Every Merge
-/// PR surface renders exactly this (the issue tray, the run header — a batch
-/// run merges through its representative issue — and the Changes bars), so
-/// the conflict rule below is wired once.
-///
-/// EXP-1233: the slot never swaps any more. A plain merge of an ISSUE target
-/// refused by a REAL conflict ([`conflict_opens_composer`]) OPENS the
-/// composer on the Fix merge conflicts builtin at once, the pull request
-/// picked and the refusal flagged ([`conflict_recovery`]); the pill stays
-/// plain Merge, so a conflict resolved elsewhere is one click away. A SESSION
-/// target (a run's own chore PR, EXP-734) and every other refusal is the
-/// error toast (FEED-79, `pr_merge`).
+/// Electric echo settles) through [`crate::pr_merge::two_click`]. EXP-1294:
+/// it merges ONE pull request (`pullRequests.merge`); a member of an open
+/// stack asks its one confirm first (EXP-1248). A refusal is the error toast.
 pub(crate) fn merge_pill(
     id: impl Into<gpui::ElementId>,
-    target: &MergeTarget,
+    pull_request_id: &str,
     primary: bool,
     // EXP-926: the placement's size, never the pill's own opinion.
     size: PillSize,
     cx: &mut App,
 ) -> AnyElement {
-    let key = target.key();
     let (armed, merging) = {
         let state = crate::pr_merge::MergeState::global(cx);
         let state = state.read(cx);
-        (state.armed(&key), state.merging(&key))
+        (state.armed(pull_request_id), state.merging(pull_request_id))
     };
     let glyph = if armed {
         cx.theme().danger
@@ -948,11 +107,8 @@ pub(crate) fn merge_pill(
         cx.theme().muted_foreground
     };
     // EXP-1248: ONE control, renamed on a member of an open stack.
-    let settled = match target {
-        MergeTarget::Issue { issue_id } => crate::pr_merge::merge_label_for(issue_id, cx),
-        MergeTarget::Session { .. } => domain::contract::DIFF_UI_MERGE_PR,
-    };
-    let target = target.clone();
+    let settled = crate::pr_merge::merge_label_for(pull_request_id, cx);
+    let pull_request_id = pull_request_id.to_string();
     let mut button = if primary {
         glass_pill_button_primary(id, size)
     } else {
@@ -972,111 +128,17 @@ pub(crate) fn merge_pill(
     } else {
         settled
     })
-    .tooltip(target.tooltip())
+    .tooltip("Merge: completes every linked issue")
     .on_click(move |_, window, cx| {
-        // EXP-1248: a member of an open PR stack asks its ONE confirm; a
-        // run's own chore PR (a Session target) is never a stack member.
-        let on_failure = match &target {
-            MergeTarget::Issue { issue_id } => {
-                if crate::pr_merge::ask_stack_merge(issue_id, window, cx) {
-                    return;
-                }
-                Some(conflict_recovery(issue_id.clone(), window.window_handle()))
-            }
-            MergeTarget::Session { .. } => None,
-        };
-        crate::pr_merge::two_click(target.op(), on_failure, cx);
+        if crate::pr_merge::ask_stack_merge(&pull_request_id, window, cx) {
+            return;
+        }
+        crate::pr_merge::two_click(crate::pr_merge::MergeOp::merge(pull_request_id.clone()), cx);
     });
     if merging {
         button = button.disabled(true);
     }
     button.into_any_element()
-}
-
-/// EXP-799 / EXP-917 / EXP-1233: whether an ISSUE target's refused merge
-/// opens the fix-conflicts composer. MERGE failures only: the fix run ends in
-/// a merge, so a failed CLOSE must never offer it; and only a REAL content
-/// conflict (EXP-533) — an offline or policy-refused merge has nothing an
-/// agent could rebase; and only with a recorded branch, which is what the run
-/// rebases. Pure, so the rule is a test; mirrors web `canOfferFixConflicts`,
-/// Android `canOfferFixConflicts` and iOS `canFixConflicts`.
-pub(crate) fn conflict_opens_composer(
-    pr_open: bool,
-    merge_failed: bool,
-    is_conflict: bool,
-    has_branch: bool,
-) -> bool {
-    pr_open && merge_failed && is_conflict && has_branch
-}
-
-/// EXP-917 — whether the fix-conflicts composer can actually resolve this
-/// issue. Its `pr` input is REQUIRED and names the representative issue of an
-/// OPEN pull request, resolved through the ACTIVE team's boards
-/// (`action_run::resolve_fix_conflicts_target`): the issue and its board must
-/// be synced, and the board must belong to the team this window is scoped to,
-/// so a refusal can never open the composer with an empty required input.
-pub(crate) fn fix_conflicts_target_resolves(issue_id: &str, window: &Window, cx: &mut App) -> bool {
-    let issue_team = Store::try_global(cx).and_then(|store| {
-        let collections = store.collections();
-        let board_id = collections
-            .issues
-            .read(cx)
-            .get(issue_id)
-            .map(|issue| issue.board_id.clone())?;
-        collections
-            .boards
-            .read(cx)
-            .get(&board_id)
-            .map(|board| board.team_id.clone())
-    });
-    let Some(issue_team) = issue_team else {
-        return false;
-    };
-    let nav = crate::navigation::nav_for_window(window, cx);
-    crate::navigation::active_team_id(&nav, cx).as_deref() == Some(issue_team.as_str())
-}
-
-/// EXP-1233 — the ONE failure hook a plain issue merge hands
-/// [`crate::pr_merge::two_click`] (the Merge pill above, the Reviews rows):
-/// when [`conflict_opens_composer`] holds and the issue resolves in the
-/// clicking window's team ([`fix_conflicts_target_resolves`]), it opens the
-/// composer on the Fix merge conflicts builtin with this PR picked and the
-/// conflict flagged, and answers `true` so the refusal is not captioned (the
-/// composer's card says why it is up). It runs ONCE per failure, right where
-/// the failure is recorded. Anything else answers `false`: the caption stays.
-pub(crate) fn conflict_recovery(
-    issue_id: String,
-    window: gpui::AnyWindowHandle,
-) -> crate::pr_merge::OnMergeFailure {
-    Box::new(move |failure, cx| {
-        let issue = Store::try_global(cx)
-            .and_then(|store| store.collections().issues.read(cx).get(&issue_id).cloned());
-        let Some(issue) = issue else {
-            return false;
-        };
-        if !conflict_opens_composer(
-            issue.pr_state.as_deref() == Some("open"),
-            failure.op == crate::pr_merge::FailedOp::Merge,
-            failure.conflict,
-            issue.branch.is_some(),
-        ) {
-            return false;
-        }
-        window
-            .update(cx, |_, window, cx| {
-                if !fix_conflicts_target_resolves(&issue_id, window, cx) {
-                    log::warn!("[ui] fix conflicts skipped: {issue_id} is outside the active team");
-                    return false;
-                }
-                crate::navigation::navigate_to_chat(
-                    window,
-                    cx,
-                    crate::navigation::ChatSeed::fix_conflicts(issue_id.clone()).with_conflict(),
-                );
-                true
-            })
-            .unwrap_or(false)
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1096,8 +158,6 @@ pub(crate) const TITLE_LINE: f32 = 32.;
 /// wrapper gives them back so its text lands on the block above.
 pub(crate) const TITLE_WIDGET_PY: f32 = 8.;
 pub(crate) const TITLE_WIDGET_PX: f32 = 10.;
-/// Web `pb-3` under a fixed tray.
-const HEADER_PB: f32 = 12.;
 /// EXP-1162: the compact bar's vertical inset around its 36px controls.
 pub(crate) const BAR_PY: f32 = 8.;
 /// The collapsed title's two lines: the mono identifier over the title.
@@ -1171,63 +231,10 @@ pub(crate) fn collapsed_title(
     }
 }
 
-/// The pieces of one header.
-pub(crate) struct WorkHeader {
-    /// EXP-1162: the compact bar's left side — the [`collapsed_title`], or
-    /// `None` while the issue face's own large title row is on show.
-    pub title: Option<AnyElement>,
-    /// The compact bar's right: `[badge] [toggle] [pin] [menu]` (plus, on a
-    /// collapsed issue face or an issue-less run, Merge / Stop / Resume).
-    pub right: Vec<AnyElement>,
-    /// A FIXED property tray under the bar — the run faces' (their transcript
-    /// is bottom-anchored, nothing to scroll it away with). The issue face
-    /// carries its tray in its scrolling body instead.
-    pub tray: Option<AnyElement>,
-    /// A slim extra row under the tray (the merge-error caption).
-    pub extra: Option<AnyElement>,
-}
-
-/// EXP-1162 — the fixed header frame: the compact bar, then the fixed tray
-/// (if any), centered to [`WORK_COLUMN_W`]. No hairline: the body under it
-/// wears [`work_body`]'s top edge strip instead.
-pub(crate) fn render_work_header(header: WorkHeader, _cx: &App) -> AnyElement {
-    let WorkHeader {
-        title,
-        right,
-        tray,
-        extra,
-    } = header;
-    let fixed_tray = tray.is_some();
-    let bar = h_flex()
-        .w_full()
-        .items_center()
-        .gap_3()
-        .py(px(BAR_PY))
-        .px(px(WORK_GUTTER))
-        // The bar keeps the toggle's height with or without a title.
-        .min_h(px(theme::tokens::size::CONTROL_LG + 2. * BAR_PY))
-        .child(div().flex_1().min_w_0().children(title))
-        .child(
-            h_flex()
-                .flex_shrink_0()
-                .items_center()
-                .gap_1()
-                .children(right),
-        );
-    v_flex()
-        .w_full()
-        .flex_shrink_0()
-        .when(fixed_tray, |header| header.pb(px(HEADER_PB)))
-        .child(centered_column(
-            v_flex().child(bar).children(tray).children(extra),
-        ))
-        .into_any_element()
-}
-
-/// EXP-1162 — the compact bar's height: one toggle-rung control + its inset.
+/// EXP-1162 — the compact bar's height: one Lg-rung control + its inset.
 pub(crate) const BAR_H: f32 = theme::tokens::size::CONTROL_LG + 2. * BAR_PY;
 /// Until the cluster has been measured once, a floating title row keeps this
-/// far clear of it (toggle `Issue | Run` + pin + `…`, with room to spare).
+/// far clear of it (Start + pin + `…`, with room to spare).
 pub(crate) const CLUSTER_W_FALLBACK: f32 = 240.;
 /// The gap a floating title row keeps from the cluster beside it.
 pub(crate) const CLUSTER_GAP: f32 = 12.;
@@ -1241,7 +248,7 @@ pub(crate) type ClusterMeasure = (Rc<std::cell::Cell<Option<f32>>>, gpui::Entity
 /// `relative()`, this is its LAST child) and takes no row of its own. At
 /// rest it paints nothing but its right cluster, on the large title's first
 /// line; the title row keeps clear of the cluster's width (`measure`, only
-/// passed at rest — the collapsed cluster grows Merge / Stop / Resume, and
+/// passed at rest — the collapsed cluster may grow Merge, and
 /// the title's wrap must not follow it). Collapsed, it shows the compact
 /// title and fades in its ground — the panel at `scrim` + the `edgeTop`
 /// strip under it — over `collapseMs`. Nothing but the cluster's buttons
@@ -1347,7 +354,7 @@ pub(crate) fn render_floating_bar(
 /// bottom one when `bottom_edge` (the body runs to the pane's end).
 ///
 /// EXP-1261: the top strip only once the body has SCROLLED (`scrolled`, the
-/// caller's read of its scroll offset: [`scrolled`], [`list_scrolled`]). At
+/// caller's read of its scroll offset, e.g. [`list_scrolled`]). At
 /// rest nothing has slid under the header, so a strip there only veiled the
 /// body's first row. Reading the offset at render is enough: a scroll
 /// notifies the scrolling view, and gpui re-renders every ancestor view of
@@ -1367,12 +374,7 @@ pub(crate) fn work_body(body: AnyElement, bottom_edge: bool, scrolled: bool) -> 
         .into_any_element()
 }
 
-/// EXP-1261 — has a scroll container left its top? (gpui offsets are ≤ 0.)
-pub(crate) fn scrolled(handle: &gpui::ScrollHandle) -> bool {
-    handle.offset().y < px(0.)
-}
-
-/// EXP-1261 — [`scrolled`] for a `gpui::list`: past its first item, or into
+/// EXP-1261 — has a `gpui::list` left its top? Past its first item, or into
 /// it.
 pub(crate) fn list_scrolled(list: &gpui::ListState) -> bool {
     let top = list.logical_scroll_top();
@@ -1642,32 +644,14 @@ pub(crate) fn property_tray(chips: Vec<AnyElement>, actions: Vec<AnyElement>) ->
 mod tests {
     use super::*;
 
-    /// EXP-799 / EXP-917 / EXP-1233: a refused merge opens the fix-conflicts
-    /// composer on a real conflict of a failed MERGE with a recorded branch —
-    /// and on nothing else.
-    #[test]
-    fn only_a_real_merge_conflict_opens_the_composer() {
-        // A conflict-classified merge failure on an open PR with a branch.
-        assert!(conflict_opens_composer(true, true, true, true));
-        // A merge refused for another reason (offline, stale base, no App).
-        assert!(!conflict_opens_composer(true, true, false, true));
-        // A failed CLOSE, even one the server called a conflict.
-        assert!(!conflict_opens_composer(true, false, true, true));
-        // No recorded branch: nothing for the run to rebase.
-        assert!(!conflict_opens_composer(true, true, true, false));
-        // The PR is no longer open — nothing to fix.
-        assert!(!conflict_opens_composer(false, true, true, true));
-    }
-
     /// EXP-926 / FEED-45 — ONE size rule per placement, pinned as a rule
-    /// rather than as a pixel: beside the toggle the actions wear the
-    /// toggle's own rung, in the tray they wear the chips'.
+    /// rather than as a pixel: in the bar the actions wear the bar's own
+    /// rung, in the tray they wear the chips'.
     #[test]
     fn a_header_action_takes_its_size_from_its_placement() {
         assert_eq!(header_action_size(false), PillSize::Lg);
         assert_eq!(header_action_size(true), PillSize::Sm);
-        // Beside the toggle means the TOGGLE's height — the 36px control the
-        // segmented capsule is (`controls::segmented`, web `h-9`).
+        // In the bar means the bar's 36px rung (web `h-9`).
         assert_eq!(
             header_action_size(false).height(),
             theme::tokens::size::CONTROL_LG
@@ -1724,9 +708,6 @@ mod tests {
                 _window: &mut Window,
                 cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
-                let target = MergeTarget::Issue {
-                    issue_id: "issue-1".to_string(),
-                };
                 // The real tray, the real chips, the real trailing cluster
                 // (`issue_header::chip_row`).
                 crate::surface::property_row()
@@ -1746,7 +727,7 @@ mod tests {
                                 self.0.merge.clone(),
                                 merge_pill(
                                     "header-merge-pr",
-                                    &target,
+                                    "pr-1",
                                     true,
                                     header_action_size(true),
                                     cx,
@@ -1801,19 +782,17 @@ mod tests {
         );
     }
 
-    /// EXP-926 / FEED-45 — the OTHER placement, drawn: a run with no issue
-    /// (or a batch) has no property card, so Merge PR and Stop stand in row 1
-    /// NEXT TO the face toggle. There they must be the toggle's own box —
-    /// chip-sized capsules beside a control half again their height read as
-    /// strays. Same probe as the tray's test.
+    /// EXP-926 / FEED-45 — the OTHER placement, drawn: in the bar (the
+    /// session header) Merge PR and Stop are the bar's own Lg box —
+    /// chip-sized capsules there read as strays. Same probe as the tray's
+    /// test.
     #[gpui::test]
-    async fn the_actions_beside_the_toggle_match_the_toggle(cx: &mut gpui::TestAppContext) {
+    async fn the_actions_in_the_bar_are_the_bar_rung(cx: &mut gpui::TestAppContext) {
         use std::cell::Cell;
         use std::rc::Rc;
 
         #[derive(Default)]
         struct Measured {
-            toggle: Rc<Cell<f32>>,
             stop: Rc<Cell<f32>>,
             merge: Rc<Cell<f32>>,
         }
@@ -1842,32 +821,13 @@ mod tests {
                 _window: &mut Window,
                 cx: &mut gpui::Context<Self>,
             ) -> impl IntoElement {
-                let target = MergeTarget::Session {
-                    session_id: "run-1".to_string(),
-                };
-                let toggle = face_toggle(
-                    FaceToggle {
-                        issue: false,
-                        run: Some("run-1".to_string()),
-                        guide: true,
-                        active: Face::Run,
-                        runs: Vec::new(),
-                        checked_run: None,
-                        state: FaceState::default(),
-                    },
-                    Rc::new(|_, _, _| {}),
-                    Rc::new(|_, _, _| {}),
-                    cx,
-                )
-                .expect("two items is a toggle");
-                // The real row-1 right cluster (`render_work_header`'s).
+                // A bar right cluster (`render_floating_bar`'s).
                 h_flex()
                     .items_center()
                     .gap_1()
-                    .child(probe(self.0.toggle.clone(), toggle))
                     .child(probe(
                         self.0.merge.clone(),
-                        merge_pill("session-merge", &target, true, header_action_size(false), cx),
+                        merge_pill("session-merge", "pr-1", true, header_action_size(false), cx),
                     ))
                     .child(probe(
                         self.0.stop.clone(),
@@ -1882,11 +842,7 @@ mod tests {
         }
 
         let measured = Measured::default();
-        let (toggle, stop, merge) = (
-            measured.toggle.clone(),
-            measured.stop.clone(),
-            measured.merge.clone(),
-        );
+        let (stop, merge) = (measured.stop.clone(), measured.merge.clone());
         cx.update(|cx| {
             gpui_component::init(cx);
             theme::init(cx);
@@ -1896,124 +852,15 @@ mod tests {
 
         let expected = crate::controls::CTL_LG_H;
         assert!(
-            (toggle.get() - expected).abs() < 2.,
-            "the face toggle is the Lg rung: {} vs {expected}",
-            toggle.get()
-        );
-        assert!(
             (merge.get() - expected).abs() < 2.,
-            "EXP-926: the Merge pill matches the toggle: {} vs {expected}",
+            "EXP-926: the Merge pill is the bar's rung: {} vs {expected}",
             merge.get()
         );
         assert!(
             (stop.get() - expected).abs() < 2.,
-            "EXP-926: the Stop pill matches the toggle: {} vs {expected}",
+            "EXP-926: the Stop pill is the bar's rung: {} vs {expected}",
             stop.get()
         );
-    }
-
-    /// EXP-1162 — the header's new shape, drawn: the compact bar is ONE
-    /// control tall (the toggle's rung + its inset), whether its left side
-    /// is empty (the issue face at rest) or carries the collapsed title, and
-    /// that title is the identifier over ONE truncated line however long the
-    /// issue's title is. No tray = nothing under the bar.
-    #[gpui::test]
-    async fn the_compact_bar_is_one_control_tall_with_a_one_line_title(
-        cx: &mut gpui::TestAppContext,
-    ) {
-        use std::cell::Cell;
-        use std::rc::Rc;
-
-        fn probe(out: Rc<Cell<f32>>, child: AnyElement) -> AnyElement {
-            div()
-                .relative()
-                .w_full()
-                .min_w_0()
-                .child(child)
-                .child(
-                    gpui::canvas(
-                        move |bounds, _, _| out.set(f32::from(bounds.size.height)),
-                        |_, _: (), _, _| {},
-                    )
-                    .absolute()
-                    .size_full(),
-                )
-                .into_any_element()
-        }
-
-        struct Bar {
-            with_title: bool,
-            header: Rc<Cell<f32>>,
-            title: Rc<Cell<f32>>,
-        }
-
-        impl gpui::Render for Bar {
-            fn render(
-                &mut self,
-                _window: &mut Window,
-                cx: &mut gpui::Context<Self>,
-            ) -> impl IntoElement {
-                let title = self.with_title.then(|| {
-                    probe(
-                        self.title.clone(),
-                        collapsed_title(
-                            Some("EXP-1162".into()),
-                            "A very long issue title that could never fit on one line of a \
-                             compact bar, not even on the widest monitor anybody owns today",
-                            None,
-                            cx,
-                        ),
-                    )
-                });
-                let stop = crate::session_screen::stop_session_pill(
-                    "work-stop",
-                    header_action_size(false),
-                    cx,
-                )
-                .into_any_element();
-                div().w(px(480.)).child(probe(
-                    self.header.clone(),
-                    render_work_header(
-                        WorkHeader {
-                            title,
-                            right: vec![stop],
-                            tray: None,
-                            extra: None,
-                        },
-                        cx,
-                    ),
-                ))
-            }
-        }
-
-        cx.update(|cx| {
-            gpui_component::init(cx);
-            theme::init(cx);
-        });
-        let bar = theme::tokens::size::CONTROL_LG + 2. * BAR_PY;
-        for with_title in [false, true] {
-            let (header, title) = (Rc::new(Cell::new(0.)), Rc::new(Cell::new(0.)));
-            let (_view, cx) = cx.add_window_view(|_, _| Bar {
-                with_title,
-                header: header.clone(),
-                title: title.clone(),
-            });
-            cx.update(|window, cx| window.draw(cx).clear(cx));
-            assert!(
-                (header.get() - bar).abs() < 1.,
-                "the bar is one control tall (title: {with_title}): {} vs {bar}",
-                header.get()
-            );
-            if with_title {
-                let lines = COLLAPSED_ID_LINE + COLLAPSED_TITLE_LINE;
-                assert!(
-                    (title.get() - lines).abs() < 1.,
-                    "identifier over ONE title line: {} vs {lines}",
-                    title.get()
-                );
-                assert!(lines <= theme::tokens::size::CONTROL_LG);
-            }
-        }
     }
 
     /// EXP-1162 (web `floating` twin): the Issue face's bar takes NO row —
@@ -2092,89 +939,6 @@ mod tests {
         }
     }
 
-    /// EXP-1162 FACE DOTS: the toggle hands its items to the shared rule —
-    /// EXP-1251: the Guide item is the contract's `guide` and wears the PR
-    /// dot — and each tone names itself and wears a row of the ONE
-    /// session-dot table.
-    #[gpui::test]
-    fn the_face_toggle_dots_follow_the_contract(cx: &mut gpui::TestAppContext) {
-        use domain::detail_chrome::FaceDotTone;
-        let spec = |guide: bool, state: FaceState| FaceToggle {
-            issue: true,
-            run: Some("run-1".to_string()),
-            guide,
-            active: Face::Issue,
-            runs: Vec::new(),
-            checked_run: None,
-            state,
-        };
-        let live = FaceState { run_live: true, needs_input: false, pr_open: true, ..Default::default() };
-        assert_eq!(
-            spec(true, live).dots(),
-            vec![(Face::Run, FaceDotTone::Running), (Face::Guide, FaceDotTone::Review)]
-        );
-        // No Guide face: the PR dot has nowhere to go.
-        assert_eq!(spec(false, live).dots(), vec![(Face::Run, FaceDotTone::Running)]);
-        let waiting = FaceState { needs_input: true, pr_open: false, ..live };
-        assert_eq!(spec(true, waiting).dots(), vec![(Face::Run, FaceDotTone::NeedsInput)]);
-        assert!(spec(true, FaceState::default()).dots().is_empty());
-
-        // FACE MARKS: the Run segment draws its tone as the agent's brand
-        // mark (badged while it needs input), never a dot; Guide keeps the
-        // `review` dot.
-        assert_eq!(face_mark(Face::Run, FaceDotTone::Running), FaceMark::Agent { attention: false });
-        assert_eq!(face_mark(Face::Run, FaceDotTone::NeedsInput), FaceMark::Agent { attention: true });
-        assert_eq!(face_mark(Face::Guide, FaceDotTone::Review), FaceMark::Dot(FaceDotTone::Review));
-        let marks = |state: FaceState| {
-            spec(true, state)
-                .dots()
-                .into_iter()
-                .map(|(face, tone)| (face, face_mark(face, tone)))
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            marks(waiting),
-            vec![(Face::Run, FaceMark::Agent { attention: true })]
-        );
-        assert_eq!(
-            marks(live),
-            vec![
-                (Face::Run, FaceMark::Agent { attention: false }),
-                (Face::Guide, FaceMark::Dot(FaceDotTone::Review)),
-            ]
-        );
-
-        assert_eq!(face_dot_label(FaceDotTone::Running), "Running");
-        assert_eq!(face_dot_label(FaceDotTone::NeedsInput), "Needs input");
-        assert_eq!(face_dot_label(FaceDotTone::Review), "Pull request open");
-        // EXP-1184: the Run segment names its run's state; others their dot.
-        {
-            use crate::queries::CodingSessionDisplay as D;
-            assert_eq!(face_tooltip(Face::Run, FaceDotTone::Running, Some(D::Working)), "Working");
-            assert_eq!(face_tooltip(Face::Run, FaceDotTone::Running, Some(D::Done)), "Done");
-            assert_eq!(
-                face_tooltip(Face::Run, FaceDotTone::Running, Some(D::Review)),
-                "Pull request open"
-            );
-            assert_eq!(
-                face_tooltip(Face::Run, FaceDotTone::NeedsInput, Some(D::NeedsInput)),
-                "Needs input"
-            );
-            assert_eq!(face_tooltip(Face::Run, FaceDotTone::Running, None), "Running");
-            assert_eq!(
-                face_tooltip(Face::Guide, FaceDotTone::Review, Some(D::Working)),
-                "Pull request open"
-            );
-        }
-        cx.update(|cx| {
-            gpui_component::init(cx);
-            theme::init(cx);
-            assert_eq!(face_dot_color(FaceDotTone::Running, cx), theme::tokens::GREEN.to_hsla());
-            assert_eq!(face_dot_color(FaceDotTone::NeedsInput, cx), theme::tokens::YELLOW.to_hsla());
-            assert_eq!(face_dot_color(FaceDotTone::Review, cx), theme::tokens::GREEN.to_hsla());
-        });
-    }
-
     /// EXP-1162: the edge strips and the break's motion are the CONTRACT's
     /// numbers, read through the domain mirror of `detail-chrome.json`.
     #[test]
@@ -2185,7 +949,7 @@ mod tests {
         assert_eq!(domain::detail_chrome::COLLAPSE_RISE, 4.);
     }
 
-    /// EXP-895: the Diff face item prints the CONTRACT's labels through the
+    /// EXP-895: a diff count prints the CONTRACT's labels through the
     /// ONE counts renderer ([`crate::diff_pane::counts`]) — `+N` and a U+2212
     /// MINUS SIGN, never an ASCII hyphen, on every desktop surface.
     #[test]
@@ -2193,298 +957,5 @@ mod tests {
         assert_eq!(domain::diff::additions_label(12), "+12");
         assert_eq!(domain::diff::deletions_label(2), "\u{2212}2");
         assert!(!domain::diff::deletions_label(2).contains('-'));
-    }
-
-    fn session(id: &str, user: Option<&str>, status: &str) -> domain::rows::CodingSession {
-        // No `updated_at`: a live status without a heartbeat stamp counts as
-        // live (`coding_session_is_live`), which keeps the fixture clock-free.
-        session_at(id, user, status, "2026-01-01T00:00:00Z", None)
-    }
-
-    /// A row with an explicit start and, optionally, a heartbeat stamp.
-    fn session_at(
-        id: &str,
-        user: Option<&str>,
-        status: &str,
-        started_at: &str,
-        updated_at: Option<&str>,
-    ) -> domain::rows::CodingSession {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "issue_id": "issue-1",
-            "status": status,
-            "started_at": started_at,
-            "updated_at": updated_at,
-            "user_id": user,
-        }))
-        .unwrap()
-    }
-
-    const NOW: i64 = 1_800_000_000;
-
-    fn stamp(epoch: i64) -> String {
-        chrono::DateTime::from_timestamp(epoch, 0)
-            .unwrap()
-            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-    }
-
-    /// EXP-933 — the shared fixture's `issueResultsRun` cases (×4): my
-    /// coding target when it has results, else the newest run on the issue by
-    /// ANY member with results.
-    #[test]
-    fn issue_results_run_matches_the_shared_fixture() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../../packages/domain-contract/fixtures/session-results.json"
-        ))
-        .unwrap();
-        let block = &fixture["issueResultsRun"];
-        let now = chrono::DateTime::parse_from_rfc3339(block["now"].as_str().unwrap())
-            .unwrap()
-            .timestamp();
-        let cases = block["cases"].as_array().unwrap();
-        assert!(!cases.is_empty());
-        for case in cases {
-            let name = case["name"].as_str().unwrap();
-            let rows: Vec<domain::rows::CodingSession> = case["rows"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|row| {
-                    serde_json::from_value(serde_json::json!({
-                        "id": row["id"],
-                        "issue_id": row["issueId"],
-                        "user_id": row["userId"],
-                        "status": row["status"],
-                        "started_at": row["startedAt"],
-                        "updated_at": row["updatedAt"],
-                        "results": row["results"],
-                    }))
-                    .unwrap()
-                })
-                .collect();
-            let picked = issue_results_run(
-                rows.iter(),
-                case["issueId"].as_str().unwrap(),
-                case["boundId"].as_str(),
-                case["me"].as_str(),
-                now,
-                case["prUrl"].as_str(),
-            );
-            assert_eq!(
-                picked.map(|row| row.id.as_str()),
-                case["expected"].as_str(),
-                "fixture case: {name}"
-            );
-        }
-    }
-
-    /// An own LIVE run never hides behind a NEWER ended one: the target is
-    /// the live row and the action is Stop (the web `ownLive` order).
-    #[test]
-    fn a_live_run_behind_a_newer_ended_one_is_still_stop() {
-        let running = domain::contract::CODING_SESSION_STATUS_RUNNING;
-        let ended = domain::contract::CODING_SESSION_STATUS_ENDED;
-        let older_live = session_at("a", Some("me"), running, &stamp(NOW - 3_600), Some(&stamp(NOW - 10)));
-        let newer_ended = session_at("b", Some("me"), ended, &stamp(NOW - 60), Some(&stamp(NOW - 30)));
-        let rows = [newer_ended.clone(), older_live.clone()];
-        let target = coding_target(rows.iter(), "issue-1", None, "me", NOW);
-        assert_eq!(target.map(|row| row.id.as_str()), Some("a"));
-        // Even when the tab is bound to the ended run: bound only wins live.
-        let bound = coding_target(rows.iter(), "issue-1", Some("b"), "me", NOW);
-        assert_eq!(bound.map(|row| row.id.as_str()), Some("a"));
-        assert!(matches!(
-            coding_action(target, Some("me"), NOW, false, None, Some(ResumePath::Local)),
-            CodingAction::Stop { ref session_id, .. } if session_id == "a"
-        ));
-    }
-
-    /// A newer STALE running row (no heartbeat inside the window) is not
-    /// live, so it is the newest-overall target, and it earns Start coding —
-    /// never Resume on the older ended run behind it.
-    #[test]
-    fn a_newer_stale_run_over_an_older_ended_one_is_start() {
-        let running = domain::contract::CODING_SESSION_STATUS_RUNNING;
-        let ended = domain::contract::CODING_SESSION_STATUS_ENDED;
-        let stale_secs = domain::contract::CODING_SESSION_STALE_MS / 1000 + 60;
-        let older_ended = session_at("a", Some("me"), ended, &stamp(NOW - 7_200), Some(&stamp(NOW - 7_000)));
-        let newer_stale = session_at("b", Some("me"), running, &stamp(NOW - 3_600), Some(&stamp(NOW - stale_secs)));
-        let rows = [older_ended, newer_stale];
-        let target = coding_target(rows.iter(), "issue-1", None, "me", NOW);
-        assert_eq!(target.map(|row| row.id.as_str()), Some("b"));
-        assert_eq!(
-            coding_action(target, Some("me"), NOW, false, None, Some(ResumePath::Local)),
-            CodingAction::Start
-        );
-        // A teammate's live row never enters the selection.
-        let theirs = [session_at("c", Some("them"), running, &stamp(NOW), Some(&stamp(NOW)))];
-        assert!(coding_target(theirs.iter(), "issue-1", None, "me", NOW).is_none());
-    }
-
-    /// An own LIVE run is Stop, whichever machine hosts it.
-    #[test]
-    fn own_live_run_is_stop() {
-        let row = session("s1", Some("me"), domain::contract::CODING_SESSION_STATUS_RUNNING);
-        let action = coding_action(Some(&row), Some("me"), NOW, false, Some("Mac".into()), None);
-        assert_eq!(
-            action,
-            CodingAction::Stop {
-                session_id: "s1".into(),
-                local: false,
-            }
-        );
-        let local = coding_action(Some(&row), Some("me"), NOW, true, None, None);
-        assert!(matches!(local, CodingAction::Stop { local: true, .. }));
-    }
-
-    /// An own ENDED run with a resume path is Resume; without one, Start.
-    #[test]
-    fn own_ended_run_resumes_only_with_a_path() {
-        let row = session("s1", Some("me"), domain::contract::CODING_SESSION_STATUS_ENDED);
-        let action = coding_action(
-            Some(&row),
-            Some("me"),
-            NOW,
-            false,
-            Some("Mac".into()),
-            Some(ResumePath::Local),
-        );
-        assert_eq!(
-            action,
-            CodingAction::Resume {
-                session_id: "s1".into(),
-                path: ResumePath::Local,
-                host_label: Some("Mac".into()),
-            }
-        );
-        assert_eq!(
-            coding_action(Some(&row), Some("me"), NOW, false, None, None),
-            CodingAction::Start
-        );
-    }
-
-    /// Nothing of mine — no run, a teammate's run (live or not), or no
-    /// signed-in account — is Start. A teammate's run never yields Stop.
-    #[test]
-    fn nothing_own_is_start() {
-        assert_eq!(coding_action(None, Some("me"), NOW, false, None, None), CodingAction::Start);
-        let theirs = session("s2", Some("them"), domain::contract::CODING_SESSION_STATUS_RUNNING);
-        assert_eq!(
-            coding_action(Some(&theirs), Some("me"), NOW, false, None, Some(ResumePath::Local)),
-            CodingAction::Start
-        );
-        let anon = session("s3", None, domain::contract::CODING_SESSION_STATUS_RUNNING);
-        assert_eq!(coding_action(Some(&anon), None, NOW, false, None, None), CodingAction::Start);
-    }
-
-    /// The toggle hides what is unavailable and needs two items to exist.
-    #[test]
-    fn face_toggle_items_follow_availability() {
-        let toggle = |issue: bool, run: Option<&str>, guide: bool, active: Face| FaceToggle {
-            issue,
-            run: run.map(str::to_string),
-            guide,
-            active,
-            runs: Vec::new(),
-            checked_run: None,
-            state: FaceState::default(),
-        };
-        let issue_only = toggle(true, None, false, Face::Issue);
-        assert_eq!(issue_only.items(), vec![Face::Issue]);
-        let run_only = toggle(false, Some("r"), false, Face::Run);
-        assert_eq!(run_only.items(), vec![Face::Run]);
-        let with_run = toggle(true, Some("r"), false, Face::Issue);
-        assert_eq!(with_run.items(), vec![Face::Issue, Face::Run]);
-        let with_guide = toggle(false, Some("r"), true, Face::Guide);
-        assert_eq!(with_guide.items(), vec![Face::Run, Face::Guide]);
-        // EXP-1251: the Guide is never gated on a run of mine (a teammate's
-        // report, the issue's own open PR).
-        let orphan_guide = toggle(true, None, true, Face::Issue);
-        assert_eq!(orphan_guide.items(), vec![Face::Issue, Face::Guide]);
-        assert_eq!(
-            toggle(true, Some("r"), true, Face::Issue).items(),
-            vec![Face::Issue, Face::Run, Face::Guide]
-        );
-    }
-
-    /// EXP-1251: the Guide item's ONE name is the contract's.
-    #[test]
-    fn the_guide_face_label_is_the_contracts() {
-        assert_eq!(GUIDE_FACE_LABEL, "Guide");
-    }
-
-    /// EXP-886: the Run item reads "Runs" once the issue has several runs of
-    /// mine — byte-identical with the web `RUN_FACE_LABEL`/`RUNS_FACE_LABEL`.
-    /// EXP-950: the run menu rides the Run item, so several runs keep a lone
-    /// Run item on show — and nothing else does.
-    #[test]
-    fn a_lone_run_item_shows_only_for_its_run_menu() {
-        let entry = |id: &str| RunEntry {
-            id: id.to_string(),
-            label: format!("macbook · {id}"),
-            live: false,
-        };
-        let mut spec = FaceToggle {
-            issue: false,
-            run: Some("run-1".to_string()),
-            guide: false,
-            active: Face::Run,
-            runs: vec![entry("run-1")],
-            checked_run: Some("run-1".to_string()),
-            state: FaceState::default(),
-        };
-        assert!(!spec.multiple_runs());
-        assert!(!spec.is_shown(), "one face, one run: no control");
-        spec.runs.push(entry("run-2"));
-        assert!(spec.multiple_runs());
-        assert_eq!(spec.items(), vec![Face::Run]);
-        assert!(spec.is_shown(), "the caret keeps the lone Run item up");
-        // Runs without a Run item (no run of mine bound) carry no caret.
-        spec.run = None;
-        assert!(!spec.is_shown());
-        // Two faces are a toggle with or without runs.
-        spec.issue = true;
-        spec.run = Some("run-1".to_string());
-        spec.runs.clear();
-        assert!(spec.is_shown());
-    }
-
-    /// EXP-974: an ISSUE-LESS run's menu is its resume chain — with a
-    /// predecessor (or a successor) in it the lone Run item wears the plural
-    /// and the caret, exactly as an issue's several runs do; a run nothing
-    /// resumed and that resumed nothing keeps the bare word and no control.
-    #[test]
-    fn an_issue_less_run_with_a_resume_chain_carries_the_caret() {
-        let entry = |id: &str| RunEntry {
-            id: id.to_string(),
-            label: format!("macbook · {id}"),
-            live: false,
-        };
-        let mut spec = FaceToggle {
-            issue: false,
-            run: Some("resume-1".to_string()),
-            guide: true,
-            active: Face::Run,
-            runs: vec![entry("resume-1")],
-            checked_run: Some("resume-1".to_string()),
-            state: FaceState::default(),
-        };
-        assert!(!spec.multiple_runs());
-        assert_eq!(run_face_label(spec.multiple_runs()), "Session");
-        // The row it continues joins the menu (newest first, the viewed
-        // one checked).
-        spec.runs.push(entry("original"));
-        assert!(spec.multiple_runs());
-        assert_eq!(run_face_label(spec.multiple_runs()), "Sessions");
-        assert!(spec.is_shown());
-        assert_eq!(spec.items(), vec![Face::Run, Face::Guide]);
-        assert_eq!(spec.checked_run.as_deref(), Some("resume-1"));
-    }
-
-    #[test]
-    fn the_run_face_reads_runs_with_several_runs() {
-        assert_eq!(run_face_label(false), "Session");
-        assert_eq!(run_face_label(true), "Sessions");
-        assert_eq!(RUN_FACE_LABEL, "Session");
-        assert_eq!(RUNS_FACE_LABEL, "Sessions");
     }
 }

@@ -1,71 +1,43 @@
 import Foundation
 
-/// EXP-825: what a play button hands the Agent page composer. Every launcher
-/// entry point is NAVIGATION now — the issue detail's Start coding, the bulk
-/// bar, an action's Run, New action / a suggestion, a machine's play glyph,
-/// a merge refused on a conflict — and this is the preselection it carries, mirrored
-/// ×4 (web search params on `/t/$teamSlug/agent`, desktop
-/// `Navigation::pending_chat_seed`, Android nav args).
+/// EXP-825: what a play button hands the home composer. Every launcher entry
+/// point is NAVIGATION — the issue's Start, the bulk bar, an action's Run, a
+/// machine's play glyph — and this is the preselection it carries; the send
+/// is ONE `sessions.send` (EXP-1291) in the ACTIVE team.
 ///
 /// Hashable so it can ride an `AppRoute` case: two pushes with different
 /// seeds are two different destinations.
 public struct AgentComposerSeed: Hashable, Sendable {
-    /// Pre-checked issue ids (1 = a single-issue run, 2+ = a batch).
+    /// Pre-checked issue ids (the new thread's `issueIds`).
     public var issueIds: [String]
-    /// A preselected action — a team row or one of the builtins
-    /// (`builtin:create-action`, `builtin:fix-conflicts`). Wins over
-    /// `issueIds` when both arrive (the web rule).
+    /// A preselected team action. Wins over `issueIds` when both arrive (the
+    /// web rule).
     public var actionId: String?
     /// The machine to preselect (the Devices tab's play glyph).
     public var deviceId: String?
-    /// An issue linked to the open PR a `pr` input should pre-pick (ANY
-    /// linked issue resolves — the picker normalizes by membership).
-    public var prIssueId: String?
-    /// Text dropped into an EMPTY draft — a suggestion's description, with
-    /// its trigger block appended when the seed carries a trigger.
+    /// Text dropped into an EMPTY draft.
     public var text: String?
-    /// A curated icon name seeding the Create action builtin's `icon` input.
-    public var icon: String?
-    /// The team the subject belongs to — an issue opened from the Inbox,
-    /// Reviews or Search can sit on a NON-active team, and the composer's
-    /// pools are team-scoped, so the page aligns the active team to this
-    /// before it builds (web parity: the play button routes to THAT team's
-    /// `/t/$teamSlug/agent`). nil = the active team.
+    /// The team the subject belongs to — an issue opened from the Inbox or
+    /// Search can sit on a NON-active team, and the composer's pools are
+    /// team-scoped, so the page aligns the active team to this before it
+    /// builds. nil = the active team.
     public var teamId: String?
-    /// EXP-1233: a REFUSED merge (a real content conflict) opened the
-    /// composer on the Fix merge conflicts builtin, so its card says why it
-    /// is up ("Merge refused: the branch has conflicts."). Read only with
-    /// that builtin seeded (web `?conflict=1`).
-    public var conflict: Bool = false
-    /// EXP-1284: start INTO this thread — the thread's "Start a session here" and
-    /// its reply box (no live or resumable run of mine there). Rides
-    /// `steer.startSession({threadId})` on whatever subject the composer
-    /// sends; nil = the server's own placement.
-    public var threadId: String?
 
     public init(
         issueIds: [String] = [],
         actionId: String? = nil,
         deviceId: String? = nil,
-        prIssueId: String? = nil,
         text: String? = nil,
-        icon: String? = nil,
-        teamId: String? = nil,
-        conflict: Bool = false,
-        threadId: String? = nil
+        teamId: String? = nil
     ) {
         self.issueIds = issueIds
         self.actionId = actionId
         self.deviceId = deviceId
-        self.prIssueId = prIssueId
         self.text = text
-        self.icon = icon
         self.teamId = teamId
-        self.conflict = conflict
-        self.threadId = threadId
     }
 
-    /// The Chat FAB's seed: nothing preselected.
+    /// The composer FAB's seed: nothing preselected.
     public static let empty = AgentComposerSeed()
 
     /// Whether the seed names a subject at all.

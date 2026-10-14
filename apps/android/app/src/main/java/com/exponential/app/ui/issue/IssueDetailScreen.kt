@@ -251,8 +251,10 @@ fun IssueFace(
     padding: PaddingValues,
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
-    /** The PR / branch row's tap — the host lands on its Changes face. */
-    onOpenChanges: () -> Unit,
+    /** EXP-1291: a pull request row's tap (null = rows inert). */
+    onOpenPullRequest: ((com.exponential.app.data.db.PullRequestEntity) -> Unit)? = null,
+    /** EXP-1291: an open PR row's Merge (null = no control on that row). */
+    prMergeControl: ((com.exponential.app.data.db.PullRequestEntity) -> com.exponential.app.ui.work.ChangesMergeControl?)? = null,
     /** The bar's right circle — the host's Start play, else empty. */
     trailingBarSlot: @Composable () -> Unit,
     /** EXP-1191: the bar's Merge circle, directly right of the Comment
@@ -290,6 +292,8 @@ fun IssueFace(
     val estimationType by viewModel.estimationType.collectAsStateWithLifecycle()
     // EXP-57: same-team boards the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
+    // EXP-1291: the issue's pull requests (PR state left `issues`).
+    val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val issue = state.issue
@@ -674,7 +678,7 @@ fun IssueFace(
                 // EXP-1284: the issue names its threads — one chip per
                 // thread holding it (a live mark while it runs).
                 if (onOpenThread != null) {
-                    IssueThreadsRow(issueId = issueId, onOpen = onOpenThread)
+                    IssueThreadsRow(viewModel = viewModel, onOpen = onOpenThread)
                 }
 
                 // EXP-893: no Coding-now / Watch row under the chips any more —
@@ -732,18 +736,13 @@ fun IssueFace(
                     )
                 }
 
-                // The PR/branch rows (EXP-156) linking to the Changes face /
-                // page. Start lives in the bottom bar (EXP-240), so this
-                // renders only with a PR or a pushed branch.
-                val cardVisible = !issue.prUrl.isNullOrBlank() || !issue.branch.isNullOrBlank()
-                if (cardVisible) {
+                // EXP-1291: the issue's pull requests (one row each).
+                if (pullRequests.isNotEmpty()) {
                     Spacer(Modifier.height(20.dp))
-                    // EXP-327: no repo chip here — the PR row itself is the link to
-                    // the code, and the chip only repeated what the board already
-                    // says (Linear parity).
                     AgentPrCard(
-                        issue = issue,
-                        onOpenChanges = onOpenChanges,
+                        pullRequests = pullRequests,
+                        onOpenPullRequest = { pr -> onOpenPullRequest?.invoke(pr) },
+                        mergeControlFor = prMergeControl,
                     )
                 }
 
@@ -1128,23 +1127,53 @@ fun IssueTitleField(
     )
 }
 
-/** EXP-1284: the issue page's `Threads` row (×4), off the synced threads. */
+/** EXP-1291: the issue page's `Threads` row — the thread roots linking
+ *  this issue, one tappable title each. */
 @Composable
-private fun IssueThreadsRow(issueId: String, onOpen: (String) -> Unit) {
-    val threadsVm: com.exponential.app.ui.thread.ThreadsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
-    val bundles by threadsVm.bundles.collectAsStateWithLifecycle()
-    val chips = remember(bundles, issueId) {
-        threadsVm.threadsOfIssue(bundles, issueId).map { bundle ->
-            com.exponential.app.ui.thread.ThreadsRowChip(
-                threadId = bundle.thread.id,
-                title = bundle.view.title,
-                live = bundle.view.live,
-                busy = bundle.view.busy,
-                agent = (bundle.myLiveRun ?: bundle.liveRun)?.agent,
-            )
+private fun IssueThreadsRow(viewModel: IssueDetailViewModel, onOpen: (String) -> Unit) {
+    val threads by viewModel.threads.collectAsStateWithLifecycle()
+    if (threads.isEmpty()) return
+    Spacer(Modifier.height(12.dp))
+    IssueThreadsChips(threads = threads, onOpen = onOpen)
+}
+
+/**
+ * EXP-1291 (draft 7): the muted `Threads` label, then one glass chip per
+ * thread holding this issue — its title, led by the live dot (pulsing while
+ * it works) while any session in it runs. Stateless for the capture.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun IssueThreadsChips(threads: List<IssueDetailViewModel.IssueThread>, onOpen: (String) -> Unit) {
+    if (threads.isEmpty()) return
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("issue-threads-row"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            com.exponential.app.domain.SessionTree.ListCopy.TITLE,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+        )
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            threads.forEach { thread ->
+                com.exponential.app.ui.components.GlassPill(
+                    thread.title,
+                    size = com.exponential.app.ui.components.PillSize.Sm,
+                    onClick = { onOpen(thread.rootId) },
+                    leading = if (thread.live) {
+                        { LiveDot(busy = thread.busy, size = 6.dp) }
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.testTag("issue-thread-chip"),
+                )
+            }
         }
     }
-    if (chips.isEmpty()) return
-    Spacer(Modifier.height(12.dp))
-    com.exponential.app.ui.thread.ThreadsRow(threads = chips, onOpen = onOpen)
 }

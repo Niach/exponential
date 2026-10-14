@@ -5,13 +5,12 @@ import type { StyleguideEntry } from "./types.ts"
 
 const noop = (): void => {}
 
-/* An action row is its curated icon plus its name. An action with a required
-   input cannot be AUTOMATED — nobody is there to fill it in — so the
-   automation editor renders that row and disables it rather than hiding it. */
+/* An action (EXP-1293: a saved prompt) row is its curated icon plus its
+   name; one without an icon of its own draws the default action glyph. */
 const ACTIONS = [
   { id: `release`, name: `Cut a release`, icon: `rocket` },
   { id: `triage`, name: `Triage the inbox`, icon: `inbox` },
-  { id: `conflicts`, name: `Fix merge conflicts`, icon: `git-merge`, disabled: true },
+  { id: `changelog`, name: `Write the changelog` },
 ]
 
 export const entry: StyleguideEntry = {
@@ -19,7 +18,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Action picker`,
-  blurb: `The team's actions (and the two listed builtins) by curated icon and name — the Agent composer's action chip and the automation editor's "Action" row. An action whose inputs are required is rendered and disabled in the automation arm, because an automated session has nobody to fill them in; a row with no icon of its own draws the default action glyph rather than nothing.`,
+  blurb: `The team's actions (saved prompts, EXP-1293; no builtins) by curated icon and name — the home composer's "Run action" list and its action chip. A row with no icon of its own draws the default action glyph rather than nothing.`,
   status: typedPickerStatus(`ActionPicker`, {
     web: `action-picker.tsx`,
     desktop: `action_picker.rs`,

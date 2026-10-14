@@ -1,147 +1,141 @@
+import fixture from "@exp/domain-contract/fixtures/agent-settings.json"
+import { triggerSummary } from "@exp/domain-contract/agent-settings"
 import {
+  AccountPicker,
+  BARE_FIELD_CLASS,
+  Button,
+  ColorPicker,
+  conceptIcon,
   DevicePicker,
   GlassGroup,
-  GlassSectionHeader,
-  GlassToggleRow,
+  IconPicker,
+  Input,
   ListRow,
-  LiveDot,
-  Picker,
-  PickerTrigger,
-  SETTINGS_LIST_CLASS,
+  Pill,
   SubShellHost,
-  UserAvatar,
+  Switch,
+  Textarea,
 } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
-// EXP-1269 DRAFT — Team settings → Team agents, the owner's section. Nothing
-// is built: this entry pins the ORDER and the words before any client draws
-// it. Built from the settings ladder only (EXP-1076): `GlassGroup` for the
-// fields, a `GlassSectionHeader` band over flat `ListRow`s for the members.
+// EXP-1293 Threads v2 — Team settings → Agents, ONE agent's page
+// (fixtures/agent-settings.json ×4). Managed exactly like a board: the
+// board page's layout, the fixture's `fields` top to bottom — identity (icon
+// picker + colour + name in ONE row), Device, Account, Schedule (a row per
+// trigger reading `triggerSummary`, a switch each, `+ Add`), the
+// Instructions card, then the owner-only Delete. Built from the settings
+// ladder only (EXP-1076).
 
 const noop = (): void => {}
+const COPY = fixture.copy
+const UiAddIcon = conceptIcon(`ui-add`)
+const UiDeleteIcon = conceptIcon(`ui-delete`)
 
-/* Only devices SHARED with the team can carry the team's agents; an unshared
-   machine stays in the list, disabled, with the reason as its second line
-   (the device picker's own rule). */
 const DEVICES = [
+  { id: `build`, name: `Acme build server`, kind: `server` },
   { id: `studio`, name: `Studio`, icon: `laptop` },
-  { id: `builder`, name: `builder-01`, kind: `server` },
-  {
-    id: `macbook`,
-    name: `Danny's MacBook`,
-    description: `Not shared with the team`,
-    disabled: true,
-  },
+  { id: `macbook`, name: `Danny's MacBook`, description: `Offline`, disabled: true },
 ]
 
-const MEMBERS = [
+const ACCOUNTS = [
   {
-    user: { id: `u-danny`, name: `Danny Straehhuber`, email: `danny@yourev.at` },
-    tone: `live` as const,
-    ping: true,
-    caption: `Live · in a call since 09:12`,
+    key: `claude:work`,
+    agent: `claude`,
+    email: `demo@exponential.at`,
+    limits: { fiveHour: 0.31, week: 0.64 },
   },
-  {
-    user: { id: `u-jev`, name: `Jev Marin`, email: `jev@yourev.at` },
-    tone: `idle` as const,
-    ping: false,
-    caption: `Idle · resumes when the app opens`,
-  },
-  {
-    user: { id: `u-mia`, name: `Mia Ortner`, email: `mia@yourev.at` },
-    tone: `muted` as const,
-    ping: false,
-    caption: `Off · turned off in her settings`,
-  },
+  { key: `codex:main`, agent: `codex`, email: `ops@exponential.at` },
 ]
+
+/* The fixture's own summary cases, so the rows read exactly what every
+   client derives. */
+const TRIGGERS = fixture.summaryCases.slice(0, 2).map((entry, index) => ({
+  id: `t${index}`,
+  trigger: entry.trigger,
+}))
 
 export const entry: StyleguideEntry = {
   id: `team-agents-settings`,
   section: `special`,
-  owner: `EXP-1269`,
-  title: `Team agents (team settings)`,
-  blurb: `DRAFT for EXP-1269, owner-only. One section in Team settings: where the team's agents run (a SHARED device only; an unshared machine is listed disabled with the reason), the model, when an idle agent winds down, the hour a new day starts (the dream turn writes the diary first), memory on/off (whether the agents write facts and a daily diary into the team's knowledge, which lives on the server and syncs live, EXP-782), and the Caretaker toggle (the team-scoped agent of EXP-1173). Under it the Members band: one flat row per member with the avatar, the name, and the agent's state as a live dot and a caption (live / idle / off). No per-member controls here: a member only picks WHERE their session runs, in Your agent.`,
+  owner: `EXP-1293`,
+  title: `Agent settings (team settings)`,
+  blurb: `Team settings → Agents: the settings nav lists every team agent like a board (icon in its colour + name, then "New agent", owner-only) and an agent is the board page's layout. Identity is ONE row (icon picker, colour, name; name saves on blur/Enter, the pickers at once), then Device (required: the team's online machines the caller may start on) and, in a second group, Account (optional: the device's last used login) and Schedule (one row per trigger with its switch, "+ Add" opens the trigger editor's WHEN fields; none = "${COPY.noSchedule}"). Then the Instructions card (server-only, loaded on open, saved on blur) and the owner-only destructive Delete. Members read the same page with the controls off.`,
   status: {
-    web: { state: `n/a`, note: `Draft (EXP-1269): no Team agents section exists yet.` },
-    desktop: { state: `n/a`, note: `Draft (EXP-1269): the IDE's Settings → General mirrors it later.` },
-    ios: { state: `n/a`, note: `Draft (EXP-1269): team settings on phones follow the web.` },
-    android: { state: `n/a`, note: `Draft (EXP-1269): team settings on phones follow the web.` },
+    web: {
+      state: `ok`,
+      symbol: `AgentSettingsPage`,
+      file: `apps/web/src/components/team/agents-section.tsx`,
+    },
+    desktop: { state: `n/a`, note: `EXP-1293: the IDE's Settings → Agents lands in its own lane.` },
+    ios: { state: `n/a`, note: `EXP-1293: team settings on phones follow the web.` },
+    android: { state: `n/a`, note: `EXP-1293: team settings on phones follow the web.` },
   },
   island: () => (
-    <SubShellHost className="w-[26rem]">
-      <GlassSectionHeader label="Team agents" />
+    <SubShellHost className="w-[30rem] space-y-4">
       <GlassGroup>
+        <div className="flex items-center gap-2 px-4 py-3">
+          <IconPicker id="demo-agent-icon" value="bug" onChange={noop} color="#a78bfa" />
+          <ColorPicker id="demo-agent-color" value="#a78bfa" onChange={noop} />
+          <Input
+            aria-label="Name"
+            value="Triage"
+            onChange={noop}
+            placeholder={COPY.namePlaceholder}
+            className={BARE_FIELD_CLASS}
+          />
+        </div>
         <DevicePicker
+          triggerVariant="row"
+          mobileTitle="Device"
           devices={DEVICES}
-          value="studio"
+          value="build"
           onChange={noop}
-          trigger={<PickerTrigger variant="row" label="Runs on" value="Studio" />}
-        />
-        <Picker
-          mode="single"
-          triggerVariant="row"
-          mobileTitle="Model"
-          value="haiku"
-          onChange={noop}
-          items={[
-            { value: `haiku`, label: `Haiku` },
-            { value: `sonnet`, label: `Sonnet` },
-            { value: `opus`, label: `Opus` },
-          ]}
-        />
-        <Picker
-          mode="single"
-          triggerVariant="row"
-          mobileTitle="Winds down after"
-          value="30"
-          onChange={noop}
-          items={[
-            { value: `15`, label: `15 minutes` },
-            { value: `30`, label: `30 minutes` },
-            { value: `120`, label: `2 hours` },
-          ]}
-        />
-        <Picker
-          mode="single"
-          triggerVariant="row"
-          mobileTitle="New day at"
-          value="04:00"
-          onChange={noop}
-          items={[
-            { value: `03:00`, label: `03:00` },
-            { value: `04:00`, label: `04:00` },
-            { value: `06:00`, label: `06:00` },
-          ]}
-        />
-        <GlassToggleRow
-          id="demo-team-agents-memory"
-          label="Memory"
-          description="Agents write facts and a diary into Team knowledge"
-          checked
-          onCheckedChange={noop}
-        />
-        <GlassToggleRow
-          id="demo-team-agents-caretaker"
-          label="Caretaker"
-          description="Looks after every board, hourly"
-          checked
-          onCheckedChange={noop}
         />
       </GlassGroup>
-      <GlassSectionHeader label="Members" count={MEMBERS.length} />
-      <div className={SETTINGS_LIST_CLASS}>
-        {MEMBERS.map((member) => (
-          <ListRow key={member.user.id}>
-            <UserAvatar user={member.user} size={24} />
-            <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-              {member.user.name}
+      <GlassGroup>
+        <AccountPicker
+          variant="row"
+          mobileTitle="Account"
+          value="claude:work"
+          options={ACCOUNTS}
+          onChange={noop}
+        />
+        <div className="flex items-center gap-3 px-4 py-3 text-sm">
+          <span className="shrink-0 text-foreground">Schedule</span>
+          <span className="ml-auto">
+            <Pill mode="action" onClick={noop}>
+              <UiAddIcon className="size-3" />
+              {COPY.addTrigger}
+            </Pill>
+          </span>
+        </div>
+        {TRIGGERS.map(({ id, trigger }) => (
+          <ListRow key={id} className="px-4">
+            <span className="min-w-0 flex-1 truncate text-sm">
+              {triggerSummary({ ...trigger, enabled: true })}
             </span>
-            <LiveDot tone={member.tone} ping={member.ping} className="shrink-0" />
-            <span className="shrink-0 text-xs text-muted-foreground">{member.caption}</span>
+            <Switch checked={trigger.enabled !== false} onCheckedChange={noop} />
           </ListRow>
         ))}
+      </GlassGroup>
+      <div className="space-y-1">
+        <GlassGroup>
+          <Textarea
+            aria-label="Instructions"
+            value="Look after the boards: merge duplicates, add labels and priorities, start a thread for anything that needs code."
+            onChange={noop}
+            placeholder={COPY.instructionsPlaceholder}
+            rows={4}
+            className="rounded-none border-0 bg-transparent px-4 py-3 text-sm shadow-none focus-visible:ring-0"
+          />
+        </GlassGroup>
+        <p className="px-1.5 text-xs text-muted-foreground">Instructions</p>
       </div>
+      <Button variant="destructive" size="sm" onClick={noop}>
+        <UiDeleteIcon />
+        Delete agent
+      </Button>
     </SubShellHost>
   ),
 }

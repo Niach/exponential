@@ -38,7 +38,7 @@ public enum EmptyStateCopy {
         .inbox,
         .myIssues,
         .drafts,
-        .reviews,
+        .threads,
         .boards,
         .issues,
         .noTeam,
@@ -87,9 +87,9 @@ public extension EmptyStateCopy.State {
         id: "drafts", size: .page, icon: "nav-drafts",
         title: "No drafts", description: nil, action: nil
     )
-    static let reviews = Self(
-        id: "reviews", size: .page, icon: "nav-reviews",
-        title: "No open pull requests", description: nil, action: nil
+    static let threads = Self(
+        id: "threads", size: .page, icon: "nav-threads",
+        title: "No sessions yet", description: nil, action: nil
     )
     static let boards = Self(
         id: "boards", size: .page, icon: "nav-boards",

@@ -1,11 +1,13 @@
 //! `exponential daemon` — register this machine as a persistent per-user
-//! device and execute remote starts: the headless twin of the desktop's
-//! steer wiring. One control channel to the relay (dialed only while at
-//! least one agent CLI is installed — EXP-367), `devices.register` +
-//! periodic heartbeat for the durable registry row, and the same launch
-//! path `code`/`run` use for every `start_session` frame (issue, batch,
-//! action). `daemon install|uninstall|status` manage a systemd user unit
-//! (Linux) / launchd agent (macOS).
+//! device and run the sessions queued for it: the headless twin of the
+//! desktop's session host. One control channel to the relay (presence,
+//! check-in nudges and transcript serving — dialed only while at least one
+//! agent CLI is installed, EXP-367), `devices.register` + periodic heartbeat
+//! for the durable registry row, and (EXP-1292) the session pickup: the
+//! database is the bus — the daemon's own `sessions` / `messages` shapes
+//! carry every start and message, and the same `coding::pickup` path
+//! `code`/`run` use claims and runs them. `daemon install|uninstall|status`
+//! manage a systemd user unit (Linux) / launchd agent (macOS).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -15,20 +17,27 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context as _};
-use coding::{LaunchOptions, Prepared, PrepareRequest};
-use steer::control_channel::StartSessionFn;
-use steer::{ControlApi, DeviceIdentity, RemoteStart, RemoteStartSubject, TrpcControlApi};
+use domain::rows::{MessageRow, SessionRow};
+use coding::LaunchOptions;
+use steer::{ControlApi, DeviceIdentity, TrpcControlApi};
 
 use super::{reject_unknown_flags, take_flag, take_value, CommandResult};
 use crate::context::{self, Ctx};
-use crate::launch::{self, ActionRepo};
+use crate::launch;
 use crate::registry;
-use crate::session_host::{self, LaunchEnv, RunningSession};
+use crate::session_host::RunningSession;
 
 /// EXP-481: 30s (down from 60) — online-ness now derives from
 /// `last_seen_at` freshness against the contract's 90s window, so one
 /// missed beat must not flap the badge.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+/// EXP-681 (EXP-1292: ported from the deleted kill poll): how long a 426
+/// gate must hold before the daemon suspends its live sessions itself — the
+/// server's staleness window plus its sweep cadence, so a gate that lifts
+/// sooner (a rolled-back deploy) never touches a working run.
+const GATED_SUSPEND_AFTER: Duration =
+    Duration::from_millis(domain::contract::CODING_SESSION_STALE_MS as u64 + 30 * 60 * 1000);
+
 /// EXP-641: how often a 426-gated daemon re-tries the self-update while the
 /// gate holds and no newer release was installable yet (the release assets
 /// can still be uploading when the web deploy that raised the floor lands).
@@ -48,7 +57,7 @@ const DOCTOR_RECHECK: Duration = Duration::from_secs(5 * 60);
 /// in ~DOCTOR_RECHECK + this instead of two full periods.
 const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// EXP-746 (D9): the caps this daemon advertises — ONE list, owned by
-/// [`coding::doctor::DEVICE_CAPS`] + [`coding::doctor::ACTION_CAPS`] and
+/// [`coding::doctor::DEVICE_CAPS`] + [`coding::doctor::RUN_CAPS`] and
 /// shared with the desktop (`ui::steer_wiring`). They used to be hand-synced
 /// copies here and there, and a one-sided edit silently made one host
 /// un-targetable for the new feature.
@@ -179,11 +188,8 @@ enum UpdateTrigger {
     /// binary. Acts like `Requested` (auto-update off is not a reason to
     /// stay unusable) and bypasses the persisted check throttle; re-armed
     /// every [`GATED_UPDATE_RETRY`] while the gate holds. Like every
-    /// trigger it still waits for idle — but a gated daemon does not stay
-    /// busy forever: since EXP-681 each hosted run's kill poll ends the run
-    /// itself once the gate has outlasted the server sweep window
-    /// (`session_host::GATED_KILL_AFTER`), so a forgotten person-started
-    /// run (EXP-674: no idle reaper) can no longer pin a gated build.
+    /// trigger it still waits for idle — FEED-36's [`UPDATE_IDLE_GRACE`]
+    /// bounds that, so a forgotten idle session cannot pin a gated build.
     Gated,
 }
 
@@ -197,20 +203,13 @@ fn gated_update_due(gated: bool, last_attempt: Option<Instant>, now: Instant) ->
 }
 
 /// One live session the daemon supervises (the desktop's `LocalSessions`).
+/// EXP-1292: what the session is ABOUT lives on its `sessions` row; the
+/// daemon keeps only what its own duties read.
 struct LiveSession {
-    issue_id: Option<String>,
-    /// FEED-47/57: the issues a BATCH run covers (empty otherwise), so an
-    /// issue start beside it is refused like one beside the issue's own run.
-    batch_issue_ids: Vec<String>,
-    /// EXP-530: the `actions` row this run executes (from the prepared
-    /// launch's `action_id`) — the trigger host's defer check ("never
-    /// launch a second run of an action already running here").
-    action_id: Option<String>,
     branch: String,
-    is_fix_run: bool,
     /// EXP-637: the run's own worktree, reclaimed by the reaper when the
-    /// session finishes clean. `None` for issue/batch sessions (their
-    /// worktrees survive by design) and repo-less runs.
+    /// session finishes clean. `None` for an issue's session (its worktree
+    /// survives by design) and repo-less runs.
     cleanup: Option<coding::RunCleanup>,
     session: Arc<RunningSession>,
     /// FEED-36: since when the agent has been between turns (`None` while a
@@ -256,98 +255,6 @@ fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, Vec<LiveSessi
     }
 }
 
-/// Local one-session-per-issue dedup — only STILL-RUNNING sessions count
-/// (a finished entry awaiting the reaper tick must not block a restart).
-fn issue_is_coding_here(sessions: &Sessions, issue_id: &str) -> bool {
-    issue_run_here(sessions, issue_id).is_some()
-}
-
-/// [`issue_is_coding_here`], naming the live run that holds the issue
-/// (FEED-63: the refusal reported back to the requester names it).
-fn issue_run_here(sessions: &Sessions, issue_id: &str) -> Option<String> {
-    lock_sessions(sessions)
-        .iter()
-        .find(|live| {
-            covers_issue(live.issue_id.as_deref(), &live.batch_issue_ids, issue_id)
-                && !live.session.is_done()
-        })
-        .map(|live| live.session.session_id.clone())
-}
-
-/// FEED-47/57: a run holds an issue when it IS the issue's run or a batch
-/// run covering it.
-fn covers_issue(run_issue: Option<&str>, batch_issue_ids: &[String], issue_id: &str) -> bool {
-    run_issue == Some(issue_id) || batch_issue_ids.iter().any(|id| id == issue_id)
-}
-
-/// REV-9: in-flight remote-start reservations. The handler's dedup checks
-/// (`issue_is_coding_here`, the server `live_for_issue` probe) only see a
-/// session once prepare has FINISHED — the sessions vec is pushed after
-/// `session_host::launch` returns and the server row is prepare's step 6,
-/// both seconds (minutes on a first clone) after the frame arrived. Starts
-/// are never acked, so a phone that observes nothing retries, and the
-/// duplicate frame's own thread passes both checks and spawns a second agent
-/// into the SAME `exp/<ID>` worktree. Each frame therefore atomically claims
-/// its subject keys ON THE RUN LOOP, before its handler thread spawns; a
-/// frame that fails to claim is dropped, and a claim is released only when
-/// the handler returns — by which point the LiveSession is pushed, so one of
-/// the two guards always covers a live start.
-#[derive(Clone, Default)]
-struct StartReservations(Arc<Mutex<HashSet<String>>>);
-
-impl StartReservations {
-    /// All-or-nothing claim: `Err(clashing key)` — holding NOTHING — when any
-    /// key is already held by an in-flight start.
-    fn claim(&self, keys: Vec<String>) -> Result<ReservationGuard, String> {
-        let mut held = match self.0.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        if let Some(clash) = keys.iter().find(|key| held.contains(*key)) {
-            return Err(clash.clone());
-        }
-        held.extend(keys.iter().cloned());
-        Ok(ReservationGuard { held: Arc::clone(&self.0), keys })
-    }
-}
-
-/// Releases its keys on drop — including a handler panic (a poisoned-lock
-/// claim recovers via `into_inner`, so a crashed start never wedges its
-/// issue until restart).
-struct ReservationGuard {
-    held: Arc<Mutex<HashSet<String>>>,
-    keys: Vec<String>,
-}
-
-impl Drop for ReservationGuard {
-    fn drop(&mut self) {
-        let mut held = match self.held.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        for key in &self.keys {
-            held.remove(key);
-        }
-    }
-}
-
-/// The subject keys one `start_session` frame must hold: every issue an
-/// issue/batch start would put an agent on (an overlapping batch and single
-/// start contend on the shared issue), the action id for an action start (a
-/// doubled fix-conflicts frame would otherwise race `take_over_branch`'s
-/// holder scan into the same PR worktree).
-fn reservation_keys(subject: &RemoteStartSubject) -> Vec<String> {
-    match subject {
-        RemoteStartSubject::Issue(issue_id) => vec![format!("issue:{issue_id}")],
-        RemoteStartSubject::Batch { issue_ids, .. } => {
-            issue_ids.iter().map(|id| format!("issue:{id}")).collect()
-        }
-        RemoteStartSubject::Action { action_id, .. } => vec![format!("action:{action_id}")],
-        // EXP-637: a retried resume frame must not relaunch the run twice.
-        RemoteStartSubject::Resume { session_id } => vec![format!("resume:{session_id}")],
-    }
-}
-
 fn run_daemon(args: &[String]) -> CommandResult {
     let mut args = args.to_vec();
     let label_flag = take_value(&mut args, "--label");
@@ -378,13 +285,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
         ctx.account.instance_url
     );
 
-    // EXP-746: ONE registry decision for every end this process issues —
-    // the PTY supervisor's and the ACP engine's alike. Installed before any
-    // session can launch (first caller wins, process-wide).
+    // EXP-746: ONE registry decision for every end this process issues.
+    // Installed before any session can launch (first caller wins,
+    // process-wide).
     registry::install_end_observer(ctx.data_dir.clone());
 
-    // EXP-229 parity: end orphaned rows a previous crash left `running`
-    // (pid-guarded — rows owned by a live sibling process are skipped).
+    // EXP-229 parity: rows a previous crash left `running` go idle — never
+    // ended (EXP-1292: the next message resumes the SAME row). Pid-guarded —
+    // rows owned by a live sibling process are skipped.
     reconcile_stale_sessions(&ctx);
     // EXP-757 (desktop parity): reclaim the scratch dirs of repo-less runs
     // nothing runs any more; a live sibling's (the desktop app on this
@@ -412,13 +320,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let runtime = match steer::SteerRuntime::new() {
         Ok(runtime) => Some(runtime),
         Err(err) => {
-            log::warn!("steer runtime failed to start (remote start disabled): {err}");
+            log::warn!("steer runtime failed to start (sessions cannot run here): {err}");
             None
         }
     };
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
-    let reservations = StartReservations::default();
     // EXP-484: the collected agent status (accounts + usage windows), filled
     // OFF the 1Hz loop by the device worker and drained by the next
     // heartbeat. `collect_if_due` can block for ~10s (a codex app-server
@@ -449,28 +356,32 @@ fn run_daemon(args: &[String]) -> CommandResult {
         Arc::clone(&logins_inflight),
         Arc::clone(&check_in),
     );
-    // EXP-530: the trigger host — this daemon's own Electric pipeline (a
-    // 6-shape subset in `sync-cli.sqlite`, never the GUI's store), ONE delta
-    // drain nudging the serialized worker, plus the 30s self-tick below.
-    // Sync failing to open is not fatal: everything else (remote starts,
-    // heartbeat, worktrees) keeps working, triggers just stay dormant.
+    // EXP-1292: the pickup + trigger host — this daemon's own Electric
+    // pipeline (a shape subset in `sync-cli.sqlite`, never the GUI's store),
+    // ONE delta drain nudging the ONE serialized worker, plus the 30s
+    // self-tick below. Sync failing to open is not fatal for the device row
+    // (heartbeat, worktrees, history keep working), but nothing reaches this
+    // machine to run until it does.
     // EXP-641: raised by every path the server can 426 (the sync pipeline's
     // upgrade hook, the heartbeat) — the loop below turns it into an
     // immediate, throttle-free self-update attempt.
     let gated = Arc::new(AtomicBool::new(false));
-    let sync_manager = start_trigger_sync(&ctx, &gated);
-    let trigger_worker = sync_manager.as_ref().map(|manager| {
-        let worker = spawn_trigger_worker(TriggerHost {
-            ctx: Arc::clone(&ctx),
-            runtime: runtime.clone(),
-            sessions: Arc::clone(&sessions),
-            reservations: reservations.clone(),
-            personal_key: personal_key.clone(),
-            sync: Arc::clone(manager),
-            device_id: device_id.clone(),
-            event_cache: None,
-        });
-        spawn_delta_drain(manager, worker.clone());
+    let sync_manager = start_daemon_sync(&ctx, &gated);
+    let pickup = Arc::new(DaemonPickup {
+        ctx: Arc::clone(&ctx),
+        runtime: runtime.clone(),
+        personal_key: personal_key.clone(),
+        sessions: Arc::clone(&sessions),
+        live: Arc::new(coding::pickup::LiveRegistry::default()),
+        sync: sync_manager.clone(),
+        device_id: device_id.clone(),
+        in_flight: Arc::new(Mutex::new(HashSet::new())),
+        backoff: Mutex::new(HashMap::new()),
+    });
+    let daemon_worker = sync_manager.as_ref().map(|manager| {
+        let synced = Arc::new(SyncedShapes::default());
+        let worker = spawn_daemon_worker(Arc::clone(&pickup), Arc::clone(&synced));
+        spawn_delta_drain(manager, synced, worker.clone());
         worker
     });
 
@@ -523,15 +434,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
         }
     }
 
-    let (inbox_tx, inbox_rx) = flume::unbounded::<RemoteStart>();
     let mut control = runtime.as_ref().and_then(|runtime| {
-        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx, &check_in)
+        dial_control(runtime, &ctx, &device_id, &device_label, &advertised, &check_in)
     });
     if advertised.nothing_installed() {
-        log::info!("no agent CLI installed — registered offline; install claude or codex to accept remote starts");
+        log::info!("no agent CLI installed — registered offline; install claude or codex to run sessions here");
     } else if advertised.agents.is_empty() {
         log::info!(
-            "no agent CLI signed in ({} installed but signed out) — remote starts will be refused until one is",
+            "no agent CLI signed in ({} installed but signed out) — sessions will be refused until one is",
             advertised.unauthed_agents.join(", ")
         );
     }
@@ -549,6 +459,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
     let mut last_update_poll = Instant::now();
     // EXP-641: when the gated trigger was last armed (retry cadence).
     let mut last_gated_attempt: Option<Instant> = None;
+    // EXP-681 (EXP-1292 port): since when the 426 gate holds, and whether
+    // its live sessions were already suspended ([`GATED_SUSPEND_AFTER`]).
+    let mut gated_since: Option<Instant> = None;
+    let mut gated_suspended = false;
     // Logged once per hold: a pending update waiting on an in-flight
     // `agent_login`/`agent_update` command, not on a session.
     let mut update_held_by_claims = false;
@@ -560,18 +474,16 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // converges in ~1s (and a restarted daemon corrects a stale count on its
     // first tick) instead of up to a full heartbeat interval.
     let mut reported_sessions: Option<usize> = None;
-    // EXP-530: the trigger beat. Event triggers ride the delta drain
-    // (they fire within a second of the row landing); this tick is what
-    // makes SCHEDULES fire — and the catch-up beat after a sleep/offline
-    // stretch, where no delta ever arrives.
-    let mut last_trigger_tick = Instant::now();
+    // EXP-530: the worker beat. The pickup and event triggers ride the
+    // delta drain (they act within a second of the row landing); this tick
+    // is what makes SCHEDULES fire — and the catch-up pass after a
+    // sleep/offline stretch, where no delta ever arrives.
+    let mut last_worker_tick = Instant::now();
     // EXP-1005: the account-rotation wall beat (every ROTATION_BEAT).
     let mut rotation = RotationHost {
         ctx: Arc::clone(&ctx),
-        runtime: runtime.clone(),
         sessions: Arc::clone(&sessions),
-        personal_key: personal_key.clone(),
-        reservations: reservations.clone(),
+        pickup: Arc::clone(&pickup),
         // Persisted: an auto-update re-exec keeps every chain's cap.
         tracker: Arc::new(Mutex::new(coding::account_rotation::RotationTracker::load(
             &ctx.data_dir,
@@ -582,69 +494,16 @@ fn run_daemon(args: &[String]) -> CommandResult {
         last_beat: Instant::now(),
     };
     while !shutdown_requested() {
-        match inbox_rx.recv_timeout(Duration::from_secs(1)) {
-            // REV-9: claim the frame's subject BEFORE spawning its thread —
-            // the claim is the only dedup a duplicate frame can hit while the
-            // first is still preparing (see [`StartReservations`]).
-            Ok(start) => match reservations.claim(reservation_keys(&start.subject)) {
-                Err(clash) => {
-                    // EXP-758: before FEED-63 the sender heard NOTHING. A start
-                    // frame has no reply on the control socket (there is no
-                    // ack/refusal variant in `steer::frames::ClientFrame`, by
-                    // design: "the remote client observes success purely via
-                    // the synced `coding_sessions` row appearing"), and the
-                    // daemon has no device-notice channel either: the
-                    // heartbeat carries no message field and
-                    // `devices.completeCommand` only answers PULLED commands,
-                    // which starts are not. So a double-click on Start looks
-                    // like a start that vanished. The drop is deliberate
-                    // (REV-9's dedup); FEED-63 ends the silence below.
-                    log::warn!(
-                        "remote start dropped: a start holding {clash} is already in flight on this device"
-                    );
-                    // FEED-63: the sender hears it now, through the server,
-                    // when the frame named its start. Off the 1Hz loop: the
-                    // report is an HTTP round trip.
-                    if let Some(start_id) = start.start_id.clone() {
-                        let ctx = Arc::clone(&ctx);
-                        std::thread::spawn(move || {
-                            steer::report_start_failure(
-                                &ctx.trpc,
-                                Some(&start_id),
-                                steer::START_DUPLICATE_REASON,
-                            );
-                        });
-                    }
-                }
-                Ok(reservation) => {
-                    let ctx = Arc::clone(&ctx);
-                    let runtime = runtime.clone();
-                    let sessions = Arc::clone(&sessions);
-                    let personal_key = personal_key.clone();
-                    let device_id = device_id.clone();
-                    std::thread::spawn(move || {
-                        let _reservation = reservation;
-                        handle_remote_start(
-                            &ctx,
-                            runtime.as_ref(),
-                            &sessions,
-                            personal_key,
-                            &device_id,
-                            start,
-                        );
-                    });
-                }
-            },
-            Err(flume::RecvTimeoutError::Timeout) => {}
-            Err(flume::RecvTimeoutError::Disconnected) => break,
-        }
+        // The 1 Hz loop: starts and messages arrive on the worker (shape
+        // deltas), never here.
+        std::thread::sleep(Duration::from_secs(1));
 
         // EXP-637: a finished RUN reclaims its own worktree — but only when
         // it is provably clean and carries no commits. Blocking git on the
         // 1Hz loop is fine: it runs once per finished run, not per tick.
-        // EXP-764: a finished repo-LESS run has no worktree to judge — it is
-        // purged whole: scratch dir, claude trust entries, run record and
-        // steer journal. Nothing of it is resumable.
+        // EXP-764: a finished repo-LESS thread has no worktree to judge — it
+        // is purged whole: scratch dir, claude trust entries, run record and
+        // steer journal. A team agent's is kept (EXP-1292: it only idles).
         {
             let mut guard = lock_sessions(&sessions);
             let reaped: Vec<(String, Option<coding::RunCleanup>, PathBuf)> = guard
@@ -688,6 +547,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
                             cleanup.branch
                         );
                     }
+                    // EXP-1292: a team agent never ends — its scratch dir and
+                    // record are what the next message or firing wakes it in.
+                    None if coding::run_registry::get(&ctx.data_dir, &session_id).is_some_and(
+                        |record| record.kind == coding::run_registry::RunKind::Agent,
+                    ) => {}
                     None if coding::scratch::is_scratch_dir(&ctx.data_dir, &worktree) => {
                         let purged = coding::scratch::purge(
                             &ctx.data_dir,
@@ -865,7 +729,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             }
             // EXP-484: collect for the NEXT beat, on the worker — never
             // here (a codex app-server probe blocks for seconds, and this
-            // loop also owns remote starts).
+            // loop also owns the update gate and the session reaper).
             device_worker
                 .send(DeviceWork::CollectAgentStatus {
                     report: Box::new(doctor.clone()),
@@ -878,10 +742,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
             device_worker.send(DeviceWork::ReportWorktrees).ok();
         }
 
-        if let Some(worker) = &trigger_worker {
-            if last_trigger_tick.elapsed() >= TRIGGER_TICK {
-                last_trigger_tick = Instant::now();
-                worker.send(TriggerWork::Tick).ok();
+        if let Some(worker) = &daemon_worker {
+            if last_worker_tick.elapsed() >= DAEMON_TICK {
+                last_worker_tick = Instant::now();
+                worker.send(DaemonWork::Tick).ok();
             }
         }
 
@@ -902,6 +766,29 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 pending_update = Some(UpdateTrigger::Scheduled);
             }
         }
+        // EXP-681 (EXP-1292 port): under a SUSTAINED gate the shapes are
+        // rejected too, so no Stop or end can reach a live run any more, and
+        // a run that never idles would hold the update forever: past
+        // [`GATED_SUSPEND_AFTER`] every live session is suspended (its row
+        // idles once a build the server accepts reports it).
+        if gated.load(Ordering::SeqCst) {
+            let since = *gated_since.get_or_insert_with(Instant::now);
+            if !gated_suspended && since.elapsed() >= GATED_SUSPEND_AFTER {
+                gated_suspended = true;
+                for live in lock_sessions(&sessions).iter() {
+                    log::warn!(
+                        "session {} ({}): gated for {}s — nothing remote can stop it any more, suspending it",
+                        live.session.session_id,
+                        live.branch,
+                        GATED_SUSPEND_AFTER.as_secs()
+                    );
+                    live.session.suspend();
+                }
+            }
+        } else {
+            gated_since = None;
+            gated_suspended = false;
+        }
         // EXP-641: a 426-gated build updates NOW (no auto-update opt-in, no
         // persisted throttle — both would leave the daemon dead until the
         // next 6h tick), retrying while the gate holds.
@@ -912,7 +799,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let live = lock_sessions(&sessions).len();
             if live > 0 {
                 log::info!(
-                    "server rejected this build (426) — updating once {live} live session(s) close or sit idle for {}h (a gated run ends itself once the server has swept its row, EXP-681)",
+                    "server rejected this build (426) — updating once {live} live session(s) close or sit idle for {}h",
                     UPDATE_IDLE_GRACE.as_secs() / 3600
                 );
             } else {
@@ -952,12 +839,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
             if gate == UpdateGate::EndIdle {
                 for live in lock_sessions(&sessions).iter() {
                     log::info!(
-                        "ending session {} ({}) — idle for {}h, a {trigger:?} update is waiting",
+                        "suspending session {} ({}) — idle for {}h, a {trigger:?} update is waiting",
                         live.session.session_id,
                         live.branch,
                         live.idle_since.map(|since| since.elapsed().as_secs() / 3600).unwrap_or(0)
                     );
-                    live.session.kill();
+                    // EXP-1292: the process goes, the session stays — the row
+                    // idles and the next message resumes the SAME row.
+                    live.session.suspend();
                 }
             }
             if gate == UpdateGate::Apply {
@@ -1019,7 +908,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
 
         // Re-advertise on toolchain changes (the desktop's
         // `refresh_device_advertisement`): installing the first agent brings
-        // remote start online without a restart; removing the last hangs up.
+        // the machine online without a restart; removing the last hangs up.
         // Sign-in state rides the same probe (EXP-409): logging into claude
         // over ssh flips the machine runnable without a restart.
         // EXP-414: acted on only once TWO consecutive probes agree — a single
@@ -1063,8 +952,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         }
                         control = runtime.as_ref().and_then(|runtime| {
                             dial_control(
-                                runtime, &ctx, &device_id, &device_label, &advertised, &inbox_tx,
-                                &check_in,
+                                runtime, &ctx, &device_id, &device_label, &advertised, &check_in,
                             )
                         });
                     }
@@ -1097,8 +985,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
         .iter()
         .map(|entry| Arc::clone(&entry.session))
         .collect();
+    // EXP-1292: a daemon stop (logout, reboot, `daemon stop`) is not a person
+    // ending the work — every row idles, and the next message resumes it,
+    // exactly as after a crash.
     for session in &live {
-        session.kill();
+        session.suspend();
     }
     let deadline = Instant::now() + Duration::from_secs(5);
     for session in &live {
@@ -1287,7 +1178,6 @@ fn dial_control(
     device_id: &str,
     device_label: &str,
     advertised: &coding::AgentAdvertisement,
-    inbox: &flume::Sender<RemoteStart>,
     check_in: &Arc<AtomicBool>,
 ) -> Option<steer::ControlChannelHandle> {
     if advertised.nothing_installed() {
@@ -1300,10 +1190,6 @@ fn dial_control(
         device_id: device_id.to_string(),
         device_label: device_label.to_string(),
     };
-    let inbox = inbox.clone();
-    let on_start: StartSessionFn = Arc::new(move |start| {
-        let _ = inbox.send(start);
-    });
     // Non-blocking by contract: just flip the flag — the 1s loop beats.
     let check_in = Arc::clone(check_in);
     let on_check_in: steer::control_channel::CheckInFn = Arc::new(move || {
@@ -1319,7 +1205,7 @@ fn dial_control(
     let on_history_request: steer::HistoryRequestFn = Arc::new(move |session_id: String| {
         let tickets: Arc<dyn steer::PublisherTickets> = Arc::new(steer::TrpcPublisherTickets {
             trpc: Arc::clone(&history_trpc),
-            coding_session_id: session_id.clone(),
+            session_id: session_id.clone(),
         });
         steer::serve_history_request(
             &history_runtime,
@@ -1341,7 +1227,6 @@ fn dial_control(
         runtime,
         device,
         control_api,
-        on_start,
         on_check_in,
         on_history_request,
         on_history_page,
@@ -1378,23 +1263,33 @@ fn sweep_scratch_dirs_now(ctx: &Ctx) {
     }
 }
 
+/// EXP-229 parity, EXP-1292 semantics: the sessions a previous process of
+/// this install left behind go `idle` — never `ended`: the next message
+/// resumes the SAME row from its run record (a crash, a suspend whose idle
+/// report failed; a team agent always idles). Only a thread whose final
+/// `ended` report never resolved (its run record says so) gets that END
+/// again.
 fn reconcile_stale_sessions(ctx: &Ctx) {
-    let stale = registry::stale_ids(&ctx.data_dir, &ctx.account.id);
+    let stale = registry::stale_entries(&ctx.data_dir, &ctx.account.id);
     if stale.is_empty() {
         return;
     }
     let trpc = Arc::clone(&ctx.trpc);
     let data_dir = ctx.data_dir.clone();
     std::thread::spawn(move || {
-        for id in stale {
-            let result = api::coding_sessions::end(&trpc, &id);
-            if registry::end_outcome_resolves(&result) {
-                registry::remove(&data_dir, &id);
-            } else {
-                // Still unresolved — keep it for the next reconcile, but an
-                // entry this daemon's pid once owned (exec_self keeps the
-                // pid) must not read as a live session (EXP-641).
-                registry::mark_ended(&data_dir, &id);
+        for entry in stale {
+            let owed_end = coding::run_registry::get(&data_dir, &entry.id).is_some_and(|record| {
+                record.kind == coding::run_registry::RunKind::Thread && record.unreported_end()
+            });
+            if entry.crashed || !owed_end {
+                let result = api::session_device::report(&trpc, &entry.id, &idle_report());
+                registry::apply_end_outcome(&data_dir, &entry.id, &result);
+            } else if coding::end_session(&trpc, &entry.id).is_ok() {
+                // The end observer applied the outcome to the registry.
+                coding::run_registry::update(&data_dir, &entry.id, |record| {
+                    record.set_unreported_end(false);
+                    true
+                });
             }
         }
     });
@@ -1478,20 +1373,18 @@ impl HoldLog {
 /// The daemon's half of EXP-1005: every [`ROTATION_BEAT`] it reads each live
 /// run's wall, asks the ONE [`coding::account_rotation::RotationTracker`]
 /// what to do, and — on a probe — spends the forced usage read OFF the loop
-/// (one HTTPS GET per profile), then switches the run (a resume naming the
-/// target, the same path a remote "switch account" takes) or parks it.
+/// (one HTTPS GET per profile), then switches the run ([`switch_account`]:
+/// the SAME row re-spawned natively under the target, EXP-1292) or parks it.
 /// EXP-1107: ONE read per AGENT per beat, every walled run of that agent
 /// decided off it (`plan_beat` / `decide_batch`); a switch that fails or is
 /// skipped is undone (`undo_switch`).
 struct RotationHost {
     ctx: Arc<Ctx>,
-    runtime: Option<Arc<steer::SteerRuntime>>,
     sessions: Sessions,
-    personal_key: Option<String>,
-    /// The same start claims the inbox takes: a rotation's resume holds
-    /// `resume:<id>` like a relay resume frame, so the two never relaunch
-    /// one run twice.
-    reservations: StartReservations,
+    /// EXP-1292: a switch relaunches through the pickup's collaborators and
+    /// holds the session in its in-flight set, so the pass never acts on it
+    /// mid-switch.
+    pickup: Arc<DaemonPickup>,
     tracker: Arc<Mutex<coding::account_rotation::RotationTracker>>,
     /// The agents with a probe batch (and its switches) in flight: never
     /// probed twice, their chains kept in the tracker while a switch has
@@ -1589,11 +1482,8 @@ impl RotationHost {
         settings: coding::Settings,
     ) {
         let ctx = Arc::clone(&self.ctx);
-        let runtime = self.runtime.clone();
-        let sessions = Arc::clone(&self.sessions);
-        let personal_key = self.personal_key.clone();
+        let pickup = Arc::clone(&self.pickup);
         let tracker = Arc::clone(&self.tracker);
-        let reservations = self.reservations.clone();
         std::thread::spawn(move || {
             // Releases the agent however this thread ends — a panicking
             // probe included, not only the normal path below.
@@ -1621,15 +1511,7 @@ impl RotationHost {
                 decisions
             };
             for (run, decision) in batch.runs.iter().zip(decisions) {
-                let switched = act_on_rotation(
-                    &ctx,
-                    runtime.as_ref(),
-                    &sessions,
-                    personal_key.clone(),
-                    &reservations,
-                    run,
-                    decision,
-                );
+                let switched = act_on_rotation(&pickup, run, decision);
                 if !switched {
                     // EXP-1107: a switch refused before it began spends
                     // neither the cap nor the cooldown; the chain retries
@@ -1645,20 +1527,14 @@ impl RotationHost {
 }
 
 /// Act on one rotation decision for `run`. `false` = a switch refused
-/// before it began (a resume of the run already in flight, or the agent
-/// started a turn): the caller undoes the rotation the tracker counted. A
-/// wait, a switch made, or a switch that FAILED (no local record, workspace
-/// gone, the run did not stop in time, a launch error) is `true` — like the
-/// desktop's, a failure keeps its count and the cooldown spaces the retry,
-/// rather than a forced probe of every profile every beat for a run that
-/// can never resume.
-#[allow(clippy::too_many_arguments)]
+/// before it began (an attempt already holds the run, or the agent started a
+/// turn): the caller undoes the rotation the tracker counted. A wait, a
+/// switch made, or a switch that FAILED (no local record, the run did not
+/// stop in time, a launch error) is `true` — like the desktop's, a failure
+/// keeps its count and the cooldown spaces the retry, rather than a forced
+/// probe of every profile every beat for a run that can never resume.
 fn act_on_rotation(
-    ctx: &Arc<Ctx>,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    reservations: &StartReservations,
+    pickup: &DaemonPickup,
     run: &coding::account_rotation::WalledRun,
     decision: coding::account_rotation::Decision,
 ) -> bool {
@@ -1673,38 +1549,11 @@ fn act_on_rotation(
                 run.session_id,
                 run.account
             );
-            // The server inherits started_reason and the parent from the
-            // predecessor.
-            // EXP-1158: a LOCAL origin, like the desktop host's — a person's
-            // relay switch moves the device's last used login, a rotation hop
-            // never does (`coding::prepare`).
-            let origin = coding::LaunchOrigin::Local;
-            // REV-9: the resume claim a relay resume frame takes. Held by a
-            // frame in flight = that resume is already moving the run.
-            let _reservation = match reservations.claim(vec![format!("resume:{}", run.session_id)]) {
-                Ok(reservation) => reservation,
-                Err(clash) => {
-                    log::warn!(
-                        "account rotation [{}]: switch skipped, a start holding {clash} is in flight",
-                        run.session_id
-                    );
-                    return false;
-                }
-            };
-            match remote_resume_start(
-                ctx,
-                runtime,
-                sessions,
-                personal_key,
-                origin,
-                run.session_id.clone(),
-                Some(target),
-                Some(prompt),
-            ) {
+            match switch_account(pickup, &run.session_id, target, prompt) {
                 Ok(()) => true,
                 Err(err) if err.is::<SwitchBusy>() => {
                     log::warn!(
-                        "account rotation [{}]: switch refused — the agent started a turn; retrying soon",
+                        "account rotation [{}]: switch refused — the agent is working or another attempt holds it; retrying soon",
                         run.session_id
                     );
                     false
@@ -1733,170 +1582,8 @@ fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 // ---------------------------------------------------------------------------
-// Remote-start dispatch (steer_wiring's handle_remote_start, headless)
+// Live sessions
 // ---------------------------------------------------------------------------
-
-#[allow(clippy::too_many_arguments)]
-fn handle_remote_start(
-    ctx: &Ctx,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    device_id: &str,
-    start: RemoteStart,
-) {
-    // Frame options over settings defaults, capability-masked; plan mode
-    // defaults OFF for remote starts (F7 — never park an unattended box at
-    // the plan TUI unless the sender opted in).
-    let settings = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir));
-    let options = LaunchOptions::remote(
-        &settings,
-        start.agent.as_deref(),
-        start.model.as_deref(),
-        start.effort.as_deref(),
-        start.ultracode,
-        start.plan_mode,
-        // EXP-849: the composer's account pick; EXP-792's server picks rode the
-        // frame unread until now.
-        start.account.as_deref(),
-    )
-    .with_mcp_servers(start.mcp_server_ids.clone())
-    // EXP-1249: the run's own computer-use pick (absent = this machine's switch).
-    .with_computer_use(start.computer_use)
-    // EXP-981: the composer's claude-only subagent pick; absent leaves this
-    // machine's own launch default in place.
-    .with_subagent_model(start.subagent_model.as_deref());
-    let origin = coding::LaunchOrigin::Relay {
-        device_id: device_id.to_string(),
-        claimant: ctx.account.id.clone(),
-        started_by: start.started_by.clone(),
-        // EXP-679: `agent` — another coding session asked for this start, so
-        // the run is unattended and its close-out ends it.
-        started_reason: start.started_reason.clone(),
-        // EXP-1284: the thread the requester asked this start to join
-        // (dropped on a resume frame), echoed into `codingSessions.start`.
-        thread_id: start.thread_id.clone(),
-        // EXP-1284 (T16): the frame's startId, echoed into the start so the
-        // server matches the landing session to its pending start.
-        start_id: start.start_id.clone(),
-    };
-
-    // Success is observed purely via the synced `coding_sessions` row
-    // appearing (desktop parity). FEED-63: errors and refusals are logged
-    // AND, when the frame named its `startId`, reported back to the server.
-    let outcome = match start.subject.clone() {
-        RemoteStartSubject::Issue(issue_id) => remote_issue_start(
-            ctx, runtime, sessions, personal_key, options, origin, issue_id,
-            // EXP-481: honor the remote resume flag — the launcher's marker
-            // gate degrades a missing/foreign worktree to a fresh session.
-            start.resume,
-            start.prompt.clone(),
-        ),
-        RemoteStartSubject::Batch { issue_ids, team_id, repo } => remote_batch_start(
-            ctx, runtime, sessions, personal_key, options, origin, issue_ids, team_id, repo,
-            start.prompt.clone(),
-        ),
-        RemoteStartSubject::Action { action_id, team_id, repo, inputs, .. } => remote_action_start(
-            ctx, runtime, sessions, personal_key, options, origin, action_id, team_id, repo, inputs,
-            start.prompt.clone(),
-        ),
-        // EXP-637: the run registry holds everything else (agent, workspace,
-        // branch, options), so the frame's launch options are ignored by
-        // contract — a resumed run keeps what it recorded. EXP-849: all but
-        // ONE — the ACCOUNT, which is how a remote "switch account" reaches
-        // this machine (a resume naming a different login).
-        RemoteStartSubject::Resume { session_id } => remote_resume_start(
-            ctx, runtime, sessions, personal_key, origin, session_id,
-            start.account.clone(),
-            None,
-        ),
-    };
-    match outcome {
-        Ok(()) => {}
-        // FEED-63: a deliberate refusal (the one-session-per-issue guard, a
-        // disabled launch) stays a warn, as before, and now reaches the
-        // requester too.
-        Err(err) if err.is::<StartRefused>() => {
-            log::warn!("remote start refused ({:?}): {err}", start.subject);
-            steer::report_start_failure(&ctx.trpc, start.start_id.as_deref(), &err.to_string());
-        }
-        Err(err) => {
-            log::warn!("remote start failed: {err:#}");
-            steer::report_start_failure(
-                &ctx.trpc,
-                start.start_id.as_deref(),
-                &format!("{err:#}"),
-            );
-        }
-    }
-}
-
-/// FEED-63: a remote start this machine did not honour, as a typed error so
-/// [`handle_remote_start`] can tell a deliberate refusal (reported with its
-/// reason, logged at warn like before) from a failure. The `Display` is the
-/// reason the requester reads.
-#[derive(Debug)]
-struct StartRefused(String);
-
-impl std::fmt::Display for StartRefused {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for StartRefused {}
-
-/// The one-session-per-issue guards every issue-shaped start takes — this
-/// daemon's own live sessions first, then the REV2-24 cross-device probe
-/// (desktop parity: one session per issue, wherever it runs). `Some` refuses
-/// the start and carries the reason; the probe is best-effort, so an older
-/// server without it never blocks.
-fn issue_start_blocker(ctx: &Ctx, sessions: &Sessions, issue_id: &str) -> Option<String> {
-    issue_start_blocker_except(ctx, sessions, issue_id, None)
-}
-
-/// [`issue_start_blocker`], with ONE session exempted: the run a CONTINUATION
-/// replaces (EXP-849's account switch). The live row it is about to take over
-/// is the same piece of work, so counting it would make a switch impossible
-/// while the run it switches is still live — the desktop's
-/// `coding_flow::resume_blocker_for` exempts the same chain. Another machine's
-/// session on the issue still refuses.
-fn issue_start_blocker_except(
-    ctx: &Ctx,
-    sessions: &Sessions,
-    issue_id: &str,
-    except: Option<&str>,
-) -> Option<String> {
-    if let Some(session_id) = issue_run_here(sessions, issue_id) {
-        return Some(steer::issue_held_here_reason(&session_id));
-    }
-    if let Ok(Some(live)) = api::coding_sessions::live_for_issue(&ctx.trpc, issue_id) {
-        if except != Some(live.id.as_str()) {
-            return Some(steer::issue_held_elsewhere_reason(
-                live.device_label.as_deref().unwrap_or("another device"),
-                Some(&live.id),
-            ));
-        }
-    }
-    None
-}
-
-/// EXP-662 — what a remote start's `resume` flag resolves to: the newest
-/// still-resumable ISSUE record on this account, or nothing. The flag gates
-/// the lookup, so an unchecked box never relaunches a transcript, and a miss
-/// degrades to a fresh session seeded with the resume prompt.
-fn issue_resume_record(
-    data_dir: &Path,
-    account_id: &str,
-    issue_id: &str,
-    start_resume: bool,
-) -> Option<coding::run_registry::RunRecord> {
-    // FEED-47: only the explicit flag reads the registry; a fresh start on an
-    // issue with a recorded run is a NEW run in the reused worktree.
-    coding::launcher::recorded_run_for_start(start_resume, || {
-        coding::run_registry::latest_for_issue(data_dir, account_id, issue_id)
-    })
-}
 
 /// EXP-862 — the logins the runs this daemon hosts are using right now, as
 /// `(agent, profile id)` pairs (`agent_profile_remove` and, EXP-1137,
@@ -1917,227 +1604,6 @@ fn live_run_accounts(
         .filter_map(|id| records.iter().find(|record| record.session_id == *id))
         .filter_map(|record| Some((record.agent, record.account()?)))
         .collect()
-}
-
-#[allow(clippy::too_many_arguments)]
-fn remote_issue_start(
-    ctx: &Ctx,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    options: LaunchOptions,
-    origin: coding::LaunchOrigin,
-    issue_id: String,
-    start_resume: bool,
-    prompt: Option<String>,
-) -> anyhow::Result<()> {
-    if let Some(reason) = issue_start_blocker(ctx, sessions, &issue_id) {
-        // FEED-63: still a refusal, not a failure; typed so the caller
-        // reports the reason to the requester.
-        return Err(StartRefused(reason).into());
-    }
-    let fetched = api::issues::issues_get(&ctx.trpc, &issue_id).context("resolve the issue")?;
-    let issue = fetched.issue;
-    let mut seeds = HashMap::new();
-    seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
-    // EXP-662: a recorded run relaunches its EXACT transcript (the recorded
-    // agent, workspace and identity pin); only a record-less resume falls
-    // through to a fresh session carrying the resume PROMPT.
-    let request = match issue_resume_record(&ctx.data_dir, &ctx.account.id, &issue.id, start_resume)
-    {
-        Some(record) => PrepareRequest::ResumeRun(coding::ResumeRunRequest {
-            record,
-            device_label: coding::default_device_label(),
-            origin,
-            model: None,
-            effort: None,
-            prompt,
-            // EXP-849: a remote "switch account" IS a resume naming one. The
-            // frame's pick, already normalized by [`LaunchOptions::remote`]
-            // (blank or the retired `system` = no switch).
-            account: options.account.clone(),
-        }),
-        None => PrepareRequest::Issue(launch::issue_launch_request(
-            &issue,
-            options,
-            origin,
-            start_resume,
-            prompt,
-        )),
-    };
-    let prepared = coding::prepare(&request, &deps)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(
-        ctx, runtime, sessions, personal_key, prepared,
-        Some(issue.id), false,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-fn remote_batch_start(
-    ctx: &Ctx,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    options: LaunchOptions,
-    origin: coding::LaunchOrigin,
-    issue_ids: Vec<String>,
-    team_id: String,
-    repo: steer::StartRepoGroup,
-    prompt: Option<String>,
-) -> anyhow::Result<()> {
-    let mut issues = Vec::new();
-    let mut seeds = HashMap::new();
-    // EXP-712: the board the batch branch is cut from — the first resolved
-    // issue's. `steer.startSession` already refused a batch whose boards
-    // disagree on the base branch, so any of them names the same branch.
-    let mut batch_board: Option<String> = None;
-    for issue_id in issue_ids {
-        // Only a genuinely UNKNOWN id is skipped (desktop parity — its sync
-        // store may lag too). A transport/auth error must abort the whole
-        // batch instead of silently shrinking it to whatever happened to
-        // resolve before the network blipped.
-        let fetched = match api::issues::issues_get(&ctx.trpc, &issue_id) {
-            Ok(fetched) => fetched,
-            Err(api::ApiError::Http { status: 404, .. }) => {
-                log::info!("batch start: issue {issue_id} skipped (not found)");
-                continue;
-            }
-            Err(err) => {
-                anyhow::bail!("batch start: issue {issue_id} failed to resolve ({err}) — aborting");
-            }
-        };
-        if fetched.team_id != team_id {
-            anyhow::bail!("batch start: issue {issue_id} is outside the claimed team — aborting");
-        }
-        if issue_is_coding_here(sessions, &issue_id) {
-            anyhow::bail!("batch start: {} is already being coded here — aborting", fetched.issue.identifier);
-        }
-        // REV2-24 cross-device guard, batch shape (desktop parity: any live
-        // session aborts the WHOLE batch). Best-effort on older servers.
-        if let Ok(Some(live)) = api::coding_sessions::live_for_issue(&ctx.trpc, &issue_id) {
-            anyhow::bail!(
-                "batch start: {} has a live session on {} — aborting",
-                fetched.issue.identifier,
-                live.device_label.as_deref().unwrap_or("another device")
-            );
-        }
-        let issue = fetched.issue;
-        if batch_board.is_none() {
-            batch_board = issue.board_id.clone();
-        }
-        seeds.insert(issue.id.clone(), launch::issue_seed(&issue));
-        issues.push(coding::BatchIssueSpec {
-            issue_id: issue.id.clone(),
-            issue_identifier: issue.identifier.clone(),
-            title: issue.title.clone(),
-            description: issue.description.clone(),
-            status: domain::IssueStatus::from_wire(issue.status.as_deref().unwrap_or("")),
-        });
-    }
-    if issues.is_empty() {
-        anyhow::bail!("batch start: no launchable issues");
-    }
-    let request = coding::BatchLaunchRequest {
-        batch_id: coding::new_batch_id(),
-        team_id,
-        board_id: batch_board,
-        repo: coding::RepoGroup {
-            repository_id: repo.repository_id,
-            full_name: repo.full_name,
-            default_branch: repo.default_branch,
-        },
-        issues,
-        device_label: coding::default_device_label(),
-        origin,
-        options,
-        prompt,
-    };
-    let covered: Vec<String> = request.issues.iter().map(|issue| issue.issue_id.clone()).collect();
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
-    let request = PrepareRequest::Batch(request);
-    let prepared = coding::prepare(&request, &deps)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared_covering(ctx, runtime, sessions, personal_key, prepared, None, covered, false)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn remote_action_start(
-    ctx: &Ctx,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    options: LaunchOptions,
-    origin: coding::LaunchOrigin,
-    action_id: String,
-    team_id: String,
-    repo: Option<steer::StartRepoGroup>,
-    inputs: Vec<steer::StartInput>,
-    prompt: Option<String>,
-) -> anyhow::Result<()> {
-    let inputs: Vec<coding::ActionInputValue> = inputs
-        .into_iter()
-        .map(|input| coding::ActionInputValue {
-            label: input.label.clone().unwrap_or_else(|| input.key.clone()),
-            input_type: input.input_type.clone().unwrap_or_else(|| "text".to_string()),
-            key: input.key,
-            value: input.value,
-            display: input.display,
-        })
-        .collect();
-    let repo = repo.map(|group| coding::RepoGroup {
-        repository_id: group.repository_id,
-        full_name: group.full_name,
-        default_branch: group.default_branch,
-    });
-    let request = launch::resolve_action_request(
-        ctx,
-        &action_id,
-        &team_id,
-        ActionRepo::Provided(repo),
-        inputs,
-        options,
-        origin,
-        // A relay frame is a person pressing Run — never trigger-started.
-        None,
-        None,
-        prompt,
-    )?;
-
-    // Fix-conflicts branch takeover (desktop `take_over_branch`): a live
-    // fix run on the branch refuses; other holders are killed first so the
-    // rebase never runs under a live PTY's cwd.
-    let mut is_fix_run = false;
-    if let coding::ActionRunKind::FixConflicts { branch, .. } = &request.kind {
-        is_fix_run = true;
-        let holders: Vec<Arc<RunningSession>> = {
-            let guard = lock_sessions(sessions);
-            if guard
-                .iter()
-                .any(|live| live.branch == *branch && live.is_fix_run && !live.session.is_done())
-            {
-                anyhow::bail!("a fix-conflicts session is already working this pull request");
-            }
-            guard
-                .iter()
-                .filter(|live| live.branch == *branch && !live.session.is_done())
-                .map(|live| Arc::clone(&live.session))
-                .collect()
-        };
-        for holder in &holders {
-            holder.kill();
-        }
-        for holder in &holders {
-            let _ = holder.wait_timeout(Duration::from_secs(5));
-        }
-    }
-
-    let deps = launch::coding_deps(ctx, HashMap::new(), launch::LaunchHost::Daemon, runtime);
-    let request = PrepareRequest::Action(request);
-    let prepared = coding::prepare(&request, &deps)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, runtime, sessions, personal_key, prepared, None, is_fix_run)
 }
 
 /// A mid-turn account switch, refused: typed so the rotation can tell it
@@ -2162,194 +1628,90 @@ impl std::fmt::Display for SwitchBusy {
 
 impl std::error::Error for SwitchBusy {}
 
-/// EXP-849 — end the live run an account switch is taking over, so the resume
-/// can re-enter it under the other login: the agent cannot be in two processes
-/// in one worktree.
+/// EXP-849/EXP-1005 — move a live, IDLE session onto another account: stop
+/// its engine (the agent cannot be in two processes in one worktree), then
+/// re-spawn the SAME row's agent CLI natively under `target` from its run
+/// record, `prompt` (the switch note) as the seed turn. EXP-1292: the same
+/// row and record key, no resume row; the session stays in the pickup's
+/// in-flight set throughout. The old engine is SUSPENDED, not ended (its row
+/// goes `idle` — an ended root would take its whole tree with it), and the
+/// new one is reported `running` right away.
 ///
-/// The engine's own end sequence runs, which flips the row to
-/// `ended_by: client` (never `merge`/`system`: nothing merged, and a person
-/// asked for this). A run that is MID-TURN is refused instead — the switch is
-/// a launch-time decision, and the turn slot is its authority. A run this
-/// daemon is not hosting (already ended, or never here) is a no-op: the resume
-/// below is then an ordinary one.
-fn end_for_account_switch(sessions: &Sessions, session_id: &str) -> anyhow::Result<()> {
-    let live = lock_sessions(sessions)
+/// `Err(SwitchBusy)` = refused before anything moved (mid-turn, or an attempt
+/// already holds the session); any other error is a switch that FAILED.
+fn switch_account(
+    pickup: &DaemonPickup,
+    session_id: &str,
+    target: String,
+    prompt: String,
+) -> anyhow::Result<()> {
+    let busy = || SwitchBusy { session_id: session_id.to_string() };
+    let Some(_in_flight) = pickup.begin(session_id) else {
+        return Err(busy().into());
+    };
+    let live = lock_sessions(&pickup.sessions)
         .iter()
         .find(|live| live.session.session_id == session_id && !live.session.is_done())
-        .map(|live| live.session.clone());
+        .map(|live| Arc::clone(&live.session));
     let Some(live) = live else {
-        return Ok(());
+        anyhow::bail!("session {session_id} is not running here any more");
     };
     if !live.is_idle() {
-        return Err(SwitchBusy { session_id: session_id.to_string() }.into());
+        return Err(busy().into());
     }
-    log::info!("account switch: ending live session {session_id} before the resume");
-    // FEED-68: this end is half of a resume — an agent parent must not read
-    // it as "ended without a report" and resume the run a second time.
-    coding::mark_resuming(session_id);
-    live.kill();
+    let record = coding::run_registry::get(&pickup.ctx.data_dir, session_id)
+        .ok_or_else(|| anyhow::anyhow!("no local run record for session {session_id}"))?;
+    let row = pickup
+        .store()
+        .and_then(|store| session_row(&store, session_id))
+        .ok_or_else(|| anyhow::anyhow!("session {session_id} is not synced on this device"))?;
+    log::info!("account switch: stopping session {session_id} before the resume");
+    live.suspend();
     // ~10s: an engine teardown is sub-second. Past that the resume is refused
     // rather than launched into a worktree something may still hold.
-    if live
-        .wait_timeout(std::time::Duration::from_secs(10))
-        .is_none()
-    {
-        coding::unmark_resuming(session_id);
+    if live.wait_timeout(Duration::from_secs(10)).is_none() {
         anyhow::bail!("account switch for {session_id} refused: the session did not stop in time");
     }
-    Ok(())
-}
-
-/// EXP-637 — RESUME an ended run of ANY kind out of the local run registry
-/// (EXP-662 added the issue and batch shapes). A record this daemon never
-/// wrote (or whose workspace is gone) is a hard refusal, logged: the requester
-/// sees no new session row, exactly like every other refused start.
-#[allow(clippy::too_many_arguments)]
-fn remote_resume_start(
-    ctx: &Ctx,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    origin: coding::LaunchOrigin,
-    session_id: String,
-    account: Option<String>,
-    prompt: Option<String>,
-) -> anyhow::Result<()> {
-    let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
-        anyhow::bail!(
-            "no local record for session {session_id}: it ran on another machine, was a repo-less \
-session (purged when it ends), or was removed by this machine's session history setting"
-        );
+    // The old entry (and its claim lock) goes; the resume takes a fresh one.
+    pickup.live.remove(session_id);
+    let claim = coding::pickup::ClaimLock::try_acquire(&pickup.ctx.data_dir, session_id)
+        .map_err(|err| anyhow::anyhow!(err))?
+        .ok_or_else(|| anyhow::anyhow!("session {session_id} is held by another process"))?;
+    let brief = api::session_device::brief(&pickup.ctx.trpc, session_id)
+        .with_context(|| format!("brief of session {session_id}"))?;
+    let deps = pickup.deps();
+    let mut options = deps.options.clone();
+    // EXP-849: a named account on a resume IS the switch.
+    options.account = Some(target);
+    let identifiers = match (deps.issue_identifiers)(row.root_id_or_self()) {
+        found if !found.is_empty() => found,
+        _ => record.issues.clone(),
     };
-    if !record.resumable() {
-        anyhow::bail!("session {session_id}'s workspace is gone and cannot be re-created");
-    }
-    // EXP-849: a resume that NAMES an account is a mid-run "switch account" —
-    // the server lets such a frame ride a run that is still LIVE, and THIS
-    // machine is the one that ends it. Mid-turn it is refused instead: a switch
-    // then would truncate exactly the output the requester is watching.
-    let switching = account.as_deref().is_some_and(|id| !id.trim().is_empty());
-    if switching {
-        end_for_account_switch(sessions, &session_id)?;
-    }
-    // The run being continued never blocks its own continuation.
-    let except = switching.then(|| session_id.clone());
-    // EXP-662: an issue/batch record resumes as a SESSION on those issues, so
-    // it takes the same one-session-per-issue guards a fresh start does.
-    let mut seeds = HashMap::new();
-    match record.kind {
-        coding::run_registry::RunKind::Issue => {
-            if let Some(issue_id) = record.issue_id.clone() {
-                if let Some(reason) =
-                    issue_start_blocker_except(ctx, sessions, &issue_id, except.as_deref())
-                {
-                    anyhow::bail!(reason);
-                }
-                // Best-effort seed: it only feeds the FALLBACK prompt (the
-                // issue's title) for a record whose native transcript is
-                // gone. A failed fetch still resumes.
-                if let Ok(fetched) = api::issues::issues_get(&ctx.trpc, &issue_id) {
-                    seeds.insert(issue_id, launch::issue_seed(&fetched.issue));
-                }
-            }
-        }
-        coding::run_registry::RunKind::Batch => {
-            for issue in &record.issues {
-                if let Some(reason) =
-                    issue_start_blocker_except(ctx, sessions, &issue.issue_id, except.as_deref())
-                {
-                    anyhow::bail!(reason);
-                }
-            }
-        }
-        _ => {}
-    }
-    // The LiveSession/steer room is issue-shaped for an issue record, exactly
-    // like the fresh start it continues.
-    let issue_id = record.issue_id.clone();
-    let request = coding::ResumeRunRequest {
-        record,
-        device_label: coding::default_device_label(),
-        origin,
-        model: None,
-        effort: None,
-        // The server never sends a prompt on a resume frame (EXP-825);
-        // EXP-1005's rotation passes its switch note (the launcher appends
-        // the continue prompt after it).
-        prompt,
-        // EXP-849: the frame's account pick — absent keeps the recorded login.
-        account,
+    let request = coding::SessionLaunchRequest {
+        session: row,
+        brief,
+        issue_identifiers: identifiers,
+        resume: Some(coding::ResumeRun { record, prompt, message_id: None }),
+        device_label: deps.device_label.clone(),
+        options,
     };
-    let deps = launch::coding_deps(ctx, seeds, launch::LaunchHost::Daemon, runtime);
-    let request = PrepareRequest::ResumeRun(request);
-    let prepared = coding::prepare(&request, &deps)
-        .map_err(|err| anyhow::anyhow!("{err}"))?;
-    spawn_prepared(ctx, runtime, sessions, personal_key, prepared, issue_id, false)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn spawn_prepared(
-    ctx: &Ctx,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    prepared: Prepared,
-    issue_id: Option<String>,
-    is_fix_run: bool,
-) -> anyhow::Result<()> {
-    spawn_prepared_covering(ctx, runtime, sessions, personal_key, prepared, issue_id, Vec::new(), is_fix_run)
-}
-
-/// [`spawn_prepared`] for a BATCH run, which records the issues it covers.
-#[allow(clippy::too_many_arguments)]
-fn spawn_prepared_covering(
-    ctx: &Ctx,
-    runtime: Option<&Arc<steer::SteerRuntime>>,
-    sessions: &Sessions,
-    personal_key: Option<String>,
-    prepared: Prepared,
-    issue_id: Option<String>,
-    batch_issue_ids: Vec<String>,
-    is_fix_run: bool,
-) -> anyhow::Result<()> {
-    let prepared = match prepared {
-        Prepared::Ready(prepared) => prepared,
-        // FEED-63: typed, so a remote start reports the refusal back.
-        Prepared::Disabled(reason) => {
-            return Err(StartRefused(steer::disabled_launch_reason(&reason.message())).into());
+    let prepared = match coding::prepare(&coding::PrepareRequest::Session(request), &deps.coding)
+        .map_err(|err| anyhow::anyhow!("{err}"))?
+    {
+        coding::Prepared::Ready(prepared) => prepared,
+        coding::Prepared::Disabled(reason) => {
+            anyhow::bail!("account switch for {session_id} refused: {}", reason.message())
         }
     };
-    let env = LaunchEnv {
-        ctx,
-        runtime,
-        personal_key,
-        rotation_host: true,
+    let engine = (deps.launch)(prepared).map_err(|err| anyhow::anyhow!(err))?;
+    pickup.live.insert(session_id, engine, Some(claim));
+    let running = api::session_device::SessionReport {
+        status: Some(api::session_device::ReportStatus::Running),
+        ..api::session_device::SessionReport::default()
     };
-    // EXP-530: an action run's own id — the trigger host defers while it
-    // is live.
-    let action_id = prepared.action_id.clone();
-    // EXP-637: snapshotted before the launch consumes the prepared value.
-    let cleanup = prepared.run_cleanup.clone();
-    let session = Arc::new(session_host::launch(&env, prepared, issue_id.clone())?);
-    log::info!(
-        "session {} started ({}, branch {})",
-        session.session_id,
-        session.issue_identifier,
-        session.branch
-    );
-    register_session(
-        sessions,
-        LiveSession {
-            issue_id,
-            batch_issue_ids,
-            action_id,
-            branch: session.branch.clone(),
-            is_fix_run,
-            cleanup,
-            session,
-            idle_since: None,
-        },
-    );
+    if let Err(err) = api::session_device::report(&pickup.ctx.trpc, session_id, &running) {
+        log::warn!("account switch: session {session_id} not reported running: {err}");
+    }
     Ok(())
 }
 
@@ -2772,9 +2134,10 @@ fn run_device_command(
                 }
             }
         }
-        // FEED-36: the web's "Update now" — end every live session (the
-        // owner confirmed it; repo-backed runs stay resumable) and let the
-        // loop apply the pending update as soon as they close.
+        // FEED-36: the web's "Update now" — stop every live session's process
+        // (the owner confirmed it; EXP-1292: suspended, so each row idles and
+        // the next message resumes it) and let the loop apply the pending
+        // update as soon as they close.
         "update_now" => {
             let live: Vec<(String, String)> = lock_sessions(sessions)
                 .iter()
@@ -2782,10 +2145,10 @@ fn run_device_command(
                 .map(|live| (live.session.session_id.clone(), live.branch.clone()))
                 .collect();
             for (session_id, branch) in &live {
-                log::info!("update now (web): ending session {session_id} ({branch})");
+                log::info!("update now (web): suspending session {session_id} ({branch})");
             }
             for live_session in lock_sessions(sessions).iter() {
-                live_session.session.kill();
+                live_session.session.suspend();
             }
             slots.update_now.store(true, Ordering::SeqCst);
             if live.is_empty() {
@@ -2794,7 +2157,7 @@ fn run_device_command(
                 (
                     true,
                     format!(
-                        "Ending {} live session(s); the daemon restarts on the new version once they close.",
+                        "Pausing {} live session(s); the daemon restarts on the new version once they close.",
                         live.len()
                     ),
                 )
@@ -2920,23 +2283,28 @@ fn report_worktrees(
 }
 
 // ---------------------------------------------------------------------------
-// EXP-530: the trigger host — this daemon's own Electric pipeline (a shape
-// subset in `sync-cli.sqlite`), ONE delta-drain thread, and the serialized
-// triggers worker. The worker evaluates the triggers bound to
-// THIS device (`Ctx::device_id`) through the shared `coding::triggers`
-// engine and self-starts the fired action runs; the sessions it spawns join
-// the normal `Sessions` vec, so heartbeat/parked-update/quit-sweep cover them
-// like any other run.
+// EXP-1292: the pickup + trigger host — this daemon's own Electric pipeline
+// (a shape subset in `sync-cli.sqlite`), ONE delta-drain thread, and ONE
+// serialized worker. Each pass runs the session pickup (the database is the
+// bus: `queued` rows naming this device launch, person messages deliver, a
+// row gone `ended` kills — `coding::pickup`) and then the agent trigger pass
+// (team agents' schedule/event triggers bound to this device post their
+// firing into the agent's channel). Sessions it spawns join the normal
+// `Sessions` vec, so heartbeat/parked-update/quit-sweep cover them like any
+// other run.
 // ---------------------------------------------------------------------------
 
-/// What the trigger host syncs: the actions and the `triggers` they carry
-/// (`actions` — SLOP-2 folded the old `automations` shape into it), the
-/// event feed (`issue_events`), and the rows the prompt lines and board
-/// filters read (`issues`, `boards`, `labels`, `issue_statuses`).
-/// Deliberately NOT the desktop's 23 — a headless daemon has no views to
-/// hydrate.
-const TRIGGER_SHAPES: &[&str] = &[
-    "actions",
+/// What the daemon syncs: the session tree and its conversation (`sessions`,
+/// `messages`, `session_issues` — the pickup's input; the agent rows also
+/// carry the triggers), the event feed (`issue_events`), and the rows the
+/// firing lines, board filters and branch names read (`issues`, `boards`,
+/// `labels`, `issue_statuses`). Deliberately NOT the desktop's whole set — a
+/// headless daemon has no views to hydrate. A name the sync crate has no
+/// spec for is skipped by the pipeline (the v2 specs land with #EXP-1294).
+const DAEMON_SHAPES: &[&str] = &[
+    "sessions",
+    "messages",
+    "session_issues",
     "issues",
     "issue_events",
     "boards",
@@ -2944,16 +2312,29 @@ const TRIGGER_SHAPES: &[&str] = &[
     "issue_statuses",
 ];
 
-/// The trigger self-tick. Event triggers ride the delta drain (they fire
-/// within a second of the row landing); this beat is what makes SCHEDULES
-/// fire at all, and it is the catch-up pass after a sleep/offline stretch
-/// where no delta ever arrives.
-const TRIGGER_TICK: Duration = Duration::from_secs(30);
+/// The shapes a pickup pass reads. It runs only once BOTH reached
+/// `up-to-date` in this process: `coding::pickup::plan` kills a live session
+/// whose row is missing, so a cold store must never be planned over.
+const PICKUP_SHAPES: &[&str] = &["sessions", "messages"];
+
+/// The worker's self-tick. Deltas drive the pickup and event triggers (they
+/// act within a second of the row landing); this beat is what makes
+/// SCHEDULES fire at all, and it is the catch-up pass after a sleep/offline
+/// stretch where no delta ever arrives.
+const DAEMON_TICK: Duration = Duration::from_secs(30);
+
+/// How long a failed launch/resume attempt waits before the pass retries it
+/// (a claim that failed over the network leaves the row `queued`).
+const PICKUP_RETRY: Duration = Duration::from_secs(30);
+
+/// How long a posted trigger firing counts its agent busy before the
+/// `messages` shape shows it (then the row's own `consumed_at` decides).
+const FIRING_SYNC_GRACE: Duration = Duration::from_secs(10 * 60);
 
 /// Open the daemon's shape store and start its pipeline. `None` (logged, not
-/// fatal) leaves triggers dormant while every other daemon duty — remote
-/// starts, heartbeat, worktree commands — keeps running.
-fn start_trigger_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::SyncManager>> {
+/// fatal) leaves the pickup and triggers dormant while every other daemon
+/// duty — heartbeat, worktree commands, history serving — keeps running.
+fn start_daemon_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::SyncManager>> {
     // NEVER `sync-v2.sqlite`: that file belongs to the desktop GUI, and two
     // pipelines writing one store would fight over shape offsets.
     let db_path = ctx
@@ -2963,7 +2344,7 @@ fn start_trigger_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Sy
         .join("sync-cli.sqlite");
     if let Some(parent) = db_path.parent() {
         if let Err(err) = std::fs::create_dir_all(parent) {
-            log::warn!("triggers: sync store dir ({err}) — triggers disabled");
+            log::warn!("daemon sync: store dir ({err}) — sessions and triggers disabled");
             return None;
         }
     }
@@ -2984,7 +2365,7 @@ fn start_trigger_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Sy
         // Call-time token access (§5.7) — never captured once, so a refresh
         // mid-run is picked up by the next poll.
         token: ctx.auth.token_provider_fn(&ctx.account.id),
-        shapes: Some(TRIGGER_SHAPES),
+        shapes: Some(DAEMON_SHAPES),
     };
     match manager.start_account(config) {
         Ok(_) => {
@@ -2995,53 +2376,84 @@ fn start_trigger_sync(ctx: &Ctx, gated: &Arc<AtomicBool>) -> Option<Arc<sync::Sy
             Some(manager)
         }
         Err(err) => {
-            log::warn!("triggers: sync store failed to open ({err}) — triggers disabled");
+            log::warn!("daemon sync: store failed to open ({err}) — sessions and triggers disabled");
             None
         }
     }
 }
 
-/// Why the worker woke up. Every variant runs the same full re-evaluation;
-/// they differ only in whether the (expensive) `issue_events` snapshot has to
-/// be re-read — EXP-562: a beat that nothing eventful scheduled reuses the
+/// Why the worker woke up. Every variant runs the same full pass; they
+/// differ only in whether the (expensive) `issue_events` snapshot has to be
+/// re-read — EXP-562: a beat that nothing eventful scheduled reuses the
 /// cached rows instead of hydrating the table again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TriggerWork {
+enum DaemonWork {
     /// A synced `issue_events` batch landed — the cache is stale.
     EventsChanged,
-    /// A synced `actions` batch landed — a trigger was authored, edited or
-    /// toggled (they ride `actions.triggers`). Re-decide, but the events
-    /// snapshot is untouched.
-    ActionsChanged,
-    /// The 1s loop's [`TRIGGER_TICK`] beat.
+    /// A `sessions` / `messages` / `session_issues` batch landed (a queued
+    /// start, a message, an agent's triggers edited), or a pickup attempt
+    /// settled and the pass should look again.
+    Pickup,
+    /// The 1s loop's [`DAEMON_TICK`] beat.
     Tick,
 }
 
+/// The shapes that reached `up-to-date` in this process (the drain records
+/// them; the pickup pass waits for [`PICKUP_SHAPES`]).
+#[derive(Default)]
+struct SyncedShapes(Mutex<HashSet<&'static str>>);
+
+impl SyncedShapes {
+    /// Record a batch's `up-to-date`; `true` = the shape just reached it.
+    fn mark(&self, shape: &'static str) -> bool {
+        lock_or_recover(&self.0).insert(shape)
+    }
+
+    fn ready(&self, shapes: &[&str]) -> bool {
+        let synced = lock_or_recover(&self.0);
+        shapes.iter().all(|shape| synced.contains(shape))
+    }
+}
+
+/// The work a delta wakes, `None` = nothing the worker reads.
+fn delta_work(shape: &str) -> Option<DaemonWork> {
+    match shape {
+        "issue_events" => Some(DaemonWork::EventsChanged),
+        "sessions" | "messages" | "session_issues" => Some(DaemonWork::Pickup),
+        _ => None,
+    }
+}
+
 /// The single `deltas()` consumer (flume is MPMC — cloned receivers STEAL,
-/// so exactly one place may drain). Applied batches for the two shapes an
-/// trigger can turn on nudge the worker; everything else is ignored.
-fn spawn_delta_drain(manager: &Arc<sync::SyncManager>, worker: flume::Sender<TriggerWork>) {
+/// so exactly one place may drain). Applied batches of the shapes the worker
+/// reads nudge it; everything else is ignored.
+fn spawn_delta_drain(
+    manager: &Arc<sync::SyncManager>,
+    synced: Arc<SyncedShapes>,
+    worker: flume::Sender<DaemonWork>,
+) {
     let deltas = manager.deltas();
     let spawned = std::thread::Builder::new()
-        .name("exp-triggers".to_string())
+        .name("exp-daemon-sync".to_string())
         .spawn(move || {
             while let Ok(delta) = deltas.recv() {
                 let sync::ShapeDelta::Applied {
                     shape,
                     keys,
                     full_replace,
+                    up_to_date,
                     ..
                 } = delta
                 else {
                     continue;
                 };
-                let work = match shape {
-                    "issue_events" => TriggerWork::EventsChanged,
-                    "actions" => TriggerWork::ActionsChanged,
-                    _ => continue,
+                let first_sync = up_to_date && synced.mark(shape);
+                let Some(work) = delta_work(shape) else {
+                    continue;
                 };
-                // A pure `up-to-date` heartbeat changed nothing.
-                if keys.is_empty() && !full_replace {
+                // A pure `up-to-date` heartbeat changed nothing — unless it is
+                // the shape's FIRST, which may unlock the pickup pass.
+                if keys.is_empty() && !full_replace && !first_sync {
                     continue;
                 }
                 // A closed channel is the daemon shutting down.
@@ -3051,35 +2463,174 @@ fn spawn_delta_drain(manager: &Arc<sync::SyncManager>, worker: flume::Sender<Tri
             }
         });
     if let Err(err) = spawned {
-        log::warn!("triggers: delta drain failed to spawn: {err}");
+        log::warn!("daemon sync: delta drain failed to spawn: {err}");
     }
 }
 
-/// Everything the worker thread owns.
-struct TriggerHost {
+/// Removes its session from the in-flight set on drop — including a panic
+/// in the attempt, so a crashed launch never wedges its row.
+struct InFlight {
+    set: Arc<Mutex<HashSet<String>>>,
+    session_id: String,
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        lock_or_recover(&self.set).remove(&self.session_id);
+    }
+}
+
+/// EXP-1292: what every pickup step needs — shared by the worker (the pass)
+/// and the rotation beat (an account switch relaunches a run).
+struct DaemonPickup {
     ctx: Arc<Ctx>,
     runtime: Option<Arc<steer::SteerRuntime>>,
-    sessions: Sessions,
-    reservations: StartReservations,
     personal_key: Option<String>,
-    sync: Arc<sync::SyncManager>,
+    sessions: Sessions,
+    live: Arc<coding::pickup::LiveRegistry>,
+    sync: Option<Arc<sync::SyncManager>>,
     device_id: String,
+    /// Sessions an attempt works on right now (a launch, a resume, an
+    /// account switch): the pass hands them nothing until it settles.
+    in_flight: Arc<Mutex<HashSet<String>>>,
+    /// A failed attempt's retry floor ([`PICKUP_RETRY`]).
+    backoff: Mutex<HashMap<String, Instant>>,
+}
+
+impl DaemonPickup {
+    fn store(&self) -> Option<Arc<sync::store::ShapeStore>> {
+        self.sync.as_ref()?.store(&self.ctx.account.id)
+    }
+
+    /// Mark a session in flight; `None` = an attempt already holds it.
+    fn begin(&self, session_id: &str) -> Option<InFlight> {
+        lock_or_recover(&self.in_flight)
+            .insert(session_id.to_string())
+            .then(|| InFlight {
+                set: Arc::clone(&self.in_flight),
+                session_id: session_id.to_string(),
+            })
+    }
+
+    fn back_off(&self, session_id: &str) {
+        lock_or_recover(&self.backoff).insert(session_id.to_string(), Instant::now() + PICKUP_RETRY);
+    }
+
+    /// The pass's `in_flight` set: attempts running and attempts backing off.
+    fn excluded(&self) -> HashSet<String> {
+        let now = Instant::now();
+        let mut excluded = lock_or_recover(&self.in_flight).clone();
+        {
+            let mut backoff = lock_or_recover(&self.backoff);
+            backoff.retain(|_, until| *until > now);
+            excluded.extend(backoff.keys().cloned());
+        }
+        excluded
+    }
+
+    /// The pickup's collaborators for one pass — fresh settings each time
+    /// (they move at runtime through `remote_admin`).
+    fn deps(&self) -> coding::pickup::PickupDeps {
+        let settings = coding::Settings::load(&coding::Settings::default_path(&self.ctx.data_dir));
+        // The host defaults under every row's pickers; the row decides plan
+        // mode (F7: an unattended start never parks unless it asked to).
+        let mut options = LaunchOptions::defaults_for(&settings, settings.default_agent);
+        options.plan_mode = false;
+        let account_id = self.ctx.account.id.clone();
+        let own_user = self.ctx.account.user_id.clone();
+        let identifiers_sync = self.sync.clone();
+        let identifiers_account = account_id.clone();
+        let foreign_sync = self.sync.clone();
+        let sessions = Arc::clone(&self.sessions);
+        launch::pickup_deps(launch::PickupHost {
+            ctx: Arc::clone(&self.ctx),
+            runtime: self.runtime.clone(),
+            personal_key: self.personal_key.clone(),
+            rotation_host: true,
+            settings,
+            options,
+            live: Arc::clone(&self.live),
+            issue_identifiers: Arc::new(move |root_id: &str| {
+                identifiers_sync
+                    .as_ref()
+                    .and_then(|sync| sync.store(&identifiers_account))
+                    .map(|store| root_issue_identifiers(&store, root_id))
+                    .unwrap_or_default()
+            }),
+            // EXP-444: a teammate's start on this shared machine.
+            foreign_host: Arc::new(move |session_id: &str| {
+                foreign_sync
+                    .as_ref()
+                    .and_then(|sync| sync.store(&account_id))
+                    .and_then(|store| session_row(&store, session_id))
+                    .and_then(|row| row.user_id)
+                    .is_some_and(|starter| starter != own_user)
+            }),
+            on_launched: Arc::new(move |session, cleanup| {
+                register_session(
+                    &sessions,
+                    LiveSession {
+                        branch: session.branch.clone(),
+                        cleanup,
+                        session,
+                        idle_since: None,
+                    },
+                );
+            }),
+        })
+    }
+}
+
+/// Whether a foreground `exponential code`/`run` on this machine is between
+/// its `sessions.send` and its claim ([`launch::FOREGROUND_START_LOCK`]) —
+/// the row it queued names THIS device, so the daemon keeps its hands off
+/// every launch until then.
+fn foreground_start_held(data_dir: &Path) -> bool {
+    matches!(
+        coding::pickup::ClaimLock::try_acquire(data_dir, launch::FOREGROUND_START_LOCK),
+        Ok(None)
+    )
+}
+
+/// Everything the worker thread owns.
+struct DaemonHost {
+    pickup: Arc<DaemonPickup>,
+    synced: Arc<SyncedShapes>,
+    /// The worker's own queue: a settled attempt asks for the next pass.
+    nudge: flume::Sender<DaemonWork>,
     /// EXP-562: the last hydrated event snapshot, reused by every beat no
     /// `issue_events` batch woke up. `None` = nothing cached (first beat, a
     /// failed read, or a device with no event trigger at all).
     event_cache: Option<Vec<coding::triggers::EventRow>>,
+    /// The startup reconcile of the store's rows ran (once per process).
+    reconciled: bool,
+    /// Trigger firings this daemon posted that the `messages` shape has not
+    /// shown yet: agent id → (message id, posted at). They count the agent
+    /// busy, so a second firing never piles onto an unread first.
+    posted: HashMap<String, (String, Instant)>,
 }
 
 /// The `spawn_device_worker` idiom: unbounded flume + ONE thread, so two
-/// beats never evaluate (or write state) concurrently.
-fn spawn_trigger_worker(mut host: TriggerHost) -> flume::Sender<TriggerWork> {
-    let (tx, rx) = flume::unbounded::<TriggerWork>();
+/// passes never plan (or write trigger state) concurrently.
+fn spawn_daemon_worker(
+    pickup: Arc<DaemonPickup>,
+    synced: Arc<SyncedShapes>,
+) -> flume::Sender<DaemonWork> {
+    let (tx, rx) = flume::unbounded::<DaemonWork>();
+    let mut host = DaemonHost {
+        pickup,
+        synced,
+        nudge: tx.clone(),
+        event_cache: None,
+        reconciled: false,
+        posted: HashMap::new(),
+    };
     std::thread::Builder::new()
-        .name("exp-automate".to_string())
+        .name("exp-daemon-worker".to_string())
         .spawn(move || {
             while let Ok(first) = rx.recv() {
                 // Coalesce a burst (a refetch is thousands of rows in a
-                // handful of batches) into ONE evaluation pass.
+                // handful of batches) into ONE pass.
                 let mut batch = vec![first];
                 while let Ok(more) = rx.try_recv() {
                     batch.push(more);
@@ -3087,73 +2638,247 @@ fn spawn_trigger_worker(mut host: TriggerHost) -> flume::Sender<TriggerWork> {
                 host.beat(rescan_events(&batch));
             }
         })
-        .expect("spawn the triggers worker");
+        .expect("spawn the daemon worker");
     tx
 }
 
 /// Whether a coalesced burst invalidates the event snapshot: ONE
-/// `issue_events` batch anywhere in it does, a pile of ticks and trigger
-/// edits does not.
-fn rescan_events(batch: &[TriggerWork]) -> bool {
+/// `issue_events` batch anywhere in it does, a pile of ticks and session
+/// deltas does not.
+fn rescan_events(batch: &[DaemonWork]) -> bool {
     batch
         .iter()
-        .any(|work| matches!(work, TriggerWork::EventsChanged))
+        .any(|work| matches!(work, DaemonWork::EventsChanged))
 }
 
-/// One trigger bound to this device, plus what the LAUNCH needs beyond
-/// the engine's view of it.
-#[derive(Clone, Debug)]
-struct TriggerAction {
-    triggered: coding::triggers::ArmedTrigger,
-    team_id: String,
-    /// The target action's display name — the log line's handle.
-    name: String,
-    /// The trigger's pinned agent/account/model/effort; every `None`
-    /// falls back to this machine's launch defaults.
-    agent: Option<String>,
-    /// EXP-995: the agent profile the run spends (belongs to `agent`).
-    account: Option<String>,
-    model: Option<String>,
-    effort: Option<String>,
+/// The session a pickup action is about.
+fn action_session_id(action: &coding::pickup::PickupAction) -> &str {
+    use coding::pickup::PickupAction;
+    match action {
+        PickupAction::Launch { session } | PickupAction::Resume { session, .. } => &session.id,
+        PickupAction::Deliver { session_id, .. }
+        | PickupAction::Revoke { session_id, .. }
+        | PickupAction::Answer { session_id, .. }
+        | PickupAction::Kill { session_id } => session_id,
+    }
 }
 
-impl TriggerHost {
-    /// One evaluation pass. Every failure mode degrades to "do nothing this
-    /// beat" — the next nudge or tick retries from fresh state.
-    ///
-    /// `rescan` is the coalesced burst's verdict on the event snapshot
-    /// (EXP-562): false reuses [`Self::event_cache`], so the common
-    /// nothing-happened beat costs one settings read instead of hydrating
-    /// every synced `issue_events` row plus a point-read per issue.
+/// Did a wake (a Resume, or a delivery that had to re-spawn) hand anything
+/// to an engine? Nothing handed = not settled: the caller backs the row off.
+fn woke(result: Result<Vec<String>, String>) -> bool {
+    match result {
+        Ok(handed) => !handed.is_empty(),
+        Err(err) => {
+            log::warn!("pickup: {err}");
+            false
+        }
+    }
+}
+
+impl DaemonHost {
+    /// One pass. Every failure mode degrades to "do nothing this beat" — the
+    /// next nudge or tick retries from fresh state.
     fn beat(&mut self, rescan: bool) {
-        let Some(store) = self.sync.store(&self.ctx.account.id) else {
+        let Some(store) = self.pickup.store() else {
             return;
         };
-        // EXP-1102: the trigger state's one move out of settings.json,
-        // once per process.
-        static MIGRATED: AtomicBool = AtomicBool::new(false);
-        if !MIGRATED.swap(true, Ordering::SeqCst) {
-            let settings_path = coding::Settings::default_path(&self.ctx.data_dir);
-            if self.trigger_store().migrate_legacy(&settings_path) {
-                log::info!("moved the trigger state out of settings.json");
-            }
+        let rows = read_shape_rows::<SessionRow>(&store, "sessions");
+        let messages = read_shape_rows::<MessageRow>(&store, "messages");
+        if self.synced.ready(PICKUP_SHAPES) {
+            self.pickup_pass(&rows, &messages);
         }
-        let action_rows = read_shape_rows::<domain::rows::ActionRow>(&store, "actions");
-        let actions = triggered_actions(&action_rows, &self.device_id);
+        self.trigger_pass(&store, &rows, &messages, rescan);
+    }
+
+    /// The session pickup: plan over the shapes, then act. Launches and
+    /// resumes block on the network and git (a first clone takes minutes),
+    /// so each runs on its own thread with its row held in flight; the rest
+    /// only touch a live engine and run right here.
+    fn pickup_pass(&mut self, rows: &[SessionRow], messages: &[MessageRow]) {
+        let live = &self.pickup.live;
+        for session_id in live.prune() {
+            log::debug!("pickup: session {session_id}'s engine is gone");
+        }
+        live.settle_handed(messages);
+        if !self.reconciled {
+            self.reconciled = true;
+            self.reconcile_rows(rows, messages);
+        }
+        let excluded = self.pickup.excluded();
+        let views = live.live_views();
+        let mut actions = coding::pickup::plan(coding::pickup::PickupInput {
+            device_id: &self.pickup.device_id,
+            sessions: rows,
+            messages,
+            live: &views,
+            in_flight: &excluded,
+        });
+        // EXP-1292: rows this host claimed whose launch failed transiently
+        // (or whose claim answer was lost) read `running` — plan only
+        // launches `queued` ones.
+        actions.extend(live.retry_launches(&self.pickup.device_id, rows, &excluded));
         if actions.is_empty() {
             return;
         }
-        let settings_path = coding::Settings::default_path(&self.ctx.data_dir);
-        let mut states = coding::triggers::read_states(&self.trigger_store());
+        let deps = Arc::new(self.pickup.deps());
+        let foreground = foreground_start_held(&self.pickup.ctx.data_dir);
+        for action in actions {
+            use coding::pickup::PickupAction;
+            let blocking = match &action {
+                PickupAction::Launch { session } if foreground => {
+                    log::debug!(
+                        "pickup: session {} waits — a foreground start holds this machine",
+                        session.id
+                    );
+                    continue;
+                }
+                PickupAction::Launch { .. } | PickupAction::Resume { .. } => true,
+                // A delivery to an engine that just finished wakes it.
+                PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
+                _ => false,
+            };
+            if blocking {
+                self.spawn_attempt(action, &deps);
+            } else if let Err(err) = coding::pickup::execute(&action, &deps) {
+                log::warn!("pickup: {err}");
+            }
+        }
+    }
+
+    /// Run one blocking pickup action off the worker, its row in flight; a
+    /// failure backs the row off ([`PICKUP_RETRY`]), and either way the next
+    /// pass runs as soon as it settles.
+    fn spawn_attempt(
+        &self,
+        action: coding::pickup::PickupAction,
+        deps: &Arc<coding::pickup::PickupDeps>,
+    ) {
+        let session_id = action_session_id(&action).to_string();
+        let Some(guard) = self.pickup.begin(&session_id) else {
+            return;
+        };
+        let pickup = Arc::clone(&self.pickup);
+        let deps = Arc::clone(deps);
+        let nudge = self.nudge.clone();
+        let spawned = std::thread::Builder::new()
+            .name("exp-pickup".to_string())
+            .spawn(move || {
+                let _guard = guard;
+                let settled = match &action {
+                    coding::pickup::PickupAction::Launch { session } => {
+                        match coding::pickup::launch_queued(session, &deps) {
+                            Ok(coding::pickup::LaunchQueued::Launched { .. }) => true,
+                            // Refused + reported on the row: nothing to retry.
+                            Ok(coding::pickup::LaunchQueued::Disabled { reason }) => {
+                                log::warn!("pickup: session {session_id} refused: {reason}");
+                                true
+                            }
+                            Ok(coding::pickup::LaunchQueued::Skipped { reason }) => {
+                                log::info!("pickup: session {session_id} skipped ({reason})");
+                                false
+                            }
+                            Err(err) => {
+                                log::warn!("pickup: launch of {session_id} failed: {err}");
+                                false
+                            }
+                        }
+                    }
+                    // A wake that handed nothing (another process holds the
+                    // session — a foreground `code` — or the wake was refused
+                    // for these messages) backs off too, or every settle
+                    // would replan the same Resume at once.
+                    coding::pickup::PickupAction::Resume { session, message } => woke(
+                        coding::pickup::resume_session(session, std::slice::from_ref(message), &deps),
+                    ),
+                    coding::pickup::PickupAction::Deliver { session_id, messages } => {
+                        woke(coding::pickup::deliver_messages(session_id, messages, &deps))
+                    }
+                    other => match coding::pickup::execute(other, &deps) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            log::warn!("pickup: {err}");
+                            false
+                        }
+                    },
+                };
+                if !settled {
+                    pickup.back_off(&session_id);
+                }
+                let _ = nudge.send(DaemonWork::Pickup);
+            });
+        if let Err(err) = spawned {
+            log::warn!("pickup: attempt thread failed to spawn: {err}");
+        }
+    }
+
+    /// EXP-1292's startup reconcile, once the shapes are synced: a row this
+    /// device left `running` with no engine behind it (a crash, a kill -9, a
+    /// reboot) goes `idle` — NEVER `ended`: the next message resumes the SAME
+    /// row from its run record. Rows with a pending message are the pass's
+    /// own Resume; a row another process on this machine holds (a foreground
+    /// `code`) is skipped by its claim lock.
+    fn reconcile_rows(&self, rows: &[SessionRow], messages: &[MessageRow]) {
+        let pending: HashSet<&str> = messages
+            .iter()
+            .filter(|message| message.is_queued())
+            .map(|message| message.session_id.as_str())
+            .collect();
+        let stale: Vec<String> = rows
+            .iter()
+            .filter(|row| {
+                row.on_device(&self.pickup.device_id)
+                    && row.status_is(domain::contract::SESSION_STATUS_RUNNING)
+                    && !self.pickup.live.contains_live(&row.id)
+                    && !pending.contains(row.id.as_str())
+            })
+            .filter(|row| {
+                matches!(
+                    coding::pickup::ClaimLock::try_acquire(&self.pickup.ctx.data_dir, &row.id),
+                    Ok(Some(_))
+                )
+            })
+            .map(|row| row.id.clone())
+            .collect();
+        if stale.is_empty() {
+            return;
+        }
+        let trpc = Arc::clone(&self.pickup.ctx.trpc);
+        std::thread::spawn(move || {
+            for session_id in stale {
+                match api::session_device::report(&trpc, &session_id, &idle_report()) {
+                    Ok(()) => log::info!("reconcile: session {session_id} had no engine here — now idle"),
+                    Err(err) => log::warn!("reconcile: session {session_id} not reported idle: {err}"),
+                }
+            }
+        });
+    }
+
+    /// The agent trigger pass: evaluate this device's agents' triggers;
+    /// a firing is persisted FIRST (watermark-at-post), then its text is
+    /// posted into the agent's channel (`sessions.send`) — the pickup then
+    /// delivers it like any message, waking the agent if it idles.
+    fn trigger_pass(
+        &mut self,
+        store: &sync::store::ShapeStore,
+        rows: &[SessionRow],
+        messages: &[MessageRow],
+        rescan: bool,
+    ) {
+        let armed = coding::triggers::bound_agent_triggers(rows.iter(), &self.pickup.device_id);
+        if armed.is_empty() {
+            self.event_cache = None;
+            self.posted.clear();
+            return;
+        }
+        let trigger_store = coding::triggers::TriggerStore::open(
+            &self.pickup.ctx.data_dir,
+            &self.pickup.device_id,
+        );
+        let mut states = coding::triggers::read_states(&trigger_store);
         let now_local = chrono::Local::now();
         let now_ms = now_local.timestamp_millis();
-        let live = live_action_ids(&self.sessions);
-        let triggers: Vec<coding::triggers::ArmedTrigger> = actions
-            .iter()
-            .map(|action| action.triggered.clone())
-            .collect();
 
-        if !coding::triggers::needs_events(&triggers) {
+        if !coding::triggers::needs_events(&armed) {
             // Schedule-only device: never touch the events table, and drop
             // whatever a previously-enabled event trigger left cached.
             self.event_cache = None;
@@ -3161,17 +2886,18 @@ impl TriggerHost {
             // A failed read is NOT cached — this beat evaluates with no
             // events (an event trigger simply decides nothing) and the next
             // one retries the scan.
-            self.event_cache = read_event_rows(&store, now_ms);
+            self.event_cache = read_event_rows(store, now_ms);
         } else if let Some(cached) = self.event_cache.as_mut() {
-            patch_missing_boards(&store, cached);
+            patch_missing_boards(store, cached);
         }
         let events: &[coding::triggers::EventRow] = self.event_cache.as_deref().unwrap_or(&[]);
+        let busy = busy_agent_ids(rows, messages, &mut self.posted, Instant::now());
 
         let decisions = coding::triggers::evaluate(&coding::triggers::EvalInput {
-            armed: &triggers,
+            armed: &armed,
             states: &states,
             events,
-            live_action_ids: &live,
+            busy_agent_ids: &busy,
             now_ms,
             now_local,
         });
@@ -3190,9 +2916,10 @@ impl TriggerHost {
             }
         }
         if reseeded {
-            self.persist(&settings_path, &states);
+            persist_trigger_states(&trigger_store, &states);
         }
 
+        let mut fired_agents: HashSet<String> = HashSet::new();
         for decision in decisions {
             let coding::triggers::Decision::Fire {
                 trigger_id,
@@ -3202,209 +2929,173 @@ impl TriggerHost {
             else {
                 continue;
             };
-            let Some(action) = actions
+            let Some(armed_trigger) = armed
                 .iter()
-                .find(|candidate| candidate.triggered.trigger_id == trigger_id)
+                .find(|candidate| candidate.trigger_id == trigger_id)
             else {
                 continue;
             };
-            let action_id = action.triggered.action_id.clone();
-            // The key remote action starts hold too (REV-9): a fire racing an
-            // in-flight start of the SAME action is dropped WITHOUT a state
-            // write, so the next beat re-decides it.
-            let reservation = match self.reservations.claim(vec![format!("action:{action_id}")]) {
-                Ok(reservation) => reservation,
-                Err(clash) => {
-                    log::info!(
-                        "trigger for {action_id} skipped — a start holding {clash} is already in flight"
-                    );
-                    continue;
-                }
-            };
-            // Watermark-at-launch-START (the firing protocol): persist before
-            // launching, so a crash mid-launch drops the run instead of
+            let agent_id = armed_trigger.agent_id.clone();
+            // Two triggers of one agent in one pass: the second waits for the
+            // next beat (no state written — it re-decides then).
+            if fired_agents.contains(&agent_id) {
+                continue;
+            }
+            // Watermark-at-post (the firing protocol): persist before
+            // posting, so a crash mid-post drops the firing instead of
             // re-firing the same events forever.
             states.insert(trigger_id.clone(), new_state.clone());
-            if !self.persist(&settings_path, &states) {
+            if !persist_trigger_states(&trigger_store, &states) {
                 continue;
             }
-            let Some(note) = self.trigger_note(&store, action, &firing) else {
-                continue;
-            };
-            log::info!(
-                "trigger {trigger_id} firing action {} ({action_id}) — {}",
-                action.name,
-                note.started_reason()
-            );
-            let launched = match self.start(action, note) {
-                Ok(launched) => launched,
+            fired_agents.insert(agent_id.clone());
+            let lookups = event_lookups(store, &firing);
+            let text = coding::triggers::firing_text(armed_trigger, &firing, &lookups);
+            match api::session_device::post_message(&self.pickup.ctx.trpc, &agent_id, &text) {
+                Ok(message_id) => {
+                    log::info!("trigger {trigger_id} fired into agent {agent_id} (message {message_id})");
+                    self.posted.insert(agent_id, (message_id, Instant::now()));
+                }
                 Err(err) => {
-                    log::warn!("trigger {trigger_id} failed: {err:#}");
-                    false
-                }
-            };
-            drop(reservation);
-            if !launched {
-                // Poison-pill backoff: the events are already consumed (a
-                // trigger that cannot prepare must not hot-loop the same
-                // batch), so only the cooldown moves.
-                let mut backed_off = new_state;
-                backed_off.cooldown_until = Some(
-                    backed_off.cooldown_until.unwrap_or(now_ms)
-                        + coding::triggers::PREPARE_FAILURE_BACKOFF_MS,
-                );
-                log::warn!("trigger {trigger_id} backing off after a failed prepare");
-                states.insert(trigger_id, backed_off);
-                self.persist(&settings_path, &states);
-            }
-        }
-    }
-
-    fn persist(
-        &self,
-        settings_path: &Path,
-        states: &HashMap<String, coding::triggers::TriggerState>,
-    ) -> bool {
-        let _ = settings_path;
-        match coding::triggers::write_states(&self.trigger_store(), states) {
-            Ok(()) => true,
-            Err(err) => {
-                // Without a durable watermark a launch could re-fire forever
-                // — skip the fire rather than risk that.
-                log::warn!("triggers: persisting state failed ({err}) — skipping");
-                false
-            }
-        }
-    }
-
-    /// The prompt's `## Trigger` section: a schedule carries the shared
-    /// sentence, an event the per-issue lines rendered from synced rows.
-    fn trigger_note(
-        &self,
-        store: &sync::store::ShapeStore,
-        action: &TriggerAction,
-        firing: &coding::triggers::Firing,
-    ) -> Option<coding::TriggerNote> {
-        match firing {
-            coding::triggers::Firing::Schedule { .. } => {
-                match &action.triggered.trigger.kind {
-                    coding::triggers::TriggerKind::Schedule(schedule) => {
-                        Some(coding::TriggerNote {
-                            kind: coding::TriggerNoteKind::Schedule {
-                                phrase: coding::triggers::schedule_phrase(schedule),
-                            },
-                        })
-                    }
-                    // Unreachable (the engine only schedule-fires a schedule).
-                    _ => None,
+                    // Poison-pill backoff: the events are already consumed (a
+                    // firing that cannot post must not hot-loop the same
+                    // batch), so only the cooldown moves.
+                    log::warn!("trigger {trigger_id} failed to post into agent {agent_id}: {err}");
+                    let mut backed_off = new_state;
+                    backed_off.cooldown_until = Some(
+                        backed_off.cooldown_until.unwrap_or(now_ms)
+                            + coding::triggers::SEND_FAILURE_BACKOFF_MS,
+                    );
+                    states.insert(trigger_id, backed_off);
+                    persist_trigger_states(&trigger_store, &states);
                 }
             }
-            coding::triggers::Firing::Event { matches } => {
-                let lookups = EventLookups::for_matches(store, matches);
-                let lines: Vec<String> = matches
-                    .iter()
-                    .take(coding::triggers::TRIGGER_PROMPT_MAX_LINES)
-                    .filter_map(|row| event_line(row, &lookups))
-                    .collect();
-                Some(coding::TriggerNote {
-                    kind: coding::TriggerNoteKind::Event {
-                        lines,
-                        omitted: matches
-                            .len()
-                            .saturating_sub(coding::triggers::TRIGGER_PROMPT_MAX_LINES),
-                    },
-                })
-            }
         }
-    }
-
-    /// The self-fired twin of [`remote_action_start`], minus the steer-frame
-    /// mapping: the device's OWN launch defaults, the action's own repo
-    /// binding, no inputs (a trigger has nobody to prompt),
-    /// `LaunchOrigin::Local`. Returns whether a session actually spawned — a
-    /// doctor-disabled launcher counts as a FAILED prepare, so the caller
-    /// backs the trigger off instead of retrying every beat.
-    fn start(&self, action: &TriggerAction, note: coding::TriggerNote) -> anyhow::Result<bool> {
-        let settings = coding::Settings::load(&coding::Settings::default_path(&self.ctx.data_dir));
-        // EXP-583: the trigger's OWN pins win; every unpinned field falls
-        // back to this machine's launch defaults. Plan mode is forced off
-        // (F7 — an unattended run must never park at the plan-approval TUI).
-        let options = coding::triggers::launch_options(
-            &settings,
-            action.agent.as_deref(),
-            action.model.as_deref(),
-            action.effort.as_deref(),
-            action.account.as_deref(),
-        );
-        let request = launch::resolve_action_request(
-            &self.ctx,
-            &action.triggered.action_id,
-            &action.team_id,
-            ActionRepo::Resolve,
-            Vec::new(),
-            options,
-            coding::LaunchOrigin::Local,
-            Some(note),
-            Some(action.triggered.trigger_id.clone()),
-            // A trigger fires with no composer text.
-            None,
-        )?;
-        let deps = launch::coding_deps(
-            &self.ctx,
-            HashMap::new(),
-            launch::LaunchHost::Daemon,
-            self.runtime.as_ref(),
-        );
-        let request = PrepareRequest::Action(request);
-        let prepared = coding::prepare(&request, &deps)
-            .map_err(|err| anyhow::anyhow!("{err}"))?;
-        if let Prepared::Disabled(reason) = &prepared {
-            log::warn!("trigger run refused: {}", reason.message());
-            return Ok(false);
-        }
-        spawn_prepared(
-            &self.ctx,
-            self.runtime.as_ref(),
-            &self.sessions,
-            self.personal_key.clone(),
-            prepared,
-            None,
-            false,
-        )?;
-        Ok(true)
-    }
-
-    /// EXP-1102: the trigger state's own store (`{data_dir}/triggers/
-    /// <device_id>.json`).
-    fn trigger_store(&self) -> coding::triggers::TriggerStore {
-        coding::triggers::TriggerStore::open(&self.ctx.data_dir, &self.device_id)
     }
 }
 
-/// The triggers this device evaluates, over every synced action
-/// ([`coding::triggers::bound_triggers`] — the ONE resolution the GUI host
-/// shares, so the two agree on what counts as an edit and never re-seed each
-/// other's state).
-fn triggered_actions(actions: &[domain::rows::ActionRow], device_id: &str) -> Vec<TriggerAction> {
-    coding::triggers::bound_triggers(actions.iter(), device_id)
+/// EXP-1292: a session with no engine on this device — idle and not working.
+fn idle_report() -> api::session_device::SessionReport {
+    api::session_device::SessionReport {
+        status: Some(api::session_device::ReportStatus::Idle),
+        busy: Some(false),
+        ..api::session_device::SessionReport::default()
+    }
+}
+
+fn persist_trigger_states(
+    store: &coding::triggers::TriggerStore,
+    states: &HashMap<String, coding::triggers::TriggerState>,
+) -> bool {
+    match coding::triggers::write_states(store, states) {
+        Ok(()) => true,
+        Err(err) => {
+            // Without a durable watermark a firing could re-post forever —
+            // skip the fire rather than risk that.
+            log::warn!("triggers: persisting state failed ({err}) — skipping");
+            false
+        }
+    }
+}
+
+/// The agents that must not get another firing yet (pure, unit-tested): a
+/// turn in flight (`busy`), an unconsumed person message in its channel
+/// (an earlier firing included, once synced), or a firing this daemon posted
+/// that the `messages` shape has not shown yet ([`FIRING_SYNC_GRACE`]).
+/// `posted` forgets what the shape now carries (its row decides) or what
+/// outlived the grace.
+fn busy_agent_ids(
+    rows: &[SessionRow],
+    messages: &[MessageRow],
+    posted: &mut HashMap<String, (String, Instant)>,
+    now: Instant,
+) -> HashSet<String> {
+    let synced: HashSet<&str> = messages.iter().map(|message| message.id.as_str()).collect();
+    posted.retain(|_, (message_id, at)| {
+        !synced.contains(message_id.as_str()) && now.saturating_duration_since(*at) < FIRING_SYNC_GRACE
+    });
+    let mut busy: HashSet<String> = posted.keys().cloned().collect();
+    busy.extend(
+        rows.iter()
+            .filter(|row| row.is_agent() && row.busy)
+            .map(|row| row.id.clone()),
+    );
+    busy.extend(
+        messages
+            .iter()
+            .filter(|message| message.is_queued())
+            .map(|message| message.session_id.clone()),
+    );
+    busy
+}
+
+/// The names a firing's event lines render: the matched issues point-read
+/// ([`coding::triggers::firing_issue_ids`]), the two small team-wide tables
+/// whole.
+fn event_lookups(
+    store: &sync::store::ShapeStore,
+    firing: &coding::triggers::Firing,
+) -> coding::triggers::EventLookups {
+    let mut issues = HashMap::new();
+    for issue_id in coding::triggers::firing_issue_ids(firing) {
+        let Some(identifier) = issue_field(store, &issue_id, "identifier") else {
+            continue;
+        };
+        let title = issue_field(store, &issue_id, "title").unwrap_or_default();
+        issues.insert(issue_id, (identifier, title));
+    }
+    coding::triggers::EventLookups {
+        issues,
+        labels: read_shape_rows::<domain::rows::Label>(store, "labels")
+            .into_iter()
+            .map(|label| (label.id, label.name))
+            .collect(),
+        statuses: read_shape_rows::<domain::rows::IssueStatusRow>(store, "issue_statuses")
+            .into_iter()
+            .map(|status| (status.id, status.name))
+            .collect(),
+    }
+}
+
+/// One synced `sessions` row, point-read by primary key (§5.8).
+fn session_row(store: &sync::store::ShapeStore, session_id: &str) -> Option<SessionRow> {
+    let spec = sync::shapes::shape_by_name("sessions")?;
+    let row = store
+        .read_by_key(spec, &sync::protocol::RowKey::Single(session_id.to_string()))
+        .ok()??;
+    serde_json::from_value(serde_json::Value::Object(row)).ok()
+}
+
+/// A root's linked issue identifiers in link order (`session_issues` ⋈
+/// `issues`) — the branch name and the run's label. Issues not synced here
+/// are skipped.
+fn root_issue_identifiers(store: &sync::store::ShapeStore, root_id: &str) -> Vec<String> {
+    let links = read_shape_rows::<domain::rows::SessionIssueRow>(store, "session_issues");
+    ordered_issue_ids(links, root_id)
         .into_iter()
-        .map(|bound| TriggerAction {
-            team_id: bound.triggered.team_id.clone(),
-            triggered: bound.triggered,
-            // The synced row is only the display name here; the launch
-            // re-fetches the action fresh (synced rows carry no body).
-            name: bound.action_name,
-            agent: bound.pins.agent,
-            account: bound.pins.account,
-            model: bound.pins.model,
-            effort: bound.pins.effort,
-        })
+        .filter_map(|issue_id| issue_field(store, &issue_id, "identifier"))
         .collect()
 }
 
-/// Hydrate a whole shape table into `domain::rows` structs (§5.5 tolerant
-/// decode — an undecodable row is dropped, never fatal).
-fn read_shape_rows<T: serde::de::DeserializeOwned>(
+/// A root's linked issue ids in `sort_order`, ties by
+/// row id (pure, unit-tested).
+fn ordered_issue_ids(
+    links: Vec<domain::rows::SessionIssueRow>,
+    root_id: &str,
+) -> Vec<String> {
+    let order = |link: &domain::rows::SessionIssueRow| link.sort_order.unwrap_or(0.0);
+    let mut links: Vec<_> = links
+        .into_iter()
+        .filter(|link| link.session_id == root_id)
+        .collect();
+    links.sort_by(|a, b| order(a).total_cmp(&order(b)).then_with(|| a.id.cmp(&b.id)));
+    links.into_iter().map(|link| link.issue_id).collect()
+}
+
+/// Hydrate a whole shape table into row structs (§5.5 tolerant decode — an
+/// undecodable row is dropped, never fatal). A shape the sync crate has no
+/// spec for reads empty.
+pub(crate) fn read_shape_rows<T: serde::de::DeserializeOwned>(
     store: &sync::store::ShapeStore,
     shape: &str,
 ) -> Vec<T> {
@@ -3417,7 +3108,7 @@ fn read_shape_rows<T: serde::de::DeserializeOwned>(
             .filter_map(|row| serde_json::from_value(serde_json::Value::Object(row)).ok())
             .collect(),
         Err(err) => {
-            log::debug!("triggers: reading the {shape} table failed: {err}");
+            log::debug!("daemon sync: reading the {shape} table failed: {err}");
             Vec::new()
         }
     }
@@ -3546,138 +3237,6 @@ fn parse_epoch_ms(raw: &str) -> Option<i64> {
         }
     }
     None
-}
-
-/// Actions with a STILL-RUNNING local session — the engine defers those (one
-/// run of an action at a time on one machine).
-fn live_action_ids(sessions: &Sessions) -> HashSet<String> {
-    lock_sessions(sessions)
-        .iter()
-        .filter(|live| !live.session.is_done())
-        .filter_map(|live| live.action_id.clone())
-        .collect()
-}
-
-/// The names an event prompt line renders (host-filled from the sync store;
-/// tests pass literals).
-#[derive(Debug, Default)]
-struct EventLookups {
-    /// issue id → (identifier, title)
-    issues: HashMap<String, (String, String)>,
-    /// label id → name
-    labels: HashMap<String, String>,
-    /// `issue_statuses` id → name
-    statuses: HashMap<String, String>,
-}
-
-impl EventLookups {
-    /// Point-read the matched issues (capped like the prompt itself) and
-    /// take the two small team-wide tables whole.
-    fn for_matches(
-        store: &sync::store::ShapeStore,
-        matches: &[coding::triggers::EventRow],
-    ) -> Self {
-        let mut issues: HashMap<String, (String, String)> = HashMap::new();
-        for row in matches
-            .iter()
-            .take(coding::triggers::TRIGGER_PROMPT_MAX_LINES)
-        {
-            if issues.contains_key(&row.issue_id) {
-                continue;
-            }
-            let Some(identifier) = issue_field(store, &row.issue_id, "identifier") else {
-                continue;
-            };
-            let title = issue_field(store, &row.issue_id, "title").unwrap_or_default();
-            issues.insert(row.issue_id.clone(), (identifier, title));
-        }
-        Self {
-            issues,
-            labels: read_shape_rows::<domain::rows::Label>(store, "labels")
-                .into_iter()
-                .map(|label| (label.id, label.name))
-                .collect(),
-            statuses: read_shape_rows::<domain::rows::IssueStatusRow>(store, "issue_statuses")
-                .into_iter()
-                .map(|status| (status.id, status.name))
-                .collect(),
-        }
-    }
-}
-
-/// One prompt line for a matched event: `EXP-42 "Title" <what changed>`.
-/// `None` when the issue is not synced locally — a line naming no issue
-/// tells the agent nothing (the run still starts; the watermark already
-/// accounted for the row).
-fn event_line(row: &coding::triggers::EventRow, lookups: &EventLookups) -> Option<String> {
-    let (identifier, title) = lookups.issues.get(&row.issue_id)?;
-    let payload = |key: &str| {
-        row.payload
-            .as_ref()
-            .and_then(|payload| payload.get(key))
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string)
-    };
-    let tail = match row.kind.as_str() {
-        "status_changed" => format!(
-            "status {} → {}",
-            status_name(lookups, payload("fromName"), payload("fromStatusId"), payload("from")),
-            status_name(lookups, payload("toName"), payload("toStatusId"), payload("to")),
-        ),
-        "priority_changed" => format!(
-            "priority {} → {}",
-            or_none(payload("from")),
-            or_none(payload("to"))
-        ),
-        "created" => format!("created ({})", or_none(payload("priority"))),
-        "label_added" => {
-            let id = payload("labelId").unwrap_or_default();
-            let name = lookups
-                .labels
-                .get(&id)
-                .cloned()
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| if id.is_empty() { "a label".to_string() } else { id });
-            format!("label {name} added")
-        }
-        "assignee_changed" => "assignee changed".to_string(),
-        "pr_opened" => "pull request opened".to_string(),
-        "pr_merged" => "pull request merged".to_string(),
-        // Only the 7 contract kinds can match — a future one still reads.
-        other => other.replace('_', " "),
-    };
-    Some(format!("{identifier} \"{title}\" {tail}"))
-}
-
-/// A status side's display name: the payload's own snapshot (EXP-314 writes
-/// `fromName`/`toName`), else the team's synced row, else the anchor enum
-/// munged (`in_progress` → `in progress`). The chain never fails.
-fn status_name(
-    lookups: &EventLookups,
-    name: Option<String>,
-    status_id: Option<String>,
-    anchor: Option<String>,
-) -> String {
-    if let Some(name) = name.filter(|name| !name.is_empty()) {
-        return name;
-    }
-    if let Some(name) = status_id
-        .and_then(|id| lookups.statuses.get(&id).cloned())
-        .filter(|name| !name.is_empty())
-    {
-        return name;
-    }
-    match anchor.filter(|anchor| !anchor.is_empty()) {
-        Some(anchor) => anchor.replace('_', " "),
-        None => "none".to_string(),
-    }
-}
-
-/// A cleared/absent priority reads `none` (the web `priorityLabel` shape).
-fn or_none(value: Option<String>) -> String {
-    value
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "none".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -4027,27 +3586,6 @@ fn status(args: &[String]) -> CommandResult {
 mod tests {
     use super::*;
 
-    /// FEED-47/57: a batch run covering the issue holds it like the issue's
-    /// own run; a batch over other issues does not.
-    #[test]
-    fn a_batch_run_covering_the_issue_holds_it() {
-        let batch = vec!["i-1".to_string(), "i-2".to_string()];
-        assert!(covers_issue(Some("i-1"), &[], "i-1"));
-        assert!(covers_issue(None, &batch, "i-2"));
-        assert!(!covers_issue(None, &batch, "i-3"));
-        assert!(!covers_issue(Some("i-9"), &[], "i-1"));
-    }
-
-    /// FEED-47: a fresh remote start never reads the run registry, so a
-    /// recorded run on the issue cannot turn it into a resume.
-    #[test]
-    fn a_fresh_issue_start_resolves_no_recorded_run() {
-        let dir = std::env::temp_dir().join(format!("exp-daemon-feed47-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        assert!(issue_resume_record(&dir, "acct", "issue-1", false).is_none());
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
     fn advert(agents: &[&str]) -> coding::AgentAdvertisement {
         coding::AgentAdvertisement {
             agents: agents.iter().map(|agent| agent.to_string()).collect(),
@@ -4196,41 +3734,26 @@ mod tests {
         assert_eq!(pending, Some(second));
     }
 
-    // -----------------------------------------------------------------------
-    // EXP-662: the remote `resume` flag resolves through the run registry
-    // -----------------------------------------------------------------------
-
-    fn issue_record(cwd: &Path, session_id: &str, issue_id: &str) -> coding::run_registry::RunRecord {
+    fn thread_record(cwd: &Path, session_id: &str) -> coding::run_registry::RunRecord {
         coding::run_registry::RunRecord {
             session_id: session_id.to_string(),
             account_id: "acct-1".to_string(),
             agent: coding::CodingAgent::Claude,
-            kind: coding::run_registry::RunKind::Issue,
-            action_id: String::new(),
-            action_name: String::new(),
+            kind: coding::run_registry::RunKind::Thread,
             team_id: "team-1".to_string(),
-            issue_id: Some(issue_id.to_string()),
-            issue_identifier: Some("EXP-42".to_string()),
-            batch_id: None,
-            issues: Vec::new(),
+            issues: vec!["EXP-42".to_string()],
+            title: None,
             cwd: cwd.to_path_buf(),
             clone: None,
             repo: None,
             repository_id: None,
-            board_id: None,
             branch: Some("exp/EXP-42".to_string()),
             base_branch: Some("master".to_string()),
             claude_session_id: Some("claude-1".to_string()),
             codex_originator: None,
-            inputs: Vec::new(),
             model: String::new(),
             effort: String::new(),
             ultracode: false,
-            fix: None,
-            started_reason: None,
-            resumed_from_id: None,
-            // EXP-746: a pre-746-shaped record (the resume then re-enters
-            // the terminal, which is what these tests exercise).
             transport: None,
             acp_session_id: None,
             agent_native_session_id: None,
@@ -4239,34 +3762,6 @@ mod tests {
             recorded_at: coding::run_registry::now_secs(),
             extra: std::collections::BTreeMap::new(),
         }
-    }
-
-    /// The frame's `resume` flag GATES the registry lookup: an unchecked box
-    /// starts fresh even with a resumable record sitting right there, and a
-    /// checked one resolves the newest record for that issue + account (a
-    /// miss — another issue, another account — degrades to a fresh session
-    /// seeded with the resume prompt).
-    #[test]
-    fn the_resume_flag_gates_the_registry_lookup() {
-        let dir = std::env::temp_dir().join(format!("exp-cli-resume-{}", uuid::Uuid::new_v4()));
-        let cwd = dir.join("worktree");
-        std::fs::create_dir_all(&cwd).expect("temp worktree");
-        coding::run_registry::record(&dir, issue_record(&cwd, "sess-1", "issue-1"));
-
-        assert_eq!(
-            issue_resume_record(&dir, "acct-1", "issue-1", false),
-            None,
-            "resume: false never relaunches a transcript"
-        );
-        assert_eq!(
-            issue_resume_record(&dir, "acct-1", "issue-1", true)
-                .map(|record| record.session_id),
-            Some("sess-1".to_string())
-        );
-        assert_eq!(issue_resume_record(&dir, "acct-1", "issue-2", true), None);
-        assert_eq!(issue_resume_record(&dir, "acct-2", "issue-1", true), None);
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// EXP-862 review nit: the accounts a live run is on come off ONE
@@ -4280,7 +3775,7 @@ mod tests {
         let cwd = dir.join("worktree");
         std::fs::create_dir_all(&cwd).expect("temp worktree");
         let with_account = |session_id: &str, account: Option<&str>| {
-            let mut record = issue_record(&cwd, session_id, "issue-1");
+            let mut record = thread_record(&cwd, session_id);
             record.set_account(account);
             record
         };
@@ -4303,274 +3798,149 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // REV-9: in-flight remote-start reservations
+    // EXP-1292: the pickup + trigger host's pure helpers
     // -----------------------------------------------------------------------
 
-    fn issue_subject(id: &str) -> RemoteStartSubject {
-        RemoteStartSubject::Issue(id.to_string())
+    fn session(id: &str, json: serde_json::Value) -> SessionRow {
+        let mut value = json;
+        value["id"] = serde_json::json!(id);
+        serde_json::from_value(value).expect("session row decodes")
     }
 
-    #[test]
-    fn a_duplicate_frame_is_refused_while_the_first_is_in_flight() {
-        let reservations = StartReservations::default();
-        let first = reservations
-            .claim(reservation_keys(&issue_subject("EXP-42")))
-            .expect("first frame claims");
-        let clash = reservations
-            .claim(reservation_keys(&issue_subject("EXP-42")))
-            .err()
-            .expect("the retry frame must be refused while prepare runs");
-        assert_eq!(clash, "issue:EXP-42");
-        drop(first);
-        assert!(
-            reservations
-                .claim(reservation_keys(&issue_subject("EXP-42")))
-                .is_ok(),
-            "the handler returning (success or failure) releases the claim"
-        );
-    }
-
-    #[test]
-    fn unrelated_subjects_start_concurrently() {
-        let reservations = StartReservations::default();
-        let _a = reservations
-            .claim(reservation_keys(&issue_subject("EXP-1")))
-            .expect("first issue");
-        assert!(reservations.claim(reservation_keys(&issue_subject("EXP-2"))).is_ok());
-        assert!(reservations
-            .claim(reservation_keys(&RemoteStartSubject::Action {
-                action_id: "act-1".to_string(),
-                action_name: "Fix merge conflicts".to_string(),
-                team_id: "team-1".to_string(),
-                repo: None,
-                inputs: Vec::new(),
-            }))
-            .is_ok());
-    }
-
-    #[test]
-    fn an_overlapping_batch_claim_is_all_or_nothing() {
-        let reservations = StartReservations::default();
-        let _held = reservations
-            .claim(reservation_keys(&issue_subject("EXP-2")))
-            .expect("single-issue start in flight");
-        let batch = RemoteStartSubject::Batch {
-            issue_ids: vec!["EXP-1".to_string(), "EXP-2".to_string()],
-            team_id: "team-1".to_string(),
-            repo: steer::StartRepoGroup {
-                repository_id: "repo-1".to_string(),
-                full_name: "niach/exponential".to_string(),
-                default_branch: "master".to_string(),
-            },
-        };
-        let clash = reservations
-            .claim(reservation_keys(&batch))
-            .err()
-            .expect("a batch overlapping an in-flight issue start is refused");
-        assert_eq!(clash, "issue:EXP-2");
-        // The refusal held NOTHING — the batch's other issue stays startable.
-        assert!(reservations.claim(reservation_keys(&issue_subject("EXP-1"))).is_ok());
-    }
-
-    // -----------------------------------------------------------------------
-    // EXP-530: the trigger host's pure helpers
-    // -----------------------------------------------------------------------
-
-    /// One synced `actions` row carrying `triggers`.
-    fn action_row(id: &str, triggers: serde_json::Value) -> domain::rows::ActionRow {
+    fn message(id: &str, session_id: &str, consumed: bool) -> MessageRow {
         serde_json::from_value(serde_json::json!({
             "id": id,
-            "team_id": "team-1",
-            "name": format!("Action {id}"),
-            "triggers": triggers,
+            "session_id": session_id,
+            "author_kind": "user",
+            "body": "hi",
+            "consumed_at": consumed.then_some("2026-10-13 10:00:00+00"),
         }))
-        .expect("action row decodes")
+        .expect("message row decodes")
     }
 
-    /// One trigger element. `device` is the steer id it binds to.
-    fn trigger(id: &str, device: &str, enabled: bool, when: serde_json::Value) -> serde_json::Value {
-        let mut element = when;
-        element["id"] = serde_json::json!(id);
-        element["deviceId"] = serde_json::json!(device);
-        element["enabled"] = serde_json::json!(enabled);
-        element
-    }
-
-    fn daily(minute: u32) -> serde_json::Value {
-        serde_json::json!({"kind": "schedule", "interval": "daily", "minuteOfDay": minute})
-    }
-
-    /// Only THIS device's ENABLED, readable triggers become engine input.
+    /// An agent gets no second firing while it works, while a person message
+    /// (an earlier firing included) waits in its channel, or while a firing
+    /// this daemon posted has not synced back yet; the posted memory lets go
+    /// once the shape carries the row, or after the grace.
     #[test]
-    fn triggered_actions_keeps_only_this_devices_triggers() {
-        let actions = vec![
-            action_row(
-                "act-1",
-                serde_json::json!([
-                    trigger("auto-mine", "cli-1", true, daily(420)),
-                    // Another machine's binding — that host owns it.
-                    trigger("auto-theirs", "desk-9", true, daily(420)),
-                ]),
-            ),
-            action_row(
-                "act-2",
-                serde_json::json!([
-                    // Switched off: inert before the engine ever sees it.
-                    trigger("auto-off", "cli-1", false, daily(420)),
-                    // A FUTURE kind is unreadable here: skipped.
-                    trigger("auto-future", "cli-1", true, serde_json::json!({"kind": "cron"})),
-                    trigger(
-                        "auto-event",
-                        "cli-1",
-                        true,
-                        serde_json::json!({"kind": "event", "source": "exponential",
-                                           "event": "created"}),
-                    ),
-                ]),
-            ),
+    fn busy_agents_defer_their_next_firing() {
+        let rows = vec![
+            session("agent-busy", serde_json::json!({"kind": "agent", "busy": "true"})),
+            session("agent-idle", serde_json::json!({"kind": "agent", "busy": "false"})),
+            session("agent-queued", serde_json::json!({"kind": "agent"})),
+            session("agent-posted", serde_json::json!({"kind": "agent"})),
+            session("agent-synced", serde_json::json!({"kind": "agent"})),
+            // A busy THREAD is no agent to defer.
+            session("thread", serde_json::json!({"kind": "thread", "busy": "true"})),
         ];
-        let mine = triggered_actions(&actions, "cli-1");
-        assert_eq!(
-            mine.iter()
-                .map(|entry| entry.triggered.trigger_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["auto-mine", "auto-event"]
-        );
-        assert_eq!(mine[0].triggered.action_id, "act-1");
-        assert_eq!(mine[0].team_id, "team-1", "the launch needs the action's team");
-        assert_eq!(mine[0].name, "Action act-1", "the log prints the action's name");
-        assert_eq!(mine[1].triggered.action_id, "act-2");
-
-        // The fingerprint hashes the WHEN-part's VALUE — key order
-        // (Electric's jsonb round-trip) and the runner half must not read as
-        // an edit, or the GUI and the CLI would re-seed each other's state
-        // forever (and an upgrade from the old automations row would reseed).
-        let reordered = action_row(
-            "act-1",
-            serde_json::json!([{
-                "minuteOfDay": 420, "enabled": true, "interval": "daily",
-                "deviceId": "cli-1", "kind": "schedule", "id": "auto-mine", "agent": "codex",
-            }]),
-        );
-        let again = triggered_actions(&[reordered], "cli-1");
-        assert_eq!(again[0].triggered.fingerprint, mine[0].triggered.fingerprint);
-        assert_eq!(
-            mine[0].triggered.fingerprint,
-            coding::triggers::trigger_fingerprint(&daily(420))
-        );
+        let messages = vec![
+            message("m-pending", "agent-queued", false),
+            message("m-consumed", "agent-idle", true),
+            message("m-synced", "agent-synced", true),
+        ];
+        let now = Instant::now();
+        let mut posted = HashMap::from([
+            ("agent-posted".to_string(), ("m-unsynced".to_string(), now)),
+            ("agent-synced".to_string(), ("m-synced".to_string(), now)),
+            (
+                "agent-stale".to_string(),
+                ("m-lost".to_string(), now - FIRING_SYNC_GRACE),
+            ),
+        ]);
+        let busy = busy_agent_ids(&rows, &messages, &mut posted, now);
+        let mut busy: Vec<&str> = busy.iter().map(String::as_str).collect();
+        busy.sort_unstable();
+        assert_eq!(busy, vec!["agent-busy", "agent-posted", "agent-queued"]);
+        assert_eq!(posted.keys().collect::<Vec<_>>(), vec!["agent-posted"]);
     }
 
-    /// EXP-583: the pins ride from the trigger to the launch options.
+    /// The branch and label follow the thread's link order — `sort_order`
+    /// as a number, never as text; other roots' links never leak in.
     #[test]
-    fn triggered_actions_carry_the_launch_pins() {
-        let mut pinned = trigger("auto-1", "cli-1", true, daily(420));
-        pinned["agent"] = serde_json::json!("codex");
-        pinned["model"] = serde_json::json!("gpt-5.1-codex");
-        let resolved = triggered_actions(&[action_row("act-1", serde_json::json!([pinned]))], "cli-1");
-        assert_eq!(resolved[0].agent.as_deref(), Some("codex"));
-        assert_eq!(resolved[0].model.as_deref(), Some("gpt-5.1-codex"));
-        // An unpinned effort stays None — the device's default wins.
-        assert_eq!(resolved[0].effort, None);
+    fn a_roots_issues_come_in_link_order() {
+        let link = |id: &str, session: &str, issue: &str, order: serde_json::Value| {
+            serde_json::from_value::<domain::rows::SessionIssueRow>(serde_json::json!({
+                "id": id, "session_id": session, "issue_id": issue, "sort_order": order,
+            }))
+            .expect("link decodes")
+        };
+        let links = vec![
+            link("l1", "root", "i-ten", serde_json::json!("10")),
+            link("l2", "root", "i-two", serde_json::json!("2")),
+            link("l3", "other", "i-x", serde_json::json!("1")),
+            link("l4", "root", "i-three", serde_json::json!(3.0)),
+        ];
+        assert_eq!(ordered_issue_ids(links, "root"), vec!["i-two", "i-three", "i-ten"]);
     }
 
-    fn event(kind: &str, payload: serde_json::Value) -> coding::triggers::EventRow {
-        coding::triggers::EventRow {
-            id: "evt-1".to_string(),
-            issue_id: "issue-1".to_string(),
-            team_id: Some("team-1".to_string()),
-            created_at_ms: 0,
-            kind: kind.to_string(),
-            payload: Some(payload),
-            board_id: Some("board-1".to_string()),
-        }
-    }
-
-    fn lookups() -> EventLookups {
-        EventLookups {
-            issues: HashMap::from([(
-                "issue-1".to_string(),
-                ("EXP-42".to_string(), "Fix the thing".to_string()),
-            )]),
-            labels: HashMap::from([("lbl-1".to_string(), "bug".to_string())]),
-            statuses: HashMap::from([
-                ("st-1".to_string(), "In Progress".to_string()),
-                ("st-2".to_string(), "In Review".to_string()),
-            ]),
-        }
-    }
-
-    /// One line per event kind — the prompt grammar the agent reads.
+    /// The pickup's input shapes wake the pass, the event feed invalidates
+    /// the snapshot, everything else is ignored.
     #[test]
-    fn event_lines_render_per_kind() {
-        let lookups = lookups();
-        let line = |row: coding::triggers::EventRow| event_line(&row, &lookups).expect("renders");
-        assert_eq!(
-            line(event(
-                "status_changed",
-                serde_json::json!({
-                    "from": "in_progress", "to": "in_review",
-                    "fromStatusId": "st-1", "toStatusId": "st-2",
-                    "fromName": "In Progress", "toName": "In Review"
-                })
-            )),
-            "EXP-42 \"Fix the thing\" status In Progress → In Review"
-        );
-        // No name snapshot (an older row): the synced status rows fill in.
-        assert_eq!(
-            line(event(
-                "status_changed",
-                serde_json::json!({"from": "in_progress", "to": "in_review",
-                                   "fromStatusId": "st-1", "toStatusId": "st-2"})
-            )),
-            "EXP-42 \"Fix the thing\" status In Progress → In Review"
-        );
-        // Neither: the anchor enum munges (the chain never fails).
-        assert_eq!(
-            line(event(
-                "status_changed",
-                serde_json::json!({"from": "in_progress", "to": "in_review"})
-            )),
-            "EXP-42 \"Fix the thing\" status in progress → in review"
-        );
-        assert_eq!(
-            line(event("priority_changed", serde_json::json!({"from": "low", "to": "urgent"}))),
-            "EXP-42 \"Fix the thing\" priority low → urgent"
-        );
-        assert_eq!(
-            line(event("created", serde_json::json!({"priority": "urgent"}))),
-            "EXP-42 \"Fix the thing\" created (urgent)"
-        );
-        // A cleared/absent priority reads `none`.
-        assert_eq!(
-            line(event("priority_changed", serde_json::json!({"from": "low"}))),
-            "EXP-42 \"Fix the thing\" priority low → none"
-        );
-        assert_eq!(
-            line(event("label_added", serde_json::json!({"labelId": "lbl-1"}))),
-            "EXP-42 \"Fix the thing\" label bug added"
-        );
-        // An unsynced label degrades to its id rather than dropping the line.
-        assert_eq!(
-            line(event("label_added", serde_json::json!({"labelId": "lbl-9"}))),
-            "EXP-42 \"Fix the thing\" label lbl-9 added"
-        );
-        assert_eq!(
-            line(event("assignee_changed", serde_json::json!({}))),
-            "EXP-42 \"Fix the thing\" assignee changed"
-        );
-        assert_eq!(
-            line(event("pr_opened", serde_json::json!({}))),
-            "EXP-42 \"Fix the thing\" pull request opened"
-        );
-        assert_eq!(
-            line(event("pr_merged", serde_json::json!({}))),
-            "EXP-42 \"Fix the thing\" pull request merged"
-        );
+    fn deltas_route_to_the_worker() {
+        assert_eq!(delta_work("sessions"), Some(DaemonWork::Pickup));
+        assert_eq!(delta_work("messages"), Some(DaemonWork::Pickup));
+        assert_eq!(delta_work("session_issues"), Some(DaemonWork::Pickup));
+        assert_eq!(delta_work("issue_events"), Some(DaemonWork::EventsChanged));
+        assert_eq!(delta_work("labels"), None);
+    }
 
-        // An issue this device has not synced names nothing — skip the line.
-        let mut orphan = event("created", serde_json::json!({"priority": "urgent"}));
-        orphan.issue_id = "issue-unknown".to_string();
-        assert_eq!(event_line(&orphan, &lookups), None);
+    /// The pickup never plans over a cold store: it waits for BOTH of its
+    /// shapes' first `up-to-date`.
+    #[test]
+    fn the_pickup_waits_for_its_shapes_first_sync() {
+        let synced = SyncedShapes::default();
+        assert!(!synced.ready(PICKUP_SHAPES));
+        assert!(synced.mark("sessions"));
+        assert!(!synced.mark("sessions"), "only the first up-to-date counts");
+        assert!(!synced.ready(PICKUP_SHAPES));
+        synced.mark("messages");
+        assert!(synced.ready(PICKUP_SHAPES));
+    }
+
+    /// One attempt per session at a time; a panicking attempt still lets go.
+    #[test]
+    fn an_in_flight_session_takes_no_second_attempt() {
+        let set = Arc::new(Mutex::new(HashSet::new()));
+        let begin = |id: &str| {
+            lock_or_recover(&set).insert(id.to_string()).then(|| InFlight {
+                set: Arc::clone(&set),
+                session_id: id.to_string(),
+            })
+        };
+        let first = begin("s1").expect("first attempt");
+        assert!(begin("s1").is_none());
+        assert!(begin("s2").is_some(), "other sessions are independent");
+        drop(first);
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = begin("s1").expect("free again");
+            panic!("prepare blew up");
+        }));
+        assert!(begin("s1").is_some(), "a crashed attempt must not wedge its row");
+    }
+
+    /// EXP-1292: a wake that handed nothing (the session runs in a
+    /// foreground `code`, or the wake was refused) is not settled, so its
+    /// row backs off instead of replanning at once.
+    #[test]
+    fn a_wake_that_handed_nothing_backs_off() {
+        assert!(woke(Ok(vec!["m1".to_string()])));
+        assert!(!woke(Ok(Vec::new())));
+        assert!(!woke(Err("brief failed".to_string())));
+    }
+
+    /// A foreground `code`/`run` mid-start holds the gate the pass checks.
+    #[test]
+    fn a_foreground_start_parks_the_daemons_launches() {
+        let dir = std::env::temp_dir().join(format!("exp-cli-fg-gate-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(!foreground_start_held(&dir));
+        let held = coding::pickup::ClaimLock::try_acquire(&dir, launch::FOREGROUND_START_LOCK)
+            .unwrap()
+            .expect("the foreground takes it");
+        assert!(foreground_start_held(&dir));
+        drop(held);
+        assert!(!foreground_start_held(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Postgres/Electric timestamp forms → the watermark's ms scale.
@@ -4607,18 +3977,15 @@ mod tests {
     }
 
     /// Only an `issue_events` batch invalidates the cached snapshot — ticks
-    /// and trigger edits re-decide over the rows already in hand.
+    /// and session deltas re-decide over the rows already in hand.
     #[test]
     fn only_an_events_batch_forces_a_rescan() {
-        assert!(!rescan_events(&[TriggerWork::Tick]));
-        assert!(!rescan_events(&[
-            TriggerWork::Tick,
-            TriggerWork::ActionsChanged
-        ]));
+        assert!(!rescan_events(&[DaemonWork::Tick]));
+        assert!(!rescan_events(&[DaemonWork::Tick, DaemonWork::Pickup]));
         assert!(rescan_events(&[
-            TriggerWork::Tick,
-            TriggerWork::EventsChanged,
-            TriggerWork::ActionsChanged,
+            DaemonWork::Tick,
+            DaemonWork::EventsChanged,
+            DaemonWork::Pickup,
         ]));
         // An empty drain can't happen (recv yields the first item), but the
         // fold must still be total.
@@ -4638,8 +4005,8 @@ mod tests {
         for cap in coding::DEVICE_CAPS {
             assert!(caps.contains(&cap.to_string()), "missing build cap {cap}");
         }
-        for cap in coding::ACTION_CAPS {
-            assert!(caps.contains(&cap.to_string()), "missing action cap {cap}");
+        for cap in coding::RUN_CAPS {
+            assert!(caps.contains(&cap.to_string()), "missing run cap {cap}");
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));
@@ -4649,32 +4016,21 @@ mod tests {
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");
     }
 
-    /// The trigger host's shapes are real shapes, and deliberately NOT the
-    /// desktop's whole set.
+    /// The daemon's shapes are real shapes (the v2 pickup trio once
+    /// #EXP-1294's specs land — until then the pipeline skips them), and
+    /// deliberately NOT the desktop's whole set.
     #[test]
-    fn trigger_shapes_are_a_real_subset() {
-        assert!(TRIGGER_SHAPES.len() < 20);
-        for shape in TRIGGER_SHAPES {
+    fn daemon_shapes_are_a_real_subset() {
+        assert!(DAEMON_SHAPES.len() < 20);
+        for shape in DAEMON_SHAPES {
+            let pending_v2 = ["sessions", "messages", "session_issues"].contains(shape);
             assert!(
-                sync::shapes::shape_by_name(shape).is_some(),
+                pending_v2 || sync::shapes::shape_by_name(shape).is_some(),
                 "{shape} is not a real shape"
             );
         }
-    }
-
-    #[test]
-    fn a_panicking_handler_still_releases_its_claim() {
-        let reservations = StartReservations::default();
-        let inner = reservations.clone();
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let _guard = inner
-                .claim(reservation_keys(&issue_subject("EXP-9")))
-                .expect("claims before the panic");
-            panic!("prepare blew up");
-        }));
-        assert!(
-            reservations.claim(reservation_keys(&issue_subject("EXP-9"))).is_ok(),
-            "a crashed start must not wedge its issue until daemon restart"
-        );
+        for shape in PICKUP_SHAPES {
+            assert!(DAEMON_SHAPES.contains(shape));
+        }
     }
 }

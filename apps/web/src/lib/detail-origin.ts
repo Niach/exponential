@@ -2,7 +2,7 @@
 // the web port of the desktop's `navigation::derive_origin` (apps/desktop/
 // crates/ui/src/navigation.rs), same rule, same cases:
 //
-//   * Opened from a LIST screen (board, inbox, agent, reviews): that
+//   * Opened from a LIST screen (board, inbox, threads, an action): that
 //     list STAYS — it rides the detail's `?from=` token and the sidebar shows
 //     it as the LIST NAV panel beside the detail.
 //   * Opened CONTEXT-FREE (a pinned row, a sidebar session row, a deep link, a
@@ -11,11 +11,12 @@
 //
 // EXP-851 made the token the only input: `?from=` decides the sidebar occupant
 // (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
-// `board:<slug>`, `inbox`, `inbox:my-issues`, `agent`, `agent:recent`
-// (EXP-1246), `reviews`, `action:<id>` (an action page's Runs), `drafts`
-// (EXP-1170) — plus one legacy spelling that still parses: `sessions` (the
-// old `agent`). EXP-1246: only `inbox` and `agent:recent` keep their list
-// BESIDE the detail (`originHasListNav`); every other origin names Back only.
+// `board:<slug>`, `inbox`, `inbox:my-issues`, `threads` (EXP-1293: the
+// Threads page, which replaced the Agent page's lists and Reviews),
+// `action:<id>` (an action page's Runs), `drafts` (EXP-1170), `running`.
+// The retired `agent`, `agent:recent`, `reviews` and `sessions` tokens parse
+// to "no origin". EXP-1246: only `inbox` keeps its list BESIDE the detail
+// (`originHasListNav`); every other origin names Back only.
 // Pure, so every combination is a test.
 
 /** The list a detail sits beside / returns to. */
@@ -24,10 +25,8 @@ export type DetailOrigin =
    *  from it returns there, not to Notifications. */
   | { kind: `inbox`; tab?: `my-issues` | `drafts` }
   | { kind: `board`; boardSlug: string }
-  | { kind: `reviews` }
-  /** The Agent page's Running/Past list. EXP-1246: `tab: recent` = its
-   *  Recent panel, a list that STAYS beside the run it opened. */
-  | { kind: `agent`; tab?: `recent` }
+  /** EXP-1293: the Threads page (Needs you · Running · Recent). */
+  | { kind: `threads` }
   /** An action page's Runs (EXP-862, SLOP-2) — the one list that shows a
    *  TRIGGERED run, so a run opened from it returns there rather than to the
    *  Agent page's person-started list. */
@@ -50,10 +49,8 @@ export type OriginScreen =
   | { kind: `board`; boardSlug: string }
   | { kind: `issue`; boardSlug: string; identifier: string }
   | { kind: `session` }
-  | { kind: `reviews` }
-  /** The Agent page — a list context (desktop `Screen::Chat`: the Sessions
-   * column's own center), never context-free. */
-  | { kind: `agent` }
+  /** EXP-1293: the Threads page — a list context, never context-free. */
+  | { kind: `threads` }
   /** An action's page — a list context too (its Runs), never context-free. */
   | { kind: `action`; actionId: string }
   | { kind: `other` }
@@ -78,10 +75,9 @@ export function screenFromPath(pathname: string): OriginScreen {
   const rest = teamRest(pathname)
   if (rest === null) return { kind: `other` }
   if (rest === `/inbox`) return { kind: `inbox` }
-  if (rest === `/agent`) return { kind: `agent` }
   const action = rest.match(/^\/actions\/([^/]+)$/)
   if (action) return { kind: `action`, actionId: action[1] }
-  if (rest === `/reviews`) return { kind: `reviews` }
+  if (rest === `/threads`) return { kind: `threads` }
   if (/^\/sessions\/[^/]+$/.test(rest)) return { kind: `session` }
   const issue = rest.match(/^\/boards\/([^/]+)\/issues\/([^/]+)$/)
   if (issue) {
@@ -118,14 +114,12 @@ export function capturedOrigin(
       // EXP-870: an issue opened with no list (a pinned row, search) hands on
       // none either — desktop `derive_origin` parity.
       return carried
-    case `reviews`:
-      return { kind: `reviews` }
+    case `threads`:
+      return { kind: `threads` }
     case `action`:
       return { kind: `action`, actionId: screen.actionId }
     case `session`:
       return carried
-    case `agent`:
-      return carried ?? { kind: `agent` }
     case `other`:
       return carried
   }
@@ -160,10 +154,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
       return origin.tab ? `inbox:${origin.tab}` : `inbox`
     case `board`:
       return `board:${origin.boardSlug}`
-    case `reviews`:
-      return `reviews`
-    case `agent`:
-      return origin.tab ? `agent:${origin.tab}` : `agent`
+    case `threads`:
+      return `threads`
     case `action`:
       return `action:${origin.actionId}`
     case `running`:
@@ -174,8 +166,8 @@ export function formatOrigin(origin: DetailOrigin | null): string | undefined {
 }
 
 /** The inverse. Anything unrecognised is "no origin" — a link is a shortcut,
- * not a guarantee (`lib/launch-seed.ts`'s rule). `sessions` is the legacy
- * spelling of `agent` (EXP-818 links still in the wild). */
+ * not a guarantee (`lib/launch-seed.ts`'s rule); the retired `agent`,
+ * `agent:recent`, `reviews` and `sessions` tokens included. */
 export function parseOrigin(
   value: string | null | undefined
 ): DetailOrigin | null {
@@ -183,9 +175,7 @@ export function parseOrigin(
   if (value === `inbox`) return { kind: `inbox` }
   if (value === `inbox:my-issues`) return { kind: `inbox`, tab: `my-issues` }
   if (value === `inbox:drafts`) return { kind: `inbox`, tab: `drafts` }
-  if (value === `reviews`) return { kind: `reviews` }
-  if (value === `agent` || value === `sessions`) return { kind: `agent` }
-  if (value === `agent:recent`) return { kind: `agent`, tab: `recent` }
+  if (value === `threads`) return { kind: `threads` }
   if (value === `running`) return { kind: `running` }
   if (value === `drafts`) return { kind: `drafts` }
   const board = value.match(/^board:([^:]+)$/)
@@ -204,12 +194,8 @@ export function originLabel(
   switch (origin.kind) {
     case `inbox`:
       return `Inbox`
-    case `reviews`:
-      return `Reviews`
-    case `agent`:
-      // `agent:recent` too: Back lands on the Agent page (Recent still open,
-      // the list's own band names it).
-      return `Agent`
+    case `threads`:
+      return `Threads`
     case `action`:
       return name || `Action`
     case `running`:
@@ -252,13 +238,8 @@ export function originListNavigation(
         params: { teamSlug },
         search: origin.tab ? { tab: origin.tab } : {},
       }
-    case `reviews`:
-      return { to: `/t/$teamSlug/reviews`, params: { teamSlug }, search: {} }
-    case `agent`:
-      // EXP-1246: `agent:recent` lands on the same page — the Recent panel
-      // stays open across the detail (`recent-runs-panel.ts`), so Back is the
-      // list with nothing selected.
-      return { to: `/t/$teamSlug/agent`, params: { teamSlug }, search: {} }
+    case `threads`:
+      return { to: `/t/$teamSlug/threads`, params: { teamSlug }, search: {} }
     case `action`:
       return {
         to: `/t/$teamSlug/actions/$actionId`,
@@ -268,33 +249,31 @@ export function originListNavigation(
     case `drafts`:
       return { to: `/t/$teamSlug/drafts`, params: { teamSlug }, search: {} }
     case `running`:
-      // The sidebar's Running section is not a page — a run opened from it
-      // has no list to go back to, so each caller falls back (a run to the
-      // Agent page, an issue to its board), exactly like no origin at all.
+      // The sidebar's Running section is not a page — a thread opened from it
+      // has no list to go back to, so each caller falls back, exactly like no
+      // origin at all.
       return null
   }
 }
 
 /** Which of the sidebar's two panels occupies the slot. EXP-1246: `list` =
- *  the ONE list-detail host (`components/team/list-detail.tsx`): the Inbox
- *  and the Agent page's Recent runs. The diff's file tree moved into the
- *  Guide's section page, so there is no `review` panel any more. */
+ *  the ONE list-detail host (`components/team/list-detail.tsx`): the Inbox.
+ *  EXP-1293: the Agent › Recent arm is gone with the Agent page's history. */
 export type SidebarOccupant =
   | { kind: `main` }
   | { kind: `settings` }
   | { kind: `list`; origin: DetailOrigin }
 
 /** A DETAIL route below `/t/$teamSlug` — the only routes that can show a list
- * nav. Board/inbox/agent/reviews are LIST screens and keep the main
- * menu. */
+ * nav. Board/inbox/threads are LIST screens and keep the main menu. */
 function isDetailRest(rest: string): boolean {
   if (/^\/boards\/[^/]+\/issues\/[^/]+$/.test(rest)) return true
   if (/^\/sessions\/[^/]+$/.test(rest)) return true
   // EXP-1170: the New issue page is the issue detail in draft mode.
   if (/^\/drafts\/[^/]+$/.test(rest)) return true
-  // EXP-1284 (review T12): a thread is a detail too — Agent › Recent stays
-  // beside the thread it opened.
+  // EXP-1293: a thread and an agent's channel are details too.
   if (/^\/threads\/[^/]+$/.test(rest)) return true
+  if (/^\/agents\/[^/]+$/.test(rest)) return true
   return false
 }
 
@@ -303,8 +282,7 @@ function isDetailRest(rest: string): boolean {
  * `/settings` route is active, the LIST-DETAIL host on a detail route whose
  * `?from=` keeps its list (`originHasListNav`), the main menu otherwise.
  * EXP-1246: the md+ Inbox page IS that host with nothing selected (`tab` =
- * its `?tab=`), and the Agent page with its Recent panel open (`recentOpen`,
- * the one input that is a disclosure rather than the URL) is the other.
+ * its `?tab=`).
  * Derived (never click state) so a deep link lands settled and every entry
  * point drives the same swap.
  */
@@ -314,8 +292,6 @@ export function sidebarOccupant(
   options: {
     /** The Inbox page's `?tab=` — which of its lists the host shows. */
     tab?: string | null
-    /** The Agent page's Recent panel (`lib/recent-runs-panel.ts`). */
-    recentOpen?: boolean
   } = {}
 ): SidebarOccupant {
   const rest = teamRest(pathname)
@@ -332,11 +308,6 @@ export function sidebarOccupant(
           : { kind: `inbox` },
     }
   }
-  if (rest === `/agent`) {
-    return options.recentOpen
-      ? { kind: `list`, origin: { kind: `agent`, tab: `recent` } }
-      : { kind: `main` }
-  }
   if (!isDetailRest(rest)) return { kind: `main` }
   const origin = parseOrigin(from)
   return origin && originHasListNav(origin)
@@ -344,13 +315,12 @@ export function sidebarOccupant(
     : { kind: `main` }
 }
 
-/** EXP-1246: the ONLY origins whose list stays beside the detail — the Inbox
- * (both its lists) and the Agent page's Recent runs (desktop
- * `second_sidebar_for` parity). Board, reviews, action, agent, running and
- * drafts origins keep the main menu and name only where Back goes. */
+/** EXP-1246: the ONLY origin whose list stays beside the detail — the Inbox
+ * (both its lists; desktop `second_sidebar_for` parity). Board, threads,
+ * action, running and drafts origins keep the main menu and name only where
+ * Back goes. */
 export function originHasListNav(origin: DetailOrigin): boolean {
-  if (origin.kind === `inbox`) return origin.tab !== `drafts`
-  return origin.kind === `agent` && origin.tab === `recent`
+  return origin.kind === `inbox` && origin.tab !== `drafts`
 }
 
 /** EXP-870: how deep an occupant sits — the main menu 0, the list-detail

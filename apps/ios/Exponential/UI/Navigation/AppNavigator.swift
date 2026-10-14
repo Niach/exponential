@@ -11,32 +11,26 @@ enum AppRoute: Hashable {
     case agents
     /// Team actions (EXP-253) — its own tab since EXP-686.
     case actions
-    /// SLOP-2: one action's page (Prompt · Triggers · Runs) — pushed from an
-    /// Actions row or an `action` entity ref, opened on `tab`.
-    case action(accountId: String, id: String, tab: ActionPageTab = .prompt)
+    /// One action's page (EXP-1291: a saved prompt's editor) — pushed from
+    /// an Actions row or an `action` entity ref.
+    case action(accountId: String, id: String)
     /// My Work (EXP-58): Inbox + My Issues merged behind one destination.
-    /// Nothing external ever landed on the old inbox route — notification
-    /// taps deep-link straight to the issue.
     case myWork
-    /// Reviews (EXP-147): the open-PR list, its own tab beside My Work —
-    /// no longer a segment inside it.
-    case reviews
+    /// EXP-1291: the Threads tab (it replaced Reviews) — the agents, then
+    /// the thread roots Needs you · Running · Recent.
+    case threads
     case board(accountId: String, id: String)
     case issue(accountId: String, id: String)
-    /// EXP-933: an issue's Work screen opened on a given face — an agent's
-    /// targeted message (inbox row or push) lands on its Results.
-    case issueFace(accountId: String, id: String, face: WorkFaceKind)
-    /// EXP-1241: an issue's Issue face scrolled to one comment, which briefly
-    /// highlights — a run's comment card tap (web `?comment=<id>`).
+    /// EXP-1241: an issue's page scrolled to one comment, which briefly
+    /// highlights — a comment card tap (web `?comment=<id>`).
     case issueComment(accountId: String, id: String, commentId: String)
-    /// EXP-1170: the New issue page — a DRAFT in the issue face's layout.
+    /// EXP-1170: the New issue page — a DRAFT in the issue page's layout.
     /// Every opener mints `draftId` at TAP time (a fresh lowercase uuid; the
     /// Drafts list passes the row's own), so the route names the draft it
     /// autosaves to. `statusId` pre-picks a status; `parentId` files it as a
-    /// sub-issue of that issue (the face's Sub-issues `+`, EXP-1097), which
-    /// writes no draft row. Creating replaces this route with the issue it
-    /// filed. EXP-1284: `threadId` files it INTO that thread (the thread's
-    /// "New issue in this thread").
+    /// sub-issue of that issue (the Sub-issues `+`, EXP-1097), which writes
+    /// no draft row. Creating replaces this route with the issue it filed.
+    /// `threadId` (a root session's id) files it INTO that thread.
     case issueDraft(
         accountId: String,
         draftId: String,
@@ -45,26 +39,16 @@ enum AppRoute: Hashable {
         parentId: String? = nil,
         threadId: String? = nil
     )
-    /// The live agent-session (steering) screen — pushed from the Agents tab
-    /// or the issue detail's coding card. A pushed destination (EXP-221), not
-    /// a fullScreenCover, so it gets the native back button + swipe-back.
+    /// EXP-1291: ONE session's raw work (`AgentSessionScreen` → today's
+    /// steer view) — a session card's tap, a blocked-session push. A pushed
+    /// destination (EXP-221), so it gets the native back + swipe-back.
     case agentSession(accountId: String, sessionId: String)
-    /// EXP-1194: a run's OWN issue-less pull request (`RunChangesView`), what
-    /// a Reviews → Agent runs row opens, like an issue row opens its issue's
-    /// `.issueFace(…, face: .guide)`.
-    case runChanges(accountId: String, sessionId: String)
-    /// EXP-1284: a THREAD (the unit of work: n issues, m runs) — the phone's
-    /// Thread screen, its child strip as the pager tabs. `child` opens it on
-    /// one child (nil = the Conversation).
+    /// EXP-1291: a THREAD = a root session (`threadId` = its id): a thread,
+    /// or a team agent's channel — `ThreadScreen`, its strip as the pager.
+    /// `child` opens it on one page (nil = the Conversation).
     case thread(accountId: String, threadId: String, child: ThreadPage? = nil)
-    /// EXP-1284: a run's THREAD — what a started run and a run row open: the
-    /// thread once the run's `thread_items` row is synced, the run's own Work
-    /// screen for a run with none (a legacy run, or one the shapes have not
-    /// delivered within the wait).
-    case runThread(accountId: String, sessionId: String)
-    /// EXP-825: the team's Agent page — the ONE launcher (composer + the
-    /// caller's Running/Recent sessions), a pushed detail. Every play button
-    /// lands here with a `seed`; the Chat FAB with an empty one.
+    /// EXP-825: Home's composer pushed with a preselection (a play button's
+    /// `seed`); an empty seed IS the Home tab.
     case agent(accountId: String, seed: AgentComposerSeed)
     case settings
     case serverDetail(accountId: String)
@@ -81,12 +65,12 @@ enum AppRoute: Hashable {
 /// EXP-1210: the bottom bar's destinations — ROOT siblings on phones. The
 /// selected one IS the navigation stack's root, so switching swaps the root
 /// (no push animation, no back chevron, no swipe-back) and the path holds
-/// only the pushes made inside it. `agent` = the chat arm's Agent page, the
+/// only the pushes made inside it. `agent` = the chat arm's Home, the
 /// screen the app opens on. A tab's pushes are parked while another tab is
-/// up and handed back on return, EXCEPT the Agent tab's: it always lands on
-/// its root (Android parity: `popUpTo(agent-tab)` never restores it).
+/// up and handed back on return, EXCEPT Home's: it always lands on its root
+/// (Android parity: `popUpTo(agent-tab)` never restores it).
 enum MainTab: Hashable {
-    case agent, issues, inbox, devices, reviews, actions
+    case agent, issues, inbox, devices, threads, actions
 
     /// Whether this tab's pushes are parked across a switch.
     var keepsPushes: Bool { self != .agent }
@@ -199,12 +183,33 @@ struct AppNavigator: View {
         )) {
             ThreadCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
         }
-        // EXP-1284: the Thread screen specimens (capture only,
-        // `-uiTestingStyleguide thread|thread-runs`, `sg_thread*`).
+        // EXP-1295: the Thread screen specimens (capture only,
+        // `-uiTestingStyleguide thread|agent-channel`).
         .fullScreenCover(isPresented: .constant(
             UITestingStyleguide.requested.map(ThreadStyleguideScreen.kinds.contains) == true
         )) {
             ThreadStyleguideScreen(kind: UITestingStyleguide.requested ?? "thread")
+        }
+        // EXP-1295: Home and the Threads tab (capture only,
+        // `-uiTestingStyleguide home|threads`).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(ThreadsStyleguideScreen.kinds.contains) == true
+        )) {
+            ThreadsStyleguideScreen(kind: UITestingStyleguide.requested ?? "threads")
+        }
+        // EXP-1295: a session's raw work (capture only,
+        // `-uiTestingStyleguide session`).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(SessionStyleguideScreen.kinds.contains) == true
+        )) {
+            SessionStyleguideScreen()
+        }
+        // EXP-1295: Settings → Agents (capture only,
+        // `-uiTestingStyleguide settings-agents`).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(AgentSettingsStyleguideScreen.kinds.contains) == true
+        )) {
+            AgentSettingsStyleguideScreen(kind: UITestingStyleguide.requested ?? "settings-agents")
         }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
@@ -264,8 +269,8 @@ struct AppNavigator: View {
         case .issue(let teamSlug, _, let identifier):
             resolveWebIssueLink(url: url, teamSlug: teamSlug, identifier: identifier)
         case .agent(let teamSlug):
-            // EXP-825: the Agent page under a signed-in account on the link's
-            // host; a foreign host falls back to the Safari sheet.
+            // EXP-825: Home under a signed-in account on the link's host; a
+            // foreign host falls back to the Safari sheet.
             if let account = accountsOnHost(of: url).first {
                 deps.deepLinkBus.navigateToAgent(teamSlug: teamSlug, accountId: account.id)
             } else {
@@ -273,7 +278,19 @@ struct AppNavigator: View {
             }
         case .thread(let teamSlug, let threadId):
             // EXP-1288: the Thread screen, the in-app `AppLink.thread` path.
-            resolveWebThreadLink(url: url, teamSlug: teamSlug, threadId: threadId)
+            guard let holder = sessionLinkAccount(url: url, teamSlug: teamSlug, sessionId: threadId) else {
+                deps.deepLinkBus.openExternal(url)
+                return
+            }
+            deps.deepLinkBus.navigateToThread(threadId, accountId: holder.id)
+        case .session(let teamSlug, let sessionId, let guide):
+            // EXP-1291: a root → its thread (the Guide with `?view=guide`),
+            // a child → its raw session.
+            guard let holder = sessionLinkAccount(url: url, teamSlug: teamSlug, sessionId: sessionId) else {
+                deps.deepLinkBus.openExternal(url)
+                return
+            }
+            deps.deepLinkBus.navigateToSessionLink(sessionId, account: holder, guide: guide, db: deps.db)
         case nil:
             // Shouldn't happen (the AASA claims only the parsed shapes), but
             // never swallow a link the user tapped.
@@ -296,28 +313,22 @@ struct AppNavigator: View {
             }
     }
 
-    /// EXP-1288: a thread link opens under the signed-in account on the
-    /// link's host that holds the thread (else the one in the link's team,
-    /// else the first): the Thread screen reads `threads.get` for a thread
-    /// that has not synced yet and shows `thread-not-found` on a refusal, so
-    /// only a foreign host falls back to the Safari sheet.
-    private func resolveWebThreadLink(url: URL, teamSlug: String, threadId: String) {
+    /// EXP-1288: a thread or session link opens under the signed-in account
+    /// on the link's host that holds the session (else the one in the link's
+    /// team, else the first); nil = a foreign host (the Safari sheet).
+    private func sessionLinkAccount(url: URL, teamSlug: String, sessionId: String) -> ServerAccount? {
         let candidates = accountsOnHost(of: url)
-        guard let first = candidates.first else {
-            deps.deepLinkBus.openExternal(url)
-            return
-        }
+        guard let first = candidates.first else { return nil }
         let store = deps.db
-        func read<T>(_ account: ServerAccount, _ query: (Database) throws -> T?) -> T? {
-            guard let pool = try? store.pool(forAccountId: account.id) else { return nil }
-            return (try? pool.read { try query($0) }) ?? nil
+        func holds(_ account: ServerAccount, _ query: (Database) throws -> Bool) -> Bool {
+            guard let pool = try? store.pool(forAccountId: account.id) else { return false }
+            return (try? pool.read { try query($0) }) ?? false
         }
-        let holder = candidates.first { account in
-            read(account) { try ThreadQueries.thread(db: $0, id: threadId) } != nil
+        return candidates.first { account in
+            holds(account) { try SessionQueries.session(db: $0, id: sessionId) != nil }
         } ?? candidates.first { account in
-            read(account) { try TeamEntity.filter(Column("slug") == teamSlug).fetchOne($0) } != nil
+            holds(account) { try TeamEntity.filter(Column("slug") == teamSlug).fetchCount($0) > 0 }
         } ?? first
-        deps.deepLinkBus.navigateToThread(threadId, accountId: holder.id)
     }
 
     private func resolveWebIssueLink(url: URL, teamSlug: String, identifier: String) {
@@ -326,13 +337,14 @@ struct AppNavigator: View {
             deps.deepLinkBus.openExternal(url)
             return
         }
+        let store = deps.db
         Task { @MainActor in
             func resolve() -> (issueId: String, accountId: String)? {
                 for account in candidates {
                     if let issueId = IssueRefLookup.resolve(
                         identifier: identifier,
                         teamSlug: teamSlug,
-                        db: deps.db,
+                        db: store,
                         accountId: account.id
                     ) {
                         return (issueId, account.id)
@@ -365,7 +377,6 @@ struct AppNavigator: View {
 
 struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.motion) private var motion
     /// EXP-1210: the selected bottom-bar destination = the stack's ROOT. The
     /// app LANDS on the Agent tab, so a cold start and an account switch
@@ -395,25 +406,16 @@ struct MainNavigator: View {
     @State private var observationTasks: [Task<Void, Never>] = []
     @State private var syncing = false
     @State private var unreadCount = 0
-    @State private var agentsRunning = false
-    // EXP-214: any live session's desktop-written `needs_input` flag (agent
-    // parked on a plan-approval / question picker) — escalates the Agents
-    // dot to amber.
-    @State private var agentsNeedInput = false
-    // EXP-214/1244: the Reviews tab's dot inputs — the SAME rows the Reviews
-    // screen feeds `ReviewsQueue.build`: every issue with an open pr_state or
-    // any pr_url, every run with a pr_url (any state links its PR).
-    @State private var observedPrIssues: [IssueEntity] = []
-    @State private var observedPrSessions: [CodingSessionEntity] = []
-    // Raw observed running-session rows — cached so the liveness ticker can
-    // recompute `agentsRunning` between sync deltas (EXP-153).
-    @State private var observedSessions: [CodingSessionEntity] = []
+    /// EXP-1291: the session tree's lists — ONE observation for the Threads
+    /// tab and its dot, Home's Running band, the launcher dot and the board
+    /// switcher's per-team dots.
+    @State private var sessionLists = SessionListsModel()
     @State private var currentBoard: CurrentBoardRef?
     // EXP-400: the current board resolved before the boards observation
     // delivered rows, so the active-team alignment couldn't look up its
     // team yet — re-run it on the next boards emission.
     @State private var pendingTeamAlign = false
-    /// The Agent tab hides the floating bar while the keyboard is up.
+    /// Home hides the floating bar while the keyboard is up.
     @State private var keyboardVisible = false
     var body: some View {
         ZStack {
@@ -425,6 +427,7 @@ struct MainNavigator: View {
             }
         }
         .environment(teamState)
+        .environment(sessionLists)
         .environment(tabBarChrome)
         // EXP-698 r5: the issue list's rows are plain Buttons now (a
         // NavigationLink in a List row draws the system disclosure OUTSIDE
@@ -486,11 +489,9 @@ struct MainNavigator: View {
         .onChange(of: availableBoardKeys) { _, _ in
             resolveCurrentBoard()
         }
-        // The Agents dots are team-scoped like the Reviews one,
-        // but they're cached @State (the liveness ticker needs the raw rows)
-        // rather than computed — so a team switch has to re-filter them here.
-        .onChange(of: teamState.activeTeamId) { _, _ in
-            recomputeAgentDots()
+        // EXP-1075: the board switcher's per-team dots ride TeamState.
+        .onChange(of: sessionLists.liveByTeam, initial: true) { _, live in
+            teamState.liveRunsByTeam = live
         }
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
@@ -499,13 +500,12 @@ struct MainNavigator: View {
                 // host match); push taps only know the recipient's userId.
                 let accountId = deps.deepLinkBus.pendingIssueAccountId
                     ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
-                let face = deps.deepLinkBus.pendingIssueFace
                 let replacesTop = deps.deepLinkBus.pendingIssueReplacesTop
                 let commentId = deps.deepLinkBus.pendingIssueCommentId
                 _ = deps.deepLinkBus.consume()
                 navigate {
                     appendIssueRoute(
-                        accountId: accountId, issueId: issueId, face: face, replacingTop: replacesTop,
+                        accountId: accountId, issueId: issueId, replacingTop: replacesTop,
                         commentId: commentId
                     )
                 }
@@ -524,8 +524,8 @@ struct MainNavigator: View {
                 navigate({ openInboxFromPush() }, dropped: { _ = deps.deepLinkBus.consumeInbox() })
             }
         }
-        // A session_blocked push tap (EXP-980): open the RUN that hit the
-        // rate limit, under the recipient's account.
+        // A session_blocked push tap (EXP-980): open the SESSION that hit
+        // the rate limit, under the recipient's account.
         .onChange(of: deps.deepLinkBus.pendingSessionId) { _, sessionId in
             if let sessionId {
                 let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingSessionUserId)
@@ -535,16 +535,18 @@ struct MainNavigator: View {
                 }
             }
         }
-        // EXP-1284: a tapped thread link opens the Thread screen.
+        // EXP-1284: a tapped thread link opens the thread (a root session).
         .onChange(of: deps.deepLinkBus.pendingThreadId) { _, threadId in
             if threadId != nil, let target = deps.deepLinkBus.consumeThread() {
                 // EXP-1288: like `pushRoute` — a thread already on the stack
                 // is popped back to, never a second page of it.
                 navigate {
                     if let index = Self.threadIndex(target.threadId, in: path) {
-                        landOnThread(at: index, threadId: target.threadId, page: nil)
+                        landOnThread(at: index, threadId: target.threadId, page: target.page)
                     } else {
-                        path.append(AppRoute.thread(accountId: target.accountId, threadId: target.threadId))
+                        path.append(AppRoute.thread(
+                            accountId: target.accountId, threadId: target.threadId, child: target.page
+                        ))
                     }
                 }
             }
@@ -555,7 +557,7 @@ struct MainNavigator: View {
                 navigate({ openAgentFromLink() }, dropped: { _ = deps.deepLinkBus.consumeAgent() })
             }
         }
-        // A team was deleted in-app (EXP-43): back to the landing tab (Agent)
+        // A team was deleted in-app (EXP-43): back to the landing tab (Home)
         // so no pushed view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
             savedPaths = [:]
@@ -563,15 +565,14 @@ struct MainNavigator: View {
             path = []
         }
         // Drain links that arrived before this navigator mounted (cold launch).
-        // They push ON TOP of the Agent tab the app lands on, so Back returns
+        // They push ON TOP of Home, where the app lands, so Back returns
         // there — deep links are the only cold-launch navigation.
         .task {
             let pendingAccountId = deps.deepLinkBus.pendingIssueAccountId
             let userId = deps.deepLinkBus.pendingIssueUserId
-            let face = deps.deepLinkBus.pendingIssueFace
             if let issueId = deps.deepLinkBus.consume() {
                 let accountId = pendingAccountId ?? issueAccountId(forUserId: userId)
-                appendIssueRoute(accountId: accountId, issueId: issueId, face: face)
+                appendIssueRoute(accountId: accountId, issueId: issueId)
             }
             if let token = deps.deepLinkBus.consumeInvite() {
                 path.append(AppRoute.invite(token: token))
@@ -580,6 +581,11 @@ struct MainNavigator: View {
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
                 path.append(AppRoute.agentSession(accountId: accountId, sessionId: sessionId))
+            }
+            if let target = deps.deepLinkBus.consumeThread() {
+                path.append(AppRoute.thread(
+                    accountId: target.accountId, threadId: target.threadId, child: target.page
+                ))
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }
@@ -604,12 +610,12 @@ struct MainNavigator: View {
                     devicesActive: tab == .devices,
                     actionsActive: tab == .actions,
                     myWorkActive: tab == .inbox,
-                    reviewsActive: tab == .reviews,
+                    threadsActive: tab == .threads,
                     unreadCount: unreadCount,
-                    agentsRunning: agentsRunning,
-                    agentsNeedInput: agentsNeedInput,
-                    reviewsOpen: reviewsNav.dot,
-                    showsReviews: reviewsNav.shows,
+                    agentsRunning: sessionLists.agentsRunning,
+                    agentsNeedInput: sessionLists.agentsNeedInput,
+                    threadsRunning: sessionLists.threadsRunning,
+                    threadsNeedYou: sessionLists.needsYou,
                     // The launcher capsule (chat | new issue) rides every
                     // bar-visible surface (EXP-827/EXP-973); only a team with
                     // no board leaves the New-issue arm inert.
@@ -622,7 +628,7 @@ struct MainNavigator: View {
                     onDevices: { selectTab(.devices) },
                     onActions: { selectTab(.actions) },
                     onMyWork: { selectTab(.inbox) },
-                    onReviews: { selectTab(.reviews) },
+                    onThreads: { selectTab(.threads) },
                     onCompose: {
                         // EXP-1170: the draft id is minted HERE, at tap time.
                         guard let target = composeTarget else { return }
@@ -634,8 +640,8 @@ struct MainNavigator: View {
                             ))
                         }
                     },
-                    // EXP-825: the chat arm SWITCHES to the Agent root (the
-                    // empty-seed page, a bar-visible root) — never a push.
+                    // EXP-825: the chat arm SWITCHES to Home (the empty-seed
+                    // page, a bar-visible root) — never a push.
                     onChat: { selectTab(.agent) }
                 )
                 // Slides out of the way when a screen claims its slot, so the
@@ -651,34 +657,14 @@ struct MainNavigator: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             keyboardVisible = false
         }
-        // EXP-1105: Reviews exists only until yolo mode hides it (the flag
-        // flips on, or the last open PR in a yolo team merges) — then land
-        // back on Issues instead of stranding a tab-less screen.
-        // EXP-1244: the dot's openPulls half — a team older than 60 s
-        // refetches when the team set changes and when the app comes back.
-        .task(id: PullsNavKey(accountId: deps.auth.activeAccountId ?? "", teamIds: teamState.teams.map(\.id).sorted())) {
-            await refreshStalePulls()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
-            Task { await refreshStalePulls() }
-        }
-        .onChange(of: reviewsNav.shows) { _, shown in
-            guard !shown else { return }
-            savedPaths[.reviews] = nil
-            if tab == .reviews {
-                tab = .issues
-                path = savedPaths.removeValue(forKey: .issues) ?? []
-            }
-        }
     }
 
     // MARK: - Tab bar
 
     /// The bar floats only over the tab ROOTS (EXP-1210) and pushed board
     /// lists; detail and settings screens — Search among them since EXP-686,
-    /// and a SEEDED Agent page pushed by a play button — get the full height
-    /// back. On the Agent root the bar also stands down while the keyboard is
+    /// and a SEEDED Home pushed by a play button — get the full height
+    /// back. On the Home root the bar also stands down while the keyboard is
     /// up, so it never rides above the keyboard over the composer.
     private var showsTabBar: Bool {
         guard let top = path.last else {
@@ -719,20 +705,20 @@ struct MainNavigator: View {
         path = []
     }
 
-    /// Parks the current tab's pushes before a switch away from it; the
-    /// Agent tab drops them (it always lands on its root).
+    /// Parks the current tab's pushes before a switch away from it; Home
+    /// drops them (it always lands on its root).
     private func park() {
         savedPaths[tab] = tab.keepsPushes ? path : nil
     }
 
     /// The bar destination a route NAMES, if any — those routes never push
-    /// (EXP-1210); an empty-seed Agent page is the Agent root itself.
+    /// (EXP-1210); an empty-seed Home is the Home root itself.
     private static func tab(for route: AppRoute) -> MainTab? {
         switch route {
         case .agents: return .devices
         case .actions: return .actions
         case .myWork: return .inbox
-        case .reviews: return .reviews
+        case .threads: return .threads
         case let .agent(_, seed) where seed == .empty: return .agent
         default: return nil
         }
@@ -761,8 +747,8 @@ struct MainNavigator: View {
         case .devices:
             AgentsView()
                 .environment(\.accountId, accountId)
-        case .reviews:
-            ReviewsView()
+        case .threads:
+            ThreadsView()
                 .environment(\.accountId, accountId)
         case .actions:
             ActionsListView()
@@ -770,35 +756,9 @@ struct MainNavigator: View {
         }
     }
 
-    /// EXP-1244: the Reviews tab's dot + presence = `ReviewsQueue.nav` over
-    /// the SAME queue the Reviews screen lists (every member team, the
-    /// app-wide openPulls store), fixture `_navDoc`: the dot = anything
-    /// queued; the tab hides only while every team runs in yolo mode
-    /// (EXP-1105: PRs auto-merge) and nothing is queued.
-    private var reviewsNav: ReviewsQueue.Nav {
-        let accountId = deps.auth.activeAccountId ?? ""
-        let teamIds = teamState.teams.map(\.id)
-        let queue = ReviewsQueue.build(
-            teamIds: teamIds,
-            boards: teamState.boards,
-            issues: observedPrIssues,
-            sessions: observedPrSessions,
-            pulls: deps.openPulls.pulls(accountId: accountId, teamIds: teamIds)
-        )
-        return ReviewsQueue.nav(yolo: teamState.teams.map(\.yoloMode), count: queue.count)
-    }
-
-    private func refreshStalePulls() async {
-        let teamIds = teamState.teams.map(\.id)
-        guard let accountId = deps.auth.activeAccountId, !teamIds.isEmpty else { return }
-        await deps.openPulls.refresh(
-            accountId: accountId, teamIds: teamIds, api: deps.repositoriesApi
-        )
-    }
-
     /// Compose targets the board in view: a pushed board list wins, and every
     /// other bar-visible surface (Issues root, Devices, Actions, Inbox,
-    /// Reviews) falls back to the CURRENT board — the one the Issues
+    /// Threads) falls back to the CURRENT board — the one the Issues
     /// tab is pointed at, resolved from the last-used board, else the first of
     /// the active team (EXP-973). Filing an issue is never route-dependent;
     /// only a team with no board at all leaves the arm with nowhere to go.
@@ -960,32 +920,27 @@ struct MainNavigator: View {
         case .actions:
             ActionsListView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case let .action(accountId, id, tab):
-            ActionDetailView(actionId: id, initialTab: tab)
+        case let .action(accountId, id):
+            ActionDetailView(actionId: id)
                 .environment(\.accountId, accountId)
         case .myWork:
             MyWorkView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case .reviews:
-            ReviewsView()
+        case .threads:
+            ThreadsView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .board(accountId, id):
             IssueListView(boardId: id)
                 .environment(\.accountId, accountId)
         case let .issue(accountId, id):
-            // EXP-893: the Work screen on its Issue face.
-            // `.id(id)`: a Stack card swaps the top route IN PLACE, and the
-            // screen must rebuild for the other issue, not keep its state.
-            WorkScreen(subject: .issue(id: id))
-                .id(id)
-                .environment(\.accountId, accountId)
-        case let .issueFace(accountId, id, face):
-            WorkScreen(subject: .issue(id: id), initialFace: face)
+            // `.id(id)`: a card swaps the top route IN PLACE, and the screen
+            // must rebuild for the other issue, not keep its state.
+            IssueScreen(issueId: id)
                 .id(id)
                 .environment(\.accountId, accountId)
         case let .issueComment(accountId, id, commentId):
-            // EXP-1241: the Issue face scrolled to one comment, which flashes.
-            WorkScreen(subject: .issue(id: id), focusCommentId: commentId)
+            // EXP-1241: the issue page scrolled to one comment, which flashes.
+            IssueScreen(issueId: id, focusCommentId: commentId)
                 .id(id)
                 .environment(\.accountId, accountId)
         case let .issueDraft(accountId, draftId, boardId, statusId, parentId, threadId):
@@ -1013,24 +968,18 @@ struct MainNavigator: View {
             )
             .environment(\.accountId, accountId)
         case let .agentSession(accountId, sessionId):
-            // EXP-893: the Work screen on its Run face.
-            WorkScreen(subject: .session(id: sessionId))
-                .environment(\.accountId, accountId)
-        case let .runChanges(accountId, sessionId):
-            RunChangesView(sessionId: sessionId)
+            AgentSessionScreen(sessionId: sessionId)
+                .id(sessionId)
                 .environment(\.accountId, accountId)
         case let .thread(accountId, threadId, child):
-            // `.id(threadId)`: a thread swapped in place (an unlinked run's
-            // fresh thread) rebuilds rather than keeping the old one's state.
-            ThreadScreen(threadId: threadId, initialPage: child ?? .conversation)
+            // `.id(threadId)`: a root swapped in place rebuilds rather than
+            // keeping the old one's state.
+            ThreadScreen(rootId: threadId, initialPage: child ?? .conversation)
                 .id(threadId)
                 .environment(\.accountId, accountId)
-        case let .runThread(accountId, sessionId):
-            RunThreadScreen(sessionId: sessionId)
-                .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
-            // Always a pushed detail (a play button's seed): the Agent TAB is
-            // the stack's root (`tabRoot`, EXP-1210).
+            // Always a pushed detail (a play button's seed): Home is the
+            // stack's root (`tabRoot`, EXP-1210).
             AgentPageView(seed: seed)
                 .environment(\.accountId, accountId)
         case .settings:
@@ -1118,97 +1067,12 @@ struct MainNavigator: View {
                 }
             } catch {}
         }
-        // Live coding sessions drive the Agents tab's dot — running AND in_review
-        // (the "agent finished, look at it" signal counts too, EXP-194).
-        // OWN sessions only, matching the owner-only Agents list: a teammate's
-        // session must not light a dot over a screen that shows nothing.
-        // Captured here because startObserving() re-runs on account switch.
-        let ownUserId = deps.auth.userId
-        let sessionObs = ValueObservation.tracking { db in
-            try CodingSessionEntity
-                .filter([
-                    DomainContract.codingSessionStatusRunning,
-                    DomainContract.codingSessionStatusInReview,
-                ].contains(Column("status")))
-                .fetchAll(db)
-        }
-        let sessionTask = Task { @MainActor in
-            do {
-                for try await sessions in sessionObs.values(in: pool) {
-                    // Cached own-only (not team-filtered): a team switch
-                    // re-filters these without waiting for a sync delta.
-                    observedSessions = CodingSessionOwnership.own(sessions, userId: ownUserId)
-                    recomputeAgentDots()
-                }
-            } catch {}
-        }
-        // GRDB only re-fires on writes — a minute clock clears the dot once a
-        // phantom row's liveness window elapses without any sync delta.
-        let livenessTask = Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard !Task.isCancelled else { return }
-                recomputeAgentDots()
-            }
-        }
-        // The Reviews tab's dot (EXP-214/1244) — the Reviews screen's own
-        // observations: open issues are entries, every pr_url links a PR.
-        let prIssueObs = ValueObservation.tracking { db in
-            try IssueEntity
-                .filter(Column("pr_state") == DomainContract.prStateOpen || Column("pr_url") != nil)
-                .fetchAll(db)
-        }
-        let prIssueTask = Task { @MainActor in
-            do {
-                for try await issues in prIssueObs.values(in: pool) {
-                    observedPrIssues = issues
-                }
-            } catch {}
-        }
-        // EXP-734: an action or chat run's own PR links no issue — it lives on
-        // the session row; any run's pr_url links its PR (EXP-1244).
-        let prSessionObs = ValueObservation.tracking { db in
-            try CodingSessionEntity
-                .filter(Column("pr_url") != nil)
-                .fetchAll(db)
-        }
-        let prSessionTask = Task { @MainActor in
-            do {
-                for try await sessions in prSessionObs.values(in: pool) {
-                    observedPrSessions = sessions
-                }
-            } catch {}
-        }
-        observationTasks = [
-            wsTask, projTask, notifTask, sessionTask, livenessTask, prIssueTask,
-            prSessionTask,
-        ]
-    }
-
-    /// The Agents tab's dots, from the cached own sessions: live in ANY
-    /// member team (EXP-1186) — the Agent page lists every team's runs now,
-    /// so the dot counts what it shows; a teammate's run never lights it.
-    /// Heartbeat-stale rows don't light it either (EXP-153). Re-run on every
-    /// session emission, on the liveness tick, and whenever the active team
-    /// changes.
-    private func recomputeAgentDots() {
-        let mine = observedSessions.filter {
-            CodingSessionOwnership.isOwn($0, userId: deps.auth.userId)
-        }
-        agentsRunning = mine.contains { CodingSessionLiveness.isLive($0) }
-        // EXP-1184: the display rule — needs input wins on every live status
-        // (an open PR included), so the amber dot means "a live agent wants
-        // you".
-        agentsNeedInput = mine.contains {
-            CodingSessionLiveness.isLive($0)
-                && CodingSessionDisplayState.of(session: $0, prState: nil) == .needsInput
-        }
-        // EXP-1075: the same live/own rule per team — the board switcher's
-        // per-team dot. `observedSessions` is already own-only; liveByTeam
-        // filters again anyway.
-        teamState.liveRunsByTeam = CodingSessionOwnership.liveByTeam(
-            observedSessions, userId: deps.auth.userId
+        // EXP-1291: the session tree's lists (the Threads tab + its dot,
+        // Home's Running band, the launcher and board switcher dots).
+        sessionLists.bind(
+            accountId: deps.auth.activeAccountId ?? "", userId: deps.auth.userId, db: deps.db
         )
+        observationTasks = [wsTask, projTask, notifTask]
     }
 
     // MARK: - Current board (Issues tab)
@@ -1277,8 +1141,8 @@ struct MainNavigator: View {
 
     private func applyBoardSelection(accountId: String, boardId: String) {
         currentBoard = CurrentBoardRef(accountId: accountId, boardId: boardId)
-        // EXP-400: the tab bar's team-scoped surfaces (Reviews, the
-        // Agents start pool, Actions) key off the active team — without a
+        // EXP-400: the tab bar's team-scoped surfaces (Home's composer,
+        // Actions) key off the active team — without a
         // re-point here a cross-team pick left them all serving the previous
         // team. A cross-server pick activates the picked account instead
         // (Android parity): `.id(activeAccountId)` recreates this navigator
@@ -1323,21 +1187,18 @@ struct MainNavigator: View {
     /// useful to await here (initialSync only passively polls the active
     /// account's teams table; it starts no shape fetch).
     ///
-    /// `replacingTop` (a Stack card member tap) swaps an issue page on top in
-    /// place, so Back returns to where the stack was opened from.
+    /// `replacingTop` swaps an issue page on top in place, so Back returns
+    /// to where it was opened from.
     private func appendIssueRoute(
-        accountId: String, issueId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false,
-        commentId: String? = nil
+        accountId: String, issueId: String, replacingTop: Bool = false, commentId: String? = nil
     ) {
         let route: AppRoute = if let commentId {
             .issueComment(accountId: accountId, id: issueId, commentId: commentId)
-        } else if face == .issue {
-            .issue(accountId: accountId, id: issueId)
         } else {
-            .issueFace(accountId: accountId, id: issueId, face: face)
+            .issue(accountId: accountId, id: issueId)
         }
         switch path.last {
-        case .issue?, .issueFace?, .issueComment?:
+        case .issue?, .issueComment?:
             if replacingTop {
                 path[path.count - 1] = route
                 return
@@ -1362,10 +1223,10 @@ struct MainNavigator: View {
         landOnRoot(of: .inbox)
     }
 
-    /// EXP-825: land on the linked team's Agent page — switch account first
-    /// when the link's host matched another signed-in one (the page renders
-    /// the ACTIVE team), point the active team at the slug when it synced,
-    /// and switch to the Agent TAB (the link carries no seed).
+    /// EXP-825: land on Home in the linked team — switch account first when
+    /// the link's host matched another signed-in one (Home starts in the
+    /// ACTIVE team), point the active team at the slug when it synced, and
+    /// switch to the Home TAB (the link carries no seed).
     private func openAgentFromLink() {
         guard let slug = deps.deepLinkBus.pendingAgentTeamSlug,
               let accountId = deps.deepLinkBus.pendingAgentAccountId else { return }
@@ -1386,6 +1247,7 @@ struct MainNavigator: View {
     private func stopObserving() {
         for task in observationTasks { task.cancel() }
         observationTasks = []
+        sessionLists.stop()
     }
 
     // Pushes carry the recipient's server user id: on a multi-account device
@@ -1411,10 +1273,4 @@ extension Notification.Name {
     /// A team was deleted in-app (EXP-43) — MainNavigator pops to root so
     /// no pushed view still targets the deleted team.
     static let teamDeleted = Notification.Name("teamDeleted")
-}
-
-/// EXP-1244: the tab bar's openPulls refresh key — the account + team set.
-private struct PullsNavKey: Hashable {
-    let accountId: String
-    let teamIds: [String]
 }

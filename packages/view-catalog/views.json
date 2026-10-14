@@ -21,13 +21,13 @@
     {
       "id": "coding",
       "label": "Coding",
-      "blurb": "The Actions surface, the Devices page, the Agent home whose composer launches every session, one live session being steered and the session thread’s cards.",
+      "blurb": "The Actions surface, the Devices page, the Agent home whose composer launches every session, the Threads list and one thread, the raw session view a session card opens, a team agent's channel and the session feed's cards.",
       "order": 4
     },
     {
       "id": "reviews",
       "label": "Reviews",
-      "blurb": "The cross-board open-PR queue and the read-only diff view behind it.",
+      "blurb": "A thread's Guide (the PR body of every PR it opened), the read-only diff view behind it and the PR row.",
       "order": 5
     },
     {
@@ -153,6 +153,14 @@
     {
       "route": "/integrations/github",
       "reason": "The guided GitHub page (connect, install the app, pick a repository); opened as a popup from the app, from a native's browser, or as the GitHub App's setup redirect. Needs a live GitHub round-trip to progress."
+    },
+    {
+      "route": "/t/$teamSlug/settings/agents",
+      "reason": "EXP-1293: forwards to the first team agent's settings page (or the empty state), which settings-team-agent photographs by id."
+    },
+    {
+      "route": "/t/$teamSlug/settings/agents/new",
+      "reason": "EXP-1293: the agent settings page in create mode, the same layout settings-team-agent photographs with an empty form."
     }
   ],
   "views": [
@@ -419,7 +427,7 @@
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
         "anchor": {
-          "testId": "work-face-toggle",
+          "text": "Startup profiling shows",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -957,7 +965,7 @@
       "web": {
         "route": "/t/$teamSlug",
         "anchor": {
-          "testId": "agent-home-greeting",
+          "testId": "agent-composer",
           "timeoutMs": 30000
         },
         "settleMs": 800
@@ -1017,44 +1025,10 @@
       }
     },
     {
-      "id": "chat-action",
-      "group": "coding",
-      "title": "Agent · Action",
-      "blurb": "The composer running the builtin Fix merge conflicts with an open PR picked — its own look (EXP-1233): the headline names the PR's issue as a chip, the card under it is the PR row (number, branch → base, the picker) and, after a refused merge, the refusal line. A saved action with inputs keeps the generic action chip and its typed fields.",
-      "order": 6,
-      "web": {
-        "route": "/t/$teamSlug/agent?action=builtin:fix-conflicts&pr=$prIssue&conflict=1",
-        "anchor": {
-          "testId": "agent-composer-chip-issue-APP-14",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_chat-action",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_chat-action",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web": "`action` names the action (a row id or a builtin id), `pr` the issue whose open PR prefills the builtin's required `pr` input: `$prIssue` resolves to APP-14, the seeded issue on the real review PR; `conflict=1` (EXP-1233) = a refused merge opened it, so the card shows the refusal line. Needs `bun run screenshots:desktop` like chat-issues.",
-        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:fix-conflicts&pr=<issue-uuid>&conflict=1`, paired with `EXP_DEV_TOOL=agent` by the lane."
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "chat?action=builtin:fix-conflicts&pr=$prIssue&conflict=1"
-        }
-      }
-    },
-    {
       "id": "steering",
       "group": "coding",
       "title": "Steering a session",
-      "blurb": "One coding session on its own page: it opens as the status row over the session's results thread with the agent's open question still in place, Show work expands the full scrubbed transcript, and the reply box answers it.",
+      "blurb": "One coding session on its own page (EXP-1293: the raw session view a session card opens): the back link to its thread, the session title and Stop over the relay-fed feed, which always shows the work, the agent's open question still in place and the composer that answers it.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/sessions/$sessionId",
@@ -1074,7 +1048,7 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-740 gave a session its own full-page route and EXP-870 made it the ONE session URL (an issue's session included — the issue is its work tab's other face), so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase session. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION. EXP-1175: the shot now photographs the THREAD (status row + results, the pending question card in place); set localStorage `exp.showWork:<userId>` to `true` to photograph the transcript.",
+        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child session \"Profile the launch path\". Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION. Same route as `session`, which anchors on the header instead of the feed's tail.",
         "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase session in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
       "desktop": {
@@ -1089,12 +1063,12 @@
       "id": "thread",
       "group": "coding",
       "title": "Thread",
-      "blurb": "A thread (EXP-1284, thread-view.json): the unit of work holding n issues and m sessions. The child strip reads Conversation, each linked issue, the \"+\" and Guide; the conversation shows Session 1 live with the issues its agent linked as rows (Linked, Filed and linked) and the reply box under it.",
+      "blurb": "A thread (EXP-1293, Threads v2): a ROOT session. The title over ONE tab strip (Conversation · one chip per linked issue · + · Guide), the conversation's rows (the person's request, ONE session card per child session, the agent's reply, a question answered in its card) and the composer at the bottom. The demo thread waits on a person through its child session.",
       "order": 17,
       "web": {
         "route": "/t/$teamSlug/threads/$threadId",
         "anchor": {
-          "text": "Filed and linked",
+          "testId": "thread-tabs",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -1115,41 +1089,7 @@
         }
       },
       "notes": {
-        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): the steered showcase session plus the issue its agent filed into the thread. Needs the relay like `steering` for the live session's feed."
-      }
-    },
-    {
-      "id": "thread-runs",
-      "group": "coding",
-      "title": "Thread with several sessions",
-      "blurb": "A thread with m sessions (EXP-1284): ended sessions fold to one line with Show work, a resume continues the thread as the next session, and the two sessions one parent started share ONE card, each naming its issue. A child's menu offers Link an issue, New issue in this thread, Start a session here and Unlink.",
-      "order": 18,
-      "web": {
-        "route": "/t/$teamSlug/threads/$threadRunsId",
-        "recipe": "openThreadChildMenu",
-        "anchor": {
-          "text": "started by Session 2",
-          "timeoutMs": 30000
-        },
-        "settleMs": 1200
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_thread-runs",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_thread-runs",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "thread:$threadRuns"
-        }
-      },
-      "notes": {
-        "web": "`$threadRunsId` resolves to DEMO_THREAD_RUNS_ID: two ended sessions (the second a resume) and two live children of Session 2."
+        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): \"Reduce cold start below 800 ms\" with APP-5, APP-10 and FB-3, its child session \"Profile the launch path\" needing input and the question card it asked. Seeded rows only, no relay."
       }
     },
     {
@@ -1239,46 +1179,13 @@
       }
     },
     {
-      "id": "reviews",
-      "group": "reviews",
-      "title": "Reviews",
-      "blurb": "Every open PR across the team as ONE PrRow each (EXP-1248), issue-linked ones grouped by board, trees nested with guides and stacks on their rail; a row opens the issue's Guide (no inline Merge).",
-      "order": 1,
-      "web": {
-        "route": "/t/$teamSlug/reviews",
-        "anchor": {
-          "text": "Batch-edit labels from the board",
-          "timeoutMs": 30000
-        },
-        "settleMs": 1200
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_reviews",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_reviews",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "reviews"
-        }
-      },
-      "notes": {
-        "desktop": "EXP-1192: a full-width list in the main content card beside the full rail. A row opens its issue's Guide in a tab (no second sidebar since EXP-1248; see guide)."
-      }
-    },
-    {
       "id": "review-diff",
       "group": "reviews",
       "title": "Complete diff",
-      "blurb": "A PR's whole diff as the Guide's Show complete diff page (`?view=guide&section=all`; the legacy `?view=diff` lands here): the file TREE beside the file cards, every card open. APP-14 fetches a genuine patch from GitHub.",
+      "blurb": "A PR's whole diff as the thread Guide's Show complete diff page (`?tab=guide&section=all`): the file TREE beside the file cards, every card open.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=all",
+        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide&section=all",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1303,57 +1210,16 @@
       }
     },
     {
-      "id": "run-changes",
-      "group": "reviews",
-      "title": "Session changes",
-      "blurb": "The PR diff of an ISSUE-LESS session (a chat or action session's own pull request, EXP-1194) on the session's Guide: the same file cards as the issue's Guide pages, fed by codingSessions.prFiles, opened from the Reviews \"Agent sessions\" row. A teammate's session, so it reads read-only.",
-      "order": 3,
-      "web": {
-        "route": "/t/$teamSlug/sessions/$runChangesSessionId?view=guide&section=all",
-        "anchor": {
-          "text": "processing.impl.ResolverImpl",
-          "timeoutMs": 60000
-        },
-        "recipe": "expandFirstDiffFile",
-        "settleMs": 1200
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_run-changes",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_run-changes",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "session:$runChangesSession"
-        },
-        "env": {
-          "EXP_DEV_RUN_FACE": "guide-all",
-          "EXP_DEV_TOOL": "reviews"
-        }
-      },
-      "notes": {
-        "web": "EXP-1204. The session is Jonas's finished chat session (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunGuide`: the stub header with the GitHub button over the session's Guide, read-only, no steer ticket. `?view=guide&section=all` opens the Guide's Show complete diff page (every file card, the file tree beside them on md+), the same page review-diff captures for an issue. The owner's own session draws the same Guide on its session face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the session's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
-        "desktop": "EXP_DEV_RUN_FACE=guide-all lands the session tab on the Guide's Show complete diff page (the same page the web route opens).",
-        "ios": "EXP-1251: the Reviews 'Agent sessions' row opens the session on its Guide; the flow taps Show complete diff (else the one Changes row of a report-less Guide), waits for guide-section-page, then changes-file-row, and shoots that page.",
-        "android": "EXP-1251: the review-run-row opens RunChangesScreen on the Guide; the flow taps guide-changes-row, waits for guide-section + changes-file-row, shoots, then backs out twice."
-      }
-    },
-    {
       "id": "guide",
       "group": "reviews",
       "title": "Guide",
-      "blurb": "An issue's Guide face (EXP-1251: Changes + Results merged into one face): the Stack card while its PR sits in an open stack, the Summary lead, numbered sections with ONE Changes row each, the automatic Other changes section and Show complete diff. APP-14 has a PR and no report, so its whole diff is one Changes section.",
+      "blurb": "A thread's Guide tab (EXP-1293: ONE Guide per thread = every PR body): the Summary lead and numbered sections, each ending in ONE Changes row. APP-15's thread is idle with its PR open and ready to merge.",
       "order": 4,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide",
+        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide",
         "anchor": {
-          "text": "Show complete diff",
-          "timeoutMs": 60000
+          "text": "Label picker on the selection bar",
+          "timeoutMs": 30000
         },
         "settleMs": 1200
       },
@@ -1367,7 +1233,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "EXP-1251: the coverage counts the PR files fetched live from GitHub (like review-diff), so the anchor waits for the Show complete diff row the loaded diff draws.",
+        "web": "`$guideThreadId` resolves to DEMO_GUIDE_THREAD_ID (apps/web/scripts/screenshot-demo.ts): the APP-15 thread with two seeded Guide entries. The anchor is the second entry's topic.",
         "desktop": "EXP-1251: the issue tab's Guide face (`issue:<id>?face=guide`; the legacy results/diff/changes words land here too); `EXP_DEV_TOOL=reviews` pins the Reviews origin the way a Reviews row opens it."
       },
       "desktop": {
@@ -1384,10 +1250,10 @@
       "id": "guide-section",
       "group": "reviews",
       "title": "Guide section",
-      "blurb": "A Guide section's diff as a page under the Guide (`?view=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree in the column beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
+      "blurb": "A Guide section's diff as a page under the thread's Guide (`?tab=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-14?view=guide&section=1",
+        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide&section=1",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1418,7 +1284,7 @@
       "web": {
         "route": "/t/$teamSlug/actions/$actionId",
         "anchor": {
-          "text": "Daily at 03:00 (device time)",
+          "text": "Save changes",
           "timeoutMs": 20000
         },
         "settleMs": 600
@@ -1442,131 +1308,6 @@
         "web-mobile": "The phone shows the same three as tabs; this is the default Prompt tab. `action-triggers` and `action-runs` are the other two.",
         "ios": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page.",
         "android": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page."
-      }
-    },
-    {
-      "id": "trigger-editor",
-      "group": "actions",
-      "title": "Trigger editor",
-      "blurb": "Adding a trigger to an action: a schedule or an event, the device that runs it and the account, model and effort it runs with.",
-      "order": 4,
-      "web": {
-        "route": "/t/$teamSlug/actions/$actionId?tab=triggers",
-        "anchor": {
-          "text": "New trigger",
-          "timeoutMs": 20000
-        },
-        "recipe": "openTriggerEditor",
-        "settleMs": 600
-      },
-      "desktop": {
-        "drive": {
-          "kind": "dialog",
-          "value": "trigger-new:$action"
-        },
-        "anchorDelayMs": 600,
-        "env": {
-          "EXP_DEV_SCREEN": "action:$action"
-        }
-      },
-      "ios": {
-        "shot": "sg_trigger-editor",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_trigger-editor",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web-mobile": "The same form as a bottom sheet over the Triggers tab; the paired native shots cover it."
-      }
-    },
-    {
-      "id": "action-create",
-      "group": "actions",
-      "title": "New action",
-      "blurb": "Authoring an action by describing it: the Agent page composer with the Create action builtin picked as its chip — describe the action in the prompt and the creator session writes the definition, no form (EXP-257, EXP-825).",
-      "order": 5,
-      "web": {
-        "route": "/t/$teamSlug/agent?action=builtin:create-action",
-        "anchor": {
-          "testId": "agent-composer-chip-action",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
-      },
-      "ios": {
-        "shot": "sg_action-create",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_action-create",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "chat?action=builtin:create-action"
-        }
-      },
-      "notes": {
-        "web": "`action=builtin:create-action` seeds the composer with the virtual Create action builtin (not a DB row, `lib/builtin-actions.ts`); the chip renders before the row lookup, so no seed data is needed beyond a team.",
-        "web-mobile": "The phone reaches the creator from the Actions page (\"New action\" pushes the same composer); the paired native shots cover it.",
-        "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:create-action`, paired with `EXP_DEV_TOOL=agent` by the lane (EXP-825 retired the create-action dialog)."
-      }
-    },
-    {
-      "id": "action-triggers",
-      "group": "actions",
-      "title": "Action triggers",
-      "blurb": "The Triggers tab of an action on a phone: each schedule and event watcher with its device and its switch.",
-      "order": 2,
-      "webMobile": {
-        "route": "/t/$teamSlug/actions/$actionId?tab=triggers",
-        "anchor": {
-          "text": "Daily at 03:00 (device time)",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
-      },
-      "ios": {
-        "shot": "sg_action-triggers",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_action-triggers",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web": "A desktop viewport has no tabs: Triggers is a section of `action-page`.",
-        "desktop": "The desktop app has no tabs: Triggers is a section of `action-page`."
-      }
-    },
-    {
-      "id": "action-runs",
-      "group": "actions",
-      "title": "Action sessions",
-      "blurb": "The Sessions tab of an action on a phone: every session of it, the triggered ones marked with their trigger's glyph.",
-      "order": 3,
-      "webMobile": {
-        "route": "/t/$teamSlug/actions/$actionId?tab=runs",
-        "anchor": {
-          "text": "Nightly test triage",
-          "timeoutMs": 30000
-        },
-        "settleMs": 800
-      },
-      "ios": {
-        "shot": "sg_action-runs",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_action-runs",
-        "lane": "styleguide"
-      },
-      "notes": {
-        "web": "A desktop viewport has no tabs: Sessions is a section of `action-page`.",
-        "desktop": "The desktop app has no tabs: Sessions is a section of `action-page`."
       }
     },
     {
@@ -2084,6 +1825,39 @@
         "desktop": "Web-only: the desktop app has no Import section; the wizard runs in the browser.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
+      }
+    },
+    {
+      "id": "settings-team-agent",
+      "group": "settings",
+      "title": "Settings · Agent",
+      "blurb": "One team agent up close (EXP-1293), laid out like a board's settings page: icon, colour and name in one row, then Device, Account and Schedule, the instructions card and Delete agent. The settings nav lists the team's agents under Boards with New agent.",
+      "order": 23,
+      "web": {
+        "route": "/t/$teamSlug/settings/agents/$agentId",
+        "anchor": {
+          "testId": "agent-settings-page",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-team-agent",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-team-agent",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "agent:$agent"
+        }
+      },
+      "notes": {
+        "web": "`$agentId` resolves to DEMO_AGENT_ID, the Triage agent (on the shared build server, one daily schedule trigger). The instructions are server-only (`sessions.getAgent`), so the card fills after that query."
       }
     },
     {
@@ -4683,7 +4457,7 @@
           "testId": "work-card",
           "timeoutMs": 30000
         },
-        "recipe": "showWorkCards",
+        "recipe": "scrollToWorkCards",
         "settleMs": 1200
       },
       "webMobile": "inherit",
@@ -4706,7 +4480,7 @@
         }
       },
       "notes": {
-        "web": "The `steering` session with Show work on: `showWorkCards` sets the per-user pref (localStorage `exp.showWork:<userId>`), reloads and centres the last subagent's Work card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts: two subagents and a task list, whose card sits in the strip under the transcript). Needs `bun run screenshots:desktop`, like `steering`.",
+        "web": "The raw session view (`session`; EXP-1293: its feed always shows the work, no Show work toggle): `scrollToWorkCards` centres the last subagent's Work card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same cards at full width.",
         "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the relay-fed demo feed's task list (apps/web/scripts/screenshot-desktop.ts) is the Work card in the strip under the transcript; the two subagent cards sit above the fold. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
@@ -4723,7 +4497,7 @@
           "testId": "script-card",
           "timeoutMs": 30000
         },
-        "recipe": "showScriptCard",
+        "recipe": "scrollToScriptCard",
         "settleMs": 1200
       },
       "webMobile": "inherit",
@@ -4747,7 +4521,7 @@
         }
       },
       "notes": {
-        "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a code-mode `exec` call (`mcp__codemode__exec`, toolKind `script`, its settle carrying a 13-call log with one failure and the script source); `showScriptCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web": "The raw session view (`session`; EXP-1293: its feed always shows the work, no Show work toggle): `scrollToScriptCard` centres the code-mode call's Script card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
         "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=script-card`: the transcript parks with the demo feed's code-mode `exec` call (apps/web/scripts/screenshot-desktop.ts) near the top of the viewport instead of on the tail, its calls grouped by tool off the settle's `script` log. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
@@ -4764,7 +4538,7 @@
           "testId": "comment-call-row",
           "timeoutMs": 30000
         },
-        "recipe": "showCommentCard",
+        "recipe": "scrollToCommentCard",
         "settleMs": 1200
       },
       "webMobile": "inherit",
@@ -4787,7 +4561,7 @@
         }
       },
       "notes": {
-        "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a `exponential_comments_create` call whose settle names the seeded `mcp` comment (DEMO_AGENT_COMMENT_ID), so the card is the real synced row; `showCommentCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web": "The raw session view (`session`; EXP-1293: its feed always shows the work, no Show work toggle): `scrollToCommentCard` centres the agent's comment card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
         "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the demo feed's `exponential_comments_create` call draws the seeded `mcp` comment as its card. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
@@ -4825,6 +4599,99 @@
         "web": "The six kinds only show one at a time in the app and only while work is pending or has failed, so the capture is the DEV-ONLY `?dev=feedback-states` on the Agent route (never parsed in a production build: serve `bun dev`, or a `NODE_ENV=development bun run build` under Bun when Caddy drops vite's module requests): `@exp/ui` `FeedbackStatesSpecimen`, the styleguide entry's board, inside the app chrome.",
         "web-mobile": "No phone-browser shot: one kind per row, the phone frame holds four of the six; the natives' `sg_feedback-states` are the phone frames.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:feedback-states`: the IDE styleguide entry `feedback_states.rs` drawn full-window, every kind on its real `feedback` primitive."
+      }
+    },
+    {
+      "id": "threads",
+      "group": "coding",
+      "title": "Threads",
+      "blurb": "Every thread of the team (EXP-1293, threads-list.json): Needs you · Running · Recent bands, one row per root session with its glyph, first issue identifier, title and ONE quiet right word (question, ready to merge, stack, merged) or a lock for a private one. Phones show the team's Agents band on top.",
+      "order": 18,
+      "web": {
+        "route": "/t/$teamSlug/threads",
+        "anchor": {
+          "testId": "threads-list",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_threads",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_threads",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "threads"
+        }
+      },
+      "notes": {
+        "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top."
+      }
+    },
+    {
+      "id": "session",
+      "group": "coding",
+      "title": "Session",
+      "blurb": "The raw session view a session card opens (EXP-1293): the back link to its thread (the root's title), the session title and Stop, the relay-fed feed with the work always shown and the composer that posts to that session. No faces, no issue header.",
+      "order": 19,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "text": "Profile the launch path",
+          "timeoutMs": 30000
+        },
+        "settleMs": 2500
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$session"
+        }
+      },
+      "notes": {
+        "ios": "Not captured (EXP-1299 integration): the iOS screenshot suite has no walk to this screen yet.",
+        "android": "Not captured (EXP-1299 integration): the Android screenshot suite has no walk to this screen yet.",
+        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land."
+      }
+    },
+    {
+      "id": "agent-channel",
+      "group": "coding",
+      "title": "Team agent",
+      "blurb": "A team agent's channel (EXP-1293): a root session of kind agent that never ends. Slack-like comment rows (the agent's reports, a person's request, the agent's reply), a thread it started as ONE session card opening that thread, and the composer `Message <name>`.",
+      "order": 20,
+      "web": {
+        "route": "/t/$teamSlug/agents/$agentId",
+        "anchor": {
+          "text": "Label the Android ones too",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_agent-channel",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_agent-channel",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "agent:$agent"
+        }
+      },
+      "notes": {
+        "web": "`$agentId` resolves to DEMO_AGENT_ID (apps/web/scripts/screenshot-demo.ts), the Triage agent. Its four messages sit at pinned instants (DEMO_AGENT_CHANNEL_TIMES) because the rows print a time of day; the anchor is DEMO_AGENT_REQUEST."
       }
     }
   ]

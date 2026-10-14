@@ -40,10 +40,10 @@ data class CreateIssueInput(
     // writes the `parent` relation in the create's own transaction (the
     // detail's Sub-issues `+`). Omitted when null.
     @SerialName("parentId") val parentId: String? = null,
-    // EXP-1284: file the issue INTO this thread (the thread page's "New issue
-    // in this thread") — the server links it in the create's own transaction,
-    // source `user`. Omitted when null.
-    @SerialName("threadId") val threadId: String? = null,
+    // EXP-1291: file the issue INTO this session's thread (the thread page's
+    // "New issue") — the server links it to the session's ROOT in the
+    // create's own transaction, source `user`. Omitted when null.
+    @SerialName("sessionId") val threadId: String? = null,
 )
 
 @Serializable
@@ -69,24 +69,6 @@ data class UpdateIssueInput(
 
 @Serializable
 data class DeleteIssueInput(val id: String)
-
-@Serializable
-data class ClosePrInput(@SerialName("issueId") val issueId: String)
-
-/**
- * `issues.mergePr` (EXP-498): merge always ends the linked live coding
- * sessions — the server enforces it unconditionally.
- */
-@Serializable
-data class MergePrInput(
-    @SerialName("issueId") val issueId: String,
-    /**
-     * EXP-1145: merge the open STACK chain bottom-up THROUGH the issue named
-     * here, one PR at a time. Omitted (null) = the single merge; the shared
-     * Json drops nulls.
-     */
-    @SerialName("mergeStack") val mergeStack: Boolean? = null,
-)
 
 /**
  * `issues.move` (EXP-57): same-team board move. The server renumbers
@@ -196,41 +178,6 @@ class IssuesApi @Inject constructor(private val trpc: TrpcClient) {
             path = "issues.delete",
             input = DeleteIssueInput(id),
             inputSerializer = DeleteIssueInput.serializer(),
-        )
-    }
-
-    /**
-     * Close the issue's open PR WITHOUT merging (EXP-100 — the reject path
-     * for an issue that got dropped after the work was done). Server-side via
-     * the GitHub App; the `prState` flip arrives through Electric sync.
-     */
-    suspend fun closePr(accountId: String, issueId: String) {
-        trpc.mutationUnit(
-            accountId,
-            path = "issues.closePr",
-            input = ClosePrInput(issueId),
-            inputSerializer = ClosePrInput.serializer(),
-        )
-    }
-
-    /**
-     * Squash-merge the issue's open PR via the GitHub App (EXP-131 Reviews).
-     * For a batch PR (one prUrl linked to several issues) pass the
-     * representative issue's id — the server resolves the PR to ALL linked
-     * issues and completes them together; the `done` flip arrives via Electric.
-     *
-     * Merge always ends the linked live coding sessions (EXP-498) — the rows
-     * drop out of the live lists via sync.
-     *
-     * EXP-1145: [mergeStack] merges the open stack bottom-up up to and
-     * including [issueId] (the top member's id = the whole stack).
-     */
-    suspend fun mergePr(accountId: String, issueId: String, mergeStack: Boolean = false) {
-        trpc.mutationUnit(
-            accountId,
-            path = "issues.mergePr",
-            input = MergePrInput(issueId, mergeStack = if (mergeStack) true else null),
-            inputSerializer = MergePrInput.serializer(),
         )
     }
 

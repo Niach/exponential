@@ -806,13 +806,12 @@ impl TurnSignal {
 }
 
 /// EXP-850 §8: the in-process workflow CAPTION of a run hosted right here —
-/// the desktop's own session rows read this instead of waiting for the
-/// `coding_sessions.agent_caption` column the very same process just wrote
-/// (the `agent_busy` precedence rule, applied to the caption).
+/// the desktop's own session rows read it for a run they host. EXP-1292: it
+/// is LOCAL only now; the synced `agent_caption` column and its forwarder
+/// are gone (a `sessions` row carries no caption).
 ///
-/// A plain mutexed slot rather than an atomic: it holds a string, it moves at
-/// most once every [`CAPTION_WRITE_INTERVAL`], and nothing reads it on the hot
-/// event path.
+/// A plain mutexed slot rather than an atomic: it holds a string and nothing
+/// reads it on the hot event path.
 #[derive(Debug, Default)]
 pub struct CaptionSignal {
     caption: Mutex<Option<String>>,
@@ -848,87 +847,12 @@ impl CaptionSignal {
 
 /// EXP-906: the caption a RESUMED run wears until its first prompt. A resume
 /// re-enters the recorded run through `session/load` and spawns the agent
-/// process only on the next message (EXP-784), so the row is `running`,
-/// `agent_busy` false and the transcript idle — indistinguishable, on every
-/// client, from a run that hung. The engine sets this on the caption signal
-/// right after the load and clears it on the first turn start; every client
-/// already renders the column on a live row, so nothing else changes.
+/// process only on the next message (EXP-784), so the transcript sits idle
+/// in between. The engine sets this on the (local, EXP-1292) caption signal
+/// right after the load and clears it on the first turn start.
 pub const RESUMED_IDLE_CAPTION: &str = "Resumed, waiting for a message";
 
-/// EXP-850 §8: the synced `coding_sessions.agent_caption` column, written at
-/// most this often — a workflow's progress moves several times a second and
-/// the column is a session-list second line, not a telemetry stream.
-pub const CAPTION_WRITE_INTERVAL: Duration = Duration::from_secs(5);
-
-/// EXP-850 §8: the caption forwarder — the [`NeedsInputForwarder`] rule plus a
-/// rate limit. Writes only on CHANGE, never more than once per
-/// [`CAPTION_WRITE_INTERVAL`], and clears at teardown.
-pub struct CaptionForwarder {
-    forwarded: Option<Option<String>>,
-    next_write_at: Option<Instant>,
-}
-
-pub type CaptionHook = Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>;
-
-impl CaptionForwarder {
-    pub fn new() -> Self {
-        Self {
-            // A session row is born with a NULL caption, so that is the state
-            // the forwarder starts from and never has to write.
-            forwarded: Some(None),
-            next_write_at: None,
-        }
-    }
-
-    /// One tick. `caption` is the newest running workflow's caption, `None`
-    /// when none runs (at turn end and at teardown that is exactly what the
-    /// caller passes).
-    pub fn tick(&mut self, caption: Option<&str>, hook: &Option<CaptionHook>) {
-        self.tick_at(Instant::now(), caption, hook)
-    }
-
-    /// [`Self::tick`] with the clock injected — the pure half, so the rate
-    /// limit is testable without sleeping.
-    pub fn tick_at(
-        &mut self,
-        now: Instant,
-        caption: Option<&str>,
-        hook: &Option<CaptionHook>,
-    ) {
-        let wanted = caption.map(str::to_string);
-        if self.forwarded.as_ref() == Some(&wanted) {
-            return;
-        }
-        if self.next_write_at.is_some_and(|at| now < at) {
-            return;
-        }
-        let landed = match hook {
-            Some(hook) => hook(wanted.as_deref()),
-            None => true,
-        };
-        self.forwarded = landed.then(|| wanted.clone());
-        // A landed write holds the floor for the interval; a failed one is
-        // retried on the next tick like every other forwarder here.
-        self.next_write_at = landed.then(|| now + CAPTION_WRITE_INTERVAL);
-    }
-
-    /// Teardown tidiness: a session whose engine is gone runs no workflow.
-    pub fn clear_on_teardown(&mut self, hook: &Option<CaptionHook>) {
-        if self.forwarded.as_ref() != Some(&None) {
-            if let Some(hook) = hook {
-                hook(None);
-            }
-        }
-    }
-}
-
-impl Default for CaptionForwarder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// EXP-905: the `coding_sessions.agent_title` column's bound. Counted in
+/// EXP-905: the agent title's bound (EXP-1292: `sessions.report{title}`). Counted in
 /// UTF-16 units, the server's zod `max(255)` unit (never looser than the
 /// column's own character count), so a capped title is never refused.
 pub const AGENT_TITLE_MAX: usize = 255;
@@ -963,7 +887,8 @@ pub type AgentTitleSignal = CaptionSignal;
 
 pub type AgentTitleHook = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
-/// EXP-905: the agent-title forwarder. Writes only on CHANGE, only ever a
+/// EXP-905: the agent-title forwarder (EXP-1292: the hook writes
+/// `sessions.report{title}`). Writes only on CHANGE, only ever a
 /// title (never a clear: the name outlives the run, so there is no teardown
 /// write either), and retries a failed write after
 /// [`AGENT_TITLE_RETRY_INTERVAL`] — or at once when the title moves again.
@@ -1139,7 +1064,77 @@ impl NeedsInputForwarder {
     }
 }
 
-/// EXP-804: the agent's usage wall as the synced row records it. The device
+/// EXP-1292: the synced `sessions.status` a live engine owns — `running`
+/// while a turn is open, `idle` between turns (the row then waits for the
+/// next `messages` row). Driven off the [`TurnSignal`] edge and written with
+/// `sessions.report{status}`; the terminal `ended` (threads) / `idle`
+/// (agents) at engine exit is the lifecycle's own write, never this one's.
+///
+/// The [`NeedsInputForwarder`] rule: the last CONFIRMED server value (`None`
+/// = unknown, or the last write failed and wants a retry), written on
+/// flips only, an unconfirmed write re-attempted every [`NEEDS_INPUT_RETRY`].
+pub struct StatusForwarder {
+    forwarded: Option<api::session_device::ReportStatus>,
+    retry_at: Option<Instant>,
+}
+
+/// Returns whether the write landed.
+pub type StatusHook = Arc<dyn Fn(api::session_device::ReportStatus) -> bool + Send + Sync>;
+
+impl StatusForwarder {
+    /// Starts UNKNOWN: the first tick writes whatever the turn edge says.
+    /// A claimed row reads `running`, but a natively RESUMED row is still
+    /// `idle` server-side (a resume claims nothing), so the forwarder never
+    /// assumes either.
+    pub fn new() -> Self {
+        Self {
+            forwarded: None,
+            retry_at: None,
+        }
+    }
+
+    /// The status a turn edge maps to.
+    pub fn status_for(idle: bool) -> api::session_device::ReportStatus {
+        if idle {
+            api::session_device::ReportStatus::Idle
+        } else {
+            api::session_device::ReportStatus::Running
+        }
+    }
+
+    /// One tick: `idle` = the [`TurnSignal`] says the agent is between turns.
+    pub fn tick(&mut self, idle: bool, hook: &Option<StatusHook>) {
+        self.tick_at(Instant::now(), idle, hook)
+    }
+
+    /// [`Self::tick`] with the clock injected.
+    pub fn tick_at(&mut self, now: Instant, idle: bool, hook: &Option<StatusHook>) {
+        let wanted = Self::status_for(idle);
+        if self.forwarded == Some(wanted) || self.retry_at.is_some_and(|at| now < at) {
+            return;
+        }
+        let landed = match hook {
+            Some(hook) => hook(wanted),
+            None => true,
+        };
+        self.forwarded = landed.then_some(wanted);
+        self.retry_at = (!landed).then(|| now + NEEDS_INPUT_RETRY);
+    }
+
+    /// The last status the server confirmed (`None` = unknown / unconfirmed).
+    pub fn forwarded(&self) -> Option<api::session_device::ReportStatus> {
+        self.forwarded
+    }
+}
+
+impl Default for StatusForwarder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// EXP-804: the agent's usage wall as the synced row records it
+/// (EXP-1292: `sessions.blocked`, written with `sessions.report`). The device
 /// is the only thing that can see it (the agent reports the wall on its own
 /// stream), and a walled run keeps status `running` with a moving
 /// `updated_at`, so without this write a rate-limited run is indistinguishable
@@ -1158,6 +1153,22 @@ pub struct SessionBlocked {
     pub window: String,
     pub resets_at: Option<String>,
     pub since: String,
+}
+
+impl SessionBlocked {
+    /// EXP-1292: the `sessions.report{blocked}` wire value. `handled` is the
+    /// EXP-1005 verdict (the device rotates or waits the wall out itself, so
+    /// the server sends no rate-limit notification); `None` = it notifies.
+    pub fn report_input(&self, handled: Option<bool>) -> api::session_device::BlockedInput {
+        api::session_device::BlockedInput {
+            kind: self.kind.clone(),
+            agent: self.agent.clone(),
+            window: self.window.clone(),
+            resets_at: self.resets_at.clone(),
+            since: self.since.clone(),
+            handled,
+        }
+    }
 }
 
 /// EXP-831 (release-review follow-up): whether a wall's own reset stamp has
@@ -2113,49 +2124,6 @@ mod exp850_caption_tests {
         assert!(signal.set(None));
         assert_eq!(signal.get(), None);
     }
-
-    /// EXP-850 §8: one write per change AND at most one per
-    /// [`CAPTION_WRITE_INTERVAL`]; a failed write is retried on the next tick.
-    #[test]
-    fn the_caption_forwarder_writes_on_change_and_rate_limits() {
-        let writes: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(Vec::new()));
-        let landed = Arc::new(AtomicBool::new(true));
-        let hook: Option<CaptionHook> = {
-            let writes = Arc::clone(&writes);
-            let landed = Arc::clone(&landed);
-            Some(Arc::new(move |caption: Option<&str>| {
-                writes.lock().unwrap().push(caption.map(str::to_string));
-                landed.load(Ordering::Relaxed)
-            }))
-        };
-        let mut forwarder = CaptionForwarder::new();
-        let start = Instant::now();
-        // The row is born NULL: nothing to write.
-        forwarder.tick_at(start, None, &hook);
-        assert!(writes.lock().unwrap().is_empty());
-        forwarder.tick_at(start, Some("one"), &hook);
-        // Unchanged, and inside the interval: silent either way.
-        forwarder.tick_at(start, Some("one"), &hook);
-        forwarder.tick_at(start, Some("two"), &hook);
-        assert_eq!(
-            writes.lock().unwrap().clone(),
-            vec![Some("one".to_string())]
-        );
-        // Past the interval the change lands.
-        let later = start + CAPTION_WRITE_INTERVAL;
-        forwarder.tick_at(later, Some("two"), &hook);
-        assert_eq!(writes.lock().unwrap().len(), 2);
-        // A failed write is NOT confirmed, so the next tick retries it at once.
-        landed.store(false, Ordering::Relaxed);
-        let later = later + CAPTION_WRITE_INTERVAL;
-        forwarder.tick_at(later, None, &hook);
-        forwarder.tick_at(later, None, &hook);
-        assert_eq!(writes.lock().unwrap().len(), 4);
-        // Teardown clears whatever is still standing.
-        landed.store(true, Ordering::Relaxed);
-        forwarder.clear_on_teardown(&hook);
-        assert_eq!(writes.lock().unwrap().last().cloned(), Some(None));
-    }
 }
 
 #[cfg(test)]
@@ -2223,5 +2191,94 @@ mod exp905_agent_title_tests {
             writes.lock().unwrap().clone(),
             vec!["one", "two", "three", "three"]
         );
+    }
+}
+
+#[cfg(test)]
+mod exp1292_status_tests {
+    use super::*;
+    use api::session_device::ReportStatus;
+
+    fn recording_hook(
+        landed: &Arc<AtomicBool>,
+    ) -> (Arc<Mutex<Vec<ReportStatus>>>, Option<StatusHook>) {
+        let writes: Arc<Mutex<Vec<ReportStatus>>> = Arc::new(Mutex::new(Vec::new()));
+        let hook: StatusHook = {
+            let writes = Arc::clone(&writes);
+            let landed = Arc::clone(landed);
+            Arc::new(move |status| {
+                writes.lock().unwrap().push(status);
+                landed.load(Ordering::Relaxed)
+            })
+        };
+        (writes, Some(hook))
+    }
+
+    /// EXP-1292: the turn edge maps to running/idle, written on flips only;
+    /// the first tick always writes (the forwarder starts unknown).
+    #[test]
+    fn the_status_forwarder_writes_turn_edges_once() {
+        let landed = Arc::new(AtomicBool::new(true));
+        let (writes, hook) = recording_hook(&landed);
+        let mut forwarder = StatusForwarder::new();
+        assert_eq!(forwarder.forwarded(), None);
+        let now = Instant::now();
+        forwarder.tick_at(now, false, &hook);
+        forwarder.tick_at(now, false, &hook);
+        forwarder.tick_at(now, true, &hook);
+        forwarder.tick_at(now, true, &hook);
+        forwarder.tick_at(now, false, &hook);
+        assert_eq!(
+            writes.lock().unwrap().clone(),
+            vec![ReportStatus::Running, ReportStatus::Idle, ReportStatus::Running]
+        );
+        assert_eq!(forwarder.forwarded(), Some(ReportStatus::Running));
+    }
+
+    /// A failed write stays unconfirmed and is retried after the backoff,
+    /// not on every 1 s tick.
+    #[test]
+    fn a_failed_status_write_is_retried_after_the_backoff() {
+        let landed = Arc::new(AtomicBool::new(false));
+        let (writes, hook) = recording_hook(&landed);
+        let mut forwarder = StatusForwarder::new();
+        let now = Instant::now();
+        forwarder.tick_at(now, true, &hook);
+        forwarder.tick_at(now + Duration::from_secs(1), true, &hook);
+        assert_eq!(writes.lock().unwrap().len(), 1);
+        assert_eq!(forwarder.forwarded(), None);
+        landed.store(true, Ordering::Relaxed);
+        forwarder.tick_at(now + NEEDS_INPUT_RETRY, true, &hook);
+        assert_eq!(
+            writes.lock().unwrap().clone(),
+            vec![ReportStatus::Idle, ReportStatus::Idle]
+        );
+        assert_eq!(forwarder.forwarded(), Some(ReportStatus::Idle));
+    }
+
+    /// The wall rides `sessions.report{blocked}` verbatim, plus the EXP-1005
+    /// `handled` verdict.
+    #[test]
+    fn a_wall_maps_onto_the_report_input() {
+        let wall = SessionBlocked {
+            kind: BLOCKED_KIND_RATE_LIMIT.to_string(),
+            agent: "claude".to_string(),
+            window: BLOCKED_WINDOW_SESSION.to_string(),
+            resets_at: Some("2030-01-01T00:00:00.000Z".to_string()),
+            since: "2029-12-31T23:00:00.000Z".to_string(),
+        };
+        let input = wall.report_input(Some(true));
+        assert_eq!(
+            serde_json::to_value(&input).unwrap(),
+            serde_json::json!({
+                "kind": "rate_limit",
+                "agent": "claude",
+                "window": "session",
+                "resetsAt": "2030-01-01T00:00:00.000Z",
+                "since": "2029-12-31T23:00:00.000Z",
+                "handled": true,
+            })
+        );
+        assert_eq!(wall.report_input(None).handled, None);
     }
 }

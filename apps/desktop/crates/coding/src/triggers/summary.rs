@@ -1,6 +1,6 @@
 //! Human-readable trigger sentences (EXP-530), shared by the desktop GUI
 //! and the CLI so both surfaces speak identical copy. [`schedule_phrase`]
-//! is lowercase (it embeds mid-sentence in the trigger prompt section);
+//! is lowercase (it embeds mid-sentence in the firing message);
 //! [`trigger_summary`] is the standalone list-row sentence.
 
 use super::trigger::{ParsedTrigger, Schedule, ScheduleInterval, TriggerKind};

@@ -96,6 +96,7 @@
                 <data android:pathPattern="/t/.*/boards/.*/issues/.*" />
                 <data android:pathPattern="/t/.*/agent" />
                 <data android:pathPattern="/t/.*/threads/.*" />
+                <data android:pathPattern="/t/.*/sessions/.*" />
                 <data android:pathPrefix="/invite/" />
             </intent-filter>
 

@@ -89,8 +89,8 @@ import { Route as AuthenticatedAdminPerformanceRouteImport } from './routes/_aut
 import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
+import { Route as TTeamSlugThreadsIndexRouteImport } from './routes/t/$teamSlug/threads/index'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
-import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugActionsIndexRouteImport } from './routes/t/$teamSlug/actions/index'
@@ -111,6 +111,7 @@ import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSl
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
+import { Route as TTeamSlugAgentsAgentIdRouteImport } from './routes/t/$teamSlug/agents/$agentId'
 import { Route as TTeamSlugActionsActionIdRouteImport } from './routes/t/$teamSlug/actions/$actionId'
 import { Route as ApiTeamsTeamIdSessionFilesRouteImport } from './routes/api/teams/$teamId/session-files'
 import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sessions/$sessionId/files'
@@ -120,9 +121,12 @@ import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/i
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
 import { Route as TTeamSlugSettingsBoardsIndexRouteImport } from './routes/t/$teamSlug/settings/boards/index'
+import { Route as TTeamSlugSettingsAgentsIndexRouteImport } from './routes/t/$teamSlug/settings/agents/index'
 import { Route as TTeamSlugBoardsBoardSlugIndexRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/index'
 import { Route as TTeamSlugSettingsBoardsArchivedRouteImport } from './routes/t/$teamSlug/settings/boards/archived'
 import { Route as TTeamSlugSettingsBoardsBoardIdRouteImport } from './routes/t/$teamSlug/settings/boards/$boardId'
+import { Route as TTeamSlugSettingsAgentsNewRouteImport } from './routes/t/$teamSlug/settings/agents/new'
+import { Route as TTeamSlugSettingsAgentsAgentIdRouteImport } from './routes/t/$teamSlug/settings/agents/$agentId'
 import { Route as TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
 
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
@@ -538,15 +542,15 @@ const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
   path: '/settings',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugThreadsIndexRoute = TTeamSlugThreadsIndexRouteImport.update({
+  id: '/threads/',
+  path: '/threads/',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugSettingsIndexRoute = TTeamSlugSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => TTeamSlugSettingsRouteRoute,
-} as any)
-const TTeamSlugReviewsIndexRoute = TTeamSlugReviewsIndexRouteImport.update({
-  id: '/reviews/',
-  path: '/reviews/',
-  getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugInboxIndexRoute = TTeamSlugInboxIndexRouteImport.update({
   id: '/inbox/',
@@ -660,6 +664,11 @@ const TTeamSlugDraftsDraftIdRoute = TTeamSlugDraftsDraftIdRouteImport.update({
   path: '/drafts/$draftId',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugAgentsAgentIdRoute = TTeamSlugAgentsAgentIdRouteImport.update({
+  id: '/agents/$agentId',
+  path: '/agents/$agentId',
+  getParentRoute: () => TTeamSlugRouteRoute,
+} as any)
 const TTeamSlugActionsActionIdRoute =
   TTeamSlugActionsActionIdRouteImport.update({
     id: '/actions/$actionId',
@@ -713,6 +722,12 @@ const TTeamSlugSettingsBoardsIndexRoute =
     path: '/boards/',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
+const TTeamSlugSettingsAgentsIndexRoute =
+  TTeamSlugSettingsAgentsIndexRouteImport.update({
+    id: '/agents/',
+    path: '/agents/',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
 const TTeamSlugBoardsBoardSlugIndexRoute =
   TTeamSlugBoardsBoardSlugIndexRouteImport.update({
     id: '/boards/$boardSlug/',
@@ -729,6 +744,18 @@ const TTeamSlugSettingsBoardsBoardIdRoute =
   TTeamSlugSettingsBoardsBoardIdRouteImport.update({
     id: '/boards/$boardId',
     path: '/boards/$boardId',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsAgentsNewRoute =
+  TTeamSlugSettingsAgentsNewRouteImport.update({
+    id: '/agents/new',
+    path: '/agents/new',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsAgentsAgentIdRoute =
+  TTeamSlugSettingsAgentsAgentIdRouteImport.update({
+    id: '/agents/$agentId',
+    path: '/agents/$agentId',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute =
@@ -826,6 +853,7 @@ export interface FileRoutesByFullPath {
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
+  '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -846,11 +874,14 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
-  '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
+  '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/settings/agents/': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/boards/': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -939,6 +970,7 @@ export interface FileRoutesByTo {
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
+  '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -959,11 +991,14 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/actions': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
-  '/t/$teamSlug/reviews': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/threads': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
+  '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/settings/agents': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -1057,6 +1092,7 @@ export interface FileRoutesById {
   '/api/sessions/$sessionId/files': typeof ApiSessionsSessionIdFilesRoute
   '/api/teams/$teamId/session-files': typeof ApiTeamsTeamIdSessionFilesRoute
   '/t/$teamSlug/actions/$actionId': typeof TTeamSlugActionsActionIdRoute
+  '/t/$teamSlug/agents/$agentId': typeof TTeamSlugAgentsAgentIdRoute
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
@@ -1077,11 +1113,14 @@ export interface FileRoutesById {
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
-  '/t/$teamSlug/reviews/': typeof TTeamSlugReviewsIndexRoute
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
+  '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
+  '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
+  '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
+  '/t/$teamSlug/settings/agents/': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/boards/': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -1175,6 +1214,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
+    | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1195,11 +1235,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
-    | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
+    | '/t/$teamSlug/threads/'
+    | '/t/$teamSlug/settings/agents/$agentId'
+    | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
+    | '/t/$teamSlug/settings/agents/'
     | '/t/$teamSlug/settings/boards/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   fileRoutesByTo: FileRoutesByTo
@@ -1288,6 +1331,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
+    | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1308,11 +1352,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/drafts'
     | '/t/$teamSlug/inbox'
-    | '/t/$teamSlug/reviews'
     | '/t/$teamSlug/settings'
+    | '/t/$teamSlug/threads'
+    | '/t/$teamSlug/settings/agents/$agentId'
+    | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug'
+    | '/t/$teamSlug/settings/agents'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   id:
@@ -1405,6 +1452,7 @@ export interface FileRouteTypes {
     | '/api/sessions/$sessionId/files'
     | '/api/teams/$teamId/session-files'
     | '/t/$teamSlug/actions/$actionId'
+    | '/t/$teamSlug/agents/$agentId'
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
@@ -1425,11 +1473,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
-    | '/t/$teamSlug/reviews/'
     | '/t/$teamSlug/settings/'
+    | '/t/$teamSlug/threads/'
+    | '/t/$teamSlug/settings/agents/$agentId'
+    | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/boards/$boardSlug/'
+    | '/t/$teamSlug/settings/agents/'
     | '/t/$teamSlug/settings/boards/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
   fileRoutesById: FileRoutesById
@@ -2070,19 +2121,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsRouteRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/threads/': {
+      id: '/t/$teamSlug/threads/'
+      path: '/threads'
+      fullPath: '/t/$teamSlug/threads/'
+      preLoaderRoute: typeof TTeamSlugThreadsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/settings/': {
       id: '/t/$teamSlug/settings/'
       path: '/'
       fullPath: '/t/$teamSlug/settings/'
       preLoaderRoute: typeof TTeamSlugSettingsIndexRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/reviews/': {
-      id: '/t/$teamSlug/reviews/'
-      path: '/reviews'
-      fullPath: '/t/$teamSlug/reviews/'
-      preLoaderRoute: typeof TTeamSlugReviewsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/inbox/': {
       id: '/t/$teamSlug/inbox/'
@@ -2224,6 +2275,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugDraftsDraftIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
+    '/t/$teamSlug/agents/$agentId': {
+      id: '/t/$teamSlug/agents/$agentId'
+      path: '/agents/$agentId'
+      fullPath: '/t/$teamSlug/agents/$agentId'
+      preLoaderRoute: typeof TTeamSlugAgentsAgentIdRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
     '/t/$teamSlug/actions/$actionId': {
       id: '/t/$teamSlug/actions/$actionId'
       path: '/actions/$actionId'
@@ -2287,6 +2345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsBoardsIndexRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/t/$teamSlug/settings/agents/': {
+      id: '/t/$teamSlug/settings/agents/'
+      path: '/agents'
+      fullPath: '/t/$teamSlug/settings/agents/'
+      preLoaderRoute: typeof TTeamSlugSettingsAgentsIndexRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/boards/$boardSlug/': {
       id: '/t/$teamSlug/boards/$boardSlug/'
       path: '/boards/$boardSlug'
@@ -2306,6 +2371,20 @@ declare module '@tanstack/react-router' {
       path: '/boards/$boardId'
       fullPath: '/t/$teamSlug/settings/boards/$boardId'
       preLoaderRoute: typeof TTeamSlugSettingsBoardsBoardIdRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/agents/new': {
+      id: '/t/$teamSlug/settings/agents/new'
+      path: '/agents/new'
+      fullPath: '/t/$teamSlug/settings/agents/new'
+      preLoaderRoute: typeof TTeamSlugSettingsAgentsNewRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/agents/$agentId': {
+      id: '/t/$teamSlug/settings/agents/$agentId'
+      path: '/agents/$agentId'
+      fullPath: '/t/$teamSlug/settings/agents/$agentId'
+      preLoaderRoute: typeof TTeamSlugSettingsAgentsAgentIdRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': {
@@ -2382,8 +2461,11 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsStorageRoute: typeof TTeamSlugSettingsStorageRoute
   TTeamSlugSettingsWidgetRoute: typeof TTeamSlugSettingsWidgetRoute
   TTeamSlugSettingsIndexRoute: typeof TTeamSlugSettingsIndexRoute
+  TTeamSlugSettingsAgentsAgentIdRoute: typeof TTeamSlugSettingsAgentsAgentIdRoute
+  TTeamSlugSettingsAgentsNewRoute: typeof TTeamSlugSettingsAgentsNewRoute
   TTeamSlugSettingsBoardsBoardIdRoute: typeof TTeamSlugSettingsBoardsBoardIdRoute
   TTeamSlugSettingsBoardsArchivedRoute: typeof TTeamSlugSettingsBoardsArchivedRoute
+  TTeamSlugSettingsAgentsIndexRoute: typeof TTeamSlugSettingsAgentsIndexRoute
   TTeamSlugSettingsBoardsIndexRoute: typeof TTeamSlugSettingsBoardsIndexRoute
 }
 
@@ -2404,8 +2486,11 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsStorageRoute: TTeamSlugSettingsStorageRoute,
     TTeamSlugSettingsWidgetRoute: TTeamSlugSettingsWidgetRoute,
     TTeamSlugSettingsIndexRoute: TTeamSlugSettingsIndexRoute,
+    TTeamSlugSettingsAgentsAgentIdRoute: TTeamSlugSettingsAgentsAgentIdRoute,
+    TTeamSlugSettingsAgentsNewRoute: TTeamSlugSettingsAgentsNewRoute,
     TTeamSlugSettingsBoardsBoardIdRoute: TTeamSlugSettingsBoardsBoardIdRoute,
     TTeamSlugSettingsBoardsArchivedRoute: TTeamSlugSettingsBoardsArchivedRoute,
+    TTeamSlugSettingsAgentsIndexRoute: TTeamSlugSettingsAgentsIndexRoute,
     TTeamSlugSettingsBoardsIndexRoute: TTeamSlugSettingsBoardsIndexRoute,
   }
 
@@ -2420,13 +2505,14 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugDevicesRoute: typeof TTeamSlugDevicesRoute
   TTeamSlugIndexRoute: typeof TTeamSlugIndexRoute
   TTeamSlugActionsActionIdRoute: typeof TTeamSlugActionsActionIdRoute
+  TTeamSlugAgentsAgentIdRoute: typeof TTeamSlugAgentsAgentIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
   TTeamSlugThreadsThreadIdRoute: typeof TTeamSlugThreadsThreadIdRoute
   TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
   TTeamSlugDraftsIndexRoute: typeof TTeamSlugDraftsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
-  TTeamSlugReviewsIndexRoute: typeof TTeamSlugReviewsIndexRoute
+  TTeamSlugThreadsIndexRoute: typeof TTeamSlugThreadsIndexRoute
   TTeamSlugBoardsBoardSlugIndexRoute: typeof TTeamSlugBoardsBoardSlugIndexRoute
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute: typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
 }
@@ -2437,13 +2523,14 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugDevicesRoute: TTeamSlugDevicesRoute,
   TTeamSlugIndexRoute: TTeamSlugIndexRoute,
   TTeamSlugActionsActionIdRoute: TTeamSlugActionsActionIdRoute,
+  TTeamSlugAgentsAgentIdRoute: TTeamSlugAgentsAgentIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
   TTeamSlugThreadsThreadIdRoute: TTeamSlugThreadsThreadIdRoute,
   TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,
   TTeamSlugDraftsIndexRoute: TTeamSlugDraftsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
-  TTeamSlugReviewsIndexRoute: TTeamSlugReviewsIndexRoute,
+  TTeamSlugThreadsIndexRoute: TTeamSlugThreadsIndexRoute,
   TTeamSlugBoardsBoardSlugIndexRoute: TTeamSlugBoardsBoardSlugIndexRoute,
   TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute:
     TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute,

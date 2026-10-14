@@ -15,15 +15,15 @@ pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
         |window, cx| {
             let actions = vec![
                 crate::picker::action_picker::ActionPickerAction {
-                    id: "builtin:fix-conflicts".to_string(),
-                    name: "Fix merge conflicts".to_string(),
-                    icon: Some("wrench".to_string()),
-                    description: Some("Rebase, resolve, force-push".to_string()),
+                    id: "action-release-notes".to_string(),
+                    name: "Release notes".to_string(),
+                    icon: Some("rocket".to_string()),
+                    description: Some("Draft the notes from the merged pull requests".to_string()),
                 },
                 crate::picker::action_picker::ActionPickerAction {
-                    id: "builtin:create-action".to_string(),
-                    name: "Create action".to_string(),
-                    icon: Some("sparkles".to_string()),
+                    id: "action-triage".to_string(),
+                    name: "Triage the inbox".to_string(),
+                    icon: Some("bug".to_string()),
                     description: None,
                 },
             ];

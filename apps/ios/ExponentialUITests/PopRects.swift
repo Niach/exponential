@@ -38,8 +38,8 @@ enum PopRects {
     /// `agent-composer-headline` (EXP-1038: the run's subject moved out of the
     /// card, so the pop-out has to take it in) + `agent-composer` +
     /// `agent-options-row`, `agent-feed-question`,
-    /// `work-merge-pr` (EXP-1154: the Work screen's white Merge capsule on
-    /// the Changes face's bar), `notification-row`, plus the pre-existing `issue-row-*`,
+    /// `work-merge-pr` (EXP-1154: the white Merge capsule; EXP-1295: on the
+    /// thread Guide's diff page), `notification-row`, plus the pre-existing `issue-row-*`,
     /// `action-row`) and are mirrored 1:1 as Android
     /// testTags — see `PopRects.kt`.
     static let identifiers: [String: [String]] = [

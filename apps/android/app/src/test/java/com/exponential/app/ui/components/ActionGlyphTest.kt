@@ -1,7 +1,6 @@
 package com.exponential.app.ui.components
 
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.data.api.builtinCreateAction
 import com.exponential.app.ui.icons.ExpIcons
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -43,12 +42,5 @@ class ActionGlyphTest {
     @Test
     fun `a missing action falls back to the generic action mark`() {
         assertEquals(ExpIcons.actionDefault, actionGlyph(null))
-    }
-
-    /** A builtin carries a curated icon too — it is not a special case. */
-    @Test
-    fun `the builtin creator draws its own glyph`() {
-        val builtin = builtinCreateAction("t1")
-        assertEquals(ExpIcons.byName(builtin.icon!!), actionGlyph(builtin))
     }
 }

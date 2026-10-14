@@ -1,6 +1,6 @@
 package com.exponential.app.domain
 
-import com.exponential.app.data.db.CodingSessionEntity
+import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.DeviceEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,13 +18,11 @@ class SessionDevicePresentationTest {
         deviceId: String? = null,
         deviceLabel: String? = null,
         userId: String = "me",
-    ) = CodingSessionEntity(
+    ) = SessionEntity(
         id = "sess-1",
-        issueId = "issue-1",
         teamId = "team-1",
         userId = userId,
-        deviceLabel = deviceLabel,
-        deviceId = deviceId,
+        deviceId = deviceId.orEmpty(),
         startedAt = "2026-08-19T09:00:00Z",
         createdAt = "2026-08-19T09:00:00Z",
         updatedAt = "2026-08-19T09:00:00Z",
@@ -74,19 +72,19 @@ class SessionDevicePresentationTest {
     @Test
     fun `only the stamped device_id resolves a row — never the label`() {
         val devices = listOf(device("row-1", "dev-1", "macbook", lastSeenAt = iso(-10 * 60_000)))
-        // Stamped but unknown machine: no row, so the snapshot renders and
-        // presence stays unknown (never a fake pause).
+        // Stamped but unknown machine: no row, so no label and presence
+        // stays unknown (never a fake pause).
         val stamped = resolveSessionDevice(
             session(deviceId = "dev-gone", deviceLabel = "macbook"),
             devices,
             nowMs,
         )
-        assertEquals("macbook", stamped.label)
+        assertEquals(null, stamped.label)
         assertFalse(stamped.offline)
         // EXP-560: no device_id resolves nothing at all, even when exactly one
         // row still carries the snapshot label — the guess is gone.
         val unstamped = resolveSessionDevice(session(deviceLabel = "macbook"), devices, nowMs)
-        assertEquals("macbook", unstamped.label)
+        assertEquals(null, unstamped.label)
         assertFalse(unstamped.offline)
     }
 
@@ -106,11 +104,10 @@ class SessionDevicePresentationTest {
             nowMs,
         )
         assertTrue(offline.offline)
-        assertTrue(offline.isPaused(CodingSessionDisplayState.Working))
-        assertTrue(offline.isPaused(CodingSessionDisplayState.NeedsInput))
-        assertFalse(offline.isPaused(CodingSessionDisplayState.Review))
-        assertTrue(offline.isPaused(CodingSessionDisplayState.Done, "running"))
-        assertFalse(offline.isPaused(CodingSessionDisplayState.Done, "in_review"))
+        assertTrue(offline.isPaused(SessionTree.SessionState.Working))
+        assertTrue(offline.isPaused(SessionTree.SessionState.NeedsYou))
+        assertTrue(offline.isPaused(SessionTree.SessionState.Waiting))
+        assertFalse(offline.isPaused(SessionTree.SessionState.Ended))
 
         val online = resolveSessionDevice(
             session(deviceId = "dev-1", deviceLabel = "macbook"),
@@ -118,7 +115,7 @@ class SessionDevicePresentationTest {
             nowMs,
         )
         assertFalse(online.offline)
-        assertFalse(online.isPaused(CodingSessionDisplayState.Working))
+        assertFalse(online.isPaused(SessionTree.SessionState.Working))
     }
 
     // ── EXP-656: presence is unknown while our own devices cursor is stale ───
@@ -136,8 +133,8 @@ class SessionDevicePresentationTest {
         )
         assertEquals(null, resolved.online)
         assertFalse(resolved.offline)
-        assertFalse(resolved.isPaused(CodingSessionDisplayState.Working))
-        assertFalse(resolved.isPaused(CodingSessionDisplayState.NeedsInput))
+        assertFalse(resolved.isPaused(SessionTree.SessionState.Working))
+        assertFalse(resolved.isPaused(SessionTree.SessionState.NeedsYou))
         // The label still resolves off the live row — only presence is unknown.
         assertEquals("macbook", resolved.label)
     }
@@ -166,7 +163,7 @@ class SessionDevicePresentationTest {
         )
         assertEquals(false, resolved.online)
         assertTrue(resolved.offline)
-        assertTrue(resolved.isPaused(CodingSessionDisplayState.Working))
+        assertTrue(resolved.isPaused(SessionTree.SessionState.Working))
     }
 
     @Test

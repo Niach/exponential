@@ -1484,7 +1484,7 @@
           "component": "Row",
           "props": {
             "title": "Reviews",
-            "icon": "nav-reviews",
+            "icon": "pr-open",
             "pressable": true
           }
         }

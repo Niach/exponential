@@ -36,11 +36,6 @@ final class IssueSortingTests: XCTestCase {
             sortOrder: sortOrder,
             completedAt: completedAt,
             duplicateOfId: nil,
-            prUrl: nil,
-            prNumber: nil,
-            prState: nil,
-            branch: nil,
-            prMergedAt: nil,
             createdAt: "2026-06-01 10:00:00+00",
             updatedAt: updatedAt
         )

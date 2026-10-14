@@ -1,18 +1,22 @@
 import { additionsLabel, deletionsLabel, type DiffFile } from "@exp/domain-contract/diff"
+import { contract } from "@exp/domain-contract"
 import {
   Button,
   conceptIcon,
   DiffCounts,
   FileDiffList,
   FileDiffTree,
+  GUIDE_CHANGES_TOPIC,
+  guideCoverage,
   guideFileCountLabel,
+  guideSectionCaption,
+  type GuideCoverageFile,
 } from "@exp/ui"
 import { emptyStateCopy } from "@/lib/empty-states"
-import { GUIDE_FACE_LABEL, type GuideSectionPage } from "@/lib/work-faces"
 import { cn } from "@/lib/utils"
 
 // EXP-1251: a Guide section's diff as a PAGE under the Guide
-// (`?view=guide&section=N&file=`; `section=all` = Show complete diff). The
+// (`?tab=guide&section=N&file=`; `section=all` = Show complete diff). The
 // back row returns to the Guide and names the section (`02 / 06 · title`)
 // with the counts it covers. md+: the file tree IN the column (216px, the
 // desktop `diff_pane` width) beside the same cards every diff draws, only
@@ -20,6 +24,66 @@ import { cn } from "@/lib/utils"
 // Guide face's bar, filtered to the same files.
 
 const UiBackIcon = conceptIcon(`ui-back`)
+
+/** The Guide's name ×4. */
+const GUIDE_FACE_LABEL = contract.diffUi.guideFace
+
+/** A section of the Guide: its number, the lead, `Other changes` or `all`
+ *  (Show complete diff). */
+export type GuideSectionKey = number | `lead` | `other` | `all`
+
+/** A `?section=` value, else undefined (a garbage value = the Guide). */
+export function parseGuideSection(raw: unknown): GuideSectionKey | undefined {
+  if (raw === `lead` || raw === `other` || raw === `all`) return raw
+  const value =
+    typeof raw === `number` ? raw : typeof raw === `string` && /^\d+$/.test(raw) ? Number(raw) : NaN
+  return Number.isInteger(value) && value >= 1 ? value : undefined
+}
+
+/** A section page: the back row's caption (`02 / 06`, numbered sections
+ *  only), its title, the files it covers and their summed counts. */
+export interface GuideSectionPage<F extends GuideCoverageFile> {
+  section: GuideSectionKey
+  caption: string | null
+  title: string
+  files: F[]
+  additions: number
+  deletions: number
+}
+
+/** The page `section` opens over `files` (the diff the Guide counts): the
+ *  same coverage the Guide's rows read. Null = no such section (a stale
+ *  link) or no diff loaded. */
+export function guideSectionPage<
+  G extends { topic: string; files?: readonly string[] | null },
+  F extends GuideCoverageFile,
+>(
+  groups: readonly G[],
+  files: readonly F[] | null | undefined,
+  section: GuideSectionKey
+): GuideSectionPage<F> | null {
+  if (!files) return null
+  const coverage = guideCoverage(groups, files)
+  const page = (
+    title: string,
+    caption: string | null,
+    set: { files: F[]; additions: number; deletions: number } | null
+  ): GuideSectionPage<F> | null =>
+    set
+      ? { section, caption, title, files: set.files, additions: set.additions, deletions: set.deletions }
+      : null
+  if (section === `all`) return page(GUIDE_CHANGES_TOPIC, null, coverage.complete)
+  if (section === `other`) {
+    return coverage.other ? page(coverage.other.topic, null, coverage.other.changes) : null
+  }
+  if (section === `lead`) {
+    return coverage.lead ? page(coverage.lead.group.topic, null, coverage.lead.changes) : null
+  }
+  const hit = coverage.sections.find((entry) => entry.index === section)
+  return hit
+    ? page(hit.group.topic, guideSectionCaption(hit.index, hit.total), hit.changes)
+    : null
+}
 
 /** The md+ tree column, the IDE's `FILE_LIST_WIDTH`. */
 export const GUIDE_SECTION_TREE_WIDTH = 216

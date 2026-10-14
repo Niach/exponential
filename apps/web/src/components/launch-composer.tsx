@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react"
-import { MAX_START_PROMPT } from "@exp/db-schema/domain"
+import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import type { User } from "@/db/schema"
 import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
-import { BlockedStartDialog } from "@/components/blocked-start-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
-import { FixConflictsCard } from "@/components/launch-dialog/fix-conflicts-card"
 import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
@@ -17,20 +15,13 @@ import {
   conceptIcon,
   Composer,
   ComposerSubmit,
-  FeedbackMark,
-  FEEDBACK_TEST_IDS,
   FEEDBACK_WORDS,
   Spinner,
   useDelayedFlag,
 } from "@exp/ui"
 import { contract } from "@exp/domain-contract"
 import { HOME_PLACEHOLDER } from "@exp/domain-contract/home-greeting"
-import {
-  startingElapsed,
-  startingLabel,
-  type ComposerStarting,
-  type LaunchComposerModel,
-} from "@/hooks/use-launch-composer"
+import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 import { useIssuesCodingReadiness } from "@/hooks/use-coding-readiness"
@@ -48,24 +39,23 @@ import {
 // the line), the pending-image strip, and a tool row whose ONE tool is the
 // "+" menu (EXP-1249: Implement issue ›, Run action ›, Add file or image,
 // the run's options and tools — `launch-dialog/composer-plus-menu.tsx`), the
-// submit glyph carrying the contract label (Start chat / Start coding / Start
-// batch · N / Run action). Under the card: the options line (EXP-1270: the
+// submit glyph carrying the per-subject label (Start session / Start coding /
+// Start batch · N / Run action). Under the card: the options line (EXP-1270: the
 // suggestion rows are gone; the HOME column owns what sits under it, see
 // `routes/t/$teamSlug/agent.tsx`). All state is the hook's
 // (`use-launch-composer.ts`); this file owns chrome, the caret and the file
 // plumbing. Test ids are byte-identical with the native suites
 // (`agent-composer*`).
 //
-// EXP-1271: after Start the submit goes PENDING (the spinner in its slot,
-// "Starting", only after `pending.delayMs`) and the card leads with the
-// starting row (the mark, "Starting on <device>", the elapsed seconds) until
-// the run's row lands; the hook owns the deadline.
+// EXP-1293: Start is ONE `sessions.send`; while it uploads and sends, the
+// submit goes PENDING (the spinner in its slot, "Starting", only after
+// `pending.delayMs`), then the composer opens the new thread.
 //
 // Icons are CONCEPTS — this is a multi-client surface (`lib/icons.test.ts`).
 
 const UiSubmitIcon = conceptIcon(`ui-submit`)
 
-/** Where the composer sits: `home` = the Agent page / New run tab column
+/** Where the composer sits: `home` = the Agent page column
  *  (composer-home.json: "What do you want to build?"), `dialog` = the
  *  launch dialog, which keeps the contract's "Ask the agent…". */
 export type LaunchComposerVariant = `home` | `dialog`
@@ -82,8 +72,7 @@ export function composerPlaceholder(
   if (subject === null)
     return variant === `home` ? HOME_PLACEHOLDER : contract.composerUi.chatPlaceholder
   // EXP-825: an action can say what the requester should type here (its
-  // `promptPlaceholder`, seeded from the retired free-text input); the
-  // Create-action builtin carries its own.
+  // `promptPlaceholder`).
   const hint = selectedAction?.promptPlaceholder?.trim()
   if (subject.kind === `action` && hint) return hint
   return contract.composerUi.instructionsPlaceholder
@@ -102,7 +91,7 @@ export function LaunchComposer({
   className?: string
 }) {
   const { subject, text, images, busy, blocked } = model
-  const pending = model.starting !== null
+  const pending = busy
   const pendingShown = useDelayedFlag(pending)
   const fieldRef = useRef<MentionTextareaHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -170,25 +159,8 @@ export function LaunchComposer({
         data-testid="agent-composer"
         strip={
           <>
-            {model.starting && pendingShown && (
-              <StartingRow starting={model.starting} />
-            )}
-            {actionSubject && subject && model.fixConflicts ? (
-              /* EXP-1233: the Fix merge conflicts builtin wears its own
-                 card — the PR's branch row (the picker) and, after a refused
-                 merge, the reason. */
-              <div className="px-3 pt-3">
-                <FixConflictsCard
-                  view={model.fixConflicts}
-                  teamId={model.teamId}
-                  value={subject.inputs.pr ?? ``}
-                  seedIssueId={model.seedPrIssueId}
-                  onChange={(issueId) => model.setInput(`pr`, issueId)}
-                  disabled={busy}
-                />
-              </div>
-            ) : actionSubject && subject && inputDefs.length > 0 ? (
-              /* The action's typed picks (repo / board / pr / icon) — the
+            {actionSubject && subject && inputDefs.length > 0 ? (
+              /* The action's typed picks (repo / board / pr / issue): the
                  free-text kinds are gone (EXP-825): what the requester types
                  IS the session's instructions. */
               <div className="px-3 pt-3">
@@ -340,27 +312,10 @@ export function LaunchComposer({
           className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
           // Client parity with the server's cap, so a long paste is refused
           // at the field instead of at submit.
-          maxLength={MAX_START_PROMPT}
+          maxLength={SESSIONS_SEND_TEXT_MAX}
         />
       </Composer>
       <LaunchOptionsLine model={model} />
-      {/* EXP-980: the submit on BLOCKED issues asks first (SLOP-3: Cancel ·
-          Start anyway · Stacked PR). */}
-      <BlockedStartDialog
-        open={model.blockedOpen}
-        teamId={model.teamId}
-        pickedIds={model.checkedIssues.map((issue) => issue.id)}
-        blockers={model.blockedStart}
-        busy={busy}
-        onOpenChange={(next) => {
-          if (!next) model.closeBlockedStart()
-        }}
-        stackReason={model.blockedStack.reason}
-        stackIdent={model.blockedStack.ident}
-        stackRun={model.blockedStack.plan?.run ?? []}
-        onStartAnyway={() => void model.startAnyway()}
-        onStartStacked={() => void model.startStacked()}
-      />
     </div>
   )
 }
@@ -368,26 +323,3 @@ export function LaunchComposer({
 /** The pending submit's spinner: the round 24px glyph's slot, so a bit
  *  larger than a text button's `pending.spinner`. */
 const FEEDBACK_STATES_PENDING_SPINNER = 18
-
-/** EXP-1271: the card's starting row — the mark, "Starting on <device>",
- *  and the seconds since the press, ticking in tenths. */
-export function StartingRow({ starting }: { starting: ComposerStarting }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 100)
-    return () => clearInterval(timer)
-  }, [])
-  return (
-    <div
-      data-testid={FEEDBACK_TEST_IDS.starting}
-      role="status"
-      className="flex items-center gap-2 px-3 pt-3 text-sm"
-    >
-      <FeedbackMark size={16} />
-      <span className="min-w-0 flex-1 truncate">{startingLabel(starting.deviceLabel)}</span>
-      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-        {startingElapsed(now - starting.since)}
-      </span>
-    </div>
-  )
-}

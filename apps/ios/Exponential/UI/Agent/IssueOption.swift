@@ -1,7 +1,7 @@
 import ExpCore
 import Foundation
 
-/// One eligible issue the Agent page composer can put on a run (EXP-156,
+/// One eligible issue Home's composer can put on a thread (EXP-156,
 /// top-level since EXP-825 — it used to be nested in the Start-coding sheet).
 /// `repositoryId` drives the single-repository-per-run validation (all
 /// checked issues must share one).
@@ -37,9 +37,9 @@ struct IssueOption: Identifiable, Sendable, Equatable {
         )
     }
 
-    /// The ×4 eligibility rule: a repo-backed board, a non-terminal status
-    /// (custom statuses anchor to one of the enum values, EXP-314) and no
-    /// merged PR. `exempt` ids skip the issue-level checks — a seeded issue
+    /// The ×4 eligibility rule: a repo-backed board and a non-terminal status
+    /// (custom statuses anchor to one of the enum values, EXP-314). `exempt`
+    /// ids skip the issue-level checks — a seeded issue
     /// the user opened the composer FROM must always be on offer, whatever
     /// its status (the issue detail's rule since EXP-156).
     static func build(
@@ -65,9 +65,7 @@ struct IssueOption: Identifiable, Sendable, Equatable {
             .filter { row in
                 guard repoByBoard[row.boardId] != nil else { return false }
                 if exempt.contains(row.id) { return true }
-                if terminal.contains(row.status) { return false }
-                if row.prState == DomainContract.prStateMerged { return false }
-                return true
+                return !terminal.contains(row.status)
             }
             .sorted { $0.updatedAt > $1.updatedAt }
             .map { row in

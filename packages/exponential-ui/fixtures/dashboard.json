@@ -341,7 +341,7 @@
           {
             "label": "Reviews",
             "value": "reviews",
-            "icon": "nav-reviews"
+            "icon": "pr-open"
           }
         ],
         "value": {
@@ -588,7 +588,7 @@
               "id": "reviews-empty",
               "component": "EmptyState",
               "props": {
-                "icon": "nav-reviews",
+                "icon": "pr-open",
                 "title": "No reviews waiting",
                 "description": "Pull requests that need you show up here.",
                 "actionLabel": "Open the queue"

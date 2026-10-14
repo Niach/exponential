@@ -36,14 +36,7 @@
 import { and, eq } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import {
-  codingSessions,
-  comments,
-  devices,
-  issues,
-  threads,
-  users,
-} from "@/db/schema"
+import { comments, devices, issues, sessions, users } from "@/db/schema"
 import {
   getSteerRelayConfig,
   mintSteerTicket,
@@ -426,25 +419,26 @@ function feedTimeline(count: number, now: number): (index: number) => number {
   return (index) => Math.round(start + (span * index) / Math.max(count - 1, 1))
 }
 
-/** Re-stamps the showcase session's Guide entries on DEMO_THREAD_ID inside
- *  the feed's window (oldest first). Best-effort: a missing thread (an older
- *  seed) leaves the capture as it was. */
+/** Re-stamps the steered session's Guide entries on DEMO_THREAD_ID (the
+ *  root's `guide`, EXP-1293) inside the feed's window (oldest first).
+ *  Best-effort: a missing thread (an older seed) leaves the capture as it
+ *  was. */
 async function restampDemoGuide(now: number): Promise<void> {
   try {
     const [thread] = await db
-      .select({ results: threads.results })
-      .from(threads)
-      .where(eq(threads.id, DEMO_THREAD_ID))
+      .select({ guide: sessions.guide })
+      .from(sessions)
+      .where(eq(sessions.id, DEMO_THREAD_ID))
       .limit(1)
-    if (!Array.isArray(thread?.results) || thread.results.length === 0) return
+    if (!Array.isArray(thread?.guide) || thread.guide.length === 0) return
     let next = 0
-    const results = thread.results.map((entry) => {
+    const guide = thread.guide.map((entry) => {
       if (entry.sessionId !== DEMO_STEERED_SESSION_ID) return entry
       const before =
         GUIDE_BEFORE_END_MS[Math.min(next++, GUIDE_BEFORE_END_MS.length - 1)]!
       return { ...entry, at: now - FEED_END_GAP_MS - before }
     })
-    await db.update(threads).set({ results }).where(eq(threads.id, DEMO_THREAD_ID))
+    await db.update(sessions).set({ guide }).where(eq(sessions.id, DEMO_THREAD_ID))
   } catch (err) {
     console.warn(`[feed] could not re-stamp the demo thread's Guide:`, err)
   }
@@ -523,25 +517,26 @@ async function resolveTarget() {
   if (!demo) {
     throw new Error(`demo user ${DEMO_EMAIL} not found — run seed:screenshots first`)
   }
-  // The seeded showcase session: the demo user's own RUNNING one, which is the
-  // only session the apps let them watch (EXP-312, owner-only). Re-asserted
-  // first (EXP-913): the staleness sweep deletes seeded live rows once no stub
-  // has heartbeated them for 2h, which is exactly the gap before a rerun.
+  // The seeded steered session (EXP-1293: the cold-start thread's child): the
+  // demo user's own RUNNING one, which is the only session the apps let them
+  // watch (EXP-312, owner-only). Re-asserted first (EXP-913): a capture may
+  // have stopped it, and the legacy ticket row's sweep deletes it once no stub
+  // has heartbeated it for 2h, which is exactly the gap before a rerun.
   await assertDemoLiveSessions()
   const [session] = await db
-    .select({ id: codingSessions.id, teamId: codingSessions.teamId })
-    .from(codingSessions)
+    .select({ id: sessions.id, teamId: sessions.teamId })
+    .from(sessions)
     .where(
       and(
-        eq(codingSessions.id, DEMO_STEERED_SESSION_ID),
-        eq(codingSessions.userId, demo.id),
-        eq(codingSessions.status, `running`)
+        eq(sessions.id, DEMO_STEERED_SESSION_ID),
+        eq(sessions.userId, demo.id),
+        eq(sessions.status, `running`)
       )
     )
     .limit(1)
   if (!session) {
     throw new Error(
-      `no running coding session for ${DEMO_EMAIL} — run seed:screenshots first`
+      `no running session ${DEMO_STEERED_SESSION_ID} for ${DEMO_EMAIL} — run seed:screenshots first`
     )
   }
   return { userId: demo.id, sessionId: session.id, teamId: session.teamId }
@@ -658,7 +653,7 @@ async function main() {
       }),
     onFrame: (frame) => {
       if (frame.t === `start_session`) {
-        // A real desktop would launch an agent and insert the coding_sessions
+        // A real desktop would launch an agent and claim the `sessions`
         // row. The capture only opens the dialog and cancels, so acknowledging
         // it in the log is enough — and a stray tap can't corrupt the seed.
         console.log(`[control] ignoring start_session:`, JSON.stringify(frame))

@@ -1,7 +1,7 @@
 import Foundation
 
-/// EXP-825: the launch options a run carries — agent, model, effort, the two
-/// toggles, the resume latch and the account profile — with the seed/clamp
+/// EXP-825: the launch options a new session carries — agent, model, effort,
+/// the toggles and the account profile — with the seed/clamp
 /// rules that used to live inside the Start-coding sheet (EXP-437/EXP-201):
 ///
 /// - The run lands on the selected MACHINE, so that machine's advertised
@@ -31,16 +31,9 @@ import Foundation
 public final class LaunchOptionsState {
     public var agent = "claude"
     public var model = LaunchVocabulary.defaultModel(for: "claude")
-    /// EXP-981: claude only — the model its subagents run on.
-    /// `LaunchVocabulary.cliDefault` = the CLI's own default, which a start
-    /// sends as NO field at all.
-    public var subagentModel = LaunchVocabulary.cliDefault
     public var effort = LaunchVocabulary.cliDefault
     public var ultracode = false
     public var planMode = false
-    /// EXP-481: the resume offer's latch — defaults ON, only the user flips
-    /// it; eligibility (`resumeCandidate`) is the composer's to compute.
-    public var resume = true
     /// EXP-825: the picked login profile id, sent verbatim (`system` = the
     /// ambient login); `""` = unnamed, the machine's last used login (sent as
     /// no account). Reset on every agent change and on a device change, unless
@@ -148,7 +141,6 @@ public final class LaunchOptionsState {
     private func applyAgentDefaults(for value: String, device: SteerDevice?) {
         let advertised = device?.agentDefaults(for: value)
         model = Self.seedModel(advertised?.model, for: value)
-        subagentModel = Self.seedSubagentModel(advertised?.subagentModel, for: value)
         effort = Self.seedEffort(advertised?.effort, for: value)
         ultracode = advertised?.ultracode ?? false
         planMode = advertised?.planMode ?? false
@@ -159,9 +151,6 @@ public final class LaunchOptionsState {
     private func clampToggles() {
         if agent != "claude" {
             ultracode = false
-        }
-        if !LaunchVocabulary.supportsSubagentModel(agent) {
-            subagentModel = LaunchVocabulary.cliDefault
         }
         if !LaunchVocabulary.supportsPlanMode(agent) {
             planMode = false
@@ -176,19 +165,6 @@ public final class LaunchOptionsState {
               LaunchVocabulary.modelValues(for: agent).contains(value)
         else {
             return LaunchVocabulary.defaultModel(for: agent)
-        }
-        return value
-    }
-
-    /// An advertised SUBAGENT model (EXP-981), validated against claude's
-    /// contract list. Blank, unknown, or any non-claude agent = the "Default"
-    /// row: the CLI picks its own.
-    public static func seedSubagentModel(_ value: String?, for agent: String) -> String {
-        guard LaunchVocabulary.supportsSubagentModel(agent),
-              let value, !value.isEmpty,
-              DomainContract.codingModelValues.contains(value)
-        else {
-            return LaunchVocabulary.cliDefault
         }
         return value
     }
@@ -253,40 +229,30 @@ public final class LaunchOptionsState {
 
     // MARK: - Wire
 
-    /// The chosen options in wire form — shared by every launch subject.
-    /// `resume` is the composer's call: single-issue starts only.
-    public func buildOptions(resume: Bool? = nil) -> SteerStartOptions {
+    /// The chosen options in `sessions.send` form — shared by every new
+    /// session (thread, agent, child).
+    public func buildOptions() -> SessionLaunchOptions {
         let isClaude = agent == "claude"
-        return SteerStartOptions(
-            agent: agent,
+        return SessionLaunchOptions(
+            cli: agent,
+            // EXP-1158: the picked id VERBATIM; blank (or a legacy `system`)
+            // = unnamed = the machine's last used login.
+            account: AccountOptions.wireAccount(account),
             // EXP-1277: clamped once more on the way out — the server takes
             // contract values only, and claude has no blank (`seedModel`
             // turns one into the default); codex's blank IS "CLI default".
             model: wireModel,
-            // EXP-981: claude only, and "Default" means the field is ABSENT —
-            // the server validates it against the contract model list, which
-            // has no blank, so an empty string would be refused.
-            subagentModel: isClaude && subagentModel != LaunchVocabulary.cliDefault
-                ? subagentModel
-                : nil,
             effort: effort == LaunchVocabulary.cliDefault ? "" : effort,
             // The toggles only exist for the agents that support them — never
             // send a stale value the launcher would reject or misread.
-            ultracode: isClaude ? ultracode : nil,
-            // A resume never re-enters plan mode (mirrors the desktop clamp).
-            planMode: LaunchVocabulary.supportsPlanMode(agent)
-                ? (resume == true ? false : planMode)
-                : nil,
-            resume: resume,
-            // EXP-1158: the picked id VERBATIM; blank (or a legacy `system`)
-            // = unnamed = the machine's last used login.
-            account: AccountOptions.wireAccount(account),
-            // EXP-792: omitted when nothing is picked.
-            mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds,
+            planMode: LaunchVocabulary.supportsPlanMode(agent) ? planMode : nil,
             // EXP-1249: set only after the person FLIPPED it (web M12 rule);
             // the composer clears the flip on every device change, and the
             // row exists only on a device with `codingSessionComputerUseCap`.
-            computerUse: computerUse
+            computerUse: computerUse,
+            ultracode: isClaude ? ultracode : nil,
+            // EXP-792: omitted when nothing is picked.
+            mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds
         )
     }
 

@@ -174,6 +174,10 @@ private fun SettingsConfirmDialog(
 @Composable
 fun TeamSettingsScreen(
     onBack: () -> Unit,
+    // EXP-1296: Settings → Agents, managed like boards (a row opens the
+    // agent's page, `New agent` the create form).
+    onOpenAgent: (agentSessionId: String) -> Unit = {},
+    onNewAgent: () -> Unit = {},
     viewModel: TeamSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -217,6 +221,7 @@ fun TeamSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
+            AgentsSettingsList(onOpenAgent = onOpenAgent, onNewAgent = onNewAgent)
             RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             MembersSection(state, isOwner, onConfirm = { confirm = it }, onRevokeInvite = viewModel::revokeInvite)
             LabelsSection(state, viewModel, onConfirm = { confirm = it })

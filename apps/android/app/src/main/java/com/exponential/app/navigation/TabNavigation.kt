@@ -20,10 +20,11 @@ object MainTabs {
     const val ISSUES = "home"
     const val INBOX = "personal"
     const val DEVICES = "agents"
-    const val REVIEWS = "reviews"
+    /** EXP-1291: the Threads tab (it replaced Reviews). */
+    const val THREADS = "threads"
     const val ACTIONS = "actions"
 
-    val routes: Set<String> = setOf(AGENT, ISSUES, INBOX, DEVICES, REVIEWS, ACTIONS)
+    val routes: Set<String> = setOf(AGENT, ISSUES, INBOX, DEVICES, THREADS, ACTIONS)
 
     /**
      * The tab whose stack is up, given which tab roots are [onStack]: the

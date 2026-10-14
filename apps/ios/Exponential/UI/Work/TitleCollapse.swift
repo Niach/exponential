@@ -6,7 +6,7 @@ import SwiftUI
 /// bottom (`IssueTitleRowBottomKey`) and the header band's
 /// (`workHeaderBand(onBottom:)`). A plain reference: the title row reports on
 /// every scroll frame, and only the rule's FLIPPED answer may reach SwiftUI.
-/// Shared by the Work screen and the New issue page (EXP-1170).
+/// Shared by the issue page and the New issue page (EXP-1170).
 final class TitleCollapseTracker {
     var titleBottom: CGFloat?
     var headerBottom: CGFloat = 0

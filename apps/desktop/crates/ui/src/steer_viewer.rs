@@ -20,7 +20,7 @@
 //!   ours: the [`ANSWER_ACK_TIMEOUT`] card lock, and the EXP-656 staged
 //!   replay's [`REPLAY_QUIET`]/[`REPLAY_MAX`] fallback swap. Both are plain
 //!   `cx.spawn` sleeps guarded by a generation counter.
-//! * **Row truth** — the synced `coding_sessions` row (identity, device,
+//! * **Row truth** — the synced `sessions` row (identity, device,
 //!   `needs_input`, `status`). The view observes the collection and feeds
 //!   `ended` back to the socket with
 //!   [`ViewerHandle::note_session_ended`] so its redial loops stop.
@@ -29,15 +29,12 @@
 //!   [`ViewerHandle::kick`]; see the "Wakeups" section below. Without them a
 //!   woken laptop waits out the transport's staleness window and backoff.
 //!
-//! EXP-698 closed the two biggest gaps: the run's **changes** and its
-//! **Merge**. The old rationale ("a remote run's diff is not on this
-//! machine") was wrong — the host publishes its worktree diff on the
-//! activity channel and [`SteerFeed::latest_diff`] holds it. EXP-850 §10/§11
-//! moved both out of the bottom band: the diff opens as a right-hand PANE
-//! inside this view ([`crate::diff_pane`], toggled by the screen header's
-//! Diff pill), and Merge is a header control resolved off the synced
-//! `coding_sessions` row ([`crate::changes_bar`] keeps the parse and the
-//! merge-target rule).
+//! EXP-1294: the view is the Session screen's body and ALWAYS the full
+//! transcript (no turn thread, no Show work, no Guide or diff pages — the
+//! Guide is the thread's tab). The database is the bus: the composer posts
+//! a `messages` row (`sessions.send`), a card is answered in its row
+//! (`sessions.answer`), Stop is `sessions.stop`; the live layer (local
+//! engine, relay) stays what the transcript is READ from.
 //!
 //! EXP-789 closed the last parity gap: the subagent TAB strip ("Main" plus
 //! one tab per running subagent, the focused one lingering after it ends)
@@ -95,34 +92,12 @@ use crate::controls::{
     TypeaheadArm, WebText as _,
 };
 use crate::icons::registry;
-use crate::screens::RunFace;
 use crate::slash_commands;
 use crate::composer_images::{self, PendingImages};
 use crate::native_dialog::{self, AlertSpec};
 use crate::transcript_rows::{
     self, facet, plan_list_sync, ItemFacets, ListOp, RowKey, ORPHAN_ROW_BASE,
 };
-
-/// EXP-1175 — the thread list's synthetic keys: items are keyed by index,
-/// the reply above every item, the pending cards above the reply (the list
-/// sync's one requirement is an ascending key vector).
-const THREAD_REPLY_ID: FeedItemId = 1 << 40;
-const THREAD_CARD_BASE: FeedItemId = 1 << 41;
-/// EXP-1245: the per-turn rows' id spaces (a turn's bubble, its status row).
-const THREAD_BUBBLE_BASE: FeedItemId = 1 << 39;
-const THREAD_STATUS_BASE: FeedItemId = 1 << 38;
-
-/// EXP-1245 — one row of the Run face's thread list: per turn the person's
-/// bubble, the turn's status row, its published items and reply (`usize` =
-/// the turn), then the pending cards.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ThreadRow {
-    Bubble(usize),
-    Status(usize),
-    Item(usize, usize),
-    Reply(usize),
-    Card(usize),
-}
 
 /// EXP-1228: the transcript menu's Copy row — copies the window text
 /// selection exactly like ⌘C/Ctrl+C does over the transcript. EXP-1266: the
@@ -355,32 +330,6 @@ impl PendingDial {
     }
 }
 
-/// EXP-895 — the fallback files for a run that published no diff, and the
-/// `issue:has-pr` key they were fetched for (a re-point or a PR opening
-/// re-fetches; a repaint never does).
-struct PrChanges {
-    key: String,
-    files: Vec<coding::scm::DiffFile>,
-}
-
-/// Where [`SteerSessionView::load_pr_changes`] reads the fallback from: the
-/// bound issue (its PR, else its pushed branch), or — EXP-1194 — an
-/// issue-less run's OWN PR.
-enum PrChangesSource {
-    Issue { issue_id: String, has_pr: bool },
-    Run { session_id: String, pr_url: String },
-}
-
-impl PrChangesSource {
-    /// The [`PrChanges::key`] this fetch is held under.
-    fn key(&self) -> String {
-        match self {
-            Self::Issue { issue_id, has_pr } => format!("{issue_id}:{has_pr}"),
-            Self::Run { session_id, pr_url } => format!("run:{session_id}:{pr_url}"),
-        }
-    }
-}
-
 /// EXP-895 — how much of a tool row is SHOWN.
 ///
 /// Every row is its headline plus compact evidence (a collapsed edit card's
@@ -406,8 +355,15 @@ enum ToolRowMode {
 /// The steering view for ONE coding session — remote, local or replayed.
 pub(crate) struct SteerSessionView {
     session_id: String,
-    /// The synced row, re-snapshotted whenever `coding_sessions` notifies.
-    row: Option<domain::rows::CodingSession>,
+    /// The synced row, re-snapshotted whenever `sessions` notifies.
+    row: Option<domain::rows::SessionRow>,
+    /// EXP-1294: whether the signed-in person may message (and Stop) this
+    /// session — a SHARED session any team member, a private one only its
+    /// starter. Re-read with the row.
+    may_message: bool,
+    /// EXP-1294: THE Guide of this session's tree (the ROOT's `guide`) —
+    /// where an inline `sessions_show` picture is looked up.
+    guide_results: Option<serde_json::Value>,
     feed: SteerFeed,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
@@ -499,44 +455,9 @@ pub(crate) struct SteerSessionView {
     /// pinned plan, thoughts) a `Local`/`Replay` source produces. Empty for
     /// every remote session — the wire carries none of it.
     extras: crate::session_extras::LocalExtras,
-    /// EXP-773: the parse of the published worktree diff, and the per-file
-    /// diff the pane renders. EXP-850 §11 moved the surface from a bottom
-    /// band to a PANE; EXP-877 made that pane a full page under the header.
-    changes: Option<crate::changes_bar::ChangesSnapshot>,
-    changes_diff: Entity<crate::diff::DiffView>,
-    /// EXP-879: which SUB-FACE of the run is up — the transcript, its
-    /// changes or its published results ([`RunFace`]). EXP-850 §11: whether
-    /// the diff pane's file list is unfolded, and which file its header
-    /// names.
-    run_face: RunFace,
-    diff_selected: usize,
-    /// EXP-1154: a Guide file pick made before the Changes files landed (the
-    /// PR-files fallback arrives after the face opens), applied when they do.
-    pending_diff_path: Option<String>,
-    /// EXP-1251: the Guide's diff page on show (a section's files; `All` =
-    /// the complete diff); `None` = the Guide itself.
-    guide_page: Option<crate::session_results::GuidePage>,
-    /// The Guide page's scroll ([`Self::body_scrolled`] reads its offset).
-    guide_scroll: ScrollHandle,
-    /// EXP-1248: the Stack card's hovered member (its ghost merge-through).
-    stack_hovered: Option<String>,
-    /// EXP-895: the file tree's `Filter files` field.
-    diff_filter: Entity<InputState>,
-    /// EXP-916: the tree's FOLDED directories, keyed by path. Every
-    /// directory is open by default, so this set is what the reader shut.
-    folded_dirs: HashSet<String>,
-    /// EXP-895 — the FALLBACK files (web `useReviewFiles`): a run that
-    /// published no diff of its own still has changes to show once it has
-    /// pushed, so the pane falls back to the issue's PR files
-    /// (`issues.prFiles`) or, with no PR yet, its branch against the repo
-    /// default (`repositories.branchDiff`). Fetched once per issue+PR key.
-    pr_changes: Option<PrChanges>,
     /// The view's own measured width (the recorded-px canvas recipe) — the
     /// transcript's bubble cap reads it.
     view_width: std::rc::Rc<std::cell::Cell<Pixels>>,
-    /// The Diff face's own painted width — [`crate::diff_pane`]'s tree gate
-    /// (it writes and reads it; 0 before the first paint).
-    diff_pane_width: std::rc::Rc<std::cell::Cell<f32>>,
     /// EXP-884/EXP-916: the memo behind the edited-files cards — a card's
     /// patches are parsed once, not once per frame.
     edit_memo: crate::session_rows::EditMemo,
@@ -622,42 +543,6 @@ pub(crate) struct SteerSessionView {
     /// Whether the synthetic trailing "Working…" row is present — the list's
     /// last index when it is.
     working: bool,
-    /// EXP-1175: the Run face's THREAD — its own virtualised list (tail
-    /// following like the transcript), the keys it was last told, the parsed
-    /// `results` and the pending cards it draws after the reply.
-    thread_list: ListState,
-    thread_keys: Vec<RowKey>,
-    /// EXP-1245: the thread as TURNS (`session_turns` over the feed's turn
-    /// log — the owner's alone; no log = one turn, today's thread) and the
-    /// rows it lays out.
-    thread: domain::session_results::SessionTurns,
-    /// Wave D (web `firstTurnEndKnown`): whether the first turn's end was
-    /// observed — `false` drops its duration from the status row.
-    thread_first_end_known: bool,
-    thread_rows: Vec<ThreadRow>,
-    thread_cards: Vec<FeedRowSpec>,
-    /// EXP-1175: the status row reads `Building on … · <elapsed>`, so the
-    /// working tick repaints it while the run's display state is working.
-    status_ticking: bool,
-    /// EXP-1175: [`Self::show_work`] as of this frame's render — what the
-    /// cx-less projection ([`Self::active_subagent`]) reads.
-    show_work_cached: bool,
-    /// EXP-1284: the view is EMBEDDED in a thread's conversation as one run
-    /// block's body — no list, no composer, no banners: the status row over
-    /// the run's thread (or, behind its OWN Show work, the transcript) laid
-    /// out flat inside the thread's one scroll ([`Self::render_embedded`]).
-    embedded: bool,
-    /// EXP-1284: an embedded view's Show work — local to the block, never
-    /// the per-user preference the Run face remembers.
-    embedded_show_work: bool,
-    /// EXP-1284: THE Guide this run's Guide face reads — its thread's
-    /// `results` while that has entries, else the run's own
-    /// ([`crate::threads::guide_results_of_session`], the web `guideOfRun`).
-    guide_results: Option<serde_json::Value>,
-    /// EXP-1284: an embedded block's results — the Guide entries THIS
-    /// session wrote (`domain::thread_view::session_guide_entries`), set by
-    /// the thread page; `None` = the row's own.
-    embedded_results: Option<serde_json::Value>,
     /// EXP-1259 (DEV-ONLY, `EXP_DEV_SCROLL_TO=script-card`): the transcript
     /// row the first Script card sat at when the list was last parked on it.
     dev_scrolled_to: Option<usize>,
@@ -688,36 +573,14 @@ impl SteerSessionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| {
-            crate::controls::web_textarea(1, 6, window, cx)
-                // Enter sends, Shift+Enter inserts a newline (web parity).
-                .submit_on_enter(true)
-                // EXP-724: the `/` menu is invisible until it is typed, so
-                // the placeholder is the only hint it exists. Every agent's
-                // catalog is non-empty, which is why this is a constant here
-                // and a conditional on web/Android.
-                .placeholder(COMPOSER_PLACEHOLDER)
-        });
-        // EXP-790: the completion overlay rides the same state; the composer
-        // card draws the chrome, so the widget draws none of its own.
-        let mention = cx.new(|cx| {
-            let mut mention = crate::mention_input::MentionInput::new(input.clone(), cx);
-            mention.set_appearance(false);
-            mention
-        });
-
-        // EXP-895: the Changes face's file filter. Its own state, so the
-        // list re-renders on every keystroke and nothing else does.
-        let diff_filter = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(domain::contract::DIFF_UI_FILTER_PLACEHOLDER)
-        });
+        // EXP-1294: THE session composer field. EXP-724: the `/` menu is
+        // invisible until it is typed, so the placeholder is the only hint
+        // it exists; every agent's catalog is non-empty, which is why this is
+        // a constant here and a conditional on web/Android.
+        let (input, mention) =
+            crate::composer::session_composer_field(COMPOSER_PLACEHOLDER, window, cx);
 
         let mut subscriptions = Vec::new();
-        subscriptions.push(cx.subscribe(&diff_filter, |_, _, event: &InputEvent, cx| {
-            if matches!(event, InputEvent::Change) {
-                cx.notify();
-            }
-        }));
         subscriptions.push(cx.subscribe_in(
             &input,
             window,
@@ -735,16 +598,8 @@ impl SteerSessionView {
         if let Some(store) = sync::Store::try_global(cx) {
             let collections = store.collections().clone();
             let shared_state = store.state();
-            subscriptions.push(cx.observe(&collections.coding_sessions, |this, _, cx| {
+            subscriptions.push(cx.observe(&collections.sessions, |this, _, cx| {
                 this.refresh_row(cx);
-            }));
-            // EXP-1284: THE Guide is the run's THREAD's — its row and its
-            // membership re-read the Guide the faces show.
-            subscriptions.push(cx.observe(&collections.threads, |this, _, cx| {
-                this.refresh_guide(cx);
-            }));
-            subscriptions.push(cx.observe(&collections.thread_items, |this, _, cx| {
-                this.refresh_guide(cx);
             }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
@@ -803,6 +658,8 @@ impl SteerSessionView {
         let mut this = Self {
             session_id: session_id.clone(),
             row: None,
+            may_message: false,
+            guide_results: None,
             feed: SteerFeed::new(),
             source,
             pending_dial: PendingDial(None),
@@ -838,25 +695,7 @@ impl SteerSessionView {
             expanded_groups: HashSet::new(),
             expanded_bodies: HashSet::new(),
             extras: crate::session_extras::LocalExtras::default(),
-            changes: None,
-            changes_diff: cx.new(|cx| {
-                // EXP-850 §11: the pane stacks every file's hunks (the file
-                // LIST beside it is the per-file affordance now, and picking
-                // a row scrolls to that file's hunks rather than to a card
-                // that then has to be opened).
-                crate::diff::DiffView::new(window, cx)
-            }),
-            run_face: RunFace::Run,
-            diff_selected: 0,
-            pending_diff_path: None,
-            guide_page: None,
-            guide_scroll: ScrollHandle::new(),
-            stack_hovered: None,
-            diff_filter,
-            folded_dirs: HashSet::new(),
-            pr_changes: None,
             view_width: std::rc::Rc::new(std::cell::Cell::new(px(0.))),
-            diff_pane_width: std::rc::Rc::new(std::cell::Cell::new(0.)),
             edit_memo: Default::default(),
             expanded_edit_rows: HashMap::new(),
             derived_for: None,
@@ -887,22 +726,6 @@ impl SteerSessionView {
             row_keys: Vec::new(),
             active: HashSet::new(),
             working: false,
-            thread_list: {
-                let list = ListState::new(0, ListAlignment::Top, FEED_OVERDRAW);
-                list.set_follow_mode(FollowMode::Tail);
-                list
-            },
-            thread_keys: Vec::new(),
-            thread: domain::session_results::SessionTurns { per_turn: false, turns: Vec::new() },
-            thread_first_end_known: true,
-            thread_rows: Vec::new(),
-            thread_cards: Vec::new(),
-            status_ticking: false,
-            show_work_cached: crate::run_rows::SHOW_WORK_DEFAULT,
-            embedded: false,
-            embedded_show_work: false,
-            guide_results: None,
-            embedded_results: None,
             dev_scrolled_to: None,
             chips: None,
             chip_cache: Default::default(),
@@ -935,7 +758,6 @@ impl SteerSessionView {
             for event in events {
                 this.feed.apply(event);
             }
-            this.sync_changes(cx);
             this.refresh_derived();
             this.connected = false;
             this.phase = ViewerPhase::Ended { outcome: None };
@@ -990,44 +812,24 @@ impl SteerSessionView {
         }
     }
 
-    /// The host machine's name, for the header caption.
-    pub(crate) fn device_label(&self, cx: &App) -> Option<String> {
-        self.device(cx).label
+    /// Whether the header may offer Stop. EXP-1294: Stop is a server call
+    /// (`sessions.stop`), so it needs no socket — only a session that is not
+    /// over and that the reader may steer ([`may_steer`]).
+    pub(crate) fn killable(&self) -> bool {
+        self.may_message && !self.session_over()
     }
 
-    /// Whether the header may offer a kill.
-    pub(crate) fn killable(&self, cx: &App) -> bool {
-        self.can_kill(cx)
-    }
-
-    /// The synced `coding_sessions` row behind this viewer — what the
-    /// header names the run from, and what the header's Merge pill resolves
-    /// its target from
-    /// ([`crate::changes_bar::merge_meta_for_session`]).
-    pub(crate) fn session_row(&self) -> Option<&domain::rows::CodingSession> {
+    /// The synced `sessions` row behind this viewer — what the header names
+    /// the session from and gates its Stop on.
+    pub(crate) fn session_row(&self) -> Option<&domain::rows::SessionRow> {
         self.row.as_ref()
     }
 
     /// EXP-760: the team whose issues this feed's `#IDENT` / bare `EXP-1`
-    /// tokens resolve against — the session row's board's team (the
-    /// `IssueHeader::team_id_of` recipe). `None` for a board-less run (an
-    /// action or a repo-less chat), where nothing chips.
-    fn ref_team_id(&self, cx: &App) -> Option<String> {
-        let row = self.row.as_ref()?;
-        // The row carries the team denormalized (batch and action rows have
-        // no issue at all); an old row without it falls back to its issue's
-        // board — the `IssueHeader::team_id_of` recipe.
-        if let Some(team_id) = row.team_id.clone().filter(|id| !id.is_empty()) {
-            return Some(team_id);
-        }
-        let collections = sync::Store::global(cx).collections();
-        let issue_id = row.issue_id.clone()?;
-        let board_id = collections.issues.read(cx).get(&issue_id)?.board_id.clone();
-        collections
-            .boards
-            .read(cx)
-            .get(&board_id)
-            .map(|board| board.team_id.clone())
+    /// tokens resolve against — the session row's own `team_id` (EXP-1294:
+    /// every session carries it). `None` before the row syncs.
+    fn ref_team_id(&self, _cx: &App) -> Option<String> {
+        self.row.as_ref()?.team_id.clone().filter(|id| !id.is_empty())
     }
 
     /// EXP-760: the feed's chip resolver — BARE mode, because agents narrate
@@ -1131,10 +933,7 @@ impl SteerSessionView {
     /// FEED-35: the synced attention flag the HOST wrote — a run parked on a
     /// picker this viewer never received a card for is still waiting.
     fn row_needs_input(&self) -> bool {
-        self.row
-            .as_ref()
-            .and_then(|row| row.needs_input)
-            .unwrap_or(false)
+        self.row.as_ref().is_some_and(|row| row.needs_input)
     }
 
     /// The view-side bits of one item that move its rendered height — see
@@ -1477,13 +1276,13 @@ impl SteerSessionView {
     }
 
     /// EXP-1259 (DEV-ONLY): `EXP_DEV_SCROLL_TO=script-card` parks the
-    /// transcript (Show work on) with its first code-mode Script card near
+    /// transcript with its first code-mode Script card near
     /// the top of the viewport (one row of lead-in) instead of on the tail,
     /// so the `script-card` capture has the card in frame. Re-applied only
     /// while that row's index moves (the replay still landing rows above
     /// it), so a wheel is never fought.
     fn dev_scroll_to_script_card(&mut self) {
-        if !self.show_work_cached || !crate::screens::dev_scroll_to_script_card() {
+        if !crate::screens::dev_scroll_to_script_card() {
             return;
         }
         let items = self.feed.items();
@@ -1508,175 +1307,6 @@ impl SteerSessionView {
             item_ix: row.saturating_sub(1),
             offset_in_item: px(0.),
         });
-    }
-
-    /// EXP-1175 — the thread's projection, refreshed every frame after
-    /// [`Self::sync_list`] (whose main-transcript rows it reads the pending
-    /// cards from): the parsed `results`, then the same [`plan_list_sync`]
-    /// diff the transcript applies, so a changed row re-measures.
-    fn sync_thread(&mut self, cx: &App) {
-        use std::hash::{Hash as _, Hasher as _};
-        let hash = |value: &dyn Fn(&mut std::hash::DefaultHasher)| {
-            let mut hasher = std::hash::DefaultHasher::new();
-            value(&mut hasher);
-            hasher.finish()
-        };
-        let events: Vec<domain::session_results::SessionTurnEvent> = self
-            .feed
-            .turn_log()
-            .iter()
-            .map(|edge| match edge {
-                steer::feed::TurnEdge::Message { at, text } => {
-                    domain::session_results::SessionTurnEvent::UserMessage {
-                        at: *at,
-                        text: text.clone(),
-                        images: Vec::new(),
-                    }
-                }
-                steer::feed::TurnEdge::Started { at } => {
-                    domain::session_results::SessionTurnEvent::TurnStarted { at: *at }
-                }
-                steer::feed::TurnEdge::Ended { at } => {
-                    domain::session_results::SessionTurnEvent::TurnEnded { at: *at }
-                }
-            })
-            .collect();
-        // Wave D (web `turnEventsOf`): the run's own start opens the first
-        // turn; its end counts only when the view watched it.
-        let run_started = self
-            .row
-            .as_ref()
-            .and_then(|row| crate::run_rows::stamp_ms(crate::run_rows::run_started_at(row)));
-        let events = domain::session_results::with_run_start(events, run_started);
-        self.thread_first_end_known =
-            domain::session_results::first_turn_end_known(&events, run_started);
-        // EXP-1284: a thread's session block shows only ITS Guide entries.
-        let results = match (&self.embedded_results, self.embedded) {
-            (Some(results), true) => Some(results),
-            _ => self.row.as_ref().and_then(|row| row.results.as_ref()),
-        };
-        self.thread = domain::session_results::session_turns(results, &events);
-        let items = self.feed.items();
-        self.thread_cards = if self.answerable_run() {
-            self.rows
-                .iter()
-                .filter(|spec| crate::session_rows::row_is_pending(spec, items))
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        };
-        self.thread_cards.sort_by_key(FeedRowSpec::id);
-        self.thread_rows = thread_rows(&self.thread, self.thread_cards.len());
-        let last_turn = self.thread.turns.len().saturating_sub(1);
-        let mut keys: Vec<RowKey> = Vec::with_capacity(self.thread_rows.len());
-        for row in self.thread_rows.clone() {
-            let first = keys.is_empty();
-            let key = match row {
-                ThreadRow::Bubble(turn) => {
-                    let message = self.thread.turns[turn].message.as_ref();
-                    RowKey {
-                        id: THREAD_BUBBLE_BASE + turn as FeedItemId,
-                        fingerprint: hash(&|hasher| {
-                            (first, message.map(|message| (&message.text, message.at))).hash(hasher)
-                        }),
-                    }
-                }
-                ThreadRow::Status(turn) => {
-                    let facts = &self.thread.turns[turn];
-                    RowKey {
-                        id: THREAD_STATUS_BASE + turn as FeedItemId,
-                        fingerprint: hash(&|hasher| {
-                            (first, facts.started_at, facts.ended_at, turn == last_turn).hash(hasher)
-                        }),
-                    }
-                }
-                ThreadRow::Item(turn, ix) => {
-                    let item = &self.thread.turns[turn].items[ix];
-                    let fingerprint = hash(&|hasher| match item {
-                        domain::session_results::ThreadItem::Text { topic, text } => {
-                            (first, topic, text).hash(hasher)
-                        }
-                        domain::session_results::ThreadItem::Picture(entry) => {
-                            (first, &entry.attachment_id, entry.width, entry.height).hash(hasher);
-                            (&entry.label, &entry.caption).hash(hasher)
-                        }
-                    });
-                    RowKey { id: ((turn as FeedItemId) << 20) | ix as FeedItemId, fingerprint }
-                }
-                ThreadRow::Reply(turn) => {
-                    let reply = self.thread.turns[turn].reply.as_ref();
-                    RowKey {
-                        id: THREAD_REPLY_ID + turn as FeedItemId,
-                        fingerprint: hash(&|hasher| (first, reply).hash(hasher)),
-                    }
-                }
-                // The cards key below, off the transcript's own fingerprint.
-                ThreadRow::Card(_) => continue,
-            };
-            keys.push(key);
-        }
-        for spec in &self.thread_cards {
-            let id = spec.id();
-            let fingerprint = transcript_rows::row_fingerprint(
-                spec,
-                items,
-                self.expanded_groups.contains(&id),
-                |item| self.item_facets(item),
-            );
-            let fingerprint = transcript_rows::fold_gap(fingerprint, if keys.is_empty() { 0. } else { 1. });
-            let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec, cx));
-            keys.push(RowKey { id: THREAD_CARD_BASE + id, fingerprint });
-        }
-        let ops = plan_list_sync(&self.thread_keys, &keys);
-        for op in ops {
-            match op {
-                ListOp::Splice { range, count } => self.thread_list.splice(range, count),
-                ListOp::Remeasure(range) => self.thread_list.remeasure_items(range),
-            }
-        }
-        self.thread_keys = keys;
-    }
-
-    /// EXP-1175 — the viewer's Show work switch: per signed-in USER
-    /// ([`crate::ui_prefs::show_work`]), `EXP_DEV_SHOW_WORK=1` forcing it on
-    /// for the capture lane.
-    fn show_work(&self, cx: &App) -> bool {
-        if self.embedded {
-            return self.embedded_show_work;
-        }
-        crate::screens::dev_show_work() || crate::ui_prefs::show_work(&show_work_user(cx))
-    }
-
-    /// EXP-1284 — make this view a thread conversation's run block body
-    /// ([`Self::render_embedded`]); `show_work` opens it on the transcript
-    /// (a folded run's Show work).
-    pub(crate) fn set_embedded(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) {
-        self.embedded = true;
-        self.embedded_show_work = show_work;
-        cx.notify();
-    }
-
-    /// EXP-1284 — the Guide entries this embedded block shows (the
-    /// session's own slice of the thread's Guide).
-    pub(crate) fn set_embedded_results(&mut self, results: serde_json::Value, cx: &mut gpui::Context<Self>) {
-        if self.embedded_results.as_ref() != Some(&results) {
-            self.embedded_results = Some(results);
-            cx.notify();
-        }
-    }
-
-    /// EXP-1284 — the thread's reply composer sends to this run: the SAME
-    /// delivery the Run face's composer ends in (local engine prompt, or the
-    /// relay's `input` frame). `false` = it did not go out (the run is over,
-    /// or the relay is not connected).
-    pub(crate) fn send_reply(&mut self, text: &str, cx: &mut gpui::Context<Self>) -> bool {
-        if !self.run_open() {
-            return false;
-        }
-        let sent = self.deliver(text);
-        cx.notify();
-        sent
     }
 
     /// Whether the run is over — a merged/ended session offers no Merge
@@ -1708,15 +1338,11 @@ impl SteerSessionView {
         };
         let row = store
             .collections()
-            .coding_sessions
+            .sessions
             .read(cx)
             .get(&self.session_id)
             .cloned();
-        // EXP-906: "ended" is the SHARED rule (`run_rows::run_has_ended`) —
-        // a sweep end (`ended` by `stale`) is a row the server tidied, not a
-        // run that finished, and treating it as one parked the viewer.
-        let ended = row.as_ref().is_some_and(crate::run_rows::run_has_ended);
-        if ended {
+        if row.as_ref().is_some_and(domain::rows::SessionRow::is_ended) {
             // EXP-639: the redial loops treat the synced row as the truth —
             // a `no_such_session` for an ended run would otherwise park the
             // viewer in `Starting` forever.
@@ -1726,24 +1352,17 @@ impl SteerSessionView {
             // EXP-724: a run that ended mid-compaction never sends `ended`.
             self.feed.clear_compaction();
         }
-        if self.row != row {
-            // EXP-1172: a `sessions_show` tile appears (or goes) under its
-            // call when the synced results change — the list re-measures its
-            // rows so an off-screen one does not keep a stale height.
-            let results_changed = self.row.as_ref().map(|row| &row.results)
-                != row.as_ref().map(|row| &row.results);
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let may_message = row
+            .as_ref()
+            .is_some_and(|row| may_steer(row, me.as_deref()));
+        if self.row != row || self.may_message != may_message {
             self.row = row;
-            if results_changed {
-                self.list.remeasure();
-            }
+            self.may_message = may_message;
             cx.notify();
         }
+        // The ROOT's Guide rides the same collection (EXP-1294).
         self.refresh_guide(cx);
-        // EXP-895: the row is where the issue id comes from, so this is the
-        // first moment the FALLBACK files can be asked for — a run that
-        // never publishes a diff (an ended one, a remote host that is gone)
-        // has no feed event to hang the fetch off.
-        self.load_pr_changes(cx);
         self.sync_mention_source(cx);
     }
 
@@ -1763,7 +1382,7 @@ impl SteerSessionView {
     }
 
     fn row_ended(&self) -> bool {
-        self.row.as_ref().is_some_and(crate::run_rows::run_has_ended)
+        self.row.as_ref().is_some_and(domain::rows::SessionRow::is_ended)
     }
 
     fn device(&self, cx: &App) -> crate::queries::SessionDevicePresentation {
@@ -1857,33 +1476,6 @@ impl SteerSessionView {
         }
     }
 
-    /// EXP-312 mirrors the web `ownsLiveRow` + `live` gate.
-    fn can_kill(&self, cx: &App) -> bool {
-        // EXP-746: a run this process hosts is ours by construction — the
-        // ownership question the remote gate asks is about someone ELSE's
-        // machine, and a live engine here is always killable (a replay never
-        // is: there is nothing running).
-        if self.source.steerable_session().is_some() {
-            return !matches!(self.phase, ViewerPhase::Ended { .. }) && !self.row_ended();
-        }
-        if self.source.read_only() {
-            return false;
-        }
-        let Some(row) = self.row.as_ref() else {
-            return false;
-        };
-        let me = crate::queries::active_account(cx).map(|account| account.user_id);
-        self.phase == ViewerPhase::Live
-            && !self.paused(cx)
-            && row.user_id.is_some()
-            && row.user_id == me
-            && matches!(
-                row.status.as_deref(),
-                Some(domain::contract::CODING_SESSION_STATUS_RUNNING)
-                    | Some(domain::contract::CODING_SESSION_STATUS_IN_REVIEW)
-            )
-    }
-
     // ── Viewer events ──────────────────────────────────────────────────────
 
     fn apply_event(&mut self, event: ViewerEvent, cx: &mut gpui::Context<Self>) {
@@ -1909,7 +1501,6 @@ impl SteerSessionView {
                 // — one per agent id, before the row it becomes.
                 self.note_duplicate_agent(&activity, cx);
                 self.feed.apply_seq(Some(seq), activity);
-                self.sync_changes(cx);
                 if self.feed.is_staging() {
                     self.arm_staging_swap(cx);
                 }
@@ -1933,7 +1524,6 @@ impl SteerSessionView {
                 }
                 self.feed.apply_synced_from(first_seq);
                 self.history_truncated = truncated;
-                self.sync_changes(cx);
             }
             // EXP-783: an older page, requested by scrolling past the top of
             // what this client holds. It is PREPENDED, so every visible row
@@ -1960,7 +1550,6 @@ impl SteerSessionView {
                     // Re-minted ids: see the `Synced` arm above.
                     self.edit_memo.clear();
                     self.feed.force_swap();
-                    self.sync_changes(cx);
                 }
             }
             ViewerEvent::LocalMessage(text) => {
@@ -2096,7 +1685,6 @@ impl SteerSessionView {
                 }
                 self.refresh_derived();
                 self.note_feed_moved(pulse);
-                self.sync_changes(cx);
                 self.note_compaction(was_compacting, cx);
             }
             engine::LocalFeedEvent::Phase(phase) => {
@@ -2203,7 +1791,6 @@ impl SteerSessionView {
                     this.feed.force_swap();
                     this.refresh_derived();
                     this.note_feed_moved(pulse);
-                    this.sync_changes(cx);
                     this.note_compaction(was_compacting, cx);
                     this.staging_started = None;
                     this.staging_armed = false;
@@ -2237,6 +1824,7 @@ impl SteerSessionView {
         keys: Vec<String>,
         labels: Vec<String>,
         text: Option<String>,
+        feedback: Option<String>,
         cx: &mut gpui::Context<Self>,
     ) {
         let Some(item) = self.feed.items().iter().find(|item| item.id == item_id) else {
@@ -2258,6 +1846,15 @@ impl SteerSessionView {
             .answer_state(&key)
             .is_some_and(|state| state.status == AnswerStatus::Sending);
         if self.feed.is_answer_locked(&key) && (!card.resolved || sending) {
+            return;
+        }
+        // EXP-1294: the database is the bus — a card the host filed as a
+        // `messages` row is answered IN that row (`sessions.answer`); the
+        // live layer (local engine / relay) answers only a card no row
+        // carries yet.
+        if let Some(message_id) = self.card_message_id(&card, cx) {
+            let input = card_answer_input(&card, message_id, &keys, &labels, text.as_deref(), feedback);
+            self.answer_via_server(&key, keys, labels, input, item_id, cx);
             return;
         }
         let question_id = card.question_id.as_str();
@@ -2286,6 +1883,12 @@ impl SteerSessionView {
             cx.notify();
             return;
         }
+        // A plan's "keep planning" note follows the reject as a message.
+        if let Some(feedback) = feedback {
+            if !self.deliver(&feedback) {
+                self.notice = Some(SharedString::from(NOT_CONNECTED));
+            }
+        }
         self.feed.note_answer_sent(&key, keys, labels);
         // FEED-26: answering is the freshest activity there is — the quiet
         // that led up to the card was the reader's, not the agent's.
@@ -2309,6 +1912,78 @@ impl SteerSessionView {
             cx.background_executor().timer(ANSWER_ACK_TIMEOUT).await;
             let _ = this.update(cx, |this, cx| {
                 this.feed.fail_answer(&deadline_key);
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// EXP-1294 — the `messages` row behind a pending card: this session's
+    /// newest UNANSWERED `question` (or, for a plan picker, `plan`) card,
+    /// preferring the one whose text is the card's. `None` = no row carries
+    /// it (yet), and the live layer answers.
+    fn card_message_id(&self, card: &steer::feed::QuestionCard, cx: &App) -> Option<String> {
+        let (kind, field) = if card.plan_mode {
+            ("plan", "plan")
+        } else {
+            ("question", "question")
+        };
+        let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+        let open: Vec<&domain::rows::MessageRow> = messages
+            .iter()
+            .filter(|message| message.card_kind() == Some(kind) && message.answered_at.is_none())
+            .collect();
+        let same_text = open.iter().rev().find(|message| {
+            message
+                .card
+                .as_ref()
+                .and_then(|card| card.get(field))
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|text| text.trim() == card.text.trim())
+        });
+        same_text.or(open.last()).map(|message| message.id.clone())
+    }
+
+    /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
+    /// (the host's `question_resolved` settles it); a refusal unlocks it
+    /// with the usual "Couldn't answer the question" toast.
+    fn answer_via_server(
+        &mut self,
+        key: &str,
+        keys: Vec<String>,
+        labels: Vec<String>,
+        input: api::sessions::AnswerInput,
+        item_id: FeedItemId,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("answer", "the question", None, cx);
+            return;
+        };
+        self.feed.note_answer_sent(key, keys, labels);
+        self.last_activity = std::time::Instant::now();
+        self.picked.remove(key);
+        self.answer_cursor = None;
+        self.answer_cursor_for = None;
+        if self.inline.as_ref().is_some_and(|inline| inline.item == item_id) {
+            self.inline = None;
+        }
+        if self.editing_step == Some(item_id) {
+            self.editing_step = None;
+        }
+        let key = key.to_string();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::sessions::answer(&trpc, &input) })
+                .await;
+            let Err(err) = result else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                this.feed.fail_answer(&key);
+                crate::action_error::failed_action_err("answer", "the question", &err, cx);
                 cx.notify();
             });
         })
@@ -2494,7 +2169,7 @@ impl SteerSessionView {
             self.open_inline(item_id, option_key, placeholder, window, cx);
             return;
         }
-        self.answer(item_id, vec![option_key], vec![option_label], None, cx);
+        self.answer(item_id, vec![option_key], vec![option_label], None, None, cx);
     }
 
     /// Submit a multi-select card's picks (the "Submit" button, and Enter
@@ -2516,7 +2191,7 @@ impl SteerSessionView {
             .filter(|option| picked.contains(&option.key))
             .map(|option| option.label.clone())
             .collect();
-        self.answer(item_id, picked, labels, None, cx);
+        self.answer(item_id, picked, labels, None, None, cx);
     }
 
     fn on_answer_up(&mut self, _: &input::MoveUp, _: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -2720,20 +2395,18 @@ impl SteerSessionView {
         let plan_reject = is_plan_reject(card, index);
         let option_label = option.label.clone();
         if plan_reject {
-            self.answer(item_id, vec![option_key], vec![option_label], None, cx);
+            let feedback = (!text.is_empty()).then(|| text.clone());
+            self.answer(item_id, vec![option_key], vec![option_label], None, feedback, cx);
         } else {
             if text.is_empty() {
                 return;
             }
-            self.answer(item_id, vec![option_key], vec![text.clone()], Some(text.clone()), cx);
+            self.answer(item_id, vec![option_key], vec![text.clone()], Some(text.clone()), None, cx);
         }
         // `answer` dropped the field once the answer went out; a refused send
         // (not connected) keeps it — and its text — for a retry.
         if self.inline.is_some() {
             return;
-        }
-        if plan_reject && !text.is_empty() && !self.deliver(&text) {
-            self.notice = Some(SharedString::from(NOT_CONNECTED));
         }
         window.focus(&self.focus_handle, cx);
         cx.notify();
@@ -2741,18 +2414,13 @@ impl SteerSessionView {
 
     // ── Composer ───────────────────────────────────────────────────────────
 
-    /// The web gate, verbatim: a draft goes out only on a LIVE phase with an
-    /// open socket (a slow-consumer redial keeps the phase and must still dim
-    /// the button) over a row that has not ended.
+    /// EXP-1294: a draft goes out whenever the reader may message the
+    /// session — the database is the bus, so no live socket is needed, and a
+    /// message to an idle (or ended) session resumes (continues) it.
     fn can_send(&self, cx: &App) -> bool {
         let has_content =
             !self.input.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
-        !self.sending
-            && !self.source.read_only()
-            && self.phase == ViewerPhase::Live
-            && self.connected
-            && !self.row_ended()
-            && has_content
+        !self.sending && self.may_message && has_content
     }
 
     /// Whether the run can still take input at all: a live row, not a
@@ -2766,7 +2434,7 @@ impl SteerSessionView {
     }
 
     fn composer_visible(&self) -> bool {
-        if !self.run_open() {
+        if !self.may_message {
             return false;
         }
         // EXP-820: a pending card takes the composer's place — free text is
@@ -2856,530 +2524,24 @@ impl SteerSessionView {
             .then(|| SharedString::from(chip.value_label))
     }
 
-    // ── EXP-850 §11: the diff pane ────────────────────────────────────────
-
-    /// Install the parse of the newly published diff, when
-    /// [`crate::changes_bar::sync`] says it changed. The cache key is the raw
-    /// string, so a feed event that carried no new diff parses nothing.
-    fn sync_changes(&mut self, cx: &mut gpui::Context<Self>) {
-        let next = {
-            // Borrowed, never cloned: the published diff runs to 512 KiB and
-            // this fires on every feed event, so an unchanged one must cost
-            // a pointer comparison.
-            let raw = self.feed.latest_diff();
-            crate::changes_bar::sync(self.changes.as_ref(), &self.session_id, raw)
-        };
-        let Some(next) = next else {
-            return;
-        };
-        self.changes = next;
-        // A file that is no longer in the diff must not keep the header.
-        let files = self.changes.as_ref().map_or(0, |state| state.files.len());
-        if self.diff_selected >= files {
-            self.diff_selected = 0;
-        }
-        if self.guide_page_open() {
-            self.rebuild_changes_diff(cx);
-        }
-        // EXP-895: a published diff retires the fallback; its absence asks
-        // for one.
-        if self.changes.is_some() {
-            self.pr_changes = None;
-        } else {
-            self.load_pr_changes(cx);
-        }
+    /// EXP-1261: whether the transcript left its top (the work body's top
+    /// fade waits for it).
+    pub(crate) fn body_scrolled(&self) -> bool {
+        crate::work_header::list_scrolled(&self.list)
     }
 
-    /// EXP-895 — the FALLBACK fetch (web `useReviewFiles`, two tiers behind
-    /// one state): the issue's PR files when it has a PR, else its
-    /// `exp/<IDENTIFIER>` branch against the repo default (`null` when the
-    /// branch was never pushed). Only ever for a run that published NO diff
-    /// of its own — a live local run's worktree is the better answer — and
-    /// only once per issue+PR key, so a repaint never re-fetches.
-    ///
-    /// EXP-1194: an ISSUE-LESS run (chat, action, batch) holding a PR of its
-    /// own reads that PR's files by the RUN id (`codingSessions.prFiles`,
-    /// member-gated, so a teammate's run — no relay ticket, EXP-312 — still
-    /// has a Changes face; the Reviews "Agent runs" rows land on it).
-    fn load_pr_changes(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.changes.is_some() {
-            return;
-        }
-        let Some(row) = self.row.as_ref() else {
-            return;
-        };
-        let source = match row.issue_id.clone().filter(|id| !id.is_empty()) {
-            Some(issue_id) => {
-                let has_pr = self
-                    .issue_row(cx)
-                    .and_then(|issue| issue.pr_number.clone())
-                    .is_some();
-                PrChangesSource::Issue { issue_id, has_pr }
-            }
-            None if row.pr_url.as_deref().is_some_and(|url| !url.is_empty()) => {
-                PrChangesSource::Run {
-                    session_id: row.id.clone(),
-                    pr_url: row.pr_url.clone().unwrap_or_default(),
-                }
-            }
-            None => return,
-        };
-        let key = source.key();
-        if self.pr_changes.as_ref().is_some_and(|held| held.key == key) {
-            return;
-        }
-        let Some(client) = crate::queries::trpc_client(cx) else {
-            return;
-        };
-        let client = std::sync::Arc::new(client);
-        self.pr_changes = Some(PrChanges {
-            key: key.clone(),
-            files: Vec::new(),
-        });
-        cx.spawn(async move |this, cx| {
-            let files = cx
-                .background_executor()
-                .spawn(async move {
-                    match source {
-                        PrChangesSource::Issue {
-                            issue_id,
-                            has_pr: true,
-                        } => api::issues::pr_files(&client, &issue_id).map(|pr| pr.files),
-                        PrChangesSource::Issue {
-                            issue_id,
-                            has_pr: false,
-                        } => api::repositories::branch_diff(&client, &issue_id)
-                            .map(|diff| diff.map(|diff| diff.files).unwrap_or_default()),
-                        PrChangesSource::Run { session_id, .. } => {
-                            api::coding_sessions::pr_files(&client, &session_id)
-                                .map(|pr| pr.files)
-                        }
-                    }
-                })
-                .await;
-            let Ok(files) = files else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| {
-                // A diff that landed while the fetch was in flight wins: the
-                // worktree is fresher than anything GitHub can say.
-                if this.changes.is_some() {
-                    return;
-                }
-                this.pr_changes = Some(PrChanges {
-                    key,
-                    files: crate::diff::files_from_pull(&files),
-                });
-                if this.guide_page_open() {
-                    this.rebuild_changes_diff(cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// The synced issue row this run is bound to, if any.
-    fn issue_row(&self, cx: &App) -> Option<domain::rows::Issue> {
-        let issue_id = self.row.as_ref()?.issue_id.clone()?;
-        Some(
-            sync::Store::try_global(cx)?
-                .collections()
-                .issues
-                .read(cx)
-                .get(&issue_id)?
-                .clone(),
-        )
-    }
-
-    /// EXP-916 — the files the Changes face is showing: the whole published
-    /// worktree diff, else the FALLBACK the branch pushed.
-    ///
-    /// (EXP-862's per-turn and per-edit scopes are gone: an edited-files card
-    /// shows its patch IN PLACE now, so the pane has exactly one thing to
-    /// show and the tree beside it is how a big change is navigated.)
-    fn changes_files(&self) -> Vec<coding::scm::DiffFile> {
-        self.changes_files_ref().to_vec()
-    }
-
-    /// The same files, BORROWED — the two render paths that read them every
-    /// frame (`diff_pane_files`, `render_diff_pane`) must not deep-copy the
-    /// whole diff per paint (release review R5).
-    fn changes_files_ref(&self) -> &[coding::scm::DiffFile] {
-        self.changes
-            .as_ref()
-            .map(|state| state.files.as_slice())
-            // EXP-895: no published diff → what the branch pushed
-            // (`Self::load_pr_changes`), so the Changes face exists for a
-            // run whose host is gone.
-            .or_else(|| self.pr_changes.as_ref().map(|pr| pr.files.as_slice()))
-            .unwrap_or(&[])
-    }
-
-    fn rebuild_changes_diff(&mut self, cx: &mut gpui::Context<Self>) {
-        let files = self.changes_files();
-        let prepared = crate::diff::build_scm_diff(
-            &files,
-            &cx.theme().highlight_theme,
-            crate::diff::DiffOptions::pane(),
-        );
-        self.changes_diff
-            .update(cx, |diff, cx| diff.set_prepared(prepared, cx));
-        self.apply_pending_diff_path(cx);
-    }
-
-    /// `+N −M` over the whole published diff — the header's Diff pill.
-    /// EXP-895: with no published diff it counts the FALLBACK files (the
-    /// issue's PR, or its pushed branch), so the Diff face toggle appears for
-    /// a run whose host went away; `None` only when there is nothing at all.
-    pub(crate) fn diff_totals(&self) -> Option<(u32, u32)> {
-        if let Some(state) = self.changes.as_ref() {
-            return Some((state.additions, state.deletions));
-        }
-        let files = &self.pr_changes.as_ref()?.files;
-        let totals = domain::diff::totals(files);
-        (totals.files > 0).then_some((totals.additions, totals.deletions))
-    }
-
-    /// EXP-879: the run's SUB-FACE on show — its transcript, its changes or
-    /// its published results.
-    /// EXP-1261: whether the face's body left its top (the work body's top
-    /// fade waits for it): the Run face's list, the Guide page, or a Guide
-    /// diff page's scroll (the issue detail's rule).
-    pub(crate) fn body_scrolled(&self, cx: &App) -> bool {
-        match self.run_face {
-            RunFace::Run if self.show_work_cached => crate::work_header::list_scrolled(&self.list),
-            RunFace::Run => crate::work_header::list_scrolled(&self.thread_list),
-            RunFace::Guide if self.guide_page.is_some() => {
-                crate::work_header::scrolled(&self.changes_diff.read(cx).page_scroll())
-            }
-            RunFace::Guide => crate::work_header::scrolled(&self.guide_scroll),
-        }
-    }
-
-    pub(crate) fn run_face(&self) -> RunFace {
-        self.run_face
-    }
-
-    /// EXP-879 — the run's published results, parsed off the synced row (the
-    /// ONE reader, `domain::session_results`). The row is re-snapshotted on
-    /// every `coding_sessions` notify, so this follows a run that publishes
-    /// while it is being watched.
-    /// EXP-933: GROUPS, pictures AND each topic's report text — a run that
-    /// published only text still has a Results face.
-    pub(crate) fn results_groups(&self) -> Vec<domain::session_results::SessionResultGroup> {
-        domain::session_results::parse_session_result_groups(self.guide_results.as_ref())
-    }
-
-    /// EXP-1284 — re-read THE Guide (the thread's, else the run's own).
+    /// EXP-1294 — re-read THE Guide: the tree ROOT's `guide` (the thread's
+    /// Guide), which is where this session's `sessions_show` pictures land.
     fn refresh_guide(&mut self, cx: &mut gpui::Context<Self>) {
-        let guide = self
-            .row
-            .as_ref()
-            .and_then(|row| crate::threads::guide_results_of_session(row, cx));
+        let guide = crate::session_data::root_of(&self.session_id, cx).and_then(|root| root.guide);
         if guide != self.guide_results {
             self.guide_results = guide;
+            // EXP-1172: a `sessions_show` tile appears (or goes) under its
+            // call when the Guide changes — the list re-measures its rows so
+            // an off-screen one does not keep a stale height.
+            self.list.remeasure();
             cx.notify();
         }
-    }
-
-    /// EXP-1251 — one of the Guide's diff pages is up.
-    pub(crate) fn guide_page_open(&self) -> bool {
-        self.run_face == RunFace::Guide && self.guide_page.is_some()
-    }
-
-    /// EXP-1251 — the run's faces are Run and GUIDE (the work header's
-    /// `Issue | Run | Guide`); the Guide's diff pages are its own state
-    /// ([`Self::open_guide_page`]), so asking for the Guide always lands on
-    /// the Guide itself. The host SETS the face. A Guide asked for on a run
-    /// with neither a report nor a diff falls back to the transcript rather
-    /// than to a blank page.
-    pub(crate) fn set_run_face(&mut self, face: RunFace, cx: &mut gpui::Context<Self>) {
-        let face = match face {
-            RunFace::Guide if !self.has_guide() => RunFace::Run,
-            face => face,
-        };
-        let left_page = self.guide_page.take().is_some();
-        if self.run_face == face && !left_page {
-            return;
-        }
-        self.run_face = face;
-        // A pick held for the page being left must not land later.
-        self.pending_diff_path = None;
-        // EXP-895: the Guide may be reading the FALLBACK files.
-        if face == RunFace::Guide {
-            self.load_pr_changes(cx);
-        }
-        cx.notify();
-    }
-
-    /// EXP-1251 — the run has a Guide: a report, or a diff to read.
-    pub(crate) fn has_guide(&self) -> bool {
-        !self.results_groups().is_empty() || self.diff_totals().is_some()
-    }
-
-    /// EXP-1251 — open one of the Guide's diff pages. Opening it builds the
-    /// diff rows — they are only worth rendering when visible.
-    pub(crate) fn open_guide_page(
-        &mut self,
-        page: crate::session_results::GuidePage,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let was_open = self.guide_page_open();
-        self.guide_page = Some(page);
-        self.diff_selected = 0;
-        if was_open {
-            cx.notify();
-            return;
-        }
-        if self.run_face != RunFace::Guide {
-            self.run_face = RunFace::Guide;
-            self.pending_diff_path = None;
-        }
-        self.load_pr_changes(cx);
-        self.rebuild_changes_diff(cx);
-        cx.notify();
-    }
-
-    /// Name `index` in the header and scroll the diff to it (§11).
-    pub(crate) fn select_diff_file(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
-        self.diff_selected = index;
-        self.changes_diff
-            .update(cx, |diff, cx| diff.scroll_to_file(index, cx));
-        cx.notify();
-    }
-
-    fn apply_pending_diff_path(&mut self, cx: &mut gpui::Context<Self>) {
-        let outcome = crate::pr_diff::resolve_pending_path(
-            self.pending_diff_path.as_deref(),
-            self.changes_files_ref().iter().map(|file| file.path.as_str()),
-        );
-        match outcome {
-            crate::pr_diff::PendingPath::Hold => {}
-            crate::pr_diff::PendingPath::Drop => self.pending_diff_path = None,
-            crate::pr_diff::PendingPath::Select(index) => {
-                self.pending_diff_path = None;
-                self.select_diff_file(index, cx);
-            }
-        }
-    }
-
-    /// EXP-945 — fold or unfold one directory of the Changes tree.
-    pub(crate) fn toggle_diff_dir(&mut self, path: String, cx: &mut gpui::Context<Self>) {
-        if !self.folded_dirs.insert(path.clone()) {
-            self.folded_dirs.remove(&path);
-        }
-        cx.notify();
-    }
-
-    /// EXP-945 — the run's Changes files as the pane's rows (the Results
-    /// Guide counts off them).
-    fn diff_pane_files(&self) -> Vec<crate::diff_pane::PaneFile> {
-        self.changes_files_ref()
-            .iter()
-            .map(crate::diff_pane::PaneFile::new)
-            .collect()
-    }
-
-    /// EXP-1251 — the Guide's DIFF PAGE: the `← Guide` back row over the
-    /// file tree beside the per-file cards, both filtered to the page's
-    /// files (a section's, the automatic `Other changes`, or the complete
-    /// diff). `None` while it is shut or while this run has no diff. The work
-    /// header above it owns the branch, the PR state, the merge pill and the
-    /// GitHub link.
-    fn render_diff_pane(
-        &self,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        let page = self.guide_page.filter(|_| self.run_face == RunFace::Guide)?;
-        let scoped = self.changes_files_ref();
-        if scoped.is_empty() {
-            return None;
-        }
-        let all: Vec<crate::diff_pane::PaneFile> = scoped
-            .iter()
-            .map(crate::diff_pane::PaneFile::new)
-            .collect();
-        let groups = self.results_groups();
-        let view = crate::session_results::guide_page_view(
-            &groups,
-            &crate::session_results::guide_diff_files(&all),
-            page,
-            false,
-        )
-        .or_else(|| {
-            crate::session_results::guide_page_view(
-                &groups,
-                &crate::session_results::guide_diff_files(&all),
-                crate::session_results::GuidePage::All,
-                false,
-            )
-        })?;
-        let filtered = page != crate::session_results::GuidePage::All;
-        let shown: Vec<usize> = crate::pr_diff::shown_indices(
-            all.iter().map(|file| file.path.as_ref()),
-            filtered.then_some(view.paths.as_slice()),
-        );
-        self.changes_diff.update(cx, |diff, cx| {
-            diff.set_file_filter(filtered.then(|| shown.clone()), cx);
-        });
-        let files: Vec<crate::diff_pane::PaneFile> =
-            shown.iter().filter_map(|&ix| all.get(ix).cloned()).collect();
-        let selected = shown.iter().position(|&ix| ix == self.diff_selected).unwrap_or(0);
-        let this = cx.entity().downgrade();
-        let back = crate::session_results::guide_page_header(
-            &view,
-            std::rc::Rc::new(move |_window, cx| {
-                let _ = this.update(cx, |this, cx| this.set_run_face(RunFace::Guide, cx));
-            }),
-            cx,
-        );
-        // EXP-1192: the pane paints its own file tree, like the issue's
-        // Guide pages (it used to sit in the window's left column).
-        let pane = crate::diff_pane::render(
-            crate::diff_pane::DiffPaneSpec {
-                files,
-                selected,
-                filter: Some(self.diff_filter.clone()),
-                folded_dirs: self.folded_dirs.clone(),
-                diff: self.changes_diff.clone(),
-                pane_width: self.diff_pane_width.clone(),
-                on_pick: std::rc::Rc::new(move |this: &mut Self, index, cx| {
-                    if let Some(&actual) = shown.get(index) {
-                        this.select_diff_file(actual, cx);
-                    }
-                }),
-                on_toggle_dir: std::rc::Rc::new(|this: &mut Self, path: String, cx| {
-                    this.toggle_diff_dir(path, cx);
-                }),
-            },
-            window,
-            cx,
-        );
-        Some(
-            v_flex()
-                .size_full()
-                .min_h_0()
-                .child(crate::issue_detail::centered_column(div().w_full().child(back)))
-                .child(div().flex_1().min_h_0().w_full().child(pane))
-                .into_any_element(),
-        )
-    }
-
-    /// EXP-1251 — the GUIDE face: the run's report with ONE Changes row per
-    /// section over this run's diff (its worktree diff, else the PR files),
-    /// `Other changes`, `Show complete diff`, and the Stack card of the
-    /// run's issue. `None` unless that face is up with something to show.
-    ///
-    /// No Stop/Resume here: the Run face owns it (EXP-879's face split,
-    /// mirrored on all four clients); the merge control is the header's.
-    fn render_results_pane(
-        &self,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        if self.run_face != RunFace::Guide || self.guide_page.is_some() {
-            return None;
-        }
-        let groups = self.results_groups();
-        let loaded = self.diff_pane_files();
-        if groups.is_empty() && loaded.is_empty() {
-            return None;
-        }
-        let team_id = self.ref_team_id(cx);
-        let this = cx.entity().downgrade();
-        let on_open: crate::session_results::OnOpenGuidePage =
-            std::rc::Rc::new(move |page, _window, cx| {
-                let _ = this.update(cx, |this, cx| this.open_guide_page(page, cx));
-            });
-        let stack = self.issue_row(cx).and_then(|issue| {
-            let team_id = crate::queries::issue_team_id(cx, &issue.id)?;
-            let issues = crate::queries::review_issues(cx, &team_id);
-            let view = domain::pr_stack::stack_view(&issue, &issues)?;
-            let on_pick: crate::session_results::OnPickStackRow =
-                std::rc::Rc::new(|issue_id, window, cx| {
-                    // A run's Guide opens the picked member on ITS issue tab.
-                    crate::screens::request_issue_results(issue_id, window, cx);
-                    crate::navigation::navigate_replace(
-                        window,
-                        cx,
-                        crate::navigation::Screen::IssueDetail {
-                            issue_id: issue_id.to_string(),
-                        },
-                    );
-                });
-            let on_merge: crate::session_results::OnPickStackRow =
-                std::rc::Rc::new(|issue_id, window, cx| {
-                    crate::pr_merge::ask_stack_merge_mode(
-                        issue_id,
-                        domain::pr_stack::StackConfirmMode::Through,
-                        window,
-                        cx,
-                    );
-                });
-            let this = cx.entity().downgrade();
-            let on_hover: crate::session_results::OnHoverStackRow =
-                std::rc::Rc::new(move |hovered, _window, cx| {
-                    let _ = this.update(cx, |this, cx| {
-                        if this.stack_hovered != hovered {
-                            this.stack_hovered = hovered;
-                            cx.notify();
-                        }
-                    });
-                });
-            Some(crate::session_results::stack_card(
-                &view,
-                crate::queries::issue_board_default_branch(cx, &issue.id),
-                Some(on_pick),
-                Some(on_merge),
-                self.stack_hovered.clone(),
-                Some(on_hover),
-                cx,
-            ))
-        });
-        Some(crate::session_results::render(
-            &groups,
-            self.results_row_width(window),
-            &self.images,
-            team_id.as_deref(),
-            crate::session_results::GuideSpec {
-                diff: (!loaded.is_empty()).then_some(loaded),
-                on_open: Some(on_open),
-                stack,
-                fallback_lead: None,
-                unnumbered: false,
-                scroll: Some(self.guide_scroll.clone()),
-            },
-            cx,
-        ))
-    }
-
-    /// The width the Results face's tiles row actually gets: the work column
-    /// ([`crate::work_header::WORK_COLUMN_W`], what
-    /// [`crate::issue_detail::centered_column`] caps the page at) narrowed by
-    /// a pane too small to hold it, minus the page's
-    /// own gutter on both sides. The measured pane width is the same
-    /// recorded-px probe the transcript's bubble cap reads; the first frame
-    /// has none, so it falls back to the window — never to a width wider than
-    /// the screen, which is the one that would clip.
-    fn results_row_width(&self, window: &Window) -> f32 {
-        let view = f32::from(self.view_width.get());
-        let pane = if view > 0. {
-            view
-        } else {
-            f32::from(window.viewport_size().width)
-        };
-        pane.min(crate::work_header::WORK_COLUMN_W) - 2. * crate::work_header::WORK_GUTTER
-    }
-
-    /// The Merge target this run offers, or `None` once it is over
-    /// ([`crate::changes_bar`]'s ONE rule). The header renders it (§10).
-    pub(crate) fn merge_target(&self, cx: &App) -> Option<crate::changes_bar::MergeTarget> {
-        let merge = self
-            .session_row()
-            .and_then(|row| crate::changes_bar::merge_meta_for_session(row, cx));
-        crate::changes_bar::merge_when_live(merge, self.session_over())
     }
 
     // ── EXP-850 §3/§4/§5/§12: the derived rows ────────────────────────────
@@ -3504,7 +2666,7 @@ impl SteerSessionView {
             cx.background_executor().timer(WORKING_TICK).await;
             if this
                 .update(cx, |this, cx| {
-                    if this.working_now() || this.status_ticking {
+                    if this.working_now() {
                         cx.notify();
                     }
                 })
@@ -3697,8 +2859,9 @@ impl SteerSessionView {
     }
 
     /// EXP-790: the Stop half of the composer's one button — interrupt the
-    /// running turn without ending the run. Local: the engine's cancel;
-    /// remote: the interrupt frame down the viewer socket.
+    /// running turn without ending the session. EXP-1294: `sessions.stop`,
+    /// the same call as the header's Stop (the server interrupts the host
+    /// through the relay), so it reaches a session hosted anywhere.
     ///
     /// EXP-873: a Stop drops every message the agent has not read yet (the
     /// queue bar, held and sent alike — the CLI's `cancel_queued`), so their
@@ -3706,23 +2869,7 @@ impl SteerSessionView {
     /// the draft is empty whenever the button shows Stop, and the person
     /// can edit and re-send. The device's empty `queue` frame confirms.
     fn stop_turn(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let sent = match &self.source {
-            FeedSource::Local { session } => {
-                session.cancel_turn();
-                true
-            }
-            FeedSource::Replay { .. } | FeedSource::Journal { .. } => false,
-            FeedSource::Remote { handle } => handle
-                .as_ref()
-                .is_some_and(|handle| handle.send_interrupt()),
-        };
-        if !sent {
-            if matches!(self.source, FeedSource::Remote { .. }) {
-                self.notice = Some(SharedString::from(NOT_CONNECTED));
-            }
-            cx.notify();
-            return;
-        }
+        stop_session(&self.session_id, cx);
         let unread = self.feed.take_queue();
         if !unread.is_empty() {
             let held = unread
@@ -3738,12 +2885,12 @@ impl SteerSessionView {
     }
 
     /// EXP-790: Stop shows while the agent is WORKING — a live turn with
-    /// nothing waiting on the reader — and only where a stop can reach it;
+    /// nothing waiting on the reader — and only to a reader who may stop it;
     /// Send otherwise, and always once there is a draft to send.
     fn shows_stop(&self, cx: &App) -> bool {
         let has_draft =
             !self.input.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
-        self.working && !has_draft && !self.source.read_only()
+        self.working && !has_draft && self.may_message
     }
 
     fn send_confirmed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -3753,18 +2900,12 @@ impl SteerSessionView {
         let text = self.input.read(cx).value().to_string();
         self.notice = None;
         if self.pending_images.is_empty() {
-            if self.deliver(&text) {
-                self.clear_draft(window, cx);
-            } else {
-                self.notice = Some(SharedString::from(NOT_CONNECTED));
-            }
-            cx.notify();
+            self.post_message(text, Vec::new(), window, cx);
             return;
         }
         // EXP-702: steer images upload to the SESSION route, not the issue's
         // — a screenshot pasted into a steering conversation is not part of
-        // the issue's Files, and a batch/action run has no issue at all. That
-        // is what retires the old "no issue = no attachment" gate.
+        // the issue's Files.
         let session_id = self.session_id.clone();
         let Some(transport) = crate::queries::attachment_transport(cx) else {
             crate::action_error::failed_action("upload", "the attachment", None, cx);
@@ -3790,12 +2931,8 @@ impl SteerSessionView {
                     Ok(resolved) => {
                         this.pending_images.note_uploaded(&resolved);
                         let message = this.pending_images.message(&text);
-                        if this.deliver(&message) {
-                            this.clear_draft(window, cx);
-                        } else {
-                            this.notice =
-                                Some(SharedString::from(NOT_CONNECTED));
-                        }
+                        let ids = resolved.into_iter().map(|(_, id, _)| id).collect();
+                        this.post_message(message, ids, window, cx);
                     }
                     Err((resolved, error)) => {
                         // Keep what landed so a retry uploads only the rest.
@@ -3813,6 +2950,43 @@ impl SteerSessionView {
                             },
                             cx,
                         );
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// EXP-1294 — the database is the bus: a message is a `messages` row
+    /// (`sessions.send{sessionId}`) the hosting device picks up; one to an
+    /// idle session resumes it, one to an ended session continues it. The
+    /// draft clears once the row is in; a refusal keeps it and toasts.
+    fn post_message(
+        &mut self,
+        text: String,
+        attachment_ids: Vec<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("send", "the message", None, cx);
+            return;
+        };
+        let input = api::sessions::SendInput::message(&self.session_id, &text, attachment_ids);
+        self.sending = true;
+        cx.notify();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.sending = false;
+                match result {
+                    Ok(_) => this.clear_draft(window, cx),
+                    Err(err) => {
+                        crate::action_error::failed_action_err("send", "the message", &err, cx)
                     }
                 }
                 cx.notify();
@@ -3913,20 +3087,33 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 /// and with it the device journal, is gone).
 pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this session";
 
-/// `steer.killSession` off the gpui foreground. Shared with the Devices
-/// screen's per-row kill.
-pub(crate) fn kill_session(session_id: &str, cx: &mut App) {
+/// EXP-1294 — who may message and Stop a session: any team member when it
+/// is SHARED, only its starter when it is private.
+pub(crate) fn may_steer(row: &domain::rows::SessionRow, me: Option<&str>) -> bool {
+    row.shared || (me.is_some() && row.user_id.as_deref() == me)
+}
+
+/// EXP-1294 — Stop: `sessions.stop` interrupts the session's turn through
+/// the relay (a queued one simply ends); a refusal is the usual toast.
+/// Shared with the terminal strip's per-row stop.
+pub(crate) fn stop_session(session_id: &str, cx: &mut App) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
+        crate::action_error::failed_action("stop", "the session", None, cx);
         return;
     };
     let session_id = session_id.to_string();
-    cx.background_executor()
-        .spawn(async move {
-            if let Err(err) = api::steer::kill_session(&trpc, &session_id) {
-                log::warn!("[ui] steer kill failed for {session_id}: {err}");
-            }
-        })
-        .detach();
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move { api::sessions::stop(&trpc, &session_id) })
+            .await;
+        if let Err(err) = result {
+            let _ = cx.update(|cx| {
+                crate::action_error::failed_action_err("stop", "the session", &err, cx);
+            });
+        }
+    })
+    .detach();
 }
 
 /// Whether the active account's sync pipeline is currently calling itself
@@ -3950,7 +3137,7 @@ fn spawn_viewer(
     let trpc = crate::queries::trpc_client(cx)?;
     let tickets = Arc::new(steer::TrpcViewerTickets {
         trpc: Arc::new(trpc),
-        coding_session_id: session_id.to_string(),
+        session_id: session_id.to_string(),
     });
     Some(steer::spawn_viewer(
         &runtime,
@@ -4259,6 +3446,40 @@ fn is_plan_reject(card: &steer::feed::QuestionCard, index: usize) -> bool {
     card.plan_mode && !card.options.is_empty() && index + 1 == card.options.len()
 }
 
+/// EXP-1294 — a card's answer as `sessions.answer` takes it: a plan picker
+/// DECIDES (its last option is the reject, carrying the "keep planning"
+/// note as `feedback`); a question answers with its free text, else the
+/// picked labels.
+fn card_answer_input(
+    card: &steer::feed::QuestionCard,
+    message_id: String,
+    keys: &[String],
+    labels: &[String],
+    text: Option<&str>,
+    feedback: Option<String>,
+) -> api::sessions::AnswerInput {
+    if card.plan_mode {
+        let rejected = keys.iter().any(|key| {
+            card.options
+                .iter()
+                .position(|option| &option.key == key)
+                .is_some_and(|index| is_plan_reject(card, index))
+        });
+        return api::sessions::AnswerInput {
+            message_id,
+            answer: None,
+            decision: Some(if rejected { "rejected" } else { "approved" }.to_string()),
+            feedback: feedback.filter(|_| rejected),
+        };
+    }
+    api::sessions::AnswerInput {
+        message_id,
+        answer: Some(text.map_or_else(|| labels.join(", "), str::to_string)),
+        decision: None,
+        feedback: None,
+    }
+}
+
 /// EXP-820 — the inline field an option opens instead of answering, with its
 /// placeholder: a question's free-text row ("Type something.") or a plan
 /// card's reject row. `None` = the option answers directly. A multi-select's
@@ -4511,339 +3732,66 @@ fn ask_body_text(cx: &App) -> gpui::Div {
 // Rendering
 // ---------------------------------------------------------------------------
 
-impl SteerSessionView {
-    /// EXP-1175 — what every status row of this run reads: its state (the
-    /// viewer's live signals folded over the synced display state), the
-    /// matching mark, the device, the agent and the run's own start/end.
-    fn status_facts(&mut self, cx: &mut gpui::Context<Self>) -> Option<StatusFacts> {
-        use crate::run_rows::{self, RunRowState, RunStatusMark};
-        let row = self.row.as_ref()?;
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let facts = run_rows::running_run_facts(row, None, None, now_ms / 1_000, cx);
-        let ended = self.session_over();
-        // EXP-1175: the viewer's own signals (a pending card on a live run,
-        // the working predicate) fold over the synced display state.
-        let awaiting_input = self.answerable_run() && !self.active.is_empty();
-        let working = self.working_now();
-        let state = run_rows::run_row_state(
-            facts.paused,
-            ended,
-            awaiting_input,
-            working,
-            facts.display,
-        );
-        // The mark follows the same state, so it never disagrees with the
-        // caption beside it.
-        let mark = match state {
-            RunRowState::Ended => RunStatusMark::Ended,
-            RunRowState::Paused => RunStatusMark::Live(None),
-            RunRowState::NeedsInput => {
-                RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::NeedsInput))
-            }
-            RunRowState::Working => RunStatusMark::Live(
-                (working || facts.working).then_some(crate::queries::CodingSessionDisplay::Working),
+/// EXP-1175 → EXP-1294 — the session view's status row: the agent's mark
+/// for `state` ([`crate::run_rows::run_mark`]) beside the state word in its
+/// tone (`session-card.json`). Also the styleguide's `run-status-row`.
+pub(crate) fn session_status_row(
+    id: impl Into<gpui::ElementId>,
+    agent: Option<coding::CodingAgent>,
+    state: domain::session_tree::SessionState,
+    cx: &App,
+) -> AnyElement {
+    h_flex()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .items_start()
+        .gap_2()
+        .child(crate::run_rows::run_mark(agent, state, cx))
+        .child(
+            v_flex().flex_1().min_w_0().child(
+                div()
+                    .text_sm()
+                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
+                    .child(SharedString::from(state.word())),
             ),
-            RunRowState::Review => {
-                RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::Review))
-            }
-            RunRowState::Done => RunStatusMark::Live(Some(crate::queries::CodingSessionDisplay::Done)),
-        };
-        let device = facts
-            .device_label
-            .as_deref()
-            .or(row.device_label.as_deref())
-            .map(str::trim)
-            .filter(|label| !label.is_empty())
-            .unwrap_or("Desktop")
-            .to_string();
-        self.status_ticking = state == RunRowState::Working;
-        Some(StatusFacts {
+        )
+        .into_any_element()
+}
+
+impl SteerSessionView {
+    /// EXP-1294 — the session's state as the status row shows it: the
+    /// synced state (`session_tree::session_state`) with the viewer's own
+    /// live signals folded over it — a pending card on a live run waits on
+    /// the reader, the working predicate moves the mark.
+    fn view_state(&self) -> Option<domain::session_tree::SessionState> {
+        use domain::session_tree::SessionState;
+        let row = self.row.as_ref()?;
+        if self.session_over() {
+            return Some(SessionState::Ended);
+        }
+        if self.answerable_run() && !self.active.is_empty() {
+            return Some(SessionState::NeedsYou);
+        }
+        if self.working_now() {
+            return Some(SessionState::Working);
+        }
+        Some(domain::session_tree::session_state(row))
+    }
+
+    /// EXP-1294 — the status row over the transcript: the agent's mark (it
+    /// works while the agent does, badges while it waits), the state word
+    /// in its tone (`session-card.json`). No device caption.
+    fn render_status_row(&self, cx: &App) -> Option<AnyElement> {
+        let row = self.row.as_ref()?;
+        let state = self.view_state()?;
+        let element = session_status_row(
+            "steer-run-status-row",
+            crate::run_rows::run_agent(row.cli.as_deref()),
             state,
-            mark,
-            agent: facts.agent,
-            device,
-            started_ms: run_rows::stamp_ms(run_rows::run_started_at(row)),
-            ended_ms: run_rows::stamp_ms(run_rows::past_run_ended_at(row)),
-            now_ms,
-            ended,
-        })
-    }
-
-    /// One status row ([`crate::run_rows::run_status_row`]) with the Show
-    /// work / Hide work switch.
-    fn status_row_element(
-        &self,
-        id: SharedString,
-        facts: &StatusFacts,
-        mark: crate::run_rows::RunStatusMark,
-        caption: (String, crate::run_rows::StatusTone),
-        tool_line: Option<SharedString>,
-        show_work: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let entity = cx.entity().downgrade();
-        let embedded = self.embedded;
-        crate::run_rows::run_status_row(
-            crate::run_rows::RunStatusRowSpec {
-                id,
-                agent: facts.agent,
-                mark,
-                caption: SharedString::from(caption.0),
-                tone: caption.1,
-                tool_line,
-                show_work,
-                toggle: true,
-                on_toggle: Some(Box::new(move |_, window, cx| {
-                    // EXP-1284: an embedded block's switch is its own.
-                    if embedded {
-                        let _ = entity.update(cx, |this, cx| {
-                            this.embedded_show_work = !show_work;
-                            cx.notify();
-                        });
-                    } else {
-                        crate::ui_prefs::set_show_work(&show_work_user(cx), !show_work);
-                        let _ = entity.update(cx, |_, cx| cx.notify());
-                    }
-                    window.refresh();
-                })),
-            },
-            cx,
-        )
-    }
-
-    /// EXP-1175 — the Run face's status row, over the transcript (or over a
-    /// thread with no turns — a teammate's, an offline host's): the run
-    /// mark, `runRowCaption` in its tone, the newest tool call muted under
-    /// it (live runs only) and the Show work / Hide work switch. EXP-1245:
-    /// the owner's per-turn thread draws one row PER TURN instead
-    /// ([`Self::render_turn_status_row`]).
-    fn render_status_row(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let facts = self.status_facts(cx)?;
-        // EXP-1271 (EXP-1259 D8): before the first turn the OWNER's row is
-        // THE mark over "Starting on <device>" (and it shows even in the
-        // per-turn thread, which has no turn row yet).
-        let starting = self.starting_run(&facts, cx);
-        if !starting && !show_work && self.thread.per_turn {
-            return None;
-        }
-        let caption = if starting {
-            (
-                crate::feedback::starting_label(&facts.device),
-                crate::run_rows::StatusTone::Muted,
-            )
-        } else {
-            crate::run_rows::run_row_caption(
-                facts.state,
-                &facts.device,
-                facts.started_ms,
-                facts.ended_ms,
-                facts.now_ms,
-            )
-        };
-        let mark = if starting { crate::run_rows::RunStatusMark::Starting } else { facts.mark };
-        let tool_line = (!facts.ended)
-            .then(|| steer::feed::last_tool_line(self.feed.items()))
-            .flatten()
-            .map(SharedString::from);
-        let element = self.status_row_element(
-            SharedString::from("steer-run-status-row"),
-            &facts,
-            mark,
-            caption,
-            tool_line,
-            show_work,
             cx,
         );
-        Some(work_column_row(element).into_any_element())
-    }
-
-    /// EXP-1284 — the EMBEDDED body (a thread conversation's run block): the
-    /// Run face's status row over the run's thread rows, or — behind the
-    /// row's own Show work — the transcript rows, all laid out flat (the
-    /// thread page owns the one scroll; a list cannot nest in it). No
-    /// composer, banners or panes: the thread's reply box steers.
-    fn render_embedded(
-        &mut self,
-        show_work: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::Div {
-        let status = self.render_status_row(show_work, cx);
-        let rows: Vec<AnyElement> = if show_work {
-            (0..self.row_keys.len())
-                .map(|ix| self.render_list_row(ix, window, cx))
-                .collect()
-        } else {
-            (0..self.thread_rows.len())
-                .map(|ix| self.render_thread_row(ix, window, cx))
-                .collect()
-        };
-        // The bubble cap reads the view's width (the normal body's probe).
-        let width_probe = self.view_width.clone();
-        v_flex()
-            .relative()
-            .w_full()
-            .min_w_0()
-            .children(status)
-            .children(rows)
-            .child(
-                gpui::canvas(
-                    move |bounds, _, _| width_probe.set(bounds.size.width),
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .size_full(),
-            )
-    }
-
-    /// EXP-1271 — the owner's open run before its first turn: nothing
-    /// streamed, nothing published, no turn begun, the host not offline
-    /// (web `startingRun`).
-    fn starting_run(&self, facts: &StatusFacts, cx: &App) -> bool {
-        let me = crate::queries::active_account(cx).map(|account| account.user_id);
-        let owner = self
-            .row
-            .as_ref()
-            .is_some_and(|row| row.user_id.is_some() && row.user_id == me);
-        owner
-            && !facts.ended
-            && !matches!(self.phase, ViewerPhase::Ended { .. })
-            && !self.paused(cx)
-            && self.feed.is_empty()
-            && self.thread_keys.is_empty()
-            && !self.working_now()
-    }
-
-    /// EXP-1245 — one turn's status row in the owner's thread: a settled
-    /// turn reads `Done on <device> · <turn time>` under the dimmed mark;
-    /// the open (last) turn the run's caption timed from the TURN's start,
-    /// with the live tool line. `None` for a turn that has not started.
-    fn render_turn_status_row(&mut self, turn: usize, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let facts = self.status_facts(cx)?;
-        let started = self.thread.turns.get(turn)?.started_at;
-        let ended = self.thread.turns.get(turn)?.ended_at;
-        let caption = crate::session_results::turn_row_caption(
-            started,
-            ended,
-            facts.state,
-            &facts.device,
-            facts.ended_ms,
-            facts.now_ms,
-            turn > 0 || self.thread_first_end_known,
-        )?;
-        let open = ended.is_none();
-        let mark = if open { facts.mark } else { crate::run_rows::RunStatusMark::Ended };
-        let tool_line = (open && !facts.ended)
-            .then(|| steer::feed::last_tool_line(self.feed.items()))
-            .flatten()
-            .map(SharedString::from);
-        Some(self.status_row_element(
-            SharedString::from(format!("steer-turn-status-row-{turn}")),
-            &facts,
-            mark,
-            caption,
-            tool_line,
-            false,
-            cx,
-        ))
-    }
-
-    /// EXP-1175 — the Run face's default body: the published results in
-    /// publish order, the Summary as the agent's reply LAST, then every
-    /// pending card through the transcript's own renderer. A run with
-    /// nothing in it yet shows the transcript's placeholders.
-    fn render_thread(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        if self.thread_keys.is_empty() && self.feed.is_empty() {
-            return self.render_feed(cx);
-        }
-        let list = list(
-            self.thread_list.clone(),
-            cx.processor(|this, ix: usize, window, cx| this.render_thread_row(ix, window, cx)),
-        )
-        .pt_2()
-        .pb(px(crate::surface::COMPOSER_EDGE_FADE_H - 8.));
-        crate::scroll_pane::v_list_pane(list, &self.thread_list).into_any_element()
-    }
-
-    fn render_thread_row(
-        &mut self,
-        ix: usize,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        use domain::session_results::ThreadItem;
-        let element = match self.thread_rows.get(ix).copied() {
-            Some(ThreadRow::Bubble(turn)) => match self.thread.turns[turn].message.clone() {
-                Some(message) => self.render_thread_bubble(turn, &message, window, cx),
-                None => div().into_any_element(),
-            },
-            Some(ThreadRow::Status(turn)) => self
-                .render_turn_status_row(turn, cx)
-                .unwrap_or_else(|| div().into_any_element()),
-            Some(ThreadRow::Item(turn, item_ix)) => {
-                match self.thread.turns[turn].items.get(item_ix).cloned() {
-                    Some(ThreadItem::Text { topic, text }) => {
-                        let view = self.prose(
-                            SharedString::from(format!("steer-thread-text-{turn}-{item_ix}")),
-                            text,
-                        );
-                        thread_text_row(topic, self.with_issue_chips(view, cx), cx)
-                    }
-                    Some(ThreadItem::Picture(entry)) => self.inline_tile(
-                        &entry,
-                        SharedString::from(format!("steer-thread-picture-{turn}-{item_ix}")),
-                        cx,
-                    ),
-                    None => div().into_any_element(),
-                }
-            }
-            Some(ThreadRow::Reply(turn)) => {
-                let reply = self.thread.turns[turn].reply.clone().unwrap_or_default();
-                self.render_narration(SharedString::from(format!("steer-thread-reply-{turn}")), reply, cx)
-            }
-            Some(ThreadRow::Card(card)) => match self.thread_cards.get(card).cloned() {
-                Some(spec) => {
-                    let row = spec.resolve(self.feed.items());
-                    self.render_row(&row, false, &self.active, window, cx)
-                }
-                None => div().into_any_element(),
-            },
-            None => div().into_any_element(),
-        };
-        // A turn's items and reply sit indented under its status row (web
-        // `SessionThreadView`'s turn body).
-        let indented = self.thread.per_turn
-            && matches!(
-                self.thread_rows.get(ix),
-                Some(ThreadRow::Item(..) | ThreadRow::Reply(_))
-            );
-        let element = if indented {
-            div().w_full().min_w_0().pl(px(THREAD_TURN_INDENT)).child(element).into_any_element()
-        } else {
-            element
-        };
-        let gap = if ix == 0 { px(0.) } else { px(transcript::GAP_BLOCK) };
-        work_column_row(element).pt(gap).into_any_element()
-    }
-
-    /// EXP-1245 — the owner's message that opened a turn: the transcript's
-    /// user bubble (right-aligned), the caption `<name> · <time> · from
-    /// <device>` under it (web `UserMessageBubble`).
-    fn render_thread_bubble(
-        &self,
-        turn: usize,
-        message: &domain::session_results::SessionTurnMessage,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let name = crate::queries::active_account(cx).and_then(|account| account.name.clone());
-        let caption = user_message_caption(
-            name.as_deref(),
-            Some(message.at),
-            self.row.as_ref().and_then(|row| row.device_label.as_deref()),
-        );
-        let body = self.render_user_message(THREAD_BUBBLE_BASE + turn as FeedItemId, &message.text, cx);
-        user_bubble(body, self.user_bubble_width(&message.text, window), caption, cx)
+        Some(work_column_row(element).py_2().into_any_element())
     }
 
     fn render_feed(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -5062,8 +4010,7 @@ impl SteerSessionView {
         }
     }
 
-    /// The agent's prose: its mark beside the chat-rhythm markdown. EXP-1175:
-    /// the thread's reply draws through the same row.
+    /// The agent's prose: its mark beside the chat-rhythm markdown.
     fn render_narration(&self, key: SharedString, text: String, cx: &App) -> AnyElement {
         narration_row(self.with_issue_chips(self.prose(key, text), cx), cx)
     }
@@ -5538,7 +4485,7 @@ impl SteerSessionView {
 
     /// EXP-1172 — the picture an `exponential_sessions_show` call filed, as
     /// ONE Results tile under its row: looked up by `attachment_id` (the
-    /// call's `preview.id`) in the run's synced `results`, so it appears the
+    /// call's `preview.id`) in the tree root's synced Guide, so it appears the
     /// moment the row syncs and follows a re-publish or removal. The base is
     /// [`SESSION_INLINE_TILE_HEIGHT`], fitted to the transcript column by the
     /// shared ×4 rule; the caption is the call's text, else the label; a
@@ -5552,7 +4499,7 @@ impl SteerSessionView {
     ) -> Option<AnyElement> {
         use domain::session_results as results;
         let entry = results::session_result_picture(
-            self.row.as_ref().and_then(|row| row.results.as_ref()),
+            self.guide_results.as_ref(),
             attachment_id,
         )?;
         Some(self.inline_tile(
@@ -5563,7 +4510,6 @@ impl SteerSessionView {
     }
 
     /// EXP-1172 — one published picture as the transcript's inline tile.
-    /// EXP-1175: the thread's pictures draw through it too.
     fn inline_tile(
         &self,
         entry: &domain::session_results::SessionResultEntry,
@@ -6345,12 +5291,8 @@ impl SteerSessionView {
     }
 
     /// EXP-1240 — open a lane's (a subagent's, a workflow agent's)
-    /// transcript in the existing nested view: its subagent tab, under Show
-    /// work.
+    /// transcript in the existing nested view: its subagent tab.
     fn open_lane(&mut self, subagent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if !self.show_work(cx) {
-            crate::ui_prefs::set_show_work(&show_work_user(cx), true);
-        }
         self.focus_subagent(Some(subagent_id), cx);
         window.refresh();
     }
@@ -6512,17 +5454,43 @@ impl SteerSessionView {
     /// `queue` frame is the truth), and an EMPTY draft takes the text back so
     /// it can be edited and re-sent — the CLI's "edit queued message".
     fn unqueue(&mut self, id: &str, text: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        match &self.source {
-            FeedSource::Local { session } => session.unqueue(id),
-            FeedSource::Replay { .. } | FeedSource::Journal { .. } => return,
-            FeedSource::Remote { handle } => {
-                if !handle
-                    .as_ref()
-                    .is_some_and(|handle| handle.send_unqueue(id))
-                {
-                    self.notice = Some(SharedString::from(NOT_CONNECTED));
-                    cx.notify();
-                    return;
+        // EXP-1294: a queued line that IS a `messages` row the device has not
+        // consumed is revoked in that row (`sessions.unqueue`); the live
+        // layer revokes only what no row carries.
+        let row_queued = crate::session_data::messages_of_session(&self.session_id, cx)
+            .iter()
+            .any(|message| message.id == id && message.is_queued());
+        if row_queued {
+            let Some(trpc) = crate::queries::trpc_client(cx) else {
+                crate::action_error::failed_action("remove", "the message", None, cx);
+                return;
+            };
+            let message_id = id.to_string();
+            cx.spawn(async move |_, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { api::sessions::unqueue(&trpc, &message_id) })
+                    .await;
+                if let Err(err) = result {
+                    let _ = cx.update(|cx| {
+                        crate::action_error::failed_action_err("remove", "the message", &err, cx);
+                    });
+                }
+            })
+            .detach();
+        } else {
+            match &self.source {
+                FeedSource::Local { session } => session.unqueue(id),
+                FeedSource::Replay { .. } | FeedSource::Journal { .. } => return,
+                FeedSource::Remote { handle } => {
+                    if !handle
+                        .as_ref()
+                        .is_some_and(|handle| handle.send_unqueue(id))
+                    {
+                        self.notice = Some(SharedString::from(NOT_CONNECTED));
+                        cx.notify();
+                        return;
+                    }
                 }
             }
         }
@@ -7158,10 +6126,6 @@ impl SteerSessionView {
     /// still visible (web `activeAgent`): a done subagent's tab lingers
     /// exactly as long as it stays focused, then Main takes over.
     fn active_subagent(&self) -> Option<String> {
-        // EXP-1175: the thread has no subagent tabs — Main projects.
-        if !self.show_work_cached {
-            return None;
-        }
         let focused = self.focused_subagent.as_deref()?;
         // EXP-884: the derived summaries, not a walk of the run per call.
         steer::feed::visible_subagent_tabs(&self.subagents, Some(focused))
@@ -7574,41 +6538,6 @@ impl SteerSessionView {
     fn render_composer(&self, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let can_send = self.can_send(cx);
         let stop = self.shows_stop(cx);
-        let composer = crate::composer::GlassComposer::new(
-            v_flex()
-                .w_full()
-                .min_w_0()
-                // EXP-724: the `/` menu sits INSIDE the composer card,
-                // above the textarea — no popover, no caret anchoring
-                // (the token is always the whole draft).
-                .when_some(self.render_slash_menu(window, cx), |this, menu| this.child(menu))
-                .child(
-                    div()
-                        // The captures run before the field's own handlers,
-                        // so with a `/` menu open Enter/Tab accept and never
-                        // reach the textarea (so `PressEnter`, the thing that
-                        // SENDS, never fires for them). EXP-820: the card
-                        // keyboard's captures sit on the view's ROOT, since
-                        // the composer is hidden while a card is pending.
-                        .key_context("SteerComposer")
-                        .w_full()
-                        .min_w_0()
-                        .capture_action(cx.listener(Self::on_slash_up))
-                        .capture_action(cx.listener(Self::on_slash_down))
-                        .capture_action(cx.listener(Self::on_slash_escape))
-                        .capture_action(cx.listener(Self::on_slash_enter))
-                        .capture_action(cx.listener(Self::on_slash_tab))
-                        // EXP-790: the mention-capable field — `@`, `#` and
-                        // `:` complete exactly as they do in a comment.
-                        .child(self.mention.clone()),
-                )
-                .into_any_element(),
-        )
-        // EXP-877: the card is the FIELD and the round button, nothing else
-        // — every tool moved to the footer below it, so nothing competes
-        // with the field for the card's width and nothing wraps.
-        .inline_tools(true)
-        .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)));
         // EXP-790: ONE round button — Stop while the agent works, Send
         // otherwise (and always once there is a draft). Same ring, the glyph
         // swaps. No tooltip — a floating label beside a circled glyph reads
@@ -7618,54 +6547,68 @@ impl SteerSessionView {
         } else {
             crate::composer::SubmitKind::Send
         };
-        let composer = composer.submit(
-            crate::composer::composer_submit_kind("steer-send", kind, !stop && !can_send, cx)
-                .loading(self.sending)
-                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    if stop {
-                        this.stop_turn(window, cx);
-                    } else {
-                        this.send(window, cx);
-                    }
-                })),
+        let on_click = cx.listener(move |this, _: &ClickEvent, window, cx| {
+            if stop {
+                this.stop_turn(window, cx);
+            } else {
+                this.send(window, cx);
+            }
+        });
+        let submit =
+            crate::composer::SessionComposerSubmit::send("steer-send", !stop && !can_send, on_click)
+                .kind(kind)
+                .loading(self.sending);
+        // The captures run before the field's own handlers, so with a `/`
+        // menu open Enter/Tab accept and never reach the textarea (so
+        // `PressEnter`, the thing that SENDS, never fires for them). EXP-820:
+        // the card keyboard's captures sit on the view's ROOT, since the
+        // composer is hidden while a card is pending.
+        let (up, down, escape, enter, tab) = (
+            cx.listener(Self::on_slash_up),
+            cx.listener(Self::on_slash_down),
+            cx.listener(Self::on_slash_escape),
+            cx.listener(Self::on_slash_enter),
+            cx.listener(Self::on_slash_tab),
         );
-        // EXP-877: the background is PANE-wide (EXP-1162: no hairline, the
-        // transcript's bottom edge strip fades into the band), the card
-        // and its footer sit in the same centred work column as the header
-        // and the transcript (web `WORK_COLUMN_CLASS` around
-        // `<SteerComposer/>`). A composer that ran edge to edge under a
-        // 896px transcript read as a different surface from the conversation
-        // it belongs to.
-        div()
-            .w_full()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .items_center()
-            .py_2()
-            .child(
-                // EXP-1191: the card's outer edges on the work column's
-                // content box, like the transcript above it.
-                v_flex()
-                    .w_full()
-                    .min_w_0()
-                    .max_w(px(crate::work_header::WORK_COLUMN_W))
-                    .px(px(crate::work_header::WORK_GUTTER))
-                    .child(
-                        crate::composer::glass_composer(composer)
-                            .capture_action(cx.listener(Self::on_paste)),
-                    )
-                    .child(self.render_composer_footer(cx)),
-            )
-            .into_any_element()
+        let paste = cx.listener(Self::on_paste);
+        // EXP-1294: THE session composer box — the same card the thread
+        // reply and the agent channel paint. EXP-724: the `/` menu sits
+        // INSIDE the card, above the field.
+        crate::composer::session_composer_box(
+            crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
+                .above_field(self.render_slash_menu(window, cx))
+                .field_hook(move |field| {
+                    field
+                        .key_context("SteerComposer")
+                        .capture_action(up)
+                        .capture_action(down)
+                        .capture_action(escape)
+                        .capture_action(enter)
+                        .capture_action(tab)
+                })
+                .strip((!self.pending_images.is_empty()).then(|| self.render_pending_strip(cx)))
+                // EXP-698: the attach tool is ALWAYS offered — steer images
+                // upload to the session route. EXP-850 §13: `ui-add` ×4.
+                // EXP-1294: inside the card, Home's "+" slot.
+                .tool(
+                    crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
+                        .tooltip("Add file or image")
+                        .disabled(self.sending)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.pick_images(window, cx);
+                        })),
+                )
+                .card_hook(move |card| card.capture_action(paste))
+                .footer(Some(self.render_composer_footer(cx))),
+            cx,
+        )
     }
 
-    /// EXP-877 — the row UNDER the composer card. Left: the plan-mode read
-    /// and the attach button. Right: which model the run is on, and how full
-    /// its context window is. Everything here is ABOUT the run rather than
-    /// part of the message, which is why none of it is inside the card any
-    /// more (EXP-790 kept the attach glyph in there and wrapped the row onto
-    /// its own line on a narrow pane; a footer never wraps).
+    /// EXP-877 — the row UNDER the composer card. Left: the plan-mode read.
+    /// Right: which model the run is on, and how full its context window is.
+    /// Everything here is ABOUT the run rather than part of the message
+    /// (EXP-1294: the attach "+" is part of the message, so it sits inside
+    /// the card in Home's tool slot).
     fn render_composer_footer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         h_flex()
@@ -7685,19 +6628,6 @@ impl SteerSessionView {
                     .text_color(theme::tokens::BLUE.to_hsla())
                     .child(SharedString::from(PLAN_MODE_FOOTER))
             }))
-            // EXP-698: the attach tool is ALWAYS offered — steer images upload
-            // to the session route, so a batch/action run (no issue at all)
-            // attaches exactly like an issue run. EXP-850 §13: its glyph is
-            // `ui-add` on every steer composer ×4; `editor-image` stayed with
-            // the comment and description editors.
-            .child(
-                crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
-                    .tooltip("Add file or image")
-                    .disabled(self.sending)
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.pick_images(window, cx);
-                    })),
-            )
             .child(div().flex_1().min_w_0())
             .children(self.render_model_pin(cx))
             .children(self.render_context_ring(cx))
@@ -8088,15 +7018,6 @@ pub(crate) fn split_image_markers(text: &str, count: usize) -> Vec<MarkerSegment
         .collect()
 }
 
-/// EXP-1175 — the key the Show work preference is remembered under: the
-/// signed-in USER id, `default` with none.
-fn show_work_user(cx: &App) -> String {
-    sync::Store::try_global(cx)
-        .and_then(|_| crate::queries::active_account(cx))
-        .map(|account| account.user_id)
-        .unwrap_or_else(|| "default".to_string())
-}
-
 /// EXP-909 — the account a run hosted HERE is spending, as the launcher
 /// recorded it (`runs.json`): its profile id. `None` when this machine has no
 /// record of the run (or a legacy one naming none) — and then nothing is
@@ -8135,11 +7056,10 @@ fn refresh_run_usage(
     let Some(session_account) = sync::Store::try_global(cx).and_then(|store| {
         store
             .collections()
-            .coding_sessions
+            .sessions
             .read(cx)
-            .iter()
-            .find(|row| row.id == session_id)
-            .map(|row| row.agent_account.clone().unwrap_or_default())
+            .get(session_id)
+            .map(|row| row.account.clone().unwrap_or_default())
     }) else {
         return;
     };
@@ -8258,8 +7178,7 @@ fn banner_block(content: AnyElement) -> gpui::Div {
 /// The conversation TABS and every strip block (task list, tasks and waits,
 /// the queue bar) wrap their CONTENT in this too. Only the backgrounds
 /// still span the panel.
-/// The agent's prose row: its mark beside the markdown (EXP-1175: the
-/// thread's reply too).
+/// The agent's prose row: its mark beside the markdown.
 pub(crate) fn narration_row(view: crate::markdown::MarkdownView, cx: &App) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     h_flex()
@@ -8278,110 +7197,9 @@ pub(crate) fn narration_row(view: crate::markdown::MarkdownView, cx: &App) -> An
         .into_any_element()
 }
 
-/// EXP-1175 — a thread text item: the topic as an 11px muted caption over
-/// the report's markdown.
-pub(crate) fn thread_text_row(
-    topic: String,
-    view: crate::markdown::MarkdownView,
-    cx: &App,
-) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .gap_1()
-        .child(div().text_2xs().text_color(muted).child(topic))
-        .child(body_text(div()).w_full().min_w_0().child(view))
-        .into_any_element()
-}
-
-/// EXP-1245 — what every status row of a run reads (one per turn in the
-/// owner's thread, else the one run-wide row).
-struct StatusFacts {
-    state: crate::run_rows::RunRowState,
-    mark: crate::run_rows::RunStatusMark,
-    agent: Option<coding::CodingAgent>,
-    device: String,
-    started_ms: Option<i64>,
-    ended_ms: Option<i64>,
-    now_ms: i64,
-    ended: bool,
-}
-
-/// EXP-1245: a turn's items and reply indent under its status row's mark.
-const THREAD_TURN_INDENT: f32 = 24.;
-
-/// EXP-1245 — the owner's bubble in the thread (web `UserMessageBubble`):
-/// the transcript's user bubble, right-aligned, its caption under it.
-pub(crate) fn user_bubble(body: AnyElement, width: Pixels, caption: String, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .items_end()
-        .gap_1()
-        .pl_8()
-        .child(
-            body_text(div())
-                .min_w_0()
-                .w(width)
-                .rounded(px(12.))
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
-                .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
-                .px_3()
-                .py_2()
-                .child(body),
-        )
-        .when(!caption.is_empty(), |column| {
-            column.child(div().text_2xs().text_color(muted).child(SharedString::from(caption)))
-        })
-        .into_any_element()
-}
-
-/// EXP-1245 — the caption under the owner's bubble (web
-/// `userMessageCaption`): `<name> · <HH:MM> · from <device>`, a missing part
-/// dropped with its separator; local time.
-fn user_message_caption(name: Option<&str>, at_ms: Option<i64>, device: Option<&str>) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
-        parts.push(name.to_string());
-    }
-    if let Some(time) = at_ms
-        .and_then(chrono::DateTime::from_timestamp_millis)
-        .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
-    {
-        parts.push(time);
-    }
-    if let Some(device) = device.map(str::trim).filter(|device| !device.is_empty()) {
-        parts.push(format!("from {device}"));
-    }
-    parts.join(" · ")
-}
-
-/// EXP-1245 — the thread's rows: per turn the person's bubble (when a
-/// message opened it), the turn's status row (per-turn threads only, once
-/// it started), its items and its reply; then the pending cards. Without a
-/// feed (`per_turn` false) the one run-wide status row sits above the list.
-fn thread_rows(thread: &domain::session_results::SessionTurns, cards: usize) -> Vec<ThreadRow> {
-    let mut rows = Vec::new();
-    for (turn, facts) in thread.turns.iter().enumerate() {
-        if facts.message.is_some() {
-            rows.push(ThreadRow::Bubble(turn));
-        }
-        if thread.per_turn && facts.started_at.is_some() {
-            rows.push(ThreadRow::Status(turn));
-        }
-        rows.extend((0..facts.items.len()).map(|ix| ThreadRow::Item(turn, ix)));
-        if facts.reply.is_some() {
-            rows.push(ThreadRow::Reply(turn));
-        }
-    }
-    rows.extend((0..cards).map(ThreadRow::Card));
-    rows
-}
-
-fn work_column_row(element: AnyElement) -> gpui::Div {
+/// One row in the centred work column (`WORK_COLUMN_W` inside the
+/// `WORK_GUTTER`) — the transcript's rows and the session header.
+pub(crate) fn work_column_row(element: AnyElement) -> gpui::Div {
     h_flex().w_full().justify_center().child(
         div()
             .flex_basis(px(crate::work_header::WORK_COLUMN_W))
@@ -8496,8 +7314,8 @@ fn tool_row(name: &str, detail: Option<&str>, failed: bool, cx: &App) -> impl In
 /// tool that answers `none` never gets more. Mirrored ×4.
 ///
 /// EXP-933: a SETTLED, successful `results` call (`sessions_results`) carries
-/// an `Open Guide` button that puts `run_id` — the run this transcript is —
-/// on its Results face.
+/// an `Open Guide` button that opens the Guide tab of the root of `run_id`
+/// (the session this transcript is).
 ///
 /// EXP-1172: a `picture` call (`sessions_show`) hangs its `picture` tile (the
 /// caller resolved it off the synced results) under the row instead of a
@@ -8569,9 +7387,9 @@ fn exp_tool_call_row(
 /// `sessions_results`) row — ×4 (EXP-1251: web `OPEN_RESULTS_LABEL`).
 pub(crate) const OPEN_RESULTS_LABEL: &str = "Open Guide";
 
-/// EXP-933 — `Open Guide` under a settled `sessions_guide` call: the run's
-/// Guide face, through the panel's pending-face path (it applies once the
-/// run's view exists).
+/// EXP-933 — `Open Guide` under a settled `sessions_guide` call. EXP-1294:
+/// THE Guide is the tree root's, so it opens the session's thread (its
+/// root's screen), whose strip carries the Guide tab.
 fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement {
     let run_id = run_id.to_string();
     h_flex()
@@ -8585,11 +7403,12 @@ fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement
                 .label(OPEN_RESULTS_LABEL)
                 .on_click(move |_, window, cx| {
                     cx.stop_propagation();
-                    crate::screens::set_run_face(
-                        &run_id,
-                        crate::screens::RunFace::Guide,
+                    let root_id = crate::session_data::root_of(&run_id, cx)
+                        .map_or_else(|| run_id.clone(), |root| root.id);
+                    crate::navigation::navigate(
                         window,
                         cx,
+                        crate::navigation::Screen::Thread { session_id: root_id },
                     );
                 }),
         )
@@ -8790,25 +7609,15 @@ impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // EXP-776: the transcript list learns what changed since the last
         // frame here, before anything reads the cached projection.
-        // EXP-1175: the Show work switch decides the body; the cx-less
-        // projection reads it off the view.
-        let show_work = self.show_work(cx);
-        self.show_work_cached = show_work;
         self.sync_list(cx);
         self.dev_scroll_to_script_card();
-        self.sync_thread(cx);
-        // EXP-1284: a thread's run block — flat, inside the thread's scroll.
-        if self.embedded {
-            return self.render_embedded(show_work, window, cx);
-        }
         self.sync_card_focus(window, cx);
-        // EXP-789: the subagent strip sits between the header and the feed
-        // (EXP-1175: the transcript's only).
-        let strip = show_work.then(|| self.render_subagent_strip(cx)).flatten();
-        // EXP-1175: the status row tops both bodies; the body is the thread
-        // unless Show work is on, then the full transcript in the same slot.
-        let status_row = self.render_status_row(show_work, cx);
-        let feed = if show_work { self.render_feed(cx) } else { self.render_thread(cx) };
+        // EXP-789: the subagent strip sits between the header and the feed.
+        let strip = self.render_subagent_strip(cx);
+        // EXP-1294: the session view ALWAYS shows the full transcript, under
+        // its status row.
+        let status_row = self.render_status_row(cx);
+        let feed = self.render_feed(cx);
         let banners = self.render_banners(cx);
         let composer_visible = self.composer_visible();
         // EXP-724: between the banners and the composer, exactly where the
@@ -8833,69 +7642,47 @@ impl Render for SteerSessionView {
         let queue = queue_strip_visible(self.run_open(), self.feed.queue().len())
             .then(|| self.render_queue_strip(cx))
             .flatten();
-        // EXP-877: the diff is a FULL PAGE under the header, not a split.
-        // Two things you read, not one thing you read while glancing at the
-        // other — the split gave each half too little, and every reader had
-        // to drag the edge before either was usable.
-        let pane = match self.render_diff_pane(window, cx) {
-            Some(pane) => Some(pane),
-            // EXP-879: the Results face is the run's OTHER full page — same
-            // slot, same rule (with one up the transcript is not rendered).
-            None => self.render_results_pane(window, cx),
-        };
         let width_probe = self.view_width.clone();
-        let jump = pane.is_none().then(|| {
-            if show_work {
-                self.render_jump_to_bottom(&self.list, !self.feed.is_empty(), composer_visible, cx)
-            } else {
-                self.render_jump_to_bottom(
-                    &self.thread_list,
-                    !self.thread_keys.is_empty(),
-                    composer_visible,
-                    cx,
-                )
-            }
-        });
-        let conversation = pane.is_none().then(|| {
-            v_flex()
-                .flex_1()
-                .h_full()
-                .min_w_0()
-                .min_h_0()
-                .overflow_hidden()
-                .children(strip)
-                .children(status_row)
-                // EXP-1162: the transcript fades out over the bottom edge
-                // strip into whatever sits under it (the composer band lost
-                // its hairline for it).
-                .child(
-                    div()
-                        .relative()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_h_0()
-                        .min_w_0()
-                        // EXP-1228: the transcript's right-click menu. A div
-                        // listener fires after its children's, so an image or
-                        // media tile's own menu claims the press first
-                        // (`controls::claim_right_click`).
-                        .on_mouse_down(
-                            gpui::MouseButton::Right,
-                            cx.listener(Self::on_feed_context_menu),
-                        )
-                        .child(feed)
-                        .child(crate::surface::composer_edge_fade())
-                        .children(jump),
-                )
-                .children(banners)
-                .children(compacting)
-                .children(rate_limit)
-                .children(queue)
-                .children(tasks)
-                .children(task_list)
-                .children(composer)
-        });
+        let jump =
+            self.render_jump_to_bottom(&self.list, !self.feed.is_empty(), composer_visible, cx);
+        let conversation = v_flex()
+            .flex_1()
+            .h_full()
+            .min_w_0()
+            .min_h_0()
+            .overflow_hidden()
+            .children(strip)
+            .children(status_row)
+            // EXP-1162: the transcript fades out over the bottom edge strip
+            // into whatever sits under it (the composer band lost its
+            // hairline for it).
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    // EXP-1228: the transcript's right-click menu. A div
+                    // listener fires after its children's, so an image or
+                    // media tile's own menu claims the press first
+                    // (`controls::claim_right_click`).
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(Self::on_feed_context_menu),
+                    )
+                    .child(feed)
+                    .child(crate::surface::composer_edge_fade())
+                    .child(jump),
+            )
+            .children(banners)
+            .children(compacting)
+            .children(rate_limit)
+            .children(queue)
+            .children(tasks)
+            .children(task_list)
+            .children(composer);
         v_flex()
             .key_context("SteerSession")
             .track_focus(&self.focus_handle)
@@ -8927,8 +7714,7 @@ impl Render for SteerSessionView {
                             .size_full()
                             .min_w_0()
                             .min_h_0()
-                            .children(conversation)
-                            .children(pane),
+                            .child(conversation),
                     )
                     // The view's width, read back for the next frame's bubble
                     // cap — the canvas paints nothing.
@@ -9008,62 +7794,6 @@ mod work_elapsed_tests {
         assert_eq!(work_elapsed_ms(Some(1_000), None, false, 60_000), None);
         // A skewed clock never goes negative.
         assert_eq!(work_elapsed_ms(Some(9_000), None, true, 6_000), Some(0));
-    }
-}
-
-#[cfg(test)]
-mod turn_thread_tests {
-    use super::*;
-    use domain::session_results::{SessionTurn, SessionTurnMessage, SessionTurns, ThreadItem};
-
-    /// EXP-1245: the owner's thread lays out per turn — bubble, status row,
-    /// items, reply — then the pending cards; a turn that never started has
-    /// no status row, and a thread without a feed has none at all.
-    #[test]
-    fn the_thread_lays_out_turns() {
-        let text = |topic: &str| ThreadItem::Text { topic: topic.into(), text: "x".into() };
-        let thread = SessionTurns {
-            per_turn: true,
-            turns: vec![
-                SessionTurn { started_at: Some(1), ended_at: Some(2), reply: Some("done".into()), ..Default::default() },
-                SessionTurn {
-                    message: Some(SessionTurnMessage { text: "why?".into(), at: 3, images: Vec::new() }),
-                    started_at: Some(4),
-                    items: vec![text("Reviews")],
-                    ..Default::default()
-                },
-                SessionTurn {
-                    message: Some(SessionTurnMessage { text: "and this".into(), at: 5, images: Vec::new() }),
-                    ..Default::default()
-                },
-            ],
-        };
-        assert_eq!(
-            thread_rows(&thread, 1),
-            vec![
-                ThreadRow::Status(0),
-                ThreadRow::Reply(0),
-                ThreadRow::Bubble(1),
-                ThreadRow::Status(1),
-                ThreadRow::Item(1, 0),
-                ThreadRow::Bubble(2),
-                ThreadRow::Card(0),
-            ]
-        );
-        let single = SessionTurns {
-            per_turn: false,
-            turns: vec![SessionTurn { items: vec![text("a")], reply: Some("r".into()), ..Default::default() }],
-        };
-        assert_eq!(thread_rows(&single, 0), vec![ThreadRow::Item(0, 0), ThreadRow::Reply(0)]);
-    }
-
-    /// EXP-1245: the bubble caption drops a missing part with its separator.
-    #[test]
-    fn the_bubble_caption_drops_missing_parts() {
-        assert_eq!(user_message_caption(Some(" Danny "), None, Some("mint")), "Danny · from mint");
-        assert_eq!(user_message_caption(None, None, None), "");
-        let with_time = user_message_caption(Some("Danny"), Some(1_760_000_000_000), None);
-        assert!(with_time.starts_with("Danny · ") && with_time.len() == "Danny · 00:00".len(), "{with_time}");
     }
 }
 
@@ -9759,5 +8489,60 @@ mod tests {
             merge_ended_phase(&ViewerPhase::Connecting, ViewerPhase::Live),
             ViewerPhase::Live
         );
+    }
+
+    /// EXP-1294: a SHARED session is any member's to message and Stop, a
+    /// private one only its starter's; nobody signed in steers nothing
+    /// private.
+    #[test]
+    fn who_may_steer_a_session() {
+        let row = |shared: bool| -> domain::rows::SessionRow {
+            serde_json::from_value(serde_json::json!({
+                "id": "sess-1",
+                "user_id": "user-1",
+                "shared": shared,
+            }))
+            .unwrap()
+        };
+        assert!(may_steer(&row(true), Some("user-2")));
+        assert!(may_steer(&row(true), None));
+        assert!(may_steer(&row(false), Some("user-1")));
+        assert!(!may_steer(&row(false), Some("user-2")));
+        assert!(!may_steer(&row(false), None));
+    }
+
+    /// EXP-1294: a plan picker DECIDES (its last option rejects, carrying
+    /// the note), a question answers with its free text, else its picks.
+    #[test]
+    fn a_card_answer_maps_onto_sessions_answer() {
+        let plan = steer::QuestionCard {
+            plan_mode: true,
+            options: vec![option("Yes", false), option("No, keep planning", false)],
+            ..Default::default()
+        };
+        let approve = card_answer_input(&plan, "m-1".into(), &["yes".into()], &[], None, Some("x".into()));
+        assert_eq!(approve.decision.as_deref(), Some("approved"));
+        assert_eq!(approve.feedback, None, "only a reject carries the note");
+        let reject = card_answer_input(
+            &plan,
+            "m-1".into(),
+            &["no, keep planning".into()],
+            &[],
+            None,
+            Some("smaller steps".into()),
+        );
+        assert_eq!(reject.decision.as_deref(), Some("rejected"));
+        assert_eq!(reject.feedback.as_deref(), Some("smaller steps"));
+
+        let question = steer::QuestionCard {
+            options: vec![option("A", false), option("B", false)],
+            ..Default::default()
+        };
+        let picks = card_answer_input(&question, "m-2".into(), &[], &["A".into(), "B".into()], None, None);
+        assert_eq!(picks.answer.as_deref(), Some("A, B"));
+        assert_eq!(picks.decision, None);
+        let typed = card_answer_input(&question, "m-2".into(), &[], &["Other".into()], Some("free"), None);
+        assert_eq!(typed.answer.as_deref(), Some("free"));
+        assert_eq!(typed.message_id, "m-2");
     }
 }

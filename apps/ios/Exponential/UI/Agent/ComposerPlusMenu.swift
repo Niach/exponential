@@ -4,10 +4,9 @@ import SwiftUI
 
 /// EXP-1249: the launch composer's ONE "+" menu on a phone — a bottom sheet
 /// of the same rows web's dropdown draws (`ComposerMenu.composerMenuLayout`,
-/// fixture `composer-menu.json` ×4): Implement issue ›, Run action ›, Add
-/// file or image | Effort ›, Subagents ›, Ultracode | MCP servers ›, Computer
-/// use. SLOP-28 (EXP-1259 D5): Implement issue › and Run action › PUSH their
-/// page inside this sheet, THE search list (`AgentIssuePickerPage`,
+/// fixture-locked ×4): Implement issue ›, Run action ›, Add file or image |
+/// Effort ›, Ultracode | MCP servers ›, Computer use. Implement issue › and Run action › PUSH their page inside
+/// this sheet, THE search list (`AgentIssuePickerPage`,
 /// `AgentActionPickerPage`) with a back row; the other submenu rows close
 /// this sheet and hand off to their picker (a sheet cannot present while its
 /// sibling is still animating away, so the host opens the picker on this
@@ -29,17 +28,13 @@ struct ComposerPlusMenu: View {
 
     private var launch: LaunchOptionsState { model.launch }
 
-    /// A real (non-builtin) action owns its MCP list (FEED-73).
-    private var actionOwnsMcp: Bool {
-        guard let action = model.selectedAction else { return false }
-        return !action.id.hasPrefix("builtin:")
-    }
-
+    /// `subagentModel` stays false: `sessions.send` carries no subagent
+    /// model (EXP-1291), so the Subagents row has nothing to set.
     private var conditions: ComposerMenu.Conditions {
         ComposerMenu.Conditions(
-            subagentModel: LaunchVocabulary.supportsSubagentModel(launch.agent),
+            subagentModel: false,
             ultracode: launch.agent == "claude",
-            mcp: !mcpServers.isEmpty && !actionOwnsMcp,
+            mcp: !mcpServers.isEmpty,
             computerUse: model.device?.canToggleComputerUse == true
         )
     }
@@ -175,14 +170,12 @@ struct ComposerPlusMenu: View {
         }
     }
 
-    /// A submenu row's current value: the effort, the subagent model, the
-    /// number of MCP servers picked.
+    /// A submenu row's current value: the effort, the number of MCP servers
+    /// picked.
     private func value(_ id: ComposerMenu.RowId) -> String? {
         switch id {
         case .effort:
             launch.effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(launch.effort)
-        case .subagents:
-            LaunchVocabulary.subagentModelLabel(launch.subagentModel)
         case .mcpServers:
             McpServers.pickedValue(launch.mcpServerIds)
         default:

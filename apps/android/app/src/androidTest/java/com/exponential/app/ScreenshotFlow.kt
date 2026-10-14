@@ -205,6 +205,11 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
          */
         fun unreachedShots(): List<String> =
             requestedShots?.minus(offeredShots)?.sorted() ?: emptyList()
+
+        /** Whether a SCOPED run asked only for ids among [names] (unscoped = no):
+         *  a suite owning none of them can skip its whole walk. */
+        fun requestedOnlyAmong(names: Set<String>): Boolean =
+            requestedShots?.let { names.containsAll(it) } ?: false
     }
 
     /**

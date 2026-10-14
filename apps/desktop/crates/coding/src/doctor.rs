@@ -88,49 +88,38 @@ pub const MIN_CODEX_ACP_VERSION: (u32, u32, u32) = (0, 144, 0);
 /// is what makes a new cap reach both hosts (they used to be hand-synced
 /// copies, and a one-sided edit silently made one host un-targetable).
 ///
-/// - `resume`/`worktrees`/`launch-defaults` (EXP-481) — the device-admin
-///   protocol.
+/// EXP-1292: only caps the server or a client still READS. A start is a
+/// `queued` sessions row, never a relay frame, so the start-frame caps
+/// (`agent-start`, `start-prompt`, `steer-files`, `action-inputs`,
+/// `actions`), the EXP-481 admin trio (`resume`/`worktrees`/
+/// `launch-defaults`) and `stale-end` (no staleness sweep ends a row) went.
+///
 /// - `agent-login` (EXP-484) — signing IN is exactly what a machine with no
 ///   runnable agent needs, so it is a build cap.
-/// - `agent-start` (EXP-679) — this build reads a start frame's
-///   `started_reason` and forwards it to `codingSessions.start`, so an
-///   agent-parented start lands UNATTENDED. The server refuses one against a
-///   device without it.
 /// - `acp` (EXP-746) — this build speaks the ACP engine and steering v2:
 ///   `set_config`/`set_mode` frames, `config_state`/`usage` kinds.
+/// - `account-switch` (EXP-849) — this build moves a session (or the
+///   machine's default login) to another account's profile; clients offer
+///   the switch only with it (beside [`RESUME_RUN_CAP`] for a live run).
+/// - `account-remove` (EXP-862) — this build runs `agent_profile_remove`:
+///   delete ONE account's login from this machine (its profile dir and its
+///   index row), never the account itself. The server refuses to queue it
+///   without the cap.
+/// - `account-sign-out` (EXP-1137) — this build runs `agent_profile_sign_out`
+///   (sign one login out here, keep its row). Same reasoning.
+/// - `agent-import` — this build runs `agent_login {agent, import: "true"}`:
+///   move the agent's AMBIENT login into an account profile (commit by
+///   email). Clients offer the remote Import pill only with it.
 /// - `agent-usage-refresh` (EXP-792) — this build runs
 ///   `agent_usage_refresh` (a forced usage re-read, 429 floor kept).
 /// - `update-now` (FEED-36) — this build runs `update_now`: ends every live
 ///   session and applies a queued self-update right away (the CLI daemon;
 ///   the desktop advertises it too but updates through its own updater).
-/// - `account-switch` (EXP-849) — this build honours the `account` field on a
-///   `start_session` frame that RESUMES a live claude run (the mid-run account
-///   switch). It refuses nothing new: a machine without it simply never gets
-///   asked, and the server refuses it on its behalf.
-/// - `account-remove` (EXP-862) — this build runs `agent_profile_remove`:
-///   delete ONE account's login from this machine (its profile dir and its
-///   index row), never the account itself. An older build would leave the
-///   row pending forever, so the server refuses to queue it without the cap.
-/// - `account-sign-out` (EXP-1137) — this build runs `agent_profile_sign_out`
-///   (sign one login out here, keep its row). Same reasoning: the server
-///   refuses it without the cap.
-/// - `agent-import` — this build runs `agent_login {agent, import: "true"}`:
-///   move the agent's AMBIENT login into an account profile (commit by
-///   email). Clients offer the remote Import pill only with it.
-/// - `stale-end` (EXP-888): this build's kill-watch ignores the staleness
-///   sweep's `ended_by = stale` flip. The sweep ENDS a silent run only on a
-///   device with this cap (keeping it listed with its on-device transcript)
-///   and still DELETES it elsewhere, since older builds read any `ended` flip
-///   as a kill of a possibly-live child.
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 13 + 9 = 22.
-pub const DEVICE_CAPS: [&str; 13] = [
-    "resume",
-    "worktrees",
-    "launch-defaults",
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 8 + 2 = 10.
+pub const DEVICE_CAPS: [&str; 8] = [
     "agent-login",
-    "agent-start",
     "acp",
     ACCOUNT_SWITCH_CAP,
     ACCOUNT_REMOVE_CAP,
@@ -138,12 +127,7 @@ pub const DEVICE_CAPS: [&str; 13] = [
     AGENT_IMPORT_CAP,
     "agent-usage-refresh",
     "update-now",
-    STALE_END_CAP,
 ];
-
-/// EXP-888's stale-end cap, by name (mirrored by the server sweep's
-/// `STALE_END_CAP` in `apps/web/src/lib/coding-session-sweep.ts`).
-pub const STALE_END_CAP: &str = "stale-end";
 
 /// EXP-849's account-switch cap, by name: the ONE place the literal lives, so
 /// a client deciding whether a machine can move a live run (or its default
@@ -163,48 +147,21 @@ pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
 /// The ambient-login import cap, by name (see [`DEVICE_CAPS`]).
 pub const AGENT_IMPORT_CAP: &str = "agent-import";
 
-/// The action-run capabilities — advertised only while at least one agent is
+/// The RUN capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
-/// actions either). EXP-530's trigger caps (this host evaluates the triggers
-/// bound to its device id; SLOP-17: the contract's `triggers` plus the
-/// legacy `automations` name, which clients at the current floor still
-/// check), EXP-615's `chat` (the hidden `builtin:chat` action) and EXP-637's `resume-run` (resume an ended run out of the local
-/// run registry) ride with them. EXP-825's `start-prompt` says this build
-/// reads the `prompt` field of a `start_session` frame (the composer's free
-/// text): the server REFUSES a Chat or Create-action start to a device
-/// without it, since those two builtins carry their whole program there
-/// and an older build would spawn a promptless run. EXP-1249's
-/// `computer-use-run` says this build reads the frame's per-run
-/// `computerUse` (the composer "+" toggle): clients hide the toggle for a
-/// machine without it, which would silently fall back to its own switch.
-/// `steer-files` says this build localizes non-image FILE attachments
-/// (`[name](/api/attachments/<id>)` lines) in start prompts and steer
-/// messages: the server refuses a start with such a file to a device
-/// without it (images still pass), and composers offer images only there.
-pub const ACTION_CAPS: [&str; 10] = [
-    "actions",
-    "action-inputs",
-    "fix-conflicts",
-    domain::contract::TRIGGER_DEVICE_CAP,
-    domain::contract::TRIGGER_LEGACY_DEVICE_CAP,
-    "chat",
-    RESUME_RUN_CAP,
-    START_PROMPT_CAP,
-    COMPUTER_USE_RUN_CAP,
-    STEER_FILES_CAP,
-];
-
-/// The file-attachment cap, by name (see [`ACTION_CAPS`]): the contract's
-/// `codingSession.steerFilesCap`, so a composer deciding whether another
-/// machine can take a file never repeats the string.
-pub const STEER_FILES_CAP: &str = domain::contract::CODING_SESSION_STEER_FILES_CAP;
+/// a session either).
+///
+/// - `resume-run` (EXP-637) — this build resumes a session natively from its
+///   local run record (EXP-1292: a message to an engineless session wakes
+///   the SAME row); clients gate their resume affordances on it.
+/// - `computer-use-run` (EXP-1249) — this build honours a session's
+///   `computer_use` picker; clients hide the toggle for a machine without
+///   it, which would silently fall back to its own switch.
+pub const RUN_CAPS: [&str; 2] = [RESUME_RUN_CAP, COMPUTER_USE_RUN_CAP];
 
 /// EXP-1249's per-run computer-use cap, by name: the contract's
 /// `codingSession.computerUseCap`.
 pub const COMPUTER_USE_RUN_CAP: &str = domain::contract::CODING_SESSION_COMPUTER_USE_CAP;
-
-/// EXP-825's start-prompt cap, by name (see [`ACTION_CAPS`]).
-pub const START_PROMPT_CAP: &str = "start-prompt";
 
 /// EXP-637's resume cap, by name: the ONE place the literal lives, so a
 /// client deciding whether another machine can take a resume (EXP-800) never
@@ -212,11 +169,11 @@ pub const START_PROMPT_CAP: &str = "start-prompt";
 pub const RESUME_RUN_CAP: &str = "resume-run";
 
 /// The caps to advertise for a doctor snapshot: the build caps always, plus
-/// the action caps while anything is runnable.
+/// the run caps while anything is runnable.
 pub fn device_caps(advertised: &AgentAdvertisement) -> Vec<String> {
     let mut caps: Vec<String> = DEVICE_CAPS.iter().map(|cap| cap.to_string()).collect();
     if !advertised.agents.is_empty() {
-        caps.extend(ACTION_CAPS.iter().map(|cap| cap.to_string()));
+        caps.extend(RUN_CAPS.iter().map(|cap| cap.to_string()));
     }
     caps
 }
@@ -1827,41 +1784,35 @@ mod tests {
         }
     }
 
-    /// The trigger host must advertise itself or the web pickers hide it.
-    /// (Moved here from `cli::commands::daemon` with the caps themselves.)
+    /// The run caps ride only while an agent is runnable. EXP-1292: the
+    /// trigger caps, `chat`, `fix-conflicts` and the start-frame caps are
+    /// gone with what they gated.
     #[test]
-    fn action_caps_advertise_triggers() {
-        // SLOP-17: the new `triggers` cap AND the legacy `automations` name
-        // (clients at the current floor still check the old one).
-        let both = [
-            domain::contract::TRIGGER_DEVICE_CAP,
-            domain::contract::TRIGGER_LEGACY_DEVICE_CAP,
-        ];
-        assert_eq!(both, ["triggers", "automations"]);
+    fn run_caps_ride_only_while_an_agent_is_runnable() {
         let caps = device_caps(&advert(&["claude"]));
-        for cap in both {
-            assert!(ACTION_CAPS.contains(&cap));
-            assert!(caps.contains(&cap.to_string()));
-            // Nothing runnable = nothing to run a trigger with.
-            assert!(!device_caps(&advert(&[])).contains(&cap.to_string()));
+        for gone in [
+            "triggers",
+            "automations",
+            "chat",
+            "fix-conflicts",
+            "actions",
+            "action-inputs",
+            "start-prompt",
+            "steer-files",
+            "agent-start",
+            "stale-end",
+            "resume",
+            "worktrees",
+            "launch-defaults",
+        ] {
+            assert!(!caps.contains(&gone.to_string()), "{gone}");
         }
-        // EXP-615: the same for chat — remote Chat starts gate on this cap,
-        // so an agent-less machine must never advertise it.
-        assert!(ACTION_CAPS.contains(&"chat"));
-        // EXP-1249: the per-run computer-use flag rides the action caps.
+        // EXP-1249: the per-run computer-use flag rides the run caps.
         assert_eq!(COMPUTER_USE_RUN_CAP, "computer-use-run");
-        assert!(ACTION_CAPS.contains(&COMPUTER_USE_RUN_CAP));
+        assert!(RUN_CAPS.contains(&COMPUTER_USE_RUN_CAP));
         assert!(!DEVICE_CAPS.contains(&COMPUTER_USE_RUN_CAP));
-        // Release train 2026-10-10: file attachments ride the action caps
-        // too — the server gates non-image attachments on it, so an
-        // agent-less machine must never advertise it either.
-        assert_eq!(STEER_FILES_CAP, "steer-files");
-        assert!(ACTION_CAPS.contains(&STEER_FILES_CAP));
-        assert!(!DEVICE_CAPS.contains(&STEER_FILES_CAP));
-        assert!(caps.contains(&"steer-files".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"steer-files".to_string()));
-        assert!(caps.contains(&"chat".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
+        assert!(caps.contains(&RESUME_RUN_CAP.to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&RESUME_RUN_CAP.to_string()));
     }
 
     /// EXP-484: signing IN is exactly what a machine with no runnable agent
@@ -1870,28 +1821,28 @@ mod tests {
     #[test]
     fn device_caps_include_agent_login_without_runnable_agents() {
         assert!(DEVICE_CAPS.contains(&"agent-login"));
-        assert!(!ACTION_CAPS.contains(&"agent-login"));
+        assert!(!RUN_CAPS.contains(&"agent-login"));
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(device_caps(&advert(&["claude"])).contains(&"agent-login".to_string()));
         // EXP-849: pointing a machine at one of its logins is part of the same
-        // signed-out story — a build cap beside `agent-login`, never an action
+        // signed-out story — a build cap beside `agent-login`, never a run
         // cap.
         assert!(DEVICE_CAPS.contains(&ACCOUNT_SWITCH_CAP));
-        assert!(!ACTION_CAPS.contains(&ACCOUNT_SWITCH_CAP));
+        assert!(!RUN_CAPS.contains(&ACCOUNT_SWITCH_CAP));
         assert!(signed_out.contains(&ACCOUNT_SWITCH_CAP.to_string()));
         // EXP-862: removing a login is the same story again — a build cap,
         // advertised with nothing runnable, since a signed-out machine is
         // exactly where a dead account gets cleaned up.
         assert_eq!(ACCOUNT_REMOVE_CAP, "account-remove");
         assert!(DEVICE_CAPS.contains(&ACCOUNT_REMOVE_CAP));
-        assert!(!ACTION_CAPS.contains(&ACCOUNT_REMOVE_CAP));
+        assert!(!RUN_CAPS.contains(&ACCOUNT_REMOVE_CAP));
         assert!(signed_out.contains(&ACCOUNT_REMOVE_CAP.to_string()));
         // EXP-1137: signing a login out is a build cap too — a signed-out
         // machine may still hold the dead credential the sign-out clears.
         assert_eq!(ACCOUNT_SIGN_OUT_CAP, "account-sign-out");
         assert!(DEVICE_CAPS.contains(&ACCOUNT_SIGN_OUT_CAP));
-        assert!(!ACTION_CAPS.contains(&ACCOUNT_SIGN_OUT_CAP));
+        assert!(!RUN_CAPS.contains(&ACCOUNT_SIGN_OUT_CAP));
         assert!(signed_out.contains(&ACCOUNT_SIGN_OUT_CAP.to_string()));
     }
 
@@ -1905,7 +1856,7 @@ mod tests {
         assert!(DEVICE_CAPS.contains(&"agent-usage-refresh"));
         // FEED-36: the web's "Update now" shows only for a build that runs it.
         assert!(DEVICE_CAPS.contains(&"update-now"));
-        assert!(!ACTION_CAPS.contains(&"update-now"));
+        assert!(!RUN_CAPS.contains(&"update-now"));
         let signed_out = device_caps(&advert(&[]));
         assert!(signed_out.contains(&"agent-usage-refresh".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
@@ -1946,18 +1897,6 @@ mod tests {
         assert_eq!(accounts.len(), 2);
     }
 
-    /// EXP-825: the server gates Chat/Create-action starts on `start-prompt`
-    /// — an ACTION cap (a promptless machine could not run them anyway),
-    /// advertised only while an agent is runnable.
-    #[test]
-    fn action_caps_advertise_start_prompt() {
-        assert_eq!(START_PROMPT_CAP, "start-prompt");
-        assert!(ACTION_CAPS.contains(&START_PROMPT_CAP));
-        assert!(!DEVICE_CAPS.contains(&START_PROMPT_CAP));
-        assert!(device_caps(&advert(&["claude"])).contains(&"start-prompt".to_string()));
-        assert!(!device_caps(&advert(&[])).contains(&"start-prompt".to_string()));
-    }
-
     /// EXP-792 (A3): the signed-out fix is a button, never a command to type.
     #[test]
     fn signed_out_message_never_asks_for_a_terminal_command() {
@@ -1980,18 +1919,6 @@ mod tests {
         );
     }
 
-    /// EXP-679: `agent-start` asserts this build understands a start frame's
-    /// `started_reason` — a PROTOCOL property of the binary, not of what it
-    /// can run, so it rides with the build caps and the server may gate an
-    /// agent-parented start on it.
-    #[test]
-    fn device_caps_include_agent_start_as_a_build_cap() {
-        assert!(DEVICE_CAPS.contains(&"agent-start"));
-        assert!(!ACTION_CAPS.contains(&"agent-start"));
-        assert!(device_caps(&advert(&[])).contains(&"agent-start".to_string()));
-        assert!(device_caps(&advert(&["claude"])).contains(&"agent-start".to_string()));
-    }
-
     /// EXP-746: `acp` is a BUILD cap — it says this binary speaks the engine
     /// and steering v2, not that any agent on this machine is ready today
     /// (per-agent readiness is local, [`AgentAdvertisement::acp_agents`]).
@@ -1999,7 +1926,7 @@ mod tests {
     #[test]
     fn build_caps_include_acp() {
         assert!(DEVICE_CAPS.contains(&"acp"));
-        assert!(!ACTION_CAPS.contains(&"acp"));
+        assert!(!RUN_CAPS.contains(&"acp"));
         assert!(device_caps(&advert(&[])).contains(&"acp".to_string()));
         assert!(device_caps(&advert(&["claude"])).len() <= 24);
     }
@@ -2528,7 +2455,7 @@ mod tests {
 
     /// A signed-in profile makes the agent runnable: the check is green on
     /// it, names it, mirrors its identity, the advertisement lists the agent
-    /// (and the action caps with it), and codex's ACP readiness follows.
+    /// (and the run caps with it), and codex's ACP readiness follows.
     #[cfg(unix)]
     #[test]
     fn a_signed_in_profile_makes_the_agent_runnable() {
@@ -2558,7 +2485,7 @@ mod tests {
         assert!(report.unauthed_agents().is_empty());
         let advertised = report.agent_advertisement(&settings);
         assert_eq!(advertised.agents, vec!["claude", "codex"]);
-        assert!(device_caps(&advertised).contains(&"triggers".to_string()));
+        assert!(device_caps(&advertised).contains(&RESUME_RUN_CAP.to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2590,7 +2517,7 @@ mod tests {
         assert!(report.installed_agents().is_empty());
         assert_eq!(report.unauthed_agents(), CodingAgent::ALL.to_vec());
         assert!(!device_caps(&report.agent_advertisement(&settings))
-            .contains(&"triggers".to_string()));
+            .contains(&RESUME_RUN_CAP.to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

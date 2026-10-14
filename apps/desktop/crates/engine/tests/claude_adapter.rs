@@ -2258,7 +2258,7 @@ async fn the_child_going_away_closes_the_connection_with_its_exit_code() {
     // The crash path (a `kill -9`, an OOM, the reaper): the CLI is gone while
     // the client is still holding the connection open. Nothing but the child's
     // EOF can end this run, and the engine's whole end sequence — the bye, the
-    // heartbeat, `coding::end_session` — hangs off that close (EXP-746 E1).
+    // outbox flush, `coding::end_session` — hangs off that close (EXP-746 E1).
     let work = workdir("child-exit");
     let mut adapter_spec = spec("basic", &work.0, false);
     adapter_spec.spawn = adapter_spec.spawn.clone().env("EXP_FAKE_CLAUDE_EXIT", "3");

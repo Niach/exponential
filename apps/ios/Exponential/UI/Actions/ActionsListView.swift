@@ -2,18 +2,13 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// The Actions surface (EXP-253): the action prompts of EVERY member team
+/// The Actions surface (EXP-253): the saved prompts of EVERY member team
 /// (EXP-1186: cross-team like the Inbox — one band per team, `TeamAvatar` +
 /// name, once the caller is in more than one), each with a Run affordance
-/// that opens the composer on the action's OWN team. EXP-825: Run and "New
-/// action" (EXP-431, in the web-parity "Actions" section header since
-/// EXP-574) are NAVIGATION into the Agent page composer, seeded with the
-/// action (or the Create action builtin). EXP-1270: the Suggestions segment
-/// and its seed cards are gone ×4, so the surface is the list alone. SLOP-2: a row
-/// tap (and the row menu's "Edit") pushes the ACTION PAGE (`ActionDetailView`:
-/// Prompt · Triggers · Runs) — it replaced the edit sheet, and the Automations
-/// segment with it: an action carries its triggers, shown here as the glyphs
-/// beside its name.
+/// that opens the composer on the action's OWN team (EXP-825: NAVIGATION,
+/// seeded with the action). A row tap (and the row menu's "Edit") pushes the
+/// ACTION PAGE (`ActionDetailView`, the prompt editor). EXP-1291: no builtins
+/// and no triggers — an action is a saved prompt.
 struct ActionsListView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -45,11 +40,7 @@ struct ActionsListView: View {
 
     private func ensureViewModel() {
         if viewModel == nil {
-            viewModel = ActionsViewModel(
-                accountId: accountId,
-                db: deps.db,
-                auth: deps.auth
-            )
+            viewModel = ActionsViewModel(accountId: accountId, db: deps.db)
         }
     }
 
@@ -100,7 +91,7 @@ struct ActionsListView: View {
                                 GlassSectionBand(group.team.name) {
                                     TeamAvatar(team: group.team, size: 16)
                                 } trailing: {
-                                    newActionButton(teamId: group.team.id)
+                                    EmptyView()
                                 }
                                 ForEach(group.items) { actionRow($0) }
                             }
@@ -111,11 +102,7 @@ struct ActionsListView: View {
                     .padding()
                 } else {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        // EXP-574 (web parity): the "Actions" band with the
-                        // "New action" entry (EXP-431) as its trailing control.
-                        GlassSectionBand("Actions") {
-                            newActionButton(teamId: nil)
-                        }
+                        GlassSectionBand("Actions")
                         ForEach(vm.actions) { actionRow($0) }
                     }
                     .padding()
@@ -125,23 +112,6 @@ struct ActionsListView: View {
             // floating bar's clearance (EXP-36).
             .tabBarBottomInset()
         }
-    }
-
-    /// EXP-431: creation left the list ("Create action" no longer poses as a
-    /// row); EXP-825: it is the composer with the Create action builtin
-    /// picked — describe it, and the creator run writes it.
-    private func newActionButton(teamId: String?) -> some View {
-        GlassPill(
-            "New action",
-            icon: AppIcons.actionCreate,
-            mode: .action {
-                openComposer(AgentComposerSeed(
-                    actionId: DomainContract.builtinCreateActionId, teamId: teamId
-                ))
-            },
-            enabled: teamId != nil || teamState.activeTeam != nil
-        )
-        .accessibilityLabel("New action")
     }
 
     private var emptyState: some View {
@@ -163,25 +133,10 @@ struct ActionsListView: View {
                     AppIcon(ActionIconDisplay.iconName(for: action.icon), size: AppIcon.Size.medium)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        // EXP-697: no repo glyph beside the name — the row says
-                        // what the action is, not where it runs. SLOP-2: its
-                        // trigger glyphs sit there instead.
-                        HStack(spacing: 6) {
-                            Text(action.name)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                            TriggerGlyphs(badges: TriggerBadges.of(action.triggers))
-                        }
-                        if let description = action.description, !description.isEmpty {
-                            Text(description)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                        }
-                    }
+                    Text(action.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
 
                     Spacer(minLength: 0)
                 }

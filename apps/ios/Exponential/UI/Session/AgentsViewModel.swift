@@ -3,11 +3,10 @@ import ExpUI
 import Foundation
 import GRDB
 
-/// Backs the Devices tab (machines) AND the Agent page composer's pools
-/// (EXP-825: issues, boards, actions, open PRs, devices, worktrees and the
-/// live runs' issues). EXP-1288: the session ROWS it once built (Running /
-/// Recent) are gone — the Agent page lists threads (`ThreadListModel`). The
-/// composer's pools stay bound to the ACTIVE team.
+/// Backs the Devices tab (machines) AND the composer's pools (EXP-825:
+/// issues, boards, actions, open PRs and devices). EXP-1295: no session rows
+/// here — sessions live in the Threads list. The composer's pools stay bound
+/// to the ACTIVE team.
 @MainActor @Observable
 final class AgentsViewModel {
     /// EXP-481: the machines list, composed from the synced `devices` shape
@@ -37,17 +36,9 @@ final class AgentsViewModel {
     /// page only. Nil (the Agent page, the onboarding step) = the accounts
     /// are still derived but nothing is ever queued from there.
     var devicesApi: DevicesApi?
-    /// EXP-481: the synced worktree inventory (shape 18) — the composer's
-    /// resume probe. EXP-1042: nothing else reads it on a phone; the
-    /// device-settings list left for the IDE.
-    var worktrees: [DeviceWorktreeEntity] = []
-    /// EXP-694: the synced actions, account-wide (a session names its own
-    /// team). The session rows' trailing control resolves its glyph and its
-    /// editor target through these — no network read.
-    var actions: [ActionDto] = []
 
-    /// The active team — kept current by the surrounding view. EXP-1186: it
-    /// no longer scopes the session lists (cross-team); it scopes `devices`
+    /// The active team — kept current by the surrounding view. It scopes
+    /// `devices`
     /// (the composer's start targets: a server shared with ANOTHER team
     /// cannot run this team's work) unless `deviceTeamIds` widens them.
     var activeTeamId: String? {
@@ -78,15 +69,9 @@ final class AgentsViewModel {
     // Stored and cancelled individually — a single wrapper task would not
     // propagate cancellation into unstructured inner loops, and the view
     // re-arms on every appear.
-    private var sessionTask: Task<Void, Never>?
-    private var issueTask: Task<Void, Never>?
-    private var boardTask: Task<Void, Never>?
     private var livenessTask: Task<Void, Never>?
     private var deviceTask: Task<Void, Never>?
-    private var worktreeTask: Task<Void, Never>?
     private var userTask: Task<Void, Never>?
-    // EXP-694: the action store behind the session rows' editor buttons.
-    private var actionTask: Task<Void, Never>?
     /// EXP-656: wakes when our own `devices` shape completes a poll — the
     /// missing foreground re-derivation hook. Presence is only as current as
     /// that cursor, so a machine's badge must repaint the moment it advances
@@ -111,12 +96,6 @@ final class AgentsViewModel {
     /// device id but not its caps.
     private var refreshCaps: [String: [String]] = [:]
 
-    private var sessions: [CodingSessionEntity] = []
-    private var issues: [IssueEntity] = []
-    // Observed so the composer's issue pool can resolve repo-backed boards
-    // (EXP-156) and so the pull-request pool can scope issues to the active
-    // team (EXP-535 — issues don't sync team_id).
-    private var boards: [BoardEntity] = []
     // EXP-481: raw synced rows behind `devices` (users resolve shared-row
     // owner names — a sharing owner is always inside the users shape).
     private var deviceEntities: [DeviceEntity]?
@@ -132,57 +111,7 @@ final class AgentsViewModel {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
 
-        let sessionObservation = ValueObservation.tracking { db in
-            try CodingSessionEntity
-                // Every live status — an in_review session is still watchable
-                // (EXP-194); `liveRunIssueIds` drops heartbeat-stale rows.
-                // EXP-888: a sweep end (`ended_by = 'stale'`) is not an end —
-                // the host ignores the flip and heartbeats the row back to
-                // `running`, so it stays in the live list (`PastRuns.hasEnded`).
-                .filter(
-                    [
-                        DomainContract.codingSessionStatusRunning,
-                        DomainContract.codingSessionStatusInReview,
-                    ].contains(Column("status"))
-                        || (Column("status") == DomainContract.codingSessionStatusEnded
-                            && Column("ended_by") == DomainContract.codingSessionEndedByStale)
-                )
-                .fetchAll(db)
-        }
-        sessionTask = Task { [weak self] in
-            do {
-                for try await sessions in sessionObservation.values(in: pool) {
-                    self?.sessions = sessions
-                }
-            } catch {}
-        }
-
-        let issueObservation = ValueObservation.tracking { db in
-            try IssueEntity.fetchAll(db)
-        }
-        issueTask = Task { [weak self] in
-            do {
-                for try await issues in issueObservation.values(in: pool) {
-                    self?.issues = issues
-                }
-            } catch {}
-        }
-
-        // Boards back the composer's issue-pool eligibility filter AND scope
-        // the batch-PR resolution (EXP-535: issues don't sync team_id), so
-        // the running-session list rebuilds on these too.
-        let boardObservation = ValueObservation.tracking { db in
-            try BoardEntity.fetchAll(db)
-        }
-        boardTask = Task { [weak self] in
-            do {
-                for try await boards in boardObservation.values(in: pool) {
-                    self?.boards = boards
-                }
-            } catch {}
-        }
-
-        // EXP-481: the machines list — devices + worktrees + users off sync.
+        // EXP-481: the machines list — devices + users off sync.
         let deviceObservation = ValueObservation.tracking { db in
             try DeviceEntity.fetchAll(db)
         }
@@ -194,30 +123,6 @@ final class AgentsViewModel {
                 }
             } catch {}
         }
-        let worktreeObservation = ValueObservation.tracking { db in
-            try DeviceWorktreeEntity.fetchAll(db)
-        }
-        worktreeTask = Task { [weak self] in
-            do {
-                for try await rows in worktreeObservation.values(in: pool) {
-                    self?.worktrees = rows
-                }
-            } catch {}
-        }
-        // EXP-694: the session rows' trailing control names the ACTION a run
-        // came from (its glyph, and the editor the button opens), so the
-        // actions shape rides along here.
-        let actionObservation = ValueObservation.tracking { db in
-            try ActionEntity.fetchAll(db)
-        }
-        actionTask = Task { [weak self] in
-            do {
-                for try await rows in actionObservation.values(in: pool) {
-                    self?.actions = rows.map { ActionDto(entity: $0) }
-                }
-            } catch {}
-        }
-
         let userObservation = ValueObservation.tracking { db in
             try UserEntity.fetchAll(db)
         }
@@ -242,9 +147,8 @@ final class AgentsViewModel {
         }
 
         // GRDB only re-fires on writes — this clock re-applies the staleness
-        // filters so a phantom session clears once its liveness window
-        // elapses (EXP-153) and a silent machine drops to "last seen" once
-        // its heartbeat window does (EXP-481: 30s against the 90s contract
+        // filter so a silent machine drops to "last seen" once its heartbeat
+        // window elapses (EXP-481: 30s against the 90s contract
         // window, so the badge flips within one tick of the boundary).
         livenessTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -256,22 +160,12 @@ final class AgentsViewModel {
     }
 
     func stopObserving() {
-        sessionTask?.cancel()
-        sessionTask = nil
-        issueTask?.cancel()
-        issueTask = nil
-        boardTask?.cancel()
-        boardTask = nil
         livenessTask?.cancel()
         livenessTask = nil
         deviceTask?.cancel()
         deviceTask = nil
-        worktreeTask?.cancel()
-        worktreeTask = nil
         userTask?.cancel()
         userTask = nil
-        actionTask?.cancel()
-        actionTask = nil
         freshnessTask?.cancel()
         freshnessTask = nil
     }
@@ -490,68 +384,6 @@ final class AgentsViewModel {
                 Toaster.shared.error(title, description: error.userFacingMessage)
             }
             self?.accountActions.remove(key)
-        }
-    }
-
-    /// Candidate issues for the Agent page composer (EXP-156/EXP-825): every
-    /// eligible issue in `teamId` (nil = across all synced teams),
-    /// recency-ordered; `exempt` ids (the composer's checked set) skip the
-    /// issue-level checks so a seeded issue stays on offer. Reads the
-    /// already-observed boards/issues (no DB round-trip), so the pool is LIVE.
-    func startCandidates(teamId: String?, exempt: Set<String> = []) -> [IssueOption] {
-        IssueOption.build(issues: issues, boards: boards, teamId: teamId, exempt: exempt)
-    }
-
-    /// SLOP-3: every issue a LIVE run (anyone's, `CodingSessionLiveness`)
-    /// works on, its own issue or a batch's covered ones. The blocked start's
-    /// stack plan reads it to mark a line member as already running.
-    func liveRunIssueIds() -> Set<String> {
-        var ids = Set<String>()
-        for session in sessions where CodingSessionLiveness.isLive(session) {
-            if let issueId = session.issueId { ids.insert(issueId) }
-            ids.formUnion(BatchRun.issueIds(session.batchIssueIds))
-        }
-        return ids
-    }
-
-    /// EXP-825: the team's synced boards, sortOrder-then-name — the `board`
-    /// inputs pick from them.
-    func teamBoards(teamId: String?) -> [BoardEntity] {
-        guard let teamId else { return [] }
-        return boards
-            .filter { $0.teamId == teamId }
-            .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
-    }
-
-    /// EXP-825: the team's action rows (the composer prepends the builtins
-    /// itself), sortOrder-then-name like the server list.
-    func teamActions(teamId: String?) -> [ActionDto] {
-        guard let teamId else { return [] }
-        return actions
-            .filter { $0.teamId == teamId }
-            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
-    }
-
-    /// EXP-825: the team's open issue-linked pull requests, one option per
-    /// PR (EXP-259/EXP-270) — the `pr` inputs pick from them. Issues don't
-    /// sync team_id, so the scope comes from the synced boards.
-    func openPullRequests(teamId: String?) -> [StartPullRequestOption] {
-        guard let teamId else { return [] }
-        let boardIds = Set(boards.filter { $0.teamId == teamId }.map(\.id))
-        return StartPullRequestOption.build(
-            from: issues.filter { $0.prState == DomainContract.prStateOpen },
-            teamBoardIds: boardIds
-        )
-    }
-
-    /// EXP-1233: the team's open-PR issue ROWS (the ones `openPullRequests`
-    /// collapses into options) — what the Fix merge conflicts card resolves
-    /// its picked pull request off (`FixConflictsPr.resolve`).
-    func openPullRequestIssues(teamId: String?) -> [IssueEntity] {
-        guard let teamId else { return [] }
-        let boardIds = Set(boards.filter { $0.teamId == teamId }.map(\.id))
-        return issues.filter {
-            boardIds.contains($0.boardId) && $0.prState == DomainContract.prStateOpen
         }
     }
 }

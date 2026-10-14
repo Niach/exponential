@@ -1,7 +1,6 @@
 package com.exponential.app.navigation
 
 import androidx.navigation.NavHostController
-import com.exponential.app.domain.workFaceFromParam
 
 /**
  * Route plumbing for the deep-link drain in [AppNavHost] (EXP-528).
@@ -84,31 +83,25 @@ fun NavHostController.navigateDeepLink(route: String) {
     navigate(route)
 }
 
-/** The issue Work screen's route pattern — `face` and (EXP-1241) `comment`
- *  are OPTIONAL query args. */
-const val ISSUE_ROUTE = "issue/{issueId}?face={face}&comment={comment}"
-
-/** EXP-1241: the issue route scrolled to [commentId] (null = the plain route). */
-fun issueRoute(issueId: String, face: String? = null, commentId: String? = null): String {
-    val query = listOfNotNull(face?.let { "face=$it" }, commentId?.let { "comment=$it" })
-    return if (query.isEmpty()) "issue/$issueId" else "issue/$issueId?${query.joinToString("&")}"
-}
-
 /**
- * [navigateDeepLink] for the issue route (EXP-933): its optional `face` query
- * argument is absent on a plain issue link, which [DeepLinkRoutes] reads as an
- * incomplete fill (always push). So the re-tap check compares the ARGUMENTS
- * instead: the same issue on the same face is already on top.
+ * [navigateDeepLink] for the issue route: its optional `comment` query
+ * argument is absent on a plain issue link, which [DeepLinkRoutes] reads as
+ * an incomplete fill (always push). So the re-tap check compares the
+ * ARGUMENTS instead: the same issue (and comment) is already on top.
  */
-fun NavHostController.navigateIssueDeepLink(issueId: String, rawFace: String?, commentId: String? = null) {
-    // EXP-1251: every face word goes through ONE parser (`results` / `changes`
-    // / `diff` = the Guide), so the re-tap check compares canonical names.
-    val face = workFaceFromParam(rawFace)?.name?.lowercase()
+fun NavHostController.navigateIssueDeepLink(issueId: String, commentId: String? = null) {
     val top = currentBackStackEntry
     val alreadyOnTop = top?.destination?.route == ISSUE_ROUTE &&
         top.arguments?.getString("issueId") == issueId &&
-        top.arguments?.getString("face") == face &&
         top.arguments?.getString("comment") == commentId
     if (alreadyOnTop) return
-    navigate(issueRoute(issueId, face, commentId))
+    navigate(issueRoute(issueId, commentId))
 }
+
+/** The issue screen's route pattern — (EXP-1241) `comment` is an OPTIONAL
+ *  query arg. */
+const val ISSUE_ROUTE = "issue/{issueId}?comment={comment}"
+
+/** EXP-1241: the issue route scrolled to [commentId] (null = the plain route). */
+fun issueRoute(issueId: String, commentId: String? = null): String =
+    if (commentId == null) "issue/$issueId" else "issue/$issueId?comment=$commentId"

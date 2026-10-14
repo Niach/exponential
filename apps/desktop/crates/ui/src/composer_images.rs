@@ -1,9 +1,9 @@
 //! EXP-825 — the ONE pending-images strip of a message composer: staged
 //! bytes, `[Image #N]` markers, the thumbnail strip, sequential idempotent
 //! uploads. Two composers use it: the steer viewer's reply composer (uploads
-//! to the SESSION route, EXP-702) and the Agent page's start composer
-//! (uploads to the TEAM route BEFORE a session exists — the start binds them
-//! through `codingSessions.start`'s `attachmentIds`). The strip and its rules
+//! to the SESSION route, EXP-702) and Home's start composer (uploads to the
+//! TEAM route BEFORE a session exists — the start binds them through
+//! `sessions.send`'s `attachmentIds`, EXP-1294). The strip and its rules
 //! used to be private to `steer_viewer`; the start composer needed the same
 //! behaviour byte for byte (web `lib/pending-images.ts` parity), so it moved
 //! here.
@@ -116,12 +116,6 @@ impl PendingImages {
 
     pub(crate) fn clear(&mut self) {
         self.pending.clear();
-    }
-
-    /// The staged entries' strip keys, in order (a draft's attachments, for
-    /// its start fingerprint).
-    pub(crate) fn keys(&self) -> Vec<u64> {
-        self.pending.iter().map(|item| item.key).collect()
     }
 
     fn image_count(&self) -> usize {

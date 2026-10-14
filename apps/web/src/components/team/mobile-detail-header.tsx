@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 // layout, byte for byte: a round ghost back button on the left, the
 // identifier (or title) centred, an optional round ghost overflow button on
 // the right. No breadcrumbs anywhere: the board glyph crumb on the issue
-// detail, the "Reviews / MET-3" crumb on the review detail and the ad-hoc
+// detail, the old "Reviews / MET-3" crumb and the ad-hoc
 // back rows on the session pages all became this.
 //
 // The trailing slot keeps the back button's width whether or not it holds a

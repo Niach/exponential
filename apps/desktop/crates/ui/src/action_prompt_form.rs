@@ -1,32 +1,26 @@
 //! The Prompt part of an action's page (EXP-467 as the "Edit action" dialog;
 //! SLOP-2 folded it into [`crate::action_view`]) — the web `ActionPromptForm`
 //! 1:1. Two columns like the web: metadata left (icon + Name / Description /
-//! composer hint / Repository), the prompt right as a plain monospace
-//! multiline editor (the web textarea — NOT the WYSIWYG), one batched
-//! `actions.update` on Save. Writes are owner-only (the server enforces it),
-//! so a NON-owner gets the same form read-only, with no Save.
+//! composer hint), the prompt right as a plain monospace multiline editor
+//! (the web textarea — NOT the WYSIWYG), one batched `actions.update` on
+//! Save. Writes are owner-only (the server enforces it), so a NON-owner gets
+//! the same form read-only, with no Save.
+//!
+//! EXP-1294: an action is a SAVED PROMPT — name, icon, body, typed inputs,
+//! composer hint. No repository, no MCP servers, no triggers.
 //!
 //! Synced rows carry no body (EXP-268), so the prompt is fetched via
 //! `actions.get` when the form is built and the field stays disabled until it
 //! lands — a save can never blank it. A duplicate-name CONFLICT (HTTP 409)
 //! renders inline under the Name field, everything else beside Save. There is
-//! deliberately NO inputs editor — the web form has none; input definitions
-//! are authored by the "Create action" builtin run, and the batched update
-//! omits `inputs` (and `triggers`, which the page's Triggers section owns),
-//! leaving both untouched.
+//! deliberately NO inputs editor — the web form has none; the batched update
+//! omits `inputs`, leaving them untouched.
 //!
 //! EXP-694: the fields wear the inset-grouped stack every client's editors
 //! wear ([`crate::surface::glass_group`]) — icon + Name are ONE row, the
 //! description and the prompt are chrome-less textareas whose PLACEHOLDER is
-//! their title (no label above), and the repository is a picker row.
-//!
-//! FEED-73: the action's MCP servers ride the same fetch/save path — every
-//! run of a real action connects to THIS list (the server sets the run's
-//! pick from it), and only TEAM MCPs ([`team_mcps`]: no sign-in, or a
-//! member's shared connection) are offered. Ids the picker no longer lists
-//! are kept, never dropped; the save sends the list only when it changed.
+//! their title (no label above).
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AppContext as _, IntoElement, ParentElement, Render, SharedString, Styled,
     Subscription, Window,
@@ -35,7 +29,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -62,19 +55,8 @@ pub(crate) struct ActionPromptForm {
     prompt_placeholder: gpui::Entity<InputState>,
     /// The curated registry glyph (`actionIconSchema` — the boards set).
     icon: String,
-    /// `None` = repo-less scratch run (the web select's "None").
-    repo_id: Option<String>,
-    /// `repositories.list` rows for the picker; `None` = still loading.
-    repos: Option<Vec<crate::action_run::ActionRepoRow>>,
     /// The prompt — a plain multiline editor (web textarea parity).
     body: gpui::Entity<TextareaState>,
-    /// FEED-73: the team's MCP servers that may go on the action
-    /// ([`team_mcps`]); empty hides the row (also while loading).
-    team_mcps: Vec<api::mcp_servers::McpServerListEntry>,
-    /// FEED-73: the action's MCP list (row ids) as edited, and as last
-    /// loaded or saved — the save sends it only when the two differ.
-    mcp_server_ids: Vec<String>,
-    saved_mcp_server_ids: Vec<String>,
     /// `actions.get` in flight — the prompt and Save stay disabled so a
     /// save can never blank the body.
     body_loading: bool,
@@ -175,11 +157,6 @@ impl ActionPromptForm {
                 .icon
                 .clone()
                 .unwrap_or_else(|| domain::contract::BOARD_ICON_VALUES[0].to_string()),
-            repo_id: action.repository_id.clone(),
-            repos: None,
-            team_mcps: Vec::new(),
-            mcp_server_ids: Vec::new(),
-            saved_mcp_server_ids: Vec::new(),
             body,
             body_loading: true,
             body_failed: false,
@@ -190,8 +167,6 @@ impl ActionPromptForm {
             _subscriptions: subscriptions,
         };
         this.fetch_body(window, cx);
-        this.fetch_repos(window, cx);
-        this.fetch_mcp_servers(window, cx);
         this
     }
 
@@ -215,8 +190,6 @@ impl ActionPromptForm {
                         view.body.update(cx, |state, cx| {
                             state.set_value(action.body, window, cx);
                         });
-                        view.mcp_server_ids = action.mcp_server_ids.clone();
-                        view.saved_mcp_server_ids = action.mcp_server_ids;
                     }
                     // FEED-79: the load on open fails quietly (the field's
                     // empty state + Retry, Save off); only a Retry press
@@ -247,53 +220,6 @@ impl ActionPromptForm {
         self.body_loading = true;
         self.fetch_body(window, cx);
         cx.notify();
-    }
-
-    fn fetch_repos(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let team_id = self.team_id.clone();
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move { crate::action_run::fetch_repositories(&trpc, &team_id) })
-                .await;
-            let _ = this.update_in(window, |view, _, cx| {
-                match result {
-                    Ok(rows) => view.repos = Some(rows),
-                    // The picker degrades to the seeded choice — the save
-                    // still round-trips it untouched.
-                    Err(err) => log::warn!("actions: repositories.list failed: {err}"),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// FEED-73: `mcpServers.list` (server-only, never synced), narrowed to
-    /// the team MCPs an action may carry.
-    fn fetch_mcp_servers(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
-        let team_id = self.team_id.clone();
-        cx.spawn_in(window, async move |this, window| {
-            let result = window
-                .background_executor()
-                .spawn(async move { api::mcp_servers::list(&trpc, &team_id) })
-                .await;
-            let _ = this.update_in(window, |view, _, cx| {
-                match result {
-                    Ok(entries) => view.team_mcps = team_mcps(&entries),
-                    // No row then — the save leaves the list untouched.
-                    Err(err) => log::warn!("actions: mcpServers.list failed: {err}"),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
     }
 
     /// ONE batched `actions.update` — the web dialog's submit. `inputs`
@@ -347,12 +273,7 @@ impl ActionPromptForm {
         input.description = Some(description);
         input.prompt_placeholder = Some(prompt_placeholder);
         input.icon = Some(self.icon.clone());
-        input.repository_id = api::Patch::set_or_null(self.repo_id.clone());
         input.body = Some(body);
-        // FEED-73: only a changed list rides the save (web `mcpDirty`).
-        let mcp_sent = mcp_ids_changed(&self.mcp_server_ids, &self.saved_mcp_server_ids)
-            .then(|| self.mcp_server_ids.clone());
-        input.mcp_server_ids = mcp_sent.clone();
 
         cx.spawn_in(window, async move |this, window| {
             let result = window
@@ -365,11 +286,7 @@ impl ActionPromptForm {
                 match result {
                     // The synced echo repaints the header and the list —
                     // nothing to gate on; the form stays where it is.
-                    Ok(()) => {
-                        if let Some(sent) = mcp_sent {
-                            view.saved_mcp_server_ids = sent;
-                        }
-                    }
+                    Ok(()) => {}
                     Err(err) => {
                         match err {
                             // The (teamId, name) CONFLICT — inline, web parity.
@@ -479,25 +396,7 @@ impl Render for ActionPromptForm {
         if let Some(name_error) = self.name_error.clone() {
             form = form.child(crate::action_error::field_error(name_error, cx).px_1());
         }
-        let left = form
-            .w(px(META_COLUMN_W))
-            .flex_shrink_0()
-            .child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_picker_row(
-                    "Repository",
-                    None,
-                    self.render_repo_picker(read_only, cx),
-                    cx,
-                ),
-            ]))
-            // FEED-73: the action's MCP servers — team MCPs only, hidden
-            // when the team has none.
-            .when(!self.team_mcps.is_empty(), |this| {
-                let picker = self.render_mcp_picker(read_only, window, cx);
-                this.child(crate::surface::glass_group_rows(vec![
-                    crate::surface::glass_picker_row("MCP servers", None, picker, cx),
-                ]))
-            });
+        let left = form.w(px(META_COLUMN_W)).flex_shrink_0();
 
         // -- right column: the prompt ---------------------------------------
         // One group, one field: the placeholder is the title here too. A
@@ -565,226 +464,5 @@ impl Render for ActionPromptForm {
                     .child(right),
             )
             .children(footer)
-    }
-}
-
-impl ActionPromptForm {
-    /// FEED-73 — the shared MCP multi picker over the team MCPs, dressed as
-    /// the trailing value of a grouped picker row like the repository's.
-    fn render_mcp_picker(
-        &self,
-        read_only: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let listed: Vec<String> =
-            self.team_mcps.iter().map(|entry| entry.config.id.clone()).collect();
-        let picked: Vec<String> = listed
-            .iter()
-            .filter(|id| self.mcp_server_ids.contains(id))
-            .cloned()
-            .collect();
-        let options: Vec<crate::launch_options::McpServerOption> = self
-            .team_mcps
-            .iter()
-            .map(|entry| crate::launch_options::McpServerOption {
-                id: entry.config.id.clone(),
-                name: entry.config.name.clone(),
-                ..Default::default()
-            })
-            .collect();
-        let label = crate::launch_options::mcp_pick_summary(&options, &picked);
-        let servers: Vec<crate::picker::mcp_server_picker::McpPickerServer> = self
-            .team_mcps
-            .iter()
-            .map(|entry| crate::picker::mcp_server_picker::McpPickerServer {
-                id: entry.config.id.clone(),
-                name: entry.config.name.clone(),
-                url: entry.config.url.clone(),
-                command: entry.config.command.clone(),
-                description: None,
-                disabled: false,
-            })
-            .collect();
-        let trigger = Button::new("action-edit-mcp")
-            .ghost()
-            .cursor_pointer()
-            .h_auto()
-            .px_0()
-            .py_0()
-            .text_color(cx.theme().foreground.opacity(0.7))
-            .child(crate::surface::picker_value_label(SharedString::from(label)))
-            .child(crate::surface::picker_row_chevron(cx))
-            .into_any_element();
-        let view = cx.entity().downgrade();
-        crate::picker::mcp_server_picker::mcp_server_picker(
-            &servers,
-            picked,
-            trigger,
-            std::rc::Rc::new(move |next: Vec<String>, _window: &mut Window, cx: &mut gpui::App| {
-                if let Some(view) = view.upgrade() {
-                    let listed = listed.clone();
-                    view.update(cx, |this, cx| {
-                        this.mcp_server_ids = merge_mcp_pick(&this.mcp_server_ids, &listed, next);
-                        cx.notify();
-                    });
-                }
-            }),
-        )
-        .id("action-edit-mcp-picker")
-        .disabled(read_only || self.body_loading)
-        .render(window, cx)
-    }
-
-    /// The web repository `Select`: "None" + one entry per connected repo,
-    /// dressed as the trailing VALUE of a grouped picker row (EXP-694) — no
-    /// fill, no border, the caret the group's chevron.
-    fn render_repo_picker(&self, read_only: bool, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        // D8: still loading = the value's placeholder bar.
-        let label: Option<SharedString> = match (&self.repos, &self.repo_id) {
-            (None, _) => None,
-            (Some(rows), Some(repo_id)) => Some(rows
-                .iter()
-                .find(|row| &row.id == repo_id)
-                .map(|row| SharedString::from(row.full_name.clone()))
-                .unwrap_or_else(|| "Repository".into())),
-            (Some(_), None) => Some("None".into()),
-        };
-        let trigger = Button::new("action-edit-repo")
-            .ghost()
-            .cursor_pointer()
-            .h_auto()
-            .px_0()
-            .py_0()
-            .text_color(cx.theme().foreground.opacity(0.7))
-            // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
-            // box, so a long `owner/repo` wraps onto a second line.
-            .child(match label {
-                Some(label) => crate::surface::picker_value_label(label).into_any_element(),
-                None => crate::feedback::skeleton_value("action-edit-repo-placeholder", 120., cx),
-            })
-            .child(crate::surface::picker_row_chevron(cx))
-            .disabled(self.repos.is_none() || read_only);
-        let Some(rows) = self.repos.clone() else {
-            return trigger.into_any_element();
-        };
-        let view = cx.entity().downgrade();
-        trigger
-            .dropdown_menu(move |mut menu, _window, _cx| {
-                let none_view = view.clone();
-                menu = menu.item(crate::controls::pointer_label_item("None", false).on_click(move |_, _, cx| {
-                    if let Some(view) = none_view.upgrade() {
-                        view.update(cx, |this, cx| {
-                            this.repo_id = None;
-                            cx.notify();
-                        });
-                    }
-                }));
-                for repo in &rows {
-                    let view = view.clone();
-                    let repo_id = repo.id.clone();
-                    menu = menu.item(
-                        crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false).on_click(
-                            move |_, _, cx| {
-                                if let Some(view) = view.upgrade() {
-                                    let repo_id = repo_id.clone();
-                                    view.update(cx, |this, cx| {
-                                        this.repo_id = Some(repo_id);
-                                        cx.notify();
-                                    });
-                                }
-                            },
-                        ),
-                    );
-                }
-                menu
-            })
-            .into_any_element()
-    }
-}
-
-/// FEED-73 — a "team MCP" (web `isTeamMcp`): one any run of the team can
-/// use whoever starts it — nothing to sign in to, or at least one member
-/// SHARES their connection. Only these go on an action's MCP list.
-pub(crate) fn is_team_mcp(entry: &api::mcp_servers::McpServerListEntry) -> bool {
-    // A stdio server's secret never leaves its owner's machine, so a share
-    // on one (a stale row) counts for nothing here, as on web.
-    entry.config.auth == "none"
-        || (entry.config.transport != "stdio" && entry.shared_count > 0)
-}
-
-/// The team MCPs of a `mcpServers.list`, in registry order.
-pub(crate) fn team_mcps(
-    entries: &[api::mcp_servers::McpServerListEntry],
-) -> Vec<api::mcp_servers::McpServerListEntry> {
-    entries.iter().filter(|entry| is_team_mcp(entry)).cloned().collect()
-}
-
-/// The picker's new set folded into the action's list: ids the picker does
-/// not list (a server no longer shared) ride along, the listed ones are the
-/// picker's (web `[...ids.filter(unlisted), ...next]`).
-fn merge_mcp_pick(current: &[String], listed: &[String], next: Vec<String>) -> Vec<String> {
-    let mut merged: Vec<String> =
-        current.iter().filter(|id| !listed.contains(id)).cloned().collect();
-    merged.extend(next);
-    merged
-}
-
-/// Whether the list differs from the saved one as a SET (web `mcpDirty`).
-fn mcp_ids_changed(current: &[String], saved: &[String]) -> bool {
-    current.len() != saved.len() || current.iter().any(|id| !saved.contains(id))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use api::mcp_servers::{McpServerConfig, McpServerListEntry};
-
-    fn server(id: &str, auth: &str, shared_count: u32) -> McpServerListEntry {
-        McpServerListEntry {
-            config: McpServerConfig {
-                id: id.into(),
-                name: id.into(),
-                auth: auth.into(),
-                ..Default::default()
-            },
-            shared_count,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn a_shared_stdio_server_is_not_a_team_mcp() {
-        let mut local = server("local", "secret", 2);
-        local.config.transport = "stdio".into();
-        assert!(!is_team_mcp(&local));
-        let mut remote = server("remote", "oauth", 1);
-        remote.config.transport = "http".into();
-        assert!(is_team_mcp(&remote));
-    }
-
-    #[test]
-    fn team_mcps_keep_no_sign_in_and_shared_servers() {
-        let entries = vec![
-            server("docs", "none", 0),
-            server("linear", "oauth", 0),
-            server("sentry", "oauth", 2),
-            server("stripe", "secret", 1),
-            server("github", "secret", 0),
-        ];
-        let ids: Vec<String> = team_mcps(&entries).into_iter().map(|e| e.config.id).collect();
-        assert_eq!(ids, vec!["docs", "sentry", "stripe"]);
-    }
-
-    #[test]
-    fn a_pick_keeps_ids_the_picker_does_not_list() {
-        let ids = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(
-            merge_mcp_pick(&ids(&["gone", "a"]), &ids(&["a", "b"]), ids(&["b"])),
-            ids(&["gone", "b"])
-        );
-        assert!(!mcp_ids_changed(&ids(&["a", "b"]), &ids(&["b", "a"])));
-        assert!(mcp_ids_changed(&ids(&["a"]), &ids(&["a", "b"])));
-        assert!(mcp_ids_changed(&ids(&["a", "c"]), &ids(&["a", "b"])));
     }
 }

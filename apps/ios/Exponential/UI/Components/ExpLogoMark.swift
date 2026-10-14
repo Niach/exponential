@@ -76,3 +76,24 @@ struct ExpLogoMark: View {
     .padding()
     .background(Color.black)
 }
+
+/// FEED-100: Home's DAWN — the brand mark drawn BIG and faint, its upper
+/// HALF rising over the composer like a sun over the horizon, `gap` off the
+/// card (web's phone `HomeDawn`: 160px, opacity 0.05, 24px). Replaces the
+/// small mark + greeting headline; decoration only.
+struct HomeDawn: View {
+    /// The mark's diameter; the dawn shows its upper half.
+    static let size: CGFloat = 160
+    static let opacity: Double = 0.05
+    /// The space between the dawn and the composer card.
+    static let gap: CGFloat = 24
+
+    var body: some View {
+        ExpLogoMark(size: Self.size, color: .white.opacity(Self.opacity))
+            .frame(height: Self.size / 2, alignment: .top)
+            .clipped()
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(true)
+            .accessibilityIdentifier(HomeGreeting.TestId.mark)
+    }
+}

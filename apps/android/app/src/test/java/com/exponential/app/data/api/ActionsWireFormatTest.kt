@@ -26,13 +26,12 @@ class ActionsWireFormatTest {
     fun `cleared fields emit literal nulls`() {
         assertEquals(
             """{"id":"a-1","name":"Ship it","description":null,"icon":null,""" +
-                """"repositoryId":null,"body":"Do the thing","promptPlaceholder":null}""",
+                """"body":"Do the thing","promptPlaceholder":null}""",
             updateActionInput(
                 id = "a-1",
                 name = "Ship it",
                 description = null,
                 icon = null,
-                repositoryId = null,
                 body = "Do the thing",
                 promptPlaceholder = null,
             ).toString(),
@@ -43,14 +42,13 @@ class ActionsWireFormatTest {
     fun `set fields ride as their values`() {
         assertEquals(
             """{"id":"a-1","name":"Ship it","description":"One-liner","icon":"rocket",""" +
-                """"repositoryId":"repo-1","body":"Do the thing",""" +
+                """"body":"Do the thing",""" +
                 """"promptPlaceholder":"Scope: which platforms, which version"}""",
             updateActionInput(
                 id = "a-1",
                 name = "Ship it",
                 description = "One-liner",
                 icon = "rocket",
-                repositoryId = "repo-1",
                 body = "Do the thing",
                 promptPlaceholder = "Scope: which platforms, which version",
             ).toString(),
@@ -66,14 +64,13 @@ class ActionsWireFormatTest {
                 name = "Ship it",
                 description = null,
                 icon = null,
-                repositoryId = null,
                 body = "",
                 promptPlaceholder = null,
             ),
         )
         assertEquals(
             """{"id":"a-1","name":"Ship it","description":null,"icon":null,""" +
-                """"repositoryId":null,"body":"","promptPlaceholder":null}""",
+                """"body":"","promptPlaceholder":null}""",
             encoded,
         )
     }

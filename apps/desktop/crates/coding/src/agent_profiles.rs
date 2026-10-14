@@ -81,7 +81,7 @@ pub fn is_unpinned(account: Option<&str>) -> bool {
 /// id, or empty for an unpinned slot ([`is_unpinned`]).
 ///
 /// The usage cache's entry key, the heartbeat's `profiles[].id`, the synced
-/// `coding_sessions.agent_account` and the live-usage registry are all keyed
+/// `sessions.account` and the live-usage registry are all keyed
 /// by this string, while [`account_dir`] is keyed by the `Option`. One
 /// function, so a run's config dir and the cache row its numbers land in can
 /// never disagree about which login it is. A launch resolves its slot to a

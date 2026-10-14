@@ -32,7 +32,7 @@ use gpui::{
 use gpui_component::{h_flex, v_flex, ActiveTheme as _};
 
 use domain::issue_graph::{
-    block_graph, geometry, open_blockers_of_set, GraphIssue, GraphRelation,
+    block_graph, geometry, GraphIssue, GraphRelation,
     IssueGraph, WorkflowEdgeStyle, ISSUE_GRAPH_CYCLE_NOTE, ISSUE_GRAPH_TRUNCATED_NOTE,
 };
 
@@ -283,63 +283,6 @@ pub(crate) fn graph_for(subject_ids: &[&str], cx: &App) -> IssueGraph {
         })
         .collect();
     block_graph(subject_ids, &graph_relations, &graph_issues)
-}
-
-/// EXP-980 — the OPEN issues that block any of `picked` from OUTSIDE the set,
-/// by identifier: what a start (one issue or a batch) has to ask about.
-pub(crate) fn open_blockers_outside(picked: &[&str], cx: &App) -> Vec<String> {
-    let Some(store) = sync::Store::try_global(cx) else {
-        return Vec::new();
-    };
-    let collections = store.collections();
-    let issues = collections.issues.read(cx);
-    let relations = collections.issue_relations.read(cx);
-    let graph_issues: Vec<GraphIssue<'_>> = issues
-        .iter()
-        .map(|issue| GraphIssue {
-            id: &issue.id,
-            identifier: &issue.identifier,
-            status: issue.status.as_wire().unwrap_or_default(),
-        })
-        .collect();
-    let graph_relations: Vec<GraphRelation<'_>> = relations
-        .iter()
-        .map(|row| GraphRelation {
-            kind: row.kind.as_deref().unwrap_or_default(),
-            issue_id: &row.issue_id,
-            related_issue_id: &row.related_issue_id,
-        })
-        .collect();
-    open_blockers_of_set(picked, &graph_relations, &graph_issues)
-        .into_iter()
-        .map(|issue| issue.identifier.to_string())
-        .collect()
-}
-
-/// The graph inside a DIALOG: a node tap closes the dialog first, then opens
-/// the issue in the window that opened it (a dialog window has no navigation
-/// of its own).
-pub(crate) fn graph_in_dialog(
-    graph: &IssueGraph,
-    view_width: f32,
-    cx: &App,
-) -> gpui::AnyElement {
-    graph_view(graph, view_width, geometry::Density::Full, dialog_pick(), cx)
-}
-
-/// A node tap inside a dialog window: close it, then open the issue in the
-/// opener.
-fn dialog_pick() -> OnPickIssue {
-    Rc::new(|issue_id: &str, window, cx| {
-        let issue_id = issue_id.to_string();
-        crate::native_dialog::close_then(window, cx, move |window, cx| {
-            crate::navigation::navigate(
-                window,
-                cx,
-                crate::navigation::Screen::IssueDetail { issue_id },
-            );
-        });
-    })
 }
 
 /// The grid plus its notes, for the EXP-980 `blocks` graph. Empty (no nodes)

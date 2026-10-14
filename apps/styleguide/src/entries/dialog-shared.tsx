@@ -7,8 +7,8 @@ import {
 } from "@exp/ui"
 
 /**
- * What the dialog entries share (`blocked-start-dialog`,
- * `stack-merge-choice-dialog`, `draft-leave-dialog`).
+ * What the dialog entries share (`stack-merge-choice-dialog`,
+ * `draft-leave-dialog`).
  *
  * Not an entry itself (nothing in `sections.json` names it): just the frame.
  * `DialogContent` is a Radix portal, and a portal

@@ -9,7 +9,7 @@ import type { StyleguideEntry } from "./types.ts"
 // `@exp/ui` Button + concept glyphs at rest: the × at rest is hidden on every
 // chip and shows on the HOVERED one (here the second, the active one keeps
 // no exception), the "+N" overflow, then the ghost "+" that opens the New
-// run tab, drawn last as an open New run chip.
+// session tab, drawn last as an open New session chip.
 
 const UiCloseIcon = conceptIcon(`ui-close`)
 const UiAddIcon = conceptIcon(`ui-add`)
@@ -58,13 +58,13 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1255`,
   title: `Work tab strip`,
-  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). An issue and its session are ONE tab. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Chips that do not fit fold into "+N". A ghost "+" after the last tab opens ONE New session tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); once its session starts the tab turns into that session's tab. Sessions started anywhere else only show in Running. Switching tabs never animates.`,
+  blurb: `The tabs over the content card (web md+ and the IDE; phones have none). Route-driven (EXP-1293): an issue, a thread, an agent's channel or a raw session the URL opened is a tab; a thread chip leads with its agent mark. The × shows only while a tab is hovered, every tab alike including the active one (keyboard focus shows it too; the close chord is unchanged). Chips that do not fit fold into "+N". A ghost "+" after the last tab opens ONE New session tab hosting the home composer (IDE Cmd/Ctrl+T; web Alt/Option+T, since browsers keep Cmd/Ctrl+T); the navigation that leaves it (its start opening the thread) lands in that tab. Threads opened from the sidebar's Running stay tabless. Switching tabs never animates.`,
   status: {
     web: {
       state: `ok`,
       symbol: `WorkTabsStrip`,
       file: `apps/web/src/components/team/work-tabs-strip.tsx`,
-      note: `rules: lib/work-tabs.ts (openNewRunTab, landNewRun); the chord: work-tabs-sync.tsx`,
+      note: `rules: lib/work-tabs.ts (upsertFromRoute + landing, openNewRunTab); the chord: work-tabs-sync.tsx`,
     },
     desktop: {
       state: `ok`,

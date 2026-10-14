@@ -1,103 +1,94 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { inArray, useLiveQuery } from "@tanstack/react-db"
+import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/react-router"
 import {
-  createFileRoute,
-  Link,
-  redirect,
-  useNavigate,
-} from "@tanstack/react-router"
-import {
-  Button,
-  Input,
+  conceptIcon,
+  EmptyState,
+  IssueChip,
   Menu,
   MenuGestureHost,
-  SkeletonRows,
-  ThreadHeader,
-  ThreadStrip,
-  WORK_COLUMN_CLASS,
   menuProps,
+  SkeletonRows,
+  ThreadConversation,
+  ThreadTabs,
+  ThreadTabsAddButton,
+  threadTabChipClass,
   useIsMobile,
-  type ThreadStripEntry,
+  userMessageCaption,
+  type MenuSessionProps,
 } from "@exp/ui"
-import { useSteerConfig } from "@/components/agent-session"
-import { Empty } from "@/components/empty"
+import type { Issue, User } from "@/db/schema"
 import { IssueDetailView } from "@/components/issue-detail-view"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { statusColorClass } from "@/components/issue-properties/status-dropdown"
+import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
-import { ThreadConversation } from "@/components/thread/thread-conversation"
+import { parseGuideSection, type GuideSectionKey } from "@/components/guide-section-diff"
 import { ThreadGuide } from "@/components/thread/thread-guide"
+import { useAnswerMessage } from "@/components/thread/agent-channel"
+import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
-import { ThreadReplyComposer } from "@/components/thread/thread-reply-composer"
-import { useFirstSeen, useThreadBundle, type ThreadBundle } from "@/hooks/use-threads"
-import { useSession } from "@/hooks/use-session"
-import {
-  useTeamBoards,
-  useTeamBySlug,
-  useTeamUsers,
-} from "@/hooks/use-team-data"
+import { ThreadTitle } from "@/components/thread/thread-title"
+import { useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
+import { useTeamBoards, useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { updateWorkTabs } from "@/hooks/use-work-tabs"
-import type { Team, User } from "@/db/schema"
-import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { threadItemsCollection, threadsCollection } from "@/lib/collections"
-import { emptyStateCopy } from "@/lib/empty-states"
-import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
+import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import type { Team } from "@/db/schema"
+import { issueCollection } from "@/lib/collections"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import {
-  isFreshThreadChild,
-  iso,
-  THREAD_SYNC_GRACE_MS,
-  threadPageState,
-  type ThreadFetchState,
-  parseThreadChild,
-  selectedThreadChild,
-  threadChildSearch,
-  threadReplyTarget,
-  threadRunStatus,
-} from "@/lib/thread-page"
-import type { ThreadChild } from "@/lib/thread-view"
-import { parseGuideSection, type GuideSectionKey } from "@/lib/work-faces"
-import { openNewRunTab } from "@/lib/work-tabs"
-import { trpc } from "@/lib/trpc-client"
+  THREAD_COPY,
+  THREADS_LIST_COPY,
+  type MessageRow,
+  type PullRequestRow,
+  type SessionRow,
+  type SessionThreadView,
+} from "@/lib/session-tree"
 
-// EXP-1284: the THREAD page — the unit of work holding n issues and m runs.
-// Header: the title (rename inline) + the muted `thread` word; under it the
-// CHILD STRIP (`Conversation` · one tab per issue · "+" · Guide) with the
-// header caption trailing. `?child=` names the child on show:
+// EXP-1293 Threads v2: a THREAD = a root session (fixture
+// `session-thread.json` ×4, `buildSessionThread`). Header: the title (rename
+// in place, a lock when private) + ONE tab strip: Conversation · one issue
+// chip per linked issue · "+" · Guide (a dot while it holds anything).
+// `?tab=` names the tab on show:
 //
-//   (absent)      the CONVERSATION (`ThreadConversation`): every run as a
-//                 block, the issues its agent linked, the parallel card,
-//                 and `Reply in this thread` at the bottom;
-//   <IDENTIFIER>  that ISSUE's existing detail, embedded;
-//   guide         the thread's GUIDE (`threads.results`), `&section=` a
-//                 section's diff page under it.
+//   (absent)               the conversation: the root's messages and THE
+//                          session card per session, question and plan cards
+//                          answered in the card, the composer at the bottom
+//   issue&issue=<id>       that issue's detail, embedded
+//   guide[&section=&file=] the root's Guide over its pull requests
 //
-// Phones (and web mobile): the strip IS the pager under the header, the "+"
-// its trailing button. The "+" and every issue tab's context menu are the
-// thread's ONE menu (`useThreadMenu`). Lists, the issue page's `Threads`
-// row, the work tab and a run's own page all open this route.
+// Phones: the strip IS the pager under the header. No right sidebar, no
+// Show work, no captions.
 
 type ThreadSearch = {
-  child?: string
-  from?: string
+  tab?: `issue` | `guide`
+  issue?: string
   section?: GuideSectionKey
   file?: string
+  /** Where it was opened from (`TABLESS_ORIGIN` = a Running row: no tab). */
+  from?: string
 }
 
-/** The issue tabs' context-menu kind (`menuProps`). */
-const THREAD_CHILD_MENU = `thread-child`
+/** The issue chips' context-menu kind (`menuProps`). */
+const THREAD_ISSUE_MENU = `thread-issue`
+
+/** How long a missing root waits for its row before "not found". */
+const SYNC_GRACE_MS = 4_000
+
+const ThreadsIcon = conceptIcon(`nav-threads`)
+const PrivateIcon = conceptIcon(`ui-private`)
 
 export const Route = createFileRoute(`/t/$teamSlug/threads/$threadId`)({
-  head: () => ({ meta: [{ title: pageTitle(`Thread`) }] }),
+  head: () => ({ meta: [{ title: pageTitle(THREADS_LIST_COPY.title) }] }),
   validateSearch: (search: Record<string, unknown>): ThreadSearch => {
-    const pick = (value: unknown) =>
-      typeof value === `string` && value ? value : undefined
-    const section = parseGuideSection(search.section)
+    const pick = (value: unknown) => (typeof value === `string` && value ? value : undefined)
+    const tab = search.tab === `issue` || search.tab === `guide` ? search.tab : undefined
+    const section = tab === `guide` ? parseGuideSection(search.section) : undefined
     return {
-      child: pick(search.child),
-      from: pick(search.from),
+      ...(tab ? { tab } : {}),
+      ...(tab === `issue` && pick(search.issue) ? { issue: pick(search.issue) } : {}),
       ...(section !== undefined ? { section } : {}),
       ...(section !== undefined && pick(search.file) ? { file: pick(search.file) } : {}),
+      ...(pick(search.from) ? { from: pick(search.from) } : {}),
     }
   },
   beforeLoad: async ({ context, location }) => {
@@ -113,113 +104,57 @@ export const Route = createFileRoute(`/t/$teamSlug/threads/$threadId`)({
 
 function ThreadPage() {
   const { teamSlug, threadId } = Route.useParams()
-  const search = Route.useSearch()
-  const navigate = useNavigate()
   const team = useTeamBySlug(teamSlug)
-  const { data: authSession } = useSession()
-  const currentUserId = authSession?.user?.id
-  const { bundle, isReady, now } = useThreadBundle(team?.id, currentUserId, threadId)
-  usePageTitle(bundle ? pageTitle(bundle.view.title, `Thread`) : undefined)
+  const thread = useSessionThread(threadId)
+  usePageTitle(thread.view ? pageTitle(thread.view.title, THREADS_LIST_COPY.title) : undefined)
 
-  const origin = useMemo(() => parseOrigin(search.from), [search.from])
-  const goBack = useCallback(() => {
-    void navigate(
-      (originListNavigation(teamSlug, origin) ?? {
-        to: `/t/$teamSlug/agent`,
-        params: { teamSlug },
-      }) as never
-    )
-  }, [navigate, teamSlug, origin])
-
-  // Review T14: never a flash of "Thread not found" right after a start —
-  // the shell (`threads`) and its items are separate shapes, so while an
-  // item names this id, or the one `threads.get` is out / said "found", the
-  // skeleton stays (`threadPageState`).
-  const { data: namingItems } = useLiveQuery(
-    (query) =>
-      bundle
-        ? undefined
-        : query
-            .from({ it: threadItemsCollection })
-            .where(({ it }) => eq(it.threadId, threadId)),
-    [threadId, Boolean(bundle)]
-  )
-  const itemNamesIt = ((namingItems ?? []) as unknown[]).length > 0
-  const [fetchState, setFetchState] = useState<{ id: string; state: ThreadFetchState }>({
-    id: threadId,
-    state: `idle`,
-  })
-  const fetchFor = fetchState.id === threadId ? fetchState.state : `idle`
-  const settled = Boolean(team && currentUserId && isReady)
-  // The in-flight id lives in a ref, NOT in the effect's deps: the
-  // `idle → pending` write below re-rendered the route, and with `fetchFor`
-  // as a dep the effect re-ran and its cleanup dropped the reply before it
-  // landed, so a missing thread showed the skeleton forever.
-  const fetching = useRef<string | null>(null)
+  // A thread opened right after its start may land before its row: wait a
+  // beat before saying it is gone.
+  const [graceOver, setGraceOver] = useState(false)
   useEffect(() => {
-    if (bundle || !settled || fetchFor !== `idle` || fetching.current === threadId) return
-    let live = true
-    fetching.current = threadId
-    setFetchState({ id: threadId, state: `pending` })
-    trpc.threads.get
-      .query({ id: threadId })
-      .then(() => live && setFetchState({ id: threadId, state: `found` }))
-      .catch(() => live && setFetchState({ id: threadId, state: `missing` }))
-      .finally(() => {
-        if (fetching.current === threadId) fetching.current = null
-      })
-    return () => {
-      live = false
-    }
-  }, [bundle, settled, threadId])
-  const [graceOverFor, setGraceOverFor] = useState<string | null>(null)
-  const waiting = !bundle && (fetchFor === `found` || itemNamesIt)
-  useEffect(() => {
-    if (!waiting) return
-    const timer = setTimeout(() => setGraceOverFor(threadId), THREAD_SYNC_GRACE_MS)
+    setGraceOver(false)
+    const timer = setTimeout(() => setGraceOver(true), SYNC_GRACE_MS)
     return () => clearTimeout(timer)
-  }, [waiting, threadId])
-  const pageState = threadPageState({
-    hasBundle: Boolean(bundle),
-    syncSettled: settled,
-    itemNamesIt,
-    fetch: fetchFor,
-    graceOver: graceOverFor === threadId,
-  })
+  }, [threadId])
 
-  if (!team || !currentUserId || pageState === `skeleton`) {
+  // A team agent's root is no thread: its page is the agent's channel.
+  if (thread.root?.kind === `agent`) {
+    return (
+      <Navigate
+        to="/t/$teamSlug/agents/$agentId"
+        params={{ teamSlug, agentId: thread.root.id }}
+        replace
+      />
+    )
+  }
+
+  if (!team || !thread.view || !thread.root) {
+    if (team && thread.isReady && graceOver) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center">
+          <EmptyState
+            icon={ThreadsIcon}
+            title="Not found"
+            description="It may still be syncing, or it was deleted."
+            size="page"
+          />
+        </div>
+      )
+    }
     return (
       <div className="p-6">
         <SkeletonRows />
       </div>
     )
   }
-  if (!bundle) {
-    return (
-      <div className="flex h-full min-h-0 flex-col">
-        <MobileDetailHeader title="Thread" onBack={goBack} />
-        <div className="flex flex-1 flex-col items-center justify-center">
-          <Empty id="thread-not-found">
-            <Button asChild variant="outline" size="sm">
-              <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
-                {emptyStateCopy(`thread-not-found`).action}
-              </Link>
-            </Button>
-          </Empty>
-        </div>
-      </div>
-    )
-  }
   return (
     <ThreadScreen
-      key={bundle.thread.id}
+      key={thread.root.id}
       team={team}
       teamSlug={teamSlug}
-      bundle={bundle}
-      currentUserId={currentUserId}
-      search={search}
-      now={now}
-      onBack={goBack}
+      view={thread.view}
+      root={thread.root}
+      pullRequests={thread.pullRequests}
     />
   )
 }
@@ -227,274 +162,181 @@ function ThreadPage() {
 function ThreadScreen({
   team,
   teamSlug,
-  bundle,
-  currentUserId,
-  search,
-  now,
-  onBack,
+  view,
+  root,
+  pullRequests,
 }: {
   team: Team
   teamSlug: string
-  bundle: ThreadBundle
-  currentUserId: string
-  search: ThreadSearch
-  now: Date
-  onBack: () => void
+  view: SessionThreadView
+  root: SessionRow
+  pullRequests: PullRequestRow[]
 }) {
   const navigate = useNavigate()
+  const search = Route.useSearch()
   const isMobile = useIsMobile()
   const permissions = useTeamPermissions(team)
   const { users } = useTeamUsers(team.id)
   const boards = useTeamBoards(team.id)
-  const steerConfig = useSteerConfig()
-  const steerEnabled = Boolean(permissions.isMember && steerConfig?.enabled)
-  const { view } = bundle
+  const { resolve } = useTeamStatusesContext()
 
-  const childKey = useMemo(() => parseThreadChild(search.child), [search.child])
-  const child = selectedThreadChild(view, childKey)
+  const issueTabs = view.tabs.filter(
+    (tab): tab is Extract<SessionThreadView[`tabs`][number], { kind: `issue` }> =>
+      tab.kind === `issue`
+  )
+  const issueIds = issueTabs.map((tab) => tab.issueId)
+  const issueKey = [...issueIds].sort().join(`,`)
+  const { data: issueRows } = useLiveQuery(
+    (query) =>
+      issueIds.length > 0
+        ? query.from({ issues: issueCollection }).where(({ issues }) => inArray(issues.id, issueIds))
+        : undefined,
+    [issueKey]
+  )
+  const issuesById = useMemo(
+    () => new Map(((issueRows ?? []) as Issue[]).map((issue) => [issue.id, issue])),
+    [issueRows]
+  )
+  const guideTab = view.tabs.find((tab) => tab.kind === `guide`)
 
-  const go = useCallback(
-    (next: { child?: string; section?: GuideSectionKey }) => {
-      void navigate({
-        to: `/t/$teamSlug/threads/$threadId`,
-        params: { teamSlug, threadId: bundle.thread.id },
-        search: {
-          ...(next.child ? { child: next.child } : {}),
-          ...(search.from ? { from: search.from } : {}),
-          ...(next.section !== undefined ? { section: next.section } : {}),
-        },
-        replace: true,
-      })
-    },
-    [navigate, teamSlug, bundle.thread.id, search.from]
-  )
-  const openChild = useCallback(
-    (target: ThreadChild) => go({ child: threadChildSearch(target) }),
-    [go]
-  )
-  const openIssueChild = useCallback(
-    (issueId: string) => {
-      const issue = bundle.issues.find((row) => row.id === issueId)
-      if (issue) go({ child: issue.identifier })
-    },
-    [bundle.issues, go]
-  )
-  const openRun = useCallback(
-    (runId: string) =>
-      void navigate({
-        to: `/t/$teamSlug/sessions/$sessionId`,
-        params: { teamSlug, sessionId: runId },
-      }),
-    [navigate, teamSlug]
-  )
+  const tab =
+    search.tab === `issue` && search.issue && issueIds.includes(search.issue)
+      ? { kind: `issue` as const, issueId: search.issue }
+      : search.tab === `guide`
+        ? { kind: `guide` as const }
+        : { kind: `conversation` as const }
 
-  // ── The thread's ONE menu ──────────────────────────────────────────────────
-  const menu = useThreadMenu({
-    teamId: team.id,
-    teamSlug,
-    threadId: bundle.thread.id,
-    issueIds: view.issueIds,
-    canEdit: permissions.isMember,
-    canCreate: permissions.canCreate,
-    canStart: steerEnabled,
+  const go = (next: ThreadSearch) =>
+    void navigate({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug, threadId: root.id },
+      search: next,
+      replace: true,
+    })
+
+  const menu = useThreadMenu({ rootId: root.id, issueIds, canEdit: permissions.isMember })
+
+  const chips = issueTabs.flatMap((entry) => {
+    const issue = issuesById.get(entry.issueId)
+    if (!issue) return []
+    const active = tab.kind === `issue` && tab.issueId === entry.issueId
+    const status = resolve(issue)
+    return [
+      <IssueChip
+        key={entry.issueId}
+        {...menuProps(THREAD_ISSUE_MENU, entry.issueId)}
+        role="tab"
+        aria-selected={active}
+        identifier={entry.identifier}
+        title={issue.title}
+        size={isMobile ? `sm` : `md`}
+        status={{
+          icon: status.icon,
+          colorClass: statusColorClass(status),
+          colorHex: status.builtinKey ? undefined : status.colorHex,
+        }}
+        testId={`thread-tab-${entry.identifier}`}
+        className={threadTabChipClass(active)}
+        onClick={() => go({ tab: `issue`, issue: entry.issueId })}
+      />,
+    ]
   })
-  const [addOpen, setAddOpen] = useState(false)
-  const addEntries = menu.entries()
 
-  // ── The strip ──────────────────────────────────────────────────────────────
-  const itemCreatedAt = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const item of bundle.items) {
-      if (item.issueId) map.set(item.issueId, iso(item.createdAt))
-    }
-    return map
-  }, [bundle.items])
-  const firstSeen = useFirstSeen(view.issueIds)
-  const [seenFresh, setSeenFresh] = useState<ReadonlySet<string>>(() => new Set())
-  const issuesById = new Map(bundle.issues.map((issue) => [issue.id, issue]))
-  const entries: ThreadStripEntry[] = view.strip.flatMap((entry): ThreadStripEntry[] => {
-    switch (entry.kind) {
-      case `conversation`:
-        return [
-          {
-            kind: `conversation`,
-            active: child.kind === `conversation`,
-            onSelect: () => openChild(entry),
-          },
-        ]
-      case `issue`: {
-        const issue = issuesById.get(entry.issueId)
-        const fresh =
-          !seenFresh.has(entry.issueId) &&
-          isFreshThreadChild(itemCreatedAt.get(entry.issueId), firstSeen.get(entry.issueId) ?? 0)
-        return [
-          {
-            kind: `issue`,
-            key: entry.issueId,
-            identifier: entry.identifier,
-            title: entry.title,
-            lead: issue ? <IssueStatusIcon issue={issue} className="size-3.5!" /> : null,
-            active: child.kind === `issue` && child.issueId === entry.issueId,
-            fresh,
-            onSelect: () => {
-              setSeenFresh((current) => new Set([...current, entry.issueId]))
-              openChild(entry)
-            },
-            menu: { ...menuProps(THREAD_CHILD_MENU, entry.issueId) },
-          },
-        ]
-      }
-      case `guide`:
-        return [
-          {
-            kind: `guide`,
-            active: child.kind === `guide`,
-            dot: entry.dot,
-            onSelect: () => openChild(entry),
-          },
-        ]
-      default:
-        return []
-    }
-  })
-  const strip = (
-    <ThreadStrip
-      entries={entries}
-      caption={view.headerCaption}
+  const tabs = (
+    <ThreadTabs
       variant={isMobile ? `pager` : `bar`}
-      addMenu={
-        addEntries.length > 0
-          ? (button) => (
-              <Menu
-                open={addOpen}
-                onOpenChange={setAddOpen}
-                align="start"
-                aria-label="Thread"
-                title={view.title}
-                contentClassName="w-64"
-                entries={addEntries}
-                trigger={button}
-              />
-            )
-          : undefined
+      conversation={{
+        label: THREAD_COPY.conversation,
+        active: tab.kind === `conversation`,
+        onSelect: () => go({}),
+      }}
+      issues={chips}
+      add={
+        permissions.isMember ? <ThreadTabsAddButton onClick={menu.openPicker} /> : undefined
       }
+      guide={{
+        label: THREAD_COPY.guide,
+        active: tab.kind === `guide`,
+        dot: guideTab?.kind === `guide` && guideTab.dot,
+        onSelect: () => go({ tab: `guide` }),
+      }}
     />
   )
 
-  // ── The reply box ──────────────────────────────────────────────────────────
-  const replyTarget = threadReplyTarget({
-    runs: bundle.runs.map((run) => ({
-      id: run.id,
-      userId: run.userId,
-      status: threadRunStatus(run, now),
-      startedAt: iso(run.startedAt),
-      parentSessionId: run.parentSessionId ?? null,
-      resumedFromId: run.resumedFromId ?? null,
-    })),
-    viewerId: currentUserId,
-    canSteer: steerEnabled,
-  })
-  const resumeRun =
-    replyTarget?.kind === `resume`
-      ? (bundle.runs.find((run) => run.id === replyTarget.runId) ?? null)
-      : null
-  const startWithText = (text: string) => {
-    updateWorkTabs(team.id, openNewRunTab)
-    void navigate({
-      to: `/t/$teamSlug/agent`,
-      params: { teamSlug },
-      search: { thread: bundle.thread.id, text } as never,
-    })
-  }
-
-  // ── The children ───────────────────────────────────────────────────────────
-  let body: React.ReactNode
-  if (child.kind === `issue`) {
-    const issue = issuesById.get(child.issueId)
+  // ── The bodies ─────────────────────────────────────────────────────────────
+  let body: ReactNode
+  if (tab.kind === `issue`) {
+    const issue = issuesById.get(tab.issueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
     body =
       issue && board ? (
-        <IssueDetailView
-          key={issue.id}
-          issue={issue}
-          users={users as User[]}
-          board={board}
-          teamSlug={teamSlug}
-          teamId={team.id}
-          readOnly={!permissions.canMutateIssue(issue)}
-          origin={search.from}
-          mobileWork={isMobile ? { tabs: strip } : undefined}
-        />
+        <div className="min-h-0 flex-1">
+          <IssueDetailView
+            key={issue.id}
+            issue={issue}
+            users={users as User[]}
+            board={board}
+            teamSlug={teamSlug}
+            teamId={team.id}
+            readOnly={!permissions.canMutateIssue(issue)}
+            showMobileHeader={false}
+          />
+        </div>
       ) : (
         <div className="p-6">
           <SkeletonRows />
         </div>
       )
-  } else if (child.kind === `guide`) {
+  } else if (tab.kind === `guide`) {
     body = (
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className={WORK_COLUMN_CLASS}>
+        <div className="mx-auto w-full max-w-3xl pb-8">
           <ThreadGuide
-            bundle={bundle}
+            root={root}
+            pullRequests={pullRequests}
             section={search.section}
             file={search.file ?? null}
-            onSection={(section) => go({ child: `guide`, section })}
+            onSection={(section, file) =>
+              go({
+                tab: `guide`,
+                ...(section !== undefined ? { section } : {}),
+                ...(section !== undefined && file ? { file } : {}),
+              })
+            }
             canMerge={permissions.isMember}
-            steerEnabled={steerConfig?.enabled === true}
           />
         </div>
       </div>
     )
   } else {
     body = (
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="mx-auto w-full max-w-2xl px-4 pt-6 pb-8 md:px-5">
-            <ThreadConversation
-              bundle={bundle}
-              currentUserId={currentUserId}
-              now={now}
-              onOpenIssue={openIssueChild}
-              onOpenRun={openRun}
-            />
-          </div>
-        </div>
-        {replyTarget && (
-          <div className="shrink-0 px-4 pt-2 pb-4 md:px-5">
-            <ThreadReplyComposer
-              className="mx-auto w-full max-w-2xl"
-              target={replyTarget}
-              resumeRun={resumeRun}
-              onStart={startWithText}
-            />
-          </div>
-        )}
-      </div>
+      <ConversationBody
+        teamId={team.id}
+        teamSlug={teamSlug}
+        view={view}
+        users={users as User[]}
+        canReply={permissions.isMember}
+        busy={root.busy}
+      />
     )
   }
 
   const title = (
     <ThreadTitle
-      threadId={bundle.thread.id}
+      sessionId={root.id}
       title={view.title}
-      stored={bundle.thread.title}
+      stored={root.title}
+      isPrivate={view.private}
       canRename={permissions.isMember}
     />
   )
 
-  // The issue tabs' context menu: the same entries + Unlink <IDENT>.
-  const childMenus = {
-    [THREAD_CHILD_MENU]: ({
-      target,
-      open,
-      onOpenChange,
-    }: {
-      target: { id: string; anchor: { x: number; y: number; width: number; height: number }; origin: HTMLElement | null }
-      open: boolean
-      onOpenChange: (open: boolean) => void
-    }) => {
-      const issue = issuesById.get(target.id)
-      if (!issue) return null
+  const issueMenus = {
+    [THREAD_ISSUE_MENU]: ({ target, open, onOpenChange }: MenuSessionProps) => {
+      const entry = issueTabs.find((row) => row.issueId === target.id)
+      if (!entry) return null
+      const entries = menu.entries({ id: entry.issueId, identifier: entry.identifier })
+      if (entries.length === 0) return null
       return (
         <Menu
           mode="pointer"
@@ -502,33 +344,34 @@ function ThreadScreen({
           open={open}
           onOpenChange={onOpenChange}
           returnFocus={target.origin}
-          aria-label={issue.identifier}
-          title={issue.identifier}
+          aria-label={entry.identifier}
+          title={entry.identifier}
           contentClassName="w-64"
-          entries={menu.entries({ id: issue.id, identifier: issue.identifier })}
+          entries={entries}
         />
       )
     },
   }
 
   if (isMobile) {
-    // The issue child wears the issue's own Work screen header (its back, its
-    // `…`), the pager under it.
-    if (child.kind === `issue`) {
-      return (
-        <MenuGestureHost menus={childMenus}>
-          {body}
-          {menu.dialogs}
-        </MenuGestureHost>
-      )
-    }
     return (
-      <MenuGestureHost menus={childMenus}>
+      <MenuGestureHost menus={issueMenus}>
         <div className="flex h-dvh min-h-0 flex-col" data-testid="thread-page">
           <MobileDetailHeader
-            title={<span className="truncate">{view.title}</span>}
-            onBack={onBack}
-            below={<div className="px-3 pb-2">{strip}</div>}
+            title={
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate">{view.title}</span>
+                {view.private && (
+                  <PrivateIcon
+                    aria-label="Private"
+                    data-testid="thread-private"
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                )}
+              </span>
+            }
+            onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
+            below={<div className="px-3 pb-2">{tabs}</div>}
           />
           {body}
         </div>
@@ -538,11 +381,11 @@ function ThreadScreen({
   }
 
   return (
-    <MenuGestureHost menus={childMenus}>
+    <MenuGestureHost menus={issueMenus}>
       <div className="flex h-full min-h-0 flex-col" data-testid="thread-page">
-        <div className="shrink-0 border-b border-border px-6 pt-5 pb-2 md:px-8">
-          <ThreadHeader title={title} />
-          <div className="mt-3">{strip}</div>
+        <div className="shrink-0 border-b border-border px-6 pt-6 pb-3 md:px-10">
+          {title}
+          <div className="mt-4">{tabs}</div>
         </div>
         {body}
       </div>
@@ -551,64 +394,73 @@ function ThreadScreen({
   )
 }
 
-/** The title, renamed in place (`threads.update`; an empty title clears it
- *  back to the derived one). */
-function ThreadTitle({
-  threadId,
-  title,
-  stored,
-  canRename,
+function ConversationBody({
+  teamId,
+  teamSlug,
+  view,
+  users,
+  canReply,
+  busy,
 }: {
-  threadId: string
-  title: string
-  stored: string | null
-  canRename: boolean
+  teamId: string
+  teamSlug: string
+  view: SessionThreadView
+  users: User[]
+  canReply: boolean
+  /** The ROOT's busy: Stop stops the root, so a busy child never shows it. */
+  busy: boolean
 }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(``)
-  if (!canRename) return <>{title}</>
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        className="max-w-full truncate rounded-sm text-left hover:bg-accent/40"
-        title="Rename"
-        data-testid="thread-title"
-        onClick={() => {
-          setDraft(stored ?? title)
-          setEditing(true)
-        }}
-      >
-        {title}
-      </button>
-    )
-  }
-  const save = async () => {
-    setEditing(false)
-    const next = draft.trim()
-    if (next === (stored ?? ``).trim() || (!stored && next === title)) return
-    try {
-      const result = await trpc.threads.update.mutate(
-        { id: threadId, title: next || null },
-        SKIP_ERROR_TOAST
-      )
-      await threadsCollection.utils.awaitTxId(result.txid)
-    } catch (error) {
-      failedAction(`rename`, `the thread`, error)
-    }
-  }
+  const navigate = useNavigate()
+  const messages = useSessionMessages(view.rootId)
+  const messagesById = useMemo(
+    () => new Map(messages.map((message: MessageRow) => [message.id, message])),
+    [messages]
+  )
+  const usersById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
+  const { answer, pending } = useAnswerMessage()
+
   return (
-    <Input
-      autoFocus
-      value={draft}
-      aria-label="Thread title"
-      className="h-8 text-lg font-semibold md:text-xl"
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => void save()}
-      onKeyDown={(event) => {
-        if (event.key === `Enter`) (event.target as HTMLInputElement).blur()
-        if (event.key === `Escape`) setEditing(false)
-      }}
-    />
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6">
+          <ThreadConversation
+            rows={view.rows}
+            renderText={renderThreadText}
+            attachmentSrc={(id) => `/api/attachments/${id}`}
+            messageCaption={(row) => {
+              const message = messagesById.get(row.id)
+              const caption = userMessageCaption({
+                name: row.authorId ? usersById.get(row.authorId)?.name : null,
+                at: message ? new Date(message.createdAt) : null,
+              })
+              return row.queued ? [caption, `queued`].filter(Boolean).join(` · `) : caption
+            }}
+            onOpenSession={(sessionId) =>
+              void navigate({
+                to: `/t/$teamSlug/sessions/$sessionId`,
+                params: { teamSlug, sessionId },
+              })
+            }
+            onAnswer={canReply ? (id, value) => void answer(id, { answer: value }) : undefined}
+            onDecide={canReply ? (id, decision) => void answer(id, { decision }) : undefined}
+            pending={pending}
+          />
+        </div>
+      </div>
+      {canReply && (
+        <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">
+          <SessionComposer
+            teamId={teamId}
+            sessionId={view.composer.sessionId}
+            placeholder={view.composer.placeholder}
+            users={users}
+            busy={busy}
+            canStop
+            testId="thread-composer"
+            className="mx-auto max-w-3xl"
+          />
+        </div>
+      )}
+    </div>
   )
 }

@@ -6,11 +6,9 @@ import Foundation
 // `missingRequiredInputs`) one to one.
 //
 // The composer holds ONE flat `[key: String]` map, `""` meaning unset, for
-// every input type: `repo`/`board`/`pr` are ids, and `icon` is a curated
-// registry NAME (`AppIcons.pickable`, byte-equal to
-// `DomainContract.boardIconValues`) — the very same string a board stores. The
-// server re-validates each one (`resolveActionInputs`), so nothing here needs to
-// know an id from a glyph name.
+// every input type: `repo`/`board`/`pr`/`issue` are ids (EXP-1291: a `pr` is
+// the `pull_requests` row id). The server re-validates each one, so nothing
+// here needs to know one id from another.
 //
 // EXP-825 retired the free-text `text` / `textarea` types: whatever the
 // requester types is the start's `prompt` now (`AgentComposerPrompt`), so
@@ -27,8 +25,7 @@ public enum ActionInputValues {
         defs.contains { !DomainContract.actionInputTypeValues.contains($0.type) }
     }
 
-    /// Every required input carries a non-blank value. Optionals — the `icon`
-    /// input on the "Create action" builtin among them — never block.
+    /// Every required input carries a non-blank value. Optionals never block.
     public static func requiredFilled(_ defs: [ActionInputDto], values: [String: String]) -> Bool {
         defs.allSatisfy { def in
             guard def.isRequired else { return true }
@@ -36,9 +33,8 @@ public enum ActionInputValues {
         }
     }
 
-    /// The submitted map: every value passed through verbatim (ids, and the
-    /// picked icon's registry name), blanks DROPPED so an untouched optional
-    /// is absent rather than empty.
+    /// The submitted map: every declared value passed through verbatim, blanks
+    /// DROPPED so an untouched optional is absent rather than empty.
     public static func wireValues(
         _ defs: [ActionInputDto],
         values: [String: String]

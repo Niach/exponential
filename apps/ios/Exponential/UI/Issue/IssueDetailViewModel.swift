@@ -57,9 +57,12 @@ final class IssueDetailViewModel {
     /// Every synced `team_members` row; scoped to this issue's team by
     /// `teamUsers` (EXP-487).
     var teamMembers: [TeamMemberEntity] = []
-    /// Live coding sessions for this issue (synced coding_sessions shape) —
-    /// drives the "Coding now" badge + Watch/Steer entry (masterplan §5c).
-    var runningSessions: [CodingSessionEntity] = []
+    /// EXP-1295: the threads (root sessions) holding the issue, newest
+    /// activity first — the page's `Threads` row.
+    var threads: [IssueThreadLink] = []
+    /// EXP-1295: the issue's pull requests (`pull_request_issues` →
+    /// `pull_requests`), newest first — the page's PR rows.
+    var pullRequests: [PullRequestEntity] = []
     /// The canonical issue when this one is marked a duplicate — resolves the
     /// "Duplicate of {IDENTIFIER}" banner (masterplan §5e).
     var duplicateOf: IssueEntity?
@@ -127,12 +130,6 @@ final class IssueDetailViewModel {
     /// assignee picker row is hidden (nothing to reassign to) — EXP-50.
     var singleMemberTeam = false
 
-    // Steer state for the bottom bar's Start-coding circle (EXP-240 — moved
-    // here from AgentPrCard so the card can stay a pure status glance).
-    // EXP-1121: the circle's device presence moved to the Work screen's
-    // live `CodingReadinessModel`.
-    var steerConfig: SteerConfig?
-
     /// EXP-496: the widget/agent submission metadata behind this issue
     /// (`widgets.submissionForIssue`, server-only). `nil` = loading, fetch
     /// failed (non-member), or not a widget/agent issue — the card renders
@@ -148,7 +145,6 @@ final class IssueDetailViewModel {
     // EXP-736: typed relations between issues — writes only; the rows
     // themselves arrive over the `issue-relations` shape.
     private let relationsApi: RelationsApi
-    private let steerApi: SteerApi
     /// Widget/agent submission metadata (EXP-496) — tRPC-only.
     private let widgetsApi: WidgetsApi
     private let auth: AuthRepository
@@ -161,11 +157,7 @@ final class IssueDetailViewModel {
     // would accumulate per push/pop.
     private var observationTasks: [Task<Void, Never>] = []
     private var autosaveTask: Task<Void, Never>?
-    private var livenessTask: Task<Void, Never>?
     private var fallbackTask: Task<Void, Never>?
-    // Raw observed running-session rows — cached so the liveness ticker can
-    // re-apply the staleness filter between sync deltas (EXP-153).
-    private var observedSessions: [CodingSessionEntity] = []
 
     init(
         accountId: String,
@@ -175,7 +167,6 @@ final class IssueDetailViewModel {
         attachmentsApi: AttachmentsApi,
         labelsApi: LabelsApi,
         relationsApi: RelationsApi,
-        steerApi: SteerApi,
         widgetsApi: WidgetsApi,
         auth: AuthRepository
     ) {
@@ -186,7 +177,6 @@ final class IssueDetailViewModel {
         self.attachmentsApi = attachmentsApi
         self.labelsApi = labelsApi
         self.relationsApi = relationsApi
-        self.steerApi = steerApi
         self.widgetsApi = widgetsApi
         self.auth = auth
         let instanceUrl = auth.accounts.first(where: { $0.id == accountId })?.instanceUrl ?? auth.instanceUrl
@@ -265,16 +255,6 @@ final class IssueDetailViewModel {
         // The by-id observation below only ever fires for a row that IS local,
         // so an issue outside the synced scope needs its own bounded clock.
         startFallbackClock()
-        // GRDB only re-fires on writes — a minute clock re-applies the
-        // staleness filter so a phantom session's steer panel clears once its
-        // liveness window elapses without any sync delta (EXP-153).
-        livenessTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(60))
-                guard let self, !Task.isCancelled else { return }
-                self.applySessionLiveness()
-            }
-        }
         guard let pool = try? db.pool(forAccountId: accountId) else {
             // FEED-79: the observation starts on appear, so a failure is
             // quiet (the face stays empty), never a toast.
@@ -309,23 +289,28 @@ final class IssueDetailViewModel {
             } catch {}
         })
 
-        // Live sessions for this issue (14th synced shape) — running AND
-        // in_review (the terminal stays alive after the PR opens, EXP-194).
-        let sessionObs = ValueObservation.tracking { db in
-            try CodingSessionEntity
-                .filter(Column("issue_id") == issueId)
-                .filter([
-                    DomainContract.codingSessionStatusRunning,
-                    DomainContract.codingSessionStatusInReview,
-                ].contains(Column("status")))
-                .fetchAll(db)
+        // EXP-1295: the threads holding the issue — each root with its tree,
+        // linked issues and user messages, the inputs of its title and state
+        // (`SessionTree.partitionThreads`).
+        let threadsObs = ValueObservation.tracking { db in
+            try IssueThreadLink.load(db: db, issueId: issueId)
         }
         observationTasks.append(Task { [weak self] in
             do {
-                for try await sessions in sessionObs.values(in: pool) {
-                    guard let self else { return }
-                    self.observedSessions = sessions
-                    self.applySessionLiveness()
+                for try await threads in threadsObs.values(in: pool) {
+                    self?.threads = threads
+                }
+            } catch {}
+        })
+
+        // EXP-1295: the issue's pull requests, off `pull_request_issues`.
+        let pullRequestsObs = ValueObservation.tracking { db in
+            try SessionQueries.pullRequests(db: db, issueId: issueId)
+        }
+        observationTasks.append(Task { [weak self] in
+            do {
+                for try await pullRequests in pullRequestsObs.values(in: pool) {
+                    self?.pullRequests = pullRequests
                 }
             } catch {}
         })
@@ -475,8 +460,6 @@ final class IssueDetailViewModel {
         observationTasks = []
         autosaveTask?.cancel()
         autosaveTask = nil
-        livenessTask?.cancel()
-        livenessTask = nil
         fallbackTask?.cancel()
         fallbackTask = nil
     }
@@ -546,12 +529,6 @@ final class IssueDetailViewModel {
         }
     }
 
-    // Heartbeat-stale rows render as absent — mirroring the server sweep's
-    // DELETE (EXP-153).
-    private func applySessionLiveness() {
-        runningSessions = observedSessions.filter { CodingSessionLiveness.isLive($0) }
-    }
-
     var assignedLabelIds: Set<String> {
         Set(issueLabels.map(\.labelId))
     }
@@ -587,11 +564,6 @@ final class IssueDetailViewModel {
         return users.first { $0.id == id }
     }
 
-    // MARK: - Steer (bottom-bar Start-coding circle, EXP-240)
-
-    /// Load the relay config + device presence for the start circle. Presence
-    /// only matters while startable (member, relay on, no live session) — the
-    /// same gating the AgentPrCard start area used.
     /// EXP-496: fetch the widget/agent submission metadata card's data.
     /// Errors degrade to "no card" — non-members and a dropped request both
     /// land there.
@@ -599,10 +571,6 @@ final class IssueDetailViewModel {
         widgetSubmission = try? await widgetsApi.submissionForIssue(
             accountId: accountId, issueId: issueId
         )
-    }
-
-    func refreshSteer() async {
-        steerConfig = await SteerConfigCache.load(accountId: accountId, api: steerApi)
     }
 
     /// Same-team boards the issue can move to (EXP-57): the current board is

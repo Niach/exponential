@@ -19,12 +19,12 @@ final class WireDecodingTests: XCTestCase {
         {
           "id": "i1", "board_id": "p1", "title": "404",
           "status": "in_progress", "priority": "none",
-          "number": "7", "pr_number": "12", "sort_order": "3.5",
+          "number": "7", "estimate": "12", "sort_order": "3.5",
           "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
         }
         """#)
         XCTAssertEqual(issue.number, 7)
-        XCTAssertEqual(issue.prNumber, 12)
+        XCTAssertEqual(issue.estimate, 12)
         XCTAssertEqual(issue.sortOrder, 3.5)
         XCTAssertEqual(issue.title, "404")
     }
@@ -41,7 +41,7 @@ final class WireDecodingTests: XCTestCase {
         """#)
         XCTAssertEqual(issue.number, 7)
         XCTAssertEqual(issue.sortOrder, 3.5)
-        XCTAssertNil(issue.prNumber)
+        XCTAssertNil(issue.estimate)
     }
 
     // MARK: - Label
@@ -361,8 +361,8 @@ final class WireDecodingTests: XCTestCase {
         // the later ActionInputDto parse round-trips.
         let action = try decode(ActionEntity.self, #"""
         {
-          "id": "a1", "team_id": "w1", "repository_id": "r1",
-          "name": "Deploy", "description": "Ship it", "sort_order": "2.5",
+          "id": "a1", "team_id": "w1",
+          "name": "Deploy", "sort_order": "2.5",
           "inputs": [
             {"key": "env", "label": "Environment", "type": "text",
              "required": true, "placeholder": "prod"},
@@ -372,7 +372,6 @@ final class WireDecodingTests: XCTestCase {
         }
         """#)
         XCTAssertEqual(action.sortOrder, 2.5)
-        XCTAssertEqual(action.repositoryId, "r1")
         let stored = try XCTUnwrap(action.inputs)
         let parsed = try JSONDecoder().decode([ActionInputDto].self, from: Data(stored.utf8))
         XCTAssertEqual(parsed, [
@@ -447,57 +446,12 @@ final class WireDecodingTests: XCTestCase {
         XCTAssertNil(ActionDto(entity: absentForm).promptPlaceholder)
     }
 
-    // SLOP-2: `triggers` (a jsonb array) rides the actions shape — the Electric
-    // wire's text form, a native array (fixtures) and an ABSENT or null key (a
-    // row from before the column) must all decode to a stored JSON string the
-    // tolerant reader takes.
-    func testActionDecodesTriggersTextArrayNullAndAbsent() throws {
-        let textForm = try decode(ActionEntity.self, #"""
-        {
-          "id": "a1", "team_id": "w1", "name": "Release",
-          "triggers": "[{\"id\":\"tr-1\",\"enabled\":false,\"deviceId\":\"dev-1\",\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540}]",
-          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
-        }
-        """#)
-        let fromText = ActionDto(entity: textForm).triggers
-        XCTAssertEqual(fromText.map(\.id), ["tr-1"])
-        XCTAssertEqual(fromText.first?.enabled, false)
-
-        let arrayForm = try decode(ActionEntity.self, #"""
-        {
-          "id": "a2", "team_id": "w1", "name": "Sweep",
-          "triggers": [{"id":"tr-2","enabled":true,"deviceId":"dev-1","kind":"event","source":"exponential","event":"created"}],
-          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
-        }
-        """#)
-        let fromArray = ActionDto(entity: arrayForm).triggers
-        XCTAssertEqual(fromArray.map(\.id), ["tr-2"])
-        XCTAssertEqual(fromArray.first?.enabled, true)
-
-        let nullForm = try decode(ActionEntity.self, #"""
-        {
-          "id": "a3", "team_id": "w1", "name": "Report", "triggers": null,
-          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
-        }
-        """#)
-        XCTAssertEqual(nullForm.triggers, "[]")
-
-        let absentForm = try decode(ActionEntity.self, #"""
-        {
-          "id": "a4", "team_id": "w1", "name": "Digest",
-          "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
-        }
-        """#)
-        XCTAssertEqual(absentForm.triggers, "[]")
-        XCTAssertTrue(ActionDto(entity: absentForm).triggers.isEmpty)
-    }
-
     // The tRPC twin (`actions.get`/`.update` return the camelCase row).
     func testActionDtoDecodesPromptPlaceholderLeniently() throws {
         let withHint = try decode(ActionDto.self, #"""
         {
-          "id": "a1", "teamId": "w1", "repositoryId": null, "name": "Release",
-          "description": null, "icon": null, "body": "Ship", "sortOrder": 1,
+          "id": "a1", "teamId": "w1", "name": "Release",
+          "icon": null, "body": "Ship", "sortOrder": 1,
           "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
           "inputs": [], "promptPlaceholder": "Scope: which platforms"
         }
@@ -647,7 +601,7 @@ final class WireDecodingTests: XCTestCase {
         }
         """#)
         XCTAssertNil(issue.number)   // explicit JSON null
-        XCTAssertNil(issue.prNumber) // absent key
+        XCTAssertNil(issue.estimate) // absent key
     }
 
     func testWireBoolUnknownStringFallsBackToDefault() throws {
