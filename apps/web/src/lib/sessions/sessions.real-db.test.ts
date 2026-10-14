@@ -117,6 +117,8 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
       input: { teamId: w.teamId, deviceId: w.deviceId, issueIds: [issueId], text: `go @${w.mate}@sessions.test` },
     })
     expect(sent.txid).toBeTypeOf(`number`)
+    // FEED-101: the start returns at once as PENDING, never waits on the device.
+    expect(sent.status).toBe(`queued`)
     const root = await row(sent.sessionId)
     expect(root).toMatchObject({
       kind: `thread`,
