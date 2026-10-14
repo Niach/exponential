@@ -6,6 +6,7 @@ import list from "../fixtures/threads-list.json" with { type: "json" }
 import {
   buildSessionThread,
   composerYieldsToCard,
+  guideMenuEntries,
   guidePullRequest,
   listAgents,
   partitionThreads,
@@ -27,6 +28,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of thread.guidePullRequestCases) {
     test(`guide pull request: ${entry.name}`, () => {
       expect(guidePullRequest(entry.pullRequests)?.id ?? null).toBe(entry.expected)
+    })
+  }
+  for (const entry of thread.guideMenuCases) {
+    test(`guide menu: ${entry.name}`, () => {
+      expect(guideMenuEntries(entry.input)).toEqual(entry.expected)
     })
   }
   for (const entry of thread.composerCases) {
