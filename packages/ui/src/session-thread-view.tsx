@@ -62,8 +62,8 @@ export function ThreadTabs({
   issues: readonly ReactNode[]
   /** The "+" (a Menu around `ThreadTabsAddButton`); absent = read-only. */
   add?: ReactNode
-  /** EXP-1316: the session chips group (`ThreadSessionGroup`), md+: after
-   *  the "+", a divider either side. */
+  /** EXP-1316: the session chips group (`ThreadSessionGroup`) after the
+   *  "+": md+ with a divider either side; the pager without. */
   sessions?: ReactNode
   guide: { label: string; active: boolean; dot: boolean; onSelect: () => void }
   /** `bar` = md+ under the title; `pager` = the phones' tabs. */
@@ -76,7 +76,12 @@ export function ThreadTabs({
       data-testid="thread-tabs"
       data-variant={variant}
       role="tablist"
-      className={cn(`flex min-w-0 items-center gap-1`, className)}
+      className={cn(
+        `flex min-w-0 items-center gap-1`,
+        // The pager carries the session chips too: the whole strip scrolls.
+        pager && `overflow-x-auto [scrollbar-width:none]`,
+        className
+      )}
     >
       <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         <Button
@@ -97,9 +102,9 @@ export function ThreadTabs({
         {issues}
       </div>
       {add}
-      {sessions && !pager && (
+      {sessions && (
         <>
-          <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+          {!pager && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />}
           {sessions}
         </>
       )}
@@ -136,20 +141,25 @@ export function sessionTabRunMark(state: SessionTabMarkState): RunMarkState | un
   return undefined
 }
 
-/** EXP-1316: ONE session chip of the strip: the agent's mark (its state)
- *  and the name; muted at rest, the tab box when it is the open session. */
+/** EXP-1316: ONE session chip of the strip ×4: the agent's mark (its state)
+ *  and the name; muted at rest, the tab box when it is the open session
+ *  (phones: bordered, `bordered`). */
 export function ThreadSessionTab({
   agent,
   markState,
   name,
   active,
   onSelect,
+  bordered = false,
 }: {
   agent: string | null
   markState: SessionTabMarkState
   name: string
   active: boolean
   onSelect: () => void
+  /** The phones' pager chip: a bordered rect at the tab's height, like the
+   *  issue chips there. */
+  bordered?: boolean
 }) {
   return (
     <Button
@@ -158,7 +168,7 @@ export function ThreadSessionTab({
       role="tab"
       aria-selected={active}
       data-testid="thread-tab-session"
-      className={cn(tabClass(active), `max-w-[11rem]`)}
+      className={cn(stripTabClass(active, bordered), `max-w-[11rem]`)}
       onClick={onSelect}
     >
       <AgentRunMark

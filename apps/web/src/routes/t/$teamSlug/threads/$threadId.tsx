@@ -307,8 +307,8 @@ function ThreadScreen({
     ]
   })
 
-  // EXP-1316: the session chips (md+) = the viewed level; hovering the group
-  // opens the WHOLE tree (SessionRow small + TreeGuides).
+  // EXP-1316: the session chips ×4 = the viewed level; on md+ hovering the
+  // group opens the WHOLE tree (SessionRow small + TreeGuides).
   const treeRows = useMemo<ThreadTreeRow[]>(() => {
     const nowIso = new Date().toISOString()
     return treeOrder(rows.map(toTreeSession)).map((session, index) => ({
@@ -328,16 +328,21 @@ function ThreadScreen({
             markState={entry.markState}
             name={entry.name}
             active={tab.kind === `session` && tab.sessionId === entry.sessionId}
-            onSelect={() => go({ tab: `session`, session: entry.sessionId })}
+            bordered={isMobile}
+            // Phones push the session's own screen (Back returns here).
+            onSelect={() =>
+              isMobile ? openSession(entry.sessionId) : go({ tab: `session`, session: entry.sessionId })
+            }
           />,
         ]
       : []
   )
+  // Phones: the chips sit in the pager too (no hover tree there).
   const sessionGroup =
-    !isMobile && sessionChips.length > 0 ? (
+    sessionChips.length > 0 ? (
       <ThreadSessionGroup
         tree={
-          treeRows.length > 1 ? (
+          !isMobile && treeRows.length > 1 ? (
             <ThreadSessionTree
               rows={treeRows}
               activeId={tab.kind === `session` ? tab.sessionId : null}

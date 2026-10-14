@@ -231,3 +231,39 @@ describe(`session chips`, () => {
     expect(onOpen).toHaveBeenCalledWith(`a1`)
   })
 })
+
+// EXP-1316 ×4: phones carry the session chips in the pager too (bordered,
+// the Conversation tab's height), between the "+" and the Guide.
+describe(`session chips on the pager`, () => {
+  it(`render bordered between the + and the Guide`, () => {
+    render(
+      <ThreadTabs
+        variant="pager"
+        conversation={{ label: `Conversation`, active: true, onSelect: () => {} }}
+        issues={[]}
+        add={<span data-testid="add">+</span>}
+        sessions={
+          <ThreadSessionTab
+            agent="claude"
+            markState="working"
+            name="Session 1"
+            active={false}
+            bordered
+            onSelect={() => {}}
+          />
+        }
+        guide={{ label: `Guide`, active: false, dot: false, onSelect: () => {} }}
+      />
+    )
+    const chip = screen.getByTestId(`thread-tab-session`)
+    expect(chip.className).toContain(`border-glass-stroke`)
+    expect(chip.className).toContain(`h-8`)
+    expect(
+      screen.getByTestId(`add`).compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      chip.compareDocumentPosition(screen.getByTestId(`thread-tab-guide`)) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+})
