@@ -221,13 +221,15 @@ export function HomeColumn({
 
 /** FEED-100: the DAWN, the big brand mark's top HALF rising over the
  *  composer (a21db0ce4): a clip of half the mark's height with the logo at
- *  its top, 24px off the card. Phones draw it at 160px. Decoration only. */
+ *  its top, FADING toward the card (EXP-1314: solid for its top third, the
+ *  desktop `dawn`), 24px off it. Phones draw it at 160px standing ON the
+ *  card. Decoration only. */
 function HomeDawn() {
   return (
     <div
       aria-hidden
       data-testid={HOME_TEST_IDS.mark}
-      className="pointer-events-none mx-auto mb-6 h-[min(260px,46vw)] w-[min(520px,92vw)] shrink-0 overflow-hidden text-foreground opacity-[0.05] select-none max-md:h-20 max-md:w-40"
+      className="pointer-events-none mx-auto mb-6 h-[min(260px,46vw)] w-[min(520px,92vw)] shrink-0 overflow-hidden text-foreground opacity-[0.05] [mask-image:linear-gradient(black_33%,transparent)] select-none max-md:mb-0 max-md:h-20 max-md:w-40"
     >
       <ExponentialLogo
         variant="light"
