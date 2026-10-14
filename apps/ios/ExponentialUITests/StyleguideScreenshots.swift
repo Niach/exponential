@@ -415,6 +415,11 @@ final class StyleguideScreenshots: XCTestCase {
         // autosave wrote (and writes nothing when none was written yet).
         clearText(of: titleField)
         app.buttons["Back"].firstMatch.tap()
+        // A clear that left a character behind (a slow keyboard) keeps
+        // content on the page, so Back asks the EXP-1212 leave prompt:
+        // Discard it — the run must leave nothing in the seed either way.
+        let discard = app.buttons["Discard"].firstMatch
+        if discard.waitForExistence(timeout: 2) { discard.tap() }
         _ = titleField.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_search: the search view with seeded results ───────────────────
@@ -950,17 +955,11 @@ final class StyleguideScreenshots: XCTestCase {
         )
         expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The session header drew no Stop")
         snapshot("sg_session", settle: 2)
-        // Back twice (session → thread → list) on the system back button:
-        // never the bar's Stop, the thread back row or (EXP-1316) the
-        // thread header's `…`, which now rides every tab.
+        // Back twice (session → thread → list) on the system back button
+        // (`goBack`: by name, never the bar's Stop, the thread back row or
+        // the thread header's `…`).
         for _ in 0..<2 {
-            let back = app.navigationBars.buttons
-                .matching(NSPredicate(
-                    format: "NOT (identifier IN %@)",
-                    ["session-stop", "session-back", "thread-guide-menu"]
-                ))
-                .firstMatch
-            if back.waitForExistence(timeout: Wait.nav) { back.tap() }
+            goBack(app)
             settle(1)
         }
     }

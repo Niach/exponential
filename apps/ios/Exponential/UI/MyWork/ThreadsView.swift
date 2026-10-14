@@ -38,8 +38,21 @@ struct ThreadsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        // EXP-1318: the large in-content title replaces the inline one.
+        // EXP-1318: the large in-content title replaces the inline one. The
+        // tabs share ONE NavigationStack whose root swaps per tab, so the
+        // root keeps its navigation title (the back label, the bar's
+        // identity) and only its inline DISPLAY is replaced by an empty
+        // principal item — a root without a title left the next tab's root
+        // without a nav bar (its search / Settings links gone).
+        .navigationTitle(SessionTree.ListCopy.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityHidden(true)
+            }
+        }
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
     }
 }
