@@ -616,16 +616,9 @@ impl AgentDetailPane {
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(AGENT_SETTINGS.copy.account_last_used.clone()))
                 .into_any_element(),
-            // The value = the composer chip's: the agent mark + the email.
-            // One login = nothing to pick: the same line without the
-            // affordance, never dimmed.
-            Some(current) if options.len() < 2 => trigger_editor::picker_trigger_bare(
-                "agent-detail-account".into(),
-                SharedString::from(current.email.clone()),
-                cx,
-            )
-            .icon(crate::coding_selects::agent_mark(current.agent))
-            .into_any_element(),
+            // The value = the composer chip's: the agent mark + the email,
+            // always with the chevron (EXP-1307: one login too, like web and
+            // Android).
             Some(current) => {
                 let trigger = trigger_editor::picker_trigger_bare(
                     "agent-detail-account".into(),

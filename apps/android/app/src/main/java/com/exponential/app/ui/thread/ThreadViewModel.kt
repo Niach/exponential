@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.AnswerInput
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.IssuesApi
+import com.exponential.app.data.api.PullRequestsApi
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.trpcErrorMessage
@@ -71,6 +72,7 @@ class ThreadViewModel @Inject constructor(
     private val sender: SessionSender,
     private val issuesApi: IssuesApi,
     private val imagesApi: IssueImagesApi,
+    private val pullRequestsApi: PullRequestsApi,
 ) : ViewModel() {
 
     /** The ROOT session id (`thread/{sessionId}`). */
@@ -260,6 +262,21 @@ class ThreadViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val teamId: Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
+
+    /** EXP-1307: the viewer is a member of the thread's team (the Guide
+     *  `…`'s Close PR, `SessionTree.guideMenuEntries`). */
+    val isMember: StateFlow<Boolean> = combine(teamId, auth.userId) { team, user -> team to user }
+        .flatMapLatest { (team, user) ->
+            if (team == null || user == null) flowOf(false)
+            else dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) }
+                .map { members -> members.any { it.userId == user } }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** EXP-1307: the Guide `…`'s Close PR (after its confirm), without
+     *  merging; a failure toasts `Couldn't close the PR`. */
+    fun closePullRequest(pullRequestId: String) =
+        run("close", "the PR") { pullRequestsApi.close(it, pullRequestId) }
 
     private val teamBoards: Flow<List<BoardEntity>> = teamId.flatMapLatest { team ->
         if (team == null) flowOf(emptyList())

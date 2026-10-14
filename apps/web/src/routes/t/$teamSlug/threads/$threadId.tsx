@@ -21,10 +21,14 @@ import type { Issue, User } from "@/db/schema"
 import { IssueDetailView } from "@/components/issue-detail-view"
 import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { SessionComposer } from "@/components/session-composer"
-import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import {
+  HEADER_BUTTON_CLASS,
+  MobileDetailHeader,
+} from "@/components/team/mobile-detail-header"
 import { parseGuideSection, type GuideSectionKey } from "@/components/guide-section-diff"
 import {
   ThreadGuide,
+  ThreadGuideMenu,
   ThreadGuideMerge,
   threadGuidePullRequest,
 } from "@/components/thread/thread-guide"
@@ -333,6 +337,12 @@ function ThreadScreen({
     )
   }
 
+  // EXP-1307: the header's `…` (Open on GitHub, Close PR) on the Guide.
+  const guideMenu = (className?: string) =>
+    tab.kind === `guide` && guidePr ? (
+      <ThreadGuideMenu pr={guidePr} canClose={permissions.isMember} className={className} />
+    ) : null
+
   const title = (
     <ThreadTitle
       sessionId={root.id}
@@ -383,6 +393,7 @@ function ThreadScreen({
               </span>
             }
             onBack={() => void navigate({ to: `/t/$teamSlug/threads`, params: { teamSlug } })}
+            menu={guideMenu(HEADER_BUTTON_CLASS)}
             below={<div className="px-3 pb-2">{tabs}</div>}
           />
           {body}
@@ -396,7 +407,10 @@ function ThreadScreen({
     <MenuGestureHost menus={issueMenus}>
       <div className="flex h-full min-h-0 flex-col" data-testid="thread-page">
         <div className="shrink-0 border-b border-border px-6 pt-6 pb-3 md:px-10">
-          {title}
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">{title}</div>
+            {guideMenu(`shrink-0 text-muted-foreground`)}
+          </div>
           <div className="mt-4">{tabs}</div>
         </div>
         {body}

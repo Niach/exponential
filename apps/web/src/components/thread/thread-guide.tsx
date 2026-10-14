@@ -1,8 +1,12 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { contract } from "@exp/domain-contract"
 import {
+  Button,
   conceptIcon,
   GlassSectionHeader,
+  Menu,
+  type MenuEntry,
   parseSessionResultGroups,
   StackRail,
   useIsMobile,
@@ -13,7 +17,7 @@ import {
   guideSectionPage,
   type GuideSectionKey,
 } from "@/components/guide-section-diff"
-import { PullRequestMergePill } from "@/components/session-merge-button"
+import { PullRequestMergePill, usePullRequestClose } from "@/components/session-merge-button"
 import { StackMergeConfirmDialog } from "@/components/stack-merge-choice-dialog"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { usePullRequestFiles } from "@/hooks/use-review-files"
@@ -25,6 +29,7 @@ import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { pullRequestCollection } from "@/lib/collections"
 import { mergeFailure } from "@/lib/merge-failure"
 import {
+  guideMenuEntries,
   guidePullRequest,
   THREAD_COPY,
   THREAD_TEST_IDS,
@@ -40,8 +45,11 @@ import { trpc } from "@/lib/trpc-client"
 // that PR sits in a linear open stack, the Stack band + THE StackRail lead
 // the Guide (a row opens that PR's thread, a hovered row merges through);
 // the route closes the tab with THE bottom Merge capsule. No PR rows.
+// EXP-1307: Open on GitHub + Close PR = the header's `…` on the Guide.
 
 const PrStackIcon = conceptIcon(`pr-stack`)
+const MoreIcon = conceptIcon(`ui-more`)
+const GithubIcon = conceptIcon(`ui-github`)
 
 /** The base row's label when the bottom PR's base is unknown: never an
  *  assumed `main` (default branches resolve live). */
@@ -148,6 +156,62 @@ function GuideStackCard({
       />
       <MergeThroughConfirm pr={through} onDone={() => setThrough(null)} />
     </div>
+  )
+}
+
+/** The thread header's `…` on the Guide (`guideMenuEntries`, ×4): Open on
+ *  GitHub, then Close PR while the PR is open and the viewer is a member. */
+export function ThreadGuideMenu({
+  pr,
+  canClose,
+  className,
+}: {
+  pr: PullRequestRow
+  canClose: boolean
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const close = usePullRequestClose(pr, canClose)
+  const entries = guideMenuEntries({ state: pr.state, member: canClose }).flatMap(
+    (id): MenuEntry[] => {
+      if (id === `close-pr`) return close.entry ? [close.entry] : []
+      return [
+        {
+          kind: `item`,
+          id,
+          label: contract.diffUi.openOnGithub,
+          icon: GithubIcon,
+          onSelect: () => window.open(pr.url, `_blank`, `noopener,noreferrer`),
+        },
+      ]
+    }
+  )
+  if (entries.length === 0) return null
+  return (
+    <>
+      <Menu
+        open={open}
+        onOpenChange={setOpen}
+        align="end"
+        aria-label={`#${pr.number}`}
+        title={`#${pr.number}`}
+        contentClassName="w-64"
+        entries={entries}
+        trigger={
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="More"
+            data-testid={THREAD_TEST_IDS.guideMenu}
+            className={className}
+          >
+            <MoreIcon />
+          </Button>
+        }
+      />
+      {close.dialog}
+    </>
   )
 }
 

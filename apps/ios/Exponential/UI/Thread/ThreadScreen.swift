@@ -17,7 +17,9 @@ import SwiftUI
 /// * An issue tab = the existing issue page (`IssueFaceView`) of that issue.
 /// * Guide = the existing Guide face over the root's `guide` (the PR body),
 ///   counting the thread PR's files, with its Merge capsule while it is open
-///   and Open on GitHub in the header's action slot. EXP-1306: while that PR
+///   and ONE `…` in the header's action slot (EXP-1307: THE Menu's sheet,
+///   `guideMenuEntries` — Open on GitHub · Close PR behind the close-pr.json
+///   confirm). EXP-1306: while that PR
 ///   sits in a linear open stack, a `Stack` band + THE `StackRail` lead it
 ///   (a row opens that PR's thread, a hold offers Merge through here).
 ///
@@ -47,7 +49,8 @@ struct ThreadScreen: View {
     /// only the SHOWN page's model observes (`observingIssueId`).
     @State private var issueVMs: [String: IssueDetailViewModel] = [:]
     @State private var observingIssueId: String?
-    /// THE Menu's sheet: the "+" (issueId nil) or an issue tab's long press.
+    /// THE Menu's sheet: the "+" (issueId nil), an issue tab's long press or
+    /// the Guide's `…` (EXP-1307).
     @State private var menuTarget: ThreadMenuTarget?
     /// The sheet's pick, run once the sheet has dismissed.
     @State private var pendingMenuAction: (action: ThreadMenuSheet.Action, issueId: String?)?
@@ -61,6 +64,8 @@ struct ThreadScreen: View {
     /// EXP-1306: a rail member's Merge through here, awaiting its confirm.
     @State private var mergeThrough: PullRequestStack.Confirm?
     @State private var prChanges: ChangesViewModel?
+    /// EXP-1307: the Guide PR awaiting the Close PR confirm.
+    @State private var closePrTarget: PullRequestEntity?
 
     init(rootId: String, initialPage: ThreadPage = .conversation) {
         self.rootId = rootId
@@ -126,16 +131,16 @@ struct ThreadScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
-            // EXP-916/1300: THE Open on GitHub control rides the header's
-            // action slot on the Guide (web's PR row `PrGithubButton`).
+            // EXP-1307: ONE `…` rides the header's action slot on the Guide
+            // while it has a PR — Open on GitHub · Close PR, in THE Menu's sheet.
             ToolbarItem(placement: .topBarTrailing) {
-                if page == .guide, let url = rows?.guidePullRequest.flatMap({ URL(string: $0.url) }) {
-                    Button { openURL(url) } label: {
-                        AppIcon(AppIcons.uiGithub, size: AppIcon.Size.medium, weight: .medium)
+                if page == .guide, !guideMenuEntries.isEmpty {
+                    Button { openGuideMenu() } label: {
+                        AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium, weight: .medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     }
-                    .accessibilityLabel(DomainContract.diffUiOpenOnGithub)
-                    .accessibilityIdentifier("changes-github-action")
+                    .accessibilityLabel("More")
+                    .accessibilityIdentifier(SessionTree.ThreadCopy.guideMenuTestId)
                 }
             }
         }
@@ -144,11 +149,34 @@ struct ThreadScreen: View {
             Color.clear
                 .sheet(item: $menuTarget, onDismiss: runPendingMenuAction) { target in
                     ThreadMenuSheet(
-                        identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier }
+                        identifier: target.issueId.flatMap { rows?.issue(id: $0)?.identifier },
+                        guideEntries: target.guide ? guideMenuEntries : nil
                     ) { action in
                         pendingMenuAction = (action, target.issueId)
                         menuTarget = nil
                     }
+                }
+        }
+        // EXP-1307: close-pr.json's confirm (the app's own card, EXP-240).
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(item: $closePrTarget) { pullRequest in
+                    GlassAlert(
+                        title: ClosePrCopy.title,
+                        message: ClosePrCopy.message(
+                            otherLinkedIssues: max((rows?.pullRequestIssueIds[pullRequest.id]?.count ?? 0) - 1, 0)
+                        ),
+                        actions: [
+                            GlassAlertAction(
+                                PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel"
+                            ) {},
+                            GlassAlertAction(ClosePrCopy.confirm, role: .destructive, id: "close-pr") {
+                                closePr(pullRequest)
+                            },
+                        ]
+                    )
                 }
         }
         .sheet(isPresented: $linkSheetOpen) {
@@ -321,7 +349,9 @@ struct ThreadScreen: View {
                     pullRequest: openPullRequest,
                     issueCount: rows.pullRequestIssueIds[openPullRequest.id]?.count ?? 0,
                     stackConfirm: rows.guideStackConfirm,
-                    state: $mergeState
+                    state: $mergeState,
+                    // EXP-1307: the thread Guide's capsule (`testIds.guideMerge`).
+                    identifier: SessionTree.ThreadCopy.guideMergeTestId
                 )
                 .id(openPullRequest.id)
             }
@@ -472,6 +502,17 @@ struct ThreadScreen: View {
         menuTarget = ThreadMenuTarget(issueId: issueId)
     }
 
+    /// EXP-1307: the Guide header's `…` entries (`guideMenuEntries`, fixture
+    /// `guideMenuCases` ×4) over the Guide's PR; empty = no trigger.
+    private var guideMenuEntries: [SessionTree.GuideMenuEntry] {
+        SessionTree.guideMenuEntries(state: rows?.guidePullRequest?.state, member: canEdit)
+    }
+
+    private func openGuideMenu() {
+        UIApplication.endEditing()
+        menuTarget = ThreadMenuTarget(issueId: nil, guide: true)
+    }
+
     private func runPendingMenuAction() {
         guard let pending = pendingMenuAction else { return }
         pendingMenuAction = nil
@@ -480,6 +521,27 @@ struct ThreadScreen: View {
         case .newIssue: newIssue()
         case .unlink:
             if let issueId = pending.issueId { unlink(issueId) }
+        case .openGithub:
+            if let url = rows?.guidePullRequest.flatMap({ URL(string: $0.url) }) { openURL(url) }
+        case .closePr:
+            closePrTarget = rows?.guidePullRequest.flatMap { $0.isOpen ? $0 : nil }
+        }
+    }
+
+    /// EXP-1307: `pullRequests.close` on the Guide's open PR; the Electric
+    /// echo flips its state (the entry goes), a refusal toasts.
+    private func closePr(_ pullRequest: PullRequestEntity) {
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.close(accountId: accountId, pullRequestId: pullRequest.id)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "close", thing: "the PR"),
+                    description: error.userFacingMessage
+                )
+            }
         }
     }
 
@@ -629,11 +691,12 @@ struct ThreadScreen: View {
     }
 }
 
-/// What the strip's menu sheet is open for — an issue tab (`issueId`) or
-/// the "+" (nil).
+/// What the strip's menu sheet is open for — an issue tab (`issueId`), the
+/// "+" (nil) or the Guide's `…` (`guide`, EXP-1307).
 struct ThreadMenuTarget: Identifiable {
     let issueId: String?
-    var id: String { issueId ?? "add" }
+    var guide = false
+    var id: String { guide ? "guide" : issueId ?? "add" }
 }
 
 /// EXP-1295: a Conversation's draft for THE session composer box

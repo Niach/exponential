@@ -227,9 +227,10 @@ class StoreScreenshotsTest {
         composeRule.onNode(hasContentDescription("Back")).performClick()
 
         // --- PR review: EXP-1303 — APP-14's Threads chip opens the thread
-        // holding it; its Guide tab's Changes row opens the diff page (the
-        // white Merge capsule, tagged the bare `work-merge-pr` PopRects pops,
-        // sits on the floating bar). The PR comes from GitHub via
+        // holding it; its Guide tab's Changes row opens the diff page (its
+        // white Merge capsule, `work-merge-pr-section` PopRects pops, sits on
+        // the floating bar; the Guide's own carries `thread-guide-merge`,
+        // EXP-1307). The PR comes from GitHub via
         // pullRequests.files — the seed points APP-14 at a real public PR —
         // and with no report its whole diff is ONE Changes row, counted once
         // the files load.

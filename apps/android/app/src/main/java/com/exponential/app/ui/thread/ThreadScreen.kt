@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.data.db.PullRequestIssueEntity
+import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.GuideSectionKey
@@ -52,6 +53,8 @@ import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.ui.agent.ComposerPick
 import com.exponential.app.ui.agent.readComposerPick
 import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
 import com.exponential.app.ui.components.GlassSubmitButton
@@ -77,8 +80,8 @@ import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.ChangesViewModel
 import com.exponential.app.ui.work.GuideFace
 import com.exponential.app.ui.work.GuideStack
+import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.work.StackMergeDialog
-import com.exponential.app.ui.work.GithubHeaderAction
 import com.exponential.app.ui.work.GuideSectionDiff
 import com.exponential.app.ui.work.LocalTitleCollapse
 import com.exponential.app.ui.work.PullRequestStack
@@ -134,6 +137,7 @@ fun ThreadScreen(
     val teamPullRequests by viewModel.teamPullRequests.collectAsStateWithLifecycle()
     val pullRequestIssues by viewModel.pullRequestIssues.collectAsStateWithLifecycle()
     val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle()
+    val isMember by viewModel.isMember.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     var selectedKey by rememberSaveable { mutableStateOf(viewModel.initialTab ?: "conversation") }
@@ -141,6 +145,7 @@ fun ThreadScreen(
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
     var renameOpen by remember { mutableStateOf(false) }
+    var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
 
     // The composer's "+": the system document picker (any type), one pick at
     // a time through the VM so the steer caps apply (the Agent page's rule).
@@ -181,6 +186,9 @@ fun ThreadScreen(
     val placeholder = agent?.let { ThreadUiCopy.messageAgent(it.name) }
         ?: view?.composer?.placeholder
         ?: SessionTree.ThreadCopy.PLACEHOLDER
+
+    // EXP-1307: the Guide's ONE PR behind the header `…`.
+    val guidePr = SessionTree.guidePullRequest(pullRequests)
 
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
@@ -247,7 +255,7 @@ fun ThreadScreen(
                         onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
                     )
                 },
-                guidePrUrl = SessionTree.guidePullRequest(pullRequests)?.url?.takeIf { it.isNotBlank() },
+                guideMenu = { guidePr?.let { pr -> GuideMenu(pr, isMember) { closePrConfirm = pr } } },
             )
         }
     }
@@ -289,6 +297,29 @@ fun ThreadScreen(
                 viewModel.linkIssues(listOf(target.issueId))
             },
             onDismiss = { linkPickerOpen = false },
+        )
+    }
+    // EXP-1307: the Guide `…`'s Close PR asks first (close-pr.json, the
+    // issue screen's confirm; batchLine when the PR links other issues).
+    closePrConfirm?.let { pr ->
+        val others = (pullRequestIssues.count { it.pullRequestId == pr.id } - 1).coerceAtLeast(0)
+        GlassAlert(
+            title = ClosePr.TITLE,
+            body = ClosePr.body(others),
+            onDismiss = { closePrConfirm = null },
+            trailing = listOf(
+                GlassAlertAction(STACK_CONFIRM_CANCEL_LABEL, onClick = { closePrConfirm = null }),
+                GlassAlertAction(
+                    ClosePr.CONFIRM,
+                    destructive = true,
+                    testTag = "close-pr-confirm",
+                    onClick = {
+                        closePrConfirm = null
+                        viewModel.closePullRequest(pr.id)
+                    },
+                ),
+            ),
+            defaultAction = 0,
         )
     }
     if (renameOpen) {
@@ -341,9 +372,9 @@ fun ThreadContent(
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
     guidePage: @Composable (padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
-    /** The thread PR's URL: Open on GitHub in the header while the Guide
-     *  tab is selected (EXP-916/1302, iOS's header action). */
-    guidePrUrl: String? = null,
+    /** EXP-1307: the header `…` (Open on GitHub · Close PR) while the Guide
+     *  tab is selected; the slot draws nothing when the Guide has no PR. */
+    guideMenu: (@Composable () -> Unit)? = null,
 ) {
     // An agent channel is the conversation only.
     val pages = if (agent != null || view == null) {
@@ -373,9 +404,7 @@ fun ThreadContent(
                         private = view?.private == true,
                         onBack = onBack,
                         onRename = onRename,
-                        action = guidePrUrl
-                            ?.takeIf { selected is SessionTree.ThreadTab.Guide }
-                            ?.let { url -> { GithubHeaderAction(prUrl = url) } },
+                        action = guideMenu?.takeIf { selected is SessionTree.ThreadTab.Guide },
                     )
                     if (view != null) {
                         ThreadTabStrip(
@@ -436,6 +465,17 @@ fun ThreadContent(
             }
         }
     }
+}
+
+/** EXP-1307: the Guide `…` for [pr] — [SessionTree.guideMenuEntries] over
+ *  its state and the viewer's membership. */
+@Composable
+private fun GuideMenu(pr: PullRequestEntity, member: Boolean, onClosePr: () -> Unit) {
+    ThreadGuideMenuButton(
+        prUrl = pr.url,
+        entries = SessionTree.guideMenuEntries(state = pr.state, member = member),
+        onClosePr = onClosePr,
+    )
 }
 
 /** What THE menu acts on: the "+" (null) or an issue tab. */

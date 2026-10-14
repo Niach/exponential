@@ -1,5 +1,6 @@
 package com.exponential.app.ui.thread
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -49,7 +51,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import com.exponential.app.data.db.UserEntity
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.ResolvedIssueStatus
@@ -57,10 +61,13 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WorkCardInput
 import com.exponential.app.domain.WorkCardSpec
 import com.exponential.app.domain.WorkCards
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.ComposerToolButton
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassComposer
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.InlineSpinner
@@ -184,6 +191,63 @@ fun ThreadHeader(
                     contentDescription = ThreadUiCopy.PRIVATE,
                     tint = Muted,
                     modifier = Modifier.size(16.dp).testTag("thread-private"),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * EXP-1307: the thread header's `…` on the Guide (session-thread.json
+ * `guideMenuEntries` ×4): Open on GitHub, then Close PR (destructive) while
+ * the PR is open and the viewer is a member. THE app menu (the issue `…`'s
+ * [GlassDropdownMenu]); the host hosts Close's confirm. Empty = no trigger.
+ */
+@Composable
+fun ThreadGuideMenuButton(
+    prUrl: String?,
+    entries: List<SessionTree.GuideMenuEntry>,
+    onClosePr: () -> Unit,
+) {
+    if (entries.isEmpty()) return
+    val context = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    // The Box anchors the dropdown to the button.
+    Box {
+        CircleIconButton(
+            ExpIcons.uiMore,
+            "More",
+            onClick = { open = true },
+            modifier = Modifier.padding(end = 8.dp).testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU),
+            borderless = true,
+        )
+        GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (entry in entries) when (entry) {
+                SessionTree.GuideMenuEntry.OpenGithub -> GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiGithub, contentDescription = null) },
+                    text = { Text(DomainContract.diffUiOpenOnGithub) },
+                    enabled = !prUrl.isNullOrBlank(),
+                    onClick = {
+                        open = false
+                        // A device with no browser throws rather than
+                        // resolving the intent — a dead tap beats a crash.
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_VIEW, prUrl.orEmpty().toUri())
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        }
+                    },
+                    modifier = Modifier.testTag("thread-guide-menu-open-github"),
+                )
+                SessionTree.GuideMenuEntry.ClosePr -> GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.prClosed, contentDescription = null) },
+                    text = { Text(DomainContract.diffUiClosePr) },
+                    destructive = true,
+                    onClick = {
+                        open = false
+                        onClosePr()
+                    },
+                    modifier = Modifier.testTag("thread-guide-menu-close-pr"),
                 )
             }
         }
