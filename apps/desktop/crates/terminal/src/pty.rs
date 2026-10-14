@@ -235,7 +235,25 @@ pub fn build_command(spec: &SpawnSpec) -> CommandBuilder {
     for (key, value) in &spec.env {
         cmd.env(key, value);
     }
+    #[cfg(target_os = "macos")]
+    utf8_ctype_fallback(&mut cmd);
     cmd
+}
+
+/// EXP-1304: a .app launch (launchd) carries no `LANG`/`LC_*`, so the child
+/// shell runs in the C locale and readline reads each byte of typed UTF-8 as
+/// a meta key (a CJK char's `0x89` byte = M-TAB = completion). Like
+/// Terminal.app, give the child a UTF-8 character type when nothing names
+/// one; `LC_CTYPE` alone leaves the message language untouched, and any
+/// locale the parent env or the spec sets wins.
+#[cfg(target_os = "macos")]
+fn utf8_ctype_fallback(cmd: &mut CommandBuilder) {
+    let named = ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .any(|key| cmd.get_env(key).is_some_and(|value| !value.is_empty()));
+    if !named {
+        cmd.env("LC_CTYPE", "UTF-8");
+    }
 }
 
 /// The user's REAL interactive PATH (§6.12). Reused for the `claude`,
@@ -416,6 +434,25 @@ mod tests {
     fn dedup_prepend_empty_base() {
         let prepend = vec!["/a".to_owned()];
         assert_eq!(dedup_prepend(&prepend, ""), "/a");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn utf8_ctype_fallback_only_without_a_named_locale() {
+        let ctype = |vars: &[(&str, &str)]| {
+            let mut cmd = CommandBuilder::new("sh");
+            cmd.env_clear();
+            for (key, value) in vars {
+                cmd.env(key, value);
+            }
+            utf8_ctype_fallback(&mut cmd);
+            cmd.get_env("LC_CTYPE").map(|v| v.to_string_lossy().into_owned())
+        };
+        assert_eq!(ctype(&[]).as_deref(), Some("UTF-8"));
+        assert_eq!(ctype(&[("LANG", "")]).as_deref(), Some("UTF-8"));
+        assert_eq!(ctype(&[("LANG", "de_AT.UTF-8")]), None);
+        assert_eq!(ctype(&[("LC_ALL", "C")]), None);
+        assert_eq!(ctype(&[("LC_CTYPE", "C")]).as_deref(), Some("C"));
     }
 
     #[test]

@@ -1185,7 +1185,7 @@
       "blurb": "A PR's whole diff as the thread Guide's Show complete diff page (`?tab=guide&section=all`): the file TREE beside the file cards, every card open.",
       "order": 2,
       "web": {
-        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide&section=all",
+        "route": "/t/$teamSlug/threads/$diffThreadId?tab=guide&section=all",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1255,7 +1255,7 @@
       "blurb": "A Guide section's diff as a page under the thread's Guide (`?tab=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/threads/$guideThreadId?tab=guide&section=1",
+        "route": "/t/$teamSlug/threads/$diffThreadId?tab=guide&section=other",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1273,7 +1273,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "EXP-1251: APP-14 has no report, so the PR body is its one unnumbered section claiming the whole diff (`section=1`; there is no `other` page); the anchor is a line of the first card's own patch, as on review-diff.",
+        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID (EXP-1308): APP-14's thread, the one seeded PR with a real GitHub diff. EXP-1251: APP-14 has no report, so the whole diff is its ONE Changes row, the `other` page (`section=other`, titled Changes); the anchor is a line of the first card's own patch, as on review-diff.",
         "ios": "EXP-1303: APP-14's thread (the only seeded PR with a real GitHub diff; APP-15's Guide draws no Changes row), its one Changes row's section page.",
         "android": "EXP-1303: as iOS, APP-14's one Changes row's section page.",
         "desktop": "EXP-1251: a section page is state inside the Guide (`SteerSessionView::open_guide_page`) with no dev deep link yet, so the desktop half is not driven."
@@ -4653,6 +4653,14 @@
         "settleMs": 2500
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_session",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_session",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -4660,8 +4668,8 @@
         }
       },
       "notes": {
-        "ios": "Not captured (EXP-1299 integration): the iOS screenshot suite has no walk to this screen yet.",
-        "android": "Not captured (EXP-1299 integration): the Android screenshot suite has no walk to this screen yet.",
+        "ios": "EXP-1308: the `session` specimen (`SessionStyleguideScreen`): the REAL AgentSessionView over a model fed web's content through the live reducer (\"Profile the launch path\", mid-turn).",
+        "android": "EXP-1308: `SessionCaptureKind.Session`: the REAL session view (`SessionViewPreview`) over the same content, a capture-only screen.",
         "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land."
       }
     },

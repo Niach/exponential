@@ -25,7 +25,8 @@ import XCTest
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
-///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel
+///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
+///   sg_session
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -815,6 +816,12 @@ final class StyleguideScreenshots: XCTestCase {
             "The agent channel specimen drew no session card"
         )
         snapshot("sg_agent-channel", settle: 2)
+
+        // ── sg_session: the raw session view a session card opens ──────────
+        // EXP-1308: the phones' `session` shot over the real AgentSessionView
+        // (web's DEMO_SESSION_ID content: "Profile the launch path", mid-turn).
+        openSpecimen(app, "session", awaiting: "session-styleguide-screen")
+        snapshot("sg_session", settle: 2)
 
         // ── sg_session-row · sg_threads: the home band and the Threads tab ───
         // EXP-1295: THE session row in the home's Running band (`home`), and

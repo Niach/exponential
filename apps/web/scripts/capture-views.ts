@@ -48,6 +48,7 @@ import {
   DEMO_PASSWORD,
   DEMO_ACTION_ID,
   DEMO_AGENT_ID,
+  DEMO_DIFF_THREAD_ID,
   DEMO_GUIDE_THREAD_ID,
   DEMO_SESSION_ID,
   DEMO_THREAD_ID,
@@ -142,9 +143,11 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     // (EXP-1293: the cold-start thread's child session).
     .replaceAll(`$sessionId`, DEMO_SESSION_ID)
     // EXP-1293: a thread is a root session, an agent too; pinned the same
-    // way. `$guideThreadId` before `$threadId`: neither is a prefix of the
-    // other, but keep the longer names first like the rest of this chain.
+    // way. `$guideThreadId`/`$diffThreadId` before `$threadId`: none is a
+    // prefix of another, but keep the longer names first like the rest of
+    // this chain.
     .replaceAll(`$guideThreadId`, DEMO_GUIDE_THREAD_ID)
+    .replaceAll(`$diffThreadId`, DEMO_DIFF_THREAD_ID)
     .replaceAll(`$threadId`, DEMO_THREAD_ID)
     .replaceAll(`$agentId`, DEMO_AGENT_ID)
     // SLOP-2: an action is a page too, and the seed pins its id the same way.

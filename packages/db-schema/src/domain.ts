@@ -1227,4 +1227,9 @@ export interface SessionsSendResult {
   sessionId: string
   /** The `messages` row the text became; null for a start without text. */
   messageId: string | null
+  /** The session's status at return. A new session is `queued` = PENDING:
+   *  the call never waits for the device, which picks the row up off the
+   *  sessions shape (FEED-101: a start is never reported as failed while
+   *  its device is still on the way). */
+  status: SessionStatus
 }

@@ -141,9 +141,8 @@ export const sessionsRouter = router({
       })
     }),
 
-  /** Answer a `question` card (text) or decide a `plan` card IN the card.
-   *  The answer also lands as a person message: the bus that delivers it
-   *  into the agent. */
+  /** Answer a `question` card (text) or decide a `plan` card IN the card;
+   *  the device delivers it to the agent off the messages shape. */
   answer: authedProcedure
     .input(
       z.object({

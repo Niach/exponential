@@ -2143,6 +2143,11 @@ fn a_seed_message_is_consumed_once_the_seed_turn_is_sent() {
         },
     );
     until("the seed consume", || harness.conversation.consumed() == vec!["m-seed".to_string()]);
+    // EXP-1304: the row is consumed as the engine SENDS the seed turn, which
+    // can be before the fake has taken it in; wait for its log, then pin it.
+    until("the seed turn reaches the agent", || {
+        !harness.state.prompts.lock().expect("the prompt log is not poisoned").is_empty()
+    });
     assert_eq!(
         harness.state.prompts.lock().expect("the prompt log is not poisoned").clone(),
         vec!["wake up".to_string()]

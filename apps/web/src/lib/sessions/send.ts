@@ -316,7 +316,12 @@ export async function sendSession(args: {
     }
   }
   if (outcome.messageId) fireAndForgetSessionMessageNotify({ messageId: outcome.messageId })
-  return { sessionId: outcome.sessionId, messageId: outcome.messageId, txid: outcome.txid }
+  return {
+    sessionId: outcome.sessionId,
+    messageId: outcome.messageId,
+    status: outcome.status,
+    txid: outcome.txid,
+  }
 }
 
 async function messageSession(
@@ -334,7 +339,7 @@ async function messageSession(
     return db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds)
-      return { sessionId: target.id, messageId, txid, queued: null }
+      return { sessionId: target.id, messageId, status: target.status, txid, queued: null }
     })
   }
 
@@ -368,6 +373,7 @@ async function messageSession(
     return {
       sessionId: child.id,
       messageId,
+      status: `queued`,
       txid,
       queued: { ownerId: device.ownerId, deviceId: child.deviceId },
     }
@@ -414,7 +420,13 @@ async function startChild(
     })
     const messageId = await postSendMessage(tx, child, input, userId, uploaderIds)
     await postSystemCard(tx, parent, { kind: `session`, sessionId: child.id })
-    return { sessionId: child.id, messageId, txid, queued: { ownerId: device.ownerId, deviceId } }
+    return {
+      sessionId: child.id,
+      messageId,
+      status: `queued`,
+      txid,
+      queued: { ownerId: device.ownerId, deviceId },
+    }
   })
 }
 
@@ -562,6 +574,12 @@ async function startRoot(
     if (callerAgentRoot && sessionVisibleTo(callerAgentRoot, userId)) {
       await postSystemCard(tx, callerAgentRoot, { kind: `thread_started`, sessionId: root.id })
     }
-    return { sessionId: root.id, messageId, txid, queued: { ownerId: device.ownerId, deviceId } }
+    return {
+      sessionId: root.id,
+      messageId,
+      status: `queued`,
+      txid,
+      queued: { ownerId: device.ownerId, deviceId },
+    }
   })
 }
