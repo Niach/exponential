@@ -7,12 +7,16 @@ import SwiftUI
 /// Link an issue · New issue; an issue tab's long press titles it with the
 /// identifier and ends in `Unlink <IDENT>` (destructive). A pick hands the
 /// action back; the host runs it once the sheet has dismissed (a push or a
-/// second sheet from under a dismissing one is dropped).
+/// second sheet from under a dismissing one is dropped). EXP-1307: the
+/// Guide header's `…` opens it untitled with `guideMenuEntries` — Open on
+/// GitHub · Close PR without merging (destructive).
 struct ThreadMenuSheet: View {
     enum Action: Equatable {
         case linkIssue
         case newIssue
         case unlink
+        case openGithub
+        case closePr
     }
 
     static let linkIssueLabel = "Link an issue"
@@ -21,12 +25,23 @@ struct ThreadMenuSheet: View {
 
     /// The issue tab's identifier; nil = the "+" (no title, no Unlink).
     let identifier: String?
+    /// EXP-1307: the Guide's `…` entries; nil = the strip's menu.
+    var guideEntries: [SessionTree.GuideMenuEntry]?
     let onPick: (Action) -> Void
 
     var body: some View {
         GlassSheetChrome(title: identifier) {
             VStack(spacing: 0) {
-                if let identifier {
+                if let guideEntries {
+                    ForEach(guideEntries, id: \.self) { entry in
+                        switch entry {
+                        case .openGithub:
+                            row(.openGithub, DomainContract.diffUiOpenOnGithub, icon: AppIcons.uiGithub)
+                        case .closePr:
+                            row(.closePr, ClosePrCopy.menuItem, icon: AppIcons.prClosed, destructive: true)
+                        }
+                    }
+                } else if let identifier {
                     row(.unlink, Self.unlinkLabel(identifier), icon: AppIcons.uiClose, destructive: true)
                 } else {
                     row(.linkIssue, Self.linkIssueLabel, icon: AppIcons.navSearch)
@@ -58,6 +73,8 @@ struct ThreadMenuSheet: View {
         case .linkIssue: "link-issue"
         case .newIssue: "new-issue"
         case .unlink: "unlink"
+        case .openGithub: "open-github"
+        case .closePr: "close-pr"
         }
     }
 }

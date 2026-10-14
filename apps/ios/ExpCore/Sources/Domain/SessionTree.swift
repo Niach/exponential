@@ -619,6 +619,8 @@ public enum SessionTree {
         public static let stack = "Stack"
         public static let guideStackTestId = "thread-guide-stack"
         public static let guideMergeTestId = "thread-guide-merge"
+        /// EXP-1307: the header's `…` on the Guide (`guideMenuEntries`).
+        public static let guideMenuTestId = "thread-guide-menu"
     }
 
     /// fixtures/threads-list.json `copy` + `agentDefaults` + `testIds`
@@ -939,6 +941,20 @@ public enum SessionTree {
             }
         }
         return newest(DomainContract.prStateOpen) ?? newest(DomainContract.prStateMerged)
+    }
+
+    /// EXP-1307: one entry of the thread header's `…` on the Guide.
+    public enum GuideMenuEntry: String, Sendable, Equatable {
+        case openGithub = "open-github"
+        case closePr = "close-pr"
+    }
+
+    /// EXP-1307: the thread header's `…` on the Guide: Open on GitHub whenever
+    /// the Guide has a PR (`state` = its state, nil = none), Close PR while it
+    /// is open and the viewer is a member; empty = no trigger.
+    public static func guideMenuEntries(state: String?, member: Bool) -> [GuideMenuEntry] {
+        guard let state else { return [] }
+        return state == DomainContract.prStateOpen && member ? [.openGithub, .closePr] : [.openGithub]
     }
 
     /// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer

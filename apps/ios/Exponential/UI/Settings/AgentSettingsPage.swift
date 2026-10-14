@@ -625,9 +625,9 @@ struct AgentSettingsForm: View {
     /// names the agent (`cli`) too. EXP-1306: the value reads like the
     /// composer chip (the agent's brand mark + the login's email) and the row
     /// like the Device row beside it. A lone login is nothing to pick: the
-    /// same line without the chevron, outside the picker (which disables a
-    /// lone login, and a disabled Form row dims). No login reported = `Last
-    /// used`, muted.
+    /// same line outside the picker (which disables a lone login, and a
+    /// disabled Form row dims). No login reported = `Last used`, muted.
+    /// EXP-1307: every form ends in the chevron, like the rows beside it (web).
     @ViewBuilder
     private var accountRow: some View {
         let options = AgentSettingsDraft.accountOptions(on: device, cli: draft.lockedCli)
@@ -641,19 +641,19 @@ struct AgentSettingsForm: View {
                     draft.selectAccount(picked)
                 },
                 mark: { AgentBrandMark.image($0) },
-                trigger: { accountRowLabel(current, chevron: true) }
+                trigger: { accountRowLabel(current) }
             )
             .disabled(!canEdit)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("agent-account-row")
         } else {
-            accountRowLabel(current, chevron: false)
+            accountRowLabel(current)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("agent-account-row")
         }
     }
 
-    private func accountRowLabel(_ current: AccountOption?, chevron: Bool) -> some View {
+    private func accountRowLabel(_ current: AccountOption?) -> some View {
         HStack(spacing: 8) {
             Text(label("account"))
                 .foregroundStyle(.white.opacity(TextOpacity.primary))
@@ -662,13 +662,17 @@ struct AgentSettingsForm: View {
                 AccountPickerTriggerLabel(
                     option: current,
                     mark: AgentBrandMark.image(current.agent),
-                    chevron: chevron,
+                    chevron: true,
                     style: .rowValue
                 )
             } else {
-                Text(AgentSettings.Copy.accountLastUsed)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(AgentSettings.Copy.accountLastUsed)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                    AppIcon(AppIcons.uiChevronRight, size: 14)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
             }
         }
     }

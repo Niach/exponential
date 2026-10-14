@@ -271,6 +271,7 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(copy["stack"] as? String, SessionTree.ThreadCopy.stack)
         XCTAssertEqual(testIds["guideStack"], SessionTree.ThreadCopy.guideStackTestId)
         XCTAssertEqual(testIds["guideMerge"], SessionTree.ThreadCopy.guideMergeTestId)
+        XCTAssertEqual(testIds["guideMenu"], SessionTree.ThreadCopy.guideMenuTestId)
     }
 
     /// EXP-1306: `guidePullRequestCases` — the expected PR id, or none.
@@ -286,6 +287,22 @@ final class SessionTreeTests: XCTestCase {
                 )
             }
             XCTAssertEqual(SessionTree.guidePullRequest(rows)?.id, string(testCase["expected"]), name)
+        }
+    }
+
+    /// EXP-1307: `guideMenuCases` — the header `…` entries, in order.
+    func testGuideMenuEntriesReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-thread.json"), "guideMenuCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            XCTAssertEqual(
+                SessionTree.guideMenuEntries(
+                    state: string(input["state"]),
+                    member: try XCTUnwrap(input["member"] as? Bool)
+                ).map(\.rawValue),
+                try XCTUnwrap(testCase["expected"] as? [String]),
+                name
+            )
         }
     }
 
