@@ -1,9 +1,4 @@
-- Ketjut: istunto elää nyt ketjussa, joka kokoaa yhden työn issuet ja istunnot; agentti linkittää issuet, jotka se luo tai ottaa työn alle, jatkaminen jatkaa keskustelua, ja Running ja Recent listaavat ketjuja
-- Kirjoituskenttä: Agent-sivun kirjoituskenttä on ainoa paikka aloittaa istunto, issue-siruilla tai yhdellä toimintosirulla, vapaalla tekstillä kehotteena ja plus-valikolla, jossa ovat tiedostot, vaiva, aliagentit, MCP-palvelimet ja Computer use
-- Issue-haku: kirjoita # missä tahansa kirjoitat löytääksesi issuen numerolla tai otsikolla, samalla haulla jokaisessa sovelluksessa
-- Aloitus: Agent-sivun tarkistuslista opastaa uuden tiimin sen ensimmäisen boardin, laitteen ja istunnon läpi
-- Palaute: epäonnistunut toiminto näyttää ilmoituksen, virheellinen syöte merkitään paikan päällä, ja listat näyttävät luurankoja latautuessaan
-- Istunnot: työnkulut, tehtävät ja aliagentit jakavat yhden Work cardin, koodimoodin skripti näyttää Script cardin, ja agentin julkaisema kommentti on oikea kommentti
-- MCP-palvelimet: tiimin MCP-palvelimia hallitaan Asetuksissa, ja jokainen tyhjä lista näyttää samalta koko sovelluksessa
-- Tilit: agentin kirjautuminen on yksi profiili sähköpostia kohden, kirjautuminen tutulla sähköpostilla päivittää sen profiilin, eikä istunto koskaan käytä koneen oletuskirjautumista
-- Korjaukset: istunto, joka ei auennut iOS:ssä, aukeaa taas, ja kirjoituskenttä pitää oikean tilin laitteen vaihdon jälkeen
+- Ketjut: jokainen työ on yksi keskustelu, listattuna Tarvitsee sinua, Käynnissä ja Viimeisimmät, ja jokainen istunto korttina
+- Tiimiagentit: lisää Asetuksissa agentteja, jotka hoitavat taulua omalta laitteeltaan ja aloittavat ketjun jokaiselle työlle
+- Jaetut ketjut: tiimin kanssa jaetun laitteen ketju näkyy koko tiimille, joka voi vastata ja pysäyttää sen
+- Toiminnot ovat tallennettuja kehotteita, eikä pull requestin yhdistäminen enää päätä istuntoa

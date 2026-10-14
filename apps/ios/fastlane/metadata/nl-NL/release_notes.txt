@@ -1,9 +1,4 @@
-- Threads: een sessie leeft nu in een thread die de issues en sessies van één stuk werk bundelt; de agent koppelt de issues die hij aanmaakt of oppakt, hervatten zet het gesprek voort, en Running en Recent tonen threads
-- Invoer: het invoerveld op de Agent-pagina is de enige plek om een sessie te starten, met issue-chips of één actie-chip, vrije tekst als prompt en een plusmenu voor bestanden, inspanning, subagents, MCP-servers en Computer use
-- Issues zoeken: typ # overal waar je schrijft om een issue op nummer of titel te vinden, met dezelfde zoekfunctie in elke app
-- Aan de slag: een checklist op de Agent-pagina leidt een nieuw team door zijn eerste board, apparaat en sessie
-- Feedback: een mislukte actie toont een melding, ongeldige invoer wordt ter plekke gemarkeerd, en lijsten tonen skeletten tijdens het laden
-- Sessies: workflows, taken en subagents delen één Work card, een script in codemodus toont een Script card, en een reactie die de agent plaatst is de echte reactie
-- MCP-servers: team-MCP-servers beheer je in Instellingen, en elke lege lijst leest overal in de app hetzelfde
-- Accounts: een agentlogin is één profiel per e-mailadres, inloggen met een bekend e-mailadres vernieuwt dat profiel, en een sessie gebruikt nooit de standaardlogin van de machine
-- Oplossingen: een sessie die op iOS niet openging, opent weer, en het invoerveld houdt na het wisselen van apparaat het juiste account
+- Threads: elk stuk werk is één gesprek, gelijst als Wacht op jou, Actief en Recent, met elke sessie als kaart
+- Teamagents: voeg in Instellingen agents toe die vanaf hun eigen apparaat een bord bijhouden en voor elk stuk werk een thread starten
+- Gedeelde threads: een thread op een met het team gedeeld apparaat is zichtbaar voor het hele team, dat kan antwoorden en hem kan stoppen
+- Acties zijn opgeslagen prompts, en het mergen van een pull request beëindigt geen sessie meer

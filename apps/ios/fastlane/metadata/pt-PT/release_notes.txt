@@ -1,9 +1,4 @@
-- Conversas: uma sessão vive agora numa conversa que reúne as issues e sessões de um mesmo trabalho; o agente liga as issues que cria ou assume, retomar continua o diálogo, e Running e Recent listam conversas
-- Composição: o campo de composição da página Agent é o único sítio para iniciar uma sessão, com chips de issue ou um chip de ação, texto livre como prompt e um menu mais para ficheiros, esforço, subagentes, servidores MCP e Computer use
-- Pesquisa de issues: escreva # em qualquer sítio onde escreve para encontrar uma issue por número ou título, com a mesma pesquisa em todas as apps
-- Primeiros passos: uma lista de verificação na página Agent guia uma nova equipa pelo seu primeiro quadro, dispositivo e sessão
-- Feedback: uma ação falhada mostra um aviso, uma entrada inválida é assinalada no local, e as listas mostram esqueletos enquanto carregam
-- Sessões: workflows, tarefas e subagentes partilham um único Work card, um script do modo de código mostra um Script card, e um comentário publicado pelo agente é o comentário real
-- Servidores MCP: os servidores MCP da equipa gerem-se nas Definições, e todas as listas vazias leem-se da mesma forma em toda a app
-- Contas: um início de sessão de agente é um perfil por email, entrar com um email conhecido atualiza esse perfil, e uma sessão nunca usa o início de sessão predefinido da máquina
-- Correções: uma sessão que não abria no iOS volta a abrir, e o campo de composição mantém a conta certa depois de mudar de dispositivo
+- Threads: cada trabalho é uma conversa, listada como Precisa de si, Em curso e Recentes, com cada sessão como cartão
+- Agentes da equipa: adicione em Definições agentes que cuidam de um quadro a partir do seu próprio dispositivo e abrem uma thread para cada trabalho
+- Threads partilhadas: uma thread num dispositivo partilhado com a equipa é visível para toda a equipa, que pode responder e pará-la
+- As ações são prompts guardados, e fazer merge de um pull request já não termina uma sessão

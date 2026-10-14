@@ -1,9 +1,4 @@
-- Fils : une session vit désormais dans un fil qui regroupe les tickets et les sessions d'un même travail ; l'agent relie les tickets qu'il crée ou reprend, une reprise poursuit la conversation, et Running et Recent listent les fils
-- Saisie : le champ de saisie de la page Agent est le seul endroit pour démarrer une session, avec des puces de ticket ou une puce d'action, du texte libre comme prompt et un menu plus pour les fichiers, l'effort, les sous-agents, les serveurs MCP et Computer use
-- Recherche de tickets : tapez # partout où vous écrivez pour trouver un ticket par numéro ou titre, avec la même recherche dans chaque app
-- Premiers pas : une checklist sur la page Agent guide une nouvelle équipe vers son premier tableau, son premier appareil et sa première session
-- Retours : une action qui échoue affiche une notification, une saisie invalide est signalée sur place, et les listes affichent des squelettes pendant le chargement
-- Sessions : workflows, tâches et sous-agents partagent une seule Work card, un script du mode code affiche une Script card, et un commentaire publié par l'agent est le vrai commentaire
-- Serveurs MCP : les serveurs MCP de l'équipe se gèrent dans les Réglages, et chaque liste vide se présente de la même façon dans toute l'app
-- Comptes : une connexion d'agent est un profil par e-mail, se connecter avec un e-mail connu actualise ce profil, et une session n'utilise jamais la connexion par défaut de la machine
-- Corrections : une session qui ne s'ouvrait pas sur iOS s'ouvre de nouveau, et le champ de saisie garde le bon compte après un changement d'appareil
+- Fils : chaque travail est une conversation, listée en À traiter, En cours et Récents, avec chaque session sous forme de carte
+- Agents d'équipe : ajoutez dans Réglages des agents qui s'occupent d'un tableau depuis leur propre appareil et ouvrent un fil pour chaque travail
+- Fils partagés : un fil sur un appareil partagé avec l'équipe est visible par toute l'équipe, qui peut répondre et l'arrêter
+- Les actions sont des prompts enregistrés, et fusionner une pull request ne termine plus une session

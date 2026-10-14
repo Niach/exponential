@@ -1,9 +1,4 @@
-- Fire: o sesiune trăiește acum într-un fir care ține issue-urile și sesiunile unei lucrări; agentul leagă issue-urile pe care le creează sau le preia, o reluare continuă conversația, iar Running și Recent listează fire
-- Compunere: câmpul de compunere din pagina Agent este singurul loc de unde pornești o sesiune, cu chipuri de issue sau un chip de acțiune, text liber ca prompt și un meniu plus pentru fișiere, efort, subagenți, servere MCP și Computer use
-- Căutare issue-uri: tastează # oriunde scrii ca să găsești un issue după număr sau titlu, cu aceeași căutare în fiecare aplicație
-- Primii pași: o listă de verificare pe pagina Agent ghidează o echipă nouă prin primul ei board, primul dispozitiv și prima sesiune
-- Feedback: o acțiune eșuată afișează o notificare, datele invalide sunt marcate pe loc, iar listele arată schelete cât se încarcă
-- Sesiuni: workflow-urile, sarcinile și subagenții împart un singur Work card, un script din modul cod afișează un Script card, iar un comentariu publicat de agent este comentariul real
-- Servere MCP: serverele MCP ale echipei se gestionează în Setări, iar fiecare listă goală arată la fel în toată aplicația
-- Conturi: o autentificare de agent este un profil per email, autentificarea cu un email cunoscut reîmprospătează acel profil, iar o sesiune nu folosește niciodată autentificarea implicită a mașinii
-- Remedieri: o sesiune care nu se deschidea pe iOS se deschide din nou, iar câmpul de compunere păstrează contul corect după schimbarea dispozitivului
+- Fire: fiecare lucrare este o conversație, listată ca Are nevoie de tine, Rulează și Recente, cu fiecare sesiune ca un card
+- Agenți de echipă: adaugă în Setări agenți care au grijă de un panou de pe propriul dispozitiv și pornesc un fir pentru fiecare lucrare
+- Fire partajate: un fir pe un dispozitiv partajat cu echipa este vizibil întregii echipe, care poate răspunde și îl poate opri
+- Acțiunile sunt prompturi salvate, iar îmbinarea unui pull request nu mai încheie o sesiune

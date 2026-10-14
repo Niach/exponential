@@ -1,9 +1,4 @@
-- Szálak: egy munkamenet mostantól egy szálban él, amely egy munka issue-it és munkameneteit fogja össze; az ügynök összekapcsolja az általa létrehozott vagy átvett issue-kat, a folytatás folytatja a beszélgetést, a Running és a Recent pedig szálakat listáz
-- Szerkesztő: az Agent oldal szerkesztője az egyetlen hely munkamenet indítására, issue-chipekkel vagy egy műveletchippel, szabad szöveggel promptként és egy plusz menüvel a fájlokhoz, ráfordításhoz, alügynökökhöz, MCP-szerverekhez és a Computer use-hoz
-- Issue-keresés: írd be a # jelet bárhol, ahol írsz, hogy szám vagy cím alapján megtalálj egy issue-t, minden appban ugyanazzal a kereséssel
-- Első lépések: az Agent oldalon egy ellenőrzőlista végigvezeti az új csapatot az első boardján, eszközén és munkamenetén
-- Visszajelzés: a sikertelen művelet értesítést mutat, az érvénytelen bevitel helyben jelölődik, a listák pedig betöltés közben vázat mutatnak
-- Munkamenetek: a workflow-k, feladatok és alügynökök egy Work cardon osztoznak, a kódmód szkriptje Script cardot mutat, és az ügynök által közzétett hozzászólás a valódi hozzászólás
-- MCP-szerverek: a csapat MCP-szervereit a Beállításokban kezelheted, és minden üres lista ugyanúgy jelenik meg az egész appban
-- Fiókok: egy ügynökbelépés e-mail-címenként egy profil, egy ismert e-mail-címmel való bejelentkezés frissíti azt a profilt, és egy munkamenet soha nem használja a gép alapértelmezett belépését
-- Javítások: újra megnyílik az a munkamenet, amely iOS-en nem nyílt meg, és a szerkesztő eszközváltás után is a megfelelő fiókot tartja meg
+- Szálak: minden munka egy beszélgetés, Rád vár, Fut és Legutóbbi listákban, minden munkamenet egy kártya
+- Csapatügynökök: a Beállításokban adj hozzá ügynököket, amelyek a saját eszközükről gondoznak egy táblát, és minden munkához szálat indítanak
+- Megosztott szálak: a csapattal megosztott eszközön futó szálat az egész csapat látja, válaszolhat rá és leállíthatja
+- A műveletek mentett promptok, és egy pull request egyesítése már nem zár le munkamenetet

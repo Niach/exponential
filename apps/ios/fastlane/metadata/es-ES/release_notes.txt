@@ -1,9 +1,4 @@
-- Hilos: una sesión vive ahora en un hilo que reúne las incidencias y sesiones de un mismo trabajo; el agente vincula las incidencias que crea o retoma, reanudar continúa la conversación, y Running y Recent muestran hilos
-- Redacción: el campo de redacción de la página Agent es el único lugar para iniciar una sesión, con chips de incidencia o un chip de acción, texto libre como prompt y un menú más para archivos, esfuerzo, subagentes, servidores MCP y Computer use
-- Búsqueda de incidencias: escribe # en cualquier lugar donde escribas para encontrar una incidencia por número o título, con la misma búsqueda en todas las apps
-- Primeros pasos: una lista de comprobación en la página Agent guía a un equipo nuevo por su primer tablero, su primer dispositivo y su primera sesión
-- Avisos: una acción fallida muestra un aviso, una entrada no válida se marca en el sitio y las listas muestran esqueletos mientras cargan
-- Sesiones: workflows, tareas y subagentes comparten una sola Work card, un script del modo código muestra una Script card y un comentario que publica el agente es el comentario real
-- Servidores MCP: los servidores MCP del equipo se gestionan en Ajustes, y todas las listas vacías se leen igual en toda la app
-- Cuentas: un inicio de sesión de agente es un perfil por correo, entrar con un correo conocido actualiza ese perfil y una sesión nunca usa el inicio de sesión predeterminado de la máquina
-- Correcciones: una sesión que no se abría en iOS vuelve a abrirse, y el campo de redacción mantiene la cuenta correcta al cambiar de dispositivo
+- Hilos: cada trabajo es una conversación, listada como Te necesita, En curso y Recientes, con cada sesión como una tarjeta
+- Agentes del equipo: añade en Ajustes agentes que cuidan un tablero desde su propio dispositivo y abren un hilo para cada trabajo
+- Hilos compartidos: un hilo en un dispositivo compartido con el equipo es visible para todo el equipo, que puede responder y detenerlo
+- Las acciones son prompts guardados, y fusionar una pull request ya no termina una sesión

@@ -1,9 +1,4 @@
-- Threads: eine Sitzung lebt jetzt in einem Thread, der die Issues und Sitzungen einer Arbeit bündelt; der Agent verknüpft die Issues, die er anlegt oder übernimmt, ein Fortsetzen setzt das Gespräch fort, und Running und Recent listen Threads
-- Eingabe: das Eingabefeld der Agent-Seite ist der eine Ort, um eine Sitzung zu starten, mit Issue-Chips oder einem Action-Chip, freiem Text als Prompt und einem Plus-Menü für Dateien, Aufwand, Subagents, MCP-Server und Computer use
-- Issue-Suche: tippe # überall, wo du schreibst, um ein Issue nach Nummer oder Titel zu finden, mit derselben Suche in jeder App
-- Erste Schritte: eine Checkliste auf der Agent-Seite führt ein neues Team durch sein erstes Board, sein erstes Gerät und seine erste Sitzung
-- Feedback: eine fehlgeschlagene Aktion zeigt einen Hinweis, ungültige Eingaben werden direkt markiert, und Listen zeigen beim Laden Platzhalter
-- Sitzungen: Workflows, Tasks und Subagents teilen sich eine Work card, ein Skript im Code-Modus zeigt eine Script card, und ein Kommentar des Agents ist der echte Kommentar
-- MCP-Server: Team-MCP-Server werden in den Einstellungen verwaltet, und jede leere Liste liest sich überall in der App gleich
-- Konten: ein Agent-Login ist ein Profil pro E-Mail, eine Anmeldung mit einer bekannten E-Mail aktualisiert dieses Profil, und eine Sitzung nutzt nie den Standard-Login des Rechners
-- Fehlerbehebungen: eine Sitzung, die sich unter iOS nicht öffnen ließ, öffnet sich wieder, und das Eingabefeld behält nach einem Gerätewechsel das richtige Konto
+- Threads: jede Aufgabe ist eine Unterhaltung, gelistet als Braucht dich, Läuft und Zuletzt, mit jeder Session als Karte
+- Team-Agenten: füge in den Einstellungen Agenten hinzu, die sich von ihrem eigenen Gerät aus um ein Board kümmern und für jede Aufgabe einen Thread starten
+- Geteilte Threads: ein Thread auf einem mit dem Team geteilten Gerät ist für das ganze Team sichtbar, das antworten und ihn stoppen kann
+- Aktionen sind gespeicherte Prompts, und das Mergen eines Pull Requests beendet keine Session mehr
