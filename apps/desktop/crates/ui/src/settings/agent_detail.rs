@@ -28,7 +28,7 @@ use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState, Textarea, TextareaState},
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 use serde_json::Value;
 use sync::Store;
@@ -655,8 +655,9 @@ impl AgentDetailPane {
         crate::surface::glass_picker_row(field_label("account"), None, control, cx)
     }
 
-    /// The Schedule rows: one per trigger (its summary opens the editor, its
-    /// switch pauses it), an "Add" row under them; none = ONE row reading
+    /// The Schedule rows (web/iOS/Android): the "Schedule" row carrying
+    /// "+ Add", then one row per trigger, its summary leading (opens the
+    /// editor) and its switch trailing (pauses it); none = ONE row reading
     /// "Waits for messages" that opens the editor on a new trigger.
     fn schedule_rows(&self, agent_id: &str, cx: &mut gpui::Context<Self>) -> Vec<gpui::Div> {
         let copy = &AGENT_SETTINGS.copy;
@@ -675,63 +676,49 @@ impl AgentDetailPane {
             .into_any_element();
             return vec![crate::surface::glass_picker_row(label, None, control, cx)];
         }
-        let mut rows: Vec<gpui::Div> = triggers
-            .iter()
-            .enumerate()
-            .filter_map(|(index, trigger)| {
-                let trigger_id = trigger_editor::trigger_id(trigger)?.to_string();
-                let enabled = trigger_editor::trigger_enabled(trigger);
-                let (edit_agent, edit_trigger) = (agent_id.to_string(), trigger_id.clone());
-                let summary = trigger_editor::picker_trigger(
-                    format!("agent-detail-trigger-{index}").into(),
-                    domain::agent_settings::trigger_summary(trigger),
-                    cx,
-                )
-                .on_click(move |_, window, cx| {
-                    crate::trigger_dialog::open_edit(
-                        window,
-                        cx,
-                        edit_agent.clone(),
-                        edit_trigger.clone(),
-                    )
-                });
-                let toggle_agent = agent_id.to_string();
-                let switch = crate::controls::web_switch(("agent-detail-trigger-enabled", index))
-                    .checked(enabled)
-                    .disabled(self.trigger_writing)
-                    .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                        this.set_trigger_enabled(toggle_agent.clone(), trigger_id.clone(), *on, cx);
-                    }));
-                let control = h_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(switch)
-                    .child(summary)
-                    .into_any_element();
-                Some(crate::surface::glass_picker_row(
-                    if index == 0 { label } else { "" },
-                    None,
-                    control,
-                    cx,
-                ))
-            })
-            .collect();
-        if triggers.len() < domain::contract::AGENT_TRIGGER_MAX_PER_AGENT {
+        let add: gpui::AnyElement = if triggers.len() < domain::contract::AGENT_TRIGGER_MAX_PER_AGENT {
             let agent_id = agent_id.to_string();
-            rows.push(
-                crate::surface::glass_row_shell().child(
-                    Button::new("agent-detail-schedule-add")
-                        .ghost()
-                        .cursor_pointer()
-                        .web_sm()
-                        .icon(registry::UI_ADD)
-                        .label(copy.add_trigger.clone())
-                        .on_click(move |_, window, cx| {
-                            crate::trigger_dialog::open_new(window, cx, agent_id.clone())
-                        }),
-                ),
-            );
-        }
+            Button::new("agent-detail-schedule-add")
+                .outline()
+                .cursor_pointer()
+                .xsmall()
+                .icon(registry::UI_ADD)
+                .label(copy.add_trigger.clone())
+                .on_click(move |_, window, cx| {
+                    crate::trigger_dialog::open_new(window, cx, agent_id.clone())
+                })
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+        let mut rows = vec![crate::surface::glass_picker_row(label, None, add, cx)];
+        rows.extend(triggers.iter().enumerate().filter_map(|(index, trigger)| {
+            let trigger_id = trigger_editor::trigger_id(trigger)?.to_string();
+            let enabled = trigger_editor::trigger_enabled(trigger);
+            let (edit_agent, edit_trigger) = (agent_id.to_string(), trigger_id.clone());
+            let summary = trigger_editor::picker_trigger_bare(
+                format!("agent-detail-trigger-{index}").into(),
+                domain::agent_settings::trigger_summary(trigger),
+                cx,
+            )
+            .text_color(cx.theme().foreground)
+            .on_click(move |_, window, cx| {
+                crate::trigger_dialog::open_edit(window, cx, edit_agent.clone(), edit_trigger.clone())
+            });
+            let toggle_agent = agent_id.to_string();
+            let switch = crate::controls::web_switch(("agent-detail-trigger-enabled", index))
+                .checked(enabled)
+                .disabled(self.trigger_writing)
+                .on_click(cx.listener(move |this, on: &bool, _, cx| {
+                    this.set_trigger_enabled(toggle_agent.clone(), trigger_id.clone(), *on, cx);
+                }));
+            Some(
+                crate::surface::glass_row_shell()
+                    .text_sm()
+                    .child(h_flex().flex_1().min_w_0().justify_start().child(summary))
+                    .child(switch),
+            )
+        }));
         rows
     }
 

@@ -89,8 +89,8 @@
         "file": "shots/agent-channel/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 43960,
-        "sha256": "7996b4434fba02a2a81716d3e7f960e90329e48cf5c5227a17c895ccb9373ff8"
+        "bytes": 44092,
+        "sha256": "8d95cab5af26fd22b806760006c8f8118ace392f970fea9f3d61b3579e08dabc"
       },
       "ios": {
         "file": "shots/agent-channel/ios.webp",
@@ -103,15 +103,15 @@
         "file": "shots/agent-channel/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 59916,
-        "sha256": "101983d39c9583e20659791dd81f1a98e451d9b692550fb58aab412f26891fd1"
+        "bytes": 59662,
+        "sha256": "84f85ce8e77fa1273e3b25a1ab059e80f82b7abeba375f2b2e7c0be40cd208bd"
       },
       "web-mobile": {
         "file": "shots/agent-channel/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 46292,
-        "sha256": "57c6138054d81084232f94f8f21d201fa25e091da88f44e8d2ec593c68d71baa"
+        "bytes": 46178,
+        "sha256": "9e19b9d2d78ff431b2005b1925313a2412e3a41ad12f562208122aaef6efd33f"
       }
     },
     "agent-home": {
@@ -119,36 +119,36 @@
         "file": "shots/agent-home/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 12206,
-        "sha256": "282b9c7b22803a3607f217b2c641418f129598a02126c873758e7d61793640e9"
+        "bytes": 12858,
+        "sha256": "eb1ac294046493847412df17f5850cfba7e4ae76586685693277a92e17175249"
       },
       "desktop": {
         "file": "shots/agent-home/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 29342,
-        "sha256": "e16fff88883f55ce07d2b4acdf29ee8afb32f75ecc1cdf884467ebc642a9df9a"
+        "bytes": 29196,
+        "sha256": "6035729c91fe84b34a22b1482c3014e11d947c62976415e511c9beeee973dcc9"
       },
       "ios": {
         "file": "shots/agent-home/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 31994,
-        "sha256": "424ab8cd89d48bdbc93ea48290e0ae5fa4bd8c835eff243a165d28e93528d63b"
+        "bytes": 29298,
+        "sha256": "5ae198c0ec9bbbfdd323b360e1564d6fe89827728e039b7559f309c4f286f612"
       },
       "web": {
         "file": "shots/agent-home/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 32876,
-        "sha256": "0fe97d079afd62176f7cf218e11dd75bfda37b3212ada7e9cbfcbf7b3b360134"
+        "bytes": 33108,
+        "sha256": "236e5f8ea137f5da6bd9eaae48392cd9084f23800dc6b70e7335b788e265730f"
       },
       "web-mobile": {
         "file": "shots/agent-home/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 30486,
-        "sha256": "001424c8cd6539d24355d8089396409e91d99c1113b359370a61600b8c67c7d4"
+        "bytes": 30754,
+        "sha256": "f7b1df3ea9c57dfb7cc7171bdda8c1243e17ba84327206937ee587aa8f8d0244"
       }
     },
     "agents": {
@@ -2766,8 +2766,8 @@
         "file": "shots/guide/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 68584,
-        "sha256": "f034e499e76815733db9ef21d6655cea2e071c3af679e5c7109a57662c97d9a6"
+        "bytes": 51310,
+        "sha256": "4f79806a043133578fca3f8d3d7ac972efbb64304096032c9aa5822f0b92b598"
       },
       "ios": {
         "file": "shots/guide/ios.webp",
@@ -2780,15 +2780,15 @@
         "file": "shots/guide/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 58200,
-        "sha256": "5e626e753706b8dad9bd344333d14f7d5b8425376b7d90f1cae114943000cd5d"
+        "bytes": 58280,
+        "sha256": "633a995ddb1af4247d2d6ecd238377fab1294000416103a67b866c3bb69f39ea"
       },
       "web-mobile": {
         "file": "shots/guide/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 42440,
-        "sha256": "37e0f8f941da547a4fc29d9f3a5d631e54617b9b8d337db9ab4c8b8f27dd654b"
+        "bytes": 42854,
+        "sha256": "3e97e808771c5b062eae32e810f7abfd5326b4110892183b2ba97c149342d854"
       }
     },
     "guide-section": {
@@ -2967,8 +2967,8 @@
         "file": "shots/issue-detail/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 71556,
-        "sha256": "6db6710a03a5ad5d89b71559d4594fe13d487ca745a3328801d5c51cfd0959b0"
+        "bytes": 72894,
+        "sha256": "8f25d0aa4927a5e2a661ff3fb1ca3d17b073025b692fedaab98332abe79bbabb"
       },
       "ios": {
         "file": "shots/issue-detail/ios.webp",
@@ -2981,15 +2981,15 @@
         "file": "shots/issue-detail/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 81498,
-        "sha256": "f7d935b93f86f30bf041eacf6d107011dee7416fc2666064224ac10f4e78ef65"
+        "bytes": 81112,
+        "sha256": "8f0cf9c4e6df7e28df2bfb74ee24c8f79132ffa444d6aa9960455e4ac1dc35b2"
       },
       "web-mobile": {
         "file": "shots/issue-detail/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 67852,
-        "sha256": "1f2da06d6ca1a44629e59e05c03c840744609cdfb92e5400098245fc05c80af2"
+        "bytes": 67880,
+        "sha256": "88af47370b9ccfe82c6454c70cc1d02a4289e1422744e5a66223929305dfe90f"
       }
     },
     "issue-properties": {
@@ -3422,22 +3422,22 @@
         "file": "shots/session/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 34952,
-        "sha256": "923ec0c3c8a65e9a718380d887cef386e11a0622a04862b91b2203a1082b4243"
+        "bytes": 78180,
+        "sha256": "5b4e163e609cffc98c5470c207008977c203b1193aa5bc234d7aaccd5bb5b43d"
       },
       "web": {
         "file": "shots/session/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 68442,
-        "sha256": "f4e06119ead1bec4cc71f52636d3ada2f72cf4eca0583289cc87b07abaa48c0b"
+        "bytes": 67714,
+        "sha256": "3dfabcbd90e7ec46e9fd0075b319c9b1b62ca821a8dff244e3d6008110e23167"
       },
       "web-mobile": {
         "file": "shots/session/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 100006,
-        "sha256": "557f1c10da6ace52a5d7343d37d17939255dc10f6e98a8dc2ff1528f3b812f1d"
+        "bytes": 94780,
+        "sha256": "e23f53c43cfd9b33b27e291bdb1f8f5e1a94eee659967aeff964481a66eebeb5"
       }
     },
     "session-row": {
@@ -3810,15 +3810,15 @@
         "file": "shots/settings-team-agent/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 29320,
-        "sha256": "7ca0b578e8c462958a510baf2e91ab0ce5bf0c510672d8eea9342104dfe741a0"
+        "bytes": 28768,
+        "sha256": "8ec7e6fbc0bd42815554c360b19a35f05aeba3e7cb223c9fd11a1ff4d66dda8d"
       },
       "desktop": {
         "file": "shots/settings-team-agent/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33248,
-        "sha256": "af63ac26bed2e53ebefb06f4a16805610bc3215df2c9442a210584ec14bdacb3"
+        "bytes": 33538,
+        "sha256": "d9472d6bb8e8dec72e221cafb4255234ec98716465fe962532a14639894ca000"
       },
       "ios": {
         "file": "shots/settings-team-agent/ios.webp",
@@ -3831,15 +3831,15 @@
         "file": "shots/settings-team-agent/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 42598,
-        "sha256": "7fd665e632280d126a293bea3550c6af6bd51e312841684fb51c062c1db39b42"
+        "bytes": 41812,
+        "sha256": "7dbad9b4117b7276a238dfe0dd08d699f9d62c9b627c8030814e0d9cf81a621b"
       },
       "web-mobile": {
         "file": "shots/settings-team-agent/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 39994,
-        "sha256": "108e4d8829f2af9a5cedd23049f93d6476286380151ab07c4f0e3a7536ac4303"
+        "bytes": 40080,
+        "sha256": "fe2e454584d5033d3632ea81ccfb95619c0deb10708580929a38ffed6e8e8986"
       }
     },
     "settings-tools": {
@@ -3943,8 +3943,8 @@
         "file": "shots/steering/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 59048,
-        "sha256": "f38d0d33f62b367f0bb9a1fabae42e99ea31abd779430723a9433a8dfd0fb4bd"
+        "bytes": 78076,
+        "sha256": "037d3412380ff96f50d73f64dea93564a5ffb3b13036d585c84eb802b4ce890e"
       },
       "ios": {
         "file": "shots/steering/ios.webp",
@@ -3957,15 +3957,15 @@
         "file": "shots/steering/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 68416,
-        "sha256": "35d07ea372ad1666d1ec21b391834b6e7d9869273a2c922177b21d2af9d924d5"
+        "bytes": 67538,
+        "sha256": "c4423790d8098cd9c9994d2cc8c90796ebc119be17b62df7d33a504ab0c7a89d"
       },
       "web-mobile": {
         "file": "shots/steering/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 100006,
-        "sha256": "557f1c10da6ace52a5d7343d37d17939255dc10f6e98a8dc2ff1528f3b812f1d"
+        "bytes": 94780,
+        "sha256": "e23f53c43cfd9b33b27e291bdb1f8f5e1a94eee659967aeff964481a66eebeb5"
       }
     },
     "support-reporter": {
@@ -3998,15 +3998,15 @@
         "file": "shots/thread/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 69962,
-        "sha256": "39dddc4c0eaf1ffb9452fd744424300e0c3f2f45e020316135bc5ce0746ad33a"
+        "bytes": 73720,
+        "sha256": "4f69eed9bf1e703ef11fb5930d11dc50788da71eb07edfd456fb06995d1c5306"
       },
       "desktop": {
         "file": "shots/thread/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 85816,
-        "sha256": "8d2ae71605817b11d9c26a20d395154bbe1070a4bb9f190e1306d6f2259907ef"
+        "bytes": 77464,
+        "sha256": "9ca0251e259518b63c563a3909da8eb15cef52bf90f975acc6e7a50c17fe9b92"
       },
       "ios": {
         "file": "shots/thread/ios.webp",
@@ -4019,15 +4019,15 @@
         "file": "shots/thread/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 86172,
-        "sha256": "38b1363704359d6970f7ae1c3ce8bd2849404422499d4b015a3d70d129e707a6"
+        "bytes": 86566,
+        "sha256": "c1dc4a9d81e99c840a0657e2d98ca9a8dcfe5773b81767f9684f8bb6ad5dfa94"
       },
       "web-mobile": {
         "file": "shots/thread/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 79660,
-        "sha256": "a4a154d3083fb62b9cc4565ee27f4af29b5ed1de747df09044daec7ba08fe8cd"
+        "bytes": 78960,
+        "sha256": "a4a93d6627fb77db91e8e46cae938083594488464770cd029065580a4d8bd54f"
       }
     },
     "threads": {
@@ -4042,29 +4042,29 @@
         "file": "shots/threads/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 37472,
-        "sha256": "d210cde3b88a72c9f3dfd5de9593830b0bd71b9e6abec4b3289445cd25c17e6a"
+        "bytes": 38764,
+        "sha256": "4a5ae8349579810710958f06ee7acf539b5e8e976fd218725fabffaca324f164"
       },
       "ios": {
         "file": "shots/threads/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 37118,
-        "sha256": "ca43fe5ab1fec2dbb7c8aba2e95e411d224576ef29630b981f8467af88416169"
+        "bytes": 36818,
+        "sha256": "0c2446f85b2af171011752425ce3968e23a36da7c4062e08a862077f9ee33d75"
       },
       "web": {
         "file": "shots/threads/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 44874,
-        "sha256": "d558f1bac321abb6e31fe480945cc7d06d4dd1a025ff1c7fa435747e2fb63b19"
+        "bytes": 45354,
+        "sha256": "05d94ba3368c5697575de0219ffdba4d6db4ad9b62a6cf24997faed6372d3b92"
       },
       "web-mobile": {
         "file": "shots/threads/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 37774,
-        "sha256": "01d4f96c74c0b48a78d99b913a377a7552628f5a2e858ecf40af79f66b54daa2"
+        "bytes": 37498,
+        "sha256": "9dcb3d8b7bd419704afbd6e03b644b9ea13d052c151da7a41d8863b378b35a05"
       }
     },
     "work-card": {

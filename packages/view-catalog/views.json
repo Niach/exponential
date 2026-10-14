@@ -1236,15 +1236,15 @@
         "web": "`$guideThreadId` resolves to DEMO_GUIDE_THREAD_ID (apps/web/scripts/screenshot-demo.ts): the APP-15 thread with two seeded Guide entries. The anchor is the second entry's topic.",
         "ios": "EXP-1303: the walk opens APP-15's thread (web's) from its Threads chip on the Guide tab, under THE Merge stack capsule (APP-15's PR is the bottom of APP-14's stack).",
         "android": "EXP-1303: as iOS, APP-15's thread from its Threads chip on the Guide tab, under the Merge stack capsule.",
-        "desktop": "EXP-1251: the issue tab's Guide face (`issue:<id>?face=guide`; the legacy results/diff/changes words land here too); `EXP_DEV_TOOL=reviews` pins the Reviews origin the way a Reviews row opens it."
+        "desktop": "EXP-1305: APP-15's thread (web's) opened on its Guide tab: `thread:$guideThread` + `EXP_DEV_THREAD_CHILD=guide`."
       },
       "desktop": {
         "drive": {
           "kind": "screen",
-          "value": "issue:$APP-14?face=guide"
+          "value": "thread:$guideThread"
         },
         "env": {
-          "EXP_DEV_TOOL": "reviews"
+          "EXP_DEV_THREAD_CHILD": "guide"
         }
       }
     },
