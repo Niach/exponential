@@ -795,16 +795,20 @@ fn thread_chip_content(root_id: &str, cx: &App) -> ChipContent {
 }
 
 /// EXP-1294 — a session chip (the tab of its thread, showing the session):
-/// the root's state mark, its first linked issue's identifier in the mono
-/// slot and the thread's title.
+/// the root's state mark and the thread's title. EXP-1316: a THREAD's
+/// session reads the plain thread title (the title names the issue
+/// already); an agent's keeps the identifier slot.
 fn session_chip_content(session_id: &str, cx: &App) -> ChipContent {
     let Some(root) = crate::session_data::root_of(session_id, cx) else {
         return loading_chip(cx);
     };
+    let identifier = (!root.is_thread())
+        .then(|| crate::session_data::first_issue_identifier(&root.id, cx))
+        .flatten()
+        .map(gpui::SharedString::from);
     ChipContent {
         lead: state_lead(&root, cx),
-        identifier: crate::session_data::first_issue_identifier(&root.id, cx)
-            .map(gpui::SharedString::from),
+        identifier,
         title: Some(screen_title(
             &Screen::Thread {
                 session_id: root.id.clone(),
