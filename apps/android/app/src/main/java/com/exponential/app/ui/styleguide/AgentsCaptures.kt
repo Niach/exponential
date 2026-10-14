@@ -96,9 +96,9 @@ private fun Title(text: String) {
 }
 
 private val SampleAgents = listOf(
-    SessionTree.AgentRow("agent-triage", "team-acme", "Triage", "bug", "#a78bfa", busy = false, needsYou = true),
-    SessionTree.AgentRow("agent-designer", "team-acme", "Designer", "palette", "#f472b6", busy = false, needsYou = false),
-    SessionTree.AgentRow("agent-release", "team-acme", "Release", "package", "#4ade80", busy = true, needsYou = false),
+    SessionTree.AgentRow("agent-triage", "team-acme", "Triage", "bug", "#a855f7", busy = false, needsYou = false),
+    SessionTree.AgentRow("agent-designer", "team-acme", "Designer", "palette", "#ec4899", busy = false, needsYou = false),
+    SessionTree.AgentRow("agent-release", "team-acme", "Release", "package", "#22c55e", busy = false, needsYou = false),
 )
 
 @Composable
@@ -118,7 +118,7 @@ private fun AgentPageSample() {
         onNameCommit = {},
         icon = "bug",
         onIconChange = {},
-        color = "#a78bfa",
+        color = "#a855f7",
         onColorChange = {},
         devices = devices,
         deviceId = "dev-build",
@@ -134,7 +134,7 @@ private fun AgentPageSample() {
         onEditTrigger = {},
         onAddTrigger = {},
         instructions = "Look after the boards: merge duplicates, add labels and priorities, " +
-            "start a session for anything that needs code.",
+            "start a thread for anything that needs code.",
         instructionsLoading = false,
         onInstructionsChange = {},
         onInstructionsCommit = {},

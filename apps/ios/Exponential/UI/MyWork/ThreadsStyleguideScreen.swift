@@ -114,7 +114,7 @@ struct ThreadsStyleguideScreen: View {
     private static let agents: [AgentRow] = [
         AgentRow(
             sessionId: "agent-triage", teamId: teamId, name: "Triage", icon: "bug",
-            color: "#8b5cf6", busy: false, needsYou: true
+            color: "#a855f7", busy: false, needsYou: false
         ),
         AgentRow(
             sessionId: "agent-designer", teamId: teamId, name: "Designer", icon: "palette",
@@ -137,23 +137,29 @@ struct ThreadsStyleguideScreen: View {
         )
     }
 
+    /// EXP-1302: the seed's thread roots (seedSessionTree in
+    /// apps/web/scripts/seed-screenshots.ts), so this list reads like the web
+    /// and desktop `threads` shots.
     private static let groups: [ThreadsListGroup] = [
         ThreadsListGroup(key: .needsYou, title: ThreadsListGroup.Key.needsYou.title, rows: [
-            row("t-labels", "Batch-edit labels on the board", needsYou: true),
+            row("t-cold", "Reduce cold start below 800 ms", needsYou: true),
         ]),
         ThreadsListGroup(key: .running, title: ThreadsListGroup.Key.running.title, rows: [
+            row("t-offline", "Spike: offline queue", isPrivate: true),
+            row("t-reports", "Sort today's widget reports", busy: true),
             row("t-group", "Group board issues by assignee", busy: true),
-            row("t-offline", "Spike: offline queue", isPrivate: true, busy: true),
         ]),
         ThreadsListGroup(key: .recent, title: ThreadsListGroup.Key.recent.title, rows: [
-            row("t-cold", "Reduce cold start below 800 ms"),
-            row("t-keyboard", "iOS keyboard and model picker"),
+            row("t-labels", "Batch-edit labels from the board"),
+            row("t-scroll", "Fix flaky scroll restore on the issue list"),
         ]),
     ]
 
     private static let identifiers: [String: String] = [
-        "t-labels": "APP-15",
-        "t-group": "APP-14",
         "t-cold": "APP-5",
+        "t-reports": "FB-9",
+        "t-group": "APP-14",
+        "t-labels": "APP-15",
+        "t-scroll": "APP-16",
     ]
 }

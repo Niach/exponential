@@ -202,7 +202,7 @@ struct ThreadStyleguideScreen: View {
         let root = SessionEntity(
             id: "a1", teamId: teamId, kind: DomainContract.sessionKindAgent, userId: me,
             deviceId: "d-macbook", cli: "claude", status: DomainContract.sessionStatusIdle,
-            startedAt: stamp(start), shared: true, name: "Triage", icon: "bug", color: "#8b5cf6",
+            startedAt: stamp(start), shared: true, name: "Triage", icon: "bug", color: "#a855f7",
             createdAt: stamp(start), updatedAt: stamp(now)
         )
         let spawned = SessionEntity(

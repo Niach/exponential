@@ -366,11 +366,9 @@ class StyleguideScreenshotsTest {
         // accessibility id.
         composeRule.onAllNodes(hasText(SHOWCASE_ISSUE_TITLE)).onFirst().performClick()
         flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
-        // The face strip as the store lane's 2_issue-detail shows it: the
-        // live run's Run tab, then the Guide tab its diff brings (EXP-875;
-        // the screen dials the diff from the Issue face too).
-        flow.waitFor(hasTestTag("work-face-run"), SYNC_TIMEOUT)
-        flow.waitForOptional(hasTestTag("work-face-guide"), SYNC_TIMEOUT)
+        // EXP-1302: Threads v2 dropped the Work screen's face strip (the
+        // issue names its threads instead), so the page has no Run tab to
+        // wait for.
         flow.waitFor(hasTestTag("comment-thread-header"), SYNC_TIMEOUT)
         flow.waitFor(hasText(SHOWCASE_COMMENT_FRAGMENT, substring = true), SYNC_TIMEOUT)
         composeRule.onNode(hasTestTag("comment-thread-header")).performScrollTo()
@@ -567,6 +565,10 @@ class StyleguideScreenshotsTest {
         // EXP-694: the sheet autosaves and carries no bottom button at all —
         // back (like a swipe down) dismisses it, same as the start sheet.
         Espresso.pressBack()
+        // EXP-1302: the sheet's first Back can land while it is still
+        // animating in and be swallowed; a second one closes it.
+        flow.settle()
+        if (flow.exists(hasTestTag("device-settings-sheet"))) Espresso.pressBack()
         flow.waitForGone(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle(longer = true)
 
