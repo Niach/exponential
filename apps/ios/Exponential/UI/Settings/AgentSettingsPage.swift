@@ -160,18 +160,13 @@ final class AgentSettingsDraft {
         return options.filter { $0.agent == cli }
     }
 
-    /// What the Account row names: the pinned login, else that agent's
-    /// login, else the machine's last used one.
+    /// What the Account row names (`AgentSettings.agentAccountValue`,
+    /// fixture-locked ×4): the pinned login (of the agent's CLI), else that
+    /// CLI's first login, else the machine's last used one, else the first.
+    /// Only REPORTED logins count (a blank-id fallback row is none), so a
+    /// machine that reports none reads `Last used`.
     func selectedAccount(in options: [AccountOption]) -> AccountOption? {
-        if let account, let match = options.first(where: {
-            $0.id == account && (cli == nil || $0.agent == cli)
-        }) {
-            return match
-        }
-        if let cli, let match = options.first(where: { $0.agent == cli }) {
-            return match
-        }
-        return AccountOptions.lastUsed(options)
+        AgentSettings.agentAccountValue(options: options.filter { !$0.id.isEmpty }, account: account, cli: cli)
     }
 
     func selectAccount(_ option: AccountOption) {
@@ -627,35 +622,55 @@ struct AgentSettingsForm: View {
     }
 
     /// The shared `AccountPicker` over the picked machine's logins; a pick
-    /// names the agent (`cli`) too.
+    /// names the agent (`cli`) too. EXP-1306: the value reads like the
+    /// composer chip (the agent's brand mark + the login's email) and the row
+    /// like the Device row beside it. A lone login is nothing to pick: the
+    /// same line without the chevron, outside the picker (which disables a
+    /// lone login, and a disabled Form row dims). No login reported = `Last
+    /// used`, muted.
+    @ViewBuilder
     private var accountRow: some View {
         let options = AgentSettingsDraft.accountOptions(on: device, cli: draft.lockedCli)
         let current = draft.selectedAccount(in: options)
-        return AccountPicker(
-            options: options,
-            value: current?.key,
-            onChange: { key in
-                guard let picked = options.first(where: { $0.key == key }) else { return }
-                draft.selectAccount(picked)
-            },
-            mark: { AgentBrandMark.image($0) },
-            trigger: {
-                HStack(spacing: 8) {
-                    Text(label("account"))
-                        .foregroundStyle(.white.opacity(TextOpacity.primary))
-                    Spacer(minLength: 8)
-                    AccountPickerTriggerLabel(
-                        option: current,
-                        mark: current.flatMap { AgentBrandMark.image($0.agent) },
-                        chevron: options.count > 1,
-                        style: .rowValue
-                    )
-                }
+        if let current, options.count > 1 {
+            AccountPicker(
+                options: options,
+                value: current.key,
+                onChange: { key in
+                    guard let picked = options.first(where: { $0.key == key }) else { return }
+                    draft.selectAccount(picked)
+                },
+                mark: { AgentBrandMark.image($0) },
+                trigger: { accountRowLabel(current, chevron: true) }
+            )
+            .disabled(!canEdit)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("agent-account-row")
+        } else {
+            accountRowLabel(current, chevron: false)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("agent-account-row")
+        }
+    }
+
+    private func accountRowLabel(_ current: AccountOption?, chevron: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(label("account"))
+                .foregroundStyle(.white.opacity(TextOpacity.primary))
+            Spacer(minLength: 8)
+            if let current {
+                AccountPickerTriggerLabel(
+                    option: current,
+                    mark: AgentBrandMark.image(current.agent),
+                    chevron: chevron,
+                    style: .rowValue
+                )
+            } else {
+                Text(AgentSettings.Copy.accountLastUsed)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
             }
-        )
-        .disabled(!canEdit)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("agent-account-row")
+        }
     }
 
     /// One row per trigger (its summary + switch); none = the agent only

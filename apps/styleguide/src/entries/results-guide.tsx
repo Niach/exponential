@@ -3,8 +3,8 @@ import {
   conceptIcon,
   GlassSectionHeader,
   Pill,
-  PrRow,
   SessionResultsView,
+  StackRail,
   type SessionResultGroup,
 } from "@exp/ui"
 
@@ -16,18 +16,18 @@ import type { StyleguideEntry } from "./types.ts"
 // its text, ONE `Changes · N files · +A −D ›` row (the files it names, by
 // path or rename source) and its tiles; the file no topic names lands in the
 // unnumbered `Other changes` band and `Show complete diff` closes the page.
-// EXP-1293: a thread's Guide tab leads with its pull requests
-// (`pull_requests` rows of the root): one PR row each (`#number`, the title,
-// the state word), the open one carrying THE merge pill (`Merge stack` while
-// it sits in an open stack); the picked PR's files feed the Changes rows.
+// EXP-1306: a thread's Guide speaks for ONE pull request (`guidePullRequest`,
+// session-thread.json ×4): in an open stack the `Stack` band + THE StackRail
+// lead it (that PR = the current wash), and THE white bottom Merge capsule
+// closes it (`Merge stack` on an open-stack member). No PR rows.
 
-const PrOpenIcon = conceptIcon(`pr-open`)
+const PrStackIcon = conceptIcon(`pr-stack`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 
-const PRS = [
-  { key: `p45`, number: 45, title: `Topic screen error state`, state: `open` },
-  { key: `p41`, number: 41, title: `Topic repository retries`, state: `merged` },
-] as const
+const STACK = [
+  { key: `app-14`, identifier: `APP-14`, title: `Group board issues by assignee` },
+  { key: `app-13`, identifier: `APP-13`, title: `Topic screen error state`, current: true },
+]
 
 const SHOT = `data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900"><rect width="1440" height="900" fill="#3f3f46"/></svg>`
@@ -91,11 +91,11 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1154`,
   title: `Guide`,
-  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). A thread's Guide tab leads with its pull requests (the root's \`pull_requests\` rows, open first: \`#number\`, the title, the state word, the GitHub link, THE merge pill on an open one reading \`Merge stack\` while it sits in an open stack, Close in its menu); the picked PR's files (\`pullRequests.files\`) feed the Changes rows. The \`Summary\` topic leads the report as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). The Guide is the ROOT's (\`sessions.guide\`).`,
+  blurb: `The Guide face (Changes + Results merged, EXP-1251), one shape ×4 (fixture \`session-results.json\` \`files\`, \`guide\` + \`coverage\`). A thread's Guide speaks for ONE pull request (\`guidePullRequest\`: the newest open, else the newest merged; fixture \`session-thread.json\` ×4): when it sits in a linear open stack the \`Stack\` band + THE StackRail lead the Guide (top first, that PR = the current wash, down to its base branch; a row opens that PR's thread, a hovered row offers Merge through here), and THE white bottom Merge capsule closes the tab while it is open (\`Merge stack\` on an open-stack member). No pull-request rows. Its files (\`pullRequests.files\`) feed the Changes rows. The \`Summary\` topic leads the report as a plain paragraph at the reading width, no band, no number; every other topic is the group band with a muted tabular \`01 / 04\` caption in its leading slot (never uppercase), its 2 or 3 sentences, then ONE \`Changes\` row (the \`guide-changes\` glyph, \`N files\` muted, \`+A −D\`, a chevron) over the diff files the topic names by path or rename source; a tap opens that section's diff page. Every diff file no topic names lands in a trailing unnumbered \`Other changes\` band (no report at all: one \`Changes\` band holds the whole diff), and a final hairline \`Show complete diff\` row opens everything. The same Guide is the pull request's body on GitHub (text only). The Guide is the ROOT's (\`sessions.guide\`).`,
   status: {
     web: {
       state: `ok`,
-      symbol: `ThreadGuide: PR rows + GuideBody over SessionResultsView`,
+      symbol: `ThreadGuide: Stack card + GuideBody over SessionResultsView, ThreadGuideMerge`,
       file: `apps/web/src/components/thread/thread-guide.tsx`,
       note: `section page + guideSectionPage: guide-section-diff.tsx; merge: session-merge-button.tsx`,
     },
@@ -122,28 +122,10 @@ export const entry: StyleguideEntry = {
     <div className="flex flex-col">
       <div className="flex flex-col px-7 pt-5 md:px-5">
         <GlassSectionHeader
-          label="Pull requests"
-          leading={<PrOpenIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
+          label="Stack"
+          leading={<PrStackIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />}
         />
-        {PRS.map((pr, index) => (
-          <PrRow
-            key={pr.key}
-            node={pr.state === `open` ? `open` : `base`}
-            identifier={`#${pr.number}`}
-            title={pr.title}
-            word={pr.state === `open` ? null : pr.state}
-            active={index === 0}
-            onClick={() => {}}
-            trailing={
-              pr.state === `open` ? (
-                <Pill size="md" mode="action" primary className="shrink-0">
-                  <PrMergedIcon />
-                  Merge PR
-                </Pill>
-              ) : null
-            }
-          />
-        ))}
+        <StackRail members={STACK} baseBranch="main" onOpen={() => {}} onMergeThrough={() => {}} />
       </div>
       <SessionResultsView
         groups={GROUPS}
@@ -151,6 +133,12 @@ export const entry: StyleguideEntry = {
         onOpenChanges={() => {}}
         attachmentSrc={() => SHOT}
       />
+      <div className="flex justify-center pt-2 pb-4">
+        <Pill size="md" mode="action" primary className="shrink-0">
+          <PrMergedIcon />
+          Merge stack
+        </Pill>
+      </div>
     </div>
   ),
 }

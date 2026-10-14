@@ -101,6 +101,7 @@ import {
   DEMO_PASSWORD,
   DEMO_DUE_DATES,
   DEMO_SERVER_VERSION,
+  demoAgentReport,
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
   DEMO_FEED_QUESTION,
   DEMO_PULL_REQUEST_IDS,
@@ -1792,6 +1793,9 @@ async function main() {
     version: DEMO_SERVER_VERSION,
     agents: [`claude`, `codex`],
     caps: [`actions`, `action-inputs`, `fix-conflicts`, `chat`, `triggers`, `automations`],
+    // EXP-1306: the logins it last reported, so the agents' Account rows read
+    // the login (brand mark + email) like every phone specimen does.
+    agentAccounts: demoAgentReport(hoursAgo(5)).agentAccounts,
     sharedTeamIds: [ws.id],
     lastSeenAt: hoursAgo(5),
     createdAt: daysAgo(45),

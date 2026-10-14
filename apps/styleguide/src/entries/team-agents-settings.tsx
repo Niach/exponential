@@ -60,7 +60,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Agent settings (team settings)`,
-  blurb: `Team settings → Agents: the settings nav lists every team agent like a board (icon in its colour + name, then "New agent", owner-only) and an agent is the board page's layout. Identity is ONE row (icon picker, colour, name; name saves on blur/Enter, the pickers at once), then Device (required: the team's online machines the caller may start on) and, in a second group, Account (optional: the device's last used login) and Schedule (one row per trigger with its switch, "+ Add" opens the trigger editor's WHEN fields; none = "${COPY.noSchedule}"). Then the Instructions card (server-only, loaded on open, saved on blur) and the owner-only destructive Delete. Members read the same page with the controls off.`,
+  blurb: `Team settings → Agents: the settings nav lists every team agent like a board (icon in its colour + name, then "New agent", owner-only) and an agent is the board page's layout. Identity is ONE row (icon picker, colour, name; name saves on blur/Enter, the pickers at once), then Device (required: the team's online machines the caller may start on) and, in a second group, Account (optional: the device's last used login; the value reads exactly like the composer's account chip, the agent's brand mark + the login's email, \`agentAccountValue\` ×4) and Schedule (one row per trigger with its switch, "+ Add" opens the trigger editor's WHEN fields; none = "${COPY.noSchedule}"). Then the Instructions card (server-only, loaded on open, saved on blur) and the owner-only destructive Delete. Members read the same page with the controls off.`,
   status: {
     web: {
       state: `ok`,

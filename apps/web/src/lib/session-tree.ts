@@ -21,6 +21,7 @@ export * from "@exp/domain-contract/session-tree"
 export {
   AGENT_SETTINGS_COPY,
   AGENT_SETTINGS_FIELDS,
+  agentAccountValue,
   triggerSummary,
   validateAgentForm,
   type AgentForm,

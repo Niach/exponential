@@ -4,6 +4,7 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.threads.ThreadListRow
+import com.exponential.app.ui.threads.ThreadRowMeta
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,6 +28,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,15 +71,7 @@ import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuRowId
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.graphicsLayer
 import com.exponential.app.domain.mcpPickValue
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -503,7 +498,7 @@ fun AgentScreen(
     var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
 
-    AgentPageFrame(onBack = onBack) {
+    AgentPageFrame(onBack = onBack, dawn = promptSubject == AgentComposerPrompt.Subject.None) {
             when (steerEnabled) {
                 // Web parity: without the relay nothing here can be started.
                 false -> item(key = "__relay_off__") {
@@ -715,20 +710,7 @@ fun AgentScreen(
                 }
                 null -> Unit
             }
-            if (onBack == null && runningThreads.isNotEmpty()) {
-                item(key = "__home_running__") {
-                    Column(modifier = Modifier.padding(top = 18.dp).testTag("agent-home-running")) {
-                        SectionHeader(SessionTree.ListCopy.GROUPS.getValue(SessionTree.ThreadsGroupKey.Running))
-                        runningThreads.forEach { row ->
-                            ThreadListRow(
-                                row = row,
-                                meta = runningMeta[row.sessionId],
-                                onClick = { onOpenThread(row.sessionId) },
-                            )
-                        }
-                    }
-                }
-            }
+            if (onBack == null) homeRunningBand(runningThreads, runningMeta, onOpenThread)
     }
 
     if (plusMenuOpen) {
@@ -825,25 +807,23 @@ fun AgentScreen(
 }
 
 /**
- * The Agent page's frame: the restored DAWN (FEED-100) — the big Exponential
- * mark, dim, glowing behind the top of the page and fading out toward the
- * composer — under the transparent "Agent" top bar, and the page's one
- * column ([content]) from the top down. Stateless, so the styleguide
- * captures draw the same frame over fake data.
+ * The Agent page's frame: the transparent "Agent" top bar over the page's one
+ * column ([content]) from the top down. EXP-1306 (the approved phone home =
+ * iOS `AgentPageView`): [dawn] leads the column — the restored DAWN
+ * (FEED-100), the big Exponential mark's upper half, dim, fully BELOW the
+ * title — then the composer card + options line, then the Running band.
+ * Stateless, so the styleguide captures draw the same frame over fake data.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AgentPageFrame(
     onBack: (() -> Unit)?,
+    /** The dawn heads the column; false while a picked subject's headline
+     *  does (iOS parity). */
+    dawn: Boolean = true,
     content: LazyListScope.() -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        AgentHomeDawn(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(top = DAWN_TOP.dp),
-        )
+    Box(modifier = Modifier.fillMaxSize().testTag(AgentHome.HOME_TEST_ID)) {
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -860,57 +840,80 @@ internal fun AgentPageFrame(
                     .fillMaxSize()
                     .testTag("agent-page"),
                 // As a tab the floating bar overlays the page: the last row
-                // must sit above the pill, not under it. The top gap lets the
-                // dawn's upper half show above the card.
+                // must sit above the pill, not under it.
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
-                    top = DAWN_TO_CARD.dp,
+                    top = DAWN_TOP.dp,
                     bottom = if (onBack == null) BottomBarInset else 24.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
-                content = content,
-            )
+            ) {
+                if (dawn) {
+                    item(key = "__dawn__") {
+                        // The column's 6dp spacing makes up the rest of the gap.
+                        AgentHomeDawn(modifier = Modifier.padding(bottom = (DAWN_TO_CARD - 6).dp))
+                    }
+                }
+                content()
+            }
         }
     }
 }
 
-/** The dawn's geometry (dp): the mark's diameter, its top under the status
- *  bar, and the gap above the composer column (the card covers the lower half). */
-private const val DAWN_MARK = 168
-private const val DAWN_TOP = 8
-private const val DAWN_TO_CARD = 28
+/**
+ * composer-home.json: the phone home's Running band under the column — my
+ * live OWN threads (needs you first) as THE thread rows (mark, identifier,
+ * title, lock / spinner / amber dot); nothing while nothing runs.
+ */
+internal fun LazyListScope.homeRunningBand(
+    rows: List<SessionTree.ThreadsListRow>,
+    meta: Map<String, ThreadRowMeta>,
+    onOpenThread: (threadId: String) -> Unit,
+) {
+    if (rows.isEmpty()) return
+    item(key = "__home_running__") {
+        Column(modifier = Modifier.padding(top = 18.dp).testTag("agent-home-running")) {
+            SectionHeader(SessionTree.ListCopy.GROUPS.getValue(SessionTree.ThreadsGroupKey.Running))
+            rows.forEach { row ->
+                ThreadListRow(
+                    row = row,
+                    meta = meta[row.sessionId],
+                    onClick = { onOpenThread(row.sessionId) },
+                )
+            }
+        }
+    }
+}
+
+/** The dawn's geometry (dp, iOS `HomeDawn`): the mark's diameter (the dawn
+ *  shows its upper half), the gap under the title, the gap above the card. */
+private const val DAWN_MARK = 160
+private const val DAWN_TOP = 16
+private const val DAWN_TO_CARD = 24
+
+/** The dawn's foreground alpha (iOS `HomeDawn.opacity`). */
+private const val DAWN_ALPHA = 0.05f
 
 /**
  * FEED-100: the dawn — [ExponentialMark] in the foreground colour at a low
- * alpha, its visible upper half fading to nothing toward the card (solid for
- * the top third, transparent at the mark's middle).
+ * alpha, clipped to its upper half (a half-disc standing on the card).
  */
 @Composable
 internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .testTag(AgentHome.HOME_TEST_ID)
-            .graphicsLayer {
-                alpha = 0.09f
-                compositingStrategy = CompositingStrategy.Offscreen
-            }
-            .drawWithContent {
-                drawContent()
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0f to Color.Black,
-                        0.18f to Color.Black,
-                        0.62f to Color.Transparent,
-                    ),
-                    blendMode = BlendMode.DstIn,
-                )
-            },
+            .fillMaxWidth()
+            .height((DAWN_MARK / 2).dp)
+            .clipToBounds(),
+        contentAlignment = Alignment.TopCenter,
     ) {
         ExponentialMark(
             size = DAWN_MARK.dp,
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.testTag(AgentHome.MARK_TEST_ID),
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = DAWN_ALPHA),
+            modifier = Modifier
+                .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                .testTag(AgentHome.MARK_TEST_ID),
         )
     }
 }

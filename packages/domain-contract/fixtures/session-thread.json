@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: the THREAD screen ×4 (a thread IS a root session). Header = the title + ONE tab strip: Conversation · one issue chip per linked issue (session_issues of the ROOT by sortOrder; unsynced issues drop out) · '+' (link/file an issue) · Guide (a dot while the root's guide holds any text or picture); nothing else (no captions, no Stop, no right sidebar). Phones use the strip as the pager. Conversation rows = the root's own session card first (session-card.json, ordinal 1), then the ROOT's messages oldest first (createdAt, ties by id): a card-less row = a message bubble (author user|agent|system, empty bodies skipped; a person's row reads `queued` until the device consumed it); card `session`/`thread_started` = that session's card (ordinal = its place in the tree's creation order; an unsynced target drops out); `question` (question, options, answer, answered = answeredAt set) and `plan` (plan, decision) answer IN the card; `subagent` (title, status); `picture` (attachmentId, width, height, caption; no attachmentId = dropped); `event` = one muted line from `copy.events` ({issue} = the issue's identifier, {pr} = '#<number>'; an unresolvable target or unknown event = dropped); unknown card kinds are dropped. Children's own messages never inline: they show when that session is opened. The composer below = THE session composer box (Composer primitive), placeholder `copy.placeholder`, sending `sessions.send({sessionId: root})` (an ended thread continues server-side in a new child). title = threadTitle: the stored title, else the action name, else the first issue's title, else the first line of the root's first person message (image lines skipped, capped at `titleMax` chars with '…'), else `copy.untitled`; titleDerived = not stored. private = !root.shared (a lock glyph beside the title). live/busy/needsYou aggregate the tree's non-ended sessions. Model = pure `buildSessionThread(input)` (packages/domain-contract/src/session-tree.ts), every mirror replays `cases` comparing the WHOLE expected object.",
+  "$comment": "EXP-1291 Threads v2: the THREAD screen ×4 (a thread IS a root session). Header = the title + ONE tab strip: Conversation · one issue chip per linked issue (session_issues of the ROOT by sortOrder; unsynced issues drop out) · '+' (link/file an issue) · Guide (a dot while the root's guide holds any text or picture); nothing else (no captions, no Stop, no right sidebar). Phones use the strip as the pager. Conversation rows = the root's own session card first (session-card.json, ordinal 1), then the ROOT's messages oldest first (createdAt, ties by id): a card-less row = a message bubble (author user|agent|system, empty bodies skipped; a person's row reads `queued` until the device consumed it); card `session`/`thread_started` = that session's card (ordinal = its place in the tree's creation order; an unsynced target drops out); `question` (question, options, answer, answered = answeredAt set) and `plan` (plan, decision) answer IN the card; `subagent` (title, status); `picture` (attachmentId, width, height, caption; no attachmentId = dropped); `event` = one muted line from `copy.events` ({issue} = the issue's identifier, {pr} = '#<number>'; an unresolvable target or unknown event = dropped); unknown card kinds are dropped. Children's own messages never inline: they show when that session is opened. The composer below = THE session composer box (Composer primitive), placeholder `copy.placeholder`, sending `sessions.send({sessionId: root})` (an ended thread continues server-side in a new child). title = threadTitle: the stored title, else the action name, else the first issue's title, else the first line of the root's first person message (image lines skipped, capped at `titleMax` chars with '…'), else `copy.untitled`; titleDerived = not stored. private = !root.shared (a lock glyph beside the title). live/busy/needsYou aggregate the tree's non-ended sessions. Model = pure `buildSessionThread(input)` (packages/domain-contract/src/session-tree.ts), every mirror replays `cases` comparing the WHOLE expected object. EXP-1306 (owner 2026-10-14): the GUIDE tab ×4 = the root's Guide text over ONE pull request, `guidePullRequest(pullRequests)` (the root's pull_requests; every mirror replays `guidePullRequestCases`): the newest OPEN one (createdAt, ties by the higher number), else the newest MERGED one, else none (a closed PR never counts). When that PR sits in a linear open stack (pr-stack-view.json `stackView` over the repository's pull requests: head = branch, base = prBaseBranch) a `copy.stack` band (the pr-stack glyph, no count) + THE StackRail (top first, the PR's row = the current wash, down to its base branch; a row opens that PR's thread, the hovered/long-pressed row offers Merge through here) leads the Guide; no stack = no block. NO pull-request rows, no inline Merge, no Pull requests band. While the PR is open THE white bottom Merge capsule closes the tab (`testIds.guideMerge`; `Merge stack` on an open-stack member, the one stack confirm). The SESSION view (a session card opens it): while a question or plan card waits on the viewer the CARD takes the composer's place (EXP-820) ×4, the composer leaves and its draft comes back with it: `composerYieldsToCard({live, pendingAsk})` = live AND an unanswered question/plan the viewer may answer; every mirror replays `composerCases`.",
   "copy": {
     "untitled": "Untitled",
     "placeholder": "Reply…",
@@ -13,13 +13,16 @@
       "pr_merged": "Merged PR {pr}",
       "pr_closed": "Closed PR {pr}",
       "session_ended": "Session ended"
-    }
+    },
+    "stack": "Stack"
   },
   "titleMax": 80,
   "testIds": {
     "tabs": "thread-tabs",
     "conversation": "thread-conversation",
-    "composer": "thread-composer"
+    "composer": "thread-composer",
+    "guideStack": "thread-guide-stack",
+    "guideMerge": "thread-guide-merge"
   },
   "cases": [
     {
@@ -869,6 +872,149 @@
         "busy": false,
         "needsYou": false
       }
+    }
+  ],
+  "guidePullRequestCases": [
+    {
+      "name": "no pull request = none",
+      "pullRequests": [],
+      "expected": null
+    },
+    {
+      "name": "the one open pull request",
+      "pullRequests": [
+        {
+          "id": "p1",
+          "number": 54,
+          "state": "open",
+          "createdAt": "2026-10-13T10:00:00.000Z"
+        }
+      ],
+      "expected": "p1"
+    },
+    {
+      "name": "two open: the newest by createdAt",
+      "pullRequests": [
+        {
+          "id": "p2",
+          "number": 60,
+          "state": "open",
+          "createdAt": "2026-10-13T09:00:00.000Z"
+        },
+        {
+          "id": "p1",
+          "number": 54,
+          "state": "open",
+          "createdAt": "2026-10-13T10:00:00.000Z"
+        }
+      ],
+      "expected": "p1"
+    },
+    {
+      "name": "an open one beats a newer merged one",
+      "pullRequests": [
+        {
+          "id": "p1",
+          "number": 54,
+          "state": "open",
+          "createdAt": "2026-10-13T09:00:00.000Z"
+        },
+        {
+          "id": "p2",
+          "number": 55,
+          "state": "merged",
+          "createdAt": "2026-10-13T11:00:00.000Z"
+        }
+      ],
+      "expected": "p1"
+    },
+    {
+      "name": "nothing open: the newest merged, a newer closed never counts",
+      "pullRequests": [
+        {
+          "id": "p1",
+          "number": 54,
+          "state": "merged",
+          "createdAt": "2026-10-13T09:00:00.000Z"
+        },
+        {
+          "id": "p2",
+          "number": 55,
+          "state": "merged",
+          "createdAt": "2026-10-13T10:00:00.000Z"
+        },
+        {
+          "id": "p3",
+          "number": 56,
+          "state": "closed",
+          "createdAt": "2026-10-13T11:00:00.000Z"
+        }
+      ],
+      "expected": "p2"
+    },
+    {
+      "name": "only closed = none",
+      "pullRequests": [
+        {
+          "id": "p1",
+          "number": 54,
+          "state": "closed",
+          "createdAt": "2026-10-13T09:00:00.000Z"
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "a createdAt tie goes to the higher number",
+      "pullRequests": [
+        {
+          "id": "p2",
+          "number": 61,
+          "state": "open",
+          "createdAt": "2026-10-13T10:00:00.000Z"
+        },
+        {
+          "id": "p1",
+          "number": 54,
+          "state": "open",
+          "createdAt": "2026-10-13T10:00:00.000Z"
+        }
+      ],
+      "expected": "p2"
+    }
+  ],
+  "composerCases": [
+    {
+      "name": "a live session with nothing pending keeps its composer",
+      "input": {
+        "live": true,
+        "pendingAsk": false
+      },
+      "expected": false
+    },
+    {
+      "name": "a pending question or plan takes the composer's place",
+      "input": {
+        "live": true,
+        "pendingAsk": true
+      },
+      "expected": true
+    },
+    {
+      "name": "an ended session's stale card never displaces it",
+      "input": {
+        "live": false,
+        "pendingAsk": true
+      },
+      "expected": false
+    },
+    {
+      "name": "an ended session with nothing pending",
+      "input": {
+        "live": false,
+        "pendingAsk": false
+      },
+      "expected": false
     }
   ]
 }

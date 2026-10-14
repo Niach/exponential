@@ -70,6 +70,8 @@ object AgentSettings {
         const val ERROR_NAME_TOO_LONG = "Use at most 64 characters"
         const val ERROR_DEVICE_REQUIRED = "Pick a device"
         const val ERROR_INSTRUCTIONS_TOO_LONG = "Instructions are too long"
+        /** EXP-1306: the Account row with no login reported (muted). */
+        const val ACCOUNT_LAST_USED = "Last used"
     }
 
     const val TEST_ID_LIST = "agents-settings-list"
@@ -146,5 +148,24 @@ object AgentSettings {
             errors.add(FormError(FIELD_INSTRUCTIONS, Copy.ERROR_INSTRUCTIONS_TOO_LONG))
         }
         return errors
+    }
+
+    /** One login the Account row may read ([agentAccountValue]'s input). */
+    data class AccountValueOption(val id: String, val agent: String, val email: String, val isLastUsed: Boolean)
+
+    /**
+     * EXP-1306: what the Account row reads — the picked login's agent mark +
+     * its email, the composer chip's value: the option whose id == the pinned
+     * [account] (and whose agent == [cli] when set), else [cli]'s first, else
+     * the last used one, else the first; null = no login reported (the row
+     * reads [Copy.ACCOUNT_LAST_USED]). Replays `accountValueCases`.
+     */
+    fun agentAccountValue(options: List<AccountValueOption>, account: String?, cli: String?): AccountValueOption? {
+        val pin = account?.takeIf { it.isNotEmpty() }
+        val agent = cli?.takeIf { it.isNotEmpty() }
+        return pin?.let { pinned -> options.firstOrNull { it.id == pinned && (agent == null || it.agent == agent) } }
+            ?: agent?.let { picked -> options.firstOrNull { it.agent == picked } }
+            ?: options.firstOrNull { it.isLastUsed }
+            ?: options.firstOrNull()
     }
 }

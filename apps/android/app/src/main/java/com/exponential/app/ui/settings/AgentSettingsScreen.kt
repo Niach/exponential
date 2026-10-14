@@ -266,6 +266,16 @@ fun AgentSettingsScreen(
     val deviceList = devices.orEmpty()
     val device = deviceList.firstOrNull { it.deviceId == deviceId }
     val accountOptions = remember(device) { accountOptionsFor(device, device?.acpAgents.orEmpty()) }
+    // EXP-1306: the Account row's value = `agentAccountValue` over the pin
+    // (`<cli>:<profile>` while editing, the synced row's cli otherwise).
+    val accountValueKey = remember(accountOptions, accountKey, agent?.cli) {
+        val parsed = accountKey?.let(AccountOptions::parseKey)
+        AgentSettings.agentAccountValue(
+            options = accountOptions.map { AgentSettings.AccountValueOption(it.id, it.agent, it.email, it.isLastUsed) },
+            account = parsed?.id,
+            cli = parsed?.agent ?: agent?.cli,
+        )?.let { "${it.agent}:${it.id}" }
+    }
     val triggers = if (isNew) draftTriggers else syncedTriggers
     val errors = viewModel.validate(name, deviceId, instructions)
     val editable = isOwner
@@ -339,8 +349,7 @@ fun AgentSettingsScreen(
                 }
             },
             accounts = accountOptions.map { it.toPickerAccount() },
-            accountKey = accountKey,
-            defaultAccountKey = AccountOptions.lastUsed(accountOptions)?.key,
+            accountValueKey = accountValueKey,
             onAccountChange = { key ->
                 accountKey = key
                 val parsed = AccountOptions.parseKey(key)
@@ -474,9 +483,9 @@ internal fun AgentSettingsContent(
     deviceId: String?,
     onDeviceChange: (String) -> Unit,
     accounts: List<AccountPickerOption>,
-    accountKey: String?,
-    /** What an unpinned agent runs on (the device's last used login). */
-    defaultAccountKey: String?,
+    /** The option the Account row reads ([AgentSettings.agentAccountValue]'s
+     *  pick, as an option key); null = no login reported. */
+    accountValueKey: String?,
     onAccountChange: (String) -> Unit,
     triggers: List<AgentTrigger>,
     onToggleTrigger: (index: Int, enabled: Boolean) -> Unit,
@@ -496,7 +505,7 @@ internal fun AgentSettingsContent(
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val device = devices.firstOrNull { it.id == deviceId }
-    val account = accounts.firstOrNull { it.key == accountKey } ?: accounts.firstOrNull { it.key == defaultAccountKey }
+    val account = accountValueKey?.let { key -> accounts.firstOrNull { it.key == key } }
 
     Column(
         modifier = modifier
@@ -562,9 +571,12 @@ internal fun AgentSettingsContent(
                 value = account?.key,
                 onChange = onAccountChange,
                 trigger = { open ->
+                    // EXP-1306: the composer chip's value — the brand mark + the
+                    // email; no login reported = `Last used`, muted.
                     PickerValueRow(
                         label = label(AgentSettings.FIELD_ACCOUNT),
-                        value = account?.email ?: "Select",
+                        value = account?.email ?: AgentSettings.Copy.ACCOUNT_LAST_USED,
+                        valueAgent = account?.agent,
                         onClick = open,
                         enabled = editable && accounts.isNotEmpty(),
                         modifier = Modifier.testTag("agent-settings-account"),

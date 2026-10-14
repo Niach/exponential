@@ -17,6 +17,7 @@ import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -148,6 +149,16 @@ class ThreadViewModel @Inject constructor(
     fun isOtherRoot(sessionId: String): Boolean =
         sessionId != rootId && allSessions.value.firstOrNull { it.id == sessionId }?.isRoot == true
     private val allIssues = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }
+
+    /** EXP-1306: every PR ↔ issue link — the Guide stack rail names a PR by
+     *  its representative issue. */
+    val pullRequestIssues: StateFlow<List<PullRequestIssueEntity>> =
+        dbFlow.scopedQuery(emptyList<PullRequestIssueEntity>()) { it.pullRequestIssueDao().observeAll() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Every synced issue (the stack rail's row names). */
+    val syncedIssues: StateFlow<List<IssueEntity>> =
+        allIssues.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** THE thread view (tabs, rows, composer target); null until the root syncs. */
     val view: StateFlow<SessionTree.ThreadView?> = combine(

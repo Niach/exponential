@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: Team settings → Agents ×4, managed exactly like boards. The list = Settings rows (icon + color + name like a board row, then `New agent`); an agent page = the board page layout, `fields` top to bottom: identity (the board form's ONE field: icon picker + color swatch + name), Device (required; the device picker, online devices of the team the caller may start on), Account (the device's account picker, optional = the device's last used login), Schedule (the agent's triggers: one row per trigger reading `triggerSummary`, a toggle per row, `+ Add` opens the existing trigger editor; none = the agent only waits for input), Instructions (markdown, server-only: `sessions.getAgent`, placeholder `copy.instructionsPlaceholder`), Delete (owner-only, confirms with `copy.deleteConfirm`). Owner-only controls are hidden from members (they read). Save = `sessions.send({teamId, deviceId, account, agent})` for a new agent, `sessions.updateAgent` after. triggerSummary(trigger) (TS reference packages/domain-contract/src/agent-settings.ts; mirrors desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt) replays `summaryCases`: schedule daily = 'Daily at HH:MM', weekly = 'Weekly on <weekday> at HH:MM' (weekday 1 = Monday … 7 = Sunday), monthly = 'Monthly on day <n> at HH:MM' (minuteOfDay → zero-padded 24h wall clock, device-local); event = `copy.events[event]`; a disabled trigger appends ' · Paused'. validateAgentForm(form) replays `validationCases`: errors keyed by field, in field order: name blank (after trim) → copy.errors.nameRequired, over agentNameMax (contract sessionsSend) → copy.errors.nameTooLong, no device → copy.errors.deviceRequired, instructions over agentInstructionsMaxBytes UTF-8 bytes → copy.errors.instructionsTooLong; [] = valid.",
+  "$comment": "EXP-1291 Threads v2: Team settings → Agents ×4, managed exactly like boards. The list = Settings rows (icon + color + name like a board row, then `New agent`); an agent page = the board page layout, `fields` top to bottom: identity (the board form's ONE field: icon picker + color swatch + name), Device (required; the device picker, online devices of the team the caller may start on), Account (the device's account picker, optional = the device's last used login; EXP-1306: the row's VALUE reads exactly like the composer's account picker chip = the picked login's agent brand mark + its email (`options` = the logins the device reports, `accountName` ladder; the agent-named stand-in row a profile-less device gets in the composer never counts), never the agent's name alone and never dimmed while editable; `agentAccountValue({options, account, cli})` replays `accountValueCases`: the option whose id == the pinned `account` (and whose agent == `cli` when set), else `cli`'s first option, else the last used option (isLastUsed), else the first; none = null and the row reads `copy.accountLastUsed` muted), Schedule (the agent's triggers: one row per trigger reading `triggerSummary`, a toggle per row, `+ Add` opens the existing trigger editor; none = the agent only waits for input), Instructions (markdown, server-only: `sessions.getAgent`, placeholder `copy.instructionsPlaceholder`), Delete (owner-only, confirms with `copy.deleteConfirm`). Owner-only controls are hidden from members (they read). Save = `sessions.send({teamId, deviceId, account, agent})` for a new agent, `sessions.updateAgent` after. triggerSummary(trigger) (TS reference packages/domain-contract/src/agent-settings.ts; mirrors desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt) replays `summaryCases`: schedule daily = 'Daily at HH:MM', weekly = 'Weekly on <weekday> at HH:MM' (weekday 1 = Monday … 7 = Sunday), monthly = 'Monthly on day <n> at HH:MM' (minuteOfDay → zero-padded 24h wall clock, device-local); event = `copy.events[event]`; a disabled trigger appends ' · Paused'. validateAgentForm(form) replays `validationCases`: errors keyed by field, in field order: name blank (after trim) → copy.errors.nameRequired, over agentNameMax (contract sessionsSend) → copy.errors.nameTooLong, no device → copy.errors.deviceRequired, instructions over agentInstructionsMaxBytes UTF-8 bytes → copy.errors.instructionsTooLong; [] = valid.",
   "fields": [
     {
       "key": "identity",
@@ -17,7 +17,8 @@
       "key": "account",
       "label": "Account",
       "control": "account-picker",
-      "required": false
+      "required": false,
+      "value": "agent-mark-email"
     },
     {
       "key": "schedule",
@@ -76,7 +77,8 @@
       "nameTooLong": "Use at most 64 characters",
       "deviceRequired": "Pick a device",
       "instructionsTooLong": "Instructions are too long"
-    }
+    },
+    "accountLastUsed": "Last used"
   },
   "testIds": {
     "list": "agents-settings-list",
@@ -210,6 +212,166 @@
           "message": "Instructions are too long"
         }
       ]
+    }
+  ],
+  "accountValueCases": [
+    {
+      "name": "the pinned login",
+      "input": {
+        "options": [
+          {
+            "id": "p-demo",
+            "agent": "claude",
+            "email": "demo@exponential.at",
+            "isLastUsed": true
+          },
+          {
+            "id": "p-work",
+            "agent": "claude",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          },
+          {
+            "id": "p-codex",
+            "agent": "codex",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          }
+        ],
+        "account": "p-work",
+        "cli": "claude"
+      },
+      "expected": {
+        "agent": "claude",
+        "email": "alex@acme.dev"
+      }
+    },
+    {
+      "name": "a pin under another agent falls to that agent's first login",
+      "input": {
+        "options": [
+          {
+            "id": "p-demo",
+            "agent": "claude",
+            "email": "demo@exponential.at",
+            "isLastUsed": true
+          },
+          {
+            "id": "p-work",
+            "agent": "claude",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          },
+          {
+            "id": "p-codex",
+            "agent": "codex",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          }
+        ],
+        "account": "p-work",
+        "cli": "codex"
+      },
+      "expected": {
+        "agent": "codex",
+        "email": "alex@acme.dev"
+      }
+    },
+    {
+      "name": "no pin = the last used login",
+      "input": {
+        "options": [
+          {
+            "id": "p-demo",
+            "agent": "claude",
+            "email": "demo@exponential.at",
+            "isLastUsed": true
+          },
+          {
+            "id": "p-work",
+            "agent": "claude",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          },
+          {
+            "id": "p-codex",
+            "agent": "codex",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          }
+        ],
+        "account": null,
+        "cli": null
+      },
+      "expected": {
+        "agent": "claude",
+        "email": "demo@exponential.at"
+      }
+    },
+    {
+      "name": "a pin the machine no longer reports = the last used login",
+      "input": {
+        "options": [
+          {
+            "id": "p-demo",
+            "agent": "claude",
+            "email": "demo@exponential.at",
+            "isLastUsed": true
+          },
+          {
+            "id": "p-work",
+            "agent": "claude",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          },
+          {
+            "id": "p-codex",
+            "agent": "codex",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          }
+        ],
+        "account": "p-gone",
+        "cli": null
+      },
+      "expected": {
+        "agent": "claude",
+        "email": "demo@exponential.at"
+      }
+    },
+    {
+      "name": "nothing marked last used = the first login",
+      "input": {
+        "options": [
+          {
+            "id": "p-codex",
+            "agent": "codex",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          },
+          {
+            "id": "p-work",
+            "agent": "claude",
+            "email": "alex@acme.dev",
+            "isLastUsed": false
+          }
+        ],
+        "account": null,
+        "cli": null
+      },
+      "expected": {
+        "agent": "codex",
+        "email": "alex@acme.dev"
+      }
+    },
+    {
+      "name": "no login reported = none (the row reads Last used)",
+      "input": {
+        "options": [],
+        "account": "p-demo",
+        "cli": "claude"
+      },
+      "expected": null
     }
   ]
 }

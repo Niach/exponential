@@ -74,19 +74,54 @@ struct ThreadRows: Sendable {
         return "Message \(name)"
     }
 
-    /// The PR the Guide counts and merges: the newest open one, else the
-    /// newest merged, else none.
+    /// EXP-1306: the stack rail's names — per PR id of the Guide PR's open
+    /// stack the issues it closes, and those issues (a member may sit in
+    /// another thread, so `pullRequestIssueIds`/`issues` miss it).
+    var stackIssueIds: [String: [String]] = [:]
+    var stackIssues: [IssueEntity] = []
+
+    /// The PR the Guide counts and merges (`SessionTree.guidePullRequest`,
+    /// fixture-locked ×4): the newest open one, else the newest merged, else
+    /// none.
     var guidePullRequest: PullRequestEntity? {
-        pullRequests.last { $0.isOpen }
-            ?? pullRequests.last { $0.state == DomainContract.prStateMerged }
+        SessionTree.guidePullRequest(pullRequests)
+    }
+
+    /// The open-stack walk's pool: the team's PRs plus this thread's.
+    private var stackPool: [PullRequestEntity] {
+        Self.pool(team: teamPullRequests, thread: pullRequests)
+    }
+
+    private static func pool(team: [PullRequestEntity], thread: [PullRequestEntity]) -> [PullRequestEntity] {
+        team + thread.filter { row in !team.contains { $0.id == row.id } }
     }
 
     /// THE `Merge stack` confirm while the Guide's open PR sits in an open
     /// stack (Android `PullRequestStack.stackConfirm`), else nil.
     var guideStackConfirm: PullRequestStack.Confirm? {
         guard let pullRequest = guidePullRequest, pullRequest.isOpen else { return nil }
-        let pool = teamPullRequests + pullRequests.filter { row in !teamPullRequests.contains { $0.id == row.id } }
-        return PullRequestStack.stackConfirm(pullRequest, in: pool)
+        return PullRequestStack.stackConfirm(pullRequest, in: stackPool)
+    }
+
+    /// EXP-1306: the Guide's stack rail (desktop `thread_screen::stack_card`),
+    /// nil unless its open PR sits in a linear open stack of 2+.
+    var guideStackView: PullRequestStack.StackView? {
+        guard let pullRequest = guidePullRequest else { return nil }
+        var issueIds = stackIssueIds
+        issueIds.merge(pullRequestIssueIds) { stack, _ in stack }
+        return PullRequestStack.stackView(
+            pullRequest, in: stackPool, issueIds: issueIds,
+            issues: stackIssues + issues.filter { row in !stackIssues.contains { $0.id == row.id } }
+        )
+    }
+
+    /// A rail member's long press: Merge through here (the stack's ONE
+    /// confirm, landing that member and everything beneath it).
+    func mergeThroughConfirm(pullRequestId: String) -> PullRequestStack.Confirm? {
+        guard let pullRequest = guidePullRequest,
+              let member = stackPool.first(where: { $0.id == pullRequestId })
+        else { return nil }
+        return PullRequestStack.stackConfirm(pullRequest, in: stackPool, through: member)
     }
 
     static func load(db: Database, rootId: String) throws -> ThreadRows? {
@@ -113,6 +148,22 @@ struct ThreadRows: Sendable {
         for pullRequest in pullRequests {
             pullRequestIssueIds[pullRequest.id] = try SessionQueries.issueIds(db: db, pullRequestId: pullRequest.id)
         }
+        let teamPullRequests = try SessionQueries.pullRequests(db: db, teamId: root.teamId)
+        // The stack rail names every member by its issue: read the links of
+        // the Guide PR's open stack only, never the whole team's.
+        var stackIssueIds: [String: [String]] = [:]
+        var stackIssues: [IssueEntity] = []
+        if let guide = SessionTree.guidePullRequest(pullRequests),
+           let chain = PullRequestStack.openChain(guide, in: pool(team: teamPullRequests, thread: pullRequests)),
+           chain.count >= 2 {
+            for member in chain {
+                stackIssueIds[member.id] = try SessionQueries.issueIds(db: db, pullRequestId: member.id)
+            }
+            let ids = Array(Set(stackIssueIds.values.joined()))
+            if !ids.isEmpty {
+                stackIssues = try IssueEntity.filter(ids.contains(Column("id"))).fetchAll(db)
+            }
+        }
         return ThreadRows(
             root: root,
             sessions: sessions,
@@ -122,7 +173,9 @@ struct ThreadRows: Sendable {
             pullRequests: pullRequests,
             pullRequestIssueIds: pullRequestIssueIds,
             users: users,
-            teamPullRequests: try SessionQueries.pullRequests(db: db, teamId: root.teamId)
+            teamPullRequests: teamPullRequests,
+            stackIssueIds: stackIssueIds,
+            stackIssues: stackIssues
         )
     }
 }

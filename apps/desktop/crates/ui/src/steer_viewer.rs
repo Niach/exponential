@@ -2438,8 +2438,12 @@ impl SteerSessionView {
             return false;
         }
         // EXP-820: a pending card takes the composer's place — free text is
-        // typed in the card, and a message would only race the answer.
-        !(self.phase == ViewerPhase::Live && self.connected && !self.active.is_empty())
+        // typed in the card, and a message would only race the answer
+        // (THE rule ×4, EXP-1306).
+        !domain::session_tree::composer_yields_to_card(
+            self.phase == ViewerPhase::Live && self.connected,
+            !self.active.is_empty(),
+        )
     }
 
     /// EXP-820: focus follows the composer's visibility EDGES, once per

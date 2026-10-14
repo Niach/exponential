@@ -146,6 +146,7 @@ import { IssueChip } from "@/components/issue-chip"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
+  composerYieldsToCard,
   SESSION_CARD_COPY,
   sessionState,
   toTreeSession,
@@ -1010,7 +1011,9 @@ export function AgentSessionView({
         {/* EXP-850 §1/§2 + EXP-927: background work, then the agent's own
             task list, directly on the composer. */}
         <BackgroundStrip lines={stripLines} taskList={taskList} />
-        {composer ? (
+        {/* EXP-1306 (EXP-820 ×4): a card waiting on the viewer takes the
+            composer's place; the draft comes back with it. */}
+        {composer && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
           <div className="py-2">
             <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
               {composer}

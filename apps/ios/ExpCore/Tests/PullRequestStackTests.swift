@@ -43,4 +43,23 @@ final class PullRequestStackTests: XCTestCase {
         XCTAssertNil(PullRequestStack.stackConfirm(all[0], in: all))
         XCTAssertNil(PullRequestStack.stackConfirm(all[1], in: all))
     }
+
+    func testAHeadOnBaseEdgeStacksWithoutAnExplicitBase() throws {
+        func row(_ id: String, _ number: Int, base: String) -> PullRequestEntity {
+            PullRequestEntity(
+                id: id, teamId: "team", repositoryId: "repo", number: number, url: "",
+                head: "exp/\(id)", base: base, createdAt: "", updatedAt: ""
+            )
+        }
+        let all = [row("b", 1, base: "main"), row("t", 2, base: "exp/b")]
+        XCTAssertEqual(try XCTUnwrap(PullRequestStack.stackConfirm(all[0], in: all)).throughId, "t")
+    }
+
+    func testMergeThroughLandsTheMemberAndBelow() throws {
+        let all = [pr("b", 1), pr("m", 2, base: "b"), pr("t", 3, base: "m")]
+        let confirm = try XCTUnwrap(PullRequestStack.stackConfirm(all[2], in: all, through: all[1]))
+        XCTAssertEqual(confirm.title, DomainContract.diffUiMergeThrough)
+        XCTAssertEqual(confirm.body, "Lands 2 pull requests, bottom-up: #1, #2. #3 stays open.")
+        XCTAssertEqual(confirm.throughId, "m")
+    }
 }

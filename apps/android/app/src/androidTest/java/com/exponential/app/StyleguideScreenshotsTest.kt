@@ -25,6 +25,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
 import com.exponential.app.domain.AgentHome
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SearchList
 import androidx.activity.compose.setContent
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
@@ -481,8 +482,8 @@ class StyleguideScreenshotsTest {
 
         // --- sg_guide: web's `guide` thread (EXP-1303). APP-15's thread, the
         // one web/desktop photograph: its seeded Guide (Summary + one
-        // section) under THE Merge stack capsule (its PR is the bottom of
-        // APP-14's stack).
+        // section) led by the Stack band + rail (EXP-1306) under THE Merge
+        // stack capsule (its PR is the bottom of APP-14's stack).
         if (ScreenshotFlow.isShotWanted("sg_guide")) {
             composeRule.onNode(hasTestTag("issue-list"))
                 .performScrollToNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW))
@@ -494,6 +495,7 @@ class StyleguideScreenshotsTest {
             composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
             flow.waitFor(hasText(BATCH_GUIDE_SECTION, substring = true), SYNC_TIMEOUT)
             flow.waitFor(hasText("Merge stack"), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_STACK), SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_guide")
             // Thread → issue → board.
@@ -805,8 +807,9 @@ class StyleguideScreenshotsTest {
         fun show(kind: AgentsCaptureKind) = show(kind.testId) { AgentsCaptures(kind) }
         fun show(kind: SessionCaptureKind) = show(kind.testId) { SessionCaptures(kind) }
 
-        // --- sg_agent-home: the Agent page — the dawn mark behind the title,
-        // the composer at the top of the page.
+        // --- sg_agent-home: the Agent page (EXP-1306, iOS parity) — the
+        // dawn's half-disc under the title, the composer + options line, the
+        // Running band of live own threads.
         show(HomeCaptureKind.Home)
         flow.screenshot("sg_agent-home")
 

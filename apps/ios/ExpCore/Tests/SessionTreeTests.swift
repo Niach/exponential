@@ -268,6 +268,41 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(testIds["tabs"], SessionTree.ThreadCopy.tabsTestId)
         XCTAssertEqual(testIds["conversation"], SessionTree.ThreadCopy.conversationTestId)
         XCTAssertEqual(testIds["composer"], SessionTree.ThreadCopy.composerTestId)
+        XCTAssertEqual(copy["stack"] as? String, SessionTree.ThreadCopy.stack)
+        XCTAssertEqual(testIds["guideStack"], SessionTree.ThreadCopy.guideStackTestId)
+        XCTAssertEqual(testIds["guideMerge"], SessionTree.ThreadCopy.guideMergeTestId)
+    }
+
+    /// EXP-1306: `guidePullRequestCases` — the expected PR id, or none.
+    func testGuidePullRequestReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-thread.json"), "guidePullRequestCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let rows = try XCTUnwrap(testCase["pullRequests"] as? [[String: Any]]).map { row in
+                PullRequestEntity(
+                    id: try XCTUnwrap(string(row["id"])), teamId: "team", repositoryId: "repo",
+                    number: try XCTUnwrap(row["number"] as? Int), url: "", head: "", base: "",
+                    state: try XCTUnwrap(string(row["state"])),
+                    createdAt: try XCTUnwrap(string(row["createdAt"])), updatedAt: ""
+                )
+            }
+            XCTAssertEqual(SessionTree.guidePullRequest(rows)?.id, string(testCase["expected"]), name)
+        }
+    }
+
+    /// EXP-1306: `composerCases` — the card takes the composer's place.
+    func testComposerYieldsToCardReplaysEveryCase() throws {
+        for testCase in try cases(try fixture("session-thread.json"), "composerCases") {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            XCTAssertEqual(
+                SessionTree.composerYieldsToCard(
+                    live: try XCTUnwrap(input["live"] as? Bool),
+                    pendingAsk: try XCTUnwrap(input["pendingAsk"] as? Bool)
+                ),
+                try XCTUnwrap(testCase["expected"] as? Bool),
+                name
+            )
+        }
     }
 
     func testBuildSessionThreadReplaysEveryCase() throws {

@@ -82,7 +82,10 @@ import com.exponential.app.domain.sessionResultIsTall
 import com.exponential.app.domain.sessionResultTileHeightFitting
 import com.exponential.app.domain.sessionResultTileWidth
 import com.exponential.app.domain.tallImageStripRanges
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.StackRail
+import com.exponential.app.ui.components.StackRailMember
 import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.components.FloatingBarEdge
 import com.exponential.app.ui.issue.DiffCounts
@@ -97,10 +100,11 @@ import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
-// EXP-1251: the Work screen's GUIDE FACE (web `guide-face.tsx`, phones) —
+// EXP-1251: the GUIDE FACE (web `guide-face.tsx`, phones; EXP-1306: the
+// thread's Guide tab) —
 // Changes + Results merged: [the Stack card when the PR sits in an open
 // stack of 2+: band `Stack` (the `pr-stack` glyph, NO count) over the shared
-// [StackRail], the current member washed, a tap swaps the subject in place, a
+// [StackRail], the current member washed, a tap opens that PR's thread, a
 // long-press offers Merge through here] [the `Summary` lead] [numbered
 // section bands: text, ONE `Changes · N files +A −D ›` row (the files the
 // topic names, by path or rename source — `guideCoverage`), tiles, Earlier]
@@ -108,6 +112,16 @@ import com.exponential.app.ui.theme.TextEmphasis
 // row]. A Changes row opens its section page ([GuideSectionDiff]). No report
 // at all = one `Changes` section over the whole diff. The floating bar carries the white
 // Merge capsule alone (`Merge stack` while stacked).
+
+/** The Stack card's input (EXP-1306, the thread Guide): the rail plus what a
+ *  member's tap / long-press does. */
+class GuideStack(
+    val view: PullRequestStack.StackView,
+    /** Open that member's thread. */
+    val onOpen: (PullRequestStack.StackViewRow) -> Unit,
+    /** Merge through that member (its confirm first); null = no merge. */
+    val onMergeThrough: ((PullRequestStack.StackViewRow) -> Unit)?,
+)
 
 /** The horizontal content padding the page reserves on each side. */
 private val HorizontalPadding = 16.dp
@@ -122,6 +136,8 @@ fun GuideFace(
     files: List<Diff.File>?,
     /** False for the PR-body group (one band, no `01 / 01`), web `numbered`. */
     numbered: Boolean = true,
+    /** EXP-1306: the Stack card; null = not in an open stack. */
+    stack: GuideStack? = null,
     /** The bar's white Merge; null = no bar. */
     merge: ChangesMergeControl? = null,
     /** A Changes row's tap (its section page); null = inert rows. */
@@ -157,6 +173,9 @@ fun GuideFace(
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            stack?.let { card ->
+                item(key = "__stack__") { GuideStackCard(card) }
+            }
             coverage.lead?.let { lead ->
                 item(key = "__lead__") {
                     Column(
@@ -239,6 +258,33 @@ fun GuideFace(
 
     preview?.let { entry ->
         ResultPreviewDialog(entry = entry, onDismiss = { preview = null })
+    }
+}
+
+/** The Stack card — band `Stack` (no count) over the rail, top first. */
+@Composable
+private fun GuideStackCard(stack: GuideStack) {
+    class Member(val row: PullRequestStack.StackViewRow) :
+        StackRailMember(key = row.pullRequestId, identifier = row.identifier, title = row.title, current = row.isCurrent)
+    val members = remember(stack.view) { stack.view.rows.map(::Member) }
+    Column(modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_STACK)) {
+        SectionHeader(
+            title = SessionTree.ThreadCopy.STACK,
+            leading = {
+                Icon(
+                    ExpIcons.prStack,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            },
+        )
+        StackRail(
+            members = members,
+            baseBranch = stack.view.baseBranch,
+            onOpen = { member -> if (!member.current) stack.onOpen(member.row) },
+            onMergeThrough = stack.onMergeThrough?.let { through -> { member -> through(member.row) } },
+        )
     }
 }
 

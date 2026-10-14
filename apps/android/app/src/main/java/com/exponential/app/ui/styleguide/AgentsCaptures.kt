@@ -124,8 +124,7 @@ private fun AgentPageSample() {
         deviceId = "dev-build",
         onDeviceChange = {},
         accounts = accounts,
-        accountKey = "claude:p1",
-        defaultAccountKey = "claude:p1",
+        accountValueKey = "claude:p1",
         onAccountChange = {},
         triggers = listOf(
             AgentTrigger(id = "trigger-daily", enabled = true, whenPart = TriggerWhen.Schedule("daily", 9 * 60)),

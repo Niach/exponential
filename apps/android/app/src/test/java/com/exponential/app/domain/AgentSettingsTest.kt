@@ -18,7 +18,7 @@ import org.junit.Test
 
 /**
  * EXP-1291 Threads v2: Team settings → Agents is fixture-locked ×4 — every
- * `summaryCases` / `validationCases` entry of `agent-settings.json` runs here
+ * `summaryCases` / `validationCases` / `accountValueCases` entry of `agent-settings.json` runs here
  * (TS `agent-settings.test.ts`), the validation output re-encoded in the
  * fixture's shape and compared WHOLE; the embedded copy and fields are proved
  * equal to the fixture's.
@@ -90,6 +90,31 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `every account value case matches the fixture`() {
+        val cases = fixture.getValue("accountValueCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val options = input.getValue("options").jsonArray.map { it.jsonObject }.map { option ->
+                AgentSettings.AccountValueOption(
+                    id = option.str("id")!!,
+                    agent = option.str("agent")!!,
+                    email = option.str("email")!!,
+                    isLastUsed = option.getValue("isLastUsed").jsonPrimitive.boolean,
+                )
+            }
+            val actual = AgentSettings.agentAccountValue(options, input.str("account"), input.str("cli"))
+            val encoded = actual?.let { picked ->
+                buildJsonObject {
+                    put("agent", picked.agent)
+                    put("email", picked.email)
+                }
+            } ?: JsonNull
+            assertEquals(case.str("name"), case.getValue("expected"), encoded)
+        }
+    }
+
+    @Test
     fun `the fields equal the fixture`() {
         val fields = fixture.getValue("fields").jsonArray.map { it.jsonObject }
         assertEquals(fields.size, AgentSettings.FIELDS.size)
@@ -129,6 +154,7 @@ class AgentSettingsTest {
         assertEquals(errors.str("nameTooLong"), AgentSettings.Copy.ERROR_NAME_TOO_LONG)
         assertEquals(errors.str("deviceRequired"), AgentSettings.Copy.ERROR_DEVICE_REQUIRED)
         assertEquals(errors.str("instructionsTooLong"), AgentSettings.Copy.ERROR_INSTRUCTIONS_TOO_LONG)
+        assertEquals(copy.str("accountLastUsed"), AgentSettings.Copy.ACCOUNT_LAST_USED)
         val testIds = fixture.getValue("testIds").jsonObject
         assertEquals(testIds.str("list"), AgentSettings.TEST_ID_LIST)
         assertEquals(testIds.str("page"), AgentSettings.TEST_ID_PAGE)

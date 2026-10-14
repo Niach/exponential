@@ -18,7 +18,8 @@ import kotlinx.serialization.json.doubleOrNull
  * `domain::session_tree`, iOS ExpCore `SessionTree.swift`). Pure and
  * byte-locked by the fixtures `SessionTreeTest` replays:
  *   fixtures/session-card.json   → [sessionCard]
- *   fixtures/session-thread.json → [buildSessionThread]
+ *   fixtures/session-thread.json → [buildSessionThread], [guidePullRequest],
+ *                                  [composerYieldsToCard]
  *   fixtures/threads-list.json   → [partitionThreads] + [listAgents]
  * The copy / icons / tones / testIds below are the fixtures' (the test
  * proves equality).
@@ -127,6 +128,10 @@ object SessionTree {
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"
         const val TEST_ID_COMPOSER = "thread-composer"
+        /** EXP-1306: the Guide's stack band title. */
+        const val STACK = "Stack"
+        const val TEST_ID_GUIDE_STACK = "thread-guide-stack"
+        const val TEST_ID_GUIDE_MERGE = "thread-guide-merge"
     }
 
     object ListCopy {
@@ -596,6 +601,29 @@ object SessionTree {
                     needsYou = it.needsInput,
                 )
             }
+
+    // ── the Guide's PR + the session composer (EXP-1306) ────────────────────
+
+    /**
+     * The ONE pull request the thread's Guide speaks for (its stack rail + the
+     * bottom Merge capsule): the newest OPEN one, else the newest MERGED one
+     * (createdAt, ties by the higher number); a closed PR never counts.
+     * Replays `session-thread.json` `guidePullRequestCases`.
+     */
+    fun guidePullRequest(pullRequests: List<PullRequestEntity>): PullRequestEntity? {
+        fun newest(state: String): PullRequestEntity? = pullRequests
+            .filter { it.state == state }
+            .fold<PullRequestEntity, PullRequestEntity?>(null) { best, pr ->
+                if (best == null) return@fold pr
+                val diff = (ms(pr.createdAt) ?: 0L) - (ms(best.createdAt) ?: 0L)
+                if (diff > 0 || (diff == 0L && (pr.number ?: 0) > (best.number ?: 0))) pr else best
+            }
+        return newest(DomainContract.prStateOpen) ?: newest(DomainContract.prStateMerged)
+    }
+
+    /** EXP-820 ×4: a question or plan card waiting on the viewer takes the
+     *  session composer's place (`composerCases`). */
+    fun composerYieldsToCard(live: Boolean, pendingAsk: Boolean): Boolean = live && pendingAsk
 
     // ── synced rows → the pure inputs ───────────────────────────────────────
 

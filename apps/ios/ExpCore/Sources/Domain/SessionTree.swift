@@ -615,6 +615,10 @@ public enum SessionTree {
         public static let tabsTestId = "thread-tabs"
         public static let conversationTestId = "thread-conversation"
         public static let composerTestId = "thread-composer"
+        /// EXP-1306: the Guide's stack band.
+        public static let stack = "Stack"
+        public static let guideStackTestId = "thread-guide-stack"
+        public static let guideMergeTestId = "thread-guide-merge"
     }
 
     /// fixtures/threads-list.json `copy` + `agentDefaults` + `testIds`
@@ -920,6 +924,27 @@ public enum SessionTree {
             byTeam[session.teamId] = entry
         }
         return byTeam
+    }
+
+    /// EXP-1306: the ONE pull request a thread's Guide speaks for (its stack
+    /// rail + the bottom Merge capsule): the newest open one, else the newest
+    /// merged one (createdAt, ties by the higher number); a closed PR never
+    /// counts.
+    public static func guidePullRequest(_ pullRequests: [PullRequestEntity]) -> PullRequestEntity? {
+        func newest(_ state: String) -> PullRequestEntity? {
+            pullRequests.filter { $0.state == state }.reduce(nil) { best, pr in
+                guard let best else { return pr }
+                let diff = (ms(pr.createdAt) ?? 0) - (ms(best.createdAt) ?? 0)
+                return diff > 0 || (diff == 0 && pr.number > best.number) ? pr : best
+            }
+        }
+        return newest(DomainContract.prStateOpen) ?? newest(DomainContract.prStateMerged)
+    }
+
+    /// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
+    /// takes the session composer's place.
+    public static func composerYieldsToCard(live: Bool, pendingAsk: Bool) -> Bool {
+        live && pendingAsk
     }
 
     // MARK: - Helpers

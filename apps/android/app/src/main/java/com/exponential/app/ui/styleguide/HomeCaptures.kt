@@ -3,6 +3,7 @@ package com.exponential.app.ui.styleguide
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
@@ -30,12 +31,14 @@ import com.exponential.app.ui.agent.LaunchDraft
 import com.exponential.app.ui.agent.StartBoardOption
 import com.exponential.app.ui.agent.StartPullRequestOption
 import com.exponential.app.ui.agent.composerPlaceholder
+import com.exponential.app.ui.agent.homeRunningBand
 import com.exponential.app.ui.components.picker.IssuePickerIssue
 import com.exponential.app.ui.theme.AppBackground
 
 /** Which Home capture to draw (one shot each). */
 enum class HomeCaptureKind(val testId: String) {
-    /** sg_agent-home: the Agent page with the dawn, nothing picked. */
+    /** sg_agent-home: the Agent page — the dawn under the title, nothing
+     *  picked, the Running band under the column. */
     Home("home-capture-screen"),
     /** sg_chat-issues: the composer with two issue chips. */
     ChatIssues("chat-issues-capture-screen"),
@@ -47,8 +50,8 @@ enum class HomeCaptureKind(val testId: String) {
 
 /**
  * EXP-1296: the Agent home as a capture-only screen — the REAL page frame
- * ([AgentPageFrame]: the dawn + the top bar), [AgentComposerHeadline],
- * [AgentComposer], [AgentOptionsRow] and [ComposerPlusMenuSheet] over the
+ * ([AgentPageFrame]: the top bar + the dawn), [homeRunningBand] (EXP-1306),
+ * [AgentComposerHeadline], [AgentComposer], [AgentOptionsRow] and [ComposerPlusMenuSheet] over the
  * draft's data (8-phones panel 1: Acme, Alex's MacBook Pro, APP-5 / APP-14).
  */
 @Composable
@@ -75,7 +78,8 @@ fun HomeCaptures(kind: HomeCaptureKind) {
                 HomeCaptureKind.ChatIssues -> "Keep both fixes in one PR."
                 else -> ""
             }
-            AgentPageFrame(onBack = null) {
+            val (runningRows, runningMeta) = remember { sampleHomeRunning() }
+            AgentPageFrame(onBack = null, dawn = promptSubject == AgentComposerPrompt.Subject.None) {
                 if (promptSubject != AgentComposerPrompt.Subject.None) {
                     item(key = "headline") {
                         AgentComposerHeadline(
@@ -126,6 +130,8 @@ fun HomeCaptures(kind: HomeCaptureKind) {
                         onResumeChange = {},
                     )
                 }
+                // EXP-1306: the phone home's Running band (iOS parity).
+                if (kind == HomeCaptureKind.Home) homeRunningBand(runningRows, runningMeta) {}
             }
             if (kind == HomeCaptureKind.ComposerMenu) {
                 ComposerPlusMenuSheet(

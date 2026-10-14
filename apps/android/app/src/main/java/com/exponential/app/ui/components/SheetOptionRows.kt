@@ -229,6 +229,9 @@ internal fun PickerValueRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     valueIcon: ImageVector? = null,
+    /** EXP-1306: a login's agent BRAND mark before the value (the account
+     *  picker chip's look), instead of a [valueIcon]. */
+    valueAgent: String? = null,
     enabled: Boolean = true,
 ) {
     val contentAlpha = if (enabled) TextEmphasis.Primary else TextEmphasis.Quaternary
@@ -259,7 +262,19 @@ internal fun PickerValueRow(
             horizontalArrangement = Arrangement.End,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (valueIcon != null) {
+            if (valueAgent != null) {
+                Icon(
+                    agentIconPainter(valueAgent),
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 6.dp).size(16.dp),
+                    tint = agentIconTint(
+                        valueAgent,
+                        MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = if (enabled) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+                        ),
+                    ),
+                )
+            } else if (valueIcon != null) {
                 Icon(
                     valueIcon,
                     contentDescription = null,

@@ -17,7 +17,9 @@ import SwiftUI
 /// * An issue tab = the existing issue page (`IssueFaceView`) of that issue.
 /// * Guide = the existing Guide face over the root's `guide` (the PR body),
 ///   counting the thread PR's files, with its Merge capsule while it is open
-///   and Open on GitHub in the header's action slot.
+///   and Open on GitHub in the header's action slot. EXP-1306: while that PR
+///   sits in a linear open stack, a `Stack` band + THE `StackRail` lead it
+///   (a row opens that PR's thread, a hold offers Merge through here).
 ///
 /// The "+" opens THE Menu's sheet: Link an issue (THE search list →
 /// `sessions.linkIssues`) · New issue (the New issue page filing into this
@@ -56,6 +58,8 @@ struct ThreadScreen: View {
     @State private var guideSection: GuideSectionKey?
     @State private var focusPath: String?
     @State private var mergeState = WorkMergeState()
+    /// EXP-1306: a rail member's Merge through here, awaiting its confirm.
+    @State private var mergeThrough: PullRequestStack.Confirm?
     @State private var prChanges: ChangesViewModel?
 
     init(rootId: String, initialPage: ThreadPage = .conversation) {
@@ -309,6 +313,7 @@ struct ThreadScreen: View {
             teamId: rows.root.teamId,
             section: $guideSection,
             focusPath: $focusPath,
+            stack: guideStack(rows: rows),
             showsMerge: openPullRequest != nil
         ) {
             if let openPullRequest {
@@ -320,6 +325,91 @@ struct ThreadScreen: View {
                 )
                 .id(openPullRequest.id)
             }
+        }
+    }
+
+    /// EXP-1306: the Guide PR's stack block (desktop `stack_card`): the
+    /// `Stack` band over THE `StackRail`, top first, the Guide PR's row in the
+    /// current wash, down to the base branch. nil = no linear open stack.
+    private func guideStack(rows: ThreadRows) -> AnyView? {
+        guard let view = rows.guideStackView else { return nil }
+        let members = view.rows.map {
+            StackRailMember(id: $0.pullRequestId, identifier: $0.identifier, title: $0.title, current: $0.isCurrent)
+        }
+        let roots = Dictionary(
+            view.rows.compactMap { row in row.rootSessionId.map { (row.pullRequestId, $0) } },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return AnyView(
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(SessionTree.ThreadCopy.stack) {
+                    AppIcon(AppIcons.prStack, size: AppIcon.Size.small)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                } trailing: {
+                    EmptyView()
+                }
+                StackRail(
+                    members: members,
+                    baseBranch: view.baseBranch ?? "",
+                    onOpen: { member in
+                        // The thread on screen is already open.
+                        guard let rootId = roots[member.id], rootId != self.rootId else { return }
+                        pushRoute(.thread(accountId: accountId, threadId: rootId))
+                    },
+                    onMergeThrough: canEdit && !mergeState.merging
+                        ? { member in mergeThrough = rows.mergeThroughConfirm(pullRequestId: member.id) }
+                        : nil
+                )
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(SessionTree.ThreadCopy.guideStackTestId)
+            // THE stack confirm, on a zero-size node of its own (EXP-240).
+            .background {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .glassAlert(item: $mergeThrough) { confirm in
+                        GlassAlert(
+                            title: confirm.title,
+                            message: confirm.body,
+                            actions: [
+                                GlassAlertAction(
+                                    PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel"
+                                ) {},
+                                GlassAlertAction(confirm.title, role: .primary, id: "merge-through") {
+                                    merge(through: confirm)
+                                },
+                            ]
+                        )
+                    }
+            }
+        )
+    }
+
+    /// Merge through a rail member: `pullRequests.merge({stack: true})` on
+    /// it. Shares the capsule's in-flight state, so both spin together.
+    private func merge(through confirm: PullRequestStack.Confirm) {
+        mergeState.merging = true
+        let api = deps.pullRequestsApi
+        let accountId = accountId
+        Task {
+            do {
+                let result = try await api.merge(
+                    accountId: accountId, pullRequestId: confirm.throughId, stack: true
+                )
+                if !result.merged, result.queued != true {
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
+                        description: result.error
+                    )
+                }
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
+                    description: error.userFacingMessage
+                )
+            }
+            mergeState.merging = false
         }
     }
 

@@ -33,3 +33,21 @@ public enum ListItem {
         base + indent * CGFloat(depth)
     }
 }
+
+/// EXP-1248: the PrRow's ring lead (fixture `prNodes`): an open PR = an
+/// emerald ring, the current stack member = the ring with a filled centre,
+/// the base branch = a muted ring. EXP-1306: back for the thread Guide's
+/// stack rail.
+public enum PrNodeState: String, Sendable, CaseIterable {
+    case open
+    case current
+    case base
+
+    public enum Ring: String, Sendable {
+        case emerald
+        case muted
+    }
+
+    public var ring: Ring { self == .base ? .muted : .emerald }
+    public var filled: Bool { self == .current }
+}
