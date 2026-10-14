@@ -2759,36 +2759,36 @@
         "file": "shots/guide/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 52034,
-        "sha256": "8b37f6029c793f6ccc324e144f0ddef41a67cae9553d0270136b87814952945a"
+        "bytes": 51738,
+        "sha256": "591f99f5e85006beff9577986eb0d20e039bd357847c686381574b15cb148638"
       },
       "desktop": {
         "file": "shots/guide/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 51310,
-        "sha256": "4f79806a043133578fca3f8d3d7ac972efbb64304096032c9aa5822f0b92b598"
+        "bytes": 50246,
+        "sha256": "5c33afa83145e59a8ec1de6530aa7ec5b81cee517097ab5380ee58b74257b3ee"
       },
       "ios": {
         "file": "shots/guide/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 47202,
-        "sha256": "706fe467d8e59ed10c4c7fc77d64477b9b5a4b2faff327707cace407f4bd6172"
+        "bytes": 47138,
+        "sha256": "595a6f59c5427494ef1331cfe562e0a6a4d2592908a81d01c63604cb164e7495"
       },
       "web": {
         "file": "shots/guide/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 62050,
-        "sha256": "fa29277dbeeddcf7b0fbe36ae352316e842f670bf4fffb593afdf10754568130"
+        "bytes": 63440,
+        "sha256": "f7783d774906e5b1b6f95163d24e9b14d4b8071d54ebdc35182c9cea73c6354b"
       },
       "web-mobile": {
         "file": "shots/guide/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 48416,
-        "sha256": "0aa76203dff5b213a49d8677d7dd5e6b15bf4d4b85bbbf9813246695400f2038"
+        "bytes": 48488,
+        "sha256": "f49cb634fe9ecbba7a61049cf8ecc3b8943f1f9a47d6fb2043f95524d3d785ad"
       }
     },
     "guide-section": {
@@ -3817,15 +3817,15 @@
         "file": "shots/settings-team-agent/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33834,
-        "sha256": "c7d83544a031b3d88b25a92cab357e64318e07219c717cc6eeec456de2d04fca"
+        "bytes": 34060,
+        "sha256": "e65ce63019ff0ffa1d0394700fa0794bf91693b5ee6de82cc80655008cc5fe36"
       },
       "ios": {
         "file": "shots/settings-team-agent/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 29650,
-        "sha256": "3ecbe94015db6ba755bc0395613008dac45ded60f5fb85cf9123024cffd5b273"
+        "bytes": 29694,
+        "sha256": "f9c664a9701982021570f92dc5073c1398b2cdff4a3ba870c9a16a86b5387d8f"
       },
       "web": {
         "file": "shots/settings-team-agent/web.webp",
