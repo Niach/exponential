@@ -74,6 +74,7 @@ import com.exponential.app.ui.work.ChangesLoadState
 import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.ChangesViewModel
 import com.exponential.app.ui.work.GuideFace
+import com.exponential.app.ui.work.GithubHeaderAction
 import com.exponential.app.ui.work.GuideSectionDiff
 import com.exponential.app.ui.work.LocalTitleCollapse
 import com.exponential.app.ui.work.PullRequestStack
@@ -237,6 +238,7 @@ fun ThreadScreen(
                         onFixConflicts = { number -> viewModel.send(fixConflictsMessage(number)) },
                     )
                 },
+                guidePrUrl = guidePullRequest(pullRequests)?.url?.takeIf { it.isNotBlank() },
             )
         }
     }
@@ -330,6 +332,9 @@ fun ThreadContent(
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
     guidePage: @Composable (padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
+    /** The thread PR's URL: Open on GitHub in the header while the Guide
+     *  tab is selected (EXP-916/1302, iOS's header action). */
+    guidePrUrl: String? = null,
 ) {
     // An agent channel is the conversation only.
     val pages = if (agent != null || view == null) {
@@ -359,6 +364,9 @@ fun ThreadContent(
                         private = view?.private == true,
                         onBack = onBack,
                         onRename = onRename,
+                        action = guidePrUrl
+                            ?.takeIf { selected is SessionTree.ThreadTab.Guide }
+                            ?.let { url -> { GithubHeaderAction(prUrl = url) } },
                     )
                     if (view != null) {
                         ThreadTabStrip(
@@ -535,7 +543,7 @@ private fun ThreadGuidePage(
     onFixConflicts: (prNumber: Int?) -> Unit,
 ) {
     val groups = remember(guideRaw) { parseSessionResultGroups(guideRaw) }
-    val newest = pullRequests.lastOrNull { it.state == DomainContract.prStateOpen } ?: pullRequests.lastOrNull()
+    val newest = guidePullRequest(pullRequests)
     val stackPool = remember(pullRequests, teamPullRequests) {
         (teamPullRequests + pullRequests).distinctBy { it.id }
     }
@@ -611,6 +619,10 @@ private fun ThreadGuidePage(
         )
     }
 }
+
+/** The thread's Guide PR: the newest OPEN one, else the newest. */
+private fun guidePullRequest(pullRequests: List<PullRequestEntity>): PullRequestEntity? =
+    pullRequests.lastOrNull { it.state == DomainContract.prStateOpen } ?: pullRequests.lastOrNull()
 
 /** The merge-conflict toast's action (contract `diffUi` has no word). */
 private const val FIX_CONFLICTS = "Fix conflicts"

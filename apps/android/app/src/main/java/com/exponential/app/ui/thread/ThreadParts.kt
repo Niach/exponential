@@ -140,6 +140,9 @@ fun ThreadHeader(
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onRename: (() -> Unit)? = null,
+    /** The header's trailing action slot (EXP-1302: Open on GitHub on the
+     *  Guide, as iOS draws it). */
+    action: (@Composable () -> Unit)? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag("thread-header")) {
         Row(
@@ -147,6 +150,8 @@ fun ThreadHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) TopBarBackButton(onClick = onBack)
+            Spacer(Modifier.weight(1f))
+            action?.invoke()
         }
         Row(
             modifier = Modifier
