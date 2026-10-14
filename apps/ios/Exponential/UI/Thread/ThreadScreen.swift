@@ -315,6 +315,7 @@ struct ThreadScreen: View {
                 WorkMergePill(
                     pullRequest: openPullRequest,
                     issueCount: rows.pullRequestIssueIds[openPullRequest.id]?.count ?? 0,
+                    stackConfirm: rows.guideStackConfirm,
                     state: $mergeState
                 )
                 .id(openPullRequest.id)

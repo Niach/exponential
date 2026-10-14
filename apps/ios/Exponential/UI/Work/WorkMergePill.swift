@@ -5,8 +5,9 @@ import SwiftUI
 /// EXP-1150/1154: the ONE Merge PR control — the SOLID WHITE capsule
 /// (`FloatingBarSolidPill`, hugging its label, 52pt) or (EXP-1191) the
 /// icon-only 52pt glass bar circle. EXP-1295: it merges a `pull_requests` row
-/// through `pullRequests.merge`; `stack` reads "Merge stack" and merges THROUGH
-/// this member of a native stack. Every refusal toasts the server's words
+/// through `pullRequests.merge`. EXP-1303: on a member of an open stack
+/// (`stackConfirm`, Android `PullRequestStack`) it reads "Merge stack", asks
+/// THE stack confirm and merges THROUGH the stack's top (`stack: true`). Every refusal toasts the server's words
 /// (a CONFLICT included: no retry clears it, web parity).
 /// The host mounts it only while the PR is open.
 struct WorkMergePill: View {
@@ -14,8 +15,8 @@ struct WorkMergePill: View {
     /// The issues the PR links (`pull_request_issues`): the confirm names a
     /// batch's count, and an issue-less PR says so.
     let issueCount: Int
-    /// Merge through this member of an open stack.
-    var stack = false
+    /// Non-nil = `pullRequest` sits in an open stack: Merge lands it all.
+    var stackConfirm: PullRequestStack.Confirm?
     /// The merge in flight is the HOST's: every mounted capsule spins together.
     @Binding var state: WorkMergeState
     var identifier = "work-merge-pr"
@@ -30,7 +31,23 @@ struct WorkMergePill: View {
     private var merging: Bool { state.merging }
 
     private var label: String {
-        stack ? DomainContract.diffUiMergeStack : DomainContract.diffUiMergePr
+        stackConfirm?.title ?? DomainContract.diffUiMergePr
+    }
+
+    /// The plain merge confirm, or (EXP-1248) THE stack confirm, its copy
+    /// byte-locked by `stack-merge-choice.json` `confirm`.
+    private var confirmCard: GlassAlert<EmptyView> {
+        guard let stackConfirm else {
+            return GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
+        }
+        return GlassAlert(
+            title: stackConfirm.title,
+            message: stackConfirm.body,
+            actions: [
+                GlassAlertAction(PullRequestStack.cancelLabel, role: .outline, isCancel: true, id: "cancel") {},
+                GlassAlertAction(stackConfirm.title, role: .primary, id: "merge-stack") { merge() },
+            ]
+        )
     }
 
     private var mergePrompt: PromptCopy {
@@ -52,9 +69,7 @@ struct WorkMergePill: View {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
-                .glassAlert(isPresented: $showMergeConfirm) {
-                    GlassAlert(prompt: mergePrompt, handlers: ["merge": { merge() }])
-                }
+                .glassAlert(isPresented: $showMergeConfirm) { confirmCard }
         }
     }
 
@@ -97,8 +112,8 @@ struct WorkMergePill: View {
     /// unmounts the capsule.
     private func merge() {
         state.merging = true
-        let pullRequestId = pullRequest.id
-        let stack = stack
+        let pullRequestId = stackConfirm?.throughId ?? pullRequest.id
+        let stack = stackConfirm != nil
         Task {
             do {
                 let result = try await deps.pullRequestsApi.merge(

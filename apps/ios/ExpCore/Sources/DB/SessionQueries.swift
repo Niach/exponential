@@ -102,6 +102,15 @@ public enum SessionQueries {
             .fetchAll(db)
     }
 
+    /// A team's pull requests, oldest first: the open-stack walk behind a
+    /// Guide's `Merge stack` (a stack may reach PRs outside the thread).
+    public static func pullRequests(db: Database, teamId: String) throws -> [PullRequestEntity] {
+        try PullRequestEntity
+            .filter(Column("team_id") == teamId)
+            .order(Column("created_at").asc, Column("id").asc)
+            .fetchAll(db)
+    }
+
     /// The pull requests that close an issue, newest first (the first one
     /// is the issue's PR badge).
     public static func pullRequests(db: Database, issueId: String) throws -> [PullRequestEntity] {

@@ -8,9 +8,9 @@ import SwiftUI
 /// `buildSessionThread`) and THE session composer box (`ThreadComposer`) —
 /// over fake rows that match the approved drafts:
 ///
-/// * `thread` (v4-3 / v4-8 panel 3): "iOS keyboard and model picker" — one
-///   live session whose agent linked EXP-1276 and filed EXP-1277, a child
-///   session building both fixes, and the agent's reply.
+/// * `thread` (EXP-1303): the seed's cold-start thread web/desktop
+///   photograph — APP-5 with APP-10 and FB-3 linked, the child profiling the
+///   launch path, the agent's reply and its pending question.
 /// * `agent-channel` (v4-5): the Triage agent's channel — its message, the
 ///   thread it started as a session card, a person's ask and its reply.
 ///
@@ -32,7 +32,7 @@ struct ThreadStyleguideScreen: View {
         let now = kind == "agent-channel"
             ? Calendar.current.date(bySettingHour: 9, minute: 41, second: 0, of: Date()) ?? Date()
             : Date()
-        let rows = kind == "agent-channel" ? Self.agentChannel(now: now) : Self.liveThread(now: now)
+        let rows = kind == "agent-channel" ? Self.agentChannel(now: now) : Self.coldStartThread(now: now)
         let view = rows.view(now: now)
         ZStack {
             AppBackground()
@@ -108,10 +108,13 @@ struct ThreadStyleguideScreen: View {
         )
     }
 
-    private static func link(_ id: String, root: String, issueId: String, order: Double, created: Date) -> SessionIssueEntity {
+    private static func link(
+        _ id: String, root: String, issueId: String, order: Double,
+        source: String = DomainContract.sessionIssueSourceAgent, created: Date
+    ) -> SessionIssueEntity {
         SessionIssueEntity(
             id: id, sessionId: root, issueId: issueId, teamId: teamId,
-            source: DomainContract.sessionIssueSourceAgent, addedBySessionId: root,
+            source: source, addedBySessionId: root,
             sortOrder: order, createdAt: stamp(created), updatedAt: stamp(created)
         )
     }
@@ -134,57 +137,69 @@ struct ThreadStyleguideScreen: View {
         )
     }
 
-    /// v4-3 / v4-8 panel 3: "iOS keyboard and model picker".
-    static func liveThread(now: Date) -> ThreadRows {
-        let start = now.addingTimeInterval(-6 * 60)
-        let linked = start.addingTimeInterval(60)
-        let filed = start.addingTimeInterval(90)
-        let child = start.addingTimeInterval(120)
-        let summary = #"[{"topic":"Summary","text":"Both fixes are in one PR. Tests are running.","at":\#(ms(now.addingTimeInterval(-60)))}]"#
+    /// EXP-1303: the seed's cold-start thread, the one web/desktop `thread`
+    /// photograph (Android `ThreadCaptures`): APP-5 with APP-10 and FB-3
+    /// linked by its agent, the child profiling the launch path waiting on
+    /// the question at the end.
+    static func coldStartThread(now: Date) -> ThreadRows {
+        let start = now.addingTimeInterval(-8 * 60)
+        let child = now.addingTimeInterval(-7 * 60)
+        let reply = now.addingTimeInterval(-3 * 60)
+        let filed = now.addingTimeInterval(-150)
+        let question = now.addingTimeInterval(-2 * 60)
+        let guide = #"[{"topic":"Summary","text":"Deferred the shape subscribe until after the first frame and added a board snapshot cache that paints the last board before sync finishes: 740 ms on the CI device, under the 800 ms target. Filed #FB-3 for the editor's highlighting bundle.","at":\#(ms(reply))},{"topic":"Board snapshot cache","text":"The last rendered board is written to disk on every sync and painted on launch, then replaced in place once the shape catches up.","at":\#(ms(reply))}]"#
         let root = SessionEntity(
-            id: "r1", teamId: teamId, userId: me, deviceId: "d-macbook", cli: "claude",
-            status: DomainContract.sessionStatusRunning, busy: true, startedAt: stamp(start),
-            shared: true, title: "iOS keyboard and model picker", guide: summary,
+            id: "s-root", teamId: teamId, userId: me, deviceId: "d-macbook", cli: "claude",
+            status: DomainContract.sessionStatusRunning, startedAt: stamp(start),
+            shared: true, guide: guide,
             createdAt: stamp(start), updatedAt: stamp(now)
         )
-        let build = SessionEntity(
-            id: "c1", teamId: teamId, parentId: "r1", rootId: "r1", depth: 1, userId: me,
-            deviceId: "d-macbook", cli: "claude", status: DomainContract.sessionStatusRunning, busy: true,
-            startedAt: stamp(child), shared: true, title: "Build both fixes",
+        let profile = SessionEntity(
+            id: "s-profile", teamId: teamId, parentId: "s-root", rootId: "s-root", depth: 1, userId: me,
+            deviceId: "d-macbook", cli: "claude", status: DomainContract.sessionStatusRunning, needsInput: true,
+            startedAt: stamp(child), shared: true, title: "Profile the launch path",
             createdAt: stamp(child), updatedAt: stamp(now)
         )
         let issues = [
-            issue("i-1276", "EXP-1276", "ios keyboard", status: "in_progress", created: now.addingTimeInterval(-86_400)),
-            issue("i-1277", "EXP-1277", "ios run error", status: "backlog", created: filed),
+            issue("i-app5", "APP-5", "Reduce cold start below 800 ms", status: "in_progress", created: now.addingTimeInterval(-86_400)),
+            issue("i-app10", "APP-10", "Migrate image cache to on-disk LRU", status: "backlog", created: now.addingTimeInterval(-86_400)),
+            issue("i-fb3", "FB-3", "Syntax highlighting ships every language", status: "backlog", created: filed),
         ]
         let messages = [
             message(
-                "m1", session: "r1", root: "r1", author: DomainContract.messageAuthorKindUser, authorId: me,
-                body: "The keyboard covers the composer on iOS, and picking a model errors. Fix both.", at: start
+                "m-ask", session: "s-root", root: "s-root", author: DomainContract.messageAuthorKindUser, authorId: me,
+                body: "Cold start is at 1.4s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of the critical path.",
+                at: start.addingTimeInterval(10)
             ),
             message(
-                "m2", session: "r1", root: "r1", author: DomainContract.messageAuthorKindSystem,
-                card: #"{"kind":"event","event":"issue_linked","issueId":"i-1276"}"#, at: linked
+                "m-card", session: "s-root", root: "s-root", author: DomainContract.messageAuthorKindAgent,
+                card: #"{"kind":"session","sessionId":"s-profile"}"#, at: child
             ),
             message(
-                "m3", session: "r1", root: "r1", author: DomainContract.messageAuthorKindSystem,
-                card: #"{"kind":"event","event":"issue_filed","issueId":"i-1277"}"#, at: filed
+                "m-reply", session: "s-root", root: "s-root", author: DomainContract.messageAuthorKindAgent,
+                body: "### Board snapshot cache\n\nThe last rendered board is written to disk on every sync and painted on launch, "
+                    + "then replaced in place once the shape catches up.\n\nDeferred the shape subscribe until after the first frame "
+                    + "and added a board snapshot cache that paints the last board before sync finishes: 740 ms on the CI device, "
+                    + "under the 800 ms target. Filed #FB-3 for the editor's highlighting bundle.",
+                at: reply
             ),
             message(
-                "m4", session: "r1", root: "r1", author: DomainContract.messageAuthorKindSystem,
-                card: #"{"kind":"session","sessionId":"c1"}"#, at: child
+                "m-filed", session: "s-root", root: "s-root", author: DomainContract.messageAuthorKindSystem,
+                card: #"{"kind":"event","event":"issue_filed","issueId":"i-fb3"}"#, at: filed
             ),
             message(
-                "m5", session: "r1", root: "r1", author: DomainContract.messageAuthorKindAgent,
-                body: "Both fixes are in one PR. Tests are running.", at: now.addingTimeInterval(-60)
+                "m-question", session: "s-root", root: "s-root", author: DomainContract.messageAuthorKindAgent,
+                card: #"{"kind":"question","question":"Cold start is at 740ms (target <800ms). Lazy-load the markdown editor too, or open the PR with what we have?","options":["Also lazy-load the markdown editor","Open the PR with what we have"]}"#,
+                at: question
             ),
         ]
         return ThreadRows(
             root: root,
-            sessions: [root, build],
+            sessions: [root, profile],
             sessionIssues: [
-                link("si-1", root: "r1", issueId: "i-1276", order: 1, created: linked),
-                link("si-2", root: "r1", issueId: "i-1277", order: 2, created: filed),
+                link("si-1", root: "s-root", issueId: "i-app5", order: 1, source: DomainContract.sessionIssueSourceUser, created: start),
+                link("si-2", root: "s-root", issueId: "i-app10", order: 2, created: child),
+                link("si-3", root: "s-root", issueId: "i-fb3", order: 3, created: filed),
             ],
             issues: issues,
             messages: messages,

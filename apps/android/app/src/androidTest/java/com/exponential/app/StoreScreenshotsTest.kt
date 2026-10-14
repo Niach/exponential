@@ -2,11 +2,16 @@ package com.exponential.app
 
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.issue.START_CODING_READY_TAG
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
@@ -74,6 +79,11 @@ class StoreScreenshotsTest {
         // It has to be the LAST event: the feed is a bottom-anchored lazy list,
         // so anything above the fold is never composed and no matcher sees it.
         private const val FEED_QUESTION_FRAGMENT = "Lazy-load the markdown editor too"
+
+        // The thread's child session the stand-in desktop publishes to the
+        // relay (DEMO_SESSION_ID); the root's own card comes first and has no
+        // feed of its own.
+        private const val STEERED_SESSION_TITLE = "Profile the launch path"
 
         private const val NAV_TIMEOUT = ScreenshotFlow.NAV_TIMEOUT
         private const val SYNC_TIMEOUT = ScreenshotFlow.SYNC_TIMEOUT
@@ -146,10 +156,9 @@ class StoreScreenshotsTest {
         flow.settle()
         flow.screenshot("1_board", popRects = true)
 
-        // EXP-1154: from here on the flow drives the clock. Every screen below
-        // is a Work screen whose pager keeps a live run's Run face composed
-        // beside Issue/Changes, and its animations never let an
-        // auto-advancing clock go idle.
+        // EXP-1154: from here on the flow drives the clock. The live run's
+        // spinners and feed animations never let an auto-advancing clock go
+        // idle.
         flow.pauseClock()
 
         // --- Issue detail: open APP-5 and wait for its markdown description.
@@ -158,19 +167,24 @@ class StoreScreenshotsTest {
         // unavailable on this instance".
         composeRule.onAllNodes(hasText(SHOWCASE_ISSUE_TITLE)).onFirst().performClick()
         flow.waitFor(hasText("Startup profiling", substring = true), NAV_TIMEOUT)
-        // EXP-893/EXP-1150: the run is a FACE of the Work screen — its `Run`
-        // tab appears in the face strip once the reader's own run synced in,
-        // so the tab (not a Watch pill) is what proves it.
-        flow.waitFor(hasTestTag("work-face-run"), SYNC_TIMEOUT)
-        // And its Guide tab, which the live run's diff brings (EXP-875).
-        flow.waitForOptional(hasTestTag("work-face-guide"), SYNC_TIMEOUT)
+        // EXP-1303: Threads v2 dropped the Work screen's face strip; the issue
+        // names its threads instead, and the live run's thread chip is what
+        // proves it (iOS `StoreScreenshots` parity).
+        flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("2_issue-detail", popRects = true)
 
-        // --- Live steering: the `Run` tab opens the Run face in place. Gate
-        // on the FEED tag, not the face: it shows "Connecting…" / "Waiting
-        // for activity…" placeholders until the first relay frame lands.
-        composeRule.onNode(hasTestTag("work-face-run")).performClick()
+        // --- Live steering: the chip opens the thread; its child's session
+        // card (by title: the root's own card comes first) opens the session's
+        // raw work (the pending question card still in place).
+        // Gate on the FEED tag, not the screen: it shows "Connecting…" /
+        // "Waiting for activity…" placeholders until the first relay frame
+        // lands.
+        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
+        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+        flow.waitFor(hasTestTag(SessionTree.CardCopy.TEST_ID_CARD), SYNC_TIMEOUT)
+        flow.waitFor(hasText(STEERED_SESSION_TITLE), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasText(STEERED_SESSION_TITLE)).onFirst().performClick()
         flow.waitFor(hasTestTag("agent-feed"), NETWORK_TIMEOUT)
         // An EMPTY feed still renders the container (a relay the emulator can't
         // reach leaves the view "Reconnecting…" with nothing in it), so the tag
@@ -180,8 +194,11 @@ class StoreScreenshotsTest {
         flow.waitFor(hasText(FEED_QUESTION_FRAGMENT, substring = true), NETWORK_TIMEOUT)
         flow.settle(longer = true)
         flow.screenshot("4_steering", popRects = true)
-        // EXP-893: the faces share ONE screen, so a single Back pops the
-        // whole Work screen to the board.
+        // Session → thread → issue → board.
+        Espresso.pressBack()
+        flow.waitFor(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+        Espresso.pressBack()
+        flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.settle()
 
@@ -209,23 +226,32 @@ class StoreScreenshotsTest {
         flow.settle(longer = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
 
-        // --- PR review: EXP-1154/1251 — a Reviews row opens the issue's Work
-        // screen on its Guide face (the review IS the issue; the white Merge
-        // capsule, tagged the bare `work-merge-pr` PopRects pops, sits on the
-        // floating bar). The PR comes from GitHub via issues.prFiles — the
-        // seed points APP-14 at a real public PR — and with no report its
-        // whole diff is ONE Changes row, counted once the files load.
-        flow.waitFor(hasContentDescription("Reviews"), NAV_TIMEOUT)
-        composeRule.onNode(hasContentDescription("Reviews")).performClick()
-        flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+        // --- PR review: EXP-1303 — APP-14's Threads chip opens the thread
+        // holding it; its Guide tab's Changes row opens the diff page (the
+        // white Merge capsule, tagged the bare `work-merge-pr` PopRects pops,
+        // sits on the floating bar). The PR comes from GitHub via
+        // pullRequests.files — the seed points APP-14 at a real public PR —
+        // and with no report its whole diff is ONE Changes row, counted once
+        // the files load.
+        flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("issue-list"))
+            .performScrollToNode(hasText(REVIEW_ISSUE_TITLE, substring = true))
         composeRule.onAllNodes(hasText(REVIEW_ISSUE_TITLE, substring = true)).onFirst().performClick()
+        flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
+        composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+        flow.waitFor(hasTestTag("thread-tab-guide"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
         flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
         // P60: the slide is the catalog's Complete diff page — tap the
         // Guide's "Show complete diff" row (with no report the ONE Changes
         // row already is the whole diff) and photograph the page it opens.
-        // EXP-1267: the row renders WITH the Changes row, so a short look —
-        // a report-less Guide has none and used to burn the full nav wait.
+        // At rest the rows can sit under the floating Merge capsule, so
+        // swipe the Guide to its end first, where the bottom inset lifts
+        // every row clear of the bar.
+        composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+        flow.settle()
         if (flow.waitForOptional(hasTestTag("guide-complete-diff"), SIBLING_TIMEOUT)) {
             composeRule.onNode(hasTestTag("guide-complete-diff")).performClick()
         } else {
@@ -236,13 +262,16 @@ class StoreScreenshotsTest {
         flow.waitForOptional(hasTestTag("work-merge-pr-section"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("5_review", popRects = true)
-        // Back to the Guide, so the Back below still leaves the Work screen.
+        // Section page → Guide, thread → issue → board.
         composeRule.onNode(hasTestTag("guide-section-back")).performClick()
         flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
+        Espresso.pressBack()
+        flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+        composeRule.onNode(hasContentDescription("Back")).performClick()
+        flow.settle()
 
         // --- Actions (EXP-253): a bottom-bar tab again since EXP-1187; the
         // seed inserts three team actions (no client builtins are listed).
-        composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasTestTag("tab-actions"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("tab-actions")).performClick()
         flow.waitFor(hasTestTag("action-row"), SYNC_TIMEOUT)

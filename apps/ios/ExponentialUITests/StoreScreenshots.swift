@@ -59,6 +59,10 @@ final class StoreScreenshots: XCTestCase {
     /// to be the LAST event: the feed is bottom-anchored and lazy, so anything
     /// above the fold is never rendered and no query can find it.
     private static let feedQuestionFragment = "Lazy-load the markdown editor too"
+    /// The thread's child session the stand-in desktop publishes to the relay
+    /// (DEMO_SESSION_ID); the thread root's own card comes first and has no
+    /// feed of its own.
+    private static let steeredSessionTitle = "Profile the launch path"
 
     @MainActor
     func testCaptureAppStoreScreenshots() throws {
@@ -128,11 +132,13 @@ final class StoreScreenshots: XCTestCase {
         snapshot("02_issue-detail", settle: 2, popRects: app)
 
         // ── 04: live steering ───────────────────────────────────────────────
-        // EXP-1295: the chip opens the thread; its session card opens the
-        // session's raw work (the pending question card still in place).
+        // EXP-1295: the chip opens the thread; its child's session card opens
+        // the session's raw work (the pending question card still in place).
+        // EXP-1303: picked by title, the root's own card is drawn first.
         threadChip.tap()
         let sessionCard = app.descendants(matching: .any)
-            .matching(identifier: "session-card").firstMatch
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "session-card", Self.steeredSessionTitle))
+            .firstMatch
         expect(sessionCard, within: Wait.sync, "The thread drew no session card")
         sessionCard.tap()
         expect(

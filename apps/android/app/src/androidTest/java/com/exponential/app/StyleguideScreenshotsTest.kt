@@ -88,8 +88,9 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
  * Threads tab `sg_threads` and the agent channel `sg_agent-channel`;
- * `sg_pr-row` = the issue page's pull-request row, `sg_guide` /
- * `sg_guide-section` = the Guide tab of the thread holding APP-14.
+ * `sg_pr-row` = the issue page's pull-request row, `sg_guide` = the Guide
+ * tab of APP-15's thread (web's `guide` thread, EXP-1303),
+ * `sg_guide-section` = APP-14's Changes section page.
  *
  * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
  * walks the live app against the seeded backend; [captureOnlyScreens] needs NO
@@ -178,6 +179,11 @@ class StyleguideScreenshotsTest {
         // from GitHub. Addressed by row tag so the lazy board list can
         // scroll to it.
         private const val GUIDE_ISSUE_ROW = "issue-row-APP-14"
+
+        // APP-15: its thread is web's `guide` thread (`DEMO_GUIDE_THREAD_ID`),
+        // the seeded Guide's Summary + one section, its PR the stack's bottom.
+        private const val BATCH_GUIDE_ISSUE_ROW = "issue-row-APP-15"
+        private const val BATCH_GUIDE_SECTION = "Label picker on the selection bar"
 
         private const val TEAM_NAME = "Acme"
         private const val TEAM_BOARD_NAME = "Mobile App"
@@ -436,24 +442,20 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_pr-row")
 
-        // --- sg_guide / sg_guide-section: the thread's Guide (EXP-1251/1295).
-        // The issue's Threads row opens the thread holding it; its strip's
-        // Guide tab: APP-14's real PR has no report, so its whole diff is ONE
+        // --- sg_guide-section: a Guide section page (EXP-1251/1295). The
+        // issue's Threads row opens the thread holding it; its strip's Guide
+        // tab: APP-14's real PR has no report, so its whole diff is ONE
         // Changes section; that row opens the section page. A detour no later
         // shot needs (it pops back to the issue), so a scoped run that did
         // not ask for it skips it whole — its GitHub fetch is the walk's one
         // network dependency.
-        val wantsGuide = ScreenshotFlow.isShotWanted("sg_guide")
-        val wantsGuideSection = ScreenshotFlow.isShotWanted("sg_guide-section")
-        if (wantsGuide || wantsGuideSection) {
+        if (ScreenshotFlow.isShotWanted("sg_guide-section")) {
             flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
             composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
             composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
             flow.waitFor(hasTestTag("thread-tab-guide"), NAV_TIMEOUT)
             composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
             flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_guide")
             // At rest the Changes row can sit under the floating Merge capsule
             // (APP-14 is a stack member: `Merge stack`), and a centre click
             // would land on the capsule. Swipe the Guide to its end, where the
@@ -476,6 +478,31 @@ class StyleguideScreenshotsTest {
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
         flow.settle()
+
+        // --- sg_guide: web's `guide` thread (EXP-1303). APP-15's thread, the
+        // one web/desktop photograph: its seeded Guide (Summary + one
+        // section) under THE Merge stack capsule (its PR is the bottom of
+        // APP-14's stack).
+        if (ScreenshotFlow.isShotWanted("sg_guide")) {
+            composeRule.onNode(hasTestTag("issue-list"))
+                .performScrollToNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW))
+            composeRule.onNode(hasTestTag(BATCH_GUIDE_ISSUE_ROW)).performClick()
+            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performScrollTo()
+            composeRule.onAllNodes(hasTestTag("issue-thread-chip")).onFirst().performClick()
+            flow.waitFor(hasTestTag("thread-tab-guide"), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
+            flow.waitFor(hasText(BATCH_GUIDE_SECTION, substring = true), SYNC_TIMEOUT)
+            flow.waitFor(hasText("Merge stack"), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_guide")
+            // Thread → issue → board.
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasContentDescription("Switch board"), NAV_TIMEOUT)
+            flow.settle()
+        }
 
         // --- My Issues: the Inbox tab opens on the Inbox segment (EXP-58);
         // the segmented control's label is the only handle on it.
