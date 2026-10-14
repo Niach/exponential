@@ -249,6 +249,7 @@ impl AgentScreenView {
                 meta: crate::thread_screen::clock(at),
                 body: body.clone(),
                 team_id,
+                bare_refs: true,
                 expanded: true,
                 on_toggle: None,
                 on_open: None,

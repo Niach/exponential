@@ -4776,6 +4776,7 @@ impl SteerSessionView {
                 meta,
                 body,
                 team_id: self.ref_team_id(cx),
+                bare_refs: false,
                 expanded: self.expanded_bodies.contains(&id),
                 on_toggle: Some(on_toggle),
                 on_open,
