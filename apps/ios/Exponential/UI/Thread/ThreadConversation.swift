@@ -13,6 +13,10 @@ import SwiftUI
 /// opens that thread; a question or plan answers IN the session view's
 /// `QuestionCard` (`sessions.answer`); a subagent is one muted row; a
 /// picture is the Guide's inline tile; an event is one muted line.
+/// EXP-1300: an AGENT channel (web `AgentChannel`, Android
+/// `ThreadCommentRow`) leaves its own root card out and draws EVERY message
+/// as a comment row (`ChannelMessageRow`: the agent's icon or the person's
+/// avatar, the name, the time, the body); its cards indent under the rows.
 /// Presentational: the screen (and the styleguide) hand it the rows; every
 /// tap goes back out through a closure.
 struct ThreadConversationView: View {
@@ -63,13 +67,72 @@ struct ThreadConversationView: View {
 
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 14) {
-            ForEach(view.rows, id: \.id) { row in
-                rowView(row)
+            ForEach(shownRows, id: \.id) { row in
+                if rows.isAgent {
+                    channelRowView(row)
+                } else {
+                    rowView(row)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SessionTree.ThreadCopy.conversationTestId)
+    }
+
+    /// An agent channel's own card (row 0) stays off it.
+    private var shownRows: [ThreadRow] {
+        guard rows.isAgent else { return view.rows }
+        return view.rows.filter { row in
+            if case let .session(_, card) = row { return card.sessionId != rows.root.id }
+            return true
+        }
+    }
+
+    /// An agent channel's row: a message is a comment row, anything else
+    /// the thread's own part indented under the rows' lead.
+    @ViewBuilder
+    private func channelRowView(_ row: ThreadRow) -> some View {
+        if case let .message(id, author, authorId, body, queued) = row,
+           author != DomainContract.messageAuthorKindSystem {
+            let fromAgent = author == DomainContract.messageAuthorKindAgent
+            let user = fromAgent ? nil : rows.user(id: authorId)
+            ChannelMessageRow(
+                name: fromAgent ? (rows.root.name ?? "") : (user?.name ?? user?.email ?? ""),
+                time: channelTime(messageId: id, queued: queued),
+                lead: {
+                    if fromAgent {
+                        AppIcon(
+                            BoardTypeDisplay.iconName(for: rows.root.icon)
+                                ?? SessionTree.ListCopy.agentDefaultIcon,
+                            size: 16,
+                            weight: .medium
+                        )
+                        .foregroundStyle(
+                            Color(hex: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor) ?? .white
+                        )
+                    } else {
+                        UserAvatar(user: user, id: authorId, size: ChannelMessageMetrics.leadSize)
+                    }
+                },
+                content: {
+                    AgentMarkdownText(text: body, context: markdownContext, options: [.autolinkBareURLs, .hardLineBreaks])
+                }
+            )
+            .opacity(queued ? 0.7 : 1)
+            .accessibilityIdentifier("thread-message")
+        } else {
+            rowView(row)
+                .padding(.leading, ChannelMessageMetrics.leadSize + ChannelMessageMetrics.gap)
+        }
+    }
+
+    /// A channel row's time: `HH:mm`, then `queued` until the device took it.
+    private func channelTime(messageId: String, queued: Bool) -> String {
+        let at = rows.messages.first { $0.id == messageId }
+            .flatMap { WireTimestamps.parse($0.createdAt) }
+            .map(GlassTimeRow.formatted)
+        return [at, queued ? Self.queuedWord : nil].compactMap { $0 }.joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -220,5 +283,62 @@ private struct ThreadEventLine: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("thread-event-line")
+    }
+}
+
+/// The channel row's lead circle and its gap to the card (a card row
+/// indents by both).
+enum ChannelMessageMetrics {
+    static let leadSize: CGFloat = 32
+    static let gap: CGFloat = 12
+}
+
+/// EXP-1300: an agent channel's comment row (web `ChannelMessageRow`,
+/// Android `ThreadCommentRow`) — the lead (the agent's icon or the person's
+/// avatar) in a 32pt circle, then the card: the name, the muted time, the
+/// body.
+struct ChannelMessageRow<Lead: View, Content: View>: View {
+
+    let name: String
+    let time: String
+    @ViewBuilder let lead: () -> Lead
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: ChannelMessageMetrics.gap) {
+            lead()
+                .frame(width: ChannelMessageMetrics.leadSize, height: ChannelMessageMetrics.leadSize)
+                .background(GlassTokens.fillRow, in: Circle())
+                .clipShape(Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if !time.isEmpty {
+                        Text(time)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .fixedSize()
+                    }
+                }
+                content()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(GlassTokens.fillRow, in: RoundedRectangle(cornerRadius: GlassTokens.groupRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
+                    .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("channel-message")
     }
 }

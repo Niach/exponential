@@ -120,6 +120,12 @@ struct ThreadsStyleguideScreen: View {
             sessionId: "agent-designer", teamId: teamId, name: "Designer", icon: "palette",
             color: "#ec4899", busy: false, needsYou: false
         ),
+        // EXP-1300: the seed's idle, never-run agent lists too (`listAgents`
+        // keeps every agent root).
+        AgentRow(
+            sessionId: "agent-release", teamId: teamId, name: "Release", icon: "package",
+            color: "#22c55e", busy: false, needsYou: false
+        ),
     ]
 
     private static func row(
