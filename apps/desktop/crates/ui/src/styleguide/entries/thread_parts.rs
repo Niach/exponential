@@ -133,7 +133,7 @@ fn strip(case: &Case, cx: &App) -> AnyElement {
 /// One conversation row, the way the thread screen paints it.
 pub(super) fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
     if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
-        let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, None);
+        let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, None, images);
         return match author.as_str() {
             domain::contract::MESSAGE_AUTHOR_KIND_USER => {
                 let at = case
