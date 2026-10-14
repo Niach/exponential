@@ -435,4 +435,39 @@ final class SessionTreeTests: XCTestCase {
             TreeMessageCard(kind: "question", question: "Ship?", options: ["Yes", "No"])
         )
     }
+
+    // MARK: - EXP-1309: the Threads row's quiet word (web `threadRowWord`)
+
+    private func pr(_ id: String, _ state: String, base: String? = nil, root: String = "r") -> PullRequestEntity {
+        PullRequestEntity(
+            id: id, teamId: "t", rootSessionId: root, repositoryId: "repo", number: 1,
+            url: "https://github.com/acme/app/pull/1", head: "exp/\(id)", base: "master",
+            basePullRequestId: base, state: state,
+            createdAt: "2026-10-13T09:00:00.000Z", updatedAt: "2026-10-13T09:00:00.000Z"
+        )
+    }
+
+    func testThreadRowWordFollowsTheWebRule() {
+        let open = DomainContract.prStateOpen
+        let merged = DomainContract.prStateMerged
+        // Nothing to say.
+        XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [], teamPrs: []))
+        // Waiting on a person with no PR.
+        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: true, prs: [], teamPrs: []), .question)
+        // An open PR, nothing working: ready to merge; working: no word.
+        let lone = pr("a", open)
+        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [lone], teamPrs: [lone]), .readyToMerge)
+        XCTAssertNil(SessionTree.threadRowWord(busy: true, needsYou: false, prs: [lone], teamPrs: [lone]))
+        // A stack edge (either side, across threads) wins, busy or not.
+        let upper = pr("b", open, base: "a", root: "other")
+        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [lone], teamPrs: [lone, upper]), .stack)
+        XCTAssertEqual(SessionTree.threadRowWord(busy: true, needsYou: false, prs: [upper], teamPrs: [lone, upper]), .stack)
+        // A merged base breaks the stack.
+        let mergedBase = pr("a", merged)
+        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [upper], teamPrs: [mergedBase, upper]), .readyToMerge)
+        // Merged beats the question; a closed PR says nothing.
+        XCTAssertEqual(SessionTree.threadRowWord(busy: false, needsYou: true, prs: [mergedBase], teamPrs: [mergedBase]), .merged)
+        XCTAssertNil(SessionTree.threadRowWord(busy: false, needsYou: false, prs: [pr("c", "closed")], teamPrs: []))
+        XCTAssertEqual(ThreadRowWord.allCases.map(\.text), ["ready to merge", "stack", "merged", "question", "needs input"])
+    }
 }

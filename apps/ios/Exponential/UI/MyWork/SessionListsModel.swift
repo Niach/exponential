@@ -3,7 +3,8 @@ import Foundation
 import GRDB
 
 /// EXP-1291: the session tree as the phone's LISTS read it — ONE observation
-/// of the synced `sessions` / `session_issues` / `messages` rows, owned by
+/// of the synced `sessions` / `session_issues` / `messages` /
+/// `pull_requests` rows, owned by
 /// the navigator for its whole lifetime and handed down through the
 /// environment, so the Threads tab, its dot, Home's Running band and the
 /// board switcher's per-team dots never disagree. Every rule is ExpCore's
@@ -23,6 +24,9 @@ final class SessionListsModel {
     private(set) var identifiers: [String: String] = [:]
     /// A root's agent CLI (the row's run mark), by root id.
     private(set) var clis: [String: String] = [:]
+    /// EXP-1309: a Threads row's quiet word off its pull requests, by root id
+    /// (`SessionTree.threadRowWord`).
+    private(set) var words: [String: ThreadRowWord] = [:]
     /// The board switcher's per-team dots (`liveByTeam`).
     private(set) var liveByTeam: [String: SessionTree.TeamLiveSessions] = [:]
     /// The first emission landed (before it, lists draw skeleton rows).
@@ -80,6 +84,7 @@ final class SessionListsModel {
         running = []
         identifiers = [:]
         clis = [:]
+        words = [:]
         liveByTeam = [:]
         loaded = false
     }
@@ -92,6 +97,7 @@ final class SessionListsModel {
         var issues: [TreeIssue]
         var messages: [TreeMessage]
         var clis: [String: String]
+        var pullRequests: [PullRequestEntity]
     }
 
     private struct Derived: Sendable {
@@ -100,6 +106,7 @@ final class SessionListsModel {
         var running: [ThreadsListRow]
         var identifiers: [String: String]
         var clis: [String: String]
+        var words: [String: ThreadRowWord]
         var liveByTeam: [String: SessionTree.TeamLiveSessions]
     }
 
@@ -109,6 +116,7 @@ final class SessionListsModel {
         running = derived.running
         identifiers = derived.identifiers
         clis = derived.clis
+        words = derived.words
         liveByTeam = derived.liveByTeam
         loaded = true
     }
@@ -136,7 +144,8 @@ final class SessionListsModel {
             clis: Dictionary(
                 sessions.filter(\.isRoot).map { ($0.id, $0.cli ?? "") },
                 uniquingKeysWith: { a, _ in a }
-            )
+            ),
+            pullRequests: try PullRequestEntity.fetchAll(db)
         )
     }
 
@@ -166,12 +175,27 @@ final class SessionListsModel {
                 identifiers[link.sessionId] = identifier
             }
         }
+        // A stack edge may cross threads, never teams.
+        let prsByTeam = Dictionary(grouping: rows.pullRequests, by: \.teamId)
+        let prsByRoot = Dictionary(grouping: rows.pullRequests.filter { $0.rootSessionId != nil }) {
+            $0.rootSessionId ?? ""
+        }
+        var words: [String: ThreadRowWord] = [:]
+        for row in groups.flatMap(\.rows) {
+            words[row.sessionId] = SessionTree.threadRowWord(
+                busy: row.busy,
+                needsYou: row.needsYou,
+                prs: prsByRoot[row.sessionId] ?? [],
+                teamPrs: prsByTeam[row.teamId] ?? []
+            )
+        }
         return Derived(
             groups: groups,
             agents: SessionTree.listAgents(rows.sessions, teamId: nil),
             running: running,
             identifiers: identifiers,
             clis: rows.clis,
+            words: words,
             liveByTeam: SessionTree.liveByTeam(rows.sessions, userId: userId)
         )
     }

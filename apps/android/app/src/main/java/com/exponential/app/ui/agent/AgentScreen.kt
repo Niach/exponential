@@ -812,7 +812,6 @@ fun AgentScreen(
  * iOS `AgentPageView`): [dawn] leads the column — the restored DAWN
  * (FEED-100), the big Exponential mark's upper half, dim, fully BELOW the
  * title — then the composer card + options line, then the Running band.
- * Stateless, so the styleguide captures draw the same frame over fake data.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

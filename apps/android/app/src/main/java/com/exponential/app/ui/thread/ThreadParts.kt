@@ -33,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +80,7 @@ import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.LiveGreen
 import com.exponential.app.ui.issue.NeedsInputAmber
+import com.exponential.app.ui.markdown.LocalIssueRefBare
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.session.AnsweredRow
@@ -528,48 +530,53 @@ fun ThreadConversation(
     LaunchedEffect(shown.size) {
         if (shown.isNotEmpty()) state.animateScrollToItem(shown.lastIndex)
     }
-    LazyColumn(
-        state = state,
-        modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(shown, key = { it.id }) { row ->
-            when (row) {
-                is SessionTree.ThreadRow.MessageRow -> {
-                    val rowMeta = meta(row)
-                    if (agent != null) {
-                        ThreadCommentRow(
-                            row = row,
-                            meta = rowMeta,
-                            agent = agent,
-                            onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
-                        )
-                    } else {
-                        when (row.author) {
-                            "user" -> ThreadMessageBubble(
-                                text = row.body,
-                                caption = rowMeta?.let { listOf(it.authorName, it.time).filter(String::isNotEmpty).joinToString(" · ") },
-                                queued = row.queued,
+    // EXP-760 ×4 (web `thread-markdown.tsx`): every conversation text chips
+    // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
+    // provides [LocalIssueRefs]. Display-only: the composer sits outside.
+    CompositionLocalProvider(LocalIssueRefBare provides true) {
+        LazyColumn(
+            state = state,
+            modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            items(shown, key = { it.id }) { row ->
+                when (row) {
+                    is SessionTree.ThreadRow.MessageRow -> {
+                        val rowMeta = meta(row)
+                        if (agent != null) {
+                            ThreadCommentRow(
+                                row = row,
+                                meta = rowMeta,
+                                agent = agent,
                                 onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
                             )
-                            "agent" -> MarkdownView(
-                                markdown = row.body,
-                                softBreaksAsNewlines = true,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("thread-agent-message"),
-                            )
-                            else -> ThreadEventLine(row.body)
+                        } else {
+                            when (row.author) {
+                                "user" -> ThreadMessageBubble(
+                                    text = row.body,
+                                    caption = rowMeta?.let { listOf(it.authorName, it.time).filter(String::isNotEmpty).joinToString(" · ") },
+                                    queued = row.queued,
+                                    onUnqueue = if (row.queued && canUnqueue(row)) ({ onUnqueue(row.id) }) else null,
+                                )
+                                "agent" -> MarkdownView(
+                                    markdown = row.body,
+                                    softBreaksAsNewlines = true,
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("thread-agent-message"),
+                                )
+                                else -> ThreadEventLine(row.body)
+                            }
                         }
                     }
+                    is SessionTree.ThreadRow.SessionRow -> SessionCard(row.card, onClick = { onOpenCard(row.card) })
+                    is SessionTree.ThreadRow.Question -> ThreadQuestionCard(row, onAnswer = { onAnswer(row.id, it) })
+                    is SessionTree.ThreadRow.Plan -> ThreadPlanCard(row, onDecide = { onDecidePlan(row.id, it) })
+                    is SessionTree.ThreadRow.Subagent -> WorkCardView(
+                        card = WorkCards.of(WorkCardInput.Subagent(title = row.title, state = row.status)),
+                    )
+                    is SessionTree.ThreadRow.Picture -> ThreadPictureRow(row)
+                    is SessionTree.ThreadRow.Event -> ThreadEventLine(row.text)
                 }
-                is SessionTree.ThreadRow.SessionRow -> SessionCard(row.card, onClick = { onOpenCard(row.card) })
-                is SessionTree.ThreadRow.Question -> ThreadQuestionCard(row, onAnswer = { onAnswer(row.id, it) })
-                is SessionTree.ThreadRow.Plan -> ThreadPlanCard(row, onDecide = { onDecidePlan(row.id, it) })
-                is SessionTree.ThreadRow.Subagent -> WorkCardView(
-                    card = WorkCards.of(WorkCardInput.Subagent(title = row.title, state = row.status)),
-                )
-                is SessionTree.ThreadRow.Picture -> ThreadPictureRow(row)
-                is SessionTree.ThreadRow.Event -> ThreadEventLine(row.text)
             }
         }
     }

@@ -846,6 +846,10 @@ pub(crate) struct ThreadCommentProps {
     pub body: String,
     /// Scopes the body's `@email`/`#IDENT` pills.
     pub team_id: Option<String>,
+    /// EXP-1309: also chip BARE `FB-8` tokens — set when the card carries a
+    /// THREAD text (an agent channel's message, web `ThreadMarkdown`), never
+    /// for a stored comment (the `#IDENT` contract).
+    pub bare_refs: bool,
     pub expanded: bool,
     pub on_toggle: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
     /// Opens the issue scrolled to this comment.
@@ -891,7 +895,7 @@ pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> 
     if let Some(team_id) = props.team_id.as_deref() {
         let team = team_id.to_string();
         view = view
-            .resolver(RefResolver::from_store(team_id))
+            .resolver(RefResolver::from_store(team_id).bare(props.bare_refs))
             .on_open_issue(move |identifier, window, cx| {
                 open_issue_by_identifier(&team, identifier, window, cx);
             });

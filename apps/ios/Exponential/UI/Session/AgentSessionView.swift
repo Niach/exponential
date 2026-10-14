@@ -113,15 +113,6 @@ struct AgentSessionView: View {
     let accountId: String
     /// The row the screen opened on — the model observes it from there on.
     let session: SessionEntity
-    /// Capture only (`SessionStyleguideScreen`): a model that never dials,
-    /// used instead of the app-scoped one.
-    let previewModel: AgentSessionModel?
-
-    init(accountId: String, session: SessionEntity, previewModel: AgentSessionModel? = nil) {
-        self.accountId = accountId
-        self.session = session
-        self.previewModel = previewModel
-    }
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
@@ -338,10 +329,6 @@ struct AgentSessionView: View {
                 // screen re-attaches to the SAME model, so the feed is already
                 // there, the composer still holds its draft, and there is no
                 // connect phase to sit through. ONE claim per view.
-                if let previewModel {
-                    model = previewModel
-                    return
-                }
                 guard !claimed else { return }
                 claimed = true
                 model = deps.attachSteerModel(accountId: accountId, session: session)

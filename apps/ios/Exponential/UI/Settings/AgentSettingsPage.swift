@@ -17,8 +17,8 @@ import SwiftUI
 // once (a WHOLE-ARRAY write per add/edit/toggle/delete), everything else on
 // Save changes.
 
-/// The page's editable state, hoisted out of the views so the capture seam
-/// (`AgentSettingsStyleguideScreen`) can draw the real form over fake rows.
+/// The page's editable state, hoisted out of the views (`AgentSettingsForm`
+/// draws it).
 @MainActor
 @Observable
 final class AgentSettingsDraft {

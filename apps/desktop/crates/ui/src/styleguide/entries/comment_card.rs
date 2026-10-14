@@ -33,6 +33,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             meta: "2 minutes ago · via MCP".to_string(),
             body: BODY.to_string(),
             team_id: None,
+            bare_refs: false,
             expanded: false,
             on_toggle: Some(std::rc::Rc::new(|_, _| {})),
             on_open: None,

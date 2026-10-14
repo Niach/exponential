@@ -987,7 +987,8 @@
       },
       "notes": {
         "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for the greeting.",
-        "desktop": "Same drive as `chat` (`EXP_DEV_SCREEN=chat`): the IDE starts on Agent (EXP-1192) and that page IS the home column (greeting and composer), so the two desktop shots are one surface filed under both names, like issue-detail and issue-comments."
+        "desktop": "Same drive as `chat` (`EXP_DEV_SCREEN=chat`): the IDE starts on Agent (EXP-1192) and that page IS the home column (greeting and composer), so the two desktop shots are one surface filed under both names, like issue-detail and issue-comments.",
+        "android": "EXP-1309: the live landing (with the bottom bar), like iOS."
       }
     },
     {
@@ -1089,7 +1090,9 @@
         }
       },
       "notes": {
-        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): \"Reduce cold start below 800 ms\" with APP-5, APP-10 and FB-3, its child session \"Profile the launch path\" needing input and the question card it asked. Seeded rows only, no relay."
+        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): \"Reduce cold start below 800 ms\" with APP-5, APP-10 and FB-3, its child session \"Profile the launch path\" needing input and the question card it asked. Seeded rows only, no relay.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Threads → the cold-start thread (DEMO_THREAD_ID).",
+        "android": "See ios."
       }
     },
     {
@@ -1861,7 +1864,9 @@
         }
       },
       "notes": {
-        "web": "`$agentId` resolves to DEMO_AGENT_ID, the Triage agent (on the shared build server, one daily schedule trigger). The instructions are server-only (`sessions.getAgent`), so the card fills after that query."
+        "web": "`$agentId` resolves to DEMO_AGENT_ID, the Triage agent (on the shared build server, one daily schedule trigger). The instructions are server-only (`sessions.getAgent`), so the card fills after that query.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Settings → team → Agents → Triage.",
+        "android": "See ios."
       }
     },
     {
@@ -4222,7 +4227,8 @@
         "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
         "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes; the app views are the rail and Recent.",
-        "android": "EXP-1284: the Recent sheet lists threads now, so `sg_session-row` photographs a capture-only screen of SessionRows built from fake data."
+        "android": "EXP-1284: the Recent sheet lists threads now, so `sg_session-row` photographs a capture-only screen of THE session card, one per state (no seed counterpart, like the web/desktop styleguide entries).",
+        "ios": "EXP-1309: the live home's Running band over the seeded roots (the row's one phone instance), right after sg_agent-home."
       }
     },
     {
@@ -4635,7 +4641,9 @@
         }
       },
       "notes": {
-        "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top."
+        "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Threads tab, gated on the seeded rows' quiet words (`stack`, `merged`).",
+        "android": "See ios."
       }
     },
     {
@@ -4668,8 +4676,8 @@
         }
       },
       "notes": {
-        "ios": "EXP-1308: the `session` specimen (`SessionStyleguideScreen`): the REAL AgentSessionView over a model fed web's content through the live reducer (\"Profile the launch path\", mid-turn).",
-        "android": "EXP-1308: `SessionCaptureKind.Session`: the REAL session view (`SessionViewPreview`) over the same content, a capture-only screen.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: a session card of the cold-start thread opens DEMO_SESSION_ID (\"Profile the launch path\"), its feed from `screenshots:desktop`, the pending question card in the composer's place.",
+        "android": "See ios: the same walk in StyleguideScreenshotsTest.",
         "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land."
       }
     },
@@ -4703,7 +4711,9 @@
         }
       },
       "notes": {
-        "web": "`$agentId` resolves to DEMO_AGENT_ID (apps/web/scripts/screenshot-demo.ts), the Triage agent. Its four messages sit at pinned instants (DEMO_AGENT_CHANNEL_TIMES) because the rows print a time of day; the anchor is DEMO_AGENT_REQUEST."
+        "web": "`$agentId` resolves to DEMO_AGENT_ID (apps/web/scripts/screenshot-demo.ts), the Triage agent. Its four messages sit at pinned instants (DEMO_AGENT_CHANNEL_TIMES) because the rows print a time of day; the anchor is DEMO_AGENT_REQUEST.",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Threads → the Agents band's Triage; the rows print DEMO_AGENT_CHANNEL_TIMES in the seed's zone (Android pins it in the test), bare FB-8/FB-3/FB-9 chipped like web.",
+        "android": "See ios."
       }
     }
   ]

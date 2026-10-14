@@ -7,7 +7,10 @@ import SwiftUI
 /// [tree guides][lead at 12 + 14·depth][mono id · title][state]. The state
 /// is label-free (no captions, threads-list.json): a lock while the thread
 /// is private, the inline spinner while it works, the amber dot while it
-/// needs you. No fold chevron, no trailing chevron, no buttons.
+/// needs you. EXP-1309: the Threads list instead ends on ONE quiet `word`
+/// (web `ThreadsListItem`: `stack`, `merged`, `question`…; the lock wins)
+/// and carries its state in the lead. No fold chevron, no trailing
+/// chevron, no buttons.
 ///
 /// The row is CONTENT: the host wraps it in its own NavigationLink/Button
 /// (ExpUI cannot see the app's routes) and hands the lead in (a thread's
@@ -20,6 +23,8 @@ public struct SessionRow<Lead: View>: View {
     private let busy: Bool
     private let needsYou: Bool
     private let active: Bool
+    private let word: String?
+    private let wordIcon: String?
     private let lead: Lead
 
     /// - Parameters:
@@ -29,6 +34,8 @@ public struct SessionRow<Lead: View>: View {
     ///   - isPrivate: started on a device not shared with the team (`!shared`).
     ///   - busy: a session of the tree works — the inline spinner.
     ///   - needsYou: a live session waits on a person — the amber dot.
+    ///   - word: ONE quiet trailing word (EXP-1309), hidden by the lock.
+    ///   - wordIcon: the word's glyph (`AppIcons.prStack` for `stack`).
     public init(
         identifier: String? = nil,
         title: String,
@@ -37,6 +44,8 @@ public struct SessionRow<Lead: View>: View {
         busy: Bool = false,
         needsYou: Bool = false,
         active: Bool = false,
+        word: String? = nil,
+        wordIcon: String? = nil,
         @ViewBuilder lead: () -> Lead
     ) {
         self.identifier = identifier
@@ -46,6 +55,8 @@ public struct SessionRow<Lead: View>: View {
         self.busy = busy
         self.needsYou = needsYou
         self.active = active
+        self.word = word
+        self.wordIcon = wordIcon
         self.lead = lead()
     }
 
@@ -73,6 +84,17 @@ public struct SessionRow<Lead: View>: View {
                 AppIcon(AppIcons.uiPrivate, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityLabel("Private")
+            } else if let word, !word.isEmpty {
+                HStack(spacing: 4) {
+                    if let wordIcon {
+                        AppIcon(wordIcon, size: 11)
+                    }
+                    Text(word)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .fixedSize()
             }
             if busy {
                 InlineSpinner()

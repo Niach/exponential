@@ -668,8 +668,17 @@ pub(crate) fn member_name(user_id: Option<&str>, cx: &App) -> String {
     crate::comments::user_label(user_id, user.as_ref())
 }
 
-/// A message body as read-only chat markdown, `#IDENT`/`@email` pills scoped
-/// to `team_id`.
+/// EXP-1309: the chip resolver EVERY thread text renders through (an agent's
+/// reply, a person's message, a plan, a question, a Guide section): web
+/// `ThreadMarkdown`'s `bareIssueRefs` — BARE mode (EXP-760), because agents
+/// write `FB-8` without a `#`; a token chips only when it resolves to a
+/// synced issue of `team_id`. Display-only, the stored text is untouched.
+pub(crate) fn thread_text_resolver(team_id: &str) -> RefResolver {
+    RefResolver::from_store(team_id).bare(true)
+}
+
+/// A message body as read-only chat markdown, `#IDENT` / bare `ABC-12` /
+/// `@email` pills scoped to `team_id` ([`thread_text_resolver`]).
 pub(crate) fn message_markdown(id: SharedString, body: &str, team_id: Option<&str>) -> MarkdownView {
     let mut view = MarkdownView::new(id, body.to_string())
         .chat(true)
@@ -679,7 +688,7 @@ pub(crate) fn message_markdown(id: SharedString, body: &str, team_id: Option<&st
     if let Some(team_id) = team_id {
         let team = team_id.to_string();
         view = view
-            .resolver(RefResolver::from_store(team_id))
+            .resolver(thread_text_resolver(team_id))
             .on_open_issue(move |identifier, window, cx| {
                 crate::description_editor::open_issue_by_identifier(&team, identifier, window, cx);
             });
@@ -1958,6 +1967,14 @@ mod tests {
         assert!(!thread_not_found(true, true, late));
         assert!(!thread_not_found(true, false, Duration::from_secs(1)));
         assert!(thread_not_found(true, false, late));
+    }
+
+    /// EXP-1309: every thread text (messages, plans, questions, Guide
+    /// sections) chips BARE `FB-8` tokens, like web `ThreadMarkdown`'s
+    /// `bareIssueRefs` and the steering feed (EXP-760).
+    #[test]
+    fn thread_texts_chip_bare_identifiers() {
+        assert!(thread_text_resolver("team-1").bare);
     }
 
     #[test]

@@ -183,34 +183,6 @@ struct AppNavigator: View {
         )) {
             ThreadCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
         }
-        // EXP-1295: the Thread screen specimens (capture only,
-        // `-uiTestingStyleguide thread|agent-channel`).
-        .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(ThreadStyleguideScreen.kinds.contains) == true
-        )) {
-            ThreadStyleguideScreen(kind: UITestingStyleguide.requested ?? "thread")
-        }
-        // EXP-1295: Home and the Threads tab (capture only,
-        // `-uiTestingStyleguide home|threads`).
-        .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(ThreadsStyleguideScreen.kinds.contains) == true
-        )) {
-            ThreadsStyleguideScreen(kind: UITestingStyleguide.requested ?? "threads")
-        }
-        // EXP-1295: a session's raw work (capture only,
-        // `-uiTestingStyleguide session`).
-        .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(SessionStyleguideScreen.kinds.contains) == true
-        )) {
-            SessionStyleguideScreen()
-        }
-        // EXP-1295: Settings → Agents (capture only,
-        // `-uiTestingStyleguide settings-agents`).
-        .fullScreenCover(isPresented: .constant(
-            UITestingStyleguide.requested.map(AgentSettingsStyleguideScreen.kinds.contains) == true
-        )) {
-            AgentSettingsStyleguideScreen(kind: UITestingStyleguide.requested ?? "settings-agents")
-        }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
 

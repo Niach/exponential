@@ -53,7 +53,7 @@ use crate::controls::{disclosure_header, ChevronSide};
 
 use crate::issue_detail::centered_column;
 use crate::work_header::WORK_GUTTER;
-use crate::markdown::{placeholder_box, ImageCache, ImageSlot, MarkdownView, RefResolver};
+use crate::markdown::{placeholder_box, ImageCache, ImageSlot, MarkdownView};
 
 /// EXP-1251 — the diff page a Guide row opens (web `?view=guide&section=`):
 /// a numbered section, the lead's files, the automatic `Other changes`
@@ -341,8 +341,9 @@ fn scroll_page(page: gpui::Div, scroll: Option<gpui::ScrollHandle>) -> AnyElemen
         .into_any_element()
 }
 
-/// A topic's report text as read-only markdown, `#IDENT`/`@email` pills
-/// resolved against `team_id`.
+/// A topic's report text as read-only markdown, `#IDENT` / bare `ABC-12` /
+/// `@email` pills resolved against `team_id` (a Guide section = a thread
+/// text, [`crate::thread_screen::thread_text_resolver`], EXP-1309).
 fn report_text(id: SharedString, text: &str, images: Option<&Entity<ImageCache>>, team_id: Option<&str>) -> gpui::Div {
     // EXP-1188: a Guide link to a run or issue on this instance opens in
     // the app; bare URLs in the report link like the feed's.
@@ -356,7 +357,7 @@ fn report_text(id: SharedString, text: &str, images: Option<&Entity<ImageCache>>
     if let Some(team_id) = team_id {
         let team = team_id.to_string();
         view = view
-            .resolver(RefResolver::from_store(team_id))
+            .resolver(crate::thread_screen::thread_text_resolver(team_id))
             .on_open_issue(move |identifier, window, cx| {
                 crate::description_editor::open_issue_by_identifier(&team, identifier, window, cx);
             });

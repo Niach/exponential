@@ -1505,17 +1505,6 @@ final class AgentSessionModel {
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 
-    // MARK: - Styleguide (capture only)
-
-    /// Capture only (`SessionStyleguideScreen`): fold `events` — raw
-    /// `activity` payloads — through the live reducer of a model that never
-    /// dials, so the REAL transcript draws over fake rows.
-    func loadStyleguide(events: [[String: Any]]) {
-        stopped = true
-        phase = .live
-        for event in events { handleActivityEvent(event) }
-    }
-
     // MARK: - Connect lifecycle
 
     private func resetDialState() {

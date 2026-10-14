@@ -60,6 +60,27 @@ class ThreadsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
+     * EXP-1309 (web `threadRowWord` ×4): each listed row's ONE quiet word off
+     * the synced pull requests its root opened; a stack edge may cross
+     * threads, so the row's whole TEAM's PRs are the stack context.
+     */
+    val words: StateFlow<Map<String, SessionTree.ThreadRowWord>> = combine(
+        groups,
+        dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() },
+    ) { g, prs ->
+        val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
+        val byTeam = prs.groupBy { it.teamId }
+        g.flatMap { it.rows }.mapNotNull { row ->
+            SessionTree.threadRowWord(
+                busy = row.busy,
+                needsYou = row.needsYou,
+                prs = byRoot[row.sessionId].orEmpty(),
+                teamPrs = byTeam[row.teamId].orEmpty(),
+            )?.let { row.sessionId to it }
+        }.toMap()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
      * The phone home's Running band (`composer-home.json`: phones keep their
      * Running list of LIVE OWN sessions; never Recent): the caller's own
      * threads in Needs you then Running, every team, list order.
