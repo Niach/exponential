@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BarSolidPill
 import com.exponential.app.ui.components.GlassPill
@@ -63,11 +64,12 @@ fun MergeCapsule(
     merge: ChangesMergeControl,
     modifier: Modifier = Modifier,
     /**
-     * Every pager page keeps its own capsule composed, so only the Guide
-     * face's carries the bare `work-merge-pr` (the store slide's pop-out rect
-     * reads the first match); the others suffix their face, like iOS.
+     * Every pager page keeps its own capsule composed, so only the thread
+     * Guide's carries the fixture's `thread-guide-merge` (EXP-1307,
+     * session-thread.json `testIds.guideMerge`); the Guide's section page
+     * suffixes [MergeCapsuleTag], like iOS.
      */
-    tag: String = MergeCapsuleTag,
+    tag: String = SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE,
 ) {
     MergeTrigger(merge) { onClick ->
         BarSolidPill(
@@ -153,7 +155,7 @@ private fun MergeTrigger(
     }
 }
 
-/** The Guide face's capsule tag; the other faces append `-issue`/`-run`. */
+/** The Merge tag stem the Guide's section page suffixes (`-section`). */
 const val MergeCapsuleTag = "work-merge-pr"
 
 /**

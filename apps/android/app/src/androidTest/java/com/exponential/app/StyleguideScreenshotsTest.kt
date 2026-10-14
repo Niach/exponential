@@ -495,6 +495,8 @@ class StyleguideScreenshotsTest {
             composeRule.onNode(hasTestTag("thread-tab-guide")).performClick()
             flow.waitFor(hasText(BATCH_GUIDE_SECTION, substring = true), SYNC_TIMEOUT)
             flow.waitFor(hasText("Merge stack"), SYNC_TIMEOUT)
+            // EXP-1307: the Guide's capsule carries the fixture's test id.
+            flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE), SYNC_TIMEOUT)
             flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_STACK), SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_guide")

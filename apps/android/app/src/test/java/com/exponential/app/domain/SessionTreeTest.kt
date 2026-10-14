@@ -22,7 +22,7 @@ import org.junit.Test
 /**
  * EXP-1291 Threads v2: the session tree is fixture-locked ×4 — every case of
  * `session-card.json`, `session-thread.json` (cases + guidePullRequestCases +
- * composerCases) and `threads-list.json` (cases +
+ * composerCases + guideMenuCases) and `threads-list.json` (cases +
  * agentCases) runs here (TS `session-tree.test.ts`, desktop
  * `domain::session_tree`, iOS `SessionTreeTests`). Outputs are re-encoded in
  * the fixture's own JSON shape and compared as a WHOLE, so a field the port
@@ -332,6 +332,20 @@ class SessionTreeTest {
     }
 
     @Test
+    fun `every guide menu case matches the fixture`() {
+        val cases = threadFixture.list("guideMenuCases")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                SessionTree.guideMenuEntries(state = input.str("state"), member = input.bool("member")).map { it.wire },
+            )
+        }
+    }
+
+    @Test
     fun `the elapsed ladder`() {
         assertEquals("37s", SessionTree.formatElapsed(37_000))
         assertEquals("2m 04s", SessionTree.formatElapsed(124_000))
@@ -377,6 +391,7 @@ class SessionTreeTest {
         assertEquals(testIds.str("composer"), SessionTree.ThreadCopy.TEST_ID_COMPOSER)
         assertEquals(testIds.str("guideStack"), SessionTree.ThreadCopy.TEST_ID_GUIDE_STACK)
         assertEquals(testIds.str("guideMerge"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE)
+        assertEquals(testIds.str("guideMenu"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU)
         assertEquals(copy.str("stack"), SessionTree.ThreadCopy.STACK)
     }
 

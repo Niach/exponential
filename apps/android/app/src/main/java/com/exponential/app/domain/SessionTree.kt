@@ -19,7 +19,7 @@ import kotlinx.serialization.json.doubleOrNull
  * byte-locked by the fixtures `SessionTreeTest` replays:
  *   fixtures/session-card.json   → [sessionCard]
  *   fixtures/session-thread.json → [buildSessionThread], [guidePullRequest],
- *                                  [composerYieldsToCard]
+ *                                  [composerYieldsToCard], [guideMenuEntries]
  *   fixtures/threads-list.json   → [partitionThreads] + [listAgents]
  * The copy / icons / tones / testIds below are the fixtures' (the test
  * proves equality).
@@ -132,6 +132,8 @@ object SessionTree {
         const val STACK = "Stack"
         const val TEST_ID_GUIDE_STACK = "thread-guide-stack"
         const val TEST_ID_GUIDE_MERGE = "thread-guide-merge"
+        /** EXP-1307: the header `…` on the Guide (Open on GitHub · Close PR). */
+        const val TEST_ID_GUIDE_MENU = "thread-guide-menu"
     }
 
     object ListCopy {
@@ -624,6 +626,21 @@ object SessionTree {
     /** EXP-820 ×4: a question or plan card waiting on the viewer takes the
      *  session composer's place (`composerCases`). */
     fun composerYieldsToCard(live: Boolean, pendingAsk: Boolean): Boolean = live && pendingAsk
+
+    /** EXP-1307: one entry of the thread header's `…` on the Guide. */
+    enum class GuideMenuEntry(val wire: String) { OpenGithub("open-github"), ClosePr("close-pr") }
+
+    /**
+     * EXP-1307: the thread header's `…` on the Guide: Open on GitHub whenever
+     * the Guide has a PR ([state] = its state, null = none), Close PR while it
+     * is open and the viewer is a [member]; empty = no trigger
+     * (`guideMenuCases`).
+     */
+    fun guideMenuEntries(state: String?, member: Boolean): List<GuideMenuEntry> = when {
+        state == null -> emptyList()
+        state == DomainContract.prStateOpen && member -> listOf(GuideMenuEntry.OpenGithub, GuideMenuEntry.ClosePr)
+        else -> listOf(GuideMenuEntry.OpenGithub)
+    }
 
     // ── synced rows → the pure inputs ───────────────────────────────────────
 
