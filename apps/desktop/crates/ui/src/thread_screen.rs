@@ -42,7 +42,6 @@ use gpui_component::{
     button::ButtonVariants as _,
     h_flex,
     input::{InputEvent, InputState, TextareaState},
-    scroll::ScrollableElement as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -1410,7 +1409,9 @@ pub(crate) struct ThreadScreenView {
     first_seen: HashMap<String, (Instant, bool)>,
     opened_at: Instant,
     scroll: ScrollHandle,
-    row_count: usize,
+    /// EXP-1316 (1n): the conversation follows its tail like the session
+    /// feed (opens on the newest row, pinned until the reader scrolls up).
+    follow: crate::controls::TailFollow,
     focus_handle: FocusHandle,
     _ring_tick: Option<Task<()>>,
     _missing_tick: Task<()>,
@@ -1475,7 +1476,7 @@ impl ThreadScreenView {
             first_seen: HashMap::new(),
             opened_at: Instant::now(),
             scroll: ScrollHandle::new(),
-            row_count: 0,
+            follow: crate::controls::TailFollow::default(),
             focus_handle: cx.focus_handle(),
             _ring_tick: None,
             _missing_tick: missing_tick,
@@ -1506,11 +1507,6 @@ impl ThreadScreenView {
                     self.child = ThreadChildSel::Conversation;
                 }
             }
-            // New rows land in view.
-            if model.view.rows.len() > self.row_count {
-                self.scroll.scroll_to_bottom();
-            }
-            self.row_count = model.view.rows.len();
         }
         self.model = model;
         cx.notify();
@@ -1849,16 +1845,13 @@ impl ThreadScreenView {
             .flex_1()
             .min_h_0()
             .w_full()
-            .child(
-                div()
-                    .id("thread-conversation-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .track_scroll(&self.scroll)
-                    .overflow_y_scrollbar()
-                    .child(column),
-            )
+            .child(self.follow.scroller(
+                "thread-conversation-scroll",
+                &self.scroll,
+                column,
+                cx.entity_id(),
+                cx,
+            ))
             .child(div().w_full().pb_2().child(composer))
             .into_any_element()
     }

@@ -11,12 +11,11 @@
 use gpui::{
     div, px, AnyElement, App, AppContext as _, Entity, FocusHandle,
     Focusable, FontWeight, InteractiveElement as _, IntoElement, ParentElement, Render,
-    ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
+    ScrollHandle, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     h_flex,
     input::{InputEvent, TextareaState},
-    scroll::ScrollableElement as _,
     v_flex, ActiveTheme as _, Sizable as _,
 };
 use sync::Store;
@@ -71,6 +70,8 @@ pub struct AgentScreenView {
     notice: Option<SharedString>,
     sending: bool,
     scroll: ScrollHandle,
+    /// EXP-1316 (1n): the channel follows its tail like the session feed.
+    follow: crate::controls::TailFollow,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -129,6 +130,7 @@ impl AgentScreenView {
             notice: None,
             sending: false,
             scroll: ScrollHandle::new(),
+            follow: crate::controls::TailFollow::default(),
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         };
@@ -149,9 +151,6 @@ impl AgentScreenView {
                         .collect()
                 })
                 .unwrap_or_default();
-        if rows.len() > self.rows.len() {
-            self.scroll.scroll_to_bottom();
-        }
         self.rows = rows;
         self.messages = crate::session_data::messages_of_session(&self.agent_id, cx)
             .into_iter()
@@ -343,16 +342,13 @@ impl Render for AgentScreenView {
             .min_h_0()
             .overflow_hidden()
             .child(self.render_header(cx))
-            .child(
-                div()
-                    .id("agent-conversation-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
-                    .track_scroll(&self.scroll)
-                    .overflow_y_scrollbar()
-                    .child(column),
-            )
+            .child(self.follow.scroller(
+                "agent-conversation-scroll",
+                &self.scroll,
+                column,
+                cx.entity_id(),
+                cx,
+            ))
             .child(div().w_full().pb_2().child(composer))
     }
 }
