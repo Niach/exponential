@@ -117,6 +117,10 @@ final class StyleguideScreenshots: XCTestCase {
     /// APP-5 — the showcase issue: the only one the seed gives a comment thread
     /// (four comments, incl. an `@mention` + `#APP-2` issue ref).
     private static let showcaseTitle = "Reduce cold start below 800 ms"
+    /// EXP-1316: the cold-start thread (DEMO_THREAD_ID) is titled off its
+    /// linked issues (APP-5, APP-10, FB-3): `Implement APP-5 + 2`, never the
+    /// issue title, and its rows carry no identifier slot.
+    private static let coldStartThreadTitle = "Implement APP-5 + 2"
     /// First comment on APP-5, plain text before any markdown decoration.
     private static let showcaseCommentFragment = "Profiled on a mid-range device"
     /// Assigned to the demo user, so it is on My Issues.
@@ -206,7 +210,7 @@ final class StyleguideScreenshots: XCTestCase {
         expect(
             app.descendants(matching: .any)
                 .matching(identifier: "agent-thread-row")
-                .matching(NSPredicate(format: "label CONTAINS %@", Self.showcaseTitle))
+                .matching(NSPredicate(format: "label CONTAINS %@", Self.coldStartThreadTitle))
                 .firstMatch,
             within: Wait.sync,
             "The Running band never listed the cold-start thread"
@@ -912,7 +916,7 @@ final class StyleguideScreenshots: XCTestCase {
         goBack(app)
 
         // ── sg_thread: the cold-start thread (DEMO_THREAD_ID) ──────────────
-        let coldStart = threadRow(app, containing: Self.showcaseTitle)
+        let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
         expect(coldStart, within: Wait.nav, "Did not return to the Threads list")
         coldStart.tap()
         // The Conversation lands on its END (bottom-anchored): the seeded
