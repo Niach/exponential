@@ -29,7 +29,7 @@
  *   bun run seed:screenshots
  *   bun run screenshots:desktop   # second shell, stays up during the capture
  */
-import { eq, inArray, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
 import {
@@ -69,7 +69,9 @@ import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
 } from "@/lib/storage/issue-attachments"
+import { deleteObject } from "@/lib/storage"
 import { generateWidgetKey } from "@/lib/widget/key"
+import { seedDemoGuidePictures } from "./lib/demo-guide-pictures"
 import {
   assertDemoLiveSessions,
   DEMO_LIVE_SESSIONS,
@@ -316,6 +318,23 @@ async function teardown() {
     .where(eq(teams.slug, TEAM_SLUG))
     .limit(1)
   if (ws) {
+    // The team cascade drops the rows; the Guide pictures' blobs (the only
+    // seeded rows with stored bytes, owner-less) go first.
+    const pictures = await db
+      .select({ storageKey: attachments.storageKey })
+      .from(attachments)
+      .where(
+        and(
+          eq(attachments.teamId, ws.id),
+          isNull(attachments.issueId),
+          isNull(attachments.draftId)
+        )
+      )
+    for (const { storageKey } of pictures) {
+      await deleteObject(storageKey).catch((error: unknown) =>
+        console.warn(`couldn't delete seeded picture ${storageKey}`, error)
+      )
+    }
     // boards.repository_id is ON DELETE RESTRICT — drop boards before the
     // team cascade reaches repositories.
     await db.delete(boards).where(eq(boards.teamId, ws.id))
@@ -639,6 +658,14 @@ async function seedSessionTree(ctx: {
       [`src/board/selection-bar.tsx`, `src/board/label-batch.ts`, `src/board/label-batch.test.ts`],
       ids.batchLabels
     ),
+    // EXP-1283: two real pictures under the topic, so the Guide picture
+    // viewer has something to open (`1 / 2`).
+    ...(await seedDemoGuidePictures({
+      teamId,
+      sessionId: ids.batchLabels,
+      uploaderId: demoId,
+      at: minutesAgo(99),
+    })),
   ]
   const coldStartGuide = [
     guideText(
