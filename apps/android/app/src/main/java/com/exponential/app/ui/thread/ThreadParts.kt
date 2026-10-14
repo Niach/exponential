@@ -568,6 +568,12 @@ fun ThreadConversation(
     }
     // The floating band's height lands after the first layout: a follower
     // re-pins to the true end when it does (the session view's rule).
+    // EXP-1316: re-pin whenever a follower could still scroll forward (a
+    // row grew after its first layout, the band changed height).
+    LaunchedEffect(state) {
+        snapshotFlow { follow && !state.isScrollInProgress && state.canScrollForward }
+            .collect { behind -> if (behind) state.scrollBy(1_000_000f) }
+    }
     LaunchedEffect(shown.size, follow, jumpBottomInset) {
         if (follow && shown.isNotEmpty()) {
             state.scrollToItem(shown.lastIndex)

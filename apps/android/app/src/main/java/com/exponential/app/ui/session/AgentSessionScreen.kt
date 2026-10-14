@@ -2210,6 +2210,18 @@ private fun ActivityFeed(
     LaunchedEffect(bottomInset) {
         if (follow) listState.scrollBy(1_000_000f)
     }
+    // EXP-1316: a follower sits on the TRUE end whatever moved it off: the
+    // newest row growing after its first layout (a card's markdown, a late
+    // option row) or the pinned band (the Tasks panel, the composer)
+    // changing height. Whenever the list could still scroll forward while
+    // following and nobody drags, it re-pins, so the newest row always
+    // clears what is pinned at the bottom.
+    val followState = rememberUpdatedState(follow)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            followState.value && !listState.isScrollInProgress && listState.canScrollForward
+        }.collect { behind -> if (behind) listState.scrollBy(1_000_000f) }
+    }
 
     // Only composed once real activity has arrived (the placeholder states are
     // siblings). EXP-1175: the `agent-feed` tag moved to the Run face body.
