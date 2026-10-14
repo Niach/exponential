@@ -943,11 +943,19 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.network,
             "The session drew no pending question — is `bun run screenshots:desktop` publishing its feed?"
         )
+        // EXP-1310: the header's back row names the thread, Stop beside it.
+        expect(
+            anyElement(app, identified: "session-back"),
+            within: Wait.sync,
+            "The session header drew no back row to its thread"
+        )
+        expect(anyElement(app, identified: "session-stop"), within: Wait.sync, "The session header drew no Stop")
         snapshot("sg_session", settle: 2)
-        // Back twice (session → thread → list); never the bar's Stop.
+        // Back twice (session → thread → list) on the system back button:
+        // never the bar's Stop or the thread back row.
         for _ in 0..<2 {
             let back = app.navigationBars.buttons
-                .matching(NSPredicate(format: "identifier != %@", "session-stop"))
+                .matching(NSPredicate(format: "NOT (identifier IN %@)", ["session-stop", "session-back"]))
                 .firstMatch
             if back.waitForExistence(timeout: Wait.nav) { back.tap() }
             settle(1)

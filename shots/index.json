@@ -3436,8 +3436,8 @@
         "file": "shots/session/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 77110,
-        "sha256": "ca45ad6dae790db18271ae7da5cfb21290f90fb5f04b6006951b1b5d73d12657"
+        "bytes": 79980,
+        "sha256": "9700703ee245be024023d4392830d4cb964d34207b9349a06e3261b2a6798f4d"
       },
       "web": {
         "file": "shots/session/web.webp",
@@ -3459,8 +3459,8 @@
         "file": "shots/session-row/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22290,
-        "sha256": "484a9150c254b87b079b1a6f4c99b9a4baeba45819e852842698428ec98a7b3a"
+        "bytes": 28662,
+        "sha256": "737c1e1d23ec49e3f4db501acee4503685e534532b5f783fb0b03c362171ffd8"
       },
       "ios": {
         "file": "shots/session-row/ios.webp",

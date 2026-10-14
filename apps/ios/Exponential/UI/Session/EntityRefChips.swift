@@ -446,19 +446,7 @@ enum EntityRefResolver {
         // A root names its thread; a child its own card name.
         let title: String
         if session.isRoot {
-            let issues = try SessionQueries.issues(db: db, rootId: session.id)
-            let messages = try SessionQueries.messages(db: db, sessionId: session.id)
-            title = SessionTree.threadTitle(
-                root: TreeSession(sessionRow: session),
-                issues: issues.map { TreeIssue(id: $0.id, identifier: $0.identifier ?? "", title: $0.title) },
-                messages: messages.map {
-                    TreeMessage(
-                        id: $0.id, sessionId: $0.sessionId, authorKind: $0.authorKind,
-                        authorId: $0.authorId, body: $0.body, card: nil,
-                        answeredAt: $0.answeredAt, consumedAt: $0.consumedAt, createdAt: $0.createdAt
-                    )
-                }
-            ).title
+            title = try SessionTree.threadTitle(db: db, root: session)
         } else {
             title = session.cardName(in: tree)
         }

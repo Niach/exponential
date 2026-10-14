@@ -41,8 +41,6 @@ import com.exponential.app.ui.theme.ExponentialTheme
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
 import androidx.compose.runtime.Composable
-import com.exponential.app.ui.styleguide.ThreadCaptureKind
-import com.exponential.app.ui.styleguide.ThreadCaptures
 import org.junit.After
 import org.junit.Assume.assumeFalse
 import org.junit.Assume.assumeTrue
@@ -95,13 +93,13 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * server and NO sign-in: the specimens with no seed counterpart (web and
  * desktop photograph styleguide islands for them) are drawn by their real
  * composables over fixture data (ui/styleguide) and set as the activity's
- * content — sg_session-row (THE session card in its states), the feedback
- * states and the thread cards. A scoped run (`shots:`) naming only capture
+ * content — the feedback states and the thread cards. A scoped run (`shots:`) naming only capture
  * shots skips the live walk.
  *
  * EXP-1309: every Threads v2 surface WITH a seed counterpart is walked live,
  * so it reads the same seed web, desktop and iOS photograph and cannot drift:
- * sg_agent-home (the landing, the bottom bar over it), sg_composer-menu +
+ * sg_agent-home (the landing, the bottom bar over it), sg_session-row (the
+ * same home gated on THE row in its Running band, EXP-1311), sg_composer-menu +
  * sg_chat-issues (the home composer's "+" and Implement issue), sg_threads
  * (the Threads tab), sg_agent-channel (Triage), sg_thread (the cold-start
  * thread), sg_session ("Profile the launch path", its pending question in
@@ -152,7 +150,7 @@ class StyleguideScreenshotsTest {
 
         /** The catalog shots [captureOnlyScreens] owns (no server, no sign-in). */
         private val CAPTURE_SHOTS = setOf(
-            "sg_session-row", "sg_feedback-states", "sg_work-card",
+            "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card",
         )
 
@@ -330,6 +328,18 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agent-home")
+
+        // --- sg_session-row: THE session row (EXP-1248/1311), like iOS: the
+        // same home gated on its Running band's seeded rows (the cold-start
+        // thread waiting on me, the private spike, the busy ones), the row's
+        // one phone instance (web/desktop photograph a styleguide island).
+        flow.waitFor(
+            hasTestTag(SessionTree.ListCopy.TEST_ID_ROW) and
+                hasText(COLD_START_THREAD_TITLE, substring = true),
+            SYNC_TIMEOUT,
+        )
+        flow.settle()
+        flow.screenshot("sg_session-row")
 
         // The app lands on the Agent tab; the board shots start on Issues.
         flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
@@ -952,12 +962,6 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag(testId), NAV_TIMEOUT)
             flow.settle()
         }
-
-        // --- sg_session-row: THE session card, one per state (web and
-        // desktop photograph a styleguide island; no seed counterpart).
-        val cards = ThreadCaptureKind.SessionCards
-        show(cards.testId) { ThreadCaptures(cards) }
-        flow.screenshot("sg_session-row")
 
         // --- sg_feedback-states: the six feedback kinds (EXP-1275). A
         // capture-only screen, every kind drawn by its real primitive and the
