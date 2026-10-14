@@ -10,6 +10,7 @@ import {
   Spinner,
   type MenuEntry,
 } from "@exp/ui"
+import { closePrBody } from "@/components/close-pr-dialog"
 import { StackMergeConfirmDialog } from "@/components/stack-merge-choice-dialog"
 import { usePullRequestStackConfirm } from "@/hooks/use-stack-merge-choice"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -172,6 +173,7 @@ export function usePullRequestClose(
   const [open, setOpen] = useState(false)
   const [closing, setClosing] = useState(false)
   const allowed = canClose && pr.state === `open`
+  const linked = useLinkedIssueCount(pr.id, allowed)
   const close = async () => {
     setClosing(true)
     try {
@@ -204,7 +206,7 @@ export function usePullRequestClose(
         onOpenChange={setOpen}
         busy={closing}
         title={closePrCopy.title}
-        body={closePrCopy.body}
+        body={closePrBody(Math.max(0, linked - 1))}
         actions={[
           { label: `Cancel`, role: `cancel` },
           {
