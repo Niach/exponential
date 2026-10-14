@@ -10,8 +10,11 @@ import {
   guidePullRequest,
   listAgents,
   partitionThreads,
+  railThreads,
   sessionCard,
+  threadInStack,
   threadRowMarkState,
+  threadRowWord,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
@@ -23,7 +26,7 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   }
   for (const entry of thread.cases) {
     test(`thread: ${entry.name}`, () => {
-      expect(buildSessionThread(entry.input as never)).toEqual(entry.expected as never)
+      expect(buildSessionThread(entry.input as never, (entry as { options?: never }).options)).toEqual(entry.expected as never)
     })
   }
   for (const entry of thread.guidePullRequestCases) {
@@ -55,6 +58,23 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
   for (const entry of list.markCases) {
     test(`row mark: ${entry.name}`, () => {
       expect(threadRowMarkState(entry.input)).toBe(entry.expected as never)
+    })
+  }
+  for (const entry of list.wordCases) {
+    test(`row word: ${entry.name}`, () => {
+      expect(threadRowWord(entry.input)).toBe(entry.expected as never)
+    })
+  }
+  for (const entry of list.stackCases) {
+    test(`in stack: ${entry.name}`, () => {
+      expect(threadInStack(entry.input.pullRequests, entry.input.teamPrs)).toBe(entry.expected)
+    })
+  }
+  for (const entry of list.railCases) {
+    test(`rail: ${entry.name}`, () => {
+      const words = entry.input.words as Record<string, never>
+      const rows = railThreads(entry.input.groups as never, (row) => words[row.sessionId] ?? null)
+      expect(rows.map((row) => row.sessionId)).toEqual(entry.expected)
     })
   }
 })

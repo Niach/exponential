@@ -574,8 +574,9 @@ where
 
 /// EXP-1134/EXP-1292: whether the adapter asks the agent to name this
 /// conversation — a FRESH thread session with nothing else to be listed
-/// under: no linked issue and no title of its own (its run record says
-/// which, as `prepare` wrote it). A resume keeps the name its transcript
+/// under: no linked issue, no action and no title of its own (its run
+/// record says which, as `prepare` wrote it; EXP-1316: an action run's
+/// record carries the action name as its title, so it is never named). A resume keeps the name its transcript
 /// carries; an agent root is listed under its own name.
 fn names_conversation(data_dir: &Path, prepared: &coding::PreparedLaunch) -> bool {
     prepared.acp.resume.is_none()

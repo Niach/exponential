@@ -1569,8 +1569,13 @@ fn prepare_session(
             issues: own_issues.to_vec(),
             // EXP-1134/1292: the row's REAL title (an agent: its name) —
             // blank stays `None`, which is what asks the agent to name the
-            // conversation (`engine::session::record_wants_name`).
-            title: if row.is_agent() { named_text(&row.name) } else { named_text(&row.title) },
+            // conversation (`engine::session::record_wants_name`). EXP-1316: an
+            // action run is titled by its action, never by the agent.
+            title: if row.is_agent() {
+                named_text(&row.name)
+            } else {
+                named_text(&row.title).or_else(|| named_text(&row.action_name))
+            },
             cwd: cwd.clone(),
             clone: workspace.as_ref().map(|workspace| workspace.clone.clone()),
             repo: workspace.as_ref().map(|workspace| workspace.full_name.clone()),

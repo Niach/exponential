@@ -103,6 +103,11 @@ vi.mock(`@/lib/pr-stacks`, () => ({
   mergeThrough: vi.fn(async () => ({ merged: true, queued: false, sha: `s`, mergedBy: null })),
 }))
 vi.mock(`@/lib/trpc/pr-update`, () => ({ patchPullDescription: vi.fn(async () => {}) }))
+vi.mock(`@/lib/sessions/guide`, () => ({ writeGuide: vi.fn(async () => ({ topic: `Not run`, results: [] })) }))
+vi.mock(`@/lib/pr-ui-guard`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/pr-ui-guard")>()),
+  compareChangedPaths: vi.fn(async () => []),
+}))
 vi.mock(`@/lib/trpc/repositories`, () => ({
   effectiveDefaultBranch: (repo: { defaultBranch: string; defaultBranchOverride: string | null }) =>
     repo.defaultBranchOverride ?? repo.defaultBranch,
@@ -117,6 +122,8 @@ import * as sync from "@/lib/integrations/pr-sync"
 import * as guard from "@/lib/pr-merge-guard"
 import * as stacks from "@/lib/pr-stacks"
 import { patchPullDescription } from "@/lib/trpc/pr-update"
+import { compareChangedPaths } from "@/lib/pr-ui-guard"
+import { writeGuide } from "@/lib/sessions/guide"
 import { _clearPrActorClaims, takePrMergeClaim, takePrOpenClaim } from "@/lib/integrations/pr-actor-claims"
 import {
   closePullRequest,
@@ -275,6 +282,95 @@ describe(`openPullRequest`, () => {
       openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `x`, issueIds: [`i-9`] })
     ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: expect.stringMatching(/OPS-9/) })
     expect(gh.createPullRequest).not.toHaveBeenCalled()
+  })
+
+  // EXP-1315: a UI diff needs a labelled Guide picture per touched platform.
+  const picture = (label: string) => ({
+    topic: `Nav`,
+    label,
+    attachmentId: `att-${label}`,
+    width: 100,
+    height: 50,
+  })
+  const threadOf = (entries: unknown[]) =>
+    h.selectQueue.push([{ id: `root-1`, teamId: `team-1`, guide: entries }], [], [{ slug: `acme` }])
+
+  it(`refuses a UI diff without a labelled picture, before any GitHub write`, async () => {
+    threadOf([guide[0], picture(`web-mobile nav`)])
+    vi.mocked(compareChangedPaths).mockResolvedValueOnce([
+      `apps/web/src/components/nav.tsx`,
+      `apps/ios/Sources/Nav.swift`,
+      `README.md`,
+    ])
+    await expect(
+      openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })
+    ).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: expect.stringMatching(/changes UI on ios .*notRun/),
+    })
+    expect(compareChangedPaths).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: `o/r`, base: `master`, head: `exp/chat-abcd1234`, token: `tok` })
+    )
+    expect(gh.createPullRequest).not.toHaveBeenCalled()
+    expect(takePrOpenClaim(`o/r`, `exp/chat-abcd1234`)).toBeNull()
+  })
+
+  const notRunEntry = (text: string) => ({
+    topic: `Not run`,
+    label: null,
+    attachmentId: null,
+    width: null,
+    height: null,
+    text,
+  })
+
+  it(`notRun is filed into the Guide, covers its platform and closes the body`, async () => {
+    const before = [guide[0], picture(`web nav`)]
+    h.selectQueue.push(
+      [{ id: `root-1`, teamId: `team-1`, guide: before }],
+      [],
+      // The root re-read after the `Not run` write.
+      [{ id: `root-1`, teamId: `team-1`, guide: [...before, notRunEntry(`android: the nav drawer`)] }],
+      [{ slug: `acme` }]
+    )
+    vi.mocked(compareChangedPaths).mockResolvedValueOnce([
+      `apps/web/src/components/nav.tsx`,
+      `apps/android/app/src/main/Nav.kt`,
+    ])
+    await openPullRequest({
+      userId: `u-1`,
+      callerSessionId: `sess-1`,
+      title: `Nav`,
+      notRun: ` android:  the nav drawer `,
+    })
+    expect(writeGuide).toHaveBeenCalledWith({
+      userId: `u-1`,
+      sessionId: `sess-1`,
+      topic: `Not run`,
+      text: `android: the nav drawer`,
+    })
+    expect(gh.createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: `Did it.\n\n### Not run\n\nandroid: the nav drawer\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/sessions/root-1?view=guide)`,
+      })
+    )
+  })
+
+  it(`a Guide's Not run topic covers a later pr_open without notRun`, async () => {
+    threadOf([guide[0], picture(`web nav`), notRunEntry(`android: the nav drawer`)])
+    vi.mocked(compareChangedPaths).mockResolvedValueOnce([`apps/android/app/src/main/Nav.kt`])
+    await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })
+    expect(writeGuide).not.toHaveBeenCalled()
+    expect(gh.createPullRequest).toHaveBeenCalled()
+  })
+
+  it(`a failed compare never blocks the PR`, async () => {
+    threadOf([guide[0]])
+    vi.mocked(compareChangedPaths).mockRejectedValueOnce(new Error(`GitHub returned 502`))
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    await openPullRequest({ userId: `u-1`, callerSessionId: `sess-1`, title: `Nav` })
+    expect(gh.createPullRequest).toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it(`needs a head without a session`, async () => {

@@ -25,6 +25,7 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { composeSessionBrief } from "@/lib/sessions/brief"
+import { answeredCard } from "@/lib/sessions/card-answer"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import {
   endSession,
@@ -61,6 +62,67 @@ async function loadAgent(userId: string, sessionId: string): Promise<Session> {
   return agent
 }
 
+type Database = typeof import("@/db/connection").db
+
+const cardAnswerInput = z.object({
+  messageId: uuid,
+  answer: z.string().max(MESSAGE_BODY_MAX).optional(),
+  decision: z.enum([`approved`, `rejected`]).optional(),
+  feedback: z.string().max(MESSAGE_BODY_MAX).optional(),
+})
+
+/** The card message + its session (steer-gated) + the answered card. */
+async function loadCardForAnswer(
+  database: Database,
+  userId: string,
+  input: z.infer<typeof cardAnswerInput>
+) {
+  const [message] = await database.select().from(messages).where(eq(messages.id, input.messageId)).limit(1)
+  if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
+  const session = await loadSessionForUser(userId, message.sessionId)
+  await assertCanSteer(userId, session)
+  const answered = answeredCard(message.card as MessageCard | null, input)
+  if (!answered.ok) throw new TRPCError({ code: answered.code, message: answered.message })
+  return { message, session, card: answered.card }
+}
+
+/** Stamp `card` + `answered_at` while still unanswered; needs-you clears
+ *  once nothing else waits on a person. `claimed` = this call stamped it. */
+async function stampAnsweredCard(
+  database: Database,
+  messageId: string,
+  sessionId: string,
+  card: MessageCard
+): Promise<{ claimed: boolean; txid: number }> {
+  return database.transaction(async (tx) => {
+    const txid = await generateTxId(tx)
+    const now = new Date()
+    const claimed = await tx
+      .update(messages)
+      .set({ card, answeredAt: now, updatedAt: now })
+      .where(and(eq(messages.id, messageId), isNull(messages.answeredAt)))
+      .returning({ id: messages.id })
+    if (claimed.length === 0) return { claimed: false, txid }
+    const [{ pending } = { pending: 0 }] = await tx
+      .select({ pending: sql<number>`count(*)::int` })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.sessionId, sessionId),
+          isNull(messages.answeredAt),
+          sql`${messages.card}->>'kind' IN ('question', 'plan')`
+        )
+      )
+    if (Number(pending) === 0) {
+      await tx
+        .update(sessions)
+        .set({ needsInput: false, updatedAt: now })
+        .where(eq(sessions.id, sessionId))
+    }
+    return { claimed: true, txid }
+  })
+}
+
 export const sessionsRouter = router({
   // ── people (and agents over MCP) ──────────────────────────────────────────
 
@@ -89,23 +151,6 @@ export const sessionsRouter = router({
         sessionId: input.sessionId,
       })
       return { txid }
-    }),
-
-  /** Rename a thread (root) or a sub-session. */
-  setTitle: authedProcedure
-    .input(z.object({ sessionId: uuid, title: z.string().trim().max(255).nullable() }))
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id
-      const session = await loadSessionForUser(userId, input.sessionId)
-      await assertCanSteer(userId, session)
-      return ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
-        await tx
-          .update(sessions)
-          .set({ title: input.title || null, updatedAt: new Date() })
-          .where(eq(sessions.id, session.id))
-        return { txid }
-      })
     }),
 
   /** Link issues to a thread (always lands on the ROOT; the header "+"). */
@@ -144,78 +189,34 @@ export const sessionsRouter = router({
   /** Answer a `question` card (text) or decide a `plan` card IN the card;
    *  the device delivers it to the agent off the messages shape. */
   answer: authedProcedure
-    .input(
-      z.object({
-        messageId: uuid,
-        answer: z.string().max(MESSAGE_BODY_MAX).optional(),
-        decision: z.enum([`approved`, `rejected`]).optional(),
-        feedback: z.string().max(MESSAGE_BODY_MAX).optional(),
-      })
-    )
+    .input(cardAnswerInput)
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id
-      const [message] = await ctx.db
-        .select()
-        .from(messages)
-        .where(eq(messages.id, input.messageId))
-        .limit(1)
-      if (!message) throw new TRPCError({ code: `NOT_FOUND`, message: `Message not found` })
-      const session = await loadSessionForUser(userId, message.sessionId)
-      await assertCanSteer(userId, session)
-      const card = message.card as MessageCard | null
-      if (!card || (card.kind !== `question` && card.kind !== `plan`)) {
-        throw new TRPCError({ code: `BAD_REQUEST`, message: `This message asks nothing` })
-      }
+      const { message, session, card } = await loadCardForAnswer(ctx.db, ctx.session.user.id, input)
       if (message.answeredAt) {
         throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
       }
-
       // The answer lives IN the card (answered_at flips): the device feeds it
       // to the agent off the messages shape, so no person message is posted.
-      let answered: MessageCard
-      if (card.kind === `question`) {
-        const answer = input.answer?.trim()
-        if (!answer) throw new TRPCError({ code: `BAD_REQUEST`, message: `answer is required` })
-        answered = { ...card, answer }
-      } else {
-        if (!input.decision) {
-          throw new TRPCError({ code: `BAD_REQUEST`, message: `decision is required` })
-        }
-        const feedback = input.feedback?.trim() || null
-        answered = { ...card, decision: input.decision, feedback }
+      const result = await stampAnsweredCard(ctx.db, message.id, session.id, card)
+      if (!result.claimed) {
+        throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
       }
-
-      const result = await ctx.db.transaction(async (tx) => {
-        const txid = await generateTxId(tx)
-        const now = new Date()
-        const claimed = await tx
-          .update(messages)
-          .set({ card: answered, answeredAt: now, updatedAt: now })
-          .where(and(eq(messages.id, message.id), isNull(messages.answeredAt)))
-          .returning({ id: messages.id })
-        if (claimed.length === 0) {
-          throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
-        }
-        // Needs-you clears once nothing else waits on a person.
-        const [{ pending } = { pending: 0 }] = await tx
-          .select({ pending: sql<number>`count(*)::int` })
-          .from(messages)
-          .where(
-            and(
-              eq(messages.sessionId, session.id),
-              isNull(messages.answeredAt),
-              sql`${messages.card}->>'kind' IN ('question', 'plan')`
-            )
-          )
-        if (Number(pending) === 0) {
-          await tx
-            .update(sessions)
-            .set({ needsInput: false, updatedAt: now })
-            .where(eq(sessions.id, session.id))
-        }
-        return { txid }
-      })
       return { txid: result.txid }
+    }),
+
+  /** EXP-1316: the DEVICE's write-back when a question/plan card was
+   *  answered in the session view (over the relay), so the thread card
+   *  closes too. Same card shape and auth as `answer`; idempotent (an
+   *  answered card = ok, never CONFLICT). Enqueues nothing: the engine
+   *  already resolved the question, so it left the engine's open cards and
+   *  the device's pickup never feeds it again. */
+  resolveCard: authedProcedure
+    .input(cardAnswerInput)
+    .mutation(async ({ ctx, input }): Promise<{ ok: true; txid?: number }> => {
+      const { message, session, card } = await loadCardForAnswer(ctx.db, ctx.session.user.id, input)
+      if (message.answeredAt) return { ok: true }
+      const result = await stampAnsweredCard(ctx.db, message.id, session.id, card)
+      return result.claimed ? { ok: true, txid: result.txid } : { ok: true }
     }),
 
   /** Revoke a person's own message the device has not consumed yet. Its

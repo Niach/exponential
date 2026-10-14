@@ -12,7 +12,7 @@ import {
   issueEstimationValues,
   MAX_ISSUE_DESCRIPTION,
   MAX_MCP_SERVER_NAME,
-  SESSION_RESULT_TEXT_MAX,
+  SESSION_RESULT_REPORT_MAX,
   SESSIONS_SEND_TEXT_MAX,
   sessionKindValues,
   sessionsSendInputSchema,
@@ -2410,7 +2410,7 @@ export function registerExponentialTools(
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           topic: z.string().trim().min(1).max(80),
-          text: z.string().max(SESSION_RESULT_TEXT_MAX).optional(),
+          text: z.string().max(SESSION_RESULT_REPORT_MAX).optional(),
           files: z.array(z.string().min(1).max(512)).max(200).optional(),
           prUrl: z.string().url().max(512).optional(),
           remove: z.boolean().optional(),
@@ -2487,7 +2487,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes; repositoryId when there are none. Body = your thread's Guide once written. Linked issues take the team's PR-open status.`,
+      description: `Open a GitHub PR (via the GitHub App, never 'gh') from head (default your session's branch) into base (default: the open PR below head, else the default branch; an open PR's branch joins its stack). issueIds (UUIDs or identifiers) = the issues it closes; repositoryId when there are none. Body = your thread's Guide once written. A diff touching UI needs a Guide picture per platform (label starts web, web-mobile, ios, android or desktop) or notRun naming the screen you could not run. Linked issues take the team's PR-open status.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         title: z.string().min(1).max(255),
@@ -2497,6 +2497,7 @@ export function registerExponentialTools(
         draft: z.boolean().optional(),
         repositoryId: uuidString.optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
+        notRun: z.string().trim().min(1).max(300).optional(),
       }),
     },
     async ({ issueIds: refs, ...rest }) => {

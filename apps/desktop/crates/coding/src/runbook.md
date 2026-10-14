@@ -24,7 +24,9 @@ One branch per session. `exponential_pr_open` opens it (`base` is inferred: on a
 
 ## Guide
 
-The thread has ONE Guide and it is every PR body: write it with `exponential_guide_write` before you open the PR. `Summary` first, then one topic per change or screen: 2 or 3 sentences, the `files` it touched, `label`ed pictures (`web`, `ios`) through the returned upload line. Name any screen you could not run.
+The thread has ONE Guide and it is every PR body: write it with `exponential_guide_write` before you open the PR. `Summary` first, then one topic per change or screen: 2 or 3 sentences, the `files` it touched, pictures through the returned upload line, each `label` starting with its platform: `web`, `web-mobile`, `ios`, `android`, `desktop`.
+
+Cheapest capture per platform: web `cd apps/web && bun run capture:views -- --form-factor web|web-mobile --views <id>`; ios, android, desktop `bun run shots -- --platform <p> --views <id> --skip-seed` (docker stack up, simulator/emulator booted); a primitive = its styleguide entry. `exponential_pr_open` refuses a diff touching a platform's UI without such a picture unless `notRun` names the screen (`ios: the share sheet`).
 
 ## Agents (only when you are a team agent)
 

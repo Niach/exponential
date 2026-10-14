@@ -19,6 +19,11 @@ import type {
 
 export * from "@exp/domain-contract/session-tree"
 export {
+  guideViewer,
+  type GuideViewerEntry,
+  type GuideViewerState,
+} from "@exp/domain-contract/guide-viewer"
+export {
   AGENT_SETTINGS_COPY,
   AGENT_SETTINGS_FIELDS,
   agentAccountValue,

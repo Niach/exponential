@@ -305,5 +305,272 @@
       {"name": "a message sent mid-turn cuts the running turn", "raw": [{"topic": "a", "text": "first", "at": 1760000001000}, {"topic": "b", "text": "second", "at": 1760000006000}], "feed": [{"kind": "user_message", "at": 1760000000000, "text": "go"}, {"kind": "turn", "state": "started", "at": 1760000000010}, {"kind": "user_message", "at": 1760000005000, "text": "also this"}, {"kind": "turn", "state": "ended", "at": 1760000009000}], "expected": {"perTurn": true, "turns": [{"message": {"text": "go", "at": 1760000000000, "images": []}, "startedAt": 1760000000010, "endedAt": 1760000005000, "items": [{"kind": "text", "topic": "a", "text": "first"}], "reply": null}, {"message": {"text": "also this", "at": 1760000005000, "images": []}, "startedAt": 1760000005000, "endedAt": 1760000009000, "items": [{"kind": "text", "topic": "b", "text": "second"}], "reply": null}]}},
       {"name": "unstamped results land in the first turn, a waiting message has no start", "raw": [{"topic": "old", "text": "legacy"}, {"topic": "late", "text": "after", "at": 1760000020000}], "feed": [{"kind": "turn", "state": "started", "at": 1760000001000}, {"kind": "turn", "state": "ended", "at": 1760000002000}, {"kind": "turn", "state": "ended", "at": 1760000003000}, {"kind": "user_message", "at": 1760000010000, "text": "next"}], "expected": {"perTurn": true, "turns": [{"message": null, "startedAt": 1760000001000, "endedAt": 1760000002000, "items": [{"kind": "text", "topic": "old", "text": "legacy"}], "reply": null}, {"message": {"text": "next", "at": 1760000010000, "images": []}, "startedAt": null, "endedAt": null, "items": [{"kind": "text", "topic": "late", "text": "after"}], "reply": null}]}}
     ]
+  },
+  "viewer": {
+    "$comment": "EXP-1283: THE Guide picture viewer ×4: tapping a Guide picture opens it instead of a bare lightbox. guideViewer(guide, attachmentId) (packages/domain-contract/src/guide-viewer.ts) walks EVERY picture of the Guide in the Guide's order: the first Summary topic (trimmed, case-insensitive) leads, then topics in first-seen order (a text or a picture opens a topic), pictures in publish order inside their topic (a picture needs topic + label + attachmentId). It returns {index (1-based), count, topic, label, text (the topic's FIRST non-blank text entry, trimmed; null without one), prevId, nextId} with NO wrap at the ends (null), or null when the attachment is not a Guide picture. Wide (web md+, IDE): a dialog, the picture large on the left (fit), a fixed 360px panel on the right: the topic, the picture's label, the topic text (GFM), ‹ › through the pictures (disabled at the ends), ×; keys ←/→/Esc. Phones: a full-screen page, the picture on top, the same panel below it (scrolls), swipe between pictures. Mirrors replay `cases` comparing the WHOLE expected value.",
+    "cases": [
+      {
+        "name": "the Summary leads: its picture is first",
+        "guide": [
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "  The nav bar moved.  "
+          },
+          {
+            "topic": "nav",
+            "label": "web",
+            "attachmentId": "a1",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "chat",
+            "label": "ios",
+            "attachmentId": "a2",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "Summary",
+            "label": null,
+            "attachmentId": null,
+            "text": "Did it."
+          },
+          {
+            "topic": "Summary",
+            "label": "web-mobile",
+            "attachmentId": "a0",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": "android",
+            "attachmentId": "a3",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "A later text never wins."
+          },
+          {
+            "topic": "bad",
+            "label": null,
+            "attachmentId": "ax"
+          }
+        ],
+        "attachmentId": "a0",
+        "expected": {
+          "index": 1,
+          "count": 4,
+          "topic": "Summary",
+          "label": "web-mobile",
+          "text": "Did it.",
+          "prevId": null,
+          "nextId": "a1"
+        }
+      },
+      {
+        "name": "a topic's pictures stay together, its first text rides",
+        "guide": [
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "  The nav bar moved.  "
+          },
+          {
+            "topic": "nav",
+            "label": "web",
+            "attachmentId": "a1",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "chat",
+            "label": "ios",
+            "attachmentId": "a2",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "Summary",
+            "label": null,
+            "attachmentId": null,
+            "text": "Did it."
+          },
+          {
+            "topic": "Summary",
+            "label": "web-mobile",
+            "attachmentId": "a0",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": "android",
+            "attachmentId": "a3",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "A later text never wins."
+          },
+          {
+            "topic": "bad",
+            "label": null,
+            "attachmentId": "ax"
+          }
+        ],
+        "attachmentId": "a3",
+        "expected": {
+          "index": 3,
+          "count": 4,
+          "topic": "nav",
+          "label": "android",
+          "text": "The nav bar moved.",
+          "prevId": "a1",
+          "nextId": "a2"
+        }
+      },
+      {
+        "name": "the last picture has no next, a text-less topic none",
+        "guide": [
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "  The nav bar moved.  "
+          },
+          {
+            "topic": "nav",
+            "label": "web",
+            "attachmentId": "a1",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "chat",
+            "label": "ios",
+            "attachmentId": "a2",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "Summary",
+            "label": null,
+            "attachmentId": null,
+            "text": "Did it."
+          },
+          {
+            "topic": "Summary",
+            "label": "web-mobile",
+            "attachmentId": "a0",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": "android",
+            "attachmentId": "a3",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "A later text never wins."
+          },
+          {
+            "topic": "bad",
+            "label": null,
+            "attachmentId": "ax"
+          }
+        ],
+        "attachmentId": "a2",
+        "expected": {
+          "index": 4,
+          "count": 4,
+          "topic": "chat",
+          "label": "ios",
+          "text": null,
+          "prevId": "a3",
+          "nextId": null
+        }
+      },
+      {
+        "name": "a label-less entry is no picture",
+        "guide": [
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "  The nav bar moved.  "
+          },
+          {
+            "topic": "nav",
+            "label": "web",
+            "attachmentId": "a1",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "chat",
+            "label": "ios",
+            "attachmentId": "a2",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "Summary",
+            "label": null,
+            "attachmentId": null,
+            "text": "Did it."
+          },
+          {
+            "topic": "Summary",
+            "label": "web-mobile",
+            "attachmentId": "a0",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": "android",
+            "attachmentId": "a3",
+            "width": 1440,
+            "height": 900
+          },
+          {
+            "topic": "nav",
+            "label": null,
+            "attachmentId": null,
+            "text": "A later text never wins."
+          },
+          {
+            "topic": "bad",
+            "label": null,
+            "attachmentId": "ax"
+          }
+        ],
+        "attachmentId": "ax",
+        "expected": null
+      },
+      {
+        "name": "an empty Guide",
+        "guide": null,
+        "attachmentId": "a1",
+        "expected": null
+      }
+    ]
   }
 }

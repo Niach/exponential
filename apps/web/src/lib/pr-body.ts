@@ -22,6 +22,13 @@ export const PR_BODY_MAX = 60_000
 
 export const PR_BODY_RESULTS_LINK_LABEL = `Guide and screenshots in Exponential`
 
+/** EXP-1315: the Guide topic `pr_open`'s `notRun` is filed under (the UI
+ *  screens the agent could not run); the PR body renders it LAST. */
+export const NOT_RUN_TOPIC = `Not run`
+
+export const isNotRunTopic = (topic: string) =>
+  topic.replace(/\s+/g, ` `).trim().toLowerCase() === NOT_RUN_TOPIC.toLowerCase()
+
 interface ReportSection {
   topic: string
   text: string
@@ -162,10 +169,12 @@ export function renderPrBody(
   )
   if (!sections.length) return null
   const leadIndex = sections.findIndex((section) => isSummary(section.topic))
-  const ordered =
-    leadIndex === -1
-      ? sections
-      : [sections[leadIndex]!, ...sections.filter((_, i) => i !== leadIndex)]
+  // EXP-1315: the `Not run` topic (pr_open's notRun) always closes the body.
+  const ordered = [
+    ...(leadIndex === -1 ? [] : [sections[leadIndex]!]),
+    ...sections.filter((section, i) => i !== leadIndex && !isNotRunTopic(section.topic)),
+    ...sections.filter((section, i) => i !== leadIndex && isNotRunTopic(section.topic)),
+  ]
   let main = ordered
     .map((section, i) => renderSection(section, !(i === 0 && leadIndex !== -1)))
     .join(`\n\n`)
