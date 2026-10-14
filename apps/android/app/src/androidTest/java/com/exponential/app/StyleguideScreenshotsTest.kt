@@ -209,9 +209,12 @@ class StyleguideScreenshotsTest {
         // apps/web/scripts/seed-screenshots.ts). The private running root
         // (the home's Running band and the Threads tab), the ended one
         // (Threads' Recent), the cold-start thread and its child session.
+        // EXP-1316: a thread with linked issues is titled `Implement <first>`
+        // (`+ <n-1>` with more, session-thread.json `titles`); the issue-less
+        // private spike keeps its stored title.
         private const val PRIVATE_THREAD_TITLE = "Spike: offline queue"
-        private const val RECENT_THREAD_TITLE = "Fix flaky scroll restore on the issue list"
-        private const val COLD_START_THREAD_TITLE = SHOWCASE_ISSUE_TITLE
+        private const val RECENT_THREAD_TITLE = "Implement APP-16"
+        private const val COLD_START_THREAD_TITLE = "Implement APP-5 + 2"
         private const val COLD_START_REPLY_FRAGMENT = "Board snapshot cache"
         private const val CHILD_SESSION_TITLE = "Profile the launch path"
 
