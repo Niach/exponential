@@ -553,6 +553,27 @@ public struct ThreadsListGroup: Equatable, Sendable, Identifiable {
     }
 }
 
+/// EXP-1309: a Threads row's ONE quiet trailing word (web
+/// `THREAD_ROW_WORDS`); `SessionTree.threadRowWord` picks it.
+public enum ThreadRowWord: String, Equatable, Sendable, CaseIterable {
+    case readyToMerge
+    case stack
+    case merged
+    case question
+    /// An agent row waiting on a person.
+    case needsInput
+
+    public var text: String {
+        switch self {
+        case .readyToMerge: "ready to merge"
+        case .stack: "stack"
+        case .merged: "merged"
+        case .question: "question"
+        case .needsInput: "needs input"
+        }
+    }
+}
+
 /// One row of the Agents band (icon + color like a board row).
 public struct AgentRow: Equatable, Sendable, Identifiable {
     public let sessionId: String
@@ -955,6 +976,33 @@ public enum SessionTree {
     public static func guideMenuEntries(state: String?, member: Bool) -> [GuideMenuEntry] {
         guard let state else { return [] }
         return state == DomainContract.prStateOpen && member ? [.openGithub, .closePr] : [.openGithub]
+    }
+
+    /// EXP-1309: ONE quiet trailing word for a Threads row (web
+    /// `threadRowWord`, desktop `quiet_word`): an open PR that sits in a
+    /// stack (based on another open PR, or one is based on it) → `stack`;
+    /// else an open PR while nothing works → `ready to merge`; no open PR but
+    /// a merged one → `merged`; else waiting on a person → `question`; else
+    /// none. `prs` = the root's own pull requests, `teamPrs` = its team's (a
+    /// stack edge may cross threads).
+    public static func threadRowWord(
+        busy: Bool,
+        needsYou: Bool,
+        prs: [PullRequestEntity],
+        teamPrs: [PullRequestEntity]
+    ) -> ThreadRowWord? {
+        let open = prs.filter { $0.state == DomainContract.prStateOpen }
+        if !open.isEmpty {
+            let openIds = Set(teamPrs.filter { $0.state == DomainContract.prStateOpen }.map(\.id))
+            let stacked = open.contains { pr in
+                (pr.basePullRequestId.map(openIds.contains) ?? false)
+                    || teamPrs.contains { $0.state == DomainContract.prStateOpen && $0.basePullRequestId == pr.id }
+            }
+            if stacked { return .stack }
+            return busy ? nil : .readyToMerge
+        }
+        if prs.contains(where: { $0.state == DomainContract.prStateMerged }) { return .merged }
+        return needsYou ? .question : nil
     }
 
     /// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer

@@ -23,6 +23,7 @@ struct ThreadsView: View {
                     agents: lists.agents,
                     identifiers: lists.identifiers,
                     clis: lists.clis,
+                    words: lists.words,
                     teams: teamState.teams,
                     onOpen: { rootId in
                         pushRoute(.thread(accountId: accountId, threadId: rootId))
@@ -42,8 +43,7 @@ struct ThreadsView: View {
     }
 }
 
-/// The bare list over plain values — what the tab draws and what the
-/// `threads` styleguide seam draws over fake rows.
+/// The bare list over plain values (web `ThreadsListView`).
 struct ThreadsListContent: View {
     let groups: [ThreadsListGroup]
     let agents: [AgentRow]
@@ -51,6 +51,8 @@ struct ThreadsListContent: View {
     let identifiers: [String: String]
     /// A root's agent CLI (the row's run mark), by root id.
     var clis: [String: String] = [:]
+    /// EXP-1309: a root's quiet word, by root id.
+    var words: [String: ThreadRowWord] = [:]
     let teams: [TeamEntity]
     let onOpen: (String) -> Void
 
@@ -101,8 +103,17 @@ struct ThreadsListContent: View {
                 Button {
                     onOpen(agent.sessionId)
                 } label: {
-                    SessionRow(title: agent.name, busy: agent.busy, needsYou: agent.needsYou) {
-                        AgentRowIcon(icon: agent.icon, color: agent.color)
+                    // EXP-1309 (web `ThreadsListItem`): the working mark
+                    // while it works, `needs input` while it waits on you.
+                    SessionRow(
+                        title: agent.name,
+                        word: agent.needsYou ? ThreadRowWord.needsInput.text : nil
+                    ) {
+                        if agent.busy {
+                            AgentWorkingMark(agent: nil)
+                        } else {
+                            AgentRowIcon(icon: agent.icon, color: agent.color)
+                        }
                     }
                 }
                 .buttonStyle(.plain)
@@ -117,7 +128,12 @@ struct ThreadsListContent: View {
         Button {
             onOpen(row.sessionId)
         } label: {
-            ThreadRowLabel(row: row, identifier: identifiers[row.sessionId], cli: clis[row.sessionId])
+            ThreadRowLabel(
+                row: row,
+                identifier: identifiers[row.sessionId],
+                cli: clis[row.sessionId],
+                word: .some(words[row.sessionId])
+            )
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(SessionTree.ListCopy.rowTestId)
@@ -138,26 +154,69 @@ struct ThreadsListContent: View {
 
 /// One thread as THE session row: the root agent's run mark (Claude's
 /// spark while it works), the first linked issue's id, the title, the lock /
-/// spinner / amber dot — no caption (`threads-list.json`).
+/// spinner / amber dot — no caption (`threads-list.json`; Home's Running
+/// band). EXP-1309: on the Threads tab (`word` given, web
+/// `ThreadsListView`) the row ends on ONE quiet word instead and its state
+/// moves into the lead: the working mark while busy, the mark with an amber
+/// badge when it needs you, the PR glyph `ready to merge` / `merged` name.
 struct ThreadRowLabel: View {
     let row: ThreadsListRow
     let identifier: String?
     /// The root's agent CLI; nil/empty = claude.
     var cli: String? = nil
+    /// nil = Home's row (spinner / dot); `.some` = the Threads tab's row.
+    var word: ThreadRowWord?? = nil
 
     var body: some View {
-        SessionRow(
-            identifier: identifier,
-            title: row.title,
-            isPrivate: row.isPrivate,
-            busy: row.busy,
-            needsYou: row.needsYou
-        ) {
-            if row.busy {
-                AgentWorkingMark(agent: cli)
-            } else {
-                BeatingAgentMark(agent: cli, beating: false)
+        if let word {
+            SessionRow(
+                identifier: identifier,
+                title: row.title,
+                isPrivate: row.isPrivate,
+                word: word?.text,
+                wordIcon: word == .stack ? AppIcons.prStack : nil
+            ) {
+                threadsLead(word)
             }
+        } else {
+            SessionRow(
+                identifier: identifier,
+                title: row.title,
+                isPrivate: row.isPrivate,
+                busy: row.busy,
+                needsYou: row.needsYou
+            ) {
+                if row.busy {
+                    AgentWorkingMark(agent: cli)
+                } else {
+                    BeatingAgentMark(agent: cli, beating: false)
+                }
+            }
+        }
+    }
+
+    /// Web `rowLead`.
+    @ViewBuilder
+    private func threadsLead(_ word: ThreadRowWord?) -> some View {
+        if row.busy {
+            AgentWorkingMark(agent: cli)
+        } else if row.needsYou {
+            BeatingAgentMark(agent: cli, beating: false)
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(DesignTokens.Semantic.yellow)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 2, y: -2)
+                        .accessibilityLabel("Needs you")
+                }
+        } else if word == .readyToMerge {
+            AppIcon(AppIcons.prOpen, size: 13)
+                .foregroundStyle(DesignTokens.Semantic.green)
+        } else if word == .merged {
+            AppIcon(AppIcons.prMerged, size: 13)
+                .foregroundStyle(DesignTokens.Avatar.violet)
+        } else {
+            BeatingAgentMark(agent: cli, beating: false)
         }
     }
 }
