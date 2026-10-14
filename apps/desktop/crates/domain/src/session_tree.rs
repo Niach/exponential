@@ -6,7 +6,8 @@
 //! * `fixtures/session-card.json`   → [`session_card`] (THE session card);
 //! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
 //!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
-//!   (the Guide's ONE PR) + [`composer_yields_to_card`] (EXP-820);
+//!   (the Guide's ONE PR) + [`guide_menu_entries`] (its header `…`,
+//!   EXP-1307) + [`composer_yields_to_card`] (EXP-820);
 //! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
 //!   Needs you · Running · Recent) + [`list_agents`] (the rail's Agents).
 //!
@@ -106,6 +107,9 @@ pub struct ThreadTestIds {
     pub tabs: String,
     pub conversation: String,
     pub composer: String,
+    /// EXP-1307: the header's Guide `…` trigger.
+    #[serde(rename = "guideMenu")]
+    pub guide_menu: String,
 }
 
 /// `fixtures/session-thread.json` minus its cases.
@@ -650,6 +654,34 @@ pub fn guide_pull_request<'a>(
     open.or(merged)
 }
 
+/// EXP-1307: one entry of the thread header's Guide `…`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuideMenuEntry {
+    OpenGithub,
+    ClosePr,
+}
+
+impl GuideMenuEntry {
+    /// The fixture's entry id.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::OpenGithub => "open-github",
+            Self::ClosePr => "close-pr",
+        }
+    }
+}
+
+/// EXP-1307: the Guide `…` entries for the Guide PR's `state` (None = no
+/// PR = no menu): Open on GitHub always, then Close PR while the PR is open
+/// and the viewer is a member.
+pub fn guide_menu_entries(state: Option<&str>, member: bool) -> Vec<GuideMenuEntry> {
+    match state {
+        None => Vec::new(),
+        Some("open") if member => vec![GuideMenuEntry::OpenGithub, GuideMenuEntry::ClosePr],
+        Some(_) => vec![GuideMenuEntry::OpenGithub],
+    }
+}
+
 /// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
 /// takes the session composer's place.
 pub fn composer_yields_to_card(live: bool, pending_ask: bool) -> bool {
@@ -1166,6 +1198,24 @@ mod tests {
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             assert_whole(list_agents(&sessions, input["teamId"].as_str()), &case["expected"], name);
+        }
+    }
+
+    /// EXP-1307: `session-thread.json` `guideMenuCases`.
+    #[test]
+    fn guide_menu_entries_match_the_fixture() {
+        let fixture = fixture(SESSION_THREAD_JSON);
+        let cases = fixture["guideMenuCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let ids: Vec<&str> = guide_menu_entries(input["state"].as_str(), input["member"].as_bool().unwrap())
+                .into_iter()
+                .map(GuideMenuEntry::id)
+                .collect();
+            let expected: Vec<&str> =
+                case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(ids, expected, "{}", case["name"]);
         }
     }
 

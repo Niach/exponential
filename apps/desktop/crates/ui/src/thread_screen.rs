@@ -563,6 +563,84 @@ pub(crate) fn title_row(title: &str, private: bool, cx: &App) -> gpui::Div {
         })
 }
 
+/// EXP-1307 — the Guide `…` (`guide_menu_entries` over the Guide PR):
+/// Open PR on GitHub, then Close PR while it is open. Every viewer of a
+/// thread is a member (nothing is anonymously readable). No entries = none.
+fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
+    use domain::session_tree::{guide_menu_entries, GuideMenuEntry};
+    let pull = model.pull()?;
+    let entries = guide_menu_entries(pull.state.as_deref(), true);
+    if entries.is_empty() {
+        return None;
+    }
+    let url = pull.url.as_deref().map(str::trim).filter(|url| !url.is_empty()).map(str::to_string);
+    let pull_request_id = pull.id.clone();
+    // The batch line names the issues the PR closes beyond one.
+    let others = Store::try_global(cx)
+        .map(|store| {
+            store
+                .collections()
+                .pull_request_issues
+                .read(cx)
+                .iter()
+                .filter(|link| link.pull_request_id == pull_request_id)
+                .count()
+                .saturating_sub(1)
+        })
+        .unwrap_or(0);
+    let trigger = crate::controls::ghost_icon_button(
+        SharedString::from(THREAD.test_ids.guide_menu.clone()),
+        Icon::new(registry::UI_MORE),
+        cx,
+    );
+    Some(
+        div()
+            .flex_shrink_0()
+            .mr(px(-crate::work_header::GHOST_ICON_HANG))
+            .child(crate::controls::PointerMenu::for_button(trigger, move |mut menu, _, cx| {
+                for entry in &entries {
+                    menu = match entry {
+                        GuideMenuEntry::OpenGithub => {
+                            let url = url.clone();
+                            menu.item(
+                                crate::controls::pointer_label_item(
+                                    domain::contract::DIFF_UI_OPEN_ON_GITHUB,
+                                    url.is_none(),
+                                )
+                                .icon(Icon::new(registry::UI_GITHUB))
+                                .on_click(move |_, _, cx| {
+                                    if let Some(url) = url.clone() {
+                                        crate::settings::open_url(cx, url);
+                                    }
+                                }),
+                            )
+                        }
+                        GuideMenuEntry::ClosePr => {
+                            let pull_request_id = pull_request_id.clone();
+                            menu.item(
+                                crate::controls::danger_menu_item(
+                                    domain::contract::DIFF_UI_CLOSE_PR,
+                                    Icon::new(registry::PR_CLOSED),
+                                    cx,
+                                )
+                                .on_click(move |_, window, cx| {
+                                    crate::issue_header::prompt_close_pr(
+                                        pull_request_id.clone(),
+                                        crate::issue_header::close_pr_description(others),
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                            )
+                        }
+                    };
+                }
+                menu
+            }))
+            .into_any_element(),
+    )
+}
+
 /// `HH:MM` (local) of a wire timestamp; empty when unparseable.
 pub(crate) fn clock(at: Option<&str>) -> String {
     at.and_then(crate::comments::parse_epoch)
@@ -1422,12 +1500,24 @@ impl ThreadScreenView {
                 .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.begin_rename(window, cx)))
                 .into_any_element(),
         };
+        // EXP-1307: the Guide's `…` ends the title row (Guide tab only).
+        let menu = (self.child == ThreadChildSel::Guide)
+            .then(|| guide_menu(model, cx))
+            .flatten();
         v_flex()
             .w_full()
             .px(px(HEADER_INSET))
             .pt_6()
             .gap_4()
-            .child(title)
+            .child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .gap_2()
+                    .items_center()
+                    .child(div().flex_1().min_w_0().child(title))
+                    .children(menu),
+            )
             .child(self.render_strip(model, cx))
             .child(div().w_full().h(px(1.)).bg(cx.theme().border))
             .into_any_element()

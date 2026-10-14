@@ -990,7 +990,7 @@ pub(crate) fn close_pr_items(issue_id: &str, cx: &App) -> Vec<ClosePrItem> {
 /// EXP-1154 — confirm, then close the pull request without merging through
 /// the shared [`crate::pr_merge`] machinery (a refusal toasts, like a failed
 /// merge).
-fn prompt_close_pr(pull_request_id: String, description: String, window: &mut Window, cx: &mut App) {
+pub(crate) fn prompt_close_pr(pull_request_id: String, description: String, window: &mut Window, cx: &mut App) {
     let tall = description.len() > CLOSE_PR_BODY.len();
     let spec = crate::native_dialog::AlertSpec::new(CLOSE_PR_TITLE, description, CLOSE_PR_CONFIRM)
         .ok_variant(gpui_component::button::ButtonVariant::Danger)
