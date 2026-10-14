@@ -893,18 +893,18 @@ internal fun LazyListScope.homeRunningBand(
 /** The dawn's geometry (dp, iOS `HomeDawn`): the mark's diameter (the dawn
  *  shows its upper half), the gap under the title, the column's spacing the
  *  dawn swallows to stand on the card. */
-private const val DAWN_MARK = 160
+private const val DAWN_MARK = 240
 private const val DAWN_TOP = 16
 private const val COLUMN_SPACING = 6
 
-/** The dawn's foreground alpha (iOS `HomeDawn.opacity`). */
-private const val DAWN_ALPHA = 0.05f
+/** The dawn's foreground alpha (iOS `HomeDawn.opacity`, the IDE's ink). */
+private const val DAWN_ALPHA = 0.025f
 
 /**
  * FEED-100: the dawn — [ExponentialMark] in the foreground colour at a low
  * alpha, clipped to its upper half (a half-disc standing on the card) and
  * FADING toward it (EXP-1314: solid for its top third, transparent at the
- * card — desktop's `dawn`, web's `HomeDawn` mask). It reports
+ * card, no gap — the IDE's `dawn` on every client, ~69% of the column). It reports
  * [COLUMN_SPACING] less height so the column's spacing lands under it and its
  * horizon meets the card's top edge.
  */

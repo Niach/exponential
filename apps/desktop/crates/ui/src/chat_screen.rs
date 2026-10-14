@@ -91,7 +91,9 @@ const FIELDS_MAX_H: f32 = 280.;
 /// FEED-100 (EXP-1249's mark, restored): the DAWN above the page's composer
 /// column — the brand mark's edge, the half of it that shows (a clip of half
 /// its height, the logo aligned to the clip's top) and its ink (the
-/// foreground at ~2.5%). The column gap keeps it off the card.
+/// foreground at ~2.5%). It stands on the card, no gap (EXP-1314); every
+/// client draws the same (web `HomeDawn`, iOS `HomeDawn`, Android
+/// `AgentHomeDawn`).
 const PAGE_MARK_SIZE: f32 = 440.;
 const PAGE_MARK_ALPHA: f32 = 0.025;
 /// How many slices the half mark's fade is painted in (gpui has no mask).
@@ -2308,8 +2310,9 @@ impl ChatScreenView {
                     .gap_6()
                     .min_h_full()
                     .justify_center()
-                    .child(dawn(cx))
-                    .child(column),
+                    // EXP-1314: the dawn stands ON the card (its fade ends
+                    // at the card's top edge), so no gap between the two.
+                    .child(v_flex().w_full().items_center().child(dawn(cx)).child(column)),
             ))
             .into_any_element()
     }
