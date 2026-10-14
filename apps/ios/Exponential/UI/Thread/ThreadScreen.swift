@@ -115,10 +115,11 @@ struct ThreadScreen: View {
                     pageView(page, rows: rows, view: view)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .safeAreaInset(edge: .top, spacing: 0) {
+                // EXP-1316 (detail-chrome.json): THE detail chrome band on
+                // every tab — the nav row (‹ · title + lock · …) over the
+                // strip, content scrolling under its scrim + edge fade.
+                .workHeaderBand {
                     header(rows: rows, view: view)
-                        .frame(maxWidth: .infinity)
-                        .headerEdgeChrome(ground: page == .conversation)
                 }
             } else if model?.missing == true {
                 EmptyState(.threadNotFound)
@@ -133,12 +134,31 @@ struct ThreadScreen: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        // The header band draws the bar's material — the nav bar's own
+        // background and divider stand down (EXP-1150).
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
-            // EXP-1307: ONE `…` rides the header's action slot on the Guide
-            // while it has a PR — Open on GitHub · Close PR, in THE Menu's sheet.
+            // EXP-1316: the title, ONE line, not tappable, the lock beside it.
+            ToolbarItem(placement: .principal) {
+                if let rows, let view = model?.view {
+                    if rows.isAgent {
+                        ThreadHeaderTitle(
+                            title: rows.root.name ?? view.title,
+                            isPrivate: view.isPrivate,
+                            agentIcon: BoardTypeDisplay.iconName(for: rows.root.icon)
+                                ?? SessionTree.ListCopy.agentDefaultIcon,
+                            agentColor: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor
+                        )
+                    } else {
+                        ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
+                    }
+                }
+            }
+            // EXP-1307/1316: ONE `…` rides the header's action slot on every
+            // tab while the Guide has a PR — Open on GitHub · Close PR, in
+            // THE Menu's sheet.
             ToolbarItem(placement: .topBarTrailing) {
-                if page == .guide, !guideMenuEntries.isEmpty {
+                if !guideMenuEntries.isEmpty {
                     Button { openGuideMenu() } label: {
                         AppIcon(AppIcons.uiMore, size: AppIcon.Size.medium, weight: .medium)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -221,39 +241,28 @@ struct ThreadScreen: View {
 
     // MARK: - Header
 
+    /// The band under the nav row: a thread's strip (the pager); an agent
+    /// channel has none.
     @ViewBuilder
     private func header(rows: ThreadRows, view: SessionThreadView) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if rows.isAgent {
-                ThreadHeaderTitle(
-                    title: rows.root.name ?? view.title,
-                    isPrivate: view.isPrivate,
-                    agentIcon: BoardTypeDisplay.iconName(for: rows.root.icon)
-                        ?? SessionTree.ListCopy.agentDefaultIcon,
-                    agentColor: rows.root.color ?? SessionTree.ListCopy.agentDefaultColor
-                )
-                .padding(.bottom, 8)
-            } else {
-                ThreadHeaderTitle(title: view.title, isPrivate: view.isPrivate)
-                ThreadStripTabs(
-                    tabs: view.tabs,
-                    selection: page,
-                    issue: { rows.issue(id: $0) },
-                    isFresh: { model?.isFresh(issueId: $0) ?? false },
-                    onSelect: { next in
-                        pendingPage = nil
-                        selectPage(next)
-                    },
-                    onIssueMenu: { issueId in openMenu(issueId: issueId) },
-                    onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
-                    // Phones push the session screen (its own back header).
-                    onOpenSession: { sessionId in
-                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
-                    }
-                )
-            }
+        if !rows.isAgent {
+            ThreadStripTabs(
+                tabs: view.tabs,
+                selection: page,
+                issue: { rows.issue(id: $0) },
+                isFresh: { model?.isFresh(issueId: $0) ?? false },
+                onSelect: { next in
+                    pendingPage = nil
+                    selectPage(next)
+                },
+                onIssueMenu: { issueId in openMenu(issueId: issueId) },
+                onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
+                // Phones push the session screen (its own back header).
+                onOpenSession: { sessionId in
+                    pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                }
+            )
         }
-        .padding(.top, 4)
     }
 
     /// A member may link and file here (`resolveTeamAccess`: every member
@@ -341,7 +350,10 @@ struct ThreadScreen: View {
                 .safeAreaInset(edge: .bottom) {
                     ThreadComposer(
                         sessionId: view.composer.sessionId,
-                        placeholder: rows.composerPlaceholder(view)
+                        placeholder: rows.composerPlaceholder(view),
+                        busySessionIds: rows.sessions
+                            .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                            .map(\.id)
                     )
                     .overlay(alignment: .top) {
                         ZStack {
@@ -399,6 +411,7 @@ struct ThreadScreen: View {
             section: $guideSection,
             focusPath: $focusPath,
             stack: guideStack(rows: rows),
+            guideRaw: rows.root.guide,
             showsMerge: openPullRequest != nil
         ) {
             if let openPullRequest {
@@ -833,38 +846,70 @@ final class ThreadComposerDraft: SessionComposerDraft {
     }
 }
 
-/// Mounts THE session composer box under a Conversation for one session.
+/// EXP-1316: THE floating composer (ExpUI `FloatingComposer`) under a
+/// Conversation for one session: the `Reply…` capsule floating over the
+/// content, a tap expands it into THE session composer box (text, `+`
+/// images/files, send, Stop while the tree works), blur folds it back when
+/// nothing would be lost (the session view's rule).
 struct ThreadComposer: View {
     let sessionId: String
     let placeholder: String
+    /// The tree's live sessions working a turn — Stop interrupts them.
+    var busySessionIds: [String] = []
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
+    @Environment(\.motion) private var motion
     @State private var draft: ThreadComposerDraft?
     @State private var attach = SessionComposerAttach()
+    @State private var expanded = false
+    /// Set by `expand`, cleared once the editor takes focus (or the retry
+    /// window passes): the blur fold stands down meanwhile.
+    @State private var focusPending = false
 
     var body: some View {
         Group {
             if let draft, draft.sessionId == sessionId {
-                SessionComposerCard(
-                    draft: draft,
+                let open = composerOpen
+                FloatingComposer(
                     placeholder: placeholder,
-                    attach: $attach,
-                    sendEnabled: !draft.steerSending,
-                    fieldIdentifier: "thread-composer-field"
-                )
+                    open: open,
+                    collapsedLabel: placeholder,
+                    collapsedIdentifier: "thread-composer-collapsed",
+                    onExpand: expand
+                ) {
+                    SessionComposerCard(
+                        draft: draft,
+                        placeholder: placeholder,
+                        attach: $attach,
+                        sendEnabled: !draft.steerSending,
+                        showsStop: !busySessionIds.isEmpty && !draft.hasContent,
+                        canStop: !busySessionIds.isEmpty,
+                        onStop: stop,
+                        fieldIdentifier: "thread-composer-field"
+                    )
+                }
+                .animation(motion.standard, value: open)
                 .onChange(of: draft.sendError) { _, message in
                     guard let message else { return }
                     toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
+                }
+                .onChange(of: draft.draftEditor.isEditing) { _, editing in
+                    if editing { focusPending = false }
+                    guard expanded, !editing, !focusPending else { return }
+                    guard !attach.busy, !draft.hasContent else { return }
+                    withAnimation(motion.standard) { expanded = false }
                 }
             } else {
                 Color.clear.frame(height: 1)
             }
         }
-        .transcriptColumn()
-        .padding(.bottom, 8)
-        .floatingBarEdge()
+        // The reading column, the bottom edge fade behind the whole bar
+        // (never behind an open card, which is opaque).
+        .frame(maxWidth: DesignTokens.Transcript.maxWidth)
+        .frame(maxWidth: .infinity)
+        .floatingBarEdge(!composerOpen)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(SessionTree.ThreadCopy.composerTestId)
         // The composed session can move (a resumed child): a new draft.
@@ -876,6 +921,43 @@ struct ThreadComposer: View {
                     sessionsApi: deps.sessionsApi,
                     attachmentsApi: deps.attachmentsApi
                 )
+            }
+        }
+    }
+
+    /// The card shows: tapped open, or a draft / pick / open picker keeps it.
+    private var composerOpen: Bool {
+        guard let draft, draft.sessionId == sessionId else { return false }
+        return expanded || draft.hasContent || attach.busy
+    }
+
+    /// Expand + focus (one runloop hop, a 150ms retry — the session view's
+    /// `expandComposer`).
+    private func expand() {
+        withAnimation(motion.standard) { expanded = true }
+        focusPending = true
+        DispatchQueue.main.async { focus() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if expanded, draft?.draftEditor.isEditing == false { focus() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { focusPending = false }
+    }
+
+    private func focus() {
+        guard let editor = draft?.draftEditor else { return }
+        editor.setFocused(editor.blocks.first?.id)
+    }
+
+    /// Stop = interrupt every working session of the tree.
+    private func stop() {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let ids = busySessionIds
+        Task {
+            do {
+                for id in ids { try await api.stop(accountId: accountId, sessionId: id) }
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: error.userFacingMessage)
             }
         }
     }

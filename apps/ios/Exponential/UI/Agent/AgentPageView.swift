@@ -8,10 +8,11 @@ import SwiftUI
 /// `AgentComposerHeadline`: the contract verb plus the action or issue
 /// chips); the composer card (`AgentComposerCard`, placeholder "What do you
 /// want to build?", the starting row after Start); the `@`/`:` candidate
-/// menu under it; the options line (`AgentOptionsRow`); then Getting started
-/// while the team has no board, and my Running threads (id + title rows, no
-/// captions; a row opens the thread). No history button, no Recent: the
-/// Threads tab lists everything else.
+/// menu under it; the options line (`AgentOptionsRow`). EXP-1316
+/// (composer-home.json `phone`): the column is pinned to the BOTTOM (above
+/// the tab bar, riding the keyboard), the dawn standing on the card; Getting
+/// started (no board yet) sits above the dawn; no Running list — the Threads
+/// tab lists every thread.
 ///
 /// Two shapes: the Home ROOT (`isTabRoot`, an empty seed as the stack's
 /// root — EXP-1210: a tab root like its siblings, no back — the app's
@@ -30,7 +31,6 @@ struct AgentPageView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
-    @Environment(SessionListsModel.self) private var lists
     /// The composer's machine pool (the Devices tab's model).
     @State private var devicesModel: AgentsViewModel?
     @State private var composer: AgentComposerModel?
@@ -63,18 +63,15 @@ struct AgentPageView: View {
             AppBackground()
 
             if devicesModel != nil, let composer {
-                // EXP-862: with nothing running, the composer column is
-                // CENTRED in the page (×4) — a lone prompt box pinned under
-                // the nav bar over an empty screen read as a page that
-                // failed to load.
-                let centred = lists.running.isEmpty
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        // EXP-1038: a picked SUBJECT heads the page — the
+                        homeGettingStarted
+                        Spacer(minLength: 0)
+                        // EXP-1038: a picked SUBJECT heads the column — the
                         // contract verb ("Run" · "Implement") with the
                         // action or issue chips beside it. Nothing picked
-                        // = the dawn rises behind the composer (FEED-100).
+                        // = the dawn stands on the composer (FEED-100).
                         if composer.subject != AgentComposerPrompt.Subject.none {
                             AgentComposerHeadline(model: composer)
                         } else {
@@ -95,28 +92,15 @@ struct AgentPageView: View {
                         }
                         AgentOptionsRow(model: composer)
                         captions(composer)
-
-                        homeGettingStarted
-
-                        HomeRunningBand(
-                            rows: lists.running,
-                            identifiers: lists.identifiers,
-                            clis: lists.clis,
-                            teams: teamState.teams,
-                            onOpen: { rootId in
-                                pushRoute(.thread(accountId: accountId, threadId: rootId))
-                            }
-                        )
-                        .padding(.top, 8)
                     }
                     .padding()
                     .frame(
-                        // The bar's clearance comes out of the centring
-                        // height, else the centred column overflows by it.
-                        minHeight: centred
-                            ? proxy.size.height - (reservesTabBar ? tabBarBottomClearance : 0)
-                            : nil,
-                        alignment: centred ? .center : .top
+                        // EXP-1316: pinned to the bottom — the bar's
+                        // clearance comes out of the height, else the column
+                        // overflows by it; the keyboard shrinks the scroller
+                        // and the column rides up with it.
+                        minHeight: proxy.size.height - (reservesTabBar ? tabBarBottomClearance : 0),
+                        alignment: .bottom
                     )
                     // EXP-1276: tap-outside keyboard dismissal — BEHIND the
                     // content, so only dead space takes the tap.
@@ -127,8 +111,8 @@ struct AgentPageView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
-                // On the SCROLLER itself (EXP-36), so the composer and the
-                // Running band clear the floating bar.
+                // On the SCROLLER itself (EXP-36), so the composer clears
+                // the floating bar.
                 .tabBarBottomInset(reservesTabBar)
                 }
             } else {
@@ -260,9 +244,8 @@ struct AgentPageView: View {
         return model
     }
 
-    /// EXP-1270: while the team has NO board, Getting started follows the
-    /// composer, `composerToGettingStarted` below the options line ("Start a
-    /// run" focuses this page's composer).
+    /// EXP-1270/1316: while the team has NO board, Getting started sits
+    /// ABOVE the dawn ("Start a run" focuses this page's composer).
     @ViewBuilder
     private var homeGettingStarted: some View {
         if let teamId = teamState.activeTeam?.id,
@@ -273,7 +256,6 @@ struct AgentPageView: View {
                 teamId: teamId,
                 onStartRun: { composer?.draftEditor.focusEnd() }
             )
-            .padding(.top, CGFloat(HomeGreeting.Geometry.composerToGettingStarted) - 12)
         }
     }
 
@@ -346,38 +328,6 @@ struct AgentPageView: View {
             )
         default:
             break
-        }
-    }
-}
-
-/// EXP-1291: Home's Running band — my live threads across every team (needs
-/// you first), banded per team once the caller is in several. One line per
-/// thread: the first issue's id + the title, the lock / spinner / amber dot,
-/// no caption. Nothing at all while nothing runs (the composer centres).
-struct HomeRunningBand: View {
-    let rows: [ThreadsListRow]
-    let identifiers: [String: String]
-    /// A root's agent CLI (the row's run mark), by root id.
-    var clis: [String: String] = [:]
-    let teams: [TeamEntity]
-    let onOpen: (String) -> Void
-
-    var body: some View {
-        if !rows.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(ThreadsListGroup.Key.running.title)
-                TeamBandedRows(rows: rows, teams: teams, teamId: \.teamId) { row in
-                    Button {
-                        onOpen(row.sessionId)
-                    } label: {
-                        ThreadRowLabel(row: row, cli: clis[row.sessionId])
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("agent-thread-row")
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("agent-threads-running")
         }
     }
 }

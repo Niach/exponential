@@ -32,6 +32,9 @@ struct GuideFace<Merge: View>: View {
     @Binding var focusPath: String?
     /// EXP-1306: the block above the Guide text (the thread's stack rail).
     var stack: AnyView?
+    /// EXP-1283: the synced `guide` text THE picture viewer walks (nil =
+    /// the tiles fall back to Quick Look).
+    var guideRaw: String?
     /// Whether `merge` draws anything (a generic view cannot say).
     var showsMerge = false
     var merge: () -> Merge
@@ -45,6 +48,7 @@ struct GuideFace<Merge: View>: View {
         section: Binding<GuideSectionKey?>,
         focusPath: Binding<String?>,
         stack: AnyView? = nil,
+        guideRaw: String? = nil,
         showsMerge: Bool = false,
         @ViewBuilder merge: @escaping () -> Merge
     ) {
@@ -56,6 +60,7 @@ struct GuideFace<Merge: View>: View {
         _section = section
         _focusPath = focusPath
         self.stack = stack
+        self.guideRaw = guideRaw
         self.showsMerge = showsMerge
         self.merge = merge
     }
@@ -78,6 +83,7 @@ struct GuideFace<Merge: View>: View {
                 diffStatus: diffStatus,
                 teamId: teamId,
                 stack: stack,
+                guideRaw: guideRaw,
                 onOpen: { key in
                     focusPath = nil
                     section = key
@@ -99,6 +105,11 @@ struct GuideFace<Merge: View>: View {
     }
 }
 
+/// EXP-1283: the viewer's cover item, keyed by the attachment it opens on.
+private struct GuideViewing: Identifiable {
+    let id: String
+}
+
 /// Where the diff the Guide counts stands.
 enum GuideDiffStatus: Equatable {
     case loading
@@ -114,12 +125,15 @@ private struct GuideBody: View {
     let diffStatus: GuideDiffStatus
     let teamId: String?
     let stack: AnyView?
+    let guideRaw: String?
     let onOpen: (GuideSectionKey) -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.motion) private var motion
 
+    /// EXP-1283: the picture THE viewer is open on.
+    @State private var viewing: GuideViewing?
     /// EXP-1172: the topics whose `Earlier` band is open.
     @State private var expandedEarlier: Set<String> = []
     /// The page's content width: the whole page's tiles scale DOWN by one
@@ -211,6 +225,9 @@ private struct GuideBody: View {
             contentWidth = width
         }
         .accessibilityIdentifier("session-results")
+        .fullScreenCover(item: $viewing) { item in
+            GuidePictureViewer(guide: guideRaw, startId: item.id, teamId: teamId)
+        }
     }
 
     @ViewBuilder
@@ -258,7 +275,12 @@ private struct GuideBody: View {
     private func tiles(_ entries: [SessionResultEntry]) -> some View {
         FlowLayout(spacing: 12) {
             ForEach(entries, id: \.attachmentId) { entry in
-                SessionResultPictureTile(entry: entry, height: tileHeight, caption: entry.label)
+                SessionResultPictureTile(
+                    entry: entry,
+                    height: tileHeight,
+                    caption: entry.label,
+                    onOpen: guideRaw.map { _ in { entry in viewing = GuideViewing(id: entry.attachmentId) } }
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

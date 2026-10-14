@@ -223,9 +223,10 @@ private struct ThreadStripTab<Content: View>: View {
     }
 }
 
-/// EXP-1295: the header's title row — a thread's title with the lock glyph
-/// when it is private (`!root.shared`), or an agent's icon in its color
-/// before its name (the agent channel). Nothing else: no caption.
+/// EXP-1295/1316: the header's title — the nav row's principal item: a
+/// thread's title on ONE line (never tappable, nobody renames a thread) with
+/// the lock glyph when it is private (`!root.shared`), or an agent's icon in
+/// its color before its name (the agent channel). Nothing else: no caption.
 struct ThreadHeaderTitle: View {
     let title: String
     var isPrivate = false
@@ -234,16 +235,17 @@ struct ThreadHeaderTitle: View {
     var agentColor: String?
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: 6) {
             if let agentIcon {
-                AppIcon(agentIcon, size: 20, weight: .medium)
+                AppIcon(agentIcon, size: 17, weight: .medium)
                     .foregroundStyle(Color(hex: agentColor) ?? .white)
                     .accessibilityHidden(true)
             }
             Text(title)
-                .font(.title3.weight(.semibold))
+                .font(.headline)
                 .foregroundStyle(.white)
-                .lineLimit(2)
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
                 .accessibilityIdentifier("thread-title")
             if isPrivate {
@@ -253,7 +255,5 @@ struct ThreadHeaderTitle: View {
                     .accessibilityIdentifier("thread-private")
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
     }
 }

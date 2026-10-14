@@ -1323,12 +1323,20 @@ struct AgentSessionView: View {
                 // the `@`/`#`/`:` one is mounted here for the same reason,
                 // and `composerMenu` is what keeps them to one at a time.
                 composerMenuView(model)
-                if composerOpen(model) {
+                // EXP-1316: THE floating composer (ExpUI), shared with a
+                // thread's Conversation.
+                FloatingComposer(
+                    placeholder: model.composerPlaceholder,
+                    open: composerOpen(model),
+                    collapsedLabel: "Message the agent",
+                    collapsedIdentifier: "agent-composer-collapsed",
+                    onExpand: expandComposer
+                ) {
+                    if hasUsage {
+                        usageRingCircle(model)
+                    }
+                } card: {
                     composerCard(model)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                } else {
-                    collapsedComposerBar(model)
                 }
             }
             .animation(motion.standard, value: composerExpanded)
@@ -1372,26 +1380,6 @@ struct AgentSessionView: View {
     private func composerOpen(_ model: AgentSessionModel) -> Bool {
         composerExpanded || !model.trimmedDraft.isEmpty || !model.pendingImages.isEmpty
             || !model.pendingFiles.isEmpty
-    }
-
-    /// EXP-893: the folded composer on the shared bar — the usage ring on the
-    /// left (the Usage sheet) and the capsule wearing the placeholder the open
-    /// field would. Stop stays the header's and the expanded composer's.
-    private func collapsedComposerBar(_ model: AgentSessionModel) -> some View {
-        FloatingBottomBar {
-            if hasUsage {
-                usageRingCircle(model)
-            }
-        } center: {
-            FloatingBarCapsule(accessibilityLabel: "Message the agent", action: expandComposer) {
-                Text(model.composerPlaceholder)
-                    .font(.subheadline)
-                    .lineLimit(1)
-            }
-            .accessibilityIdentifier("agent-composer-collapsed")
-        } trailing: {
-            EmptyView()
-        }
     }
 
     /// 0…1 of the context window, off the engine's latest `usage` slot.
