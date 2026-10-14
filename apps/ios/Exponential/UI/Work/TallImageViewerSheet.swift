@@ -44,6 +44,10 @@ struct StripImageView: View {
     let entry: SessionResultEntry
     /// The width to fit; 0 = not measured yet (the screen's width decodes).
     let width: CGFloat
+    /// EXP-1283: the most height it may take (the Guide viewer keeps its
+    /// panel in view): a taller fit shrinks to this height, centred on the
+    /// dark; nil = the whole picture at the fit width (it scrolls).
+    var maxHeight: CGFloat? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -76,7 +80,12 @@ struct StripImageView: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
         case let .ready(strips, naturalWidth, pixelWidth):
-            let shown = max(1, min(width > 0 ? width : UIScreen.main.bounds.width, naturalWidth))
+            let fit = max(1, min(width > 0 ? width : UIScreen.main.bounds.width, naturalWidth))
+            let pixelHeight = strips.reduce(CGFloat(0)) { $0 + CGFloat($1.cgImage?.height ?? 0) }
+            let fitHeight = pixelHeight * fit / pixelWidth
+            let shown = maxHeight.map { cap in
+                fitHeight > cap && pixelHeight > 0 ? max(1, cap * pixelWidth / pixelHeight) : fit
+            } ?? fit
             VStack(spacing: 0) {
                 ForEach(Array(strips.enumerated()), id: \.offset) { _, strip in
                     Image(uiImage: strip)

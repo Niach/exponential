@@ -61,6 +61,8 @@ struct ThreadScreen: View {
     @State private var answeringId: String?
     /// The Conversation follows its newest row (EXP-1316 1n).
     @State private var atBottom = true
+    /// The composer expanded on a pinned reader: the keyboard's inset re-pins.
+    @State private var pinOnInset = false
     // Guide
     @State private var guideSection: GuideSectionKey?
     @State private var focusPath: String?
@@ -347,13 +349,36 @@ struct ThreadScreen: View {
                     guard atBottom else { return }
                     withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 }
+                // EXP-1316: the composer expanding and the keyboard rising
+                // shrink the viewport from below — a reader on the newest row
+                // stays on it (Android parity), re-pinned once the inset lands.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                    guard pinOnInset || atBottom else { return }
+                    pinOnInset = false
+                    atBottom = true
+                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+                    guard atBottom else { return }
+                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                }
                 .safeAreaInset(edge: .bottom) {
                     ThreadComposer(
                         sessionId: view.composer.sessionId,
                         placeholder: rows.composerPlaceholder(view),
                         busySessionIds: rows.sessions
                             .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                            .map(\.id)
+                            .map(\.id),
+                        onExpand: {
+                            // Remember the pin BEFORE the inset moves it.
+                            pinOnInset = atBottom
+                            guard atBottom else { return }
+                            DispatchQueue.main.async {
+                                withAnimation(motion.standard) {
+                                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                                }
+                            }
+                        }
                     )
                     .overlay(alignment: .top) {
                         ZStack {
@@ -856,6 +881,8 @@ struct ThreadComposer: View {
     let placeholder: String
     /// The tree's live sessions working a turn — Stop interrupts them.
     var busySessionIds: [String] = []
+    /// The capsule was tapped open (the host keeps its feed pinned).
+    var onExpand: () -> Void = {}
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -934,6 +961,7 @@ struct ThreadComposer: View {
     /// Expand + focus (one runloop hop, a 150ms retry — the session view's
     /// `expandComposer`).
     private func expand() {
+        onExpand()
         withAnimation(motion.standard) { expanded = true }
         focusPending = true
         DispatchQueue.main.async { focus() }

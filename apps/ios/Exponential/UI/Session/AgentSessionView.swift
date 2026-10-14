@@ -966,7 +966,9 @@ struct AgentSessionView: View {
 
     /// A lone question card: a plan approval or a single-question ask.
     @ViewBuilder
-    private func questionCard(_ question: AgentQuestion) -> some View {
+    private func questionCard(_ raw: AgentQuestion) -> some View {
+        // EXP-1316: every question card offers the free-text answer.
+        let question = raw.withFreeTextRow()
         QuestionCard(
             question: question,
             localAnswer: model?.localAnswerSummary(question.lockKey),
@@ -1013,10 +1015,11 @@ struct AgentSessionView: View {
             : nil
         let answered = Array(group.questions.prefix(index))
         let editingStep: AgentQuestion? = editable
-            ? editingSteps[group.askId].flatMap { id in answered.first { $0.wireId == id } }
+            ? editingSteps[group.askId].flatMap { id in answered.first { $0.wireId == id } }?.withFreeTextRow()
             : nil
         if group.questions.indices.contains(index) {
-            let current = group.questions[index]
+            // EXP-1316: every step offers the free-text answer.
+            let current = group.questions[index].withFreeTextRow()
             if let editingStep {
                 // The OTHER answered steps stay listed (each still tappable, so
                 // the steerer can hop between them); the edited one is the
@@ -1692,7 +1695,7 @@ struct UserMessageBubble: View {
     /// the bubble on the trailing edge; nil in the transcript.
     var caption: String?
     /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
-    /// before the bubble (`sessions.unqueue`); nil = no X.
+    /// at the END of the caption line (`sessions.unqueue`); nil = no X.
     var onRemove: (() -> Void)? = nil
 
     @State private var expanded = false
@@ -1727,17 +1730,6 @@ struct UserMessageBubble: View {
         let clampable = isClampable(hasImages ? parsed.text : text)
         return HStack {
             Spacer(minLength: 32)
-            if let onRemove {
-                Button(action: onRemove) {
-                    AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(AgentFeed.queueRemoveLabel)
-                .accessibilityIdentifier("thread-queue-remove")
-            }
             VStack(alignment: .leading, spacing: 4) {
                 Group {
                     if !hasImages {
@@ -1808,23 +1800,40 @@ struct UserMessageBubble: View {
                     .stroke(Color.white.opacity(0.16), lineWidth: 0.5)
             )
         }
-        .modifier(BubbleCaption(caption: caption))
+        .modifier(BubbleCaption(caption: caption, onRemove: onRemove))
     }
 }
 
 /// EXP-1245: the turn bubble's caption, muted under it on the trailing edge.
+/// EXP-1317 (×4): a queued row's caption ends on the `Remove from queue` X.
 private struct BubbleCaption: ViewModifier {
     let caption: String?
+    var onRemove: (() -> Void)?
 
     func body(content: Content) -> some View {
-        if let caption, !caption.isEmpty {
+        if (caption?.isEmpty == false) || onRemove != nil {
             VStack(alignment: .trailing, spacing: 4) {
                 content
-                Text(caption)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.trailing, 4)
-                    .accessibilityIdentifier("user-message-caption")
+                HStack(spacing: 4) {
+                    if let caption, !caption.isEmpty {
+                        Text(caption)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .accessibilityIdentifier("user-message-caption")
+                    }
+                    if let onRemove {
+                        Button(action: onRemove) {
+                            AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .frame(width: 22, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(AgentFeed.queueRemoveLabel)
+                        .accessibilityIdentifier("thread-queue-remove")
+                    }
+                }
+                .padding(.trailing, onRemove == nil ? 4 : 0)
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         } else {
@@ -2590,8 +2599,10 @@ struct QuestionCard: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if expandable {
-                // EXP-820: this row types — the chevron says it unfolds.
+            // EXP-820: a row that types unfolds; EXP-1316: the free-text row
+            // looks like every other option (number badge only, ×4) — only
+            // the plan's reject row keeps the chevron.
+            if expandable, !option.freeText {
                 AppIcon(inlineOpen ? AppIcons.uiChevronUp : AppIcons.uiChevronDown, size: 11)
                     .foregroundStyle(quietColor)
             }

@@ -50,9 +50,7 @@ struct ThreadConversationView: View {
         AgentQuestionOption(label: "Reject", key: "reject"),
     ]
     static let approveKey = "approve"
-    /// EXP-1316 `custom: true`: THE session view's free-text row (claude's
-    /// synthetic "Type something.", expanding into the inline field).
-    static let customOption = AgentQuestionOption(label: "Type something.", key: "__custom", freeText: true)
+
     static let queuedWord = "queued"
 
     /// Attachment images through the instance, `#EXP-1` refs chipped against
@@ -171,17 +169,19 @@ struct ThreadConversationView: View {
             }
         case let .question(id, question, options, custom, answer, answered):
             // THE session view's card (EXP-1316): the options AND the
-            // free-text answer, closed once answered whichever path did it.
+            // free-text answer (`withFreeTextRow`, ×4), closed once answered
+            // whichever path did it. The typed text IS the answer.
+            let base = AgentQuestion(
+                id: 0,
+                wireId: id,
+                text: question,
+                options: options.map { AgentQuestionOption(label: $0, key: $0) },
+                resolved: answered,
+                answers: answer.map { [$0] } ?? []
+            )
+            let card = custom ? base.withFreeTextRow() : base
             QuestionCard(
-                question: AgentQuestion(
-                    id: 0,
-                    wireId: id,
-                    text: question,
-                    options: options.map { AgentQuestionOption(label: $0, key: $0) }
-                        + (custom ? [Self.customOption] : []),
-                    resolved: answered,
-                    answers: answer.map { [$0] } ?? []
-                ),
+                question: card,
                 active: !answered,
                 canAnswer: canAnswer,
                 locked: answeringId == id,
@@ -189,7 +189,8 @@ struct ThreadConversationView: View {
                 failed: false,
                 onAnswer: { keys, text in
                     let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? keys.first(where: { $0 != Self.customOption.key }) {
+                    let freeKeys = Set(card.options.filter(\.freeText).map(\.key))
+                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? keys.first(where: { !freeKeys.contains($0) }) {
                         onAnswer(id, pick)
                     }
                 },
@@ -255,14 +256,14 @@ struct ThreadConversationView: View {
         }
     }
 
-    /// A person's bubble caption: `<name> · <time>`, or `queued` until the
-    /// device took the message.
+    /// A person's bubble caption: `<name> · <time>`, ending `· queued` until
+    /// the device took the message (EXP-1317, ×4; the X rides after it).
     private func caption(messageId: String, authorId: String?, queued: Bool) -> String {
-        if queued { return Self.queuedWord }
         let user = rows.user(id: authorId)
         let name = user?.name ?? user?.email
         let time = rows.messages.first { $0.id == messageId }.map { RelativeTime.compact(wire: $0.createdAt) }
-        return [name, time].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return [name, time, queued ? Self.queuedWord : nil]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 }
 

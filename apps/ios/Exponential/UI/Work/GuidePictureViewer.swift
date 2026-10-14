@@ -20,6 +20,7 @@ struct GuidePictureViewer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selection: String
     @State private var pageWidth: CGFloat = 0
+    @State private var pageHeight: CGFloat = 0
 
     init(guide: String?, startId: String, teamId: String? = nil) {
         self.guide = guide
@@ -27,6 +28,9 @@ struct GuidePictureViewer: View {
         self.teamId = teamId
         _selection = State(initialValue: startId)
     }
+
+    /// The page height share the picture may take (Android's viewer).
+    static let pictureShare: CGFloat = 0.55
 
     /// Every Guide picture id in viewer order (walked off `prevId`/`nextId`).
     private var ids: [String] {
@@ -74,8 +78,9 @@ struct GuidePictureViewer: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-                pageWidth = width
+            .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                pageWidth = size.width
+                pageHeight = size.height
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -103,8 +108,14 @@ struct GuidePictureViewer: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let entry = sessionResultPicture(guide, attachmentId: id) {
-                    StripImageView(entry: entry, width: pageWidth)
-                        .frame(maxWidth: .infinity)
+                    // The picture fits the width but never takes more than
+                    // ~55% of the page: the panel always shows below it.
+                    StripImageView(
+                        entry: entry,
+                        width: pageWidth,
+                        maxHeight: pageHeight > 0 ? pageHeight * Self.pictureShare : nil
+                    )
+                    .frame(maxWidth: .infinity)
                         .accessibilityLabel("\(entry.topic), \(entry.label)")
                 }
                 if let state {

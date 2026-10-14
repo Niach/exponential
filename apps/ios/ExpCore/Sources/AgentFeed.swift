@@ -88,6 +88,30 @@ public struct AgentQuestion: Equatable, Sendable, Identifiable {
     /// Key of the per-card answer lock.
     public var lockKey: String { wireId }
 
+    /// EXP-1316 (byte-identical ×4): the free-text row's label (claude's own).
+    public static let freeTextRowLabel = "Type something."
+
+    /// EXP-1316: every question card offers the free-text answer (the CLI's
+    /// AskUserQuestion always takes a custom one): a question whose publisher
+    /// sent no `freeText` row gets one as option N+1, keyed like the CLI's own
+    /// (its 1-based position, `free-text` when that key is taken), its typed
+    /// reply riding the answer's `text`. Plans and an ask's submit step are
+    /// left alone (Android `withFreeTextRow`).
+    public func withFreeTextRow() -> AgentQuestion {
+        if planMode || isSubmitStep || options.contains(where: \.freeText) { return self }
+        let candidate = String(options.count + 1)
+        let key = options.contains(where: { $0.key == candidate }) ? "free-text" : candidate
+        var copy = AgentQuestion(
+            id: id, wireId: wireId, askId: askId, index: index, total: total, header: header,
+            text: text,
+            options: options + [AgentQuestionOption(label: Self.freeTextRowLabel, key: key, freeText: true)],
+            multiSelect: multiSelect, planMode: planMode, resolved: resolved, answers: answers,
+            dismissed: dismissed
+        )
+        copy.id = id
+        return copy
+    }
+
     /// The chosen answer(s) once resolved, for display.
     public var answerSummary: String? {
         answers.isEmpty ? nil : answers.joined(separator: ", ")
