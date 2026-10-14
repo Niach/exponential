@@ -38,13 +38,17 @@ export const CHIP_GLYPH_CLASS = `!h-[0.875em] !w-[0.875em] shrink-0`
  *  active wash wins. */
 export const STRIP_TAB_CLASS = `inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm font-normal`
 
-/** The strip tab's state: the active one = the glass wash + strong stroke. */
-export function stripTabClass(active: boolean): string {
+/** The strip tab's state: the active one = the glass wash + strong stroke;
+ *  at rest a tab has no stroke, a chip (`bordered`) keeps its hairline. */
+export function stripTabClass(active: boolean, bordered = false): string {
   return cn(
     STRIP_TAB_CLASS,
     active
       ? `border-glass-stroke-strong bg-glass-active text-foreground hover:bg-glass-active`
-      : `border-transparent text-muted-foreground hover:text-foreground`
+      : cn(
+          bordered ? `border-glass-stroke` : `border-transparent`,
+          `text-muted-foreground hover:text-foreground`
+        )
   )
 }
 

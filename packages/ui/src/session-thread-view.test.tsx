@@ -1,7 +1,14 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import type { ThreadRow } from "@exp/domain-contract/session-tree"
-import { ThreadConversation, ThreadTabs, ThreadsListItem } from "./session-thread-view"
+import {
+  ThreadConversation,
+  ThreadSessionTab,
+  ThreadSessionTree,
+  ThreadTabs,
+  ThreadsListItem,
+  threadTreeRows,
+} from "./session-thread-view"
 import { TooltipProvider } from "./tooltip"
 
 // EXP-1293: the thread screen's parts render the contract's rows as given.
@@ -167,5 +174,60 @@ describe(`ThreadsListItem`, () => {
     const word = screen.getByText(`merged`)
     const lock = screen.getByLabelText(`Private`)
     expect(word.compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+// EXP-1316: the strip's session chips and the tree popover.
+describe(`session chips`, () => {
+  it(`sit after the "+" in their own group and open in place`, () => {
+    const onSelect = vi.fn()
+    render(
+      <ThreadTabs
+        conversation={{ label: `Conversation`, active: false, onSelect: () => {} }}
+        issues={[]}
+        add={<span data-testid="add">+</span>}
+        sessions={
+          <ThreadSessionTab
+            agent="claude"
+            markState="needs_you"
+            name="Profile the launch path"
+            active
+            onSelect={onSelect}
+          />
+        }
+        guide={{ label: `Guide`, active: false, dot: false, onSelect: () => {} }}
+      />
+    )
+    const chip = screen.getByTestId(`thread-tab-session`)
+    expect(chip.getAttribute(`aria-selected`)).toBe(`true`)
+    expect(chip.className).toContain(`bg-glass-active`)
+    expect(
+      screen.getByTestId(`add`).compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    fireEvent.click(chip)
+    expect(onSelect).toHaveBeenCalled()
+  })
+
+  it(`the tree lists every session depth-first with the open one washed`, () => {
+    const rows = [
+      { sessionId: `r`, parentId: null, name: `Session 1`, agent: `claude`, markState: `working` as const },
+      { sessionId: `b`, parentId: `r`, name: `B`, agent: `claude`, markState: `ended` as const },
+      { sessionId: `a`, parentId: `r`, name: `A`, agent: `claude`, markState: `needs_you` as const },
+      { sessionId: `a1`, parentId: `a`, name: `A1`, agent: `claude`, markState: `waiting` as const },
+    ]
+    expect(threadTreeRows(rows).map((entry) => [entry.row.sessionId, entry.depth])).toEqual([
+      [`r`, 0],
+      [`b`, 1],
+      [`a`, 1],
+      [`a1`, 2],
+    ])
+    const onOpen = vi.fn()
+    render(<ThreadSessionTree rows={rows} activeId="a" onOpen={onOpen} />)
+    const items = screen.getAllByTestId(`thread-session-tree-row`)
+    expect(items.map((item) => item.textContent)).toEqual([`Session 1`, `B`, `A`, `A1`])
+    expect(items[2]!.className).toContain(`bg-glass-active`)
+    expect(items[1]!.className).not.toContain(`bg-glass-active`)
+    fireEvent.click(items[3]!)
+    expect(onOpen).toHaveBeenCalledWith(`a1`)
   })
 })

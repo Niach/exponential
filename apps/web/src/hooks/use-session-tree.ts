@@ -226,7 +226,11 @@ export function useIssuePullRequests(issueId: string | null | undefined): PullRe
 }
 
 /** The thread screen's whole model (`buildSessionThread`, fixture-locked). */
-export function useSessionThread(rootId: string | null | undefined): {
+export function useSessionThread(
+  rootId: string | null | undefined,
+  /** EXP-1316: the session open in place (its chips = that level). */
+  focus: string | null = null
+): {
   view: SessionThreadView | null
   root: SessionRow | null
   rows: SessionRow[]
@@ -281,8 +285,8 @@ export function useSessionThread(rootId: string | null | undefined): {
       messages: ((messages ?? []) as MessageRow[]).map(toTreeMessage),
       pullRequests: pullRequests.map(toTreePullRequest),
       now: now.toISOString(),
-    })
-  }, [root, tree, links, issues, messages, pullRequests, now])
+    }, { focus })
+  }, [root, tree, links, issues, messages, pullRequests, now, focus])
   return { view, root, rows, pullRequests, isReady }
 }
 

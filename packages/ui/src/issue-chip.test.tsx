@@ -59,12 +59,21 @@ describe(`IssueChip size="tab" (EXP-1316)`, () => {
     const chip = screen.getByTestId(`chip`)
     expect(chip.className).not.toContain(`issue-chip`)
     expect(chip.className).toContain(`h-8`)
-    expect(chip.className).toContain(`border-transparent`)
+    expect(chip.className).toContain(`border-glass-stroke`)
     expect(chip.textContent).toBe(`EXP-1The title`)
     rerender(
       <IssueChip identifier="EXP-1" title="The title" status={status} size="tab" active testId="chip" />
     )
     expect(screen.getByTestId(`chip`).className).toContain(`bg-glass-active`)
     expect(screen.getByTestId(`chip`).getAttribute(`data-active`)).toBe(`true`)
+  })
+})
+
+describe(`IssueChip size="pager" (EXP-1316)`, () => {
+  it(`is the tab box without the title`, () => {
+    render(<IssueChip identifier="EXP-2" title="Hidden" status={status} size="pager" testId="chip" />)
+    const chip = screen.getByTestId(`chip`)
+    expect(chip.className).toContain(`h-8`)
+    expect(chip.textContent).toBe(`EXP-2`)
   })
 })

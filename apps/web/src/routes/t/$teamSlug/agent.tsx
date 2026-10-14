@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
   ExponentialLogo,
   FeedbackStatesSpecimen,
-  GlassSectionHeader,
-  SessionRow,
   SkeletonRows,
+  useKeyboardInset,
 } from "@exp/ui"
 import { HOME_GEOMETRY, HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
 import { useSteerConfig } from "@/hooks/use-steer-config"
@@ -13,7 +12,6 @@ import { GettingStartedSection } from "@/components/getting-started/getting-star
 import { LaunchComposer } from "@/components/launch-composer"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
-import { useThreadsList } from "@/hooks/use-session-tree"
 import { useSession } from "@/hooks/use-session"
 import {
   useTeamBoardsWithReady,
@@ -41,8 +39,9 @@ const str = (value: unknown): string | undefined =>
 // composer), the composer ("What do you want to build?") and its options
 // line, then, while the team has no board, Getting started. No greeting, no
 // history button, no recent list: Threads (the rail) is where past work
-// lives. Phones, which have no rail Running section, keep a Running list
-// (the team's live threads) under the composer.
+// lives. EXP-1316 phones: the column stands at the BOTTOM (the dawn on the
+// card, the options row under it, keyboard-aware), Getting started above the
+// dawn, no Running list.
 //
 // The composer is THE launcher: a start is ONE `sessions.send` in this team
 // and lands on `/t/$teamSlug/threads/$threadId`. A deep link (a native
@@ -129,6 +128,9 @@ function AgentPage() {
     [search.issues, search.action, search.pr, search.device, search.text]
   )
   const [seed, setSeed] = useState<LaunchSeed | null>(null)
+  // The layout viewport does not shrink under a phone keyboard: the pinned
+  // card rides above it.
+  const { inset: keyboard } = useKeyboardInset()
   const onSeedConsumed = useCallback(() => setSeed(null), [])
   useEffect(() => {
     if (!urlSeed) return
@@ -148,9 +150,14 @@ function AgentPage() {
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="agent-page">
       <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {/* EXP-1316 (composer-home.json `phone`): phones pin the dawn + the
+            card + its options row to the BOTTOM (above the tab bar, riding
+            the keyboard), Getting started above the dawn, no Running list;
+            md+ keeps the centred column. */}
         <div
           data-testid={HOME_TEST_IDS.home}
-          className={`mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-4 py-6 max-md:justify-start ${TAB_BAR_CLEARANCE}`}
+          className={`mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-4 py-6 max-md:justify-end ${TAB_BAR_CLEARANCE}`}
+          style={keyboard > 0 ? { paddingBottom: keyboard } : undefined}
         >
           <HomeColumn
             team={team}
@@ -161,7 +168,6 @@ function AgentPage() {
             seed={seed}
             onSeedConsumed={onSeedConsumed}
           />
-          <PhoneRunningList teamId={team.id} teamSlug={team.slug} />
         </div>
       </div>
     </div>
@@ -188,6 +194,10 @@ export function HomeColumn({
   onSeedConsumed: () => void
 }) {
   const { boards, boardsReady } = useTeamBoardsWithReady(team.id)
+  const gettingStarted =
+    isMember && boardsReady && boards.length === 0 ? (
+      <GettingStartedSection team={team} teamSlug={team.slug} />
+    ) : null
   return (
     <div className="flex flex-col">
       <HomeDawn />
@@ -210,9 +220,19 @@ export function HomeColumn({
       )}
       {/* EXP-1270: a board-less team's Getting started block (members only:
           meaningless before the viewer's own member row has synced). */}
-      {isMember && boardsReady && boards.length === 0 && (
-        <div style={{ marginTop: HOME_GEOMETRY.composerToGettingStarted }}>
-          <GettingStartedSection team={team} teamSlug={team.slug} />
+      {/* md+: under the composer. Phones: ABOVE the dawn (the card is
+          pinned low), the same gap under it. */}
+      {gettingStarted && (
+        <div
+          className="max-md:order-first max-md:mb-[var(--home-gap)]"
+          style={
+            {
+              marginTop: HOME_GEOMETRY.composerToGettingStarted,
+              "--home-gap": `${HOME_GEOMETRY.composerToGettingStarted}px`,
+            } as CSSProperties
+          }
+        >
+          {gettingStarted}
         </div>
       )}
     </div>
@@ -255,35 +275,3 @@ function ComposerPane({
   return <LaunchComposer model={model} users={users} variant="home" />
 }
 
-/** PHONES ONLY (the rail's Running section covers md+): the team's live
- *  threads (Needs you, then Running) under the composer. A row = the agent
- *  mark and the title (it names the issue); it opens the thread. */
-function PhoneRunningList({ teamId, teamSlug }: { teamId: string; teamSlug: string }) {
-  const navigate = useNavigate()
-  const { groups } = useThreadsList(teamId)
-  const rows = groups
-    .filter((group) => group.key === `needs_you` || group.key === `running`)
-    .flatMap((group) => group.rows)
-  if (rows.length === 0) return null
-  return (
-    <div className="mt-6 flex flex-col gap-1 md:hidden" data-testid="agent-running-threads">
-      <GlassSectionHeader label="Running" />
-      {rows.map((row) => (
-        <SessionRow
-          key={row.sessionId}
-          size="small"
-          agent={null}
-          markState={row.needsYou ? `needs_input` : row.busy ? `working` : undefined}
-          title={row.title}
-          data-testid="threads-row"
-          onClick={() =>
-            void navigate({
-              to: `/t/$teamSlug/threads/$threadId`,
-              params: { teamSlug, threadId: row.sessionId },
-            })
-          }
-        />
-      ))}
-    </div>
-  )
-}

@@ -1,10 +1,14 @@
 import type { ComponentProps, ReactNode } from "react"
-import type { ThreadRow } from "@exp/domain-contract/session-tree"
+import type { SessionTabMarkState, ThreadRow } from "@exp/domain-contract/session-tree"
+import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { ASK_CARD_COPY, AskCard, AskPrompt, type AskOption } from "./ask-card"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
+import { SessionRow } from "./session-row"
+import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
@@ -47,6 +51,7 @@ export function ThreadTabs({
   conversation,
   issues,
   add,
+  sessions,
   guide,
   variant = `bar`,
   className,
@@ -57,6 +62,9 @@ export function ThreadTabs({
   issues: readonly ReactNode[]
   /** The "+" (a Menu around `ThreadTabsAddButton`); absent = read-only. */
   add?: ReactNode
+  /** EXP-1316: the session chips group (`ThreadSessionGroup`), md+: after
+   *  the "+", a divider either side. */
+  sessions?: ReactNode
   guide: { label: string; active: boolean; dot: boolean; onSelect: () => void }
   /** `bar` = md+ under the title; `pager` = the phones' tabs. */
   variant?: `bar` | `pager`
@@ -89,6 +97,12 @@ export function ThreadTabs({
         {issues}
       </div>
       {add}
+      {sessions && !pager && (
+        <>
+          <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+          {sessions}
+        </>
+      )}
       {!pager && <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />}
       <Button
         type="button"
@@ -110,6 +124,141 @@ export function ThreadTabs({
         )}
       </Button>
     </div>
+  )
+}
+
+/** A session chip's mark state ×4 (`sessionTabMarkState`) in the run
+ *  marks' words (waiting = the bare mark). */
+export function sessionTabRunMark(state: SessionTabMarkState): RunMarkState | undefined {
+  if (state === `needs_you`) return `needs_input`
+  if (state === `working`) return `working`
+  if (state === `ended`) return `ended`
+  return undefined
+}
+
+/** EXP-1316: ONE session chip of the strip: the agent's mark (its state)
+ *  and the name; muted at rest, the tab box when it is the open session. */
+export function ThreadSessionTab({
+  agent,
+  markState,
+  name,
+  active,
+  onSelect,
+}: {
+  agent: string | null
+  markState: SessionTabMarkState
+  name: string
+  active: boolean
+  onSelect: () => void
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      role="tab"
+      aria-selected={active}
+      data-testid="thread-tab-session"
+      className={cn(tabClass(active), `max-w-[11rem]`)}
+      onClick={onSelect}
+    >
+      <AgentRunMark
+        agent={agent}
+        state={sessionTabRunMark(markState)}
+        ringClassName="ring-background"
+        className="size-3.5"
+      />
+      <span className="min-w-0 truncate">{name}</span>
+    </Button>
+  )
+}
+
+export interface ThreadTreeRow {
+  sessionId: string
+  parentId: string | null
+  name: string
+  agent: string | null
+  markState: SessionTabMarkState
+}
+
+/** Depth-first (children in the given order) with each row's depth. */
+export function threadTreeRows(
+  rows: readonly ThreadTreeRow[]
+): { row: ThreadTreeRow; depth: number }[] {
+  const ids = new Set(rows.map((row) => row.sessionId))
+  const children = new Map<string | null, ThreadTreeRow[]>()
+  for (const row of rows) {
+    const parent = row.parentId && ids.has(row.parentId) ? row.parentId : null
+    const list = children.get(parent) ?? []
+    list.push(row)
+    children.set(parent, list)
+  }
+  const out: { row: ThreadTreeRow; depth: number }[] = []
+  const walk = (parent: string | null, depth: number) => {
+    for (const row of children.get(parent) ?? []) {
+      out.push({ row, depth })
+      walk(row.sessionId, depth + 1)
+    }
+  }
+  walk(null, 0)
+  return out
+}
+
+/** EXP-1316: the session tree popover's body: the WHOLE tree as
+ *  `SessionRow size="small"` rows with their guides, the open one washed. */
+export function ThreadSessionTree({
+  rows,
+  activeId,
+  onOpen,
+}: {
+  rows: readonly ThreadTreeRow[]
+  activeId: string | null
+  onOpen: (sessionId: string) => void
+}) {
+  const ordered = threadTreeRows(rows)
+  const guides = treeGuides(ordered.map((entry) => entry.depth))
+  return (
+    <div data-testid="thread-session-tree" className="flex flex-col">
+      {ordered.map(({ row, depth }, index) => (
+        <SessionRow
+          key={row.sessionId}
+          size="small"
+          agent={row.agent}
+          markState={sessionTabRunMark(row.markState)}
+          title={row.name}
+          depth={depth}
+          guide={guides[index]}
+          active={row.sessionId === activeId}
+          ringClassName="ring-popover"
+          data-testid="thread-session-tree-row"
+          onClick={() => onOpen(row.sessionId)}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** The session chips as ONE group; on a pointer, hovering it opens the
+ *  tree popover (`tree`). */
+export function ThreadSessionGroup({
+  children,
+  tree,
+}: {
+  children: ReactNode
+  tree?: ReactNode
+}) {
+  const group = (
+    <div data-testid="thread-session-group" className="flex shrink-0 items-center gap-1">
+      {children}
+    </div>
+  )
+  if (!tree) return group
+  return (
+    <HoverCard openDelay={250}>
+      <HoverCardTrigger asChild>{group}</HoverCardTrigger>
+      <HoverCardContent align="end" className="w-80 p-1.5">
+        {tree}
+      </HoverCardContent>
+    </HoverCard>
   )
 }
 

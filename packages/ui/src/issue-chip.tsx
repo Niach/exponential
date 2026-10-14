@@ -41,7 +41,7 @@ export type IssueChipLinkProps = EntityChipLinkProps
  *  identifier alone (the title rides in the tooltip), for the surfaces that
  *  stand for several issues at once — the hover graph's nodes, the phone
  *  header's badge — where a title per chip is what made them sprawl. */
-export type IssueChipSize = `md` | `sm` | `tab`
+export type IssueChipSize = `md` | `sm` | `tab` | `pager`
 
 export function IssueChip({
   identifier,
@@ -66,7 +66,9 @@ export function IssueChip({
   /** `sm` drops the title (SLOP-15); the box and the glyph stay the same.
    *  `tab` (EXP-1316) = exactly the strip tab box (`stripTabClass`: h-8,
    *  text-sm, rounded-md, border, px-2.5): glyph · mono identifier · title,
-   *  every chip of a strip the height of Conversation / Guide. */
+   *  every chip of a strip the height of Conversation / Guide; a resting
+   *  chip keeps its hairline (a bordered rect). `pager` = the phones' strip:
+   *  the same box, glyph · identifier (the title rides in the tooltip). */
   size?: IssueChipSize
   /** The tab size's active state (the glass wash). */
   active?: boolean
@@ -86,12 +88,12 @@ export function IssueChip({
   testId?: string
   removeTestId?: string
 } & ChipHostProps): ReactNode {
-  const tab = size === `tab`
+  const tab = size === `tab` || size === `pager`
   const body = tab ? (
     <>
       <StatusGlyph {...status} className={cn(`size-3.5 shrink-0`, status.className)} />
       <span className="shrink-0 font-mono text-xs text-muted-foreground">{identifier}</span>
-      <span className="min-w-0 truncate">{title}</span>
+      {size === `tab` && <span className="min-w-0 truncate">{title}</span>}
     </>
   ) : (
     <>
@@ -115,7 +117,11 @@ export function IssueChip({
       slot="issue-chip"
       data-size={size}
       data-active={tab ? active : undefined}
-      box={tab ? cn(stripTabClass(active), `max-w-[11rem]`) : undefined}
+      box={
+        tab
+          ? cn(stripTabClass(active, true), size === `tab` && `max-w-[11rem]`)
+          : undefined
+      }
       body={body}
       openLabel={`Open ${identifier}`}
       tooltip={`${identifier} · ${title}`}

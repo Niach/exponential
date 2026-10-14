@@ -1,0 +1,173 @@
+import { useState } from "react"
+import { Link } from "@tanstack/react-router"
+import {
+  conceptIcon,
+  FloatingComposer,
+  Pill,
+  useIsMobile,
+  WORK_COLUMN_CLASS,
+  WORK_GUTTER_CLASS,
+} from "@exp/ui"
+import type { IconConcept } from "@exp/icons"
+import { AgentSessionView } from "@/components/agent-session"
+import { SessionComposer } from "@/components/session-composer"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import {
+  useSessionCard,
+  useSessionRow,
+  useSessionThread,
+  useTreeSessions,
+} from "@/hooks/use-session-tree"
+import { useTeamUsers } from "@/hooks/use-team-data"
+import { pageTitle, usePageTitle } from "@/lib/page-title"
+import type { SessionRow } from "@/lib/session-tree"
+import { trpc } from "@/lib/trpc-client"
+import { cn } from "@/lib/utils"
+
+// EXP-1293 / EXP-1316: ONE session's RAW WORK. Two hosts:
+//
+//   InPlaceSession   web md+: the body of the thread page's session chip
+//                    (`?tab=session&session=<id>`) under the thread's own
+//                    header + strip; the header carries its Stop pill
+//   SessionScreen    phones (the thread route's session tab) and sessions
+//                    under a team AGENT (`/sessions/$id`): its own header,
+//                    back to the thread (or the agent's channel), the
+//                    session's name and Stop while live
+//
+// The feed always shows the work (no faces, no Show work, no Guide), and the
+// reply box posts to THIS session. Visibility is the shape's.
+
+const BackIcon = conceptIcon(`ui-back`)
+const StopIcon = conceptIcon(`coding-stop`)
+const REPLY_PLACEHOLDER = `Reply…`
+
+/** The reply box under a session's feed. */
+function SessionReply({ row }: { row: SessionRow }) {
+  const { users } = useTeamUsers(row.teamId)
+  const live = row.status !== `ended`
+  return (
+    <SessionComposer
+      teamId={row.teamId}
+      sessionId={row.id}
+      placeholder={REPLY_PLACEHOLDER}
+      users={users}
+      busy={row.busy}
+      canStop={live}
+      testId="session-composer"
+    />
+  )
+}
+
+/** md+: the session open IN PLACE inside its thread. */
+export function InPlaceSession({ row }: { row: SessionRow }) {
+  return (
+    <div className="min-h-0 flex-1" data-testid="thread-session-body">
+      <AgentSessionView key={row.id} session={row} composer={<SessionReply row={row} />} />
+    </div>
+  )
+}
+
+/** The session on its own screen (phones; sessions under an agent). */
+export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: SessionRow }) {
+  const isMobile = useIsMobile()
+  const rootId = row.rootId ?? row.id
+  const { tree } = useTreeSessions(rootId)
+  const { row: syncedRoot } = useSessionRow(rootId === row.id ? null : rootId)
+  const rootRow = rootId === row.id ? row : syncedRoot
+  // Under a team agent the way back is the agent's channel, never /threads.
+  const agentRoot = rootRow?.kind === `agent` ? rootRow : null
+  const card = useSessionCard(row, tree)
+  const { view } = useSessionThread(rootId)
+  const threadTitle = view?.title ?? null
+  const name = card?.name ?? row.title ?? `Session`
+  usePageTitle(pageTitle(name, threadTitle ?? `Session`))
+
+  const live = row.status !== `ended`
+  const isRoot = rootId === row.id
+  const CardIcon = conceptIcon((card?.icon ?? `coding-assistant`) as IconConcept)
+
+  const header = (
+    <div
+      className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS, `shrink-0 pt-4 pb-2`)}
+      data-testid="session-header"
+    >
+      {agentRoot ? (
+        <Link
+          to="/t/$teamSlug/agents/$agentId"
+          params={{ teamSlug, agentId: agentRoot.id }}
+          className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          data-testid="session-back"
+        >
+          <BackIcon className="size-4 shrink-0" />
+          <span className="truncate">{agentRoot.name || `Back`}</span>
+        </Link>
+      ) : !isRoot || threadTitle ? (
+        <Link
+          to="/t/$teamSlug/threads/$threadId"
+          params={{ teamSlug, threadId: rootId }}
+          className="inline-flex max-w-full min-w-0 items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+          data-testid="session-back"
+        >
+          <BackIcon className="size-4 shrink-0" />
+          <span className="truncate">{threadTitle ?? `Back`}</span>
+        </Link>
+      ) : null}
+      <div className="mt-3 flex min-w-0 items-center gap-3">
+        <CardIcon className="size-5 shrink-0 text-muted-foreground" />
+        <h1
+          className="min-w-0 flex-1 truncate text-xl font-semibold"
+          data-testid="session-title"
+        >
+          {name}
+        </h1>
+        {live ? <SessionStopPill sessionId={row.id} /> : null}
+      </div>
+    </div>
+  )
+
+  return (
+    <AgentSessionView
+      session={row}
+      header={header}
+      // EXP-1316: phones reply through THE floating composer capsule.
+      composerFloats={isMobile}
+      composer={
+        isMobile ? (
+          <FloatingComposer placeholder={REPLY_PLACEHOLDER}>
+            <SessionReply row={row} />
+          </FloatingComposer>
+        ) : (
+          <SessionReply row={row} />
+        )
+      }
+    />
+  )
+}
+
+/** Stop the session (`sessions.stop`); the synced row ends it. */
+export function SessionStopPill({ sessionId }: { sessionId: string }) {
+  const [stopping, setStopping] = useState(false)
+  return (
+    <Pill
+      mode="action"
+      className="shrink-0 text-destructive"
+      disabled={stopping}
+      onClick={async () => {
+        setStopping(true)
+        try {
+          await trpc.sessions.stop.mutate({ sessionId }, SKIP_ERROR_TOAST)
+        } catch (error) {
+          failedAction(`stop`, `the session`, error)
+        } finally {
+          setStopping(false)
+        }
+      }}
+      aria-label="Stop the session"
+      title="Stop the session"
+      data-testid="session-stop"
+    >
+      <StopIcon className="size-3.5" />
+      Stop
+    </Pill>
+  )
+}

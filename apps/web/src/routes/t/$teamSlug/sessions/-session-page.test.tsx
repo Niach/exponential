@@ -1,12 +1,15 @@
-// EXP-1293: the raw session view's page — back to its thread, the session's
-// name, Stop while live, the feed and the reply box. Lives under a `-` prefix
-// so the route generator ignores it.
+// EXP-1293 / EXP-1316: `/sessions/$id` — a thread's session REDIRECTS into
+// its thread (`?tab=session&session=<id>`, `from` kept); a session under a
+// team AGENT keeps its own screen: back to the agent, the session's name,
+// Stop while live, the feed and the reply box. Lives under a `-` prefix so
+// the route generator ignores it.
 import type { ComponentType, ReactNode } from "react"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   row: { current: null as Record<string, unknown> | null },
+  root: { current: null as Record<string, unknown> | null },
   isReady: { current: true },
   search: { current: {} as Record<string, unknown> },
   stop: vi.fn(),
@@ -32,6 +35,8 @@ vi.mock(`@tanstack/react-router`, () => ({
       data-to={to}
       data-thread={params.threadId}
       data-tab={search?.tab}
+      data-session={search?.session}
+      data-from={search?.from}
     />
   ),
   Link: ({
@@ -54,11 +59,17 @@ vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamUsers: () => ({ users: [] }),
 }))
 vi.mock(`@/hooks/use-session-tree`, () => ({
-  useSessionRow: () => ({ row: mocks.row.current, isReady: mocks.isReady.current }),
+  useSessionRow: (id: string | null) =>
+    id === `s1`
+      ? { row: mocks.root.current, isReady: true }
+      : id
+        ? { row: mocks.row.current, isReady: mocks.isReady.current }
+        : { row: null, isReady: false },
   useTreeSessions: () => ({ rows: [], tree: [], isReady: true }),
   useSessionCard: (row: { title: string | null } | null) =>
     row ? { name: row.title ?? `Session 2`, icon: `coding-running` } : null,
   useSessionThread: () => ({ view: { title: `Reduce cold start below 800 ms` } }),
+  useSessionMessages: () => [],
 }))
 vi.mock(`@/lib/page-title`, () => ({
   pageTitle: (...parts: string[]) => parts.join(` `),
@@ -101,6 +112,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   mocks.row.current = row()
+  mocks.root.current = { id: `s1`, kind: `agent`, name: `Triage`, rootId: `s1`, teamId: `t1` }
   mocks.isReady.current = true
   mocks.search.current = {}
   mocks.stop.mockReset()
@@ -108,11 +120,23 @@ beforeEach(() => {
 })
 
 describe(`the session page`, () => {
-  it(`leads back to its thread, names the session and posts to it`, () => {
+  it(`redirects a thread's session into its thread, keeping from`, () => {
+    mocks.root.current = { id: `s1`, kind: `thread`, rootId: `s1`, teamId: `t1` }
+    mocks.search.current = { from: `inbox` }
+    render(<Page />)
+    const target = screen.getByTestId(`navigate`)
+    expect(target.getAttribute(`data-to`)).toBe(`/t/$teamSlug/threads/$threadId`)
+    expect(target.getAttribute(`data-thread`)).toBe(`s1`)
+    expect(target.getAttribute(`data-tab`)).toBe(`session`)
+    expect(target.getAttribute(`data-session`)).toBe(`s2`)
+    expect(target.getAttribute(`data-from`)).toBe(`inbox`)
+    expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
+  })
+
+  it(`keeps an agent's session on its own screen, back to the agent`, () => {
     render(<Page />)
     const back = screen.getByTestId(`session-back`)
-    expect(back.textContent).toBe(`Reduce cold start below 800 ms`)
-    expect(back.getAttribute(`data-thread`)).toBe(`s1`)
+    expect(back.textContent).toBe(`Triage`)
     expect(screen.getByTestId(`session-title`).textContent).toBe(`Profile the launch path`)
     const composer = screen.getByTestId(`session-composer`)
     expect(composer.getAttribute(`data-session`)).toBe(`s2`)
@@ -122,7 +146,7 @@ describe(`the session page`, () => {
   it(`offers Stop while live and stops through sessions.stop`, () => {
     render(<Page />)
     fireEvent.click(screen.getByTestId(`session-stop`))
-    expect(mocks.stop).toHaveBeenCalledWith({ sessionId: `s2` })
+    expect(mocks.stop.mock.calls[0]?.[0]).toEqual({ sessionId: `s2` })
   })
 
   it(`has no Stop once the session ended`, () => {

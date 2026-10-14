@@ -1,3 +1,4 @@
+import { useRef, type ReactNode } from "react"
 import { Dialog, DialogContent, DialogTitle } from "./dialog"
 import { SESSION_RESULT_TALL_ASPECT } from "./session-results"
 
@@ -41,7 +42,17 @@ interface PreviewMediaProps {
 interface ImagePreviewDialogProps extends PreviewMediaProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** EXP-1283: a side PANEL (the Guide picture viewer's topic, label, text
+   *  and pager): wide = the picture left, a fixed 360px panel right; phones
+   *  = a full-screen page, the picture on top, the panel below. */
+  panel?: ReactNode
+  /** ←/→ (and a phone swipe) step through a set. */
+  onPrev?: () => void
+  onNext?: () => void
 }
+
+/** A horizontal swipe this far (px) steps the set on a phone. */
+const SWIPE_PX = 48
 
 /**
  * The lightbox's BODY on its own — the image / video / audio switch, with no
@@ -117,7 +128,73 @@ export function ImagePreviewDialog({
   kind = `image`,
   poster,
   naturalSize,
+  panel,
+  onPrev,
+  onNext,
 }: ImagePreviewDialogProps) {
+  const swipeFrom = useRef<number | null>(null)
+  if (panel !== undefined) {
+    const tall = isTallPreview(naturalSize)
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          mobile="page"
+          data-testid="image-preview-panel-dialog"
+          className="gap-0 p-0 max-sm:overflow-y-auto sm:h-[min(85vh,52rem)] sm:w-[min(96vw,80rem)] sm:max-w-[min(96vw,80rem)] sm:flex-row"
+          aria-describedby={undefined}
+          onKeyDown={(event) => {
+            if (event.key === `ArrowLeft` && onPrev) {
+              event.preventDefault()
+              onPrev()
+            } else if (event.key === `ArrowRight` && onNext) {
+              event.preventDefault()
+              onNext()
+            }
+          }}
+        >
+          <DialogTitle className="sr-only">{label}</DialogTitle>
+          <div
+            data-testid="image-preview-media"
+            className="flex min-h-0 min-w-0 items-center justify-center bg-black/30 p-4 max-sm:shrink-0 max-sm:pt-[calc(3.5rem+env(safe-area-inset-top))] sm:flex-1"
+            onTouchStart={(event) => {
+              swipeFrom.current = event.touches[0]?.clientX ?? null
+            }}
+            onTouchEnd={(event) => {
+              const from = swipeFrom.current
+              swipeFrom.current = null
+              const to = event.changedTouches[0]?.clientX
+              if (from === null || to === undefined) return
+              if (to - from > SWIPE_PX) onPrev?.()
+              else if (from - to > SWIPE_PX) onNext?.()
+            }}
+          >
+            {tall ? (
+              // A full-page capture: fit to width, scroll it (EXP-1128).
+              <div
+                data-testid="preview-tall-scroll"
+                className="h-full max-h-[60dvh] w-full overflow-y-auto overscroll-contain rounded-md sm:max-h-full"
+              >
+                <img key={src} src={src} alt={alt} className="block h-auto w-full" />
+              </div>
+            ) : (
+              <img
+                key={src}
+                src={src}
+                alt={alt}
+                className="max-h-full max-w-full rounded-md object-contain max-sm:max-h-[60dvh]"
+              />
+            )}
+          </div>
+          <div
+            data-testid="image-preview-side"
+            className="flex min-h-0 flex-col border-glass-stroke max-sm:flex-1 sm:w-[360px] sm:shrink-0 sm:border-l"
+          >
+            {panel}
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent

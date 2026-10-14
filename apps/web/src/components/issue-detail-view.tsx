@@ -91,6 +91,9 @@ interface IssueDetailViewProps {
    *  chrome: no work header bar (Start, pin, PR graph badge, `…`), no phone
    *  header, no Threads row; the phone bar keeps properties + Comment. */
   embedded?: boolean
+  /** Embedded on a phone under a host's overlay header band: the scroller
+   *  pads its top by the band's height. */
+  topInset?: number
 }
 
 // Canonical-issue banner shown on a duplicate's detail view: "Duplicate of
@@ -152,6 +155,7 @@ export function IssueDetailView({
   readOnly = false,
   origin,
   embedded = false,
+  topInset = 0,
 }: IssueDetailViewProps) {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id ?? null
@@ -680,7 +684,7 @@ export function IssueDetailView({
           className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
           /* EXP-1162: the header band floats over this scroller — the
              column starts below it and scrolls under it. */
-          style={{ paddingTop: embedded ? 0 : mobileHeaderSize.height }}
+          style={{ paddingTop: embedded ? topInset : mobileHeaderSize.height }}
         >
           {duplicateBanner}
           {parentLine}

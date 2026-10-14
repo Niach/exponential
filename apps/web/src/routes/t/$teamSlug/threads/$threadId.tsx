@@ -4,6 +4,8 @@ import { createFileRoute, Navigate, redirect, useNavigate } from "@tanstack/reac
 import {
   conceptIcon,
   EmptyState,
+  FLOATING_COMPOSER_CLEARANCE,
+  FloatingComposer,
   IssueChip,
   JumpToBottomButton,
   Menu,
@@ -11,11 +13,15 @@ import {
   menuProps,
   SkeletonRows,
   ThreadConversation,
+  ThreadSessionGroup,
+  ThreadSessionTab,
+  ThreadSessionTree,
   ThreadTabs,
   ThreadTabsAddButton,
   useIsMobile,
   userMessageCaption,
   type MenuSessionProps,
+  type ThreadTreeRow,
 } from "@exp/ui"
 import type { Issue, User } from "@/db/schema"
 import { IssueDetailView } from "@/components/issue-detail-view"
@@ -23,6 +29,7 @@ import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { SessionComposer } from "@/components/session-composer"
 import {
   HEADER_BUTTON_CLASS,
+  MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
 } from "@/components/team/mobile-detail-header"
 import { parseGuideSection, type GuideSectionKey } from "@/components/guide-section-diff"
@@ -35,6 +42,8 @@ import {
 import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
+import { InPlaceSession, SessionScreen, SessionStopPill } from "@/components/thread/session-body"
+import { useMeasuredSize } from "@/hooks/use-detail-chrome"
 import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSession } from "@/hooks/use-session"
 import { useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
@@ -44,9 +53,14 @@ import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import type { Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { cn } from "@/lib/utils"
 import {
+  sessionCard,
+  sessionTabMarkState,
   THREAD_COPY,
   THREADS_LIST_COPY,
+  toTreeSession,
+  treeOrder,
   type MessageRow,
   type PullRequestRow,
   type SessionRow,
@@ -70,13 +84,21 @@ import {
 //                          Start, no pin, no Threads row)
 //   guide[&section=&file=] the root's Guide over its pull request (its stack
 //                          rail; phones: THE bottom Merge capsule)
+//   session&session=<id>   EXP-1316: that session's RAW WORK in place (md+:
+//                          under this header + strip, its Stop pill in the
+//                          header; phones: the session's own screen). The
+//                          strip's session chips = that level
+//                          (`buildSessionThread` focus); hovering them opens
+//                          the whole tree. `/sessions/$id` redirects here.
 //
 // Phones: the strip IS the pager under the header. No right sidebar, no
 // Show work, no captions.
 
 type ThreadSearch = {
-  tab?: `issue` | `guide`
+  tab?: `issue` | `guide` | `session`
   issue?: string
+  /** The session open in place (`tab=session`). */
+  session?: string
   section?: GuideSectionKey
   file?: string
   /** Where it was opened from (`TABLESS_ORIGIN` = a Running row: no tab). */
@@ -96,11 +118,15 @@ export const Route = createFileRoute(`/t/$teamSlug/threads/$threadId`)({
   head: () => ({ meta: [{ title: pageTitle(THREADS_LIST_COPY.title) }] }),
   validateSearch: (search: Record<string, unknown>): ThreadSearch => {
     const pick = (value: unknown) => (typeof value === `string` && value ? value : undefined)
-    const tab = search.tab === `issue` || search.tab === `guide` ? search.tab : undefined
+    const tab =
+      search.tab === `issue` || search.tab === `guide` || search.tab === `session`
+        ? search.tab
+        : undefined
     const section = tab === `guide` ? parseGuideSection(search.section) : undefined
     return {
       ...(tab ? { tab } : {}),
       ...(tab === `issue` && pick(search.issue) ? { issue: pick(search.issue) } : {}),
+      ...(tab === `session` && pick(search.session) ? { session: pick(search.session) } : {}),
       ...(section !== undefined ? { section } : {}),
       ...(section !== undefined && pick(search.file) ? { file: pick(search.file) } : {}),
       ...(pick(search.from) ? { from: pick(search.from) } : {}),
@@ -120,7 +146,11 @@ export const Route = createFileRoute(`/t/$teamSlug/threads/$threadId`)({
 function ThreadPage() {
   const { teamSlug, threadId } = Route.useParams()
   const team = useTeamBySlug(teamSlug)
-  const thread = useSessionThread(threadId)
+  const search = Route.useSearch()
+  const thread = useSessionThread(
+    threadId,
+    search.tab === `session` ? (search.session ?? null) : null
+  )
   usePageTitle(thread.view ? pageTitle(thread.view.title, THREADS_LIST_COPY.title) : undefined)
 
   // A thread opened right after its start may land before its row: wait a
@@ -169,6 +199,7 @@ function ThreadPage() {
       teamSlug={teamSlug}
       view={thread.view}
       root={thread.root}
+      rows={thread.rows}
       pullRequests={thread.pullRequests}
     />
   )
@@ -179,12 +210,15 @@ function ThreadScreen({
   teamSlug,
   view,
   root,
+  rows,
   pullRequests,
 }: {
   team: Team
   teamSlug: string
   view: SessionThreadView
   root: SessionRow
+  /** Every session of the tree (the chips' marks, the tree popover). */
+  rows: SessionRow[]
   pullRequests: PullRequestRow[]
 }) {
   const navigate = useNavigate()
@@ -194,6 +228,9 @@ function ThreadScreen({
   const { users } = useTeamUsers(team.id)
   const boards = useTeamBoards(team.id)
   const { resolve } = useTeamStatusesContext()
+  // EXP-1316: the phone header band floats over the body; bodies pad by it.
+  const [headerRef, headerSize] = useMeasuredSize()
+  const topInset = isMobile ? headerSize.height : 0
 
   const issueTabs = view.tabs.filter(
     (tab): tab is Extract<SessionThreadView[`tabs`][number], { kind: `issue` }> =>
@@ -215,12 +252,16 @@ function ThreadScreen({
   const guideTab = view.tabs.find((tab) => tab.kind === `guide`)
   const guidePr = useMemo(() => threadGuidePullRequest(pullRequests), [pullRequests])
 
+  const rowsById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
+  const focused = view.focusId ? (rowsById.get(view.focusId) ?? null) : null
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
       ? { kind: `issue` as const, issueId: search.issue }
       : search.tab === `guide`
         ? { kind: `guide` as const }
-        : { kind: `conversation` as const }
+        : search.tab === `session` && focused
+          ? { kind: `session` as const, sessionId: focused.id }
+          : { kind: `conversation` as const }
 
   const go = (next: ThreadSearch) =>
     void navigate({
@@ -228,6 +269,14 @@ function ThreadScreen({
       params: { teamSlug, threadId: root.id },
       search: next,
       replace: true,
+    })
+
+  /** A session opens IN PLACE (a pushed history entry: Back returns). */
+  const openSession = (sessionId: string) =>
+    void navigate({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug, threadId: root.id },
+      search: { tab: `session`, session: sessionId },
     })
 
   const menu = useThreadMenu({ rootId: root.id, issueIds, canEdit: permissions.isMember })
@@ -245,7 +294,7 @@ function ThreadScreen({
         aria-selected={active}
         identifier={entry.identifier}
         title={issue.title}
-        size="tab"
+        size={isMobile ? `pager` : `tab`}
         active={active}
         status={{
           icon: status.icon,
@@ -253,11 +302,53 @@ function ThreadScreen({
           colorHex: status.builtinKey ? undefined : status.colorHex,
         }}
         testId={`thread-tab-${entry.identifier}`}
-        className={isMobile ? `max-w-[8rem]` : undefined}
         onClick={() => go({ tab: `issue`, issue: entry.issueId })}
       />,
     ]
   })
+
+  // EXP-1316: the session chips (md+) = the viewed level; hovering the group
+  // opens the WHOLE tree (SessionRow small + TreeGuides).
+  const treeRows = useMemo<ThreadTreeRow[]>(() => {
+    const nowIso = new Date().toISOString()
+    return treeOrder(rows.map(toTreeSession)).map((session, index) => ({
+      sessionId: session.id,
+      parentId: session.parentId,
+      name: sessionCard(session, index + 1, nowIso).name,
+      agent: rowsById.get(session.id)?.cli ?? null,
+      markState: sessionTabMarkState(session),
+    }))
+  }, [rows, rowsById])
+  const sessionChips = view.tabs.flatMap((entry) =>
+    entry.kind === `session`
+      ? [
+          <ThreadSessionTab
+            key={entry.sessionId}
+            agent={rowsById.get(entry.sessionId)?.cli ?? null}
+            markState={entry.markState}
+            name={entry.name}
+            active={tab.kind === `session` && tab.sessionId === entry.sessionId}
+            onSelect={() => go({ tab: `session`, session: entry.sessionId })}
+          />,
+        ]
+      : []
+  )
+  const sessionGroup =
+    !isMobile && sessionChips.length > 0 ? (
+      <ThreadSessionGroup
+        tree={
+          treeRows.length > 1 ? (
+            <ThreadSessionTree
+              rows={treeRows}
+              activeId={tab.kind === `session` ? tab.sessionId : null}
+              onOpen={(sessionId) => go({ tab: `session`, session: sessionId })}
+            />
+          ) : undefined
+        }
+      >
+        {sessionChips}
+      </ThreadSessionGroup>
+    ) : undefined
 
   const tabs = (
     <ThreadTabs
@@ -271,6 +362,7 @@ function ThreadScreen({
       add={
         permissions.isMember ? <ThreadTabsAddButton onClick={menu.openPicker} /> : undefined
       }
+      sessions={sessionGroup}
       guide={{
         label: THREAD_COPY.guide,
         active: tab.kind === `guide`,
@@ -282,7 +374,9 @@ function ThreadScreen({
 
   // ── The bodies ─────────────────────────────────────────────────────────────
   let body: ReactNode
-  if (tab.kind === `issue`) {
+  if (tab.kind === `session` && focused) {
+    body = <InPlaceSession row={focused} />
+  } else if (tab.kind === `issue`) {
     const issue = issuesById.get(tab.issueId)
     const board = issue ? boards.find((row) => row.id === issue.boardId) : undefined
     body =
@@ -297,6 +391,7 @@ function ThreadScreen({
             teamId={team.id}
             readOnly={!permissions.canMutateIssue(issue)}
             embedded
+            topInset={topInset}
           />
         </div>
       ) : (
@@ -307,7 +402,10 @@ function ThreadScreen({
   } else if (tab.kind === `guide`) {
     body = (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          style={topInset ? { paddingTop: topInset } : undefined}
+        >
           <div className="mx-auto w-full max-w-3xl pb-8">
             <ThreadGuide
               root={root}
@@ -335,11 +433,12 @@ function ThreadScreen({
     body = (
       <ConversationBody
         teamId={team.id}
-        teamSlug={teamSlug}
         view={view}
         users={users as User[]}
         canReply={permissions.isMember}
         busy={root.busy}
+        onOpenSession={openSession}
+        topInset={topInset}
       />
     )
   }
@@ -391,11 +490,22 @@ function ThreadScreen({
     },
   }
 
+  if (isMobile && tab.kind === `session` && focused) {
+    // Phones push the session's own screen (its back header leads to the
+    // thread's Conversation).
+    return <SessionScreen key={focused.id} teamSlug={teamSlug} row={focused} />
+  }
+
   if (isMobile) {
     return (
       <MenuGestureHost menus={issueMenus}>
-        <div className="flex h-dvh min-h-0 flex-col" data-testid="thread-page">
+        {/* EXP-1316: THE detail chrome — the header band (blur, scrim, edge
+            fade) floats OVER the body, which scrolls under it; every body's
+            scroller pads its top by the band's measured height. */}
+        <div className={MOBILE_DETAIL_SCREEN_CLASS} data-testid="thread-page">
           <MobileDetailHeader
+            overlay
+            ref={headerRef}
             title={
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{view.title}</span>
@@ -426,6 +536,9 @@ function ThreadScreen({
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">{title}</div>
             <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} placement="header" />
+            {focused && focused.status !== `ended` && tab.kind === `session` && (
+              <SessionStopPill sessionId={focused.id} />
+            )}
             {guideMenu(`shrink-0 text-muted-foreground`)}
           </div>
           <div className="mt-4">{tabs}</div>
@@ -439,21 +552,24 @@ function ThreadScreen({
 
 function ConversationBody({
   teamId,
-  teamSlug,
   view,
   users,
   canReply,
   busy,
+  onOpenSession,
+  topInset = 0,
 }: {
   teamId: string
-  teamSlug: string
   view: SessionThreadView
   users: User[]
   canReply: boolean
   /** The ROOT's busy: Stop stops the root, so a busy child never shows it. */
   busy: boolean
+  /** A session card opens that session in place (EXP-1316). */
+  onOpenSession: (sessionId: string) => void
+  /** Phones: the overlay header band's height (the scroller pads by it). */
+  topInset?: number
 }) {
-  const navigate = useNavigate()
   const messages = useSessionMessages(view.rootId)
   const messagesById = useMemo(
     () => new Map(messages.map((message: MessageRow) => [message.id, message])),
@@ -466,6 +582,19 @@ function ConversationBody({
   // EXP-1316 (1n): the session feed's scroll — opens at the newest row,
   // follows while pinned, THE jump button once scrolled up.
   const follow = useFollowScroll([view.rows])
+  const isMobile = useIsMobile()
+  const composer = canReply ? (
+    <SessionComposer
+      teamId={teamId}
+      sessionId={view.composer.sessionId}
+      placeholder={view.composer.placeholder}
+      users={users}
+      busy={busy}
+      canStop
+      testId="thread-composer"
+      className="mx-auto max-w-3xl"
+    />
+  ) : null
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -475,8 +604,15 @@ function ConversationBody({
         onScroll={follow.onScroll}
         data-testid="thread-scroll"
         className="h-full overflow-y-auto overscroll-contain"
+        style={topInset ? { paddingTop: topInset } : undefined}
       >
-        <div ref={follow.contentRef} className="mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6">
+        <div
+          ref={follow.contentRef}
+          className={cn(
+            `mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6`,
+            isMobile && composer && FLOATING_COMPOSER_CLEARANCE
+          )}
+        >
           <ThreadConversation
             rows={view.rows}
             renderText={renderThreadText}
@@ -489,12 +625,7 @@ function ConversationBody({
               })
               return row.queued ? [caption, `queued`].filter(Boolean).join(` · `) : caption
             }}
-            onOpenSession={(sessionId) =>
-              void navigate({
-                to: `/t/$teamSlug/sessions/$sessionId`,
-                params: { teamSlug, sessionId },
-              })
-            }
+            onOpenSession={onOpenSession}
             onAnswer={canReply ? (id, input) => void answer(id, input) : undefined}
             onDecide={canReply ? (id, input) => void answer(id, input) : undefined}
             pending={pending}
@@ -505,24 +636,21 @@ function ConversationBody({
       </div>
       <JumpToBottomButton
         visible={!follow.atBottom && view.rows.length > 0}
-        className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+        className={cn(
+          `absolute left-1/2 z-10 -translate-x-1/2`,
+          isMobile && composer ? `bottom-[calc(5.5rem+env(safe-area-inset-bottom))]` : `bottom-3`
+        )}
         onClick={follow.jumpToBottom}
       />
       </div>
-      {canReply && (
-        <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">
-          <SessionComposer
-            teamId={teamId}
-            sessionId={view.composer.sessionId}
-            placeholder={view.composer.placeholder}
-            users={users}
-            busy={busy}
-            canStop
-            testId="thread-composer"
-            className="mx-auto max-w-3xl"
-          />
-        </div>
-      )}
+      {/* EXP-1316: phones reply through THE floating composer capsule;
+          md+ keeps the in-flow Composer box. */}
+      {composer &&
+        (isMobile ? (
+          <FloatingComposer placeholder={view.composer.placeholder}>{composer}</FloatingComposer>
+        ) : (
+          <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">{composer}</div>
+        ))}
     </div>
   )
 }

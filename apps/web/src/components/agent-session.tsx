@@ -39,6 +39,7 @@ import {
   WORK_COLUMN_CLASS,
   WORK_GUTTER_CLASS,
   DETAIL_FADE_BOTTOM_CLASS,
+  MOBILE_WORK_BAR_CLEARANCE,
   ExponentialLogo,
   ImagePreviewDialog,
   AttachmentFileLink,
@@ -263,6 +264,7 @@ export function AgentSessionView({
   session,
   header,
   composer,
+  composerFloats = false,
 }: {
   /** The synced `sessions` row (any node of a tree). */
   session: SessionRow
@@ -270,6 +272,9 @@ export function AgentSessionView({
   header?: ReactNode
   /** The reply box under the feed (`SessionComposer`). */
   composer?: ReactNode
+  /** EXP-1316: the phones' `FloatingComposer` — it floats over the feed
+   *  (no in-flow slot), the feed reserves the capsule's clearance. */
+  composerFloats?: boolean
 }) {
   // EXP-621: the connection lives in a module-level per-session store that
   // outlives this view — mounting subscribes to the retained state and dials
@@ -786,6 +791,7 @@ export function AgentSessionView({
                 className={cn(
                   `flex min-h-full flex-col justify-end py-2`,
                   !isMobile && `pb-10`,
+                  composerFloats && MOBILE_WORK_BAR_CLEARANCE,
                   TRANSCRIPT_COLUMN
                 )}
               >
@@ -800,6 +806,7 @@ export function AgentSessionView({
                 className={cn(
                   `flex min-h-full flex-col justify-end py-2`,
                   !isMobile && `pb-10`,
+                  composerFloats && MOBILE_WORK_BAR_CLEARANCE,
                   TRANSCRIPT_COLUMN
                 )}
               >
@@ -863,7 +870,10 @@ export function AgentSessionView({
           {/* EXP-1191: the arrow-only circle ×4, 12px above the composer. */}
           <JumpToBottomButton
             visible={!atBottom && feed.length > 0}
-            className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+            className={cn(
+              `absolute left-1/2 z-10 -translate-x-1/2`,
+              composerFloats ? `bottom-[calc(5.5rem+env(safe-area-inset-bottom))]` : `bottom-3`
+            )}
             onClick={jumpToBottom}
           />
         </div>
@@ -962,7 +972,9 @@ export function AgentSessionView({
         <BackgroundStrip lines={stripLines} taskList={taskList} />
         {/* EXP-1306 (EXP-820 ×4): a card waiting on the viewer takes the
             composer's place; the draft comes back with it. */}
-        {composer && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+        {composer && composerFloats && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
+          composer
+        ) : composer && !composerYieldsToCard({ live, pendingAsk: pendingCard !== null }) ? (
           <div className="py-2">
             <div className={cn(WORK_COLUMN_CLASS, WORK_GUTTER_CLASS)}>
               {composer}
