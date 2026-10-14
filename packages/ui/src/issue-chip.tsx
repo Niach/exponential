@@ -119,7 +119,7 @@ export function IssueChip({
       data-active={tab ? active : undefined}
       box={
         tab
-          ? cn(stripTabClass(active, true), size === `tab` && `max-w-[11rem]`)
+          ? cn(stripTabClass(active, true), `overflow-hidden`, size === `tab` && `max-w-[11rem]`)
           : undefined
       }
       body={body}

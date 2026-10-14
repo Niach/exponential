@@ -311,13 +311,18 @@ function ThreadScreen({
   // group opens the WHOLE tree (SessionRow small + TreeGuides).
   const treeRows = useMemo<ThreadTreeRow[]>(() => {
     const nowIso = new Date().toISOString()
-    return treeOrder(rows.map(toTreeSession)).map((session, index) => ({
-      sessionId: session.id,
-      parentId: session.parentId,
-      name: sessionCard(session, index + 1, nowIso).name,
-      agent: rowsById.get(session.id)?.cli ?? null,
-      markState: sessionTabMarkState(session),
-    }))
+    return treeOrder(rows.map(toTreeSession)).map((session, index) => {
+      const card = sessionCard(session, index + 1, nowIso)
+      return {
+        sessionId: session.id,
+        parentId: session.parentId,
+        name: card.name,
+        agent: rowsById.get(session.id)?.cli ?? null,
+        markState: sessionTabMarkState(session),
+        stateWord: card.kindWord,
+        stateTone: card.tone,
+      }
+    })
   }, [rows, rowsById])
   const sessionChips = view.tabs.flatMap((entry) =>
     entry.kind === `session`
@@ -596,6 +601,7 @@ function ConversationBody({
       users={users}
       busy={busy}
       canStop
+      opaque={isMobile}
       testId="thread-composer"
       className="mx-auto max-w-3xl"
     />

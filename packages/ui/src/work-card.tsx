@@ -315,7 +315,7 @@ export interface SessionCardModel {
   testId: string
 }
 
-const SESSION_CARD_TONE: Record<string, string> = {
+export const SESSION_CARD_TONE: Record<string, string> = {
   amber: `text-amber-400`,
   rose: `text-rose-400`,
   foreground: `text-foreground`,

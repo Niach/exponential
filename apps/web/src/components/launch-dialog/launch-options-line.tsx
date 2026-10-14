@@ -102,7 +102,9 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   return (
     <div className="flex flex-col gap-1 px-1 text-xs text-muted-foreground">
       <div
-        className="flex flex-wrap items-center gap-x-3 gap-y-1"
+        // EXP-1316: phones keep the options on ONE horizontally scrolling
+        // row (iOS/Android); md+ wraps.
+        className="flex flex-wrap items-center gap-x-3 gap-y-1 max-md:flex-nowrap max-md:overflow-x-auto max-md:whitespace-nowrap max-md:[scrollbar-width:none] max-md:[&>*]:shrink-0"
         data-testid="agent-options-row"
       >
         {/* One machine is not a choice: the inline word collapses to

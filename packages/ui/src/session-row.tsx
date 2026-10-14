@@ -54,6 +54,9 @@ export interface SessionRowProps
   active?: boolean
   /** An offline host: the row dims. */
   dimmed?: boolean
+  /** EXP-1316: a trailing word on the title line (the thread tree
+   *  popover's state word). */
+  trailing?: React.ReactNode
   /** The mark badge's ring = the ground the row sits on. */
   ringClassName?: string
   onClick?: () => void
@@ -73,6 +76,7 @@ export function SessionRow({
   deviceName = null,
   active = false,
   dimmed = false,
+  trailing,
   ringClassName = `ring-background`,
   onClick,
   className,
@@ -105,6 +109,7 @@ export function SessionRow({
             </span>
           )}
           <span className="truncate">{title}</span>
+          {trailing}
         </div>
         {big && caption && (
           <div

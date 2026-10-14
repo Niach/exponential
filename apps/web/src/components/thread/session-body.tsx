@@ -42,7 +42,7 @@ const StopIcon = conceptIcon(`coding-stop`)
 const REPLY_PLACEHOLDER = `Reply…`
 
 /** The reply box under a session's feed. */
-function SessionReply({ row }: { row: SessionRow }) {
+function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boolean }) {
   const { users } = useTeamUsers(row.teamId)
   const live = row.status !== `ended`
   return (
@@ -53,6 +53,7 @@ function SessionReply({ row }: { row: SessionRow }) {
       users={users}
       busy={row.busy}
       canStop={live}
+      opaque={opaque}
       testId="session-composer"
     />
   )
@@ -134,7 +135,7 @@ export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: Sessio
       composer={
         isMobile ? (
           <FloatingComposer placeholder={REPLY_PLACEHOLDER}>
-            <SessionReply row={row} />
+            <SessionReply row={row} opaque />
           </FloatingComposer>
         ) : (
           <SessionReply row={row} />

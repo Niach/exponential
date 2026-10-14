@@ -212,7 +212,15 @@ describe(`session chips`, () => {
     const rows = [
       { sessionId: `r`, parentId: null, name: `Session 1`, agent: `claude`, markState: `working` as const },
       { sessionId: `b`, parentId: `r`, name: `B`, agent: `claude`, markState: `ended` as const },
-      { sessionId: `a`, parentId: `r`, name: `A`, agent: `claude`, markState: `needs_you` as const },
+      {
+        sessionId: `a`,
+        parentId: `r`,
+        name: `A`,
+        agent: `claude`,
+        markState: `needs_you` as const,
+        stateWord: `Needs you`,
+        stateTone: `amber`,
+      },
       { sessionId: `a1`, parentId: `a`, name: `A1`, agent: `claude`, markState: `waiting` as const },
     ]
     expect(threadTreeRows(rows).map((entry) => [entry.row.sessionId, entry.depth])).toEqual([
@@ -224,7 +232,9 @@ describe(`session chips`, () => {
     const onOpen = vi.fn()
     render(<ThreadSessionTree rows={rows} activeId="a" onOpen={onOpen} />)
     const items = screen.getAllByTestId(`thread-session-tree-row`)
-    expect(items.map((item) => item.textContent)).toEqual([`Session 1`, `B`, `A`, `A1`])
+    expect(items.map((item) => item.textContent)).toEqual([`Session 1`, `B`, `ANeeds you`, `A1`])
+    const word = items[2]!.querySelector(`[data-slot="thread-session-tree-word"]`)!
+    expect(word.className).toContain(`text-amber-400`)
     expect(items[2]!.className).toContain(`bg-glass-active`)
     expect(items[1]!.className).not.toContain(`bg-glass-active`)
     fireEvent.click(items[3]!)
@@ -265,5 +275,26 @@ describe(`session chips on the pager`, () => {
       chip.compareDocumentPosition(screen.getByTestId(`thread-tab-guide`)) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+})
+
+// EXP-1316: ONE scrolling row — every tab a direct, non-shrinking child.
+describe(`the strip row`, () => {
+  it(`keeps Conversation, the issues, +, sessions and Guide in one scrolling row`, () => {
+    render(
+      <ThreadTabs
+        variant="pager"
+        conversation={{ label: `Conversation`, active: true, onSelect: () => {} }}
+        issues={[<span key="i" data-testid="issue">APP-5</span>]}
+        add={<span data-testid="add">+</span>}
+        sessions={<span data-testid="sessions">S</span>}
+        guide={{ label: `Guide`, active: false, dot: false, onSelect: () => {} }}
+      />
+    )
+    const strip = screen.getByTestId(`thread-tabs`)
+    expect(strip.className).toContain(`overflow-x-auto`)
+    expect(strip.className).toContain(`[&>*]:shrink-0`)
+    const order = [`thread-tab-conversation`, `issue`, `add`, `sessions`, `thread-tab-guide`]
+    expect(order.map((id) => screen.getByTestId(id).parentElement)).toEqual(order.map(() => strip))
   })
 })

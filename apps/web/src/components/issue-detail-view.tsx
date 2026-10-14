@@ -681,7 +681,7 @@ export function IssueDetailView({
             route, so nothing else is reserved here. */}
         <div
           ref={bodyScrollRef}
-          className={cn(`flex-1 overflow-y-auto`, MOBILE_WORK_BAR_CLEARANCE)}
+          className={cn(`flex-1 overflow-y-auto`, !embedded && MOBILE_WORK_BAR_CLEARANCE)}
           /* EXP-1162: the header band floats over this scroller — the
              column starts below it and scrolls under it. */
           style={{ paddingTop: embedded ? topInset : mobileHeaderSize.height }}
@@ -698,6 +698,16 @@ export function IssueDetailView({
           {relationsSection}
           {widgetCard}
           {timeline}
+          {/* EXP-1316: embedded under a thread the scroller lives inside the
+              host's screen; an explicit spacer (the bar's clearance) keeps
+              the last rows clear of the floating Comment bar there too. */}
+          {embedded && (
+            <div
+              aria-hidden
+              data-testid="issue-bar-clearance"
+              className="h-[calc(5.5rem+env(safe-area-inset-bottom))] shrink-0"
+            />
+          )}
         </div>
         {currentUserId && (
           <IssueDetailMobileBar

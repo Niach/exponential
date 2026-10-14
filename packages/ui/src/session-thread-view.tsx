@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from "react"
+import { useLayoutEffect, useRef, type ComponentProps, type ReactNode } from "react"
 import type { SessionTabMarkState, ThreadRow } from "@exp/domain-contract/session-tree"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { ASK_CARD_COPY, AskCard, AskPrompt, type AskOption } from "./ask-card"
@@ -12,7 +12,7 @@ import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
 import { UserMessageBubble } from "./user-message-bubble"
-import { SessionCard } from "./work-card"
+import { SESSION_CARD_TONE, SessionCard } from "./work-card"
 
 // EXP-1293 Threads v2: the THREAD screen's presentational parts ×web (the
 // styleguide paints these same components). The model is the contract's
@@ -71,19 +71,30 @@ export function ThreadTabs({
   className?: string
 }) {
   const pager = variant === `pager`
+  // EXP-1316: ONE horizontally scrolling row; no chip ever shrinks, and the
+  // active one is scrolled into view.
+  const stripRef = useRef<HTMLDivElement | null>(null)
+  const shownRef = useRef<Element | null>(null)
+  useLayoutEffect(() => {
+    // Only when the active tab CHANGES: a reader's own scroll stays put.
+    const active = stripRef.current?.querySelector(`[aria-selected="true"]`) ?? null
+    if (active === shownRef.current) return
+    shownRef.current = active
+    if (active && typeof (active as HTMLElement).scrollIntoView === `function`) {
+      ;(active as HTMLElement).scrollIntoView({ block: `nearest`, inline: `nearest` })
+    }
+  })
   return (
     <div
+      ref={stripRef}
       data-testid="thread-tabs"
       data-variant={variant}
       role="tablist"
       className={cn(
-        `flex min-w-0 items-center gap-1`,
-        // The pager carries the session chips too: the whole strip scrolls.
-        pager && `overflow-x-auto [scrollbar-width:none]`,
+        `flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&>*]:shrink-0`,
         className
       )}
     >
-      <div className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
         <Button
           type="button"
           variant="ghost"
@@ -100,7 +111,6 @@ export function ThreadTabs({
           <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
         )}
         {issues}
-      </div>
       {add}
       {sessions && (
         <>
@@ -188,6 +198,9 @@ export interface ThreadTreeRow {
   name: string
   agent: string | null
   markState: SessionTabMarkState
+  /** The session card's state word (`kindWord`) and its tone. */
+  stateWord?: string
+  stateTone?: string
 }
 
 /** Depth-first (children in the given order) with each row's depth. */
@@ -235,6 +248,19 @@ export function ThreadSessionTree({
           agent={row.agent}
           markState={sessionTabRunMark(row.markState)}
           title={row.name}
+          trailing={
+            row.stateWord ? (
+              <span
+                data-slot="thread-session-tree-word"
+                className={cn(
+                  `shrink-0 text-muted-foreground`,
+                  row.stateTone && SESSION_CARD_TONE[row.stateTone]
+                )}
+              >
+                {row.stateWord}
+              </span>
+            ) : undefined
+          }
           depth={depth}
           guide={guides[index]}
           active={row.sessionId === activeId}
