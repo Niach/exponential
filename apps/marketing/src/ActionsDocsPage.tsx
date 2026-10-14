@@ -216,11 +216,6 @@ export function ActionsDocsPage() {
               </li>
             </ul>
 
-            <DocShot
-              view="trigger-editor"
-              caption="The trigger form: schedule or event, device, account, model, effort"
-            />
-
             <DocsCallout kind="note" title="A triggered session fills in no inputs">
               A trigger can only be switched on while every input of its
               action is optional.
