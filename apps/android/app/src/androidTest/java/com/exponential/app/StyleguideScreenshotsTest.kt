@@ -84,7 +84,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
- *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel
+ *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
+ *   sg_session
  *
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
@@ -99,7 +100,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * real composables over fixture data (the ui/styleguide Captures files) and set as
  * the activity's content — sg_agent-home, sg_chat-issues,
  * sg_composer-menu, sg_threads (the Threads tab), sg_thread, sg_agent-channel
- * (an agent's channel), sg_session-row (the session cards),
+ * (an agent's channel), sg_session-row (the session cards), sg_session
+ * (the raw session view a card opens),
  * the feedback states and the thread cards. It also writes Guide-only
  * extras under NON-catalog names (`x_*`, never imported) through [extra].
  * A scoped run (`shots:`) naming only capture shots skips the live walk.
@@ -151,11 +153,12 @@ class StyleguideScreenshotsTest {
             "sg_threads", "sg_thread", "sg_agent-channel", "sg_session-row",
             "sg_feedback-states", "sg_work-card",
             "sg_script-card", "sg_comment-call-card", "sg_settings-team-agent",
+            "sg_session",
         )
 
         /** Guide-only extras: NOT catalog views (the importer ignores them). */
         private val EXTRA_SHOTS = setOf(
-            "x_session-view", "x_issue-start", "x_agents-list",
+            "x_issue-start", "x_agents-list",
         )
 
         // APP-5 — the only seeded issue with a comment thread.
@@ -860,10 +863,13 @@ class StyleguideScreenshotsTest {
         show(AgentsCaptureKind.AgentPage)
         flow.screenshot("sg_settings-team-agent")
 
-        // --- Guide-only extras (never catalog views): the session view, an
-        // issue with its Start circle and the agents list.
+        // --- sg_session: the raw session view a session card opens (EXP-1308:
+        // the phones' `session` shot, web's DEMO_SESSION_ID content).
         show(SessionCaptureKind.Session)
-        extra("x_session-view")
+        flow.screenshot("sg_session")
+
+        // --- Guide-only extras (never catalog views): an issue with its
+        // Start circle and the agents list.
         show(SessionCaptureKind.IssueStart)
         extra("x_issue-start")
         show(AgentsCaptureKind.AgentsList)

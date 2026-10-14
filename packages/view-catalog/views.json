@@ -4653,6 +4653,14 @@
         "settleMs": 2500
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_session",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_session",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -4660,8 +4668,8 @@
         }
       },
       "notes": {
-        "ios": "Not captured (EXP-1299 integration): the iOS screenshot suite has no walk to this screen yet.",
-        "android": "Not captured (EXP-1299 integration): the Android screenshot suite has no walk to this screen yet.",
+        "ios": "EXP-1308: the `session` specimen (`SessionStyleguideScreen`): the REAL AgentSessionView over a model fed web's content through the live reducer (\"Profile the launch path\", mid-turn).",
+        "android": "EXP-1308: `SessionCaptureKind.Session`: the REAL session view (`SessionViewPreview`) over the same content, a capture-only screen.",
         "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land."
       }
     },
