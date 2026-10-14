@@ -7,6 +7,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import com.exponential.app.ui.components.FloatingBarEdge
+import com.exponential.app.ui.components.HeaderEdgeChrome
+import com.exponential.app.ui.components.detailHazeSource
+import com.exponential.app.ui.work.WorkTopBar
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -226,18 +234,20 @@ fun ThreadScreen(
                 onAdd = { menuFor = ThreadMenuTarget(null) },
                 onIssueMenu = { menuFor = ThreadMenuTarget(it) },
                 onAgentSettings = { onOpenAgentSettings(viewModel.rootId) },
-                composer = { modifier ->
-                    ThreadComposerBox(
+                composer = { expanded, onExpandedChange ->
+                    ThreadReplyBox(
                         value = draft,
                         onValueChange = { draft = it },
                         placeholder = placeholder,
                         pendingImages = images,
                         imageError = imageError,
                         sending = sending,
+                        working = view?.busy == true,
+                        expanded = expanded,
+                        onExpandedChange = onExpandedChange,
                         onAdd = { filePicker.launch(arrayOf("*/*")) },
                         onRemoveImage = viewModel::removeImage,
                         onSend = { viewModel.sendDraft(draft) { draft = "" } },
-                        modifier = modifier,
                     )
                 },
                 issuePage = { issueId, padding ->
@@ -344,9 +354,14 @@ internal fun fixConflictsMessage(number: Int?): String =
     "Rebase ${number?.let { "PR #$it" } ?: "the pull request"} onto its base, resolve the merge conflicts and push."
 
 /**
- * The thread screen's whole layout, stateless: the header, the tab strip
- * (none on an agent channel) and the pager. The issue + Guide pages come in
- * as slots.
+ * The thread screen's whole layout, stateless: the header band and the
+ * pager. EXP-1316: the header IS the detail chrome ([WorkTopBar] in
+ * [HeaderEdgeChrome]): `‹ · title (one line, lock) · …` with the tab strip
+ * inside the band, the pages scrolling UNDER it (the conversation registers
+ * as the blur's source). The reply box floats over the conversation's tail
+ * ([composer] = THE [FloatingComposer], in a [FloatingBarEdge]). An agent
+ * channel wears the same band without a strip. The issue + Guide pages come
+ * in as slots and take the Scaffold padding themselves.
  */
 @Composable
 fun ThreadContent(
@@ -367,7 +382,8 @@ fun ThreadContent(
     onAdd: (() -> Unit)?,
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
     onAgentSettings: (() -> Unit)?,
-    composer: @Composable (Modifier) -> Unit,
+    /** THE floating reply box, folded or expanded. */
+    composer: @Composable (expanded: Boolean, onExpandedChange: (Boolean) -> Unit) -> Unit,
     issuePage: @Composable (issueId: String, padding: PaddingValues) -> Unit,
     guidePage: @Composable (padding: PaddingValues) -> Unit,
     modifier: Modifier = Modifier,
@@ -384,38 +400,47 @@ fun ThreadContent(
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the conversation.
     val selected = pages.firstOrNull { threadTabKey(it) == selectedKey } ?: SessionTree.ThreadTab.Conversation
+    var composerExpanded by rememberSaveable { mutableStateOf(false) }
     Scaffold(
         modifier = modifier,
         containerColor = Color.Transparent,
         topBar = {
-            Column(modifier = Modifier.statusBarsPadding()) {
-                if (agent != null) {
+            if (agent != null) {
+                HeaderEdgeChrome {
                     AgentChannelHeader(
                         name = agent.name,
                         icon = agent.icon,
                         color = agent.color,
                         onBack = onBack,
                         onSettings = onAgentSettings,
+                        modifier = Modifier.statusBarsPadding(),
                     )
-                } else {
-                    ThreadHeader(
-                        title = view?.title.orEmpty(),
-                        private = view?.private == true,
-                        onBack = onBack,
-                        action = guideMenu?.takeIf { selected is SessionTree.ThreadTab.Guide },
-                    )
-                    if (view != null) {
-                        ThreadTabStrip(
-                            tabs = view.tabs,
-                            selectedKey = threadTabKey(selected),
-                            onSelect = { onSelectKey(threadTabKey(it)) },
-                            onAdd = onAdd,
-                            issueStatus = issueStatus,
-                            onIssueMenu = onIssueMenu,
-                            onOpenSession = onOpenSessionTab,
-                        )
-                    }
                 }
+            } else {
+                WorkTopBar(
+                    title = view?.title.orEmpty(),
+                    titleContent = { ThreadTitle(title = view?.title.orEmpty(), private = view?.private == true) },
+                    onBack = { onBack?.invoke() },
+                    verb = null,
+                    verbEnabled = false,
+                    onVerb = {},
+                    menu = guideMenu?.takeIf { selected is SessionTree.ThreadTab.Guide },
+                    tabs = if (view != null) {
+                        {
+                            ThreadTabStrip(
+                                tabs = view.tabs,
+                                selectedKey = threadTabKey(selected),
+                                onSelect = { onSelectKey(threadTabKey(it)) },
+                                onAdd = onAdd,
+                                issueStatus = issueStatus,
+                                onIssueMenu = onIssueMenu,
+                                onOpenSession = onOpenSessionTab,
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                )
             }
         },
     ) { padding ->
@@ -425,6 +450,8 @@ fun ThreadContent(
             }
             return@Scaffold
         }
+        val topInset = padding.calculateTopPadding()
+        val bottomInset = padding.calculateBottomPadding()
         TabPager(
             pages = pages,
             selected = selected,
@@ -433,30 +460,55 @@ fun ThreadContent(
             modifier = Modifier.fillMaxSize(),
         ) { tab ->
             when (tab) {
-                SessionTree.ThreadTab.Conversation -> Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = padding.calculateTopPadding()),
-                ) {
-                    ThreadConversation(
-                        rows = view.rows,
-                        rootId = view.rootId,
-                        meta = meta,
-                        onOpenCard = onOpenCard,
-                        onAnswer = onAnswer,
-                        onDecidePlan = onDecidePlan,
-                        canUnqueue = canUnqueue,
-                        onUnqueue = onUnqueue,
-                        agent = agent,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
-                    )
-                    composer(
-                        Modifier
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                    )
+                SessionTree.ThreadTab.Conversation -> {
+                    var bandHeightPx by remember { mutableIntStateOf(0) }
+                    val bandClearance = with(LocalDensity.current) { bandHeightPx.toDp() } + bottomInset
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // The band sits on the nav bar (its own padding
+                            // below); consuming it keeps imePadding from
+                            // re-adding it (the session view's rule).
+                            .consumeWindowInsets(PaddingValues(bottom = bottomInset))
+                            .imePadding(),
+                    ) {
+                        ThreadConversation(
+                            rows = view.rows,
+                            rootId = view.rootId,
+                            meta = meta,
+                            onOpenCard = onOpenCard,
+                            onAnswer = onAnswer,
+                            onDecidePlan = onDecidePlan,
+                            canUnqueue = canUnqueue,
+                            onUnqueue = onUnqueue,
+                            agent = agent,
+                            modifier = Modifier.fillMaxSize().detailHazeSource(),
+                            contentPadding = PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = topInset + 16.dp,
+                                bottom = bandClearance + 12.dp,
+                            ),
+                            jumpBottomInset = bandClearance,
+                        )
+                        FloatingBarEdge(
+                            bottomInset = bottomInset,
+                            // An expanded composer card is its own surface.
+                            visible = !composerExpanded,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(bottom = bottomInset),
+                        ) {
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
+                            ) {
+                                composer(composerExpanded) { composerExpanded = it }
+                            }
+                        }
+                    }
                 }
                 is SessionTree.ThreadTab.IssueTab -> issuePage(tab.issueId, padding)
                 is SessionTree.ThreadTab.Guide -> guidePage(padding)

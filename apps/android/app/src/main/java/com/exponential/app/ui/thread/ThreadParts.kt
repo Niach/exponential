@@ -60,6 +60,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.unit.Dp
+import com.exponential.app.ui.components.FloatingComposer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
@@ -156,53 +160,28 @@ private val Secondary: Color @Composable get() = MaterialTheme.colorScheme.onSur
 
 // ── Header ──────────────────────────────────────────────────────────────────
 
-/** The thread's header: back, then the title (a lock when private). The
- *  title is derived (EXP-1316): nobody renames a thread. */
+/** The header band's title (EXP-1316): ONE line, the lock after it when
+ *  private. Derived, never renamed, not tappable. */
 @Composable
-fun ThreadHeader(
-    title: String,
-    private: Boolean,
-    onBack: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-    /** The header's trailing action slot (EXP-1302: Open on GitHub on the
-     *  Guide, as iOS draws it). */
-    action: (@Composable () -> Unit)? = null,
-) {
-    Column(modifier = modifier.fillMaxWidth().testTag("thread-header")) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onBack != null) TopBarBackButton(onClick = onBack)
-            Spacer(Modifier.weight(1f))
-            action?.invoke()
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(top = 2.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                title,
-                fontSize = 22.sp,
-                lineHeight = 28.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false).testTag("thread-title"),
+fun ThreadTitle(title: String, private: Boolean, modifier: Modifier = Modifier) {
+    Row(modifier = modifier.testTag("thread-header"), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false).testTag("thread-title"),
+        )
+        if (private) {
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                ExpIcons.uiPrivate,
+                contentDescription = ThreadUiCopy.PRIVATE,
+                tint = Muted,
+                modifier = Modifier.size(14.dp).testTag("thread-private"),
             )
-            if (private) {
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    ExpIcons.uiPrivate,
-                    contentDescription = ThreadUiCopy.PRIVATE,
-                    tint = Muted,
-                    modifier = Modifier.size(16.dp).testTag("thread-private"),
-                )
-            }
         }
     }
 }
@@ -305,7 +284,6 @@ fun AgentChannelHeader(
                 modifier = Modifier.testTag("thread-title"),
             )
         }
-        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
     }
 }
 
@@ -571,6 +549,8 @@ fun ThreadConversation(
     agent: ThreadAgent? = null,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     state: LazyListState = rememberLazyListState(),
+    /** The floating band's height: the jump button sits above it. */
+    jumpBottomInset: Dp = 0.dp,
 ) {
     val shown = remember(rows, agent, rootId) {
         if (agent != null) rows.filterNot { it is SessionTree.ThreadRow.SessionRow && it.id == rootId } else rows
@@ -587,7 +567,9 @@ fun ThreadConversation(
             .distinctUntilChanged()
             .collect { (dragging, nearBottom) -> if (dragging) follow = nearBottom }
     }
-    LaunchedEffect(shown.size, follow) {
+    // The floating band's height lands after the first layout: a follower
+    // re-pins to the true end when it does (the session view's rule).
+    LaunchedEffect(shown.size, follow, jumpBottomInset) {
         if (follow && shown.isNotEmpty()) {
             state.scrollToItem(shown.lastIndex)
             state.scrollBy(1_000_000f)
@@ -652,7 +634,7 @@ fun ThreadConversation(
                     follow = true
                 }
             },
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 8.dp),
         )
         }
     }
@@ -881,62 +863,82 @@ fun ThreadEventLine(text: String) {
 // ── The composer ────────────────────────────────────────────────────────────
 
 /**
- * THE session composer box ([GlassComposer], the one composer shell the
- * Agent page and the session view wear): the pending files, the field, the
- * "+" (attach) and the send glyph.
+ * EXP-1316 (1e): the thread's reply box = THE [FloatingComposer]: folded, the
+ * floating bar's capsule with the placeholder; tapped, THE composer card
+ * ([GlassComposer]: the pending files, the field, the "+" and the send
+ * glyph), folding again on blur / idle with nothing drafted.
  */
 @Composable
-fun ThreadComposerBox(
+fun ThreadReplyBox(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
     pendingImages: List<PendingAttachment>,
     imageError: String?,
     sending: Boolean,
+    working: Boolean,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     onAdd: (() -> Unit)?,
     onRemoveImage: (Int) -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending
-    GlassComposer(
-        opaque = true,
+    FloatingComposer(
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        placeholder = placeholder,
+        hasDraft = value.isNotBlank() || pendingImages.isNotEmpty(),
+        working = working,
+        capsuleTestTag = "thread-composer-capsule",
         modifier = modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
-        strip = {
-            PendingAttachmentStrip(items = pendingImages, enabled = !sending, onRemove = onRemoveImage)
-            FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
-        },
-        tools = {
-            if (onAdd != null) {
-                ComposerToolButton(
-                    ExpIcons.uiAdd,
-                    contentDescription = ThreadUiCopy.ADD,
-                    onClick = onAdd,
-                    enabled = !sending,
-                    modifier = Modifier.testTag("thread-composer-add"),
-                )
-            }
-        },
-        submit = {
-            ComposerSubmitButton(
-                ExpIcons.uiSubmit,
-                contentDescription = ThreadUiCopy.SEND,
-                onClick = onSend,
-                enabled = canSend,
-                sending = sending,
-                modifier = Modifier.testTag("thread-composer-send"),
-            )
-        },
     ) {
-        GlassTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.fillMaxWidth().testTag("thread-composer-field"),
-            placeholder = placeholder,
-            minLines = 2,
-            maxLines = 8,
-            bordered = false,
-            containerColor = Color.Transparent,
-        )
+        val canSend = (value.isNotBlank() || pendingImages.isNotEmpty()) && !sending
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
+        GlassComposer(
+            opaque = true,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            strip = {
+                PendingAttachmentStrip(items = pendingImages, enabled = !sending, onRemove = onRemoveImage)
+                FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
+            },
+            tools = {
+                if (onAdd != null) {
+                    ComposerToolButton(
+                        ExpIcons.uiAdd,
+                        contentDescription = ThreadUiCopy.ADD,
+                        onClick = onAdd,
+                        enabled = !sending,
+                        modifier = Modifier.testTag("thread-composer-add"),
+                    )
+                }
+            },
+            submit = {
+                ComposerSubmitButton(
+                    ExpIcons.uiSubmit,
+                    contentDescription = ThreadUiCopy.SEND,
+                    onClick = onSend,
+                    enabled = canSend,
+                    sending = sending,
+                    modifier = Modifier.testTag("thread-composer-send"),
+                )
+            },
+        ) {
+            GlassTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .then(fieldModifier)
+                    .testTag("thread-composer-field"),
+                placeholder = placeholder,
+                minLines = 2,
+                maxLines = 8,
+                bordered = false,
+                containerColor = Color.Transparent,
+            )
+        }
     }
 }

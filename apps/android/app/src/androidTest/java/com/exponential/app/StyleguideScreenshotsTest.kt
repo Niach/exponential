@@ -98,8 +98,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * EXP-1309: every Threads v2 surface WITH a seed counterpart is walked live,
  * so it reads the same seed web, desktop and iOS photograph and cannot drift:
- * sg_agent-home (the landing, the bottom bar over it), sg_session-row (the
- * same home gated on THE row in its Running band, EXP-1311), sg_composer-menu +
+ * sg_agent-home (the landing, the bottom bar over it), sg_session-row (THE
+ * row on the Threads tab, EXP-1311/1316: the home has no Running band), sg_composer-menu +
  * sg_chat-issues (the home composer's "+" and Implement issue), sg_threads
  * (the Threads tab), sg_agent-channel (Triage), sg_thread (the cold-start
  * thread), sg_session ("Profile the launch path", its pending question in
@@ -319,23 +319,23 @@ class StyleguideScreenshotsTest {
         }
 
         // --- sg_agent-home: the Agent page the app lands on (EXP-1253/1306)
-        // under the bottom bar: the dawn, the composer + the demo device's
-        // options line, the Running band of my live threads. Gated on the
-        // seed's private running root (the band synced) and on the device
-        // pool having resolved (the options pills are its).
+        // under the bottom bar: the dawn standing on the composer card + the
+        // demo device's options line, pinned to the bottom (EXP-1316: no
+        // Running band). Gated on the device pool having resolved (the
+        // options pills are its).
         flow.waitFor(hasTestTag(AgentHome.HOME_TEST_ID), FIRST_SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag("agent-home-running"), FIRST_SYNC_TIMEOUT)
-        flow.waitFor(hasText(PRIVATE_THREAD_TITLE), SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
         flow.waitForGone(hasText("No desktop online", substring = true), NETWORK_TIMEOUT)
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agent-home")
 
-        // --- sg_session-row: THE session row (EXP-1248/1311), like iOS: the
-        // same home gated on its Running band's seeded rows (the cold-start
-        // thread waiting on me, the private spike, the busy ones), the row's
-        // one phone instance (web/desktop photograph a styleguide island).
+        // --- sg_session-row: THE session row (EXP-1248/1311). EXP-1316: the
+        // home lost its Running band, so the row's phone instance is the
+        // Threads tab's, gated on the seeded cold-start thread waiting on me
+        // (web/desktop photograph a styleguide island).
+        composeRule.onNode(hasTestTag("tab-threads")).performClick()
+        flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
         flow.waitFor(
             hasTestTag(SessionTree.ListCopy.TEST_ID_ROW) and
                 hasText(COLD_START_THREAD_TITLE, substring = true),

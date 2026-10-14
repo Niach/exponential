@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -173,12 +175,7 @@ fun AgentScreen(
     onLandInThread: (threadId: String) -> Unit = onOpenThread,
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
-    threadsViewModel: ThreadsViewModel = hiltViewModel(),
 ) {
-    // composer-home.json: phones keep their Running list (live OWN threads)
-    // under the column on the TAB mount; never Recent.
-    val runningThreads by threadsViewModel.running.collectAsStateWithLifecycle()
-    val runningMeta by threadsViewModel.rowMeta.collectAsStateWithLifecycle()
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
@@ -504,7 +501,25 @@ fun AgentScreen(
     var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
 
-    AgentPageFrame(onBack = onBack, dawn = promptSubject == AgentComposerPrompt.Subject.None) {
+    AgentPageFrame(
+        onBack = onBack,
+        dawn = promptSubject == AgentComposerPrompt.Subject.None,
+        // EXP-1316 (1f): a board-less team's Getting started block sits
+        // ABOVE the dawn (the column stands on the bottom).
+        lead = {
+            if (steerEnabled == true && teamHasBoard == false) {
+                item(key = "__home_getting_started__") {
+                    GettingStartedSection(
+                        onOpenAgent = {
+                            runCatching { composerFocus.requestFocus() }
+                            keyboard?.show()
+                        },
+                        modifier = Modifier.padding(bottom = (AgentHome.COMPOSER_TO_GETTING_STARTED - 6).dp),
+                    )
+                }
+            }
+        },
+    ) {
             when (steerEnabled) {
                 // Web parity: without the relay nothing here can be started.
                 false -> item(key = "__relay_off__") {
@@ -699,24 +714,9 @@ fun AgentScreen(
                             // starting row; a refused or lost start a toast.
                         }
                     }
-                    // EXP-1270: a board-less team's Getting started block
-                    // follows the composer; nothing else renders beneath
-                    // the options line.
-                    if (teamHasBoard == false) {
-                        item(key = "__home_getting_started__") {
-                            GettingStartedSection(
-                                onOpenAgent = {
-                                    runCatching { composerFocus.requestFocus() }
-                                    keyboard?.show()
-                                },
-                                modifier = Modifier.padding(top = (AgentHome.COMPOSER_TO_GETTING_STARTED - 6).dp),
-                            )
-                        }
-                    }
                 }
                 null -> Unit
             }
-            if (onBack == null) homeRunningBand(runningThreads, runningMeta, onOpenThread)
     }
 
     if (plusMenuOpen) {
@@ -816,8 +816,11 @@ fun AgentScreen(
  * The Agent page's frame: the transparent "Agent" top bar over the page's one
  * column ([content]) from the top down. EXP-1306 (the approved phone home =
  * iOS `AgentPageView`): [dawn] leads the column — the restored DAWN
- * (FEED-100), the big Exponential mark's upper half, dim, fully BELOW the
- * title — then the composer card + options line, then the Running band.
+ * (FEED-100), the big Exponential mark's upper half, dim — then the composer
+ * card + options line. EXP-1316 (1f, composer-home.json `phone.composer:
+ * bottom`): the column stands on the BOTTOM (above the floating tab bar,
+ * lifted by the keyboard), the dawn on the card; no Running list. [lead]
+ * (Getting started) sits above the dawn.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -826,6 +829,7 @@ internal fun AgentPageFrame(
     /** The dawn heads the column; false while a picked subject's headline
      *  does (iOS parity). */
     dawn: Boolean = true,
+    lead: LazyListScope.() -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize().testTag(AgentHome.HOME_TEST_ID)) {
@@ -842,6 +846,8 @@ internal fun AgentPageFrame(
             LazyColumn(
                 modifier = Modifier
                     .padding(padding)
+                    .consumeWindowInsets(padding)
+                    .imePadding()
                     .fillMaxSize()
                     .testTag("agent-page"),
                 // As a tab the floating bar overlays the page: the last row
@@ -852,39 +858,15 @@ internal fun AgentPageFrame(
                     top = DAWN_TOP.dp,
                     bottom = if (onBack == null) BottomBarInset else 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(COLUMN_SPACING.dp),
+                verticalArrangement = Arrangement.spacedBy(COLUMN_SPACING.dp, Alignment.Bottom),
             ) {
+                lead()
                 if (dawn) {
                     item(key = "__dawn__") {
                         AgentHomeDawn()
                     }
                 }
                 content()
-            }
-        }
-    }
-}
-
-/**
- * composer-home.json: the phone home's Running band under the column — my
- * live OWN threads (needs you first) as THE thread rows (mark, identifier,
- * title, lock / spinner / amber dot); nothing while nothing runs.
- */
-internal fun LazyListScope.homeRunningBand(
-    rows: List<SessionTree.ThreadsListRow>,
-    meta: Map<String, ThreadRowMeta>,
-    onOpenThread: (threadId: String) -> Unit,
-) {
-    if (rows.isEmpty()) return
-    item(key = "__home_running__") {
-        Column(modifier = Modifier.padding(top = 18.dp).testTag("agent-home-running")) {
-            SectionHeader(SessionTree.ListCopy.GROUPS.getValue(SessionTree.ThreadsGroupKey.Running))
-            rows.forEach { row ->
-                ThreadListRow(
-                    row = row,
-                    meta = meta[row.sessionId],
-                    onClick = { onOpenThread(row.sessionId) },
-                )
             }
         }
     }
