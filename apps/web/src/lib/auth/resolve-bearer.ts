@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { APIError } from "better-auth/api"
 import { auth } from "@/lib/auth"
 import { db } from "@/db/connection"
 import {
@@ -140,12 +141,27 @@ async function resolveCredentialCore(
 // 401 stops retrying and enters its unauthorized backoff (EXP-264).
 export class SessionResolveError extends Error {}
 
+// EXP-1313: the apiKey plugin REJECTS a credential by throwing (an
+// `APIError` 401/403/404: `INVALID_API_KEY`, `KEY_NOT_FOUND`, a disabled or
+// expired key) rather than resolving to null the way a dead session token
+// does. That is a bad credential, not a lookup failure: it answers like any
+// other unauthenticated request (401, no existence oracle) instead of a
+// logged 500 with the plugin's stack. Anything else thrown (a 5xx APIError,
+// a DB error) stays a SessionResolveError.
+function isRejectedCredential(err: unknown): boolean {
+  return (
+    err instanceof APIError &&
+    (err.statusCode === 401 || err.statusCode === 403 || err.statusCode === 404)
+  )
+}
+
 async function getSessionBearerOnly(request: Request): Promise<Session> {
   let session: Session
   const failuresBefore = authDbFailureCount()
   try {
     session = await auth.api.getSession({ headers: bearerOnlyHeaders(request) })
   } catch (err) {
+    if (isRejectedCredential(err)) return null
     throw new SessionResolveError(`Session lookup failed`, { cause: err })
   }
   if (session?.user) return session
