@@ -132,6 +132,13 @@ export function specimenState(
   return { ready: /exponential-ui: surface=\S* phase=cold\b/.test(logcat) }
 }
 
+/** A popup window has focus while `appId`'s activity is the focused app. */
+function ownPopupFocused(appId: string, dumpsys: string): boolean {
+  const popup = /mCurrentFocus=Window\{\S+ \S+ Pop-Up Window\}/.test(dumpsys)
+  const app = /mFocusedApp=ActivityRecord\{\S+ \S+ ([^\s/{}]+)\//.exec(dumpsys)?.[1]
+  return popup && app === appId
+}
+
 export interface OnScreenProbe {
   /** `adb shell pidof <appId>` stdout (empty = not running). */
   pidof: string
@@ -147,6 +154,11 @@ export interface OnScreenProbe {
 export function appOnScreen(appId: string, probe: OnScreenProbe): { ok: true } | { ok: false; reason: string } {
   if (probe.pidof.trim() === ``) return { ok: false, reason: `${appId} is not running (crashed on start?)` }
   const focused = focusedPackage(probe.dumpsys)
+  // EXP-1308: the app's OWN popup (a popover specimen) holds window focus as
+  // an untitled `Pop-Up Window` while the app's activity stays the focused
+  // app; that frame is the app's. A crash dialog never names the app as
+  // mFocusedApp's activity, so it still fails.
+  if (focused === undefined && ownPopupFocused(appId, probe.dumpsys)) return { ok: true }
   if (focused !== appId) {
     return { ok: false, reason: `${appId} is not in the foreground (focused: ${focused ?? `none`})` }
   }
