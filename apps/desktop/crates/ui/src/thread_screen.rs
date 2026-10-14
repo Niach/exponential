@@ -88,6 +88,11 @@ const CONVERSATION_W: f32 = 760.;
 const HEADER_INSET: f32 = 44.;
 /// One strip chip's height.
 const STRIP_CHIP_H: f32 = 28.;
+/// An issue chip's floor while the strip shrinks it (glyph + identifier +
+/// a few title letters and the ellipsis).
+const ISSUE_CHIP_MIN_W: f32 = 112.;
+/// An issue chip title's ONE max width (then the ellipsis).
+const ISSUE_CHIP_TITLE_MAX_W: f32 = 140.;
 /// The issue chip's lead (a live root's mark) and its state badge.
 const CHIP_MARK_PX: f32 = 12.;
 const CHIP_BADGE_PX: f32 = 5.;
@@ -504,7 +509,9 @@ pub(crate) fn strip_issue_body(
             .child(SharedString::from(identifier.to_string()))
             .into_any_element(),
         div()
-            .max_w(px(140.))
+            .flex_shrink(1.)
+            .min_w_0()
+            .max_w(px(ISSUE_CHIP_TITLE_MAX_W))
             .truncate()
             .text_color(if active { theme.foreground } else { theme.muted_foreground })
             .child(SharedString::from(title.to_string()))
@@ -1916,11 +1923,17 @@ impl ThreadScreenView {
         // The Guide (after the divider) never scrolls out of reach.
         let mut trailing: Vec<AnyElement> = Vec::new();
         let mut sessions: Vec<AnyElement> = Vec::new();
+        // EXP-1316: Conversation leads; the issue chips shrink (each title
+        // ellipsized at one max width) and scroll past their minimum; the
+        // `+` sits right after them OUTSIDE that scroller, so it is never
+        // scrolled or clipped away.
+        let mut lead: Vec<AnyElement> = Vec::new();
+        let mut add: Option<AnyElement> = None;
         for tab in &model.view.tabs {
             match tab {
                 ThreadTab::Conversation => {
                     let active = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
-                    chips.push(
+                    lead.push(
                         strip_chip("thread-child-conversation", active, cx)
                             .child(Icon::new(registry::ACTION_CHAT).xsmall())
                             .child(SharedString::from(THREAD.copy.conversation.clone()))
@@ -1945,6 +1958,8 @@ impl ThreadScreenView {
                     let target = self.menu_target(Some((issue_id.clone(), identifier.clone())));
                     let open = issue_id.clone();
                     let chip = strip_chip(SharedString::from(format!("thread-child-{issue_id}")), active, cx)
+                        .flex_shrink(1.)
+                        .min_w(px(ISSUE_CHIP_MIN_W))
                         .children(strip_issue_body(status, identifier, &title, active, cx))
                         .when(ringed, |chip| chip.border_color(cx.theme().ring))
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -1953,7 +1968,9 @@ impl ThreadScreenView {
                         .pointer_context_menu(move |menu, window, cx| thread_menu(menu, &target, window, cx));
                     chips.push(if ringed {
                         div()
-                            .flex_shrink_0()
+                            .flex()
+                            .flex_shrink(1.)
+                            .min_w(px(ISSUE_CHIP_MIN_W))
                             .child(chip)
                             .with_animation(
                                 SharedString::from(format!("thread-child-enter-{link_id}")),
@@ -1969,11 +1986,15 @@ impl ThreadScreenView {
                     let target = self.menu_target(None);
                     let trigger =
                         crate::controls::ghost_icon_button("thread-child-add", Icon::new(registry::UI_ADD), cx);
-                    chips.push(
-                        crate::controls::PointerMenu::new("thread-child-add-menu", trigger, move |menu, window, cx| {
-                            thread_menu(menu, &target, window, cx)
-                        })
-                        .into_any_element(),
+                    add = Some(
+                        div()
+                            .flex_shrink_0()
+                            .child(crate::controls::PointerMenu::new(
+                                "thread-child-add-menu",
+                                trigger,
+                                move |menu, window, cx| thread_menu(menu, &target, window, cx),
+                            ))
+                            .into_any_element(),
                     );
                     trailing.push(strip_divider(cx));
                 }
@@ -2035,6 +2056,7 @@ impl ThreadScreenView {
             .min_w_0()
             .gap_1()
             .items_center()
+            .children(lead)
             .child(
                 h_flex()
                     .id("thread-strip")
@@ -2045,6 +2067,7 @@ impl ThreadScreenView {
                     .overflow_x_scroll()
                     .children(chips),
             )
+            .children(add)
             .children(trailing)
             .into_any_element()
     }
