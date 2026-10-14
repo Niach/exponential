@@ -121,7 +121,8 @@ import com.exponential.app.ui.theme.glassCard
 internal object ThreadUiCopy {
     const val LINK_ISSUE = "Link an issue"
     const val NEW_ISSUE = "New issue"
-    const val QUEUED = "Queued"
+    /** The contract word, lowercase (`Name · time · queued`). */
+    const val QUEUED = "queued"
     /** EXP-1317 ×4: the queued bubble's ✕. */
     const val REMOVE_FROM_QUEUE = "Remove from queue"
     const val APPROVE = "Approve"
@@ -646,7 +647,8 @@ fun ThreadConversation(
 }
 
 /** A person's message: the right-aligned bubble, `name · HH:mm` under it;
- *  while the device has not taken it: `Queued` + the revoke ✕ (mine only). */
+ *  while the device has not taken it: `· queued` + the revoke ✕ (mine only)
+ *  at the END of that caption line. */
 @Composable
 fun ThreadMessageBubble(
     text: String,
@@ -674,7 +676,13 @@ fun ThreadMessageBubble(
             modifier = Modifier.padding(top = 4.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // EXP-1317 ×4: ONE caption line `Name · time · queued`, the
+            // `Remove from queue` X at its END.
+            if (!caption.isNullOrEmpty()) {
+                Text(caption, style = MaterialTheme.typography.labelSmall, color = Muted, maxLines = 1)
+            }
             if (queued) {
+                if (!caption.isNullOrEmpty()) Text(" · ", style = MaterialTheme.typography.labelSmall, color = Muted)
                 Text(
                     ThreadUiCopy.QUEUED,
                     style = MaterialTheme.typography.labelSmall,
@@ -684,10 +692,6 @@ fun ThreadMessageBubble(
                 if (onUnqueue != null) {
                     UnqueueButton(onUnqueue)
                 }
-                if (!caption.isNullOrEmpty()) Text(" · ", style = MaterialTheme.typography.labelSmall, color = Muted)
-            }
-            if (!caption.isNullOrEmpty()) {
-                Text(caption, style = MaterialTheme.typography.labelSmall, color = Muted, maxLines = 1)
             }
         }
     }
