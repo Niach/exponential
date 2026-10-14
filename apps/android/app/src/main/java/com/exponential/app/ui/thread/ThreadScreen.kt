@@ -58,8 +58,6 @@ import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
-import com.exponential.app.ui.components.GlassSubmitButton
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SkeletonRows
@@ -67,10 +65,7 @@ import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
-import com.exponential.app.ui.issue.CommentThreadViewModel
-import com.exponential.app.ui.issue.IssueDetailViewModel
-import com.exponential.app.ui.issue.IssueFace
-import com.exponential.app.ui.issue.rememberIssueFaceController
+import com.exponential.app.ui.issue.IssueScreen
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.markdown.IssueRefHandler
 import com.exponential.app.ui.markdown.IssueSearchSheet
@@ -98,12 +93,13 @@ import kotlinx.coroutines.launch
  * EXP-1296 Threads v2 (Model v3): THE conversation screen for a thread root
  * OR an agent root (`thread/{sessionId}`), `session-thread.json`.
  *
- * A thread: the title (long-press renames), then ONE tab strip = the phone
- * pager — Conversation · one chip per linked issue · "+" (link / file an
- * issue) · Guide. Conversation = the root's rows (THE session card per
- * session, the person's bubbles, the agent's prose, question / plan cards
- * answered in place, subagent / picture / event rows) over THE composer box;
- * an issue page = that issue's own Issue face; Guide = the root's Guide with
+ * A thread: the title (EXP-1316: derived, never renamed), then ONE tab strip
+ * = the phone pager — Conversation · one chip per linked issue · "+" (link /
+ * file an issue) · the session chips (a tap pushes that session's view) ·
+ * Guide. Conversation = the root's rows (THE session card per session, the
+ * person's bubbles, the agent's prose, THE session view's question / plan
+ * card answered in place, subagent / picture / event rows) over THE composer
+ * box; an issue page = that issue's [IssueScreen] embedded; Guide = the root's Guide with
  * the Merge capsule of its PR. An AGENT channel is the same screen with the
  * agent's icon + name (settings affordance) and the conversation only, its
  * messages as comment rows. Stop / End live in the session view.
@@ -146,7 +142,6 @@ fun ThreadScreen(
     var draft by rememberSaveable { mutableStateOf("") }
     var menuFor by remember { mutableStateOf<ThreadMenuTarget?>(null) }
     var linkPickerOpen by remember { mutableStateOf(false) }
-    var renameOpen by remember { mutableStateOf(false) }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
 
     // The composer's "+": the system document picker (any type), one pick at
@@ -222,12 +217,12 @@ fun ThreadScreen(
                     // thread; every other card opens its raw session view.
                     if (viewModel.isOtherRoot(card.sessionId)) onOpenThread(card.sessionId) else onOpenSession(card.sessionId)
                 },
-                onAnswer = viewModel::answer,
-                onDecidePlan = { id, approved -> viewModel.decidePlan(id, approved) },
+                onAnswer = { id, answer, settled -> viewModel.answer(id, answer, settled) },
+                onDecidePlan = { id, approved, feedback, settled -> viewModel.decidePlan(id, approved, feedback, settled) },
+                onOpenSessionTab = { tab -> onOpenSession(tab.sessionId) },
                 canUnqueue = { row -> row.authorId != null && row.authorId == me },
                 onUnqueue = viewModel::unqueue,
                 onBack = onBack,
-                onRename = { renameOpen = true },
                 onAdd = { menuFor = ThreadMenuTarget(null) },
                 onIssueMenu = { menuFor = ThreadMenuTarget(it) },
                 onAgentSettings = { onOpenAgentSettings(viewModel.rootId) },
@@ -254,6 +249,7 @@ fun ThreadScreen(
                             if (statusById.containsKey(id)) selectedKey = "issue:$id" else onOpenIssue(id)
                         },
                         onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
+                        onMessage = { text -> viewModel.send(text) },
                     )
                 },
                 guidePage = { padding ->
@@ -335,17 +331,6 @@ fun ThreadScreen(
             defaultAction = 0,
         )
     }
-    if (renameOpen) {
-        ThreadRenameSheet(
-            initial = if (view?.titleDerived == false) view?.title.orEmpty() else "",
-            placeholder = view?.title.orEmpty(),
-            onSave = { title ->
-                renameOpen = false
-                viewModel.setTitle(title.trim().ifEmpty { null })
-            },
-            onDismiss = { renameOpen = false },
-        )
-    }
 }
 
 /** A wire timestamp as the local `HH:mm` a message row shows. */
@@ -372,12 +357,13 @@ fun ThreadContent(
     issueStatus: (String) -> ResolvedIssueStatus?,
     meta: (SessionTree.ThreadRow.MessageRow) -> ThreadRowMeta?,
     onOpenCard: (SessionTree.SessionCard) -> Unit,
-    onAnswer: (messageId: String, answer: String) -> Unit,
-    onDecidePlan: (messageId: String, approved: Boolean) -> Unit,
+    onAnswer: ThreadAnswer,
+    onDecidePlan: ThreadPlanDecision,
     canUnqueue: (SessionTree.ThreadRow.MessageRow) -> Boolean,
     onUnqueue: (messageId: String) -> Unit,
     onBack: (() -> Unit)?,
-    onRename: (() -> Unit)?,
+    /** A session chip of the strip (phones push that session's view). */
+    onOpenSessionTab: (SessionTree.ThreadTab.SessionTab) -> Unit,
     onAdd: (() -> Unit)?,
     onIssueMenu: ((SessionTree.ThreadTab.IssueTab) -> Unit)?,
     onAgentSettings: (() -> Unit)?,
@@ -393,7 +379,7 @@ fun ThreadContent(
     val pages = if (agent != null || view == null) {
         listOf<SessionTree.ThreadTab>(SessionTree.ThreadTab.Conversation)
     } else {
-        view.tabs.filter { it != SessionTree.ThreadTab.Add }
+        view.tabs.filter { it != SessionTree.ThreadTab.Add && it !is SessionTree.ThreadTab.SessionTab }
     }
     // A tab that left the strip (an issue unlinked elsewhere) falls back to
     // the conversation.
@@ -416,7 +402,6 @@ fun ThreadContent(
                         title = view?.title.orEmpty(),
                         private = view?.private == true,
                         onBack = onBack,
-                        onRename = onRename,
                         action = guideMenu?.takeIf { selected is SessionTree.ThreadTab.Guide },
                     )
                     if (view != null) {
@@ -427,6 +412,7 @@ fun ThreadContent(
                             onAdd = onAdd,
                             issueStatus = issueStatus,
                             onIssueMenu = onIssueMenu,
+                            onOpenSession = onOpenSessionTab,
                         )
                     }
                 }
@@ -474,7 +460,7 @@ fun ThreadContent(
                 }
                 is SessionTree.ThreadTab.IssueTab -> issuePage(tab.issueId, padding)
                 is SessionTree.ThreadTab.Guide -> guidePage(padding)
-                SessionTree.ThreadTab.Add -> Unit
+                SessionTree.ThreadTab.Add, is SessionTree.ThreadTab.SessionTab -> Unit
             }
         }
     }
@@ -532,34 +518,11 @@ private fun ThreadMenuSheet(
     }
 }
 
-@Composable
-private fun ThreadRenameSheet(
-    initial: String,
-    placeholder: String,
-    onSave: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var value by remember { mutableStateOf(initial) }
-    GlassSheet(title = ThreadUiCopy.RENAME, onDismiss = onDismiss) {
-        GlassTextField(
-            value = value,
-            onValueChange = { value = it.take(SessionTree.ThreadCopy.TITLE_MAX) },
-            placeholder = placeholder,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("thread-rename-field"),
-        )
-        GlassSubmitButton(
-            label = ThreadUiCopy.SAVE,
-            onClick = { onSave(value) },
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        )
-    }
-}
-
 // ── Issue page ──────────────────────────────────────────────────────────────
 
-/** An issue tab = that issue's own Issue face, embedded (no Start circle:
- *  starts live in the composer). */
+/** An issue tab = that issue's [IssueScreen] embedded (EXP-1316): no own
+ *  top bar, no `Threads` row, no Start; a merge refused by a conflict asks
+ *  the thread's root to fix it ([onMessage]). */
 @Composable
 private fun ThreadIssuePage(
     issueId: String,
@@ -567,21 +530,16 @@ private fun ThreadIssuePage(
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
     onOpenThread: (String) -> Unit,
+    onMessage: (String) -> Unit,
 ) {
-    val issueVm = hiltViewModel<IssueDetailViewModel, IssueDetailViewModel.Factory>(key = "issue:$issueId") {
-        it.create(issueId)
-    }
-    val commentVm: CommentThreadViewModel = hiltViewModel(key = "comments:$issueId")
-    val controller = rememberIssueFaceController()
-    IssueFace(
-        viewModel = issueVm,
-        commentViewModel = commentVm,
-        controller = controller,
-        padding = padding,
+    IssueScreen(
+        issueId = issueId,
         onBack = onBack,
         onOpenIssue = onOpenIssue,
-        trailingBarSlot = { Spacer(Modifier.size(0.dp)) },
+        onOpenAgent = { seed -> seed.text?.takeIf { it.isNotBlank() }?.let(onMessage) },
         onOpenThread = onOpenThread,
+        embedded = true,
+        padding = padding,
     )
 }
 

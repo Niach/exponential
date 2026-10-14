@@ -614,7 +614,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                             treeRoot,
                             linked,
                             messages.filter { it.sessionId == root.id }.map(SessionTree::message),
-                        ).title,
+                        ),
                         live = tree.any { !it.isEnded },
                         busy = tree.any { !it.isEnded && it.busy },
                     )

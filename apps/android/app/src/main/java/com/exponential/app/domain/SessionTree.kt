@@ -125,6 +125,10 @@ object SessionTree {
             "session_ended" to "Session ended",
         )
         const val TITLE_MAX = 80
+        /** EXP-1316 `titles`. */
+        const val TITLE_ACTION = "Run {action}"
+        const val TITLE_ISSUE = "Implement {issue}"
+        const val TITLE_ISSUES = "Implement {issue} + {more}"
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"
         const val TEST_ID_COMPOSER = "thread-composer"
@@ -150,6 +154,8 @@ object SessionTree {
         const val TEST_ID_LIST = "threads-list"
         const val TEST_ID_ROW = "threads-row"
         const val TEST_ID_AGENT_ROW = "agents-row"
+        /** EXP-1318: the rail band (web + IDE). */
+        const val RAIL = "Active"
     }
 
     // ── session state + card ────────────────────────────────────────────────
@@ -260,27 +266,43 @@ object SessionTree {
         return if (line.length > max) "${line.substring(0, max - 1).trimEnd()}…" else line
     }
 
-    data class Title(val title: String, val derived: Boolean)
-
     /**
-     * A thread's title: the stored one, else the action it ran, else its
-     * first issue's title (sort order), else the first line of the first
-     * person message, else `Untitled`. `derived` = not stored.
+     * EXP-1316: a thread's title, never stored by a person (no rename ×4): an
+     * agent's `name`; else `Run <action>`; else `Implement <IDENT>` (the first
+     * synced issue by sortOrder, `+ <n-1>` with more); else the stored title
+     * (the CLI's auto-name); else the first line of the root's first person
+     * message (capped); else `Untitled`.
      */
-    fun threadTitle(root: Session, issues: List<Issue>, messages: List<Message>): Title {
-        val stored = root.title?.trim()
-        if (!stored.isNullOrEmpty()) return Title(stored, derived = false)
+    fun threadTitle(root: Session, issues: List<Issue>, messages: List<Message>): String {
+        val name = root.name?.trim()
+        if (root.kind == DomainContract.sessionKindAgent && !name.isNullOrEmpty()) return name
         val action = root.actionName?.trim()
-        if (!action.isNullOrEmpty()) return Title(action, derived = true)
-        if (issues.isNotEmpty()) return Title(issues[0].title, derived = true)
+        if (!action.isNullOrEmpty()) return ThreadCopy.TITLE_ACTION.replace("{action}", action)
+        if (issues.isNotEmpty()) {
+            val issue = issues[0].identifier
+            return if (issues.size > 1) {
+                ThreadCopy.TITLE_ISSUES.replace("{issue}", issue).replace("{more}", (issues.size - 1).toString())
+            } else {
+                ThreadCopy.TITLE_ISSUE.replace("{issue}", issue)
+            }
+        }
+        val stored = root.title?.trim()
+        if (!stored.isNullOrEmpty()) return stored
         val first = messages
             .filter { it.sessionId == root.id && it.authorKind == DomainContract.messageAuthorKindUser }
             .sortedBy { ms(it.createdAt) ?: 0L }
             .firstOrNull()
-        val line = first?.let { firstLine(it.body, ThreadCopy.TITLE_MAX) }
-        if (line != null) return Title(line, derived = true)
-        return Title(ThreadCopy.UNTITLED, derived = true)
+        return first?.let { firstLine(it.body, ThreadCopy.TITLE_MAX) } ?: ThreadCopy.UNTITLED
     }
+
+    /** A session chip's lead ×4: the thread row mark of THAT session,
+     *  [SessionState.Ended] once it ended. */
+    fun sessionTabMarkState(session: Session): SessionState =
+        if (session.status == DomainContract.sessionStatusEnded) {
+            SessionState.Ended
+        } else {
+            threadRowMarkState(needsYou = session.needsInput, busy = session.busy)
+        }
 
     private fun rootIssues(rootId: String, sessionIssues: List<SessionIssue>, issues: List<Issue>): List<Issue> {
         val byId = issues.associateBy { it.id }
@@ -296,6 +318,8 @@ object SessionTree {
         data object Conversation : ThreadTab
         data class IssueTab(val issueId: String, val identifier: String) : ThreadTab
         data object Add : ThreadTab
+        /** EXP-1316: a session chip of the viewed level; [markState] = its lead. */
+        data class SessionTab(val sessionId: String, val name: String, val markState: SessionState) : ThreadTab
         data class Guide(val dot: Boolean) : ThreadTab
     }
 
@@ -318,6 +342,8 @@ object SessionTree {
             override val id: String,
             val question: String,
             val options: List<String>,
+            /** A free-text "Other" answer is offered (always, EXP-1316). */
+            val custom: Boolean,
             val answer: String?,
             val answered: Boolean,
         ) : ThreadRow
@@ -342,8 +368,9 @@ object SessionTree {
     data class ThreadView(
         val rootId: String,
         val title: String,
-        val titleDerived: Boolean,
         val private: Boolean,
+        /** The session open in place (`focus`), null on the thread itself. */
+        val focusId: String?,
         val tabs: List<ThreadTab>,
         val rows: List<ThreadRow>,
         val composer: Composer,
@@ -388,7 +415,9 @@ object SessionTree {
 
     /**
      * The thread screen: the header tabs (Conversation · one chip per issue ·
-     * + · Guide), the root's conversation as rows (the root's own session
+     * + · session chips · Guide; the session chips = the viewed level: the
+     * root's own run + its direct children, or with [focus] that session +
+     * ITS direct children), the root's conversation as rows (the root's own session
      * card first, then its messages oldest first; a `session` /
      * `thread_started` card becomes that session's card) and the composer
      * target (the root: a message to an ended thread continues it).
@@ -401,6 +430,7 @@ object SessionTree {
         messages: List<Message>,
         pullRequests: List<PullRequest>,
         now: String,
+        focus: String? = null,
     ): ThreadView {
         val tree = treeOrder(sessions.filter { it.rootId == root.id || it.id == root.id }).toMutableList()
         if (tree.none { it.id == root.id }) tree.add(0, root)
@@ -411,7 +441,16 @@ object SessionTree {
         val issueMap = issues.associateBy { it.id }
         val prMap = pullRequests.associateBy { it.id }
         val own = messages.filter { it.sessionId == root.id }.sortedWith(messageOrder)
-        val (title, derived) = threadTitle(root, linked, own)
+        val title = threadTitle(root, linked, own)
+        val focused = focus?.let { id -> tree.firstOrNull { it.id == id } }
+        val level = focused ?: root
+        val sessionTabs = (listOf(level) + tree.filter { it.parentId == level.id && it.id != level.id }).map {
+            ThreadTab.SessionTab(
+                sessionId = it.id,
+                name = sessionCard(it, ordinals[it.id] ?: 1, now).name,
+                markState = sessionTabMarkState(it),
+            )
+        }
 
         val rows = mutableListOf<ThreadRow>(ThreadRow.SessionRow(root.id, sessionCard(root, 1, now)))
         for (message in own) {
@@ -445,6 +484,7 @@ object SessionTree {
                         options = (card["options"] as? JsonArray)?.map { option ->
                             if (option is JsonPrimitive) option.content else option.toString()
                         } ?: emptyList(),
+                        custom = true,
                         answer = card.str("answer"),
                         answered = message.answeredAt != null,
                     ),
@@ -482,12 +522,13 @@ object SessionTree {
         return ThreadView(
             rootId = root.id,
             title = title,
-            titleDerived = derived,
             private = !root.shared,
+            focusId = focused?.id,
             tabs = buildList {
                 add(ThreadTab.Conversation)
                 linked.forEach { add(ThreadTab.IssueTab(it.id, it.identifier)) }
                 add(ThreadTab.Add)
+                addAll(sessionTabs)
                 add(ThreadTab.Guide(guideDot))
             },
             rows = rows,
@@ -552,7 +593,7 @@ object SessionTree {
             val activity = tree.fold(root.updatedAt) { latest, s ->
                 if ((ms(s.updatedAt) ?: 0L) > (ms(latest) ?: 0L)) s.updatedAt else latest
             }
-            val title = threadTitle(root, rootIssues(root.id, sessionIssues, issues), messages).title
+            val title = threadTitle(root, rootIssues(root.id, sessionIssues, issues), messages)
             val row = ThreadsListRow(
                 sessionId = root.id,
                 teamId = root.teamId,
@@ -636,45 +677,81 @@ object SessionTree {
      *  session composer's place (`composerCases`). */
     fun composerYieldsToCard(live: Boolean, pendingAsk: Boolean): Boolean = live && pendingAsk
 
-    /** EXP-1309 (web `THREAD_ROW_WORDS` ×4): a Threads row's ONE quiet word. */
-    enum class ThreadRowWord(val text: String) {
-        ReadyToMerge("ready to merge"),
-        Stack("stack"),
-        Merged("merged"),
-        Question("question"),
+    /** EXP-1309/1318 (`threads-list.json` `copy.words`): a Threads row's ONE
+     *  quiet word ([wire] = the fixture key); the lock rides beside it. */
+    enum class ThreadRowWord(val wire: String, val text: String) {
+        Stack("stack", "stack"),
+        ReadyToMerge("readyToMerge", "ready to merge"),
+        Merged("merged", "merged"),
+        Question("question", "question"),
 
         /** An agent row waiting on a person. */
-        NeedsInput("needs input"),
+        NeedsInput("needsInput", "needs input"),
+    }
+
+    /** A PR's stack edge (`threads-list.json` `stackCases`). */
+    data class StackPr(val id: String, val state: String, val basePullRequestId: String?)
+
+    /**
+     * An open PR of the thread sits in an open stack: based on another open
+     * PR, or another open PR is based on it. [teamPrs] = the team's PRs (a
+     * stack edge may cross threads). Replays `stackCases`.
+     */
+    fun threadInStack(pullRequests: List<StackPr>, teamPrs: List<StackPr> = pullRequests): Boolean {
+        val openIds = teamPrs.filter { it.state == DomainContract.prStateOpen }.map { it.id }.toSet()
+        return pullRequests.filter { it.state == DomainContract.prStateOpen }.any { pr ->
+            (pr.basePullRequestId != null && pr.basePullRequestId in openIds) ||
+                teamPrs.any { it.state == DomainContract.prStateOpen && it.basePullRequestId == pr.id }
+        }
     }
 
     /**
-     * EXP-1309 (web `threadRowWord` ×4): a thread row's word off its root's
-     * [prs], deterministic: an open PR in a stack (based on another open PR,
-     * or one is based on it) → [ThreadRowWord.Stack]; else an open PR while
-     * nothing works → [ThreadRowWord.ReadyToMerge]; no open PR but a merged
-     * one → [ThreadRowWord.Merged]; else waiting on a person →
-     * [ThreadRowWord.Question]; else none. [teamPrs] = the team's PRs (a stack
-     * edge may cross threads).
+     * Word order (`wordCases`): an open PR in a stack → [ThreadRowWord.Stack];
+     * an open PR while nothing works → [ThreadRowWord.ReadyToMerge] (working =
+     * no word); no open PR but a merged one → [ThreadRowWord.Merged]; else
+     * waiting on a person → [ThreadRowWord.Question]; else none. [states] =
+     * the root's PR states.
      */
+    fun threadRowWord(states: List<String>, busy: Boolean, needsYou: Boolean, inStack: Boolean): ThreadRowWord? {
+        if (states.any { it == DomainContract.prStateOpen }) {
+            if (inStack) return ThreadRowWord.Stack
+            return if (busy) null else ThreadRowWord.ReadyToMerge
+        }
+        if (states.any { it == DomainContract.prStateMerged }) return ThreadRowWord.Merged
+        return if (needsYou) ThreadRowWord.Question else null
+    }
+
+    private fun stackPr(row: PullRequestEntity) = StackPr(row.id, row.state, row.basePullRequestId)
+
+    /** [threadRowWord] off synced PR rows. */
     fun threadRowWord(
         busy: Boolean,
         needsYou: Boolean,
         prs: List<PullRequestEntity>,
         teamPrs: List<PullRequestEntity> = prs,
-    ): ThreadRowWord? {
-        val open = prs.filter { it.state == DomainContract.prStateOpen }
-        if (open.isNotEmpty()) {
-            val openIds = teamPrs.filter { it.state == DomainContract.prStateOpen }.map { it.id }.toSet()
-            val stacked = open.any { pr ->
-                (pr.basePullRequestId != null && pr.basePullRequestId in openIds) ||
-                    teamPrs.any { it.state == DomainContract.prStateOpen && it.basePullRequestId == pr.id }
+    ): ThreadRowWord? = threadRowWord(
+        states = prs.map { it.state },
+        busy = busy,
+        needsYou = needsYou,
+        inStack = threadInStack(prs.map(::stackPr), teamPrs.map(::stackPr)),
+    )
+
+    /**
+     * EXP-1318 the rail's Active band (`railCases`): every Needs you row,
+     * every Running row, then the Recent rows whose word still asks for a
+     * merge (ready to merge or stack), in group order.
+     */
+    fun railThreads(groups: List<ThreadsListGroup>, wordOf: (ThreadsListRow) -> ThreadRowWord?): List<ThreadsListRow> =
+        groups.flatMap { group ->
+            if (group.key == ThreadsGroupKey.Recent) {
+                group.rows.filter {
+                    val word = wordOf(it)
+                    word == ThreadRowWord.ReadyToMerge || word == ThreadRowWord.Stack
+                }
+            } else {
+                group.rows
             }
-            if (stacked) return ThreadRowWord.Stack
-            return if (busy) null else ThreadRowWord.ReadyToMerge
         }
-        if (prs.any { it.state == DomainContract.prStateMerged }) return ThreadRowWord.Merged
-        return if (needsYou) ThreadRowWord.Question else null
-    }
 
     /** EXP-1307: one entry of the thread header's `…` on the Guide. */
     enum class GuideMenuEntry(val wire: String) { OpenGithub("open-github"), ClosePr("close-pr") }

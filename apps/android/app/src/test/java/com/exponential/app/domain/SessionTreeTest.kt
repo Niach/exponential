@@ -130,6 +130,12 @@ class SessionTreeTest {
             put("identifier", tab.identifier)
         }
         SessionTree.ThreadTab.Add -> buildJsonObject { put("kind", "add") }
+        is SessionTree.ThreadTab.SessionTab -> buildJsonObject {
+            put("kind", "session")
+            put("sessionId", tab.sessionId)
+            put("name", tab.name)
+            put("markState", tab.markState.wire)
+        }
         is SessionTree.ThreadTab.Guide -> buildJsonObject {
             put("kind", "guide")
             put("dot", tab.dot)
@@ -155,6 +161,7 @@ class SessionTreeTest {
             put("id", row.id)
             put("question", row.question)
             put("options", JsonArray(row.options.map(::JsonPrimitive)))
+            put("custom", row.custom)
             put("answer", nullable(row.answer))
             put("answered", row.answered)
         }
@@ -189,8 +196,8 @@ class SessionTreeTest {
     private fun encode(view: SessionTree.ThreadView): JsonObject = buildJsonObject {
         put("rootId", view.rootId)
         put("title", view.title)
-        put("titleDerived", view.titleDerived)
         put("private", view.private)
+        put("focusId", nullable(view.focusId))
         put("tabs", JsonArray(view.tabs.map(::encode)))
         put("rows", JsonArray(view.rows.map(::encode)))
         put(
@@ -267,6 +274,7 @@ class SessionTreeTest {
                 messages = input.list("messages").map(::message),
                 pullRequests = input.list("pullRequests").map(::pullRequest),
                 now = input.str("now")!!,
+                focus = (case["options"] as? JsonObject)?.str("focus"),
             )
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
         }
@@ -404,6 +412,10 @@ class SessionTreeTest {
         assertEquals(testIds.str("guideMerge"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE)
         assertEquals(testIds.str("guideMenu"), SessionTree.ThreadCopy.TEST_ID_GUIDE_MENU)
         assertEquals(copy.str("stack"), SessionTree.ThreadCopy.STACK)
+        val titles = threadFixture.getValue("titles").jsonObject
+        assertEquals(titles.str("action"), SessionTree.ThreadCopy.TITLE_ACTION)
+        assertEquals(titles.str("issue"), SessionTree.ThreadCopy.TITLE_ISSUE)
+        assertEquals(titles.str("issues"), SessionTree.ThreadCopy.TITLE_ISSUES)
     }
 
     @Test
@@ -412,6 +424,10 @@ class SessionTreeTest {
         assertEquals(copy.str("title"), SessionTree.ListCopy.TITLE)
         assertEquals(copy.str("agents"), SessionTree.ListCopy.AGENTS)
         assertEquals(copy.str("empty"), SessionTree.ListCopy.EMPTY)
+        assertEquals(copy.str("rail"), SessionTree.ListCopy.RAIL)
+        val words = copy.getValue("words").jsonObject
+        assertEquals(words.keys, SessionTree.ThreadRowWord.entries.map { it.wire }.toSet())
+        for (word in SessionTree.ThreadRowWord.entries) assertEquals(words.str(word.wire), word.text)
         val groups = copy.getValue("groups").jsonObject
         assertEquals(groups.keys, SessionTree.ThreadsGroupKey.entries.map { it.wire }.toSet())
         for (key in SessionTree.ThreadsGroupKey.entries) {

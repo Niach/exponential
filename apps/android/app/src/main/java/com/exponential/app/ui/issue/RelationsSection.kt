@@ -55,7 +55,6 @@ import com.exponential.app.ui.components.ContextRingStroke
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
-import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
@@ -397,7 +396,7 @@ private fun bandIcon(key: IssueRelationsView.BandKey): ImageVector = when (key) 
     IssueRelationsView.BandKey.Related -> ExpIcons.relationRelated
 }
 
-/** Flat 48dp rows divided by the group hairline. */
+/** Flat gapless 48dp rows, no dividers (EXP-1320). */
 @Composable
 private fun RelationRows(
     rows: List<IssueRelationsView.Row>,
@@ -407,8 +406,7 @@ private fun RelationRows(
     onOpenIssue: (String) -> Unit,
     onRemove: ((String) -> Unit)?,
 ) {
-    rows.forEachIndexed { index, row ->
-        if (index > 0) GroupDivider()
+    rows.forEach { row ->
         val issue = issuesById[row.id]
         RelationIssueRow(
             row = row,

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.issue
 
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Scaffold
@@ -46,6 +47,11 @@ import dev.chrisbanes.haze.rememberHazeState
  * the bar's Start circle (lane SESSION owns Start: today it opens the home
  * composer seeded with this issue). A pull request row opens the thread that
  * opened it ([onOpenThread]), else the PR on GitHub.
+ *
+ * EXP-1316 [embedded]: the thread's issue tab = the issue body alone: no own
+ * top bar (the thread's header stays), no `Threads` row, no Start (the bar
+ * keeps properties + Comment); the thread host provides the haze, the title
+ * collapse and the markdown toolbar, and hands its content [padding].
  */
 @Composable
 fun IssueScreen(
@@ -63,11 +69,14 @@ fun IssueScreen(
     onCreateSubIssue: ((boardId: String, parentId: String) -> Unit)? = null,
     /** EXP-1241: scroll to this comment once it renders, then highlight it. */
     focusCommentId: String? = null,
+    embedded: Boolean = false,
+    /** [embedded]: the host's content padding. */
+    padding: PaddingValues = PaddingValues(0.dp),
 ) {
     val issueVm = hiltViewModel<IssueDetailViewModel, IssueDetailViewModel.Factory>(
         key = "issue:$issueId",
     ) { factory -> factory.create(issueId) }
-    val commentVm: CommentThreadViewModel = hiltViewModel()
+    val commentVm: CommentThreadViewModel = hiltViewModel(key = "comments:$issueId")
     val controller = rememberIssueFaceController()
     val state by issueVm.state.collectAsStateWithLifecycle()
     val issue = state.issue
@@ -79,7 +88,8 @@ fun IssueScreen(
     val readinessVm: CodingReadinessViewModel = hiltViewModel(key = "readiness:$issueId")
     val readinessBoard = state.board
     val readinessMember = permissions.isMember
-    LaunchedEffect(readinessVm, readinessBoard, readinessMember, steerEnabled) {
+    LaunchedEffect(readinessVm, readinessBoard, readinessMember, steerEnabled, embedded) {
+        if (embedded) return@LaunchedEffect
         readinessVm.bind(
             CodingReadinessViewModel.Host(
                 board = readinessBoard,
@@ -158,9 +168,32 @@ fun IssueScreen(
         ?.takeIf { permissions.isMember }
     var closePrConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
 
+    val face: @Composable (PaddingValues) -> Unit = { contentPadding ->
+        IssueFace(
+            viewModel = issueVm,
+            commentViewModel = commentVm,
+            controller = controller,
+            padding = contentPadding,
+            onBack = onBack,
+            onOpenIssue = onOpenIssue,
+            onOpenPullRequest = openPullRequest,
+            prMergeControl = prMergeControl,
+            trailingBarSlot = {
+                val ui = startUi.takeUnless { embedded }
+                if (ui != null) StartCircle(ui = ui, onClick = { startCoding() }) else Spacer(Modifier.size(0.dp))
+            },
+            focusCommentId = focusCommentId,
+            onAddSubIssue = onCreateSubIssue?.let { create ->
+                issue?.let { parent -> { create(parent.boardId, parent.id) } }
+            },
+            onOpenThread = if (embedded) null else onOpenThread,
+        )
+    }
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
-    ProvideMarkdownToolbar {
+    if (embedded) {
+        face(padding)
+    } else ProvideMarkdownToolbar {
         CompositionLocalProvider(
             LocalDetailHaze provides hazeState,
             LocalTitleCollapse provides titleCollapse,
@@ -186,26 +219,8 @@ fun IssueScreen(
                         },
                     )
                 },
-            ) { padding ->
-                IssueFace(
-                    viewModel = issueVm,
-                    commentViewModel = commentVm,
-                    controller = controller,
-                    padding = padding,
-                    onBack = onBack,
-                    onOpenIssue = onOpenIssue,
-                    onOpenPullRequest = openPullRequest,
-                    prMergeControl = prMergeControl,
-                    trailingBarSlot = {
-                        val ui = startUi
-                        if (ui != null) StartCircle(ui = ui, onClick = { startCoding() }) else Spacer(Modifier.size(0.dp))
-                    },
-                    focusCommentId = focusCommentId,
-                    onAddSubIssue = onCreateSubIssue?.let { create ->
-                        issue?.let { parent -> { create(parent.boardId, parent.id) } }
-                    },
-                    onOpenThread = onOpenThread,
-                )
+            ) { scaffoldPadding ->
+                face(scaffoldPadding)
             }
         }
     }

@@ -2517,7 +2517,7 @@ private fun AnswerCardRow(row: AgentFeedRow, cards: AnswerCards) {
  *  screen. */
 
 
-private fun LazyListState.isNearBottom(slackPx: Float): Boolean {
+internal fun LazyListState.isNearBottom(slackPx: Float): Boolean {
     val info = layoutInfo
     val last = info.visibleItemsInfo.lastOrNull() ?: return true
     if (last.index < info.totalItemsCount - 1) return false
@@ -3515,7 +3515,7 @@ internal fun AskCard(
 // field in place of the composer, and an answered step of an open ask
 // re-opens for a new answer ([editing]).
 @Composable
-private fun QuestionCard(
+internal fun QuestionCard(
     item: AgentFeedItem.Question,
     /** Still answerable per the feed — the session is blocked on this card. */
     active: Boolean,

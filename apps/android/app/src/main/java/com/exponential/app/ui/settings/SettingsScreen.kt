@@ -146,14 +146,13 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("Servers")
                     Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                        accounts.forEachIndexed { i, account ->
-                            if (i > 0) GroupDivider()
+                        // EXP-1320: an entity list = flat gapless rows, no dividers.
+                        accounts.forEach { account ->
                             ServerRow(
                                 account = account,
                                 onClick = { onOpenServerDetail(account.id) },
                             )
                         }
-                        if (accounts.isNotEmpty()) GroupDivider()
                         SettingsRow(
                             icon = ExpIcons.uiAdd,
                             title = "Add server",
@@ -385,8 +384,7 @@ private fun TeamGroupBlock(
             }
         }
         Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-            group.teams.forEachIndexed { i, team ->
-                if (i > 0) GroupDivider()
+            group.teams.forEach { team ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
