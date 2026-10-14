@@ -467,6 +467,18 @@ export interface ThreadsListRow {
   activityAt: string
 }
 
+/** EXP-1312: a thread row's lead outside the Threads tab (home Running band,
+ *  rail Running rows, work tabs) ×4: needs you beats working, else the bare
+ *  mark (`threads-list.json` `markCases`). */
+export function threadRowMarkState(row: {
+  needsYou: boolean
+  busy: boolean
+}): `needs_you` | `working` | `waiting` {
+  if (row.needsYou) return `needs_you`
+  if (row.busy) return `working`
+  return `waiting`
+}
+
 export interface ThreadsListGroup {
   key: `needs_you` | `running` | `recent`
   title: string

@@ -8,7 +8,7 @@ import Foundation
 // fixtures `SessionTreeTests` replays:
 //   fixtures/session-card.json   → `SessionTree.sessionCard`
 //   fixtures/session-thread.json → `SessionTree.buildSessionThread`
-//   fixtures/threads-list.json   → `SessionTree.partitionThreads` + `listAgents`
+//   fixtures/threads-list.json   → `SessionTree.partitionThreads` + `listAgents` + `threadRowMarkState`
 // The fixtures' `$comment`s hold the rules. Pure: callers map their synced
 // rows into the `Tree*` inputs.
 
@@ -675,6 +675,15 @@ public enum SessionTree {
         if session.blocked != nil { return .blocked }
         if session.status == "queued" { return .queued }
         if session.busy { return .working }
+        return .waiting
+    }
+
+    /// EXP-1312: a thread row's lead outside the Threads tab (Home's Running
+    /// band) ×4: needs you beats working, else the bare mark
+    /// (`threads-list.json` `markCases`).
+    public static func threadRowMarkState(needsYou: Bool, busy: Bool) -> SessionState {
+        if needsYou { return .needsYou }
+        if busy { return .working }
         return .waiting
     }
 

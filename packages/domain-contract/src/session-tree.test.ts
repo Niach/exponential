@@ -11,6 +11,7 @@ import {
   listAgents,
   partitionThreads,
   sessionCard,
+  threadRowMarkState,
 } from "./session-tree"
 
 describe(`session-tree fixtures (EXP-1291)`, () => {
@@ -49,6 +50,11 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
     test(`agents: ${entry.name}`, () => {
       const { sessions, teamId } = entry.input as never
       expect(listAgents(sessions, teamId)).toEqual(entry.expected as never)
+    })
+  }
+  for (const entry of list.markCases) {
+    test(`row mark: ${entry.name}`, () => {
+      expect(threadRowMarkState(entry.input)).toBe(entry.expected as never)
     })
   }
 })

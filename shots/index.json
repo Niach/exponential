@@ -133,8 +133,8 @@
         "file": "shots/agent-home/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 29270,
-        "sha256": "d4c05eee4c7cb230ab49d61662d2600712ce68be5ee2d75286eb64cdd436a13f"
+        "bytes": 29356,
+        "sha256": "cb1f37538cab528f314184f770333bbda109bf9a4dbcf889aee60dd7f61ff0ee"
       },
       "web": {
         "file": "shots/agent-home/web.webp",
@@ -3466,8 +3466,8 @@
         "file": "shots/session-row/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 29226,
-        "sha256": "85d3820aa707c1c50833156eb9f7ffaecef003c4b2265a50ab9fe64181d08edd"
+        "bytes": 29368,
+        "sha256": "8717ad388d82ed8bc23dba783d79ae33c968fdfaffcf1a6ca7af41ed3db55b02"
       }
     },
     "settings-account": {

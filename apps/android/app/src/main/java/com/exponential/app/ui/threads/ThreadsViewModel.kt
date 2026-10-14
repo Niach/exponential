@@ -56,7 +56,7 @@ class ThreadsViewModel @Inject constructor(
 
     /** Each listed row's glyph + identifier, keyed by root session id. */
     val rowMeta: StateFlow<Map<String, ThreadRowMeta>> = combine(groups, inputs, sessionRows) { g, input, rows ->
-        threadRowMeta(g, input.sessions, input.links, input.issues, rows.associate { it.id to it.cli })
+        threadRowMeta(g, input.links, input.issues, rows.associate { it.id to it.cli })
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
@@ -110,41 +110,30 @@ class ThreadsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
 
-/** A Threads row's extras: the first linked issue's identifier, the root's
- *  agent (its brand mark) and the row's state glyph. */
+/** A Threads row's extras: the first linked issue's identifier and the
+ *  root's agent (its brand mark). */
 data class ThreadRowMeta(
     val identifier: String?,
     val agent: String?,
-    val state: SessionTree.SessionState,
 )
 
 /**
  * The extras each [SessionTree.ThreadsListRow] draws beside its title: the
- * mono identifier of the root's FIRST linked issue (thread order), the root's
- * agent and one state for its mark — needs you, then working (any live
- * session busy), else the root's own [SessionTree.sessionState].
+ * mono identifier of the root's FIRST linked issue (thread order) and the
+ * root's agent; the mark's state = [SessionTree.threadRowMarkState] (EXP-1312).
  */
 fun threadRowMeta(
     groups: List<SessionTree.ThreadsListGroup>,
-    sessions: List<SessionTree.Session>,
     links: List<SessionTree.SessionIssue>,
     issues: List<SessionTree.Issue>,
     agentByRoot: Map<String, String?>,
 ): Map<String, ThreadRowMeta> {
-    val byId = sessions.associateBy { it.id }
     val issueById = issues.associateBy { it.id }
     val linksByRoot = links.groupBy { it.sessionId }
     return groups.flatMap { it.rows }.associate { row ->
         val first = linksByRoot[row.sessionId].orEmpty()
             .sortedWith(compareBy<SessionTree.SessionIssue>({ it.sortOrder }, { it.issueId }))
             .firstNotNullOfOrNull { issueById[it.issueId] }
-        val root = byId[row.sessionId]
-        val state = when {
-            row.needsYou -> SessionTree.SessionState.NeedsYou
-            row.busy -> SessionTree.SessionState.Working
-            root != null -> SessionTree.sessionState(root)
-            else -> SessionTree.SessionState.Waiting
-        }
-        row.sessionId to ThreadRowMeta(first?.identifier, agentByRoot[row.sessionId], state)
+        row.sessionId to ThreadRowMeta(first?.identifier, agentByRoot[row.sessionId])
     }
 }
