@@ -30,6 +30,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -846,12 +852,11 @@ internal fun AgentPageFrame(
                     top = DAWN_TOP.dp,
                     bottom = if (onBack == null) BottomBarInset else 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(COLUMN_SPACING.dp),
             ) {
                 if (dawn) {
                     item(key = "__dawn__") {
-                        // The column's 6dp spacing makes up the rest of the gap.
-                        AgentHomeDawn(modifier = Modifier.padding(bottom = (DAWN_TO_CARD - 6).dp))
+                        AgentHomeDawn()
                     }
                 }
                 content()
@@ -886,25 +891,44 @@ internal fun LazyListScope.homeRunningBand(
 }
 
 /** The dawn's geometry (dp, iOS `HomeDawn`): the mark's diameter (the dawn
- *  shows its upper half), the gap under the title, the gap above the card. */
-private const val DAWN_MARK = 160
+ *  shows its upper half), the gap under the title, the column's spacing the
+ *  dawn swallows to stand on the card. */
+private const val DAWN_MARK = 240
 private const val DAWN_TOP = 16
-private const val DAWN_TO_CARD = 24
+private const val COLUMN_SPACING = 6
 
-/** The dawn's foreground alpha (iOS `HomeDawn.opacity`). */
-private const val DAWN_ALPHA = 0.05f
+/** The dawn's foreground alpha (iOS `HomeDawn.opacity`, the IDE's ink). */
+private const val DAWN_ALPHA = 0.025f
 
 /**
  * FEED-100: the dawn — [ExponentialMark] in the foreground colour at a low
- * alpha, clipped to its upper half (a half-disc standing on the card).
+ * alpha, clipped to its upper half (a half-disc standing on the card) and
+ * FADING toward it (EXP-1314: solid for its top third, transparent at the
+ * card, no gap — the IDE's `dawn` on every client, ~69% of the column). It reports
+ * [COLUMN_SPACING] less height so the column's spacing lands under it and its
+ * horizon meets the card's top edge.
  */
 @Composable
 internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height - COLUMN_SPACING.dp.roundToPx()) {
+                    placeable.place(0, 0)
+                }
+            }
             .fillMaxWidth()
             .height((DAWN_MARK / 2).dp)
-            .clipToBounds(),
+            .clipToBounds()
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.verticalGradient(0.33f to Color.Black, 1f to Color.Transparent),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
         contentAlignment = Alignment.TopCenter,
     ) {
         ExponentialMark(

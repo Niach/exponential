@@ -78,20 +78,32 @@ struct ExpLogoMark: View {
 }
 
 /// FEED-100: Home's DAWN — the brand mark drawn BIG and faint, its upper
-/// HALF rising over the composer like a sun over the horizon, `gap` off the
-/// card (web's phone `HomeDawn`: 160px, opacity 0.05, 24px). Replaces the
-/// small mark + greeting headline; decoration only.
+/// HALF rising over the composer like a sun over the horizon, standing on
+/// the card and FADING toward it (EXP-1314: solid for its top third,
+/// transparent at the card, no gap). The IDE's `dawn` on every client: ~69%
+/// of the column (the IDE's mark-to-card ratio, web's `HomeDawn`), 2.5% ink.
+/// Replaces the small mark + greeting headline; decoration only.
 struct HomeDawn: View {
     /// The mark's diameter; the dawn shows its upper half.
-    static let size: CGFloat = 160
-    static let opacity: Double = 0.05
-    /// The space between the dawn and the composer card.
-    static let gap: CGFloat = 24
+    static let size: CGFloat = 240
+    static let opacity: Double = 0.025
+    /// The space between the dawn and the composer card: none, it stands on it.
+    static let gap: CGFloat = 0
 
     var body: some View {
         ExpLogoMark(size: Self.size, color: .white.opacity(Self.opacity))
             .frame(height: Self.size / 2, alignment: .top)
             .clipped()
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .black, location: 0.33),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
             .frame(maxWidth: .infinity)
             .accessibilityHidden(true)
             .accessibilityIdentifier(HomeGreeting.TestId.mark)
