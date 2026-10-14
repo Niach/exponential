@@ -27,6 +27,9 @@ struct ThreadRows: Sendable {
     /// Per pull request id, the issues it closes (`pull_request_issues`).
     let pullRequestIssueIds: [String: [String]]
     let users: [UserEntity]
+    /// The team's pull requests: the stack pool of the Guide's Merge
+    /// (`PullRequestStack`, a stack may reach PRs outside this thread).
+    var teamPullRequests: [PullRequestEntity] = []
 
     var isAgent: Bool { root.isAgent }
 
@@ -78,6 +81,14 @@ struct ThreadRows: Sendable {
             ?? pullRequests.last { $0.state == DomainContract.prStateMerged }
     }
 
+    /// THE `Merge stack` confirm while the Guide's open PR sits in an open
+    /// stack (Android `PullRequestStack.stackConfirm`), else nil.
+    var guideStackConfirm: PullRequestStack.Confirm? {
+        guard let pullRequest = guidePullRequest, pullRequest.isOpen else { return nil }
+        let pool = teamPullRequests + pullRequests.filter { row in !teamPullRequests.contains { $0.id == row.id } }
+        return PullRequestStack.stackConfirm(pullRequest, in: pool)
+    }
+
     static func load(db: Database, rootId: String) throws -> ThreadRows? {
         guard let root = try SessionQueries.session(db: db, id: rootId) else { return nil }
         // A child id lands on its root.
@@ -110,7 +121,8 @@ struct ThreadRows: Sendable {
             messages: messages,
             pullRequests: pullRequests,
             pullRequestIssueIds: pullRequestIssueIds,
-            users: users
+            users: users,
+            teamPullRequests: try SessionQueries.pullRequests(db: db, teamId: root.teamId)
         )
     }
 }

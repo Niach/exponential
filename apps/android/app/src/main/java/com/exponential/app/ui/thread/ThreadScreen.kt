@@ -552,7 +552,14 @@ private fun ThreadGuidePage(
     val changesVm: ChangesViewModel? = pr?.let { row ->
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${row.id}") { it.create(row.id) }
     }
-    val load by (changesVm?.load ?: remember { kotlinx.coroutines.flow.MutableStateFlow<ChangesLoadState?>(null) })
+    // EXP-1303: the Guide counts the THREAD's PR files (web/iOS parity); only
+    // the merge goes through the stack's top.
+    val filesVm: ChangesViewModel? = if (newest != null && newest.id != pr?.id) {
+        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${newest.id}") { it.create(newest.id) }
+    } else {
+        changesVm
+    }
+    val load by (filesVm?.load ?: remember { kotlinx.coroutines.flow.MutableStateFlow<ChangesLoadState?>(null) })
         .collectAsStateWithLifecycle()
     val merging by (changesVm?.merging ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) })
         .collectAsStateWithLifecycle()
@@ -602,7 +609,7 @@ private fun ThreadGuidePage(
             load = load,
             merge = merge,
             onBack = { sectionName = null },
-            onRetry = changesVm?.let { vm -> vm::refresh },
+            onRetry = filesVm?.let { vm -> vm::refresh },
         )
     } else {
         GuideFace(
@@ -611,7 +618,7 @@ private fun ThreadGuidePage(
             files = files,
             numbered = true,
             merge = merge,
-            onOpenSection = if (changesVm != null) {
+            onOpenSection = if (filesVm != null) {
                 { key: GuideSectionKey -> sectionName = sectionKeyName(key) }
             } else {
                 null

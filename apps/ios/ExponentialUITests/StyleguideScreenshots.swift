@@ -38,8 +38,9 @@ import XCTest
 ///   * `sg_settings-team-agent` = Settings → Agents, one team agent's page
 ///     with its Schedule (the `settings-agents` specimen,
 ///     `AgentSettingsStyleguideScreen`);
-///   * `sg_pr-row` = the issue page's pull-request row, `sg_guide` /
-///     `sg_guide-section` = the Guide tab of the thread holding APP-14;
+///   * `sg_pr-row` = the issue page's pull-request row, `sg_guide` = the
+///     Guide tab of APP-15's thread (web's `guide` thread, EXP-1303),
+///     `sg_guide-section` = APP-14's Changes section page;
 ///   * `sg_thread` / `sg_agent-channel` = the `thread` / `agent-channel`
 ///     specimens (`ThreadStyleguideScreen`): a thread with its session
 ///     cards, and a team agent's channel with the thread it started.
@@ -120,6 +121,10 @@ final class StyleguideScreenshots: XCTestCase {
     /// APP-14: the seed's realPr issue, so its thread's Guide has files from
     /// GitHub.
     private static let guideTitle = "Group board issues by assignee"
+    /// APP-15: its thread is web's `guide` thread (`DEMO_GUIDE_THREAD_ID`),
+    /// the seeded Guide's Summary + one section, its PR the stack's bottom.
+    private static let batchGuideTitle = "Batch-edit labels from the board"
+    private static let batchGuideSection = "Label picker on the selection bar"
     private static let searchQuery = "cold start"
     /// A seeded board — the anchor that says we are on TEAM settings rather
     /// than the outer Settings screen (both carry the nav title "Settings").
@@ -575,28 +580,23 @@ final class StyleguideScreenshots: XCTestCase {
         expect(prRow, within: Wait.sync, "APP-14's page drew no pull-request row")
         snapshot("sg_pr-row", settle: 1)
 
-        // ── sg_guide / sg_guide-section: the thread's Guide (EXP-1251/1295) ──
+        // ── sg_guide-section: a Guide section page (EXP-1251/1295) ──────────
         // The issue's Threads row opens the thread holding it on the Guide
         // tab: APP-14's real PR has no report, so its whole diff is ONE
         // Changes section; that row opens the section page.
-        let wantsGuide = ScreenshotShots.isWanted("sg_guide")
-        let wantsGuideSection = ScreenshotShots.isWanted("sg_guide-section")
-        if wantsGuide || wantsGuideSection {
+        if ScreenshotShots.isWanted("sg_guide-section") {
             let threadChip = anyElement(app, identified: "issue-thread-chip")
             _ = scrollUntilVisible(app, threadChip)
             expect(threadChip, within: Wait.sync, "APP-14 sits in no thread — reseed with `bun run seed:screenshots`")
             threadChip.tap()
             openThreadGuide(app)
             let changesRow = anyElement(app, identified: "guide-changes-row")
-            // Below the fold on a phone (the PR body comes first), so scroll
-            // to it; the shot then shows the body's end, the Changes row and
-            // Show complete diff.
+            // Below the fold on a phone (the PR body comes first).
             revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(Wait.network))
             XCTAssertTrue(
                 changesRow.exists,
                 "The Guide drew no Changes row — are the seeded PR's files reachable on GitHub?"
             )
-            snapshot("sg_guide", settle: 2)
             changesRow.tap()
             let sectionPage = anyElement(app, identified: "guide-section-page")
             expect(sectionPage, within: Wait.nav, "The Guide section page did not open")
@@ -607,6 +607,26 @@ final class StyleguideScreenshots: XCTestCase {
         // Issue → board.
         goBack(app)
         settle(1)
+
+        // ── sg_guide: web's `guide` thread (EXP-1303) ────────────────────────
+        // APP-15's thread, the one web/desktop photograph: its seeded Guide
+        // (Summary + one section) under THE Merge stack capsule (its PR is
+        // the bottom of APP-14's stack).
+        if ScreenshotShots.isWanted("sg_guide") {
+            openIssue(app, title: Self.batchGuideTitle)
+            let threadChip = anyElement(app, identified: "issue-thread-chip")
+            _ = scrollUntilVisible(app, threadChip)
+            expect(threadChip, within: Wait.sync, "APP-15 sits in no thread — reseed with `bun run seed:screenshots`")
+            threadChip.tap()
+            openThreadGuide(app)
+            expect(app.staticTexts[Self.batchGuideSection], within: Wait.sync, "APP-15's thread drew no seeded Guide")
+            expect(app.buttons["Merge stack"], within: Wait.sync, "APP-15's Guide drew no Merge stack capsule")
+            snapshot("sg_guide", settle: 2)
+            // Thread → issue → board.
+            goBack(app)
+            goBack(app)
+            settle(1)
+        }
 
         // ── sg_settings-root: the top-level settings list ────────────────────
         // The gear only lives on the issues tab's nav bar. The root is the
