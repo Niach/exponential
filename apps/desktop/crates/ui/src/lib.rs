@@ -56,7 +56,6 @@ mod composer_images;
 mod commit_graph;
 mod context_layout;
 mod controls;
-mod create_agent_dialog;
 mod create_board_dialog;
 mod create_team_dialog;
 mod debug_board;

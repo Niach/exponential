@@ -51,6 +51,7 @@ image = { workspace = true, features = ["png", "jpeg", "webp", "gif", "bmp"] }
 gpui-component-macros.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+uuid.workspace = true
 # §4.2 detail: due-date/recurrence calendars + relative times. Same 0.4 line
 # as the pinned gpui-component's own `calendar` module, so `NaiveDate` unifies
 # across the CalendarState event boundary.

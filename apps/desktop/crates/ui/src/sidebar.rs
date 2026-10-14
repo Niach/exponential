@@ -293,6 +293,7 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "tools" => Some(S::Tools),
         "agent-clis" => Some(S::AgentClis),
         "agents" => Some(S::Agent(String::new())),
+        "new-agent" => Some(S::NewAgent),
         "local-repos" => Some(S::LocalRepos),
         "sessions" => Some(S::Sessions),
         "account" => Some(S::Account),
@@ -1981,19 +1982,29 @@ impl Render for RailView {
             .enumerate()
             .map(|(index, agent)| self.rail_agent_row(index, agent, cx))
             .collect();
+        // EXP-1319: the `+` opens the New agent PAGE in Settings (web parity),
+        // owner-only like the page.
         let agents_header: Option<gpui::AnyElement> =
             active_team.clone().map(|team_id| {
+                let owner = crate::settings::is_owner(cx, &team_id);
                 self.section_label(domain::session_tree::THREADS_LIST.copy.agents.as_str(), cx)
-                    .child(
-                        Button::new("rail-new-agent")
-                            .ghost().cursor_pointer()
-                            .xsmall()
-                            .icon(registry::UI_ADD)
-                            .tooltip("Create agent")
-                            .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                                crate::create_agent_dialog::open(window, cx, team_id.clone());
-                            })),
-                    )
+                    .when(owner, |label| {
+                        label.child(
+                            Button::new("rail-new-agent")
+                                .ghost().cursor_pointer()
+                                .xsmall()
+                                .icon(registry::UI_ADD)
+                                .tooltip(domain::agent_settings::AGENT_SETTINGS.copy.new_agent.clone())
+                                .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
+                                    select_settings_section(
+                                        window,
+                                        cx,
+                                        crate::settings::SettingsSection::NewAgent,
+                                    );
+                                    navigate(window, cx, Screen::Settings);
+                                })),
+                        )
+                    })
                     .into_any_element()
             });
         // EXP-923: MY live threads — under the boards, hidden while nothing

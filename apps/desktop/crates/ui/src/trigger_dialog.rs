@@ -6,7 +6,8 @@
 //! agent's device watches its own synced rows and fires by itself.
 //!
 //! The whole form is [`TriggerEditorState`]; this file is its window, its
-//! footer and the write.
+//! footer and the write. EXP-1319: the New agent page has no agent row yet,
+//! so its Schedule edits a LOCAL array ([`DraftTriggers`]) the create sends.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -26,29 +27,72 @@ use crate::native_dialog::{self, AlertSpec, DialogContent, DialogSpec};
 use crate::queries;
 use crate::trigger_editor::{self, TriggerEditorState};
 
+/// EXP-1319: the New agent page's local trigger array — read at save time,
+/// replaced whole on a save (nothing is written until the agent is created).
+#[derive(Clone)]
+pub(crate) struct DraftTriggers {
+    pub(crate) team_id: String,
+    pub(crate) read: Rc<dyn Fn(&App) -> Vec<Value>>,
+    pub(crate) write: Rc<dyn Fn(Vec<Value>, &mut App)>,
+}
+
+/// Where a save lands: the agent row (`sessions.updateAgent`) or a draft.
+#[derive(Clone)]
+enum Target {
+    Agent(String),
+    Draft(DraftTriggers),
+}
+
+impl Target {
+    fn current(&self, cx: &App) -> Vec<Value> {
+        match self {
+            Target::Agent(agent_id) => trigger_editor::agent_triggers(agent_id, cx),
+            Target::Draft(draft) => (draft.read)(cx),
+        }
+    }
+}
+
 /// Open the dialog for a NEW trigger on the agent `agent_id`. A no-op when
 /// the agent isn't synced.
 pub(crate) fn open_new(window: &mut Window, cx: &mut App, agent_id: String) {
-    open_inner(window, cx, agent_id, None)
+    open_inner(window, cx, Target::Agent(agent_id), None)
 }
 
 /// Open the dialog on an EXISTING trigger of the agent. A no-op when the
 /// agent or the trigger isn't synced (racing a delete).
 pub(crate) fn open_edit(window: &mut Window, cx: &mut App, agent_id: String, trigger_id: String) {
-    let Some(trigger) = trigger_editor::agent_triggers(&agent_id, cx)
+    open_existing(window, cx, Target::Agent(agent_id), trigger_id)
+}
+
+/// EXP-1319: a NEW trigger on the New agent page's draft.
+pub(crate) fn open_new_draft(window: &mut Window, cx: &mut App, draft: DraftTriggers) {
+    open_inner(window, cx, Target::Draft(draft), None)
+}
+
+/// EXP-1319: an existing trigger of the New agent page's draft.
+pub(crate) fn open_edit_draft(window: &mut Window, cx: &mut App, draft: DraftTriggers, trigger_id: String) {
+    open_existing(window, cx, Target::Draft(draft), trigger_id)
+}
+
+fn open_existing(window: &mut Window, cx: &mut App, target: Target, trigger_id: String) {
+    let Some(trigger) = target
+        .current(cx)
         .into_iter()
         .find(|trigger| trigger_editor::trigger_id(trigger) == Some(trigger_id.as_str()))
     else {
         return;
     };
-    open_inner(window, cx, agent_id, Some(trigger))
+    open_inner(window, cx, target, Some(trigger))
 }
 
-fn open_inner(window: &mut Window, cx: &mut App, agent_id: String, existing: Option<Value>) {
-    let Some(team_id) = crate::session_data::session(&agent_id, cx)
-        .filter(|row| row.is_agent())
-        .and_then(|row| row.team_id)
-    else {
+fn open_inner(window: &mut Window, cx: &mut App, target: Target, existing: Option<Value>) {
+    let team_id = match &target {
+        Target::Agent(agent_id) => crate::session_data::session(agent_id, cx)
+            .filter(|row| row.is_agent())
+            .and_then(|row| row.team_id),
+        Target::Draft(draft) => Some(draft.team_id.clone()),
+    };
+    let Some(team_id) = team_id else {
         return;
     };
     let editing = existing.is_some();
@@ -63,7 +107,7 @@ fn open_inner(window: &mut Window, cx: &mut App, agent_id: String, existing: Opt
     .resizable(size(px(420.), px(320.)));
     native_dialog::open_dialog_window(window, cx, spec, move |_, cx| {
         let view = cx.new(|_| {
-            let mut view = TriggerDialogView::new(team_id.clone(), agent_id.clone(), existing.clone());
+            let mut view = TriggerDialogView::new(team_id.clone(), target.clone(), existing.clone());
             view.max_height = max_height;
             view
         });
@@ -86,7 +130,7 @@ enum Write {
 }
 
 struct TriggerDialogView {
-    agent_id: String,
+    target: Target,
     /// `Some` = editing that stored element (its id and its on/off flag are
     /// kept); `None` = adding one.
     existing: Option<Value>,
@@ -104,13 +148,13 @@ struct TriggerDialogView {
 }
 
 impl TriggerDialogView {
-    fn new(team_id: String, agent_id: String, existing: Option<Value>) -> Self {
+    fn new(team_id: String, target: Target, existing: Option<Value>) -> Self {
         let mut editor = TriggerEditorState::new(team_id);
         if let Some(trigger) = &existing {
             editor.seed_trigger(trigger);
         }
         Self {
-            agent_id,
+            target,
             existing,
             editor,
             submitting: false,
@@ -152,14 +196,11 @@ impl TriggerDialogView {
         if self.submitting {
             return;
         }
-        let Some(trpc) = queries::trpc_client(cx) else {
-            return;
-        };
         // The array a save replaces is the agent's CURRENT one, read at
         // submit time — a teammate's edit synced while this dialog was open
         // must ride along, not be overwritten by a stale snapshot (nor a
         // write of our own whose echo is still on the way).
-        let current = trigger_editor::agent_triggers(&self.agent_id, cx);
+        let current = self.target.current(cx);
         let when = self.editor.to_trigger();
         let triggers = match (&write, self.existing_id()) {
             (Write::Delete(id), _) => trigger_editor::triggers_without(&current, id),
@@ -173,16 +214,31 @@ impl TriggerDialogView {
                 let element = trigger_editor::agent_trigger_element(&when, Some(&id), enabled);
                 trigger_editor::triggers_with_replaced(&current, &id, element)
             }
-            // A new trigger is born ON — it only exists to fire.
-            (Write::Save, None) => trigger_editor::triggers_with_added(
-                &current,
-                trigger_editor::agent_trigger_element(&when, None, true),
-            ),
+            // A new trigger is born ON — it only exists to fire. A draft's
+            // carries its own id (the page edits and toggles it by id).
+            (Write::Save, None) => {
+                let id = matches!(self.target, Target::Draft(_))
+                    .then(|| uuid::Uuid::new_v4().to_string());
+                trigger_editor::triggers_with_added(
+                    &current,
+                    trigger_editor::agent_trigger_element(&when, id.as_deref(), true),
+                )
+            }
+        };
+        let agent_id = match &self.target {
+            Target::Agent(agent_id) => agent_id.clone(),
+            Target::Draft(draft) => {
+                (draft.write)(triggers, cx);
+                native_dialog::close_dialog_window(window, cx);
+                return;
+            }
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
         };
         self.submitting = true;
         cx.notify();
 
-        let agent_id = self.agent_id.clone();
         let input = api::sessions::UpdateAgentInput {
             session_id: agent_id.clone(),
             triggers: Some(triggers.clone()),

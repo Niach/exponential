@@ -2878,8 +2878,7 @@ impl Focusable for ScreensPanel {
 /// `create-team` | `join-team[:<invite-token>]` (a token prefills the paste
 /// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
 /// `duplicate-picker:<issue-uuid>` | `getting-started` (EXP-1259: the rail
-/// entry's Getting started dialog on the active team) | `create-agent`
-/// (EXP-1294: the New agent dialog on the active team) |
+/// entry's Getting started dialog on the active team) |
 /// `run:<issue-uuid>[,…]` (the composer dialog on those issues) (anything
 /// else = no dialog, logged once).
 /// Each opens EXACTLY ONCE, 1500ms after the state it needs has resolved, so
@@ -2901,8 +2900,6 @@ enum DevDialog {
     Run(Vec<String>),
     /// EXP-1259: the Getting started dialog (the rail entry) on the active team.
     GettingStarted,
-    /// EXP-1294: the New agent dialog on the active team.
-    CreateAgent,
 }
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
@@ -2910,7 +2907,7 @@ enum DevDialog {
 const DEV_DIALOG_SPECS: &str = "search | action-editor:<uuid> | \
     create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid> | \
-    run:<issue-uuid>[,<issue-uuid>…] | getting-started | create-agent";
+    run:<issue-uuid>[,<issue-uuid>…] | getting-started";
 
 fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
@@ -2920,7 +2917,6 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
         "join-team" => Some(DevDialog::JoinTeam(None)),
         "add-server" => Some(DevDialog::AddServer),
         "getting-started" => Some(DevDialog::GettingStarted),
-        "create-agent" => Some(DevDialog::CreateAgent),
         _ => {
             if let Some(ids) = spec.strip_prefix("run:") {
                 let ids: Vec<String> = ids
@@ -2962,7 +2958,6 @@ enum DevDialogTarget {
     DuplicatePicker { issue_id: String },
     Composer { seed: crate::navigation::ChatSeed },
     GettingStarted,
-    CreateAgent { team_id: String },
 }
 
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
@@ -2985,9 +2980,6 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
         }
         DevDialogTarget::Composer { seed } => crate::composer_dialog::open(window, cx, seed),
         DevDialogTarget::GettingStarted => crate::getting_started::open_dialog(window, cx),
-        DevDialogTarget::CreateAgent { team_id } => {
-            crate::create_agent_dialog::open(window, cx, team_id)
-        }
     }
 }
 
@@ -3070,9 +3062,6 @@ impl ScreensPanel {
                     issue_id: issue_id.clone(),
                 }
             }
-            DevDialog::CreateAgent => DevDialogTarget::CreateAgent {
-                team_id: active_team_id(&self.nav, cx)?,
-            },
             DevDialog::GettingStarted => {
                 // `open_dialog` self-guards on the active team: gate here so
                 // the one-shot latch is never spent on a silent no-op.
@@ -3425,10 +3414,11 @@ mod tests {
     }
 
     /// EXP-1294 (dev): the builtin and trigger dialogs are gone with their
-    /// surfaces; `create-agent` is the New agent dialog.
+    /// surfaces; EXP-1319: New agent is a settings page
+    /// (`EXP_DEV_SETTINGS=new-agent`), no dialog.
     #[test]
     fn the_dev_dialogs_follow_the_session_model() {
-        assert_eq!(parse_dev_dialog("create-agent"), Some(DevDialog::CreateAgent));
+        assert_eq!(parse_dev_dialog("create-agent"), None);
         assert_eq!(parse_dev_dialog("tidy-up"), None);
         assert_eq!(parse_dev_dialog("trigger-new:a1"), None);
         assert_eq!(parse_dev_dialog("trigger-edit:a1:t1"), None);
@@ -3436,7 +3426,7 @@ mod tests {
             parse_dev_dialog("run:i1, i2"),
             Some(DevDialog::Run(vec!["i1".into(), "i2".into()]))
         );
-        assert!(DEV_DIALOG_SPECS.contains("create-agent"));
+        assert!(!DEV_DIALOG_SPECS.contains("create-agent"));
         assert!(!DEV_DIALOG_SPECS.contains("tidy-up"));
     }
 

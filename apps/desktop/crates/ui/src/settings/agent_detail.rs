@@ -159,7 +159,7 @@ pub(crate) fn seed_device(devices: &[AgentDevice]) -> Option<String> {
 /// Every signed-in login `device` reports, across its agents, its last used
 /// login first; a machine that reports none offers one unpinned row per
 /// runnable agent, so the row never goes empty.
-fn account_options(device: &AgentDevice) -> Vec<coding::AccountOption> {
+pub(crate) fn account_options(device: &AgentDevice) -> Vec<coding::AccountOption> {
     let advertised: Vec<coding::CodingAgent> =
         device.agents.iter().filter_map(|id| coding::CodingAgent::parse(id)).collect();
     let available = if advertised.is_empty() {
@@ -184,7 +184,7 @@ fn account_options(device: &AgentDevice) -> Vec<coding::AccountOption> {
 /// login, else the machine's last used login, else the first. Only REPORTED
 /// logins count — the agent-named unpinned rows of a machine that reports
 /// none are no login, so the row reads "Last used" instead.
-fn current_account<'a>(
+pub(crate) fn current_account<'a>(
     options: &'a [coding::AccountOption],
     account: Option<&str>,
     cli: Option<&str>,
@@ -207,7 +207,7 @@ fn current_account<'a>(
 
 /// THE device picker over `devices` behind a picker-row trigger (the
 /// composer's rows, each machine by its own glyph). Shared with the New agent
-/// dialog.
+/// page ([`super::new_agent`]).
 pub(crate) fn device_picker_control(
     prefix: &'static str,
     devices: &[AgentDevice],
