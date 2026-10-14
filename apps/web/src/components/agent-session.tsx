@@ -52,6 +52,7 @@ import {
   type WorkCardLaneTarget,
 } from "@exp/ui"
 import { Empty } from "@/components/empty"
+import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { useNow } from "@/hooks/use-now"
@@ -301,11 +302,9 @@ export function AgentSessionView({
     [store, session.status]
   )
 
-  const [atBottom, setAtBottom] = useState(true)
   /** EXP-356: the selected conversation tab — `null` is the main agent; a
    *  subagent id focuses that agent's stream. */
   const [agentTab, setAgentTab] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const sendMessage = (text: string): boolean => store.sendMessage(text)
   const answerQuestion = (
@@ -316,53 +315,14 @@ export function AgentSessionView({
   ) => store.answerQuestion(item, keys, labels, text)
 
   // ── Follow-scroll: pinned to the newest event until the user scrolls up ───
-
-  const [feedScrolled, setFeedScrolled] = useState(false)
-  const handleFeedScroll = () => {
-    const el = scrollRef.current
-    if (!el) return
-    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 32)
-    setFeedScrolled(el.scrollTop > 0)
-  }
-
-  const jumpToBottom = () => {
-    const el = scrollRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight })
-    setAtBottom(true)
-  }
-
-  // EXP-440: rows finish laying out AFTER the pin effect (deferred markdown,
-  // decoded images) — re-pin on every growth of the content column.
-  const atBottomRef = useRef(atBottom)
-  atBottomRef.current = atBottom
-  const contentObserverRef = useRef<ResizeObserver | null>(null)
-  const setContentRef = useCallback((node: HTMLDivElement | null) => {
-    contentObserverRef.current?.disconnect()
-    contentObserverRef.current = null
-    if (!node || typeof ResizeObserver === `undefined`) return
-    const observer = new ResizeObserver(() => {
-      if (!atBottomRef.current) return
-      const el = scrollRef.current
-      if (el) el.scrollTop = el.scrollHeight
-    })
-    observer.observe(node)
-    contentObserverRef.current = observer
-  }, [])
-
-  useEffect(() => () => contentObserverRef.current?.disconnect(), [])
-
-  useEffect(() => {
-    if (!atBottom) return
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [feed, atBottom, phase.kind, session.needsInput, compactingNow])
+  // (`useFollowScroll`, shared with the thread Conversation, EXP-1316).
+  const follow = useFollowScroll([feed, phase.kind, session.needsInput, compactingNow])
+  const { scrollRef, atBottom, jumpToBottom } = follow
 
   // Switching conversation tabs re-pins to the newest event (EXP-356).
   useEffect(() => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-    setAtBottom(true)
-  }, [agentTab])
+    jumpToBottom()
+  }, [agentTab, jumpToBottom])
 
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
@@ -775,13 +735,13 @@ export function AgentSessionView({
         <div className="relative min-h-0 flex-1">
           <div
             ref={scrollRef}
-            onScroll={handleFeedScroll}
+            onScroll={follow.onScroll}
             // `agent-feed`: the hook the inline-code tint keys on (EXP-698).
             className={cn(
               `agent-feed h-full overflow-y-auto overscroll-contain`,
               !isMobile && DETAIL_FADE_BOTTOM_CLASS
             )}
-            style={edgeFadeStyle({ top: feedScrolled, bottom: !isMobile })}
+            style={edgeFadeStyle({ top: follow.scrolled, bottom: !isMobile })}
           >
             {feedPlaceholder && paused ? (
               <CenteredState>
@@ -822,7 +782,7 @@ export function AgentSessionView({
               </CenteredState>
             ) : activeAgent !== null ? (
               <div
-                ref={setContentRef}
+                ref={follow.contentRef}
                 className={cn(
                   `flex min-h-full flex-col justify-end py-2`,
                   !isMobile && `pb-10`,
@@ -836,7 +796,7 @@ export function AgentSessionView({
               </div>
             ) : (
               <div
-                ref={setContentRef}
+                ref={follow.contentRef}
                 className={cn(
                   `flex min-h-full flex-col justify-end py-2`,
                   !isMobile && `pb-10`,

@@ -5,6 +5,7 @@ import {
   conceptIcon,
   EmptyState,
   IssueChip,
+  JumpToBottomButton,
   Menu,
   MenuGestureHost,
   menuProps,
@@ -34,6 +35,7 @@ import {
 import { useAnswerMessage, useUnqueueMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
+import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { useSession } from "@/hooks/use-session"
 import { useSessionMessages, useSessionThread } from "@/hooks/use-session-tree"
 import { useTeamBoards, useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
@@ -461,11 +463,20 @@ function ConversationBody({
   const { answer, pending } = useAnswerMessage()
   const unqueue = useUnqueueMessage()
   const { data: session } = useSession()
+  // EXP-1316 (1n): the session feed's scroll — opens at the newest row,
+  // follows while pinned, THE jump button once scrolled up.
+  const follow = useFollowScroll([view.rows])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6">
+      <div className="relative min-h-0 flex-1">
+      <div
+        ref={follow.scrollRef}
+        onScroll={follow.onScroll}
+        data-testid="thread-scroll"
+        className="h-full overflow-y-auto overscroll-contain"
+      >
+        <div ref={follow.contentRef} className="mx-auto w-full max-w-3xl px-4 pt-8 pb-8 md:px-6">
           <ThreadConversation
             rows={view.rows}
             renderText={renderThreadText}
@@ -491,6 +502,12 @@ function ConversationBody({
             onUnqueue={(id) => void unqueue(id)}
           />
         </div>
+      </div>
+      <JumpToBottomButton
+        visible={!follow.atBottom && view.rows.length > 0}
+        className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
+        onClick={follow.jumpToBottom}
+      />
       </div>
       {canReply && (
         <div className="shrink-0 px-4 pt-2 pb-4 md:px-6">
