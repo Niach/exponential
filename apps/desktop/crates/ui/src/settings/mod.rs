@@ -39,6 +39,7 @@ mod add_repository_dialog;
 // EXP-1294: one team agent's page (the board page's twin); its device
 // candidates + picker are shared with the New agent dialog.
 pub(crate) mod agent_detail;
+mod new_agent;
 mod agents;
 mod api_keys;
 pub(crate) mod doctor_section;
@@ -147,6 +148,7 @@ use statuses::StatusesPane;
 use local_repos::LocalReposPane;
 use members::MembersPane;
 use agent_detail::AgentDetailPane;
+use new_agent::NewAgentPane;
 use agents::AgentsPane;
 use archived_boards::ArchivedBoardsPane;
 use board_detail::BoardDetailPane;
@@ -210,6 +212,9 @@ pub(crate) enum SettingsSection {
     /// id). Member-visible: every member manages agents, only Delete is the
     /// owner's (`agent-settings.json`).
     Agent(String),
+    /// EXP-1319: the agent page in CREATE mode (web `settings/agents/new`) —
+    /// the Agents group's "New agent" row and the rail's `+`. Owner-only.
+    NewAgent,
     LocalRepos,
     /// EXP-886: how long this machine keeps finished runs' transcripts and
     /// resume records (`sessionRetentionDays`). Never gated.
@@ -372,7 +377,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Widget => Icon::from(registry::SETTINGS_WIDGET),
         SettingsSection::McpServers => Icon::from(registry::SETTINGS_MCP),
         SettingsSection::Tools => Icon::from(registry::SETTINGS_TOOLS),
-        SettingsSection::AgentClis | SettingsSection::Agent(_) => {
+        SettingsSection::AgentClis | SettingsSection::Agent(_) | SettingsSection::NewAgent => {
             Icon::from(registry::SETTINGS_AGENTS)
         }
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
@@ -395,7 +400,8 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
         | SettingsSection::Storage
         | SettingsSection::Board(_)
         | SettingsSection::ArchivedBoards
-        | SettingsSection::Widget => owner,
+        | SettingsSection::Widget
+        | SettingsSection::NewAgent => owner,
         _ => true,
     }
 }
@@ -514,6 +520,9 @@ pub struct SettingsView {
     board_detail: Entity<BoardDetailPane>,
     /// EXP-1294: ONE per-agent detail pane, the board pane's twin.
     agent_detail: Entity<AgentDetailPane>,
+    /// EXP-1319: the New agent page, built FRESH on every entry (and per
+    /// team) so a left-behind draft never reappears.
+    new_agent: Option<(String, Entity<NewAgentPane>)>,
     repositories: Entity<RepositoriesPane>,
     /// EXP-771 owner-only widget list (fetch-on-open server read —
     /// `widget_configs` is never synced).
@@ -609,6 +618,7 @@ impl SettingsView {
             archived_boards,
             board_detail,
             agent_detail,
+            new_agent: None,
             repositories,
             widget,
             mcp_servers,
@@ -639,7 +649,7 @@ impl SettingsView {
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let owner = active_team_id(&self.nav, cx)
             .map(|ws| is_owner(cx, &ws))
             .unwrap_or(false);
@@ -681,6 +691,7 @@ impl Render for SettingsView {
                 SettingsSection::McpServers => {
                     self.mcp_servers.update(cx, |pane, cx| pane.mark_stale(cx))
                 }
+                SettingsSection::NewAgent => self.new_agent = None,
                 _ => {}
             }
             // EXP-771: one scroll region for header + pane, so a section
@@ -704,6 +715,17 @@ impl Render for SettingsView {
             // itself (it needs to flush a pending rename on board switches).
             SettingsSection::Board(_) => self.board_detail.clone().into_any_element(),
             SettingsSection::Agent(_) => self.agent_detail.clone().into_any_element(),
+            SettingsSection::NewAgent => {
+                let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
+                if self.new_agent.as_ref().is_none_or(|(id, _)| *id != team_id) {
+                    let pane = cx.new(|cx| NewAgentPane::new(team_id.clone(), window, cx));
+                    self.new_agent = Some((team_id, pane));
+                }
+                self.new_agent
+                    .as_ref()
+                    .map(|(_, pane)| pane.clone().into_any_element())
+                    .unwrap_or_else(|| div().into_any_element())
+            }
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Widget => self.widget.clone().into_any_element(),
             SettingsSection::McpServers => self.mcp_servers.clone().into_any_element(),
@@ -957,17 +979,20 @@ impl Render for SettingsNavPanel {
                         })),
                     );
                 }
-                if let Some(team_id) = team_id.clone() {
+                // EXP-1319: "New agent" is a page (web parity), owner-only.
+                if owner {
+                    let selected = effective == SettingsSection::NewAgent;
                     let new_agent = Self::row(
                         "settings-nav-new-agent",
                         domain::agent_settings::AGENT_SETTINGS.copy.new_agent.clone(),
                         Some(Icon::new(registry::UI_ADD)),
-                        false,
+                        selected,
                         cx,
                     )
-                    .text_color(cx.theme().muted_foreground)
+                    .when(!selected, |row| row.text_color(cx.theme().muted_foreground))
                     .on_click(cx.listener(move |_, _, window, cx| {
-                        crate::create_agent_dialog::open(window, cx, team_id.clone());
+                        select_settings_section(window, cx, SettingsSection::NewAgent);
+                        navigate(window, cx, Screen::Settings);
                     }));
                     list = list.child(new_agent);
                 }
@@ -1738,6 +1763,22 @@ mod tests {
         assert_eq!(
             effective_selection(SettingsSection::ArchivedBoards, true, |_| false, |_| false),
             SettingsSection::ArchivedBoards
+        );
+    }
+
+    /// EXP-1319: New agent is a PAGE (web `settings/agents/new`), owner-only
+    /// like the web route: a member's selection clamps to the fallback.
+    #[test]
+    fn the_new_agent_page_is_owner_only() {
+        assert!(section_visible(&SettingsSection::NewAgent, true));
+        assert!(!section_visible(&SettingsSection::NewAgent, false));
+        assert_eq!(
+            effective_selection(SettingsSection::NewAgent, true, |_| false, |_| false),
+            SettingsSection::NewAgent
+        );
+        assert_ne!(
+            effective_selection(SettingsSection::NewAgent, false, |_| true, |_| true),
+            SettingsSection::NewAgent
         );
     }
 }
