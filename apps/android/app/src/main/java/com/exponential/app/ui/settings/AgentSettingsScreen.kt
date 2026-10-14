@@ -59,7 +59,6 @@ import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.TextFieldRow
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.deviceIcon
@@ -520,12 +519,15 @@ internal fun AgentSettingsContent(
                 } else {
                     Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) { AgentGlyph(icon, color) }
                 }
-                TextFieldRow(
-                    label = label(AgentSettings.FIELD_IDENTITY),
+                // No caption: the glyph + colour ARE the label (web/iOS/desktop).
+                GlassTextField(
                     value = name,
                     onValueChange = onNameChange,
                     placeholder = AgentSettings.Copy.NAME_PLACEHOLDER,
                     enabled = editable,
+                    singleLine = true,
+                    bordered = false,
+                    containerColor = Color.Transparent,
                     modifier = Modifier
                         .weight(1f)
                         .testTag("agent-settings-name")
