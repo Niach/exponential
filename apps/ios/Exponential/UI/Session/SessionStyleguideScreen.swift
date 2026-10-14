@@ -16,6 +16,7 @@ struct SessionStyleguideScreen: View {
 
     private static let me = "u-demo"
     private static let accountId = "styleguide"
+    private static let threadTitle = "Reduce cold start below 800 ms"
 
     @Environment(AppDependencies.self) private var deps
     @State private var model: AgentSessionModel?
@@ -43,16 +44,22 @@ struct SessionStyleguideScreen: View {
     }()
 
     var body: some View {
+        // EXP-1308: pushed over its thread, as a session card opens it, so the
+        // system back button names the thread like the other clients' back link.
         NavigationStack {
-            Group {
-                if let model {
-                    AgentSessionView(
-                        accountId: Self.accountId, session: Self.session, previewModel: model
-                    )
-                } else {
-                    AppBackground()
+            AppBackground()
+                .navigationTitle(Self.threadTitle)
+                .navigationDestination(isPresented: .constant(true)) {
+                    Group {
+                        if let model {
+                            AgentSessionView(
+                                accountId: Self.accountId, session: Self.session, previewModel: model
+                            )
+                        } else {
+                            AppBackground()
+                        }
+                    }
                 }
-            }
         }
         .preferredColorScheme(.dark)
         .onAppear {

@@ -1255,7 +1255,7 @@
       "blurb": "A Guide section's diff as a page under the thread's Guide (`?tab=guide&section=N`): a back row to the Guide naming the section and its counts, the file tree beside the same file cards every diff draws, only that section's files (phones: the cards and the bar's file sheet, filtered).",
       "order": 5,
       "web": {
-        "route": "/t/$teamSlug/threads/$diffThreadId?tab=guide&section=1",
+        "route": "/t/$teamSlug/threads/$diffThreadId?tab=guide&section=other",
         "anchor": {
           "text": "Unable to load topic",
           "timeoutMs": 60000
@@ -1273,7 +1273,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID (EXP-1308): APP-14's thread, the one seeded PR with a real GitHub diff. EXP-1251: APP-14 has no report, so the PR body is its one unnumbered section claiming the whole diff (`section=1`; there is no `other` page); the anchor is a line of the first card's own patch, as on review-diff.",
+        "web": "`$diffThreadId` resolves to DEMO_DIFF_THREAD_ID (EXP-1308): APP-14's thread, the one seeded PR with a real GitHub diff. EXP-1251: APP-14 has no report, so the whole diff is its ONE Changes row, the `other` page (`section=other`, titled Changes); the anchor is a line of the first card's own patch, as on review-diff.",
         "ios": "EXP-1303: APP-14's thread (the only seeded PR with a real GitHub diff; APP-15's Guide draws no Changes row), its one Changes row's section page.",
         "android": "EXP-1303: as iOS, APP-14's one Changes row's section page.",
         "desktop": "EXP-1251: a section page is state inside the Guide (`SteerSessionView::open_guide_page`) with no dev deep link yet, so the desktop half is not driven."
