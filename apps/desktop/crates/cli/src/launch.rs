@@ -224,7 +224,7 @@ pub fn start_foreground(
         .filter_map(|issue| issue.identifier.clone())
         .collect();
 
-    let live = Arc::new(LiveRegistry::default());
+    let live = answer_tapped_registry(Arc::clone(&ctx.trpc));
     let slot: Arc<Mutex<Option<Arc<RunningSession>>>> = Arc::new(Mutex::new(None));
     let deps = Arc::new(pickup_deps(PickupHost {
         ctx: Arc::clone(&ctx),
@@ -516,6 +516,26 @@ pub fn default_team_id(trpc: &api::trpc::TrpcClient) -> anyhow::Result<String> {
         .team
         .map(|team| team.id)
         .ok_or_else(|| anyhow!("You are not a member of any team yet."))
+}
+
+/// EXP-1316: a pickup registry whose sessions' relay answers (the session
+/// view) close their synced cards too: the publisher's tap maps the
+/// question onto the card at once, `sessions.resolveCard` goes off-thread.
+pub fn answer_tapped_registry(trpc: Arc<api::TrpcClient>) -> Arc<LiveRegistry> {
+    let live = Arc::new(LiveRegistry::default());
+    let registry = Arc::clone(&live);
+    steer::answer_tap::add_answer_tap(Arc::new(move |session_id, resolution| {
+        if let Some(input) = registry.resolve_card_input(
+            session_id,
+            &resolution.question_id,
+            resolution.answer.clone(),
+            resolution.decision.clone(),
+            resolution.feedback.clone(),
+        ) {
+            coding::pickup::write_back_card(Arc::clone(&trpc), input);
+        }
+    }));
+    live
 }
 
 #[cfg(test)]

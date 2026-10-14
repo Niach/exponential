@@ -1162,8 +1162,21 @@ async fn pump_connection(
                         // question identity + the TUI key choreography, so the
                         // publisher only routes.
                         Some(ServerFrame::Answer { question_id, ask_id, keys, text }) => {
+                            let answer = RemoteAnswer { question_id, ask_id, keys, text };
+                            // EXP-1316: the synced card this question was
+                            // posted as closes too (the host's tap writes
+                            // `sessions.resolveCard`), before the engine
+                            // resolves it out of its open cards.
+                            let question = crate::answer_tap::find_question(
+                                recorder.journal.replay(),
+                                &answer.question_id,
+                            );
+                            crate::answer_tap::notify(
+                                &spec.session_id,
+                                &crate::answer_tap::card_resolution(&answer, question),
+                            );
                             if let Some(answers) = &hooks.answers {
-                                answers.submit(RemoteAnswer { question_id, ask_id, keys, text });
+                                answers.submit(answer);
                             }
                         }
                         // EXP-746: live config. Like `answer`, never through

@@ -68,9 +68,11 @@ pub(crate) fn install(cx: &mut App) {
         return;
     }
     let (launches, inbox) = flume::unbounded::<LaunchRequest>();
+    let live = Arc::new(pickup::LiveRegistry::default());
+    install_answer_tap(&live, cx);
     cx.set_global(PickupHost {
         launches,
-        live: Arc::new(pickup::LiveRegistry::default()),
+        live,
         in_flight: HashSet::new(),
         stalled: HashMap::new(),
         scheduled: false,
@@ -92,6 +94,35 @@ pub(crate) fn install(cx: &mut App) {
     let local = LocalSessions::global(cx);
     cx.observe(&local, |_, cx| schedule(cx)).detach();
     schedule(cx);
+}
+
+/// EXP-1316: a card answered in the session view (relay → this engine)
+/// closes its synced `messages` card on every client: the publisher's tap
+/// maps the question onto the card at once (before the engine resolves it),
+/// the foreground writes `sessions.resolveCard` with the active account.
+fn install_answer_tap(live: &Arc<pickup::LiveRegistry>, cx: &mut App) {
+    let (resolved, inbox) = flume::unbounded::<api::sessions::AnswerInput>();
+    let registry = Arc::clone(live);
+    steer::answer_tap::add_answer_tap(Arc::new(move |session_id, resolution| {
+        if let Some(input) = registry.resolve_card_input(
+            session_id,
+            &resolution.question_id,
+            resolution.answer.clone(),
+            resolution.decision.clone(),
+            resolution.feedback.clone(),
+        ) {
+            let _ = resolved.send(input);
+        }
+    }));
+    cx.spawn(async move |cx| {
+        while let Ok(input) = inbox.recv_async().await {
+            cx.update(|cx| match queries::trpc_client(cx) {
+                Some(trpc) => pickup::write_back_card(Arc::new(trpc), input),
+                None => log::warn!("pickup: no account to resolve card {}", input.message_id),
+            });
+        }
+    })
+    .detach();
 }
 
 /// Run one pass on the next effect cycle (coalesced).

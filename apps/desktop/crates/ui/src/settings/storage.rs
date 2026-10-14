@@ -648,11 +648,9 @@ impl Render for StoragePane {
                     let list: Vec<gpui::Div> = rows
                         .iter()
                         .zip(joins.into_iter())
-                        .enumerate()
-                        .map(|(index, (row, (identifier, uploader)))| {
+                        .map(|(row, (identifier, uploader))| {
                             crate::surface::list_row(
                                 self.render_row(row, identifier, uploader, cx),
-                                index,
                             )
                         })
                         .collect();

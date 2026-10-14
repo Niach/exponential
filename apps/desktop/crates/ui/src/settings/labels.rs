@@ -515,13 +515,12 @@ impl Render for LabelsPane {
         let mut body =
             section(cx).child(crate::surface::glass_section_header("Labels", new_label, cx));
 
-        // EXP-994: ONE table, not a stack of floating cards — every row but
-        // the first draws the ladder's hairline, and nothing boxes them in.
+        // EXP-1320: ONE list, flat gapless rows, no hairlines, nothing boxes
+        // them in.
         let mut list = v_flex();
-        for (index, label) in labels.iter().enumerate() {
+        for label in labels.iter() {
             list = list.child(crate::surface::list_row(
                 self.render_label_row(label, window, cx),
-                index,
             ));
         }
         if labels.is_empty() && !self.creating {

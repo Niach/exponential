@@ -549,9 +549,7 @@ pub(crate) fn render_sections(
                 .child(surface::glass_section_header(section.label, tag, cx))
                 .child(
                     v_flex().w_full().min_w_0().children(
-                        rows.into_iter()
-                            .enumerate()
-                            .map(|(index, row)| surface::list_row(row, index)),
+                        rows.into_iter().map(surface::list_row),
                     ),
                 ),
         );
@@ -582,8 +580,8 @@ pub(crate) fn render_single(row: &ReadinessRow, props: BlockProps, cx: &App) -> 
         Some(tail) => v_flex()
             .w_full()
             .min_w_0()
-            .child(surface::list_row(line, 0))
-            .child(surface::list_row(tail, 1)),
+            .child(surface::list_row(line))
+            .child(surface::list_row(tail)),
         None => h_flex().w_full().min_w_0().child(line),
     }
 }

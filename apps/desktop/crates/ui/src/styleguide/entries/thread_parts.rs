@@ -66,15 +66,18 @@ pub(super) fn case(index: usize) -> Case {
         .collect();
     let messages: Vec<MessageRow> = fixture_rows::rows(&input["messages"]);
     let pulls: Vec<PullRequestRow> = fixture_rows::rows(&input["pullRequests"]);
-    let view = build_session_thread(SessionThreadInput {
-        root: &root,
-        sessions: &sessions.iter().collect::<Vec<_>>(),
-        session_issues: &links.iter().collect::<Vec<_>>(),
-        issues: &issues,
-        messages: &messages.iter().collect::<Vec<_>>(),
-        pull_requests: &pulls.iter().collect::<Vec<_>>(),
-        now_ms: fixture_rows::now_ms(&input["now"]),
-    });
+    let view = build_session_thread(
+        SessionThreadInput {
+            root: &root,
+            sessions: &sessions.iter().collect::<Vec<_>>(),
+            session_issues: &links.iter().collect::<Vec<_>>(),
+            issues: &issues,
+            messages: &messages.iter().collect::<Vec<_>>(),
+            pull_requests: &pulls.iter().collect::<Vec<_>>(),
+            now_ms: fixture_rows::now_ms(&input["now"]),
+        },
+        None,
+    );
     Case { view, messages, issues }
 }
 
@@ -111,6 +114,8 @@ fn strip(case: &Case, cx: &App) -> AnyElement {
                 );
                 trailing.push(strip_divider(cx));
             }
+            // The session chips land with the in-place session view (1b).
+            ThreadTab::Session { .. } => {}
             ThreadTab::Guide { dot } => trailing.push(
                 strip_chip("sg-thread-guide", false, cx)
                     .child(Icon::new(registry::GUIDE_CHANGES).xsmall())
@@ -131,7 +136,13 @@ fn strip(case: &Case, cx: &App) -> AnyElement {
 }
 
 /// One conversation row, the way the thread screen paints it.
-pub(super) fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCache>, cx: &mut App) -> AnyElement {
+pub(super) fn row(
+    case: &Case,
+    row: &SessionThreadRow,
+    images: &Entity<ImageCache>,
+    window: &Window,
+    cx: &mut App,
+) -> AnyElement {
     if let SessionThreadRow::Message { id, author, body, queued, .. } = row {
         let markdown = message_markdown(SharedString::from(format!("sg-thread-message-{id}")), body, None, images);
         return match author.as_str() {
@@ -148,7 +159,7 @@ pub(super) fn row(case: &Case, row: &SessionThreadRow, images: &Entity<ImageCach
             _ => muted_line(registry::UI_INFO, body.clone(), cx),
         };
     }
-    card_row(row, &case.view.root_id, None, images, cx).unwrap_or_else(|| div().into_any_element())
+    card_row(row, &case.view.root_id, None, images, window, cx).unwrap_or_else(|| div().into_any_element())
 }
 
 /// The rows of the second case the first has no example of.
@@ -198,10 +209,10 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let second = case(1);
     let mut conversation = v_flex().w_full().gap_5();
     for item in &first.view.rows {
-        conversation = conversation.child(row(&first, item, &images, cx));
+        conversation = conversation.child(row(&first, item, &images, window, cx));
     }
     for item in extra_rows(&second.view) {
-        conversation = conversation.child(row(&second, item, &images, cx));
+        conversation = conversation.child(row(&second, item, &images, window, cx));
     }
     v_flex()
         .w(px(760.))
@@ -240,6 +251,6 @@ mod tests {
             .collect();
         assert_eq!(kinds.len(), 7, "{kinds:?}");
         assert!(matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
-        assert_eq!(first.view.title, "Login fails on Safari");
+        assert_eq!(first.view.title, "Implement EXP-12 + 1");
     }
 }

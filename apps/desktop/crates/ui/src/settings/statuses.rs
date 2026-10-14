@@ -1078,7 +1078,6 @@ impl Render for StatusesPane {
                         window,
                         cx,
                     ),
-                    index,
                 ));
             }
             if !rows.is_empty() {

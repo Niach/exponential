@@ -32,6 +32,10 @@ const FILL: f32 = 6.;
 /// The quiet word on a stack's top row ×4 (web `word="stack"`).
 pub(crate) const STACK_WORD: &str = "stack";
 
+/// EXP-1318: the merged-PR glyph's tint ×4 = the web's `text-purple-400`
+/// (`pr-merged`), never the blue of a done status.
+pub(crate) const PR_MERGED_TINT: theme::Srgb8 = theme::Srgb8 { r: 192, g: 132, b: 252, a: 255 };
+
 /// A hover callback: `true` entering the row, `false` leaving it.
 pub(crate) type PrRowHover = Box<dyn Fn(&bool, &mut Window, &mut App)>;
 

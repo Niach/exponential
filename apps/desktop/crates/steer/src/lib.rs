@@ -57,6 +57,7 @@
 
 pub mod activity;
 pub mod agent_login_driver;
+pub mod answer_tap;
 pub mod codex_login_picker;
 pub mod commands;
 pub mod control_channel;

@@ -202,6 +202,32 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     actions
 }
 
+/// EXP-1316: the `messages.id` of the open card the engine posted for
+/// `question_id` (open cards = `messages.id` → question id); the smallest id
+/// when (never in practice) two carry it.
+pub fn card_message_for(open_cards: &HashMap<String, String>, question_id: &str) -> Option<String> {
+    open_cards
+        .iter()
+        .filter(|(_, question)| question.as_str() == question_id)
+        .map(|(message_id, _)| message_id)
+        .min()
+        .cloned()
+}
+
+/// EXP-1316: write a relay-resolved card back (`sessions.resolveCard`) on
+/// its own thread — idempotent server-side, never blocks the engine; a
+/// failure is a log line (the card merely stays open elsewhere).
+pub fn write_back_card(trpc: std::sync::Arc<api::TrpcClient>, input: api::sessions::AnswerInput) {
+    let spawned = std::thread::Builder::new().name("resolve-card".to_string()).spawn(move || {
+        if let Err(err) = api::sessions::resolve_card(&trpc, &input) {
+            log::warn!("pickup: resolve card {} failed: {err}", input.message_id);
+        }
+    });
+    if let Err(err) = spawned {
+        log::warn!("pickup: resolve card thread: {err}");
+    }
+}
+
 fn message_order(a: &MessageRow, b: &MessageRow) -> std::cmp::Ordering {
     (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id))
 }
@@ -482,6 +508,30 @@ impl LiveRegistry {
 
     fn settle(&self, session_id: &str) {
         locked(&self.unsettled).remove(session_id);
+    }
+
+    /// EXP-1316: a relay answer (the session view, not the card) resolved
+    /// `question_id` of `session_id`: the `sessions.resolveCard` input for
+    /// the card this engine posted for it ([`card_message_for`] over its
+    /// open cards), the card marked answered so a later pass never feeds the
+    /// stamped row back. `None` = not a session of this registry, or no card
+    /// carries that question (nothing to close). Read at once, before the
+    /// engine resolves the question out of its open cards.
+    pub fn resolve_card_input(
+        &self,
+        session_id: &str,
+        question_id: &str,
+        answer: Option<String>,
+        decision: Option<String>,
+        feedback: Option<String>,
+    ) -> Option<api::sessions::AnswerInput> {
+        let mut entries = self.lock();
+        let entry = entries.get_mut(session_id)?;
+        let message_id = card_message_for(&entry.engine.open_cards(), question_id)?;
+        if !entry.answered.insert(message_id.clone()) {
+            return None;
+        }
+        Some(api::sessions::AnswerInput { message_id, answer, decision, feedback })
     }
 
     fn mark_answered(&self, session_id: &str, message_id: &str) {
@@ -1312,6 +1362,38 @@ mod tests {
             pass.run(),
             vec![PickupAction::Revoke { session_id: "s1".to_string(), message_id: "m2".to_string() }]
         );
+    }
+
+    /// EXP-1316: a relay answer finds the card posted for its question,
+    /// once; another session's or an unknown question finds none.
+    #[test]
+    fn a_relay_answer_maps_onto_its_card_once() {
+        let cards = HashMap::from([
+            ("c1".to_string(), "q-1".to_string()),
+            ("c2".to_string(), "q-2".to_string()),
+        ]);
+        assert_eq!(card_message_for(&cards, "q-2").as_deref(), Some("c2"));
+        assert_eq!(card_message_for(&cards, "q-9"), None);
+
+        let engine = Arc::new(FakeEngine::default());
+        engine.cards.lock().unwrap().extend(cards);
+        let live = LiveRegistry::default();
+        live.insert("s1", engine, None);
+        let input = live
+            .resolve_card_input("s1", "q-1", None, Some("rejected".into()), Some("Smaller".into()))
+            .expect("the card");
+        assert_eq!(
+            input,
+            api::sessions::AnswerInput {
+                message_id: "c1".into(),
+                answer: None,
+                decision: Some("rejected".into()),
+                feedback: Some("Smaller".into()),
+            }
+        );
+        assert!(live.resolve_card_input("s1", "q-1", Some("a".into()), None, None).is_none(), "once");
+        assert!(live.resolve_card_input("s2", "q-2", Some("a".into()), None, None).is_none());
+        assert!(!live.live_views()["s1"].open_cards.contains_key("c1"), "never re-fed");
     }
 
     #[test]

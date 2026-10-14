@@ -607,10 +607,7 @@ impl Render for SignInMethodsSection {
                 for provider in &methods.providers {
                     rows.push(self.render_provider_row(&methods, provider, cx));
                 }
-                let list = rows
-                    .into_iter()
-                    .enumerate()
-                    .map(|(ix, row)| crate::surface::list_row(row, ix));
+                let list = rows.into_iter().map(crate::surface::list_row);
                 methods_section = methods_section
                     .child(v_flex().w_full().min_w_0().children(list))
                     .children(self.render_copy_url(cx));
@@ -628,8 +625,7 @@ impl Render for SignInMethodsSection {
                         .map(|passkey| self.render_passkey_row(&methods, passkey, cx))
                         .collect::<Vec<_>>()
                         .into_iter()
-                        .enumerate()
-                        .map(|(ix, row)| crate::surface::list_row(row, ix));
+                        .map(crate::surface::list_row);
                     passkeys_section =
                         passkeys_section.child(v_flex().w_full().min_w_0().children(list));
                 }

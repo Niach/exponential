@@ -141,7 +141,7 @@ impl AgentScreenView {
         // The channel's own card leads the contract's rows; the header
         // already names the agent.
         let rows: Vec<SessionThreadRow> =
-            crate::session_data::session_thread_view(&self.agent_id, crate::session_data::now_ms(), cx)
+            crate::session_data::session_thread_view(&self.agent_id, None, crate::session_data::now_ms(), cx)
                 .map(|view| {
                     view.rows
                         .into_iter()
@@ -200,7 +200,7 @@ impl AgentScreenView {
             .into_any_element()
     }
 
-    fn render_row(&self, row: &SessionThreadRow, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_row(&self, row: &SessionThreadRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let team_id = self.agent.as_ref().and_then(|agent| agent.team_id.clone());
         let SessionThreadRow::Message {
             id,
@@ -210,7 +210,7 @@ impl AgentScreenView {
             ..
         } = row
         else {
-            return crate::thread_screen::card_row(row, &self.agent_id, team_id.as_deref(), &self.images, cx)
+            return crate::thread_screen::card_row(row, &self.agent_id, team_id.as_deref(), &self.images, window, cx)
                 .map(|card| div().w_full().pl(px(CARD_INSET)).child(card).into_any_element())
                 .unwrap_or_else(|| div().into_any_element());
         };
@@ -297,7 +297,7 @@ impl Focusable for AgentScreenView {
 }
 
 impl Render for AgentScreenView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         if self.agent.is_none() {
             // Skeletons, never "Loading…" (feedback-states.json).
             return v_flex()
@@ -311,7 +311,7 @@ impl Render for AgentScreenView {
             .rows
             .clone()
             .iter()
-            .map(|row| self.render_row(row, cx))
+            .map(|row| self.render_row(row, window, cx))
             .collect();
         let column = v_flex()
             .w_full()

@@ -569,10 +569,10 @@ impl Render for MembersPane {
             cx,
         ));
 
-        // EXP-994: ONE table — a hairline between rows, no gap, no card
+        // EXP-1320: ONE list — flat gapless rows, no hairlines, no card
         // around them (see [`Self::render_member_row`]).
         let mut list = v_flex().w_full().min_w_0();
-        for (index, row) in rows.iter().enumerate() {
+        for row in rows.iter() {
             list = list.child(crate::surface::list_row(
                 self.render_member_row(
                     row,
@@ -583,7 +583,6 @@ impl Render for MembersPane {
                     placeholders.get(&row.member.user_id).copied(),
                     cx,
                 ),
-                index,
             ));
         }
         body = body.child(list);
@@ -644,7 +643,7 @@ impl Render for MembersPane {
                 .collect();
             if !pending.is_empty() {
                 let mut pending_rows = v_flex().w_full().min_w_0();
-                for (invite_index, invite) in pending.iter().enumerate() {
+                for invite in pending.iter() {
                     let invite_id = invite.id.clone();
                     let role: SharedString = invite
                         .role
@@ -740,7 +739,6 @@ impl Render for MembersPane {
                                         });
                                     }),
                             ),
-                        invite_index,
                     ));
                 }
                 // EXP-771: the web's `GlassSectionHeader` — the same heading

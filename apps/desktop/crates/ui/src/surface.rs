@@ -76,16 +76,11 @@ pub(crate) fn glass_row_divider<T: Styled>(row: T) -> T {
     sdk::glass_row_divider(ide_chrome(), row)
 }
 
-/// EXP-994 — the hairline for a list built row by row, skipped on `ix == 0`
-/// (SDK `controls::list_row_divider`).
-pub(crate) fn list_row_divider<T: Styled>(row: T, ix: usize) -> T {
-    sdk::list_row_divider(ide_chrome(), row, ix)
-}
-
-/// [`list_row_divider`] on a full-width wrapper around an opaque row (SDK
-/// `controls::list_row`).
-pub(crate) fn list_row(row: impl gpui::IntoElement, ix: usize) -> Div {
-    sdk::list_row(ide_chrome(), row, ix)
+/// EXP-1320 — one row of an entity list: a full-width wrapper, flat and
+/// gapless, NO hairline (lists ×4 = a band over flat rows; only form groups,
+/// [`glass_group_rows`], keep their dividers).
+pub(crate) fn list_row(row: impl gpui::IntoElement) -> Div {
+    gpui::div().w_full().min_w_0().child(row)
 }
 
 /// Shared markdown `TextView` style (EXP-282; SDK `controls::markdown_style`):

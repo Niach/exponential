@@ -165,17 +165,6 @@ pub fn end(trpc: &TrpcClient, session_id: &str) -> Result<TxOutput, ApiError> {
     trpc.mutation("sessions.end", &SessionIdInput { session_id })
 }
 
-/// Rename a root; `None` sends `null` (back to the derived title).
-pub fn set_title(trpc: &TrpcClient, session_id: &str, title: Option<&str>) -> Result<TxOutput, ApiError> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        session_id: &'a str,
-        title: Option<&'a str>,
-    }
-    trpc.mutation("sessions.setTitle", &Input { session_id, title })
-}
-
 /// Link issues to a root (1..=30).
 pub fn link_issues(trpc: &TrpcClient, session_id: &str, issue_ids: &[String]) -> Result<TxOutput, ApiError> {
     #[derive(Serialize)]
@@ -215,6 +204,14 @@ pub struct AnswerInput {
 /// Answer a question/plan card in place.
 pub fn answer(trpc: &TrpcClient, input: &AnswerInput) -> Result<TxOutput, ApiError> {
     trpc.mutation("sessions.answer", input)
+}
+
+/// EXP-1316: the DEVICE's write-back of a card its engine resolved itself
+/// (a relay answer from the session view): stamps the same answered card +
+/// `answeredAt` while still open, `{ok: true}` when already answered (never
+/// CONFLICT), enqueues nothing. Same input shape as [`answer`].
+pub fn resolve_card(trpc: &TrpcClient, input: &AnswerInput) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.resolveCard", input)
 }
 
 /// Take back a queued (not yet consumed) person message.
@@ -444,13 +441,17 @@ mod tests {
     }
 
     #[test]
-    fn set_title_sends_null_to_clear() {
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
-        set_title(&client(&base), "s-1", None).unwrap();
-        assert!(request(&captured).ends_with(r#"{"sessionId":"s-1","title":null}"#));
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":1}}}"#);
-        set_title(&client(&base), "s-1", Some("Release")).unwrap();
-        assert!(request(&captured).ends_with(r#"{"sessionId":"s-1","title":"Release"}"#));
+    fn resolve_card_posts_the_answer() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        let input = AnswerInput {
+            message_id: "m-1".into(),
+            answer: Some("Postgres".into()),
+            ..AnswerInput::default()
+        };
+        resolve_card(&client(&base), &input).unwrap();
+        let request_text = request(&captured);
+        assert!(request_text.starts_with("POST /api/trpc/sessions.resolveCard HTTP/1.1"));
+        assert!(request_text.ends_with(r#"{"messageId":"m-1","answer":"Postgres"}"#));
     }
 
     #[test]

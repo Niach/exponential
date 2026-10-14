@@ -4,24 +4,27 @@
 //! ([`crate::session_data::session_thread_view`], fixture
 //! `session-thread.json`).
 //!
-//! * The HEADER: the title (a click renames it, `sessions.setTitle`) and a
-//!   lock while private — no caption.
+//! * The HEADER: the title (EXP-1316: derived, plain text, nobody renames
+//!   it) and a lock while private — no caption; its trailing slot holds the
+//!   Merge pill while the Guide's PR is open, then the Guide `…`, on EVERY
+//!   tab.
 //! * The STRIP: `Conversation` · one chip per linked issue (status glyph,
 //!   mono identifier, title) · `+` · a divider · `Guide` (a green dot while
-//!   the root's guide has content). A chip linked moments before it first
-//!   renders fades in with a ring.
+//!   the root's guide has content), every chip 28px. A chip linked moments
+//!   before it first renders fades in with a ring.
 //! * The CONVERSATION: the root's messages — a person's message a
 //!   right-aligned bubble over `author · HH:MM` (`Queued` + remove while the
 //!   device has not consumed it), the agent's prose as markdown, a session
 //!   = THE session card ([`crate::work_card::session_card`], opens that
-//!   session), question and plan cards answered in place
-//!   (`sessions.answer`), events as muted lines, pictures as tiles; under it
+//!   session), question and plan cards = THE session view's card
+//!   (`crate::steer_viewer::ask_card` + its option rows, the free-text row
+//!   and the plan's note; `sessions.answer`), events as muted lines, pictures as tiles; under it
 //!   THE session composer box ([`crate::composer::session_composer_box`])
 //!   sending `sessions.send({sessionId: root})`.
-//! * An ISSUE child = the issue detail, embedded; the GUIDE child = the
-//!   Guide page ([`crate::session_results::render`]) over the root's guide
-//!   and its pull request's files (`pullRequests.files`), the Stack card and
-//!   the merge capsule (`pullRequests.merge`).
+//! * An ISSUE child = the issue detail, EMBEDDED (no work header bar, no
+//!   Threads row); the GUIDE child = the Guide page
+//!   ([`crate::session_results::render`]) over the root's guide and its pull
+//!   request's files (`pullRequests.files`) and the Stack card.
 //! * THE Menu on the `+` and on every issue chip: `Link an issue` (THE
 //!   search list, `sessions.linkIssues`), `New issue` and, on a chip,
 //!   `Unlink <IDENT>` (`sessions.unlinkIssue`).
@@ -38,7 +41,7 @@ use gpui::{
 use gpui_component::{
     button::ButtonVariants as _,
     h_flex,
-    input::{Input, InputEvent, InputState, TextareaState},
+    input::{InputEvent, InputState, TextareaState},
     scroll::ScrollableElement as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -196,7 +199,7 @@ pub(crate) fn open_new_issue_in_thread(root_id: &str, window: &mut Window, cx: &
 }
 
 // ---------------------------------------------------------------------------
-// The writes (sessions.linkIssues / unlinkIssue / setTitle / answer / unqueue)
+// The writes (sessions.linkIssues / unlinkIssue / answer / unqueue)
 // ---------------------------------------------------------------------------
 
 /// Run `call` with the tRPC client in the background; a failure is the
@@ -232,13 +235,6 @@ pub(crate) fn link_issue(root_id: String, issue_id: String, cx: &mut App) {
 pub(crate) fn unlink_issue(root_id: String, issue_id: String, cx: &mut App) {
     background_write("unlink", "the issue", cx, move |trpc| {
         api::sessions::unlink_issue(trpc, &root_id, &issue_id)
-    });
-}
-
-/// `sessions.setTitle` — `None`/blank clears back to the derived title.
-fn rename_root(root_id: String, title: Option<String>, cx: &mut App) {
-    background_write("rename", "the title", cx, move |trpc| {
-        api::sessions::set_title(trpc, &root_id, title.as_deref())
     });
 }
 
@@ -711,6 +707,51 @@ fn body_text(element: gpui::Div) -> gpui::Div {
         .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
 }
 
+/// EXP-1317: a queued row offers its `Remove from queue` X only to its
+/// author, and only while it is queued.
+pub(crate) fn unqueue_offered(queued: bool, own: bool) -> bool {
+    queued && own
+}
+
+/// EXP-1317: the X's element id, keyed on (message id, queued): the
+/// consumed row never inherits the queued button's state.
+pub(crate) fn unqueue_button_id(prefix: &str, message_id: &str, queued: bool) -> SharedString {
+    let state = if queued { "queued" } else { "consumed" };
+    SharedString::from(format!("{prefix}-{message_id}-{state}"))
+}
+
+/// EXP-1317: THE `Remove from queue` X (the thread bubble and the session
+/// view's queue strip). Its tooltip is gpui's NATIVE per-frame tooltip on a
+/// wrapper keyed by [`unqueue_button_id`], never the button's managed
+/// overlay tooltip: that overlay hides only on a hover-out or a press, so a
+/// row that flipped queued → consumed under a still pointer kept it open; a
+/// native tooltip is re-requested by its element every frame and dies with
+/// the button.
+pub(crate) fn unqueue_button(
+    prefix: &str,
+    message_id: &str,
+    queued: bool,
+    cx: &App,
+    on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let id = unqueue_button_id(prefix, message_id, queued);
+    div()
+        .id(id.clone())
+        .flex_shrink_0()
+        .tooltip(|window, cx| {
+            gpui_component::tooltip::Tooltip::new(steer::feed::QUEUE_REMOVE_LABEL).build(window, cx)
+        })
+        .child(
+            crate::controls::ghost_icon_button(
+                SharedString::from(format!("{id}-x")),
+                Icon::new(registry::UI_CLOSE).xsmall(),
+                cx,
+            )
+            .on_click(on_click),
+        )
+        .into_any_element()
+}
+
 /// A person's message: the right-aligned bubble with its caption under it;
 /// a queued one reads `Queued`, and its AUTHOR (`own`) may take it back.
 pub(crate) fn user_bubble(
@@ -723,6 +764,11 @@ pub(crate) fn user_bubble(
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let unqueue_id = id.to_string();
+    let unqueue = unqueue_offered(queued, own).then(|| {
+        unqueue_button("thread-unqueue", id, queued, cx, move |_, _, cx| {
+            unqueue_message(unqueue_id.clone(), cx)
+        })
+    });
     let caption_row = h_flex()
         .gap_1()
         .items_center()
@@ -732,17 +778,7 @@ pub(crate) fn user_bubble(
         .when(queued, |row| {
             row.child(SharedString::from(format!("· {}", steer::feed::QUEUE_STRIP_TITLE)))
         })
-        .when(queued && own, |row| {
-            row.child(
-                    crate::controls::ghost_icon_button(
-                        SharedString::from(format!("thread-unqueue-{id}")),
-                        Icon::new(registry::UI_CLOSE).xsmall(),
-                        cx,
-                    )
-                    .tooltip(steer::feed::QUEUE_REMOVE_LABEL)
-                    .on_click(move |_, _, cx| unqueue_message(unqueue_id.clone(), cx)),
-                )
-        });
+        .children(unqueue);
     v_flex()
         .w_full()
         .min_w_0()
@@ -800,153 +836,271 @@ pub(crate) fn muted_line(glyph: crate::icons::ExpIcon, text: String, cx: &App) -
         .into_any_element()
 }
 
-/// The question / plan card frame (the glass card, the accent glyph beside
-/// the body column).
-fn ask_frame(plan: bool, body: gpui::Div, cx: &App) -> AnyElement {
-    let accent = if plan {
-        cx.theme().primary
+/// The free-text row a thread question card adds under its options (the
+/// card's options never carry it; the session view reads the agent's own
+/// row, claude's `Type something.`).
+pub(crate) const FREE_TEXT_LABEL: &str = "Type something.";
+/// A plan card's heading (the session view's).
+pub(crate) const PLAN_HEADING: &str = "Plan ready";
+
+/// The one inline field open on a thread card: a question's free-text row
+/// or a plan's Reject note (EXP-820, the session view's rule).
+struct CardInlineState {
+    message_id: String,
+    plan_reject: bool,
+    state: Entity<InputState>,
+    _subscription: Subscription,
+}
+
+#[derive(Default)]
+struct CardInline(Option<CardInlineState>);
+
+impl gpui::Global for CardInline {}
+
+fn card_inline_open(message_id: &str, cx: &App) -> Option<(bool, Entity<InputState>)> {
+    cx.try_global::<CardInline>()?
+        .0
+        .as_ref()
+        .filter(|open| open.message_id == message_id)
+        .map(|open| (open.plan_reject, open.state.clone()))
+}
+
+/// Open the inline field on `message_id`'s free-text row (or its plan
+/// Reject), focused; Enter sends it.
+fn open_card_inline(message_id: &str, plan_reject: bool, window: &mut Window, cx: &mut App) {
+    if card_inline_open(message_id, cx).is_some_and(|(open_reject, _)| open_reject == plan_reject) {
+        return;
+    }
+    let placeholder = if plan_reject {
+        crate::steer_viewer::PLAN_REJECT_PLACEHOLDER
     } else {
-        theme::tokens::YELLOW.to_hsla()
+        crate::steer_viewer::FREE_TEXT_PLACEHOLDER
     };
-    crate::surface::glass_card()
-        .w_full()
-        .min_w_0()
-        .p_3()
-        .child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .items_start()
-                .child(
-                    div().flex_shrink_0().mt(px(4.)).child(
-                        Icon::new(if plan { registry::CODING_PLAN } else { registry::UI_HELP })
-                            .with_size(px(14.))
-                            .text_color(accent),
-                    ),
-                )
-                .child(body.flex_1().min_w_0()),
-        )
+    let state = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
+    let subscription = cx.subscribe(&state, |_, event: &InputEvent, cx| {
+        if let InputEvent::PressEnter { shift: false, .. } = event {
+            send_card_inline(cx);
+        }
+    });
+    state.update(cx, |state, cx| state.focus(window, cx));
+    cx.set_global(CardInline(Some(CardInlineState {
+        message_id: message_id.to_string(),
+        plan_reject,
+        state,
+        _subscription: subscription,
+    })));
+    cx.refresh_windows();
+}
+
+/// Send the open inline field: a question's typed answer (needs text), a
+/// plan's reject with its note (an empty note is a plain reject).
+fn send_card_inline(cx: &mut App) {
+    let Some(open) = cx.try_global::<CardInline>().and_then(|inline| inline.0.as_ref()) else {
+        return;
+    };
+    let text = open.state.read(cx).value().trim().to_string();
+    let input = if open.plan_reject {
+        api::sessions::AnswerInput {
+            message_id: open.message_id.clone(),
+            decision: Some("rejected".to_string()),
+            feedback: (!text.is_empty()).then_some(text),
+            ..Default::default()
+        }
+    } else if text.is_empty() {
+        return;
+    } else {
+        api::sessions::AnswerInput {
+            message_id: open.message_id.clone(),
+            answer: Some(text),
+            ..Default::default()
+        }
+    };
+    cx.set_global(CardInline(None));
+    answer_card(input, cx);
+}
+
+/// The open inline field under its row: the glass field + the round Send.
+fn card_inline_field(message_id: &str, state: &Entity<InputState>, plan_reject: bool, window: &Window, cx: &App) -> AnyElement {
+    let empty = state.read(cx).value().trim().is_empty();
+    let send = crate::composer::composer_submit_kind(
+        SharedString::from(format!("thread-card-send-{message_id}")),
+        crate::composer::SubmitKind::Send,
+        !plan_reject && empty,
+        cx,
+    )
+    .on_click(|_, _, cx| {
+        cx.stop_propagation();
+        send_card_inline(cx);
+    });
+    crate::steer_viewer::ask_inline_field(state, send, window, cx).into_any_element()
+}
+
+/// `Answering…` while the card's answer is on its way.
+fn card_answering(cx: &App) -> AnyElement {
+    h_flex()
+        .gap_1p5()
+        .items_center()
+        .mt_2()
+        .text_xs()
+        .text_color(cx.theme().muted_foreground)
+        .child(gpui_component::spinner::Spinner::new().xsmall())
+        .child("Answering…")
         .into_any_element()
 }
 
-/// A question card answered in place: the question over one row per option
-/// (`1`, `2` … chips); once answered, the chosen option stays lit and the
-/// rest go quiet.
+/// EXP-1316 — a question card = THE session view's card: the question over
+/// its numbered option rows and (`custom`) the free-text row that opens an
+/// inline field; once answered, CLOSED (the check + the chosen answer).
+#[allow(clippy::too_many_arguments)] // one row's facts
 pub(crate) fn question_card(
     message_id: &str,
     question: MarkdownView,
     options: &[String],
+    custom: bool,
     answer: Option<&str>,
     answered: bool,
-    cx: &App,
+    window: &Window,
+    cx: &mut App,
 ) -> AnyElement {
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let hover = theme.list_hover;
-    let mut column = v_flex().gap_2().child(body_text(div()).w_full().min_w_0().child(question));
-    for (index, option) in options.iter().enumerate() {
-        let chosen = answer == Some(option.as_str());
-        let message_id = message_id.to_string();
-        let value = option.clone();
-        let row = div()
-            .id(SharedString::from(format!("thread-question-{message_id}-{index}")))
-            .flex()
-            .flex_row()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded(px(theme::tokens::radius::MD))
-            .border_1()
-            .border_color(if chosen {
-                theme::tokens::glass::STROKE_STRONG.to_hsla()
-            } else {
-                theme::tokens::glass::STROKE_CARD.to_hsla()
-            })
-            .text_sm()
-            .text_color(if answered && !chosen { muted } else { theme.foreground })
-            .child(div().flex_1().min_w_0().child(SharedString::from(option.clone())))
-            .when(index < 9, |row| {
-                row.child(
-                    div()
-                        .flex_shrink_0()
-                        .px_1()
-                        .rounded(px(4.))
-                        .border_1()
-                        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                        .text_size(px(10.))
-                        .font_family(theme::terminal::FONT_FAMILY)
-                        .text_color(muted)
-                        .child(SharedString::from((index + 1).to_string())),
+    let mut column = v_flex()
+        .w_full()
+        .min_w_0()
+        .child(crate::steer_viewer::ask_body_text(cx).child(question));
+    if answered {
+        column = column.child(crate::steer_viewer::ask_resolved_line(answer, false, cx));
+    } else if answering(message_id, cx) {
+        column = column.child(card_answering(cx));
+    } else {
+        let inline = card_inline_open(message_id, cx).filter(|(plan_reject, _)| !plan_reject);
+        let mut rows = v_flex().mt_2().w_full().min_w_0().gap_1();
+        for (index, option) in options.iter().enumerate() {
+            let id = message_id.to_string();
+            let value = option.clone();
+            rows = rows.child(
+                crate::steer_viewer::ask_option_button(
+                    SharedString::from(format!("thread-question-{message_id}-{index}")),
+                    option.clone(),
+                    None,
+                    false,
+                    false,
+                    false,
+                    index,
+                    cx,
                 )
-            })
-            .when(!answered, |row| {
-                row.cursor_pointer()
-                    .hover(move |style| style.bg(hover))
-                    .on_click(move |_, _, cx| {
-                        answer_card(
-                            api::sessions::AnswerInput {
-                                message_id: message_id.clone(),
-                                answer: Some(value.clone()),
-                                ..Default::default()
-                            },
-                            cx,
-                        );
-                    })
-            });
-        column = column.child(row);
-    }
-    ask_frame(false, column, cx)
-}
-
-/// A plan card answered in place: the plan over Approve / Reject; once
-/// decided, the decision as a muted word.
-pub(crate) fn plan_card(message_id: &str, plan: MarkdownView, decision: Option<&str>, cx: &App) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
-    let mut column = v_flex().gap_2().child(body_text(div()).w_full().min_w_0().child(plan));
-    match decision {
-        Some(decision) => {
-            column = column.child(
-                div()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(decision_word(decision))),
-            );
-        }
-        // Decided here, the echo still on its way.
-        None if answering(message_id, cx) => {}
-        None => {
-            let decide = |decision: &'static str, label: &'static str, primary: bool| {
-                let message_id = message_id.to_string();
-                let button = gpui_component::button::Button::new(SharedString::from(format!(
-                    "thread-plan-{message_id}-{decision}"
-                )))
-                .web_sm()
-                .label(label);
-                let button = if primary { button.primary() } else { button.ghost() };
-                button.on_click(move |_, _, cx| {
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
                     answer_card(
                         api::sessions::AnswerInput {
-                            message_id: message_id.clone(),
-                            decision: Some(decision.to_string()),
+                            message_id: id.clone(),
+                            answer: Some(value.clone()),
                             ..Default::default()
                         },
                         cx,
                     );
-                })
-            };
-            column = column.child(
-                h_flex()
-                    .gap_2()
-                    .child(decide("approved", PLAN_APPROVE_LABEL, true))
-                    .child(decide("rejected", PLAN_REJECT_LABEL, false)),
+                }),
             );
         }
+        if custom {
+            let id = message_id.to_string();
+            rows = rows.child(
+                crate::steer_viewer::ask_option_button(
+                    SharedString::from(format!("thread-question-{message_id}-custom")),
+                    FREE_TEXT_LABEL.to_string(),
+                    None,
+                    false,
+                    inline.is_some(),
+                    false,
+                    options.len(),
+                    cx,
+                )
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    open_card_inline(&id, false, window, cx);
+                }),
+            );
+            if let Some((_, state)) = &inline {
+                rows = rows.child(card_inline_field(message_id, state, false, window, cx));
+            }
+        }
+        column = column.child(rows);
     }
-    ask_frame(true, column, cx)
+    crate::steer_viewer::ask_card(false, None, None, column, cx)
+}
+
+/// EXP-1316 — a plan card = THE session view's plan card: `Plan ready`,
+/// the plan, Approve (primary) and Reject (opens the note field); once
+/// decided, CLOSED (the check + the decision).
+pub(crate) fn plan_card(
+    message_id: &str,
+    plan: MarkdownView,
+    decision: Option<&str>,
+    window: &Window,
+    cx: &mut App,
+) -> AnyElement {
+    let mut column = v_flex()
+        .w_full()
+        .min_w_0()
+        .child(crate::steer_viewer::ask_body_text(cx).child(plan));
+    match decision {
+        Some(decision) => {
+            column = column.child(crate::steer_viewer::ask_resolved_line(Some(&decision_word(decision)), false, cx));
+        }
+        None if answering(message_id, cx) => column = column.child(card_answering(cx)),
+        None => {
+            let inline = card_inline_open(message_id, cx).filter(|(plan_reject, _)| *plan_reject);
+            let approve_id = message_id.to_string();
+            let reject_id = message_id.to_string();
+            let mut rows = v_flex()
+                .mt_2()
+                .w_full()
+                .min_w_0()
+                .gap_1()
+                .child(
+                    crate::steer_viewer::ask_option_button(
+                        SharedString::from(format!("thread-plan-{message_id}-approved")),
+                        PLAN_APPROVE_LABEL.to_string(),
+                        None,
+                        true,
+                        false,
+                        false,
+                        0,
+                        cx,
+                    )
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        answer_card(
+                            api::sessions::AnswerInput {
+                                message_id: approve_id.clone(),
+                                decision: Some("approved".to_string()),
+                                ..Default::default()
+                            },
+                            cx,
+                        );
+                    }),
+                )
+                .child(
+                    crate::steer_viewer::ask_option_button(
+                        SharedString::from(format!("thread-plan-{message_id}-rejected")),
+                        PLAN_REJECT_LABEL.to_string(),
+                        None,
+                        false,
+                        inline.is_some(),
+                        false,
+                        1,
+                        cx,
+                    )
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        open_card_inline(&reject_id, true, window, cx);
+                    }),
+                );
+            if let Some((_, state)) = &inline {
+                rows = rows.child(card_inline_field(message_id, state, true, window, cx));
+            }
+            column = column.child(rows);
+        }
+    }
+    crate::steer_viewer::ask_card(true, Some(SharedString::from(PLAN_HEADING)), None, column, cx)
 }
 
 /// `approved` → `Approved`.
@@ -995,6 +1149,7 @@ pub(crate) fn card_row(
     root_id: &str,
     team_id: Option<&str>,
     images: &Entity<ImageCache>,
+    window: &Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
     Some(match row {
@@ -1012,20 +1167,24 @@ pub(crate) fn card_row(
             id,
             question,
             options,
+            custom,
             answer,
             answered,
         } => question_card(
             id,
             message_markdown(SharedString::from(format!("thread-question-{id}")), question, team_id, images),
             options,
+            *custom,
             answer.as_deref(),
-            *answered || answering(id, cx),
+            *answered,
+            window,
             cx,
         ),
         SessionThreadRow::Plan { id, plan, decision } => plan_card(
             id,
             message_markdown(SharedString::from(format!("thread-plan-{id}")), plan, team_id, images),
             decision.as_deref(),
+            window,
             cx,
         ),
         SessionThreadRow::Subagent { title, status, .. } => muted_line(
@@ -1193,7 +1352,7 @@ impl ThreadModel {
 }
 
 fn thread_model(root_id: &str, cx: &App) -> Option<ThreadModel> {
-    let view = crate::session_data::session_thread_view(root_id, crate::session_data::now_ms(), cx)?;
+    let view = crate::session_data::session_thread_view(root_id, None, crate::session_data::now_ms(), cx)?;
     let root = crate::session_data::session(root_id, cx)?;
     let store = Store::try_global(cx)?;
     let links: Vec<SessionIssueRow> = store
@@ -1246,8 +1405,6 @@ pub(crate) struct ThreadScreenView {
     pending: crate::composer_images::PendingImages,
     notice: Option<SharedString>,
     sending: bool,
-    /// The inline rename field while the title is being edited.
-    rename: Option<Entity<InputState>>,
     /// When each issue link was FIRST rendered, and whether it was new then
     /// (linked inside [`NEW_CHILD_WINDOW`]) — the fade-in ring.
     first_seen: HashMap<String, (Instant, bool)>,
@@ -1315,7 +1472,6 @@ impl ThreadScreenView {
             pending: Default::default(),
             notice: None,
             sending: false,
-            rename: None,
             first_seen: HashMap::new(),
             opened_at: Instant::now(),
             scroll: ScrollHandle::new(),
@@ -1413,7 +1569,13 @@ impl ThreadScreenView {
         if let ThreadChildSel::Issue(issue_id) = &child {
             let view = self
                 .issue_view
-                .get_or_insert_with(|| cx.new(|cx| crate::issue_detail::IssueDetailView::new(window, cx)))
+                .get_or_insert_with(|| {
+                    cx.new(|cx| {
+                        let mut detail = crate::issue_detail::IssueDetailView::new(window, cx);
+                        detail.set_embedded(true);
+                        detail
+                    })
+                })
                 .clone();
             let issue_id = issue_id.clone();
             view.update(cx, |detail, cx| detail.set_issue(issue_id, window, cx));
@@ -1431,40 +1593,6 @@ impl ThreadScreenView {
     fn send_reply(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let root_id = self.root_id.clone();
         crate::composer::send_session_reply(self, &root_id, window, cx);
-    }
-
-    // ── rename ───────────────────────────────────────────────────────────
-
-    fn begin_rename(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(model) = &self.model else { return };
-        let current = model
-            .root
-            .explicit_title()
-            .unwrap_or(&model.view.title)
-            .to_string();
-        let placeholder = model.view.title.clone();
-        let input = cx.new(|cx| {
-            let mut state = InputState::new(window, cx).placeholder(placeholder);
-            state.set_value(current, window, cx);
-            state
-        });
-        cx.subscribe_in(&input, window, |this, input, event: &InputEvent, _window, cx| match event {
-            InputEvent::PressEnter { .. } => {
-                let value = input.read(cx).value().trim().to_string();
-                this.rename = None;
-                rename_root(this.root_id.clone(), (!value.is_empty()).then_some(value), cx);
-                cx.notify();
-            }
-            InputEvent::Blur => {
-                this.rename = None;
-                cx.notify();
-            }
-            _ => {}
-        })
-        .detach();
-        input.update(cx, |state, cx| state.focus(window, cx));
-        self.rename = Some(input);
-        cx.notify();
     }
 
     // ── the Guide ────────────────────────────────────────────────────────
@@ -1507,21 +1635,20 @@ impl ThreadScreenView {
     }
 
     fn render_header(&mut self, model: &ThreadModel, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let title: AnyElement = match &self.rename {
-            Some(input) => div()
-                .w(px(480.))
-                .child(Input::new(input).appearance(false).text_2xl())
-                .into_any_element(),
-            None => title_row(&model.view.title, model.view.private, cx)
-                .id("thread-title")
-                .cursor_text()
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.begin_rename(window, cx)))
-                .into_any_element(),
-        };
-        // EXP-1307: the Guide's `…` ends the title row (Guide tab only).
-        let menu = (self.child == ThreadChildSel::Guide)
-            .then(|| guide_menu(model, cx))
-            .flatten();
+        // EXP-1316: the title is derived, plain text (no rename).
+        let title = title_row(&model.view.title, model.view.private, cx).id("thread-title");
+        // EXP-1316: the trailing slot on EVERY tab — the Merge pill while the
+        // Guide's PR is open (`Merge PR` | `Merge stack`), then the Guide `…`.
+        let merge = model.pull().filter(|pull| pull.is_open()).map(|pull| {
+            crate::work_header::merge_pill(
+                SharedString::from(THREAD.test_ids.guide_merge.clone()),
+                &pull.id,
+                true,
+                crate::surface::PillSize::Md,
+                cx,
+            )
+        });
+        let menu = guide_menu(model, cx);
         v_flex()
             .w_full()
             .px(px(HEADER_INSET))
@@ -1534,6 +1661,7 @@ impl ThreadScreenView {
                     .gap_2()
                     .items_center()
                     .child(div().flex_1().min_w_0().child(title))
+                    .children(merge)
                     .children(menu),
             )
             .child(self.render_strip(model, cx))
@@ -1606,6 +1734,9 @@ impl ThreadScreenView {
                     );
                     trailing.push(strip_divider(cx));
                 }
+                // EXP-1316 (1b): the session chips land with the in-place
+                // session view.
+                ThreadTab::Session { .. } => {}
                 ThreadTab::Guide { dot } => {
                     let active = self.child == ThreadChildSel::Guide;
                     trailing.push(
@@ -1641,7 +1772,13 @@ impl ThreadScreenView {
             .into_any_element()
     }
 
-    fn render_row(&self, row: &SessionThreadRow, model: &ThreadModel, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_row(
+        &self,
+        row: &SessionThreadRow,
+        model: &ThreadModel,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         let team_id = model.root.team_id.as_deref();
         if let SessionThreadRow::Message {
             id,
@@ -1669,15 +1806,15 @@ impl ThreadScreenView {
                 _ => muted_line(registry::UI_INFO, body.clone(), cx),
             };
         }
-        card_row(row, &self.root_id, team_id, &self.images, cx).unwrap_or_else(|| div().into_any_element())
+        card_row(row, &self.root_id, team_id, &self.images, window, cx).unwrap_or_else(|| div().into_any_element())
     }
 
-    fn render_conversation(&mut self, model: &ThreadModel, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_conversation(&mut self, model: &ThreadModel, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let rows: Vec<AnyElement> = model
             .view
             .rows
             .iter()
-            .map(|row| self.render_row(row, model, cx))
+            .map(|row| self.render_row(row, model, window, cx))
             .collect();
         let column = v_flex()
             .id(SharedString::from(THREAD.test_ids.conversation.clone()))
@@ -1808,24 +1945,8 @@ impl ThreadScreenView {
                 cx,
             )
         };
-        // THE merge capsule of the thread's open pull request: the ONE Merge
-        // pill (two-click confirm, the stack confirm, echo-settled spinner).
-        let capsule = pull.filter(|pull| pull.is_open()).map(|pull| {
-            h_flex().w_full().justify_center().pb_4().pt_2().child(crate::work_header::merge_pill(
-                "thread-guide-merge",
-                &pull.id,
-                true,
-                crate::surface::PillSize::Md,
-                cx,
-            ))
-        });
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .child(body)
-            .children(capsule)
-            .into_any_element()
+        // EXP-1316: the Merge pill lives in the header's trailing slot.
+        v_flex().flex_1().min_h_0().w_full().child(body).into_any_element()
     }
 
     /// The Stack card of the thread's pull request: a pick opens that PR's
@@ -1937,7 +2058,7 @@ impl Render for ThreadScreenView {
         }
         let header = self.render_header(&model, cx);
         let child = match self.child.clone() {
-            ThreadChildSel::Conversation => self.render_conversation(&model, cx),
+            ThreadChildSel::Conversation => self.render_conversation(&model, window, cx),
             ThreadChildSel::Issue(_) => self.render_issue_child(),
             ThreadChildSel::Guide => self.render_guide_child(&model, window, cx),
         };
@@ -1989,6 +2110,23 @@ mod tests {
     #[test]
     fn thread_texts_chip_bare_identifiers() {
         assert!(thread_text_resolver("team-1").bare);
+    }
+
+    /// EXP-1317: the X lives only on the author's queued row, and its id
+    /// (so its tooltip state) changes when the row flips queued → consumed.
+    #[test]
+    fn the_unqueue_x_dies_with_the_queued_state() {
+        assert!(unqueue_offered(true, true));
+        assert!(!unqueue_offered(false, true), "a consumed row carries no X");
+        assert!(!unqueue_offered(true, false), "only the author's");
+        assert_ne!(
+            unqueue_button_id("thread-unqueue", "m-1", true),
+            unqueue_button_id("thread-unqueue", "m-1", false)
+        );
+        assert_ne!(
+            unqueue_button_id("thread-unqueue", "m-1", true),
+            unqueue_button_id("thread-unqueue", "m-2", true)
+        );
     }
 
     #[test]

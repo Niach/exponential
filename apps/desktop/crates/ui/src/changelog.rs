@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-14-threads-consistency",
+    date: "2026-10-14",
+    title: "Threads look the same everywhere: titles, header chips, lists and the Guide's pictures",
+    summary: "A thread is named after its work, its header chips stand as tall as its tabs, lists drop their dividers, the Guide's pictures open with their notes and phones get a floating reply box.",
+    body: r#"- **Thread titles**: a thread is named after its work, like Implement EXP-12 or Run Triage, or the name the agent gave it. Threads are no longer renamed by hand.
+- **Header chips**: the issue chips in a thread's header are the same height as Conversation and Guide, and an issue opened in a thread shows only the issue, without its own Start button or bar.
+- **Questions**: a question in a thread is the same card as in the session, so you can type your own answer there too, and a queued message has an X to take it back.
+- **Lists**: every list shows its rows without dividers, and the rail's Active section keeps threads that wait on a merge.
+- **Pictures and phones**: a picture in the Guide opens next to its topic's notes with arrows to the next one, and on phones the reply box floats over the conversation."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_46: ChangelogEntry = ChangelogEntry {
     id: "2026-10-13-threads-v2",
     date: "2026-10-13",
     title: "Threads v2: one list of your work, team agents, and one way to start",

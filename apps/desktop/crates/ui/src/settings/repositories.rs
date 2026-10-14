@@ -725,7 +725,6 @@ impl Render for RepositoriesPane {
                                     loaded.status.as_ref(),
                                     cx,
                                 ),
-                                index,
                             ));
                         }
                         body = body.child(list);

@@ -402,7 +402,7 @@ pub(crate) fn skeleton_rows(
 ) -> AnyElement {
     let list = v_flex()
         .w_full()
-        .children((0..rows).map(|ix| crate::surface::list_row(skeleton_row(ix, row_h, cx), ix)));
+        .children((0..rows).map(|ix| crate::surface::list_row(skeleton_row(ix, row_h, cx))));
     list.with_animation(
         id,
         Animation::new(SKELETON_PULSE).repeat(),

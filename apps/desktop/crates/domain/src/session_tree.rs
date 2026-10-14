@@ -107,6 +107,9 @@ pub struct ThreadTestIds {
     pub tabs: String,
     pub conversation: String,
     pub composer: String,
+    /// EXP-1316: the header's Merge pill (`Merge PR` | `Merge stack`).
+    #[serde(rename = "guideMerge")]
+    pub guide_merge: String,
     /// EXP-1307: the header's Guide `…` trigger.
     #[serde(rename = "guideMenu")]
     pub guide_menu: String,
@@ -120,7 +123,20 @@ pub struct ThreadSpec {
     /// A title derived from a person's first line is capped at this many
     /// characters (with `…`).
     pub title_max: usize,
+    /// EXP-1316: the derived title templates.
+    pub titles: ThreadTitles,
     pub test_ids: ThreadTestIds,
+}
+
+/// `session-thread.json` `titles` (`{action}` / `{issue}` / `{more}` slots).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct ThreadTitles {
+    /// `Run {action}`.
+    pub action: String,
+    /// `Implement {issue}`.
+    pub issue: String,
+    /// `Implement {issue} + {more}`.
+    pub issues: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -139,6 +155,21 @@ pub struct ThreadsListCopy {
     pub groups: ThreadsListGroupTitles,
     /// The empty page (`No sessions yet`).
     pub empty: String,
+    /// EXP-1318: the rail band title (`Active`).
+    pub rail: String,
+    /// EXP-1318: the trailing words.
+    pub words: ThreadRowWords,
+}
+
+/// `threads-list.json` `copy.words`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadRowWords {
+    pub stack: String,
+    pub ready_to_merge: String,
+    pub merged: String,
+    pub question: String,
+    pub needs_input: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -407,13 +438,6 @@ impl TreeIssue {
     }
 }
 
-/// A thread's title and whether it was derived (not stored).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ThreadTitle {
-    pub title: String,
-    pub derived: bool,
-}
-
 /// First line of a person's text, capped (a thread named by its request).
 fn first_line(body: &str, max: usize) -> Option<String> {
     let line = body
@@ -428,27 +452,34 @@ fn first_line(body: &str, max: usize) -> Option<String> {
     }
 }
 
-/// The stored title, else the action it ran, else its first issue's title
-/// (`issues` = the root's issues in sort order), else the first line of the
-/// root's first person message, else `Untitled`.
-pub fn thread_title(root: &SessionRow, issues: &[TreeIssue], messages: &[&MessageRow]) -> ThreadTitle {
-    if let Some(stored) = root.explicit_title() {
-        return ThreadTitle {
-            title: stored.to_string(),
-            derived: false,
-        };
+/// EXP-1316: a thread's title, never stored by a person (no rename ×4):
+/// an agent's `name`; else `Run <action>`; else `Implement <IDENT>` (the
+/// first issue of `issues` = the root's synced issues by sort order,
+/// `+ <n-1>` with more); else the stored title (the CLI's auto-name); else
+/// the first line of the root's first person message (capped); else
+/// `Untitled`.
+pub fn thread_title(root: &SessionRow, issues: &[TreeIssue], messages: &[&MessageRow]) -> String {
+    let titles = &THREAD.titles;
+    if kind_is(root, SESSION_KIND_AGENT) {
+        if let Some(name) = root.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
+            return name.to_string();
+        }
     }
     if let Some(action) = root.action_name.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
-        return ThreadTitle {
-            title: action.to_string(),
-            derived: true,
-        };
+        return titles.action.replacen("{action}", action, 1);
     }
     if let Some(first) = issues.first() {
-        return ThreadTitle {
-            title: first.title.clone(),
-            derived: true,
+        return if issues.len() > 1 {
+            titles
+                .issues
+                .replacen("{issue}", &first.identifier, 1)
+                .replacen("{more}", &(issues.len() - 1).to_string(), 1)
+        } else {
+            titles.issue.replacen("{issue}", &first.identifier, 1)
         };
+    }
+    if let Some(stored) = root.explicit_title() {
+        return stored.to_string();
     }
     let mut own: Vec<&MessageRow> = messages
         .iter()
@@ -459,19 +490,9 @@ pub fn thread_title(root: &SessionRow, issues: &[TreeIssue], messages: &[&Messag
         })
         .collect();
     own.sort_by_key(|message| ms_or_zero(message.created_at.as_deref()));
-    if let Some(line) = own
-        .first()
+    own.first()
         .and_then(|message| first_line(message.body_text(), THREAD.title_max))
-    {
-        return ThreadTitle {
-            title: line,
-            derived: true,
-        };
-    }
-    ThreadTitle {
-        title: THREAD.copy.untitled.clone(),
-        derived: true,
-    }
+        .unwrap_or_else(|| THREAD.copy.untitled.clone())
 }
 
 /// The issues linked to `root_id`, by link sort order; unsynced issues drop
@@ -511,8 +532,37 @@ pub enum ThreadTab {
     Issue { issue_id: String, identifier: String },
     /// The `+` (link / file an issue).
     Add,
+    /// EXP-1316: a session at the viewed level (the root's run + its direct
+    /// children, or the focused session + ITS direct children).
+    Session {
+        session_id: String,
+        name: String,
+        mark_state: SessionTabMarkState,
+    },
     /// `dot` = the root's guide holds any text or picture.
     Guide { dot: bool },
+}
+
+/// EXP-1316: a session chip's lead ×4 = the thread row mark of THAT
+/// session, `ended` once it ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionTabMarkState {
+    NeedsYou,
+    Working,
+    Waiting,
+    Ended,
+}
+
+pub fn session_tab_mark_state(session: &SessionRow) -> SessionTabMarkState {
+    if session.is_ended() {
+        return SessionTabMarkState::Ended;
+    }
+    match thread_row_mark_state(session.needs_input, session.busy) {
+        SessionState::NeedsYou => SessionTabMarkState::NeedsYou,
+        SessionState::Working => SessionTabMarkState::Working,
+        _ => SessionTabMarkState::Waiting,
+    }
 }
 
 /// One row of the thread's Conversation (the TS `ThreadRow`).
@@ -535,6 +585,8 @@ pub enum SessionThreadRow {
         id: String,
         question: String,
         options: Vec<String>,
+        /// EXP-1316: a free-text answer is offered (always, THE card).
+        custom: bool,
         answer: Option<String>,
         answered: bool,
     },
@@ -584,9 +636,10 @@ pub struct ThreadComposer {
 pub struct SessionThreadView {
     pub root_id: String,
     pub title: String,
-    pub title_derived: bool,
     /// `!root.shared`: a lock glyph beside the title.
     pub private: bool,
+    /// EXP-1316: the focused session (`None` = the thread).
+    pub focus_id: Option<String>,
     pub tabs: Vec<ThreadTab>,
     pub rows: Vec<SessionThreadRow>,
     pub composer: ThreadComposer,
@@ -702,10 +755,12 @@ pub fn composer_yields_to_card(live: bool, pending_ask: bool) -> bool {
 }
 
 /// The thread screen: the header tabs (Conversation · one chip per issue ·
-/// + · Guide), the root's conversation as rows (its own session card
+/// + · session chips · Guide; the session chips = the viewed level: the
+/// root's run + its direct children, or with `focus` that session + ITS
+/// direct children), the root's conversation as rows (its own session card
 /// first, then its messages oldest first; a `session`/`thread_started` card
 /// becomes that session's card) and the composer target (the root).
-pub fn build_session_thread(input: SessionThreadInput<'_>) -> SessionThreadView {
+pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) -> SessionThreadView {
     let root = input.root;
     let now = input.now_ms;
     let members: Vec<&SessionRow> = input
@@ -743,6 +798,20 @@ pub fn build_session_thread(input: SessionThreadInput<'_>) -> SessionThreadView 
             .then_with(|| a.id.cmp(&b.id))
     });
     let title = thread_title(root, &issues, &own);
+    let focus = focus.and_then(|id| tree.iter().copied().find(|session| session.id == id));
+    let level = focus.unwrap_or(root);
+    let session_tabs: Vec<ThreadTab> = std::iter::once(level)
+        .chain(
+            tree.iter()
+                .copied()
+                .filter(|session| session.parent_id.as_deref() == Some(level.id.as_str()) && session.id != level.id),
+        )
+        .map(|session| ThreadTab::Session {
+            session_id: session.id.clone(),
+            name: session_card(session, ordinals.get(session.id.as_str()).copied().unwrap_or(1), now).name,
+            mark_state: session_tab_mark_state(session),
+        })
+        .collect();
 
     let mut rows = vec![SessionThreadRow::Session {
         id: root.id.clone(),
@@ -791,6 +860,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>) -> SessionThreadView 
                     }
                     _ => Vec::new(),
                 },
+                custom: true,
                 answer: card_str(card, "answer").map(str::to_string),
                 answered: message.answered_at.is_some(),
             }),
@@ -836,14 +906,15 @@ pub fn build_session_thread(input: SessionThreadInput<'_>) -> SessionThreadView 
         identifier: issue.identifier.clone(),
     }));
     tabs.push(ThreadTab::Add);
+    tabs.extend(session_tabs);
     tabs.push(ThreadTab::Guide {
         dot: guide_dot(root.guide.as_ref()),
     });
     SessionThreadView {
         root_id: root.id.clone(),
-        title: title.title,
-        title_derived: title.derived,
+        title,
         private: !root.shared,
+        focus_id: focus.map(|session| session.id.clone()),
         tabs,
         rows,
         composer: ThreadComposer {
@@ -861,7 +932,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>) -> SessionThreadView 
 // ---------------------------------------------------------------------------
 
 /// One row of the Threads page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadsListRow {
     pub session_id: String,
@@ -874,7 +945,7 @@ pub struct ThreadsListRow {
     pub activity_at: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThreadsListKey {
     NeedsYou,
@@ -897,7 +968,7 @@ impl ThreadsListKey {
 }
 
 /// One band of the Threads page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadsListGroup {
     pub key: ThreadsListKey,
@@ -961,7 +1032,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
         buckets.entry(key).or_default().push(ThreadsListRow {
             session_id: root.id.clone(),
             team_id: root.team_id.clone().unwrap_or_default(),
-            title: title.title,
+            title,
             private: !root.shared,
             busy: live.iter().any(|session| session.busy),
             needs_you,
@@ -984,6 +1055,115 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             })
         })
         .filter(|group| !group.rows.is_empty())
+        .collect()
+}
+
+/// EXP-1309/1318: the ONE quiet trailing word of a thread row ×4 (the lock
+/// rides beside it when private).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ThreadRowWord {
+    Stack,
+    ReadyToMerge,
+    Merged,
+    Question,
+}
+
+impl ThreadRowWord {
+    /// The fixture key (`readyToMerge`, …).
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Stack => "stack",
+            Self::ReadyToMerge => "readyToMerge",
+            Self::Merged => "merged",
+            Self::Question => "question",
+        }
+    }
+
+    /// The copy (`ready to merge`, …).
+    pub fn text(self) -> &'static str {
+        let words = &THREADS_LIST.copy.words;
+        match self {
+            Self::Stack => &words.stack,
+            Self::ReadyToMerge => &words.ready_to_merge,
+            Self::Merged => &words.merged,
+            Self::Question => &words.question,
+        }
+    }
+}
+
+/// A PR as the stack test needs it.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StackPr {
+    pub id: String,
+    pub state: String,
+    pub base_pull_request_id: Option<String>,
+}
+
+impl StackPr {
+    pub fn from_row(row: &PullRequestRow) -> Self {
+        Self {
+            id: row.id.clone(),
+            state: row.state.clone().unwrap_or_default(),
+            base_pull_request_id: row.base_pull_request_id.clone(),
+        }
+    }
+}
+
+/// An open PR of the thread sits in an open stack: based on another open
+/// PR, or another open PR is based on it (`team_prs` = the team's PRs).
+pub fn thread_in_stack(pull_requests: &[StackPr], team_prs: &[StackPr]) -> bool {
+    let open: std::collections::HashSet<&str> = team_prs
+        .iter()
+        .filter(|pr| pr.state == "open")
+        .map(|pr| pr.id.as_str())
+        .collect();
+    pull_requests.iter().filter(|pr| pr.state == "open").any(|pr| {
+        pr.base_pull_request_id.as_deref().is_some_and(|base| open.contains(base))
+            || team_prs
+                .iter()
+                .any(|other| other.state == "open" && other.base_pull_request_id.as_deref() == Some(pr.id.as_str()))
+    })
+}
+
+/// Word order: an open PR in a stack → stack; an open PR while nothing
+/// works → ready to merge (working = no word); else merged; else a
+/// question when waiting on a person; else none. `states` = the thread's
+/// PR states.
+pub fn thread_row_word<'a>(
+    states: impl IntoIterator<Item = &'a str>,
+    busy: bool,
+    needs_you: bool,
+    in_stack: bool,
+) -> Option<ThreadRowWord> {
+    let states: Vec<&str> = states.into_iter().collect();
+    if states.contains(&"open") {
+        if in_stack {
+            return Some(ThreadRowWord::Stack);
+        }
+        return (!busy).then_some(ThreadRowWord::ReadyToMerge);
+    }
+    if states.contains(&"merged") {
+        return Some(ThreadRowWord::Merged);
+    }
+    needs_you.then_some(ThreadRowWord::Question)
+}
+
+/// The rail's Active band (`copy.rail`): every Needs you row, every Running
+/// row, then the Recent rows whose word still asks for a merge.
+pub fn rail_threads(
+    groups: &[ThreadsListGroup],
+    word_of: impl Fn(&ThreadsListRow) -> Option<ThreadRowWord>,
+) -> Vec<ThreadsListRow> {
+    groups
+        .iter()
+        .flat_map(|group| {
+            group.rows.iter().filter(|row| {
+                group.key != ThreadsListKey::Recent
+                    || matches!(word_of(row), Some(ThreadRowWord::ReadyToMerge | ThreadRowWord::Stack))
+            })
+        })
+        .cloned()
         .collect()
 }
 
@@ -1164,7 +1344,8 @@ mod tests {
             let links: Vec<&SessionIssueRow> = links.iter().collect();
             let messages: Vec<&MessageRow> = messages.iter().collect();
             let prs: Vec<&PullRequestRow> = prs.iter().collect();
-            let view = build_session_thread(SessionThreadInput {
+            let view = build_session_thread(
+                SessionThreadInput {
                 root: &root,
                 sessions: &sessions,
                 session_issues: &links,
@@ -1172,7 +1353,9 @@ mod tests {
                 messages: &messages,
                 pull_requests: &prs,
                 now_ms: now(&input["now"]),
-            });
+                },
+                case["options"]["focus"].as_str(),
+            );
             assert_whole(&view, &case["expected"], name);
         }
     }
@@ -1218,6 +1401,55 @@ mod tests {
             let input = &case["input"];
             let state = thread_row_mark_state(input["needsYou"].as_bool().unwrap(), input["busy"].as_bool().unwrap());
             assert_eq!(Some(state.as_str()), case["expected"].as_str(), "{}", case["name"]);
+        }
+        assert_eq!(THREADS_LIST.copy.rail, "Active");
+        let stack_cases = fixture["stackCases"].as_array().unwrap();
+        assert!(!stack_cases.is_empty());
+        for case in stack_cases {
+            let input = &case["input"];
+            let prs: Vec<StackPr> = serde_json::from_value(input["pullRequests"].clone()).unwrap();
+            let team: Vec<StackPr> = serde_json::from_value(input["teamPrs"].clone()).unwrap();
+            assert_eq!(
+                thread_in_stack(&prs, &team),
+                case["expected"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+        let word_cases = fixture["wordCases"].as_array().unwrap();
+        assert!(!word_cases.is_empty());
+        for case in word_cases {
+            let input = &case["input"];
+            let states: Vec<&str> = input["pullRequests"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|pr| pr["state"].as_str().unwrap())
+                .collect();
+            let word = thread_row_word(
+                states,
+                input["busy"].as_bool().unwrap(),
+                input["needsYou"].as_bool().unwrap(),
+                input["inStack"].as_bool().unwrap(),
+            );
+            assert_eq!(word.map(ThreadRowWord::key), case["expected"].as_str(), "{}", case["name"]);
+        }
+        let rail_cases = fixture["railCases"].as_array().unwrap();
+        assert!(!rail_cases.is_empty());
+        for case in rail_cases {
+            let input = &case["input"];
+            let groups: Vec<ThreadsListGroup> = serde_json::from_value(input["groups"].clone()).unwrap();
+            let words = &input["words"];
+            let ids: Vec<String> = rail_threads(&groups, |row| {
+                [ThreadRowWord::Stack, ThreadRowWord::ReadyToMerge, ThreadRowWord::Merged, ThreadRowWord::Question]
+                    .into_iter()
+                    .find(|word| words[row.session_id.as_str()].as_str() == Some(word.key()))
+            })
+            .into_iter()
+            .map(|row| row.session_id)
+            .collect();
+            let expected: Vec<String> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(ids, expected, "{}", case["name"]);
         }
     }
 

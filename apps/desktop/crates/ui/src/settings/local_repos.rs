@@ -1138,10 +1138,7 @@ impl Render for LocalReposPane {
                 } else {
                     // EXP-1076: the gapless ladder under the band.
                     v_flex().w_full().min_w_0().children(
-                        worktree_rows
-                            .into_iter()
-                            .enumerate()
-                            .map(|(index, row)| surface::list_row(row, index)),
+                        worktree_rows.into_iter().map(surface::list_row),
                     )
                 });
 
@@ -1160,10 +1157,7 @@ impl Render for LocalReposPane {
                     ))
                     .child(
                         v_flex().w_full().min_w_0().children(
-                            clone_rows
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, row)| surface::list_row(row, index)),
+                            clone_rows.into_iter().map(surface::list_row),
                         ),
                     );
             }
