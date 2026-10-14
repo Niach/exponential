@@ -19,7 +19,14 @@ final class ListItemTests: XCTestCase {
             let prNode: Double
             let rail: Double
         }
+        struct PrNode: Decodable {
+            let name: String
+            let state: String
+            let ring: String
+            let filled: Bool
+        }
         let geometry: Geometry
+        let prNodes: [PrNode]
     }
 
     private func load<T: Decodable>(_ name: String) throws -> T {
@@ -46,5 +53,15 @@ final class ListItemTests: XCTestCase {
         XCTAssertEqual(Double(ListItem.prNode), geometry.prNode)
         XCTAssertEqual(Double(ListItem.rail), geometry.rail)
         XCTAssertEqual(Double(ListItem.leadX(depth: 2)), geometry.base + 2 * geometry.indent)
+    }
+
+    func testPrNodeStatesMatchTheFixture() throws {
+        let cases = try (load("list-item.json") as Fixture).prNodes
+        XCTAssertEqual(cases.count, PrNodeState.allCases.count)
+        for testCase in cases {
+            let state = try XCTUnwrap(PrNodeState(rawValue: testCase.state), testCase.name)
+            XCTAssertEqual(state.ring.rawValue, testCase.ring, testCase.name)
+            XCTAssertEqual(state.filled, testCase.filled, testCase.name)
+        }
     }
 }

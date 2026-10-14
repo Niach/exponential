@@ -35,7 +35,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
+import com.exponential.app.data.db.PullRequestIssueEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.GuideSectionKey
@@ -74,6 +76,8 @@ import com.exponential.app.ui.work.ChangesLoadState
 import com.exponential.app.ui.work.ChangesMergeControl
 import com.exponential.app.ui.work.ChangesViewModel
 import com.exponential.app.ui.work.GuideFace
+import com.exponential.app.ui.work.GuideStack
+import com.exponential.app.ui.work.StackMergeDialog
 import com.exponential.app.ui.work.GithubHeaderAction
 import com.exponential.app.ui.work.GuideSectionDiff
 import com.exponential.app.ui.work.LocalTitleCollapse
@@ -128,6 +132,8 @@ fun ThreadScreen(
     val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
     val guide by viewModel.guide.collectAsStateWithLifecycle()
     val teamPullRequests by viewModel.teamPullRequests.collectAsStateWithLifecycle()
+    val pullRequestIssues by viewModel.pullRequestIssues.collectAsStateWithLifecycle()
+    val syncedIssues by viewModel.syncedIssues.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     var selectedKey by rememberSaveable { mutableStateOf(viewModel.initialTab ?: "conversation") }
@@ -234,11 +240,14 @@ fun ThreadScreen(
                         guideRaw = guide,
                         pullRequests = pullRequests,
                         teamPullRequests = teamPullRequests,
+                        pullRequestIssues = pullRequestIssues,
+                        issues = syncedIssues,
                         padding = padding,
                         onFixConflicts = { number -> viewModel.send(fixConflictsMessage(number)) },
+                        onOpenThread = { id -> if (id != viewModel.rootId) onOpenThread(id) },
                     )
                 },
-                guidePrUrl = guidePullRequest(pullRequests)?.url?.takeIf { it.isNotBlank() },
+                guidePrUrl = SessionTree.guidePullRequest(pullRequests)?.url?.takeIf { it.isNotBlank() },
             )
         }
     }
@@ -526,11 +535,15 @@ private fun ThreadIssuePage(
 // ── Guide page ──────────────────────────────────────────────────────────────
 
 /**
- * The root's Guide (`sessions.guide`) with the Merge capsule of its PR — the
- * newest OPEN one, else none. When that PR sits in an open stack the capsule
- * is THE `Merge stack` control (the issue screen's [PullRequestStack] rule):
- * it targets the stack's top and lands the whole chain with `stack = true`,
- * since the server refuses a plain merge of any open-stack member.
+ * The root's Guide (`sessions.guide`) with the Merge capsule of its PR —
+ * [SessionTree.guidePullRequest]: the newest OPEN one, else the newest merged
+ * one (no capsule then). EXP-1306: when that PR sits in an open stack the
+ * Guide leads with the `Stack` band over THE [StackRail] (top first, the PR
+ * washed, a tap opens that PR's thread, a long-press merges through it) and
+ * the capsule is THE `Merge stack` control (the issue screen's
+ * [PullRequestStack] rule): it targets the stack's top and lands the whole
+ * chain with `stack = true`, since the server refuses a plain merge of any
+ * open-stack member.
  * A section's Changes row opens its diff page. A merge refused by a conflict
  * offers to message the root to fix it.
  */
@@ -539,15 +552,42 @@ private fun ThreadGuidePage(
     guideRaw: String?,
     pullRequests: List<PullRequestEntity>,
     teamPullRequests: List<PullRequestEntity>,
+    pullRequestIssues: List<PullRequestIssueEntity>,
+    issues: List<IssueEntity>,
     padding: PaddingValues,
     onFixConflicts: (prNumber: Int?) -> Unit,
+    onOpenThread: (rootSessionId: String) -> Unit,
 ) {
     val groups = remember(guideRaw) { parseSessionResultGroups(guideRaw) }
-    val newest = guidePullRequest(pullRequests)
+    val newest = SessionTree.guidePullRequest(pullRequests)
     val stackPool = remember(pullRequests, teamPullRequests) {
         (teamPullRequests + pullRequests).distinctBy { it.id }
     }
     val stack = remember(newest, stackPool) { newest?.let { PullRequestStack.stackConfirm(it, stackPool) } }
+    val stackView = remember(newest, stackPool, pullRequestIssues, issues) {
+        newest?.let { PullRequestStack.stackView(it, stackPool, pullRequestIssues, issues) }
+    }
+    // The rail's long-press: Merge through that member, its ONE confirm first.
+    // The member stays picked after the confirm so its merge VM (and refusal
+    // toast) outlives the dialog.
+    var throughId by remember { mutableStateOf<String?>(null) }
+    var throughConfirmOpen by remember { mutableStateOf(false) }
+    val throughPr = throughId?.let { id -> stackPool.firstOrNull { it.id == id } }
+    val throughVm: ChangesViewModel? = throughPr?.let { row ->
+        hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${row.id}") { it.create(row.id) }
+    }
+    val throughError by (throughVm?.actionError ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) })
+        .collectAsStateWithLifecycle()
+    val guideStack = stackView?.let { view ->
+        GuideStack(
+            view = view,
+            onOpen = { row -> row.rootSessionId?.let(onOpenThread) },
+            onMergeThrough = { row ->
+                throughId = row.pullRequestId
+                throughConfirmOpen = true
+            },
+        )
+    }
     val pr = stack?.throughId?.let { id -> stackPool.firstOrNull { it.id == id } } ?: newest
     val changesVm: ChangesViewModel? = pr?.let { row ->
         hiltViewModel<ChangesViewModel, ChangesViewModel.Factory>(key = "changes:${row.id}") { it.create(row.id) }
@@ -588,6 +628,20 @@ private fun ThreadGuidePage(
         null
     }
     val toaster = LocalToaster.current
+    LaunchedEffect(throughError) {
+        val message = throughError ?: return@LaunchedEffect
+        // The top member's VM IS the capsule's: its refusal toasts below.
+        if (throughVm !== changesVm) toaster.failedAction("merge", "the stack", message)
+    }
+    if (throughConfirmOpen && newest != null && throughPr != null && throughVm != null) {
+        PullRequestStack.stackConfirm(newest, stackPool, through = throughPr)?.let { confirm ->
+            StackMergeDialog(
+                confirm = confirm,
+                onConfirm = { throughVm.mergePr(stack = true) },
+                onDismiss = { throughConfirmOpen = false },
+            )
+        }
+    }
     LaunchedEffect(actionError, conflict) {
         val message = actionError ?: return@LaunchedEffect
         if (conflict) {
@@ -617,6 +671,7 @@ private fun ThreadGuidePage(
             groups = groups,
             files = files,
             numbered = true,
+            stack = guideStack,
             merge = merge,
             onOpenSection = if (filesVm != null) {
                 { key: GuideSectionKey -> sectionName = sectionKeyName(key) }
@@ -626,10 +681,6 @@ private fun ThreadGuidePage(
         )
     }
 }
-
-/** The thread's Guide PR: the newest OPEN one, else the newest. */
-private fun guidePullRequest(pullRequests: List<PullRequestEntity>): PullRequestEntity? =
-    pullRequests.lastOrNull { it.state == DomainContract.prStateOpen } ?: pullRequests.lastOrNull()
 
 /** The merge-conflict toast's action (contract `diffUi` has no word). */
 private const val FIX_CONFLICTS = "Fix conflicts"

@@ -10,6 +10,7 @@ import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.theme.AppBackground
+import com.exponential.app.ui.threads.ThreadRowMeta
 import com.exponential.app.ui.threads.ThreadsContent
 import com.exponential.app.ui.threads.threadRowMeta
 
@@ -31,17 +32,12 @@ fun ThreadsCaptures(kind: ThreadsCaptureKind) {
         Box(modifier = Modifier.fillMaxSize().testTag(kind.testId)) {
             when (kind) {
                 ThreadsCaptureKind.Threads -> {
-                    val groups = SessionTree.partitionThreads(
-                        SampleSessions, SampleLinks, SampleIssues, emptyList(), teamId = null,
-                    )
+                    val groups = sampleThreadGroups()
                     ThreadsContent(
                         groups = groups,
                         agents = SessionTree.listAgents(SampleSessions, teamId = null),
                         teams = listOf(SampleTeam),
-                        rowMeta = threadRowMeta(
-                            groups, SampleSessions, SampleLinks, SampleIssues,
-                            SampleSessions.associate { it.id to if (it.id == "s-group") "codex" else "claude" },
-                        ),
+                        rowMeta = sampleRowMeta(groups),
                         onOpenThread = {},
                         modifier = Modifier.statusBarsPadding(),
                     )
@@ -49,6 +45,29 @@ fun ThreadsCaptures(kind: ThreadsCaptureKind) {
             }
         }
     }
+}
+
+private fun sampleThreadGroups() = SessionTree.partitionThreads(
+    SampleSessions, SampleLinks, SampleIssues, emptyList(), teamId = null,
+)
+
+private fun sampleRowMeta(groups: List<SessionTree.ThreadsListGroup>) = threadRowMeta(
+    groups, SampleSessions, SampleLinks, SampleIssues,
+    SampleSessions.associate { it.id to if (it.id == "s-group") "codex" else "claude" },
+)
+
+/**
+ * EXP-1306: the phone home's Running band over the same seed tree (the
+ * `running` rule of [com.exponential.app.ui.threads.ThreadsViewModel]: Needs
+ * you then Running; every sample root is the demo user's): APP-5 (amber dot),
+ * Spike: offline queue (lock), FB-9 and APP-14 (spinners).
+ */
+internal fun sampleHomeRunning(): Pair<List<SessionTree.ThreadsListRow>, Map<String, ThreadRowMeta>> {
+    val groups = sampleThreadGroups()
+    val rows = groups
+        .filter { it.key == SessionTree.ThreadsGroupKey.NeedsYou || it.key == SessionTree.ThreadsGroupKey.Running }
+        .flatMap { it.rows }
+    return rows to sampleRowMeta(groups)
 }
 
 private const val TEAM = "t-acme"

@@ -13,7 +13,8 @@ import SwiftUI
 /// A Changes row opens that section's diff as a PAGE in place
 /// (`GuideSectionDiffView`): a back row to the Guide, the cards filtered to
 /// the section and the file sheet filtered the same way. The bar is the white
-/// Merge capsule (`merge`).
+/// Merge capsule (`merge`). EXP-1306: a thread's Guide leads with its PR's
+/// stack block (`stack`: the `Stack` band + THE `StackRail`) when it has one.
 struct GuideFace<Merge: View>: View {
     let groups: [SessionResultGroup]
     /// The diff the Guide counts (the run's live diff, else the PR / branch
@@ -29,6 +30,8 @@ struct GuideFace<Merge: View>: View {
     @Binding var section: GuideSectionKey?
     /// The file the section page focuses (its sheet's pick).
     @Binding var focusPath: String?
+    /// EXP-1306: the block above the Guide text (the thread's stack rail).
+    var stack: AnyView?
     /// Whether `merge` draws anything (a generic view cannot say).
     var showsMerge = false
     var merge: () -> Merge
@@ -41,6 +44,7 @@ struct GuideFace<Merge: View>: View {
         teamId: String? = nil,
         section: Binding<GuideSectionKey?>,
         focusPath: Binding<String?>,
+        stack: AnyView? = nil,
         showsMerge: Bool = false,
         @ViewBuilder merge: @escaping () -> Merge
     ) {
@@ -51,6 +55,7 @@ struct GuideFace<Merge: View>: View {
         self.teamId = teamId
         _section = section
         _focusPath = focusPath
+        self.stack = stack
         self.showsMerge = showsMerge
         self.merge = merge
     }
@@ -72,6 +77,7 @@ struct GuideFace<Merge: View>: View {
                 files: files,
                 diffStatus: diffStatus,
                 teamId: teamId,
+                stack: stack,
                 onOpen: { key in
                     focusPath = nil
                     section = key
@@ -107,6 +113,7 @@ private struct GuideBody: View {
     let files: [Diff.File]?
     let diffStatus: GuideDiffStatus
     let teamId: String?
+    let stack: AnyView?
     let onOpen: (GuideSectionKey) -> Void
 
     @Environment(AppDependencies.self) private var deps
@@ -152,6 +159,7 @@ private struct GuideBody: View {
         let coverage = guideCoverage(shown, files)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
+                if let stack { stack }
                 if let lead = coverage.lead {
                     VStack(alignment: .leading, spacing: 0) {
                         groupBody(lead.group, changes: lead.changes, key: .lead)

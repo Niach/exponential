@@ -23,7 +23,11 @@ import { statusColorClass } from "@/components/issue-properties/status-dropdown"
 import { SessionComposer } from "@/components/session-composer"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { parseGuideSection, type GuideSectionKey } from "@/components/guide-section-diff"
-import { ThreadGuide } from "@/components/thread/thread-guide"
+import {
+  ThreadGuide,
+  ThreadGuideMerge,
+  threadGuidePullRequest,
+} from "@/components/thread/thread-guide"
 import { useAnswerMessage } from "@/components/thread/agent-channel"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useThreadMenu } from "@/components/thread/thread-menu"
@@ -54,7 +58,8 @@ import {
 //                          session card per session, question and plan cards
 //                          answered in the card, the composer at the bottom
 //   issue&issue=<id>       that issue's detail, embedded
-//   guide[&section=&file=] the root's Guide over its pull requests
+//   guide[&section=&file=] the root's Guide over its pull request (its stack
+//                          rail, THE bottom Merge capsule)
 //
 // Phones: the strip IS the pager under the header. No right sidebar, no
 // Show work, no captions.
@@ -198,6 +203,7 @@ function ThreadScreen({
     [issueRows]
   )
   const guideTab = view.tabs.find((tab) => tab.kind === `guide`)
+  const guidePr = useMemo(() => threadGuidePullRequest(pullRequests), [pullRequests])
 
   const tab =
     search.tab === `issue` && search.issue && issueIds.includes(search.issue)
@@ -289,23 +295,29 @@ function ThreadScreen({
       )
   } else if (tab.kind === `guide`) {
     body = (
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <div className="mx-auto w-full max-w-3xl pb-8">
-          <ThreadGuide
-            root={root}
-            pullRequests={pullRequests}
-            section={search.section}
-            file={search.file ?? null}
-            onSection={(section, file) =>
-              go({
-                tab: `guide`,
-                ...(section !== undefined ? { section } : {}),
-                ...(section !== undefined && file ? { file } : {}),
-              })
-            }
-            canMerge={permissions.isMember}
-          />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="mx-auto w-full max-w-3xl pb-8">
+            <ThreadGuide
+              root={root}
+              pullRequest={guidePr}
+              teamSlug={teamSlug}
+              section={search.section}
+              file={search.file ?? null}
+              onSection={(section, file) =>
+                go({
+                  tab: `guide`,
+                  ...(section !== undefined ? { section } : {}),
+                  ...(section !== undefined && file ? { file } : {}),
+                })
+              }
+              canMerge={permissions.isMember}
+            />
+          </div>
         </div>
+        {search.section === undefined && (
+          <ThreadGuideMerge pr={guidePr} canMerge={permissions.isMember} />
+        )}
       </div>
     )
   } else {

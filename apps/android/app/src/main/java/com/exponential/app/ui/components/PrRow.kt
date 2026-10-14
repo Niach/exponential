@@ -226,7 +226,8 @@ open class StackRailMember(
 fun <M : StackRailMember> StackRail(
     /** Top member first. */
     members: List<M>,
-    baseBranch: String,
+    /** The bottom member's base; null = unknown (no base row). */
+    baseBranch: String?,
     modifier: Modifier = Modifier,
     /** The quiet word on the top row (`stack` in Reviews; none on the Guide). */
     word: String? = null,
@@ -243,7 +244,7 @@ fun <M : StackRailMember> StackRail(
                     node = if (member.current) PrNodeState.Current else PrNodeState.Open,
                     identifier = member.identifier,
                     word = if (index == 0) word else null,
-                    rail = PrRail(above = index > 0, below = true),
+                    rail = PrRail(above = index > 0, below = index < members.lastIndex || baseBranch != null),
                     active = member.current,
                     onClick = onOpen?.let { open -> { open(member) } },
                     onLongClick = onMergeThrough?.let { { menuFor = member.key } },
@@ -265,12 +266,14 @@ fun <M : StackRailMember> StackRail(
                 }
             }
         }
-        PrRow(
-            title = baseBranch,
-            node = PrNodeState.Base,
-            rail = PrRail(above = members.isNotEmpty()),
-            testTag = "pr-row-base",
-        )
+        if (baseBranch != null) {
+            PrRow(
+                title = baseBranch,
+                node = PrNodeState.Base,
+                rail = PrRail(above = members.isNotEmpty()),
+                testTag = "pr-row-base",
+            )
+        }
     }
 }
 

@@ -41,21 +41,14 @@ pub(crate) const QUESTION_WORD: &str = "question";
 pub(crate) const READY_WORD: &str = "ready to merge";
 pub(crate) const MERGED_WORD: &str = "merged";
 
-/// The pull request a row speaks for: the root's newest OPEN one, else its
-/// newest MERGED one (a closed PR never counts).
+/// The pull request a row speaks for: the root's pull requests through THE
+/// Guide rule (`domain::session_tree::guide_pull_request`, EXP-1306).
 pub(crate) fn root_pull_request<'a>(root_id: &str, pulls: &'a [PullRequestRow]) -> Option<&'a PullRequestRow> {
-    let newest = |open: bool| {
+    domain::session_tree::guide_pull_request(
         pulls
             .iter()
-            .filter(|pull| pull.root_session_id.as_deref() == Some(root_id))
-            .filter(|pull| if open { pull.is_open() } else { pull.is_merged() })
-            .max_by(|a, b| {
-                a.created_at
-                    .cmp(&b.created_at)
-                    .then_with(|| a.number.cmp(&b.number))
-            })
-    };
-    newest(true).or_else(|| newest(false))
+            .filter(|pull| pull.root_session_id.as_deref() == Some(root_id)),
+    )
 }
 
 /// Whether the root waits on an unanswered question or plan card.

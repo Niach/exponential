@@ -5,7 +5,7 @@ import Foundation
 // TS reference `packages/domain-contract/src/agent-settings.ts` (desktop
 // `domain::agent_settings`, Android `domain/AgentSettings.kt`), byte-locked by
 // `fixtures/agent-settings.json` (`summaryCases`, `validationCases`, replayed
-// by `AgentSettingsTests`). The fixture's `$comment` holds the rules.
+// by `AgentSettingsTests`; EXP-1306 `accountValueCases`). The fixture's `$comment` holds the rules.
 
 public enum AgentSettings {
     /// One row of the agent page, top to bottom (fixture `fields`).
@@ -71,6 +71,8 @@ public enum AgentSettings {
         public static let nameTooLong = "Use at most 64 characters"
         public static let deviceRequired = "Pick a device"
         public static let instructionsTooLong = "Instructions are too long"
+        /// EXP-1306: the Account row with no login reported (muted).
+        public static let accountLastUsed = "Last used"
     }
 
     /// Fixture `testIds`.
@@ -155,5 +157,19 @@ public enum AgentSettings {
             errors.append(FormError(field: "instructions", message: Copy.instructionsTooLong))
         }
         return errors
+    }
+
+    /// EXP-1306: what the Account row reads (the agent's brand mark + this
+    /// login's email), the composer chip's value: the pinned `account` (under
+    /// `cli` when set), else `cli`'s first login, else the last used one,
+    /// else the first; nil = no login reported (`Copy.accountLastUsed`).
+    public static func agentAccountValue(
+        options: [AccountOption], account: String?, cli: String?
+    ) -> AccountOption? {
+        if let account, let pinned = options.first(where: { $0.id == account && (cli == nil || $0.agent == cli) }) {
+            return pinned
+        }
+        if let cli, let first = options.first(where: { $0.agent == cli }) { return first }
+        return options.first(where: \.isLastUsed) ?? options.first
     }
 }

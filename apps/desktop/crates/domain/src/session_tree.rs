@@ -5,7 +5,8 @@
 //!
 //! * `fixtures/session-card.json`   → [`session_card`] (THE session card);
 //! * `fixtures/session-thread.json` → [`build_session_thread`] (the thread
-//!   screen: tabs, conversation rows, composer target);
+//!   screen: tabs, conversation rows, composer target) + [`guide_pull_request`]
+//!   (the Guide's ONE PR) + [`composer_yields_to_card`] (EXP-820);
 //! * `fixtures/threads-list.json`   → [`partition_threads`] (the Threads page:
 //!   Needs you · Running · Recent) + [`list_agents`] (the rail's Agents).
 //!
@@ -621,6 +622,40 @@ fn guide_dot(guide: Option<&Value>) -> bool {
     })
 }
 
+/// EXP-1306: the ONE pull request the thread's Guide speaks for (its stack
+/// rail + the bottom Merge capsule): the newest open one, else the newest
+/// merged one (`created_at`, ties by the higher number); a closed PR never
+/// counts.
+pub fn guide_pull_request<'a>(
+    pull_requests: impl IntoIterator<Item = &'a PullRequestRow>,
+) -> Option<&'a PullRequestRow> {
+    let mut open: Option<&PullRequestRow> = None;
+    let mut merged: Option<&PullRequestRow> = None;
+    for pull in pull_requests {
+        let slot = if pull.is_open() {
+            &mut open
+        } else if pull.is_merged() {
+            &mut merged
+        } else {
+            continue;
+        };
+        let newer = slot.is_none_or(|best| {
+            let diff = ms_or_zero(pull.created_at.as_deref()) - ms_or_zero(best.created_at.as_deref());
+            diff > 0 || (diff == 0 && pull.number.unwrap_or(0) > best.number.unwrap_or(0))
+        });
+        if newer {
+            *slot = Some(pull);
+        }
+    }
+    open.or(merged)
+}
+
+/// EXP-1306 (EXP-820 ×4): a question or plan card waiting on the viewer
+/// takes the session composer's place.
+pub fn composer_yields_to_card(live: bool, pending_ask: bool) -> bool {
+    live && pending_ask
+}
+
 /// The thread screen: the header tabs (Conversation · one chip per issue ·
 /// + · Guide), the root's conversation as rows (its own session card
 /// first, then its messages oldest first; a `session`/`thread_started` card
@@ -1131,6 +1166,34 @@ mod tests {
             let sessions: Vec<SessionRow> = rows(&input["sessions"]);
             let sessions: Vec<&SessionRow> = sessions.iter().collect();
             assert_whole(list_agents(&sessions, input["teamId"].as_str()), &case["expected"], name);
+        }
+    }
+
+    /// `session-thread.json` `guidePullRequestCases` + `composerCases`.
+    #[test]
+    fn guide_pull_request_and_composer_match_the_fixture() {
+        let fixture = fixture(SESSION_THREAD_JSON);
+        let cases = fixture["guidePullRequestCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let prs: Vec<PullRequestRow> = rows(&case["pullRequests"]);
+            assert_eq!(
+                guide_pull_request(&prs).map(|pull| pull.id.as_str()),
+                case["expected"].as_str(),
+                "{}",
+                case["name"]
+            );
+        }
+        let cases = fixture["composerCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            assert_eq!(
+                composer_yields_to_card(input["live"].as_bool().unwrap(), input["pendingAsk"].as_bool().unwrap()),
+                case["expected"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
         }
     }
 

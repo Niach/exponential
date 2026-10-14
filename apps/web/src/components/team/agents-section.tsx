@@ -45,6 +45,7 @@ import {
 } from "@/lib/steer-devices"
 import {
   AGENT_SETTINGS_COPY,
+  agentAccountValue,
   triggerSummary,
   validateAgentForm,
   type AgentFormError,
@@ -56,7 +57,6 @@ import { BoardIdentityRow } from "@/components/board-form-fields"
 import { TriggerDialog } from "@/components/trigger-dialog"
 import {
   accountPinOf,
-  pickedAccountOption,
   seedAccountPin,
   triggerAccountKey,
   type TriggerAccountPin,
@@ -315,11 +315,19 @@ export function AgentSettingsPage({
   // An existing agent's CLI is fixed (`updateAgent` takes no `cli`), so its
   // Account picker offers only that CLI's logins; no stored CLI = all.
   const lockedCli = creating ? null : (agent?.cli ?? null)
+  // EXP-1306: only logins the machine reports (a profile id); the stand-in
+  // row named after the agent never reads as an account.
   const accountOptions = useMemo(
-    () => cliAccountOptions(device, lockedCli),
+    () => cliAccountOptions(device, lockedCli).filter((option) => option.id !== ``),
     [device, lockedCli]
   )
-  const pickedAccount = pickedAccountOption(accountOptions, pin)
+  // EXP-1306: the row reads the login exactly like the composer's chip (the
+  // agent mark + its email), `agentAccountValue` ×4.
+  const pickedAccount = agentAccountValue({
+    options: accountOptions,
+    account: pin.account || null,
+    cli: pin.agent || lockedCli,
+  })
   // A machine switch re-seeds the pin to a login THAT machine reports (the
   // trigger editor's EXP-995 rule): profile ids are device-local. The create
   // page seeds as its default machine lands; an existing agent re-seeds only
@@ -620,7 +628,7 @@ export function AgentSettingsPage({
           <div className="flex items-center gap-3 px-4 py-3 text-sm">
             <span className="shrink-0 text-foreground">Account</span>
             <span className="ml-auto truncate text-foreground/50">
-              {pin.account || `Last used`}
+              {COPY.accountLastUsed}
             </span>
           </div>
         )}

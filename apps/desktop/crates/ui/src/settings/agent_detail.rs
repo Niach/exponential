@@ -33,7 +33,9 @@ use gpui_component::{
 use serde_json::Value;
 use sync::Store;
 
-use domain::agent_settings::{validate_agent_form, AgentForm, AGENT_SETTINGS};
+use domain::agent_settings::{
+    agent_account_value, validate_agent_form, AgentAccountOption, AgentForm, AGENT_SETTINGS,
+};
 use domain::rows::SessionRow;
 
 use crate::controls::{glass_input, WebControl as _};
@@ -176,23 +178,31 @@ fn account_options(device: &AgentDevice) -> Vec<coding::AccountOption> {
     )
 }
 
-/// The account row's current option: the stored profile (of the agent's CLI
-/// when it names one), else the machine's last used login — the row a launch
-/// with no pin spends.
+/// The account row's current option through THE rule
+/// (`domain::agent_settings::agent_account_value`, EXP-1306): the stored
+/// profile (of the agent's CLI when it names one), else that CLI's first
+/// login, else the machine's last used login, else the first. Only REPORTED
+/// logins count — the agent-named unpinned rows of a machine that reports
+/// none are no login, so the row reads "Last used" instead.
 fn current_account<'a>(
     options: &'a [coding::AccountOption],
     account: Option<&str>,
     cli: Option<&str>,
 ) -> Option<&'a coding::AccountOption> {
-    account
-        .and_then(|account| {
-            options.iter().find(|option| {
-                option.wire_account().as_deref() == Some(account)
-                    && cli.is_none_or(|cli| option.agent.id() == cli)
-            })
+    let logins: Vec<&coding::AccountOption> = options.iter().filter(|option| !option.id.is_empty()).collect();
+    let rows: Vec<AgentAccountOption> = logins
+        .iter()
+        .map(|option| AgentAccountOption {
+            id: option.id.clone(),
+            agent: option.agent.id().to_string(),
+            email: option.email.clone(),
+            is_last_used: option.is_last_used,
         })
-        .or_else(|| coding::last_used_account_option(options))
-        .or_else(|| options.first())
+        .collect();
+    let value = agent_account_value(&rows, account, cli)?;
+    logins
+        .into_iter()
+        .find(|option| option.agent.id() == value.agent && option.email == value.email)
 }
 
 /// THE device picker over `devices` behind a picker-row trigger (the
@@ -600,17 +610,23 @@ impl AgentDetailPane {
             .unwrap_or_default();
         let current = current_account(&options, agent.account.as_deref(), agent.cli.as_deref()).cloned();
         let control = match current {
-            // The machine reports no logins (offline, another member's
-            // box): the stored pin reads as-is, else the row states it.
-            None => match agent.account.as_deref().filter(|account| !account.is_empty()) {
-                Some(account) => div().child(SharedString::from(account.to_string())).into_any_element(),
-                None => div()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("—")
-                    .into_any_element(),
-            },
+            // No login reported (offline, another member's box): the launch
+            // spends the machine's last used one, so the row says so, muted.
+            None => div()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(AGENT_SETTINGS.copy.account_last_used.clone()))
+                .into_any_element(),
+            // The value = the composer chip's: the agent mark + the email.
+            // One login = nothing to pick: the same line without the
+            // affordance, never dimmed.
+            Some(current) if options.len() < 2 => trigger_editor::picker_trigger_bare(
+                "agent-detail-account".into(),
+                SharedString::from(current.email.clone()),
+                cx,
+            )
+            .icon(crate::coding_selects::agent_mark(current.agent))
+            .into_any_element(),
             Some(current) => {
-                let alone = options.len() < 2;
                 let trigger = trigger_editor::picker_trigger_bare(
                     "agent-detail-account".into(),
                     SharedString::from(current.email.clone()),
@@ -645,7 +661,6 @@ impl AgentDetailPane {
                             );
                         }),
                     )
-                    .disabled(alone)
                     .id(SharedString::from("agent-detail-account-picker"))
                     .render(window, cx)
                 })
@@ -897,8 +912,8 @@ mod tests {
         assert_eq!(field_label("nope"), "");
     }
 
-    /// The Account row shows the stored profile (of the agent's CLI), else
-    /// the machine's last used login — what an unpinned launch spends.
+    /// The Account row reads THE rule: the stored profile (of the agent's
+    /// CLI), else that CLI's first login, else the machine's last used one.
     #[test]
     fn the_account_row_reads_the_pin_then_the_last_used_login() {
         let options = vec![
@@ -911,8 +926,10 @@ mod tests {
         };
         assert_eq!(pick(Some("side"), None), Some("side".to_string()));
         assert_eq!(pick(Some("side"), Some("claude")), Some("side".to_string()));
-        // A pin of another CLI, or one the machine no longer reports.
+        // A pin of another CLI = that CLI's first login.
         assert_eq!(pick(Some("side"), Some("codex")), Some("work".to_string()));
+        assert_eq!(pick(Some("work"), Some("claude")), Some("home".to_string()));
+        // A pin the machine no longer reports, or none.
         assert_eq!(pick(Some("gone"), None), Some("work".to_string()));
         assert_eq!(pick(None, None), Some("work".to_string()));
         // No last used login: the first row.
@@ -922,5 +939,8 @@ mod tests {
             Some("home")
         );
         assert!(current_account(&[], None, None).is_none());
+        // The agent-named unpinned rows are no login: the row reads Last used.
+        let unpinned = vec![option("claude", "", true)];
+        assert!(current_account(&unpinned, None, Some("claude")).is_none());
     }
 }

@@ -1,7 +1,8 @@
 //! EXP-1294 (Threads v2): Team settings → Agents — the Rust twin of
 //! `packages/domain-contract/src/agent-settings.ts` (iOS
 //! `AgentSettings.swift`, Android `domain/AgentSettings.kt`), byte-locked by
-//! `fixtures/agent-settings.json` (`summaryCases`, `validationCases`).
+//! `fixtures/agent-settings.json` (`summaryCases`, `validationCases`,
+//! `accountValueCases`).
 //!
 //! An agent is managed exactly like a board: identity (icon + color + name),
 //! Device, Account, Schedule (its triggers, one row each reading
@@ -75,6 +76,8 @@ pub struct AgentSettingsCopy {
     /// Event trigger text by `agentTriggerEvent`.
     pub events: BTreeMap<String, String>,
     pub errors: AgentErrorCopy,
+    /// The Account row with no login reported (`Last used`, muted).
+    pub account_last_used: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -184,6 +187,48 @@ pub fn validate_agent_form(form: &AgentForm) -> Vec<AgentFormError> {
     out
 }
 
+/// One login the device reports for the Account picker.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentAccountOption {
+    pub id: String,
+    /// The agent CLI (`claude` | `codex`).
+    pub agent: String,
+    pub email: String,
+    pub is_last_used: bool,
+}
+
+/// What the Account row reads: the agent's brand mark + this email.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentAccountValue {
+    pub agent: String,
+    pub email: String,
+}
+
+/// EXP-1306: the Account row's value = the composer chip's (the agent mark +
+/// the email): the pinned `account` (under `cli` when set), else `cli`'s
+/// first login, else the last used one, else the first; `None` = no login
+/// reported (the row reads `copy.account_last_used`, muted).
+pub fn agent_account_value(
+    options: &[AgentAccountOption],
+    account: Option<&str>,
+    cli: Option<&str>,
+) -> Option<AgentAccountValue> {
+    let pinned = account.and_then(|account| {
+        options
+            .iter()
+            .find(|option| option.id == account && cli.is_none_or(|cli| option.agent == cli))
+    });
+    let picked = pinned
+        .or_else(|| cli.and_then(|cli| options.iter().find(|option| option.agent == cli)))
+        .or_else(|| options.iter().find(|option| option.is_last_used))
+        .or_else(|| options.first())?;
+    Some(AgentAccountValue {
+        agent: picked.agent.clone(),
+        email: picked.email.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,6 +275,25 @@ mod tests {
             };
             let expected: Vec<AgentFormError> = serde_json::from_value(case["expected"].clone()).unwrap();
             assert_eq!(validate_agent_form(&form), expected, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn agent_account_value_matches_the_fixture() {
+        assert_eq!(AGENT_SETTINGS.copy.account_last_used, "Last used");
+        let fixture = fixture();
+        let cases = fixture["accountValueCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let input = &case["input"];
+            let options: Vec<AgentAccountOption> = serde_json::from_value(input["options"].clone()).unwrap();
+            let expected: Option<AgentAccountValue> = serde_json::from_value(case["expected"].clone()).unwrap();
+            assert_eq!(
+                agent_account_value(&options, input["account"].as_str(), input["cli"].as_str()),
+                expected,
+                "{}",
+                case["name"]
+            );
         }
     }
 }

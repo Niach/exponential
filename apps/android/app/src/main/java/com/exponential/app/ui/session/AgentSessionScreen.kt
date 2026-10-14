@@ -792,7 +792,11 @@ private fun RunFaceContent(
     // inline field a free-text/reject row opens answer it — and the composer
     // LEAVES rather than doubling as the card's text path (EXP-788, retired).
     // The draft stays in the connection and comes back with the composer.
-    val composerHidden = awaitingInput && !sessionEnded
+    // EXP-1306: the ONE rule ×4, `SessionTree.composerYieldsToCard`.
+    val composerHidden = SessionTree.composerYieldsToCard(
+        live = phase == AgentPhase.Live && !sessionEnded,
+        pendingAsk = awaitingInput,
+    )
     // EXP-389/848: the agent is actively working. ONE rule, shared ×4
     // (`agentWorking`): a live, unended run MID-TURN with nothing parked on it —
     // no active question card, synced needs_input clear, no usage wall, not

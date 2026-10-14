@@ -68,6 +68,7 @@ export interface TreePullRequest {
 export const SESSION_CARD_COPY = cardFixture.copy
 export const SESSION_CARD_ICONS = cardFixture.icons
 export const THREAD_COPY = threadFixture.copy
+export const THREAD_TEST_IDS = threadFixture.testIds
 export const THREADS_LIST_COPY = listFixture.copy
 
 const ms = (iso: string | null | undefined): number | null => {
