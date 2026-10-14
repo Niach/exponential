@@ -116,6 +116,8 @@ impl AgentScreenView {
         }
         let transport = crate::queries::attachment_transport(cx);
         let images = cx.new(|_| ImageCache::new(transport));
+        // Picture cards repaint when their bytes land (the cache notifies).
+        subscriptions.push(cx.observe(&images, |_, _, cx| cx.notify()));
         let mut this = Self {
             agent_id,
             agent: None,

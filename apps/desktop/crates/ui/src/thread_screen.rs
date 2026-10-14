@@ -1599,6 +1599,11 @@ impl ThreadScreenView {
         subscriptions.push(cx.observe(&merge_state, |_, _, cx| cx.notify()));
         let transport = crate::queries::attachment_transport(cx);
         let images = cx.new(|_| ImageCache::new(transport));
+        // A picture tile (the Guide's, a picture card) asks the cache for its
+        // slot while painting and gets `Loading`; the bytes land later and
+        // only the CACHE notifies — without this the tile stayed an empty
+        // frame until something else re-rendered the thread.
+        subscriptions.push(cx.observe(&images, |_, _, cx| cx.notify()));
         // Re-render once the grace passed, so a missing thread says so.
         let missing_tick = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(MISSING_GRACE).await;

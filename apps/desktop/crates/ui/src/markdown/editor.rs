@@ -484,6 +484,13 @@ impl ImageCache {
                 .insert(url.to_string(), ImageSlot::Ready(image.clone()));
             return ImageSlot::Ready(image);
         }
+        // A cache built before the account was live (a view opened at
+        // launch, `EXP_DEV_SCREEN`, a restored tab) has no transport: take
+        // the active account's now instead of painting "unavailable" for the
+        // life of the view.
+        if self.transport.is_none() {
+            self.transport = crate::queries::attachment_transport(cx);
+        }
         let Some(transport) = self.transport.clone() else {
             return ImageSlot::Failed(std::time::Instant::now());
         };
