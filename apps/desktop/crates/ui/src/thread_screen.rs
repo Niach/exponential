@@ -713,6 +713,10 @@ fn body_text(element: gpui::Div) -> gpui::Div {
         .line_height(px(theme::tokens::transcript::BODY_LINE_HEIGHT))
 }
 
+/// The queued row's caption word (session-thread.json: a person's row
+/// reads `queued`), lowercase like the web.
+pub(crate) const QUEUED_WORD: &str = "queued";
+
 /// EXP-1317: a queued row offers its `Remove from queue` X only to its
 /// author, and only while it is queued.
 pub(crate) fn unqueue_offered(queued: bool, own: bool) -> bool {
@@ -782,7 +786,7 @@ pub(crate) fn user_bubble(
         .text_color(muted)
         .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
         .when(queued, |row| {
-            row.child(SharedString::from(format!("· {}", steer::feed::QUEUE_STRIP_TITLE)))
+            row.child(SharedString::from(format!("· {QUEUED_WORD}")))
         })
         .children(unqueue);
     v_flex()
@@ -2459,6 +2463,7 @@ mod tests {
     /// (so its tooltip state) changes when the row flips queued → consumed.
     #[test]
     fn the_unqueue_x_dies_with_the_queued_state() {
+        assert_eq!(QUEUED_WORD, "queued");
         assert!(unqueue_offered(true, true));
         assert!(!unqueue_offered(false, true), "a consumed row carries no X");
         assert!(!unqueue_offered(true, false), "only the author's");
