@@ -8,7 +8,8 @@ import SwiftUI
 /// is label-free (no captions, threads-list.json): a lock while the thread
 /// is private, the inline spinner while it works, the amber dot while it
 /// needs you. EXP-1309: the Threads list instead ends on ONE quiet `word`
-/// (web `ThreadsListItem`: `stack`, `merged`, `question`…; the lock wins)
+/// (web `ThreadsListItem`: `stack`, `merged`, `question`…) beside the lock
+/// (EXP-1318: word AND lock)
 /// and carries its state in the lead. No fold chevron, no trailing
 /// chevron, no buttons.
 ///
@@ -34,7 +35,7 @@ public struct SessionRow<Lead: View>: View {
     ///   - isPrivate: started on a device not shared with the team (`!shared`).
     ///   - busy: a session of the tree works — the inline spinner.
     ///   - needsYou: a live session waits on a person — the amber dot.
-    ///   - word: ONE quiet trailing word (EXP-1309), hidden by the lock.
+    ///   - word: ONE quiet trailing word (EXP-1309), the lock rides after it.
     ///   - wordIcon: the word's glyph (`AppIcons.prStack` for `stack`).
     public init(
         identifier: String? = nil,
@@ -80,11 +81,7 @@ public struct SessionRow<Lead: View>: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 0)
-            if isPrivate {
-                AppIcon(AppIcons.uiPrivate, size: 12)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .accessibilityLabel("Private")
-            } else if let word, !word.isEmpty {
+            if let word, !word.isEmpty {
                 HStack(spacing: 4) {
                     if let wordIcon {
                         AppIcon(wordIcon, size: 11)
@@ -95,6 +92,11 @@ public struct SessionRow<Lead: View>: View {
                 }
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .fixedSize()
+            }
+            if isPrivate {
+                AppIcon(AppIcons.uiPrivate, size: 12)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityLabel("Private")
             }
             if busy {
                 InlineSpinner()

@@ -6,15 +6,17 @@ import SwiftUI
 /// `session-thread.json`) — a THREAD, or a team AGENT's channel (the same
 /// Conversation, Slack-like, its started threads as session cards).
 ///
-/// * Header = the title (a lock when private; an agent's icon in its color
-///   before its name) and, for a thread, THE strip — Conversation · one tab
-///   per linked issue · "+" · Guide — as the pager (`FacePager`). Nothing
-///   else: no caption, no Stop, no device, no Show work.
+/// * Header = the title (plain, never renamed — EXP-1316; a lock when
+///   private; an agent's icon in its color before its name) and, for a
+///   thread, THE strip — Conversation · one chip per linked issue · "+" ·
+///   the session chips · Guide — as the pager (`FacePager`). Nothing else:
+///   no caption, no Stop, no device, no Show work.
 /// * Conversation = `ThreadConversationView` over `buildSessionThread`, with
 ///   THE session composer box under it (`ThreadComposer` →
 ///   `SessionComposerCard`), sending
 ///   `sessions.send({sessionId: root})`.
-/// * An issue tab = the existing issue page (`IssueFaceView`) of that issue.
+/// * An issue tab = the issue page EMBEDDED (EXP-1316): no own header, no
+///   Threads row, no Start; the bottom bar keeps properties + Comment.
 /// * Guide = the existing Guide face over the root's `guide` (the PR body),
 ///   counting the thread PR's files, with its Merge capsule while it is open
 ///   and ONE `…` in the header's action slot (EXP-1307: THE Menu's sheet,
@@ -57,6 +59,8 @@ struct ThreadScreen: View {
     @State private var linkSheetOpen = false
     /// The question / plan answer in flight.
     @State private var answeringId: String?
+    /// The Conversation follows its newest row (EXP-1316 1n).
+    @State private var atBottom = true
     // Guide
     @State private var guideSection: GuideSectionKey?
     @State private var focusPath: String?
@@ -90,7 +94,7 @@ struct ThreadScreen: View {
             case .conversation: .conversation
             case let .issue(issueId, _): .issue(issueId)
             case .guide: .guide
-            case .add: nil
+            case .add, .session: nil
             }
         }
     }
@@ -241,7 +245,11 @@ struct ThreadScreen: View {
                         selectPage(next)
                     },
                     onIssueMenu: { issueId in openMenu(issueId: issueId) },
-                    onAdd: canEdit ? { openMenu(issueId: nil) } : nil
+                    onAdd: canEdit ? { openMenu(issueId: nil) } : nil,
+                    // Phones push the session screen (its own back header).
+                    onOpenSession: { sessionId in
+                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                    }
                 )
             }
         }
@@ -269,45 +277,94 @@ struct ThreadScreen: View {
         }
     }
 
+    /// EXP-1316 (1n): the Conversation scrolls like the session feed — it
+    /// opens on the newest row, stays pinned while rows land unless the
+    /// reader scrolled up, and THE jump-to-bottom button re-pins (the
+    /// session view's `FollowPinTracker`).
     private func conversationPage(rows: ThreadRows, view: SessionThreadView) -> some View {
-        ScrollViewReader { scroller in
-            ScrollView {
-                ThreadConversationView(
-                    rows: rows,
-                    view: view,
-                    onOpenSession: { sessionId in
-                        pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
-                    },
-                    onOpenThread: { threadId in
-                        pushRoute(.thread(accountId: accountId, threadId: threadId))
-                    },
-                    onAnswer: { messageId, option in answer(messageId, answer: option) },
-                    onDecide: { messageId, decision, feedback in
-                        answer(messageId, decision: decision, feedback: feedback)
-                    },
-                    answeringId: answeringId,
-                    canAnswer: canEdit
-                )
-                .padding(.vertical, 12)
-                .transcriptColumn()
-                Color.clear
-                    .frame(height: 1)
-                    .id(Self.bottomId)
-            }
-            .defaultScrollAnchor(.bottom)
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: view.rows.count) { _, _ in
-                withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
-            }
-            .safeAreaInset(edge: .bottom) {
-                ThreadComposer(
-                    sessionId: view.composer.sessionId,
-                    placeholder: rows.composerPlaceholder(view)
-                )
+        GeometryReader { geo in
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ThreadConversationView(
+                            rows: rows,
+                            view: view,
+                            onOpenSession: { sessionId in
+                                pushRoute(.agentSession(accountId: accountId, sessionId: sessionId))
+                            },
+                            onOpenThread: { threadId in
+                                pushRoute(.thread(accountId: accountId, threadId: threadId))
+                            },
+                            onAnswer: { messageId, option in answer(messageId, answer: option) },
+                            onDecide: { messageId, decision, feedback in
+                                answer(messageId, decision: decision, feedback: feedback)
+                            },
+                            onUnqueue: unqueue,
+                            viewerId: deps.auth.userId,
+                            answeringId: answeringId,
+                            canAnswer: canEdit
+                        )
+                        .padding(.vertical, 12)
+                        .transcriptColumn()
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.bottomId)
+                    }
+                    .background(
+                        GeometryReader { content in
+                            Color.clear.preference(
+                                key: FeedBottomOverflowKey.self,
+                                value: content.frame(in: .named(Self.coordSpace)).maxY - geo.size.height
+                            )
+                        }
+                    )
+                }
+                .coordinateSpace(name: Self.coordSpace)
+                .scrollDismissesKeyboard(.interactively)
+                .modifier(FollowPinTracker(
+                    atBottom: $atBottom,
+                    slack: AgentSessionLayout.followSlack,
+                    repin: { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                ))
+                .onAppear {
+                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                    // Lazy rows can still be sizing on the first pass.
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(50))
+                        if atBottom { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                    }
+                }
+                .onChange(of: view.rows.count) { _, _ in
+                    guard atBottom else { return }
+                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                }
+                .safeAreaInset(edge: .bottom) {
+                    ThreadComposer(
+                        sessionId: view.composer.sessionId,
+                        placeholder: rows.composerPlaceholder(view)
+                    )
+                    .overlay(alignment: .top) {
+                        ZStack {
+                            if !atBottom {
+                                JumpToBottomButton {
+                                    atBottom = true
+                                    withAnimation(motion.standard) {
+                                        scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                                    }
+                                }
+                                .jumpToBottomTransition(motion)
+                                .accessibilityIdentifier("thread-jump-to-bottom")
+                            }
+                        }
+                        .alignmentGuide(.top) { $0[.bottom] + JumpToBottomButton.bottomGap }
+                        .animation(motion.standard, value: atBottom)
+                    }
+                }
             }
         }
     }
 
+    private static let coordSpace = "thread-conversation-scroll"
     private static let bottomId = "thread-conversation-bottom"
 
     @ViewBuilder
@@ -318,8 +375,8 @@ struct ThreadScreen: View {
                 issue: issue,
                 barTrailing: .hidden,
                 onStartCoding: {},
-                // Its `Threads` row leaves THIS thread out.
-                hostThreadId: rootId
+                hostThreadId: rootId,
+                embedded: true
             )
         } else {
             SkeletonRows()
@@ -491,6 +548,23 @@ struct ThreadScreen: View {
                 )
             }
             answeringId = nil
+        }
+    }
+
+    /// EXP-1317: revoke the viewer's own queued message (`sessions.unqueue`);
+    /// the Electric echo drops the row, a refusal toasts.
+    private func unqueue(_ messageId: String) {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        Task {
+            do {
+                try await api.unqueue(accountId: accountId, messageId: messageId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "remove", thing: "the message"),
+                    description: error.userFacingMessage
+                )
+            }
         }
     }
 

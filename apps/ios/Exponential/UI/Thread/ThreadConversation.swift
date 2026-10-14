@@ -31,6 +31,10 @@ struct ThreadConversationView: View {
     /// A plan card's Approve / Reject: (message id, decision, the reject
     /// row's feedback).
     var onDecide: (String, PlanDecision, String?) -> Void = { _, _, _ in }
+    /// EXP-1317: the viewer's own queued message's X (`sessions.unqueue`).
+    var onUnqueue: (String) -> Void = { _ in }
+    /// The signed-in viewer (whose queued rows carry the X).
+    var viewerId: String?
     /// The card answer in flight (its buttons wait).
     var answeringId: String?
     /// Whether this reader may answer the cards (a member of the team).
@@ -46,6 +50,9 @@ struct ThreadConversationView: View {
         AgentQuestionOption(label: "Reject", key: "reject"),
     ]
     static let approveKey = "approve"
+    /// EXP-1316 `custom: true`: THE session view's free-text row (claude's
+    /// synthetic "Type something.", expanding into the inline field).
+    static let customOption = AgentQuestionOption(label: "Type something.", key: "__custom", freeText: true)
     static let queuedWord = "queued"
 
     /// Attachment images through the instance, `#EXP-1` refs chipped against
@@ -148,7 +155,8 @@ struct ThreadConversationView: View {
                 UserMessageBubble(
                     text: body,
                     context: markdownContext,
-                    caption: caption(messageId: id, authorId: authorId, queued: queued)
+                    caption: caption(messageId: id, authorId: authorId, queued: queued),
+                    onRemove: queued && viewerId != nil && authorId == viewerId ? { onUnqueue(id) } : nil
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("thread-message")
@@ -161,13 +169,16 @@ struct ThreadConversationView: View {
                     onOpenSession(card.sessionId)
                 }
             }
-        case let .question(id, question, options, answer, answered):
+        case let .question(id, question, options, custom, answer, answered):
+            // THE session view's card (EXP-1316): the options AND the
+            // free-text answer, closed once answered whichever path did it.
             QuestionCard(
                 question: AgentQuestion(
                     id: 0,
                     wireId: id,
                     text: question,
-                    options: options.map { AgentQuestionOption(label: $0, key: $0) },
+                    options: options.map { AgentQuestionOption(label: $0, key: $0) }
+                        + (custom ? [Self.customOption] : []),
                     resolved: answered,
                     answers: answer.map { [$0] } ?? []
                 ),
@@ -177,7 +188,10 @@ struct ThreadConversationView: View {
                 pending: answeringId == id,
                 failed: false,
                 onAnswer: { keys, text in
-                    if let pick = text ?? keys.first { onAnswer(id, pick) }
+                    let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? keys.first(where: { $0 != Self.customOption.key }) {
+                        onAnswer(id, pick)
+                    }
                 },
                 markdownContext: markdownContext
             )

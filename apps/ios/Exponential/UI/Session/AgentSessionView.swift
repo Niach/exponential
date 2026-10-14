@@ -1703,6 +1703,9 @@ struct UserMessageBubble: View {
     /// EXP-1245: the turn bubble's muted caption (`<name> · <time>`), under
     /// the bubble on the trailing edge; nil in the transcript.
     var caption: String?
+    /// EXP-1317: a person's OWN queued message — the `Remove from queue` X
+    /// before the bubble (`sessions.unqueue`); nil = no X.
+    var onRemove: (() -> Void)? = nil
 
     @State private var expanded = false
 
@@ -1736,6 +1739,17 @@ struct UserMessageBubble: View {
         let clampable = isClampable(hasImages ? parsed.text : text)
         return HStack {
             Spacer(minLength: 32)
+            if let onRemove {
+                Button(action: onRemove) {
+                    AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(AgentFeed.queueRemoveLabel)
+                .accessibilityIdentifier("thread-queue-remove")
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Group {
                     if !hasImages {
@@ -3419,7 +3433,8 @@ private struct CommandPill: View {
 /// stopped re-evaluating during scrolls on current iOS, leaving `atBottom`
 /// stuck true so the "Jump to bottom" pill never appeared and follow-scroll
 /// couldn't be escaped (EXP-212). Pre-18 keeps the preference path.
-private struct FollowPinTracker: ViewModifier {
+/// EXP-1316 (1n): the thread Conversation follows with the same tracker.
+struct FollowPinTracker: ViewModifier {
     @Binding var atBottom: Bool
     /// Within this many points of the bottom still counts as pinned.
     let slack: CGFloat
@@ -3620,7 +3635,7 @@ private struct FeedGrowthMetrics: Equatable {
 /// Points of feed content extending below the visible viewport — 0 when the
 /// feed is pinned to the bottom, negative while bouncing past it. Pre-iOS-18
 /// fallback input to FollowPinTracker.
-private struct FeedBottomOverflowKey: PreferenceKey {
+struct FeedBottomOverflowKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()

@@ -94,8 +94,8 @@ extension SessionEntity {
 }
 
 extension SessionTree {
-    /// A ROOT row's thread title off the synced rows (`threadTitle`: stored,
-    /// action, first issue, first request line, `Untitled`).
+    /// A ROOT row's thread title off the synced rows (`threadTitle`: agent name,
+    /// action, issues, stored, first request line, `Untitled`).
     static func threadTitle(db: Database, root: SessionEntity) throws -> String {
         let issues = try SessionQueries.issues(db: db, rootId: root.id)
         let messages = try SessionQueries.messages(db: db, sessionId: root.id)
@@ -103,6 +103,6 @@ extension SessionTree {
             root: TreeSession(sessionRow: root),
             issues: issues.map { TreeIssue(issueRow: $0) },
             messages: messages.map { TreeMessage(messageRow: $0) }
-        ).title
+        )
     }
 }

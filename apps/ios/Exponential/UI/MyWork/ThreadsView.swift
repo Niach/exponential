@@ -6,8 +6,10 @@ import SwiftUI
 /// then the thread roots Needs you · Running · Recent across EVERY member
 /// team (`threads-list.json`; phones band the rows per team once the caller
 /// is in several). The styleguide list language: a filled group band, no
-/// count, over flat hairline rows. A row opens the thread, an agent row its
-/// channel (the same thread screen).
+/// count, over flat gapless rows, no dividers (EXP-1320). EXP-1318: the page
+/// title is the large in-content `Threads`; in several teams each TEAM band
+/// (avatar + name) is OUTER and the group bands sit inside it. A row opens
+/// the thread, an agent row its channel (the same thread screen).
 struct ThreadsView: View {
     @Environment(SessionListsModel.self) private var lists
     @Environment(TeamState.self) private var teamState
@@ -21,7 +23,6 @@ struct ThreadsView: View {
                 ThreadsListContent(
                     groups: lists.groups,
                     agents: lists.agents,
-                    identifiers: lists.identifiers,
                     clis: lists.clis,
                     words: lists.words,
                     teams: teamState.teams,
@@ -37,7 +38,7 @@ struct ThreadsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .navigationTitle(SessionTree.ListCopy.title)
+        // EXP-1318: the large in-content title replaces the inline one.
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
     }
@@ -47,8 +48,6 @@ struct ThreadsView: View {
 struct ThreadsListContent: View {
     let groups: [ThreadsListGroup]
     let agents: [AgentRow]
-    /// A thread's first linked issue identifier, by root id.
-    let identifiers: [String: String]
     /// A root's agent CLI (the row's run mark), by root id.
     var clis: [String: String] = [:]
     /// EXP-1309: a root's quiet word, by root id.
@@ -58,26 +57,36 @@ struct ThreadsListContent: View {
 
     var body: some View {
         if groups.isEmpty && agents.isEmpty {
-            EmptyState(.threads)
-                .frame(maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 0) {
+                pageTitle
+                    .padding(.horizontal, 16)
+                EmptyState(.threads)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
+                    pageTitle
                     if !agents.isEmpty { agentsBand }
-                    ForEach(groups) { group in
-                        VStack(alignment: .leading, spacing: 0) {
-                            GlassSectionBand(group.title) {
-                                AppIcon(Self.bandIcon(group.key), size: 13)
-                                    .foregroundStyle(Self.bandTint(group.key))
-                            } trailing: {
-                                EmptyView()
+                    if TeamGroups.isMultiTeam(teams) {
+                        ForEach(teamBands) { band in
+                            VStack(alignment: .leading, spacing: 0) {
+                                GlassSectionBand(band.team.name) {
+                                    TeamAvatar(team: band.team, size: 16)
+                                } trailing: {
+                                    EmptyView()
+                                }
+                                .accessibilityIdentifier("threads-team-header-\(band.team.id)")
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(band.items) { group in groupBand(group, teamId: band.team.id) }
+                                }
+                                .padding(.top, 8)
                             }
-                            TeamBandedRows(rows: group.rows, teams: teams, teamId: \.teamId) { row in
-                                threadRow(row)
-                            }
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("threads-team-\(band.team.id)")
                         }
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("threads-group-\(group.key.rawValue)")
+                    } else {
+                        ForEach(groups) { group in groupBand(group, teamId: nil) }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -89,6 +98,44 @@ struct ThreadsListContent: View {
             .tabBarBottomInset()
             .accessibilityIdentifier(SessionTree.ListCopy.listTestId)
         }
+    }
+
+    /// The large in-content page title (Android's `headlineLarge`).
+    private var pageTitle: some View {
+        Text(SessionTree.ListCopy.title)
+            .font(.largeTitle.weight(.bold))
+            .foregroundStyle(.white)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("threads-title")
+            .padding(.bottom, 4)
+    }
+
+    /// Every team (THE team order) holding a thread, its groups narrowed to
+    /// that team's rows (empty groups dropped).
+    private var teamBands: [TeamGroups.Group<ThreadsListGroup>] {
+        TeamGroups.ordered(teams).compactMap { team in
+            let own = groups.compactMap { group -> ThreadsListGroup? in
+                let rows = group.rows.filter { $0.teamId == team.id }
+                return rows.isEmpty ? nil : ThreadsListGroup(key: group.key, title: group.title, rows: rows)
+            }
+            return own.isEmpty ? nil : TeamGroups.Group(team: team, items: own)
+        }
+    }
+
+    /// A group band (its glyph, no count) over its flat rows.
+    private func groupBand(_ group: ThreadsListGroup, teamId: String?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            GlassSectionBand(group.title) {
+                Self.bandGlyph(group.key)
+            } trailing: {
+                EmptyView()
+            }
+            ForEach(group.rows) { row in threadRow(row) }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(
+            teamId.map { "threads-group-\(group.key.rawValue)-\($0)" } ?? "threads-group-\(group.key.rawValue)"
+        )
     }
 
     private var agentsBand: some View {
@@ -130,7 +177,6 @@ struct ThreadsListContent: View {
         } label: {
             ThreadRowLabel(
                 row: row,
-                identifier: identifiers[row.sessionId],
                 cli: clis[row.sessionId],
                 word: .some(words[row.sessionId])
             )
@@ -139,30 +185,35 @@ struct ThreadsListContent: View {
         .accessibilityIdentifier(SessionTree.ListCopy.rowTestId)
     }
 
-    static func bandIcon(_ key: ThreadsListGroup.Key) -> String {
+    /// EXP-1318: the group band glyphs ×4 — Needs you amber, Running the
+    /// working mark, Recent a check.
+    @ViewBuilder
+    static func bandGlyph(_ key: ThreadsListGroup.Key) -> some View {
         switch key {
-        case .needsYou: AppIcons.codingNeedsInput
-        case .running: AppIcons.codingRunning
-        case .recent: AppIcons.codingEnded
+        case .needsYou:
+            AppIcon(AppIcons.codingNeedsInput, size: 13)
+                .foregroundStyle(DesignTokens.Semantic.yellow)
+        case .running:
+            AgentWorkingMark(agent: nil)
+                .frame(width: 13, height: 13)
+        case .recent:
+            AppIcon(AppIcons.uiCheck, size: 13)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }
-    }
-
-    static func bandTint(_ key: ThreadsListGroup.Key) -> Color {
-        key == .needsYou ? DesignTokens.Semantic.yellow : .white.opacity(TextOpacity.secondary)
     }
 }
 
 /// One thread as THE session row: the root agent's run mark (Claude's spark
-/// while it works, EXP-1312: amber-badged when it needs you), the first
-/// linked issue's id, the title, the lock / spinner / amber dot — no caption
+/// while it works, EXP-1312: amber-badged when it needs you), the title (no
+/// identifier slot, EXP-1318: the title names it), the lock / spinner /
+/// amber dot — no caption
 /// (`threads-list.json`; Home's Running band). EXP-1309: on the Threads tab
 /// (`word` given, web `ThreadsListView`) the row ends on ONE quiet word
-/// instead and its state moves into the lead: the working mark while busy,
+/// AND the lock instead and its state moves into the lead: the working mark while busy,
 /// the mark with an amber badge when it needs you, the PR glyph `ready to
 /// merge` / `merged` name.
 struct ThreadRowLabel: View {
     let row: ThreadsListRow
-    let identifier: String?
     /// The root's agent CLI; nil/empty = claude.
     var cli: String? = nil
     /// nil = Home's row (spinner / dot); `.some` = the Threads tab's row.
@@ -171,7 +222,6 @@ struct ThreadRowLabel: View {
     var body: some View {
         if let word {
             SessionRow(
-                identifier: identifier,
                 title: row.title,
                 isPrivate: row.isPrivate,
                 word: word?.text,
@@ -181,7 +231,6 @@ struct ThreadRowLabel: View {
             }
         } else {
             SessionRow(
-                identifier: identifier,
                 title: row.title,
                 isPrivate: row.isPrivate,
                 busy: row.busy,

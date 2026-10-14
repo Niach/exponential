@@ -370,7 +370,7 @@ struct HomeRunningBand: View {
                     Button {
                         onOpen(row.sessionId)
                     } label: {
-                        ThreadRowLabel(row: row, identifier: identifiers[row.sessionId], cli: clis[row.sessionId])
+                        ThreadRowLabel(row: row, cli: clis[row.sessionId])
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("agent-thread-row")
