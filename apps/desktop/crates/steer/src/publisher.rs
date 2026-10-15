@@ -1163,18 +1163,13 @@ async fn pump_connection(
                         // publisher only routes.
                         Some(ServerFrame::Answer { question_id, ask_id, keys, text }) => {
                             let answer = RemoteAnswer { question_id, ask_id, keys, text };
-                            // EXP-1316: the synced card this question was
-                            // posted as closes too (the host's tap writes
-                            // `sessions.resolveCard`), before the engine
-                            // resolves it out of its open cards.
-                            let question = crate::answer_tap::find_question(
-                                recorder.journal.replay(),
-                                &answer.question_id,
-                            );
-                            crate::answer_tap::notify(
-                                &spec.session_id,
-                                &crate::answer_tap::card_resolution(&answer, question),
-                            );
+                            // EXP-1316/EXP-1317: the synced card this question
+                            // was posted as closes too — but NOT from here:
+                            // the engine's `answer_ask` is the choke point
+                            // every answer path shares (this frame, the IDE's
+                            // local card, the CLI's TUI) and fires the
+                            // `answer_tap` for all of them. A tap here would
+                            // double the write-back for the relay path alone.
                             if let Some(answers) = &hooks.answers {
                                 answers.submit(answer);
                             }

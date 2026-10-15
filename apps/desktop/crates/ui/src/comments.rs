@@ -854,6 +854,10 @@ pub(crate) struct ThreadCommentProps {
     pub on_toggle: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
     /// Opens the issue scrolled to this comment.
     pub on_open: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
+    /// The host's image cache for the body's `![](/api/attachments/…)`
+    /// pictures; `None` = they read "Image unavailable" (the thread
+    /// screen's `.images(...)` fix, 1a32b8a1a2, for the agent channel).
+    pub images: Option<gpui::Entity<crate::markdown::ImageCache>>,
 }
 
 /// The meta line a synced comment wears in the thread card: the timeline's
@@ -892,6 +896,9 @@ pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> 
     let mut view = MarkdownView::new(SharedString::from(format!("{}-body", props.id)), props.body.clone())
         .chat(true)
         .autolink(true);
+    if let Some(images) = props.images.clone() {
+        view = view.images(images);
+    }
     if let Some(team_id) = props.team_id.as_deref() {
         let team = team_id.to_string();
         view = view

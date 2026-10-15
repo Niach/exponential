@@ -3172,6 +3172,33 @@ impl crate::resize_edge::ResizeHost for ScreensPanel {
     }
 }
 
+impl ScreensPanel {
+    /// EXP-1316 (1b): the thread view hosting `session_id` in place, its
+    /// focus (re)pointed at this session. Activation (`sync_tabs`) sets the
+    /// focus once, but a root row that syncs AFTER it never re-ran that —
+    /// the panel then showed the thread's Conversation (or the bare session
+    /// screen) instead of the opened session; render settles it.
+    fn in_place_thread(
+        &mut self,
+        session_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let root_id = in_place_root(session_id, cx)?;
+        let view = self.sessions.get(session_id).cloned()?;
+        let thread = self
+            .threads
+            .entry(root_id.clone())
+            .or_insert_with(|| cx.new(|cx| crate::thread_screen::ThreadScreenView::new(root_id, window, cx)))
+            .clone();
+        if thread.read(cx).focus_id() != Some(session_id) {
+            let session_id = session_id.to_string();
+            thread.update(cx, |thread, cx| thread.set_focus(Some((session_id, view)), cx));
+        }
+        Some(thread.into_any_element())
+    }
+}
+
 impl Render for ScreensPanel {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let screen = resolved_screen(&self.nav, cx);
@@ -3185,9 +3212,8 @@ impl Render for ScreensPanel {
             // EXP-746: built by `sync_tabs` on activation — the fallback only
             // shows for the frame between a navigation and that observer.
             // EXP-1316 (1b): a thread's session renders inside its thread.
-            Some(Screen::Session { session_id }) => in_place_root(session_id, cx)
-                .and_then(|root_id| self.threads.get(&root_id).cloned())
-                .map(gpui::IntoElement::into_any_element)
+            Some(Screen::Session { session_id }) => self
+                .in_place_thread(session_id, window, cx)
                 .or_else(|| {
                     self.sessions
                         .get(session_id)

@@ -169,6 +169,14 @@ pub(crate) fn tail_reached(offset_y: f32, max_y: f32) -> bool {
 /// growth under a pinned reader re-pins); an UPWARD wheel or a drag away
 /// from the end releases it (the jump-to-bottom button shows); scrolling
 /// back onto the end, or the button, re-arms it. Shared across frames.
+///
+/// The snap to the end is ISSUED, never standing: once on open
+/// ([`TailFollow::take_snap`]), on every [`TailLayout::Repin`] the probe
+/// sees, and from the button. A `scroll_to_bottom` on every render while
+/// pinned used to undo a scrollbar drag each frame (the drag's `set_offset`
+/// notifies the view, the re-render re-snapped at the next prepaint, the
+/// probe then read the end again), so [`TailLayout::Released`] was only ever
+/// reachable from the wheel.
 #[derive(Clone)]
 pub(crate) struct TailFollow(std::rc::Rc<std::cell::Cell<TailState>>);
 
@@ -177,6 +185,8 @@ struct TailState {
     following: bool,
     /// The scroll range at the last layout (growth vs a reader's drag).
     last_max: f32,
+    /// The next render still owes the end a snap (opening, a re-pin).
+    snap_owed: bool,
 }
 
 /// What a layout means for the follow ([`TailFollow::on_layout`]).
@@ -198,6 +208,7 @@ impl Default for TailFollow {
         Self(std::rc::Rc::new(std::cell::Cell::new(TailState {
             following: true,
             last_max: 0.,
+            snap_owed: true,
         })))
     }
 }
@@ -246,9 +257,24 @@ impl TailFollow {
         outcome
     }
 
-    /// The jump-to-bottom button: re-pin.
+    /// The jump-to-bottom button: re-pin (the next render snaps).
     pub(crate) fn pin(&self) {
-        self.set_following(true);
+        let mut state = self.0.get();
+        state.following = true;
+        state.snap_owed = true;
+        self.0.set(state);
+    }
+
+    /// Whether THIS render snaps the scroller to the end — true once after
+    /// construction and after [`TailFollow::pin`], never while a reader
+    /// drags (see the type docs). A [`TailLayout::Repin`] snaps from the
+    /// probe itself, so it owes nothing here.
+    pub(crate) fn take_snap(&self) -> bool {
+        let mut state = self.0.get();
+        let owed = state.following && state.snap_owed;
+        state.snap_owed = false;
+        self.0.set(state);
+        owed
     }
 
     /// The scroller around `content` (`id`, tracked by `handle`; a
@@ -267,7 +293,9 @@ impl TailFollow {
         cx: &App,
     ) -> AnyElement {
         let following = self.following();
-        if following {
+        // Issued once (open, the button), not on every pinned render: a
+        // standing snap undid a scrollbar drag each frame (type docs).
+        if self.take_snap() {
             handle.scroll_to_bottom();
         }
         let wheel = self.clone();
@@ -1240,6 +1268,36 @@ mod tests {
         assert!(!follow.following());
         follow.pin();
         assert!(follow.following());
+    }
+
+    /// The snap is ISSUED, never standing: the opening render owes one, the
+    /// renders a scrollbar drag triggers owe none (so the probe reads the
+    /// dragged offset and releases), a re-pin snaps from the probe, the
+    /// button owes one again. Released = never.
+    #[test]
+    fn the_tail_follow_snaps_once_on_open_and_never_under_a_drag() {
+        let follow = TailFollow::default();
+        assert!(follow.take_snap(), "the opening render snaps");
+        assert!(!follow.take_snap(), "the next one does not");
+        assert_eq!(follow.on_layout(-600., 600.), TailLayout::Keep);
+        // Growth under a pinned reader: the probe snaps itself (`Repin`),
+        // the render it notifies owes nothing — a drag in that frame wins.
+        assert_eq!(follow.on_layout(-600., 900.), TailLayout::Repin);
+        assert!(!follow.take_snap());
+        // The drag: `set_offset` re-renders the view (no snap), then the
+        // probe reads the dragged offset without growth → released.
+        assert!(!follow.take_snap());
+        assert_eq!(follow.on_layout(-500., 900.), TailLayout::Released);
+        assert!(!follow.following());
+        assert!(!follow.take_snap(), "released owes no snap");
+        // The button: pinned, and the next render snaps once.
+        follow.pin();
+        assert!(follow.take_snap());
+        assert!(!follow.take_snap());
+        // Back on the end by hand re-arms without a snap of its own.
+        assert!(follow.on_wheel(30.));
+        assert_eq!(follow.on_layout(-900., 900.), TailLayout::Rearmed);
+        assert!(!follow.take_snap());
     }
 
 

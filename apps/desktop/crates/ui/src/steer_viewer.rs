@@ -4925,6 +4925,7 @@ impl SteerSessionView {
                 expanded: self.expanded_bodies.contains(&id),
                 on_toggle: Some(on_toggle),
                 on_open,
+                images: Some(self.images.clone()),
             },
             cx,
         );

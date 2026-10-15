@@ -745,6 +745,7 @@ fn build_ctx(spec: CtxSpec) -> Arc<SessionCtx> {
         prompt: spec.prompt,
         embeds: steer::ImageEmbeds::default(),
         attachments,
+        open_questions: Mutex::new(std::collections::VecDeque::new()),
         mapper: Mutex::new(mapper),
         sink: OnceLock::new(),
         feed: LocalFeed::new(keep_backlog),

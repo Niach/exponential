@@ -565,13 +565,24 @@ pub(crate) fn title_row(title: &str, private: bool, cx: &App) -> gpui::Div {
         })
 }
 
+/// Web `permissions.isMember` for the thread's team (route `threads/$threadId`):
+/// the one gate on the strip's `+` and the Guide menu's Close PR. A root
+/// with no team (never synced that far) is not a member of anything.
+fn thread_member(model: &ThreadModel, cx: &App) -> bool {
+    model
+        .root
+        .team_id
+        .as_deref()
+        .is_some_and(|team_id| crate::settings::is_member(cx, team_id))
+}
+
 /// EXP-1307 — the Guide `…` (`guide_menu_entries` over the Guide PR):
-/// Open PR on GitHub, then Close PR while it is open. Every viewer of a
-/// thread is a member (nothing is anonymously readable). No entries = none.
+/// Open PR on GitHub, then Close PR while it is open (members only, the
+/// web's `canClose={permissions.isMember}`). No entries = none.
 fn guide_menu(model: &ThreadModel, cx: &App) -> Option<AnyElement> {
     use domain::session_tree::{guide_menu_entries, GuideMenuEntry};
     let pull = model.pull()?;
-    let entries = guide_menu_entries(pull.state.as_deref(), true);
+    let entries = guide_menu_entries(pull.state.as_deref(), thread_member(model, cx));
     if entries.is_empty() {
         return None;
     }
@@ -1759,7 +1770,7 @@ impl ThreadScreenView {
     }
 
     /// The focused session's id.
-    fn focus_id(&self) -> Option<&str> {
+    pub(crate) fn focus_id(&self) -> Option<&str> {
         self.focus.as_ref().map(|(id, _)| id.as_str())
     }
 
@@ -1800,6 +1811,13 @@ impl ThreadScreenView {
                 }
             });
         }));
+    }
+
+    /// How many rows the hover tree would list (web `treeRows.length`).
+    fn tree_row_count(&self, cx: &App) -> usize {
+        let sessions = crate::session_data::tree_of_root(&self.root_id, cx);
+        let refs: Vec<&SessionRow> = sessions.iter().collect();
+        session_tree_rows(&self.root_id, &refs, crate::session_data::now_ms()).len()
     }
 
     /// The tree popover under the session chips.
@@ -1938,6 +1956,7 @@ impl ThreadScreenView {
         // scrolled or clipped away.
         let mut lead: Vec<AnyElement> = Vec::new();
         let mut add: Option<AnyElement> = None;
+        let member = thread_member(model, cx);
         for tab in &model.view.tabs {
             match tab {
                 ThreadTab::Conversation => {
@@ -1991,6 +2010,9 @@ impl ThreadScreenView {
                         chip.into_any_element()
                     });
                 }
+                // Web `add={permissions.isMember ? … : undefined}`: a
+                // non-member sees no `+` (the divider still splits the strip).
+                ThreadTab::Add if !member => trailing.push(strip_divider(cx)),
                 ThreadTab::Add => {
                     let target = self.menu_target(None);
                     let trigger =
@@ -2031,6 +2053,10 @@ impl ThreadScreenView {
                 }
                 ThreadTab::Guide { dot } => {
                     if !sessions.is_empty() {
+                        // Web: the hover tree only for a tree of MORE than
+                        // one row (`treeRows.length > 1`) — a lone session
+                        // has nothing to map.
+                        let tree = self.tree_row_count(cx) > 1;
                         let group = div()
                             .id("thread-session-chips")
                             .relative()
@@ -2040,8 +2066,12 @@ impl ThreadScreenView {
                             .items_center()
                             .gap_1()
                             .children(std::mem::take(&mut sessions))
-                            .on_hover(cx.listener(|this, hovered: &bool, _, cx| this.tree_hover(Some(*hovered), None, cx)))
-                            .when(self.tree.open, |group| group.child(self.render_tree_popover(cx)));
+                            .when(tree, |group| {
+                                group.on_hover(
+                                    cx.listener(|this, hovered: &bool, _, cx| this.tree_hover(Some(*hovered), None, cx)),
+                                )
+                            })
+                            .when(tree && self.tree.open, |group| group.child(self.render_tree_popover(cx)));
                         trailing.push(group.into_any_element());
                         trailing.push(strip_divider(cx));
                     }
