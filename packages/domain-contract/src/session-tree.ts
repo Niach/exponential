@@ -234,6 +234,24 @@ export type ThreadTab =
   | { kind: `session`; sessionId: string; name: string; markState: SessionTabMarkState }
   | { kind: `guide`; dot: boolean }
 
+/** EXP-1322: a question row's option, label + description like the session
+ *  view's card (a plain-label card option → description null). */
+export interface ThreadQuestionOption {
+  label: string
+  description: string | null
+}
+
+/** A synced card option (a plain label or `{label, description}`) in the
+ *  row form; anything else = null (dropped). */
+export function questionOption(raw: unknown): ThreadQuestionOption | null {
+  if (typeof raw === `string`) return { label: raw, description: null }
+  if (raw && typeof raw === `object` && typeof (raw as { label?: unknown }).label === `string`) {
+    const { label, description } = raw as { label: string; description?: unknown }
+    return { label, description: typeof description === `string` && description !== `` ? description : null }
+  }
+  return null
+}
+
 export type ThreadRow =
   | {
       type: `message`
@@ -248,7 +266,7 @@ export type ThreadRow =
       type: `question`
       id: string
       question: string
-      options: string[]
+      options: ThreadQuestionOption[]
       custom: boolean
       answer: string | null
       answered: boolean
@@ -427,7 +445,9 @@ export function buildSessionThread(input: {
           type: `question`,
           id: message.id,
           question: String(card.question ?? ``),
-          options: Array.isArray(card.options) ? card.options.map(String) : [],
+          options: Array.isArray(card.options)
+            ? card.options.map(questionOption).filter((option) => option !== null)
+            : [],
           custom: true,
           answer: typeof card.answer === `string` ? card.answer : null,
           answered: message.answeredAt !== null,

@@ -965,11 +965,7 @@ impl Mapper {
         } else {
             api::session_device::ReplyCard::Question {
                 question: text.clone(),
-                options: options
-                    .iter()
-                    .filter(|option| !option.free_text)
-                    .map(|option| option.label.clone())
-                    .collect(),
+                options: card_options(&options),
                 question_id: question_id.clone(),
             }
         }));
@@ -3176,11 +3172,7 @@ impl Mapper {
             self.reset_turn_reply();
             out.replies.push(Reply::card(api::session_device::ReplyCard::Question {
                 question: text.clone(),
-                options: options
-                    .iter()
-                    .filter(|option| !option.free_text)
-                    .map(|option| option.label.clone())
-                    .collect(),
+                options: card_options(&options),
                 question_id: question_id.clone(),
             }));
         }
@@ -3422,6 +3414,19 @@ const PENDING_ECHOES_MAX: usize = 8;
 const FREE_TEXT_KEY: &str = "text";
 
 /// `(value, label)` per multi-select item, over both shapes the schema has.
+/// EXP-1322: a question card's options = the feed options minus the
+/// free-text row, each carrying its description when it has one (the thread
+/// card shows it like the session view's card).
+fn card_options(options: &[QuestionOption]) -> Vec<api::session_device::ReplyOption> {
+    options
+        .iter()
+        .filter(|option| !option.free_text)
+        .map(|option| {
+            api::session_device::ReplyOption::new(option.label.clone(), option.description.as_deref())
+        })
+        .collect()
+}
+
 fn multi_select_options(
     items: &agent_client_protocol::schema::v1::MultiSelectItems,
 ) -> Vec<(String, String)> {
@@ -6598,6 +6603,32 @@ mod conversation_tests {
                 ),
             ],
         )
+    }
+
+    #[test]
+    fn card_options_carry_descriptions_and_drop_the_free_text_row() {
+        use api::session_device::ReplyOption;
+        let options = vec![
+            QuestionOption {
+                description: Some("~90ms more".into()),
+                ..QuestionOption::new("Lazy-load", "1")
+            },
+            QuestionOption::new("Open the PR", "2"),
+            QuestionOption {
+                free_text: true,
+                ..QuestionOption::new("Type something.", "3")
+            },
+        ];
+        assert_eq!(
+            card_options(&options),
+            vec![
+                ReplyOption::Described {
+                    label: "Lazy-load".into(),
+                    description: "~90ms more".into(),
+                },
+                ReplyOption::Label("Open the PR".into()),
+            ]
+        );
     }
 
     #[test]

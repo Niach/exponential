@@ -10,6 +10,7 @@ import {
   guidePullRequest,
   listAgents,
   partitionThreads,
+  questionOption,
   railThreads,
   sessionCard,
   threadInStack,
@@ -77,4 +78,15 @@ describe(`session-tree fixtures (EXP-1291)`, () => {
       expect(rows.map((row) => row.sessionId)).toEqual(entry.expected)
     })
   }
+})
+
+describe(`questionOption (EXP-1322)`, () => {
+  test(`a label or {label, description} normalises; anything else drops`, () => {
+    expect(questionOption(`Yes`)).toEqual({ label: `Yes`, description: null })
+    expect(questionOption({ label: `Yes`, description: `Ship it` })).toEqual({ label: `Yes`, description: `Ship it` })
+    expect(questionOption({ label: `Yes`, description: `` })).toEqual({ label: `Yes`, description: null })
+    expect(questionOption({ label: `Yes` })).toEqual({ label: `Yes`, description: null })
+    expect(questionOption({ description: `x` })).toBeNull()
+    expect(questionOption(3)).toBeNull()
+  })
 })

@@ -11,6 +11,7 @@ import {
   hexColorSchema,
   MESSAGE_BODY_MAX,
   messageCardSchema,
+  questionCardOptionSchema,
   sessionsSendInputSchema,
   sessionStatusSchema,
   type CodingSessionBlocked,
@@ -53,6 +54,9 @@ const uuid = z.string().uuid()
 
 /** The cards a DEVICE may post (the server owns event/session cards). */
 const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
+
+/** EXP-1322: a question card's options: labels or `{label, description}`. */
+const questionCardOptionsSchema = z.array(questionCardOptionSchema).max(50)
 
 async function loadAgent(userId: string, sessionId: string): Promise<Session> {
   const agent = await loadSessionForUser(userId, sessionId)
@@ -486,6 +490,13 @@ export const sessionsRouter = router({
       const card = (input.card ?? null) as MessageCard | null
       if (card && !DEVICE_CARD_KINDS.has(card.kind)) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A device cannot post ${card.kind} cards` })
+      }
+      if (
+        card?.kind === `question` &&
+        card.options !== undefined &&
+        !questionCardOptionsSchema.safeParse(card.options).success
+      ) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid question options` })
       }
       if (!card && !input.body.trim()) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A reply needs a body or a card` })

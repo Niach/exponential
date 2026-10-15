@@ -156,7 +156,7 @@ pub fn report(trpc: &TrpcClient, session_id: &str, report: &SessionReport) -> Re
 pub enum ReplyCard {
     Question {
         question: String,
-        options: Vec<String>,
+        options: Vec<ReplyOption>,
         #[serde(rename = "questionId")]
         question_id: String,
     },
@@ -171,6 +171,47 @@ pub enum ReplyCard {
         #[serde(skip_serializing_if = "Option::is_none")]
         summary: Option<String>,
     },
+}
+
+/// EXP-1322: one option of a question card. A described option posts as
+/// `{label, description}` (the thread card shows it like the session view's
+/// card); an undescribed one stays a plain label string, so an older server
+/// reads it unchanged.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum ReplyOption {
+    Label(String),
+    Described { label: String, description: String },
+}
+
+impl ReplyOption {
+    /// The wire form for a feed option: described only when the description
+    /// carries text.
+    pub fn new(label: impl Into<String>, description: Option<&str>) -> Self {
+        let label = label.into();
+        match description.map(str::trim).filter(|text| !text.is_empty()) {
+            Some(description) => Self::Described { label, description: description.to_string() },
+            None => Self::Label(label),
+        }
+    }
+
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Label(label) | Self::Described { label, .. } => label,
+        }
+    }
+}
+
+impl From<&str> for ReplyOption {
+    fn from(label: &str) -> Self {
+        Self::Label(label.to_string())
+    }
+}
+
+impl From<String> for ReplyOption {
+    fn from(label: String) -> Self {
+        Self::Label(label)
+    }
 }
 
 #[derive(Serialize)]
@@ -411,7 +452,10 @@ mod tests {
         );
         let card = ReplyCard::Question {
             question: "Which DB?".to_string(),
-            options: vec!["Postgres".to_string(), "SQLite".to_string()],
+            options: vec![
+                ReplyOption::new("Postgres", Some("Managed, shared")),
+                ReplyOption::new("SQLite", None),
+            ],
             question_id: "q-1".to_string(),
         };
         let id = reply(&client(&base), SESSION, "", Some(&card)).unwrap();
@@ -421,7 +465,7 @@ mod tests {
         assert_eq!(
             body_of(&request),
             format!(
-                r#"{{"sessionId":"{SESSION}","body":"","card":{{"kind":"question","question":"Which DB?","options":["Postgres","SQLite"],"questionId":"q-1"}}}}"#
+                r#"{{"sessionId":"{SESSION}","body":"","card":{{"kind":"question","question":"Which DB?","options":[{{"label":"Postgres","description":"Managed, shared"}},"SQLite"],"questionId":"q-1"}}}}"#
             )
         );
 
@@ -440,6 +484,20 @@ mod tests {
     #[test]
     fn reply_cards_match_the_message_card_wire() {
         let json = |card: &ReplyCard| serde_json::to_string(card).unwrap();
+        // EXP-1322: described options post as objects, the rest as labels.
+        assert_eq!(
+            json(&ReplyCard::Question {
+                question: "Ship?".to_string(),
+                options: vec![
+                    ReplyOption::new("Now", Some("Behind a flag")),
+                    ReplyOption::new("Later", Some("  ")),
+                    ReplyOption::new("Never", None),
+                ],
+                question_id: "q-3".to_string(),
+            }),
+            r#"{"kind":"question","question":"Ship?","options":[{"label":"Now","description":"Behind a flag"},"Later","Never"],"questionId":"q-3"}"#
+        );
+        assert_eq!(ReplyOption::new("Now", Some("x")).label(), "Now");
         assert_eq!(
             json(&ReplyCard::Plan {
                 plan: "1. Do it".to_string(),

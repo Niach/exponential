@@ -822,7 +822,13 @@ async function seedSessionTree(ctx: {
         card: {
           kind: `question`,
           question: DEMO_FEED_QUESTION,
-          options: [`Also lazy-load the markdown editor`, `Open the PR with what we have`],
+          options: [
+            {
+              label: `Also lazy-load the markdown editor`,
+              description: `~90ms more, touches the editor entry point`,
+            },
+            { label: `Open the PR with what we have`, description: `Target is met; keep the diff small` },
+          ],
           answer: null,
         },
         at: minutesAgo(2),
