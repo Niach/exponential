@@ -6755,20 +6755,22 @@ impl SteerSessionView {
         )
     }
 
-    /// The composer's bottom stack — the queue bar, a notice, THE composer
-    /// box — for a screen hosting this view as a ROOT session's composer
-    /// (the thread screen, the agent channel): the SAME composer and footer
-    /// the session view paints, targeting this session. `None` while the
-    /// composer yields (a pending card, a reader who may not steer).
+    /// The composer's bottom stack — a notice, THE composer box — for a
+    /// screen hosting this view as a ROOT session's composer (the thread
+    /// screen, the agent channel): the SAME composer and footer the session
+    /// view paints, targeting this session. NO queue strip: the person's
+    /// queued rows already render in the Conversation with their Remove X
+    /// (EXP-1317). `None` while the composer yields — ONLY to a question or
+    /// plan card of THIS (root) session waiting on the viewer (this view's
+    /// feed is the root's own, so a child's pending card, which shows inline
+    /// in the Conversation, never hides it), or to a reader who may not
+    /// steer.
     pub(crate) fn render_session_composer(
         &mut self,
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
         self.refresh_derived();
-        let queue = queue_strip_visible(self.run_open(), self.feed.queue().len())
-            .then(|| self.render_queue_strip(cx))
-            .flatten();
         let notice = self.notice.clone().map(|notice| {
             banner_block(
                 div()
@@ -6780,14 +6782,13 @@ impl SteerSessionView {
             .into_any_element()
         });
         let composer = self.composer_visible().then(|| self.render_composer(window, cx));
-        if queue.is_none() && notice.is_none() && composer.is_none() {
+        if notice.is_none() && composer.is_none() {
             return None;
         }
         Some(
             v_flex()
                 .w_full()
                 .min_w_0()
-                .children(queue)
                 .children(notice)
                 .children(composer)
                 .into_any_element(),
