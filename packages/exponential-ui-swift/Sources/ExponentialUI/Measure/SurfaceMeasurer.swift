@@ -275,7 +275,10 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
                 let m = para(raw, badge, wrap: nil, lines: 1)
                 content = MeasuredContent(m.width + 16, max(m.height, ts.lineHeight), m.baseline)
             } else if part == "code", props["tokens"] != nil {
-                content = para(raw, Self.codeStyle(ts), wrap: inner, lines: leaf.lines)
+                // A blank code line still holds one line box (the web's).
+                let code = Self.codeStyle(ts)
+                let m = para(raw, code, wrap: inner, lines: leaf.lines)
+                content = MeasuredContent(m.width, max(m.height, code.lineHeight), m.baseline)
             } else {
                 content = para(raw, ts, wrap: inner, lines: leaf.lines)
             }
