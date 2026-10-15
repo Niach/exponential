@@ -1,4 +1,10 @@
-import { useLayoutEffect, useRef, type ComponentProps, type ReactNode } from "react"
+import {
+  useLayoutEffect,
+  useRef,
+  type ComponentProps,
+  type ComponentType,
+  type ReactNode,
+} from "react"
 import type { SessionTabMarkState, ThreadRow } from "@exp/domain-contract/session-tree"
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { ASK_CARD_COPY, AskCard, AskPrompt, type AskOption } from "./ask-card"
@@ -7,7 +13,7 @@ import { cn } from "./cn"
 import { stripTabClass } from "./entity-chip"
 import { ListRow } from "./glass-rows"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "./hover-card"
-import { SessionRow } from "./session-row"
+import { SessionRow, SessionRowDevice } from "./session-row"
 import { treeGuides } from "./tree-guides"
 import { conceptIcon } from "./icons.generated"
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip"
@@ -603,6 +609,7 @@ export function ThreadsListItem({
   word,
   wordIcon,
   locked = false,
+  device = null,
   active = false,
   onOpen,
   testId = `threads-row`,
@@ -617,6 +624,9 @@ export function ThreadsListItem({
   wordIcon?: ReactNode
   /** A private thread: the lock after the word (EXP-1318: both). */
   locked?: boolean
+  /** EXP-1318: the ROOT's device, the trailing glyph after the word and the
+   *  lock (its name = tooltip + accessible name); null = none. */
+  device?: { icon: ComponentType<{ className?: string }>; name: string | null } | null
   active?: boolean
   onOpen?: () => void
   testId?: string
@@ -648,6 +658,7 @@ export function ThreadsListItem({
           className="size-3.5 shrink-0 text-muted-foreground"
         />
       )}
+      {device && <SessionRowDevice icon={device.icon} name={device.name} />}
     </ListRow>
   )
 }

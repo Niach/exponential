@@ -298,3 +298,22 @@ describe(`the strip row`, () => {
     expect(order.map((id) => screen.getByTestId(id).parentElement)).toEqual(order.map(() => strip))
   })
 })
+
+// EXP-1318: the row ends on the ROOT's device glyph, after the word and lock.
+describe(`ThreadsListItem device`, () => {
+  it(`trails the word and the lock, named for AT`, () => {
+    render(
+      <ThreadsListItem
+        lead={null}
+        title="T"
+        word="merged"
+        locked
+        device={{ icon: () => <svg />, name: `Alex's MacBook Pro` }}
+      />
+    )
+    const device = document.querySelector(`[data-slot="session-row-device"]`)!
+    expect(device.getAttribute(`aria-label`)).toBe(`Alex's MacBook Pro`)
+    const lock = screen.getByLabelText(`Private`)
+    expect(lock.compareDocumentPosition(device) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})

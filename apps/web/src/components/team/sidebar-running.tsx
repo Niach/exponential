@@ -8,6 +8,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SessionRowDevice,
   type RunMarkState,
 } from "@exp/ui"
 import { sessionCollection } from "@/lib/collections"
@@ -20,6 +21,7 @@ import {
   type ThreadsListRow,
 } from "@/lib/session-tree"
 import { TABLESS_ORIGIN } from "@/lib/work-tabs"
+import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 
 // EXP-923 / EXP-1293 / EXP-1318: the ACTIVE band lives in the SIDEBAR,
 // under the boards — `railThreads` over the Threads list of the ACTIVE team
@@ -118,6 +120,7 @@ export function SidebarRunningSection({
   const rows = railThreads(threads.groups, threads.wordOf)
   const shown = useShownThreadId()
   const openThread = useOpenThread(teamSlug)
+  const deviceGlyph = useDeviceGlyphs()
   if (rows.length === 0) return null
   return (
     <SidebarGroup data-testid="sidebar-running">
@@ -126,19 +129,24 @@ export function SidebarRunningSection({
       <SidebarGroupLabel>{THREADS_LIST_COPY.rail}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {rows.map((row) => (
-            <SidebarMenuItem key={row.sessionId}>
-              <SidebarMenuButton
-                density="compact"
-                isActive={shown === row.sessionId}
-                onClick={() => openThread(row.sessionId)}
-                data-testid={`sidebar-running-${row.sessionId}`}
-              >
-                <ThreadRunMark row={row} />
-                <span className="min-w-0 flex-1 truncate">{row.title}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
+          {rows.map((row) => {
+            const device = deviceGlyph(row.deviceId)
+            return (
+              <SidebarMenuItem key={row.sessionId}>
+                <SidebarMenuButton
+                  density="compact"
+                  isActive={shown === row.sessionId}
+                  onClick={() => openThread(row.sessionId)}
+                  data-testid={`sidebar-running-${row.sessionId}`}
+                >
+                  <ThreadRunMark row={row} />
+                  <span className="min-w-0 flex-1 truncate">{row.title}</span>
+                  {/* EXP-1318: the root's device, trailing. */}
+                  {device && <SessionRowDevice icon={device.icon} name={device.name} />}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            )
+          })}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>

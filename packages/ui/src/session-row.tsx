@@ -126,8 +126,10 @@ export function SessionRow({
 }
 
 /** Fixed, never truncated: WHERE the run is, its name on hover. The row
- *  carries its own provider so a list renders outside the app shell too. */
-function SessionRowDevice({
+ *  carries its own provider so a list renders outside the app shell too.
+ *  EXP-1318: the thread rows (Threads list, the rail's Active band) end on
+ *  the same glyph. */
+export function SessionRowDevice({
   icon: Icon,
   name,
 }: {
@@ -137,6 +139,7 @@ function SessionRowDevice({
   const glyph = (
     <span
       data-slot="session-row-device"
+      aria-label={name ?? undefined}
       className="flex shrink-0 items-center justify-center"
     >
       <Icon className="size-3.5 text-muted-foreground" />

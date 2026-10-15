@@ -25,6 +25,11 @@ vi.mock(`@/lib/collections`, () => ({
   },
 }))
 
+vi.mock(`@/hooks/use-device-glyphs`, () => ({
+  useDeviceGlyphs: () => (id: string | null) =>
+    id === `d-mac` ? { icon: () => <svg data-testid="device-glyph" />, name: `Alex's MacBook Pro` } : null,
+}))
+
 import {
   SidebarRunningIcons,
   SidebarRunningSection,
@@ -34,12 +39,17 @@ import {
 
 const T0 = `2026-10-13T10:00:00.000Z`
 
-function row(sessionId: string, title: string, over: { busy?: boolean; needsYou?: boolean } = {}) {
+function row(
+  sessionId: string,
+  title: string,
+  over: { busy?: boolean; needsYou?: boolean; deviceId?: string | null } = {}
+) {
   return {
     sessionId,
     teamId: `team-1`,
     title,
     private: false,
+    deviceId: over.deviceId ?? null,
     busy: over.busy ?? false,
     needsYou: over.needsYou ?? false,
     activityAt: T0,
@@ -47,7 +57,11 @@ function row(sessionId: string, title: string, over: { busy?: boolean; needsYou?
 }
 
 const groups: ThreadsListGroup[] = [
-  { key: `needs_you`, title: `Needs you`, rows: [row(`t-ask`, `Reduce cold start`, { needsYou: true })] },
+  {
+    key: `needs_you`,
+    title: `Needs you`,
+    rows: [row(`t-ask`, `Reduce cold start`, { needsYou: true, deviceId: `d-mac` })],
+  },
   { key: `running`, title: `Running`, rows: [row(`t-run`, `Group board issues`, { busy: true })] },
   {
     key: `recent`,
@@ -88,6 +102,11 @@ describe(`SidebarRunningSection`, () => {
       `sidebar-running-t-pr`,
     ])
     expect(rows[0].textContent).toBe(`Reduce cold start`)
+    // EXP-1318: the root's device glyph trails the row (named for AT).
+    expect(
+      rows[0].querySelector(`[data-slot="session-row-device"]`)?.getAttribute(`aria-label`)
+    ).toBe(`Alex's MacBook Pro`)
+    expect(rows[1].querySelector(`[data-slot="session-row-device"]`)).toBeNull()
     expect(screen.queryByText(`Fix flaky scroll`)).toBeNull()
     // The needs-you thread wears the amber badge.
     expect(rows[0].querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(

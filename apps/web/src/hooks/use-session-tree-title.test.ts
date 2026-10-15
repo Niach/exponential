@@ -38,6 +38,7 @@ describe(`thread title readiness`, () => {
             teamId: `t`,
             title: `Cold start is at 1.4s on the Pixel 6a`,
             private: false,
+            deviceId: null,
             busy: true,
             needsYou: false,
             activityAt: `2026-10-14T10:00:00.000Z`,

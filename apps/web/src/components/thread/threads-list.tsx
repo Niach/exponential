@@ -11,6 +11,7 @@ import {
   ThreadsListItem,
   type RunMarkState,
 } from "@exp/ui"
+import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { pullRequestCollection } from "@/lib/collections"
 import {
   THREAD_ROW_WORDS,
@@ -29,7 +30,8 @@ import {
 // Running · Recent) over flat gapless rows, no dividers (EXP-1320). A row =
 // the lead (the agent's working mark while busy, its amber badge when it
 // needs you, else the PR glyph its word names), the title (it names the
-// issue) and the trailing word AND the lock when private (EXP-1318). Phones
+// issue), the trailing word AND the lock when private, then the root's
+// device glyph (EXP-1318). Phones
 // put the team's Agents band on top.
 
 const NeedsYouIcon = conceptIcon(`coding-needs-input`)
@@ -125,6 +127,7 @@ export function ThreadsListView({
   onOpenThread: (sessionId: string) => void
   onOpenAgent?: (sessionId: string) => void
 }) {
+  const deviceGlyph = useDeviceGlyphs()
   if (loading) return <SkeletonRows rowHeight={36} />
   const empty = groups.length === 0 && (agents?.length ?? 0) === 0
   return (
@@ -172,6 +175,7 @@ export function ThreadsListView({
                     word === `stack` ? <PrStackIcon className="size-3 shrink-0" /> : undefined
                   }
                   locked={row.private}
+                  device={deviceGlyph(row.deviceId)}
                   active={row.sessionId === activeId}
                   onOpen={() => onOpenThread(row.sessionId)}
                 />

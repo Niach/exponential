@@ -12,6 +12,7 @@ import {
   AgentWorkingMark,
   BoardGlyph,
   conceptIcon,
+  getDeviceIcon,
   GlassSectionHeader,
   IssueChip,
   SessionCard,
@@ -36,6 +37,8 @@ type ThreadInput = Parameters<typeof buildSessionThread>[0]
 type ListInput = Parameters<typeof partitionThreads>[0]
 
 const noop = (): void => {}
+/** EXP-1318: the specimen rows' root device (the Devices page's glyph). */
+const DEVICE = { icon: getDeviceIcon({ kind: `desktop` }), name: `Alex's MacBook Pro` }
 const PrivateIcon = conceptIcon(`ui-private`)
 const NeedsYouIcon = conceptIcon(`coding-needs-input`)
 const RecentIcon = conceptIcon(`ui-check`)
@@ -189,6 +192,7 @@ function ThreadsList() {
                 word={word?.word ?? null}
                 wordIcon={word?.icon}
                 locked={row.private}
+                device={row.deviceId ? DEVICE : null}
                 onOpen={noop}
               />
             )
@@ -204,7 +208,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Thread`,
-  blurb: `A thread IS a root session. Header: the title (\`Implement EXP-12\`, \`Run <action>\`, the agent's auto-name; nobody renames it; a lock when private) and ONE tab strip: Conversation · one issue chip per linked issue (IssueChip \`size="tab"\` = the strip tab box: status glyph, mono identifier, title; its context menu unlinks) · "+" (link an issue) · Guide (a green dot while the root's Guide holds anything). No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (\`Session N\` untitled), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`merged\`, \`question\`) and the lock when private; phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\` ×4).`,
+  blurb: `A thread IS a root session. Header: the title (\`Implement EXP-12\`, \`Run <action>\`, the agent's auto-name; nobody renames it; a lock when private) and ONE tab strip: Conversation · one issue chip per linked issue (IssueChip \`size="tab"\` = the strip tab box: status glyph, mono identifier, title; its context menu unlinks) · "+" (link an issue) · Guide (a green dot while the root's Guide holds anything). No captions, no right sidebar; md+: while the Guide's PR is open the title row's trailing slot carries Merge (\`Merge PR\` | \`Merge stack\`) on every tab, then the \`…\` on the Guide tab; phones use the strip as the pager and keep the bottom Merge capsule on the Guide. THE session card = the Work card's header row: the state icon, the name (\`Session N\` untitled), the muted state word (amber Needs you, rose Usage limit), trailing the elapsed and a spinner while working; it opens that session. The Threads page (and the phones' Threads tab) = Needs you · Running · Recent bands (filled, no count) over flat gapless rows, no dividers: the lead (spinner while busy, amber badge when it needs you, else the PR glyph), the title, ONE quiet word (\`ready to merge\`, \`stack\`, \`merged\`, \`question\`), the lock when private, then the root's device glyph (its name on hover, EXP-1318); phones put the Agents band on top. Models = \`buildSessionThread()\`, \`sessionCard()\`, \`partitionThreads()\` (fixtures \`session-thread.json\`, \`session-card.json\`, \`threads-list.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
