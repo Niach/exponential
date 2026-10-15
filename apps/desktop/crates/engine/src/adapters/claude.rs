@@ -1379,7 +1379,7 @@ impl ClaudeSession {
         }
         // Without `elicitation.form` the model must never pick
         // AskUserQuestion: there would be nothing to render its form with.
-        let disallowed: &[&str] = if disallow_ask { &["AskUserQuestion"] } else { &[] };
+        let disallowed = disallowed_tools(disallow_ask, self.spec.aside);
         let argv = wire::claude_argv(&ClaudeArgs {
             print_mode: wire::CLAUDE_PRINT_MODE,
             model: (!model.is_empty()).then_some(model.as_str()),
@@ -1395,12 +1395,14 @@ impl ClaudeSession {
             allow_dangerous: true,
             session_id: Some(pin.as_str()),
             resume: resume.as_deref(),
-            fork_session: false,
+            // EXP-1330: a `/btw` aside forks the parent's conversation, so
+            // the parent's own transcript never sees the question.
+            fork_session: self.spec.aside && resume.is_some(),
             mcp_config: mcp,
             strict_mcp_config: mcp.is_some(),
             settings: self.spec.reaper_settings_path.as_deref(),
             add_dirs: &[],
-            disallowed_tools: disallowed,
+            disallowed_tools: &disallowed,
             // EXP-763: the run playbook (EXP-1025: + the team prompt), on
             // every start and resume.
             append_system_prompt: Some(self.spec.system_append.as_str()),
@@ -6078,9 +6080,34 @@ fn prefix_tokens(usage: &Value) -> u64 {
     field("input_tokens") + field("cache_read_input_tokens") + field("cache_creation_input_tokens")
 }
 
+/// The `--disallowedTools` set: AskUserQuestion without a client to render
+/// its form; EXP-1330: an aside's read-only posture on top.
+fn disallowed_tools(disallow_ask: bool, aside: bool) -> Vec<&'static str> {
+    let mut tools = Vec::new();
+    if disallow_ask {
+        tools.push("AskUserQuestion");
+    }
+    if aside {
+        tools.extend_from_slice(crate::aside::ASIDE_DISALLOWED_TOOLS);
+    }
+    tools
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1330: an aside adds the read-only set to the form gate.
+    #[test]
+    fn an_aside_disallows_the_writing_tools() {
+        assert!(disallowed_tools(false, false).is_empty());
+        assert_eq!(disallowed_tools(true, false), vec!["AskUserQuestion"]);
+        let aside = disallowed_tools(true, true);
+        assert_eq!(aside[0], "AskUserQuestion");
+        for tool in ["Edit", "Write", "NotebookEdit", "Bash"] {
+            assert!(aside.contains(&tool), "{tool}");
+        }
+    }
 
     fn cwd() -> PathBuf {
         PathBuf::from("/work/tree")

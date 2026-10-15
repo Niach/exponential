@@ -99,7 +99,16 @@ pub(crate) struct PrRowSpec {
     pub(crate) on_hover: Option<PrRowHover>,
     /// After the word: an external-link glyph, the ghost merge-through.
     pub(crate) trailing: Option<AnyElement>,
+    /// EXP-1323: a Threads row with news the viewer has not read — the
+    /// title goes semibold.
+    pub(crate) strong: bool,
+    /// EXP-1323: a Threads row's live caption, the muted line under the
+    /// title (the row grows to [`CAPTION_ROW`]).
+    pub(crate) caption: Option<SharedString>,
 }
+
+/// EXP-1323: a row carrying a caption line (web `h-[52px]`).
+pub(crate) const CAPTION_ROW: f32 = 52.;
 
 impl PrRowSpec {
     /// A plain open-PR row: no word, no nesting, no rail, nothing trailing.
@@ -117,6 +126,8 @@ impl PrRowSpec {
             on_click: None,
             on_hover: None,
             trailing: None,
+            strong: false,
+            caption: None,
         }
     }
 }
@@ -141,6 +152,8 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
         on_click,
         on_hover,
         trailing,
+        strong,
+        caption,
     } = spec;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
@@ -160,7 +173,20 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
             .font_family(theme::terminal::FONT_FAMILY)
             .text_color(muted)
     } else {
-        title_el.text_sm().text_color(theme.foreground)
+        title_el
+            .text_sm()
+            .text_color(theme.foreground)
+            .when(strong, |this| this.font_weight(gpui::FontWeight::SEMIBOLD))
+    };
+    let row_h = if caption.is_some() { CAPTION_ROW } else { PR_ROW };
+    let title_el = match caption {
+        Some(caption) => gpui_component::v_flex()
+            .flex_1()
+            .min_w_0()
+            .child(title_el)
+            .child(div().min_w_0().truncate().text_xs().text_color(muted).child(caption))
+            .into_any_element(),
+        None => title_el.into_any_element(),
     };
 
     let mut row = div()
@@ -172,7 +198,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
         .w_full()
         .min_w_0()
         .flex_shrink_0()
-        .h(px(PR_ROW))
+        .h(px(row_h))
         .gap(px(GAP))
         .pr_3()
         .pl(px(domain::list_item::lead_x(depth)))
@@ -190,7 +216,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
                     .top_0()
                     .left(px(rail_x))
                     .w(px(RAIL))
-                    .h(px(PR_ROW / 2. - half))
+                    .h(px(row_h / 2. - half))
                     .bg(rail_color),
             )
         })
@@ -201,7 +227,7 @@ pub(crate) fn pr_row(spec: PrRowSpec, cx: &App) -> AnyElement {
                     .bottom_0()
                     .left(px(rail_x))
                     .w(px(RAIL))
-                    .h(px(PR_ROW / 2. - half))
+                    .h(px(row_h / 2. - half))
                     .bg(rail_color),
             )
         })
@@ -278,6 +304,8 @@ pub(crate) fn pr_list(id_prefix: &str, rows: Vec<PrListRow>, cx: &App) -> AnyEle
                     on_click: row.on_open,
                     on_hover: None,
                     trailing: row.trailing,
+                    strong: false,
+                    caption: None,
                 },
                 cx,
             )
@@ -402,6 +430,8 @@ pub(crate) fn stack_rail(spec: StackRailSpec, cx: &App) -> AnyElement {
                 on_click: on_open,
                 on_hover: hover,
                 trailing,
+                strong: false,
+                caption: None,
             },
             cx,
         ));

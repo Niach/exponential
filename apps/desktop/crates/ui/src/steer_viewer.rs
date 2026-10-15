@@ -2929,6 +2929,12 @@ impl SteerSessionView {
         }
         let text = self.input.read(cx).value().to_string();
         self.notice = None;
+        // EXP-1323: `/btw <question>` is an ASIDE child of this session
+        // (`sessions.send({parentId, text, aside})`), never a message to it.
+        if let Some(question) = slash_commands::btw_question(&text, self.agent()) {
+            self.post_message_with(api::sessions::SendInput::aside(&self.session_id, &question), window, cx);
+            return;
+        }
         if self.pending_images.is_empty() {
             self.post_message(text, Vec::new(), window, cx);
             return;
@@ -2999,11 +3005,22 @@ impl SteerSessionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        let input = api::sessions::SendInput::message(&self.session_id, &text, attachment_ids);
+        self.post_message_with(input, window, cx);
+    }
+
+    /// [`Self::post_message`]'s send for any `sessions.send` input (EXP-1323:
+    /// the `/btw` aside rides it too): the draft clears once it is in.
+    fn post_message_with(
+        &mut self,
+        input: api::sessions::SendInput,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             crate::action_error::failed_action("send", "the message", None, cx);
             return;
         };
-        let input = api::sessions::SendInput::message(&self.session_id, &text, attachment_ids);
         self.sending = true;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
@@ -5584,6 +5601,69 @@ impl SteerSessionView {
             cx,
         );
         Some(strip_block(element).into_any_element())
+    }
+
+    /// EXP-1323 — a thread's LIVE TAIL (`session-thread.json`
+    /// `liveSessionId`): the end of the Conversation, above the thread
+    /// composer, read off THIS view's relay state — the agent's task list as
+    /// THE Work card (`tasks`, [`Self::render_task_list_strip`]'s rule) and
+    /// ONE status line: the agent's mark, the state word in its tone and the
+    /// session's live caption. `None` once the session is over.
+    pub(crate) fn live_tail(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if self.session_over() {
+            return None;
+        }
+        let row = self.row.as_ref()?;
+        let state = self.view_state()?;
+        let entries = self.feed.task_list();
+        let tasks = crate::session_rows::task_list_summary(entries).map(|_| {
+            let card = steer::work_card::work_card(&steer::work_card::WorkCardInput::from_tasks(entries));
+            crate::work_card::work_card(
+                crate::work_card::WorkCardProps {
+                    id: SharedString::from("thread-live-task-list"),
+                    card: &card,
+                    lanes: Vec::new(),
+                    folded_open: false,
+                    on_toggle_folded: None,
+                    on_lane: None,
+                    on_card: None,
+                    footer: Vec::new(),
+                },
+                cx,
+            )
+        });
+        let muted = cx.theme().muted_foreground;
+        let caption = row
+            .caption
+            .as_deref()
+            .map(str::trim)
+            .filter(|caption| !caption.is_empty() && state != domain::session_tree::SessionState::Ended)
+            .map(|caption| SharedString::from(caption.to_string()));
+        let status = h_flex()
+            .id("thread-live-status")
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .text_xs()
+            .child(crate::run_rows::run_mark(crate::run_rows::run_agent(row.cli.as_deref()), state, cx))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .text_color(crate::work_card::session_tone_color(state.tone(), cx))
+                    .child(SharedString::from(state.word())),
+            )
+            .children(caption.map(|caption| div().min_w_0().truncate().text_color(muted).child(caption)));
+        Some(
+            v_flex()
+                .id(SharedString::from(domain::session_tree::THREAD.test_ids.live_tail.clone()))
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .children(tasks)
+                .child(status)
+                .into_any_element(),
+        )
     }
 
     /// §1/§2 — the strip directly above the composer: one line per background

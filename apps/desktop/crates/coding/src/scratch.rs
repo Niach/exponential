@@ -111,6 +111,11 @@ pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
 /// anything newer than the request means the dir is live again and must not
 /// be deleted under its fresh `.exp-mcp.json`.
 pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: SystemTime) -> bool {
+    // EXP-1330: a `/btw` aside ran in its PARENT's dir — only its record goes.
+    if crate::run_registry::get(data_dir, session_id).is_some_and(|record| record.is_aside()) {
+        crate::run_registry::remove(data_dir, session_id);
+        return true;
+    }
     match reclaim_dir(data_dir, cwd, requested_at) {
         // EXP-781: `Failed` sits with `ReEntered`, not with `Gone` — the
         // directory is still on disk, so the record has to stay too. It is
@@ -412,6 +417,25 @@ mod tests {
         scratch_record(&dir.0, "sess-1", &run);
         assert!(purge(&dir.0, "sess-1", &run, SystemTime::now()));
         assert!(crate::run_registry::get(&dir.0, "sess-1").is_none());
+    }
+
+    /// EXP-1330: an aside ran in its parent's scratch dir — its end drops
+    /// only its own record, never the parent's dir.
+    #[test]
+    fn purging_an_aside_keeps_its_parents_dir() {
+        let dir = temp_dir("scratch-purge-aside");
+        let run = scratch(&dir.0, "root-1", "1a2b3c4d");
+        scratch_record(&dir.0, "parent", &run);
+        let mut aside = crate::run_registry::sample_record("aside");
+        aside.cwd = run.clone();
+        aside.clone = None;
+        aside.set_aside_of("parent");
+        crate::run_registry::record(&dir.0, aside);
+
+        assert!(purge(&dir.0, "aside", &run, SystemTime::now()));
+        assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        assert!(crate::run_registry::get(&dir.0, "aside").is_none());
+        assert!(crate::run_registry::get(&dir.0, "parent").is_some());
     }
 
     /// The resume race on the purge path: a re-entered dir keeps EVERYTHING,

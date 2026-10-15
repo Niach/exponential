@@ -11,7 +11,9 @@
 //! agent mark; the amber badge when it needs you) · the title (EXP-1316: it
 //! names the issue already, no identifier slot) · the contract's quiet word
 //! (`domain::session_tree::thread_row_word`) AND a lock when private. A row
-//! opens the thread.
+//! opens the thread. EXP-1323: a live tree nests its children under the
+//! root (tree guides; a child opens its session), an unread title is
+//! semibold, the live caption is the muted second line.
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
@@ -97,6 +99,18 @@ pub(crate) fn thread_row_lead(
                 .text_color(cx.theme().muted_foreground)
                 .into_any_element(),
         },
+    }
+}
+
+/// EXP-1323: a nested child row's lead — that session's own mark (working
+/// while busy, the amber badge while it needs you).
+fn child_row_lead(session_id: &str, busy: bool, needs_you: bool, cx: &App) -> gpui::AnyElement {
+    match session_data::session(session_id, cx) {
+        Some(session) => crate::thread_screen::root_mark(&session, busy, needs_you, LEAD_PX, LEAD_BADGE_PX),
+        None => Icon::new(registry::SETTINGS_AGENTS)
+            .with_size(px(LEAD_PX))
+            .text_color(cx.theme().muted_foreground)
+            .into_any_element(),
     }
 }
 
@@ -203,9 +217,24 @@ impl ThreadsView {
         }
     }
 
-    fn row(&self, row: &ThreadsListRow, snapshot: &PrSnapshot, cx: &App) -> gpui::AnyElement {
-        let lead = thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx);
-        let word = thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls);
+    fn row(
+        &self,
+        row: &ThreadsListRow,
+        guides: domain::tree_guides::Guides,
+        snapshot: &PrSnapshot,
+        cx: &App,
+    ) -> gpui::AnyElement {
+        // EXP-1323: a nested child = its own session's mark, no word; it
+        // opens that session (a thread row opens the thread).
+        let child = row.depth > 0;
+        let lead = if child {
+            child_row_lead(&row.session_id, row.busy, row.needs_you, cx)
+        } else {
+            thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx)
+        };
+        let word = (!child)
+            .then(|| thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls))
+            .flatten();
         let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
         let trailing = thread_row_trailing(word, row.private, device, cx);
         let session_id = row.session_id.clone();
@@ -213,14 +242,17 @@ impl ThreadsView {
             PrRowSpec {
                 lead: Some(lead),
                 trailing,
+                guides,
+                strong: row.unread,
+                caption: row.caption.clone().map(SharedString::from),
                 on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
-                    crate::navigation::navigate(
-                        window,
-                        cx,
-                        Screen::Thread {
-                            session_id: session_id.clone(),
-                        },
-                    );
+                    let session_id = session_id.clone();
+                    let screen = if child {
+                        Screen::Session { session_id }
+                    } else {
+                        Screen::Thread { session_id }
+                    };
+                    crate::navigation::navigate(window, cx, screen);
                 })),
                 ..PrRowSpec::open(
                     format!("{}-{}", THREADS_LIST.test_ids.row, row.session_id),
@@ -269,8 +301,16 @@ impl Render for ThreadsView {
                     None,
                     cx,
                 );
-                let rows: Vec<gpui::AnyElement> =
-                    group.rows.iter().map(|row| self.row(row, &snapshot, cx)).collect();
+                // EXP-1323: the nested children's connectors off the band's
+                // depth sequence (TreeGuides, 14px/level, the corner tee).
+                let guides =
+                    domain::tree_guides::guides_for(&group.rows.iter().map(|row| row.depth).collect::<Vec<_>>());
+                let rows: Vec<gpui::AnyElement> = group
+                    .rows
+                    .iter()
+                    .enumerate()
+                    .map(|(index, row)| self.row(row, guides.get(index).cloned().unwrap_or_default(), &snapshot, cx))
+                    .collect();
                 bands.push(v_flex().min_w_0().pb_2().child(band).children(rows).into_any_element());
             }
             v_flex().min_w_0().gap_2().children(bands)

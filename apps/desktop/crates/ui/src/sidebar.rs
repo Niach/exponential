@@ -946,13 +946,25 @@ impl RailView {
             return None;
         }
         let screen = resolved_screen(&self.nav, cx);
+        // EXP-1323: a live tree's children nest under their root
+        // (TreeGuides off the band's depth sequence); a child that has its
+        // own row lights that row, not its root's.
+        let guides = domain::tree_guides::guides_for(&running.iter().map(|row| row.depth).collect::<Vec<_>>());
+        let child_rows: std::collections::HashSet<String> = running
+            .iter()
+            .filter(|row| row.depth > 0)
+            .map(|row| row.session_id.clone())
+            .collect();
         let elements: Vec<gpui::AnyElement> = running
             .into_iter()
             .enumerate()
             .map(|(index, row)| {
                 let active = match &screen {
-                    Some(Screen::Thread { session_id }) => *session_id == row.root_id,
-                    Some(Screen::Session { session_id }) => row.session_ids.contains(session_id),
+                    Some(Screen::Thread { session_id }) => row.depth == 0 && *session_id == row.root_id,
+                    Some(Screen::Session { session_id }) if row.depth > 0 => *session_id == row.session_id,
+                    Some(Screen::Session { session_id }) => {
+                        row.session_ids.contains(session_id) && !child_rows.contains(session_id)
+                    }
                     _ => false,
                 };
                 let state = running_row_state(row.busy, row.needs_you);
@@ -964,9 +976,18 @@ impl RailView {
                     .rev()
                     .filter_map(|id| crate::session_data::session(id, cx))
                     .find(crate::session_data::session_is_working)
-                    .or_else(|| crate::session_data::session(&row.root_id, cx))
+                    .or_else(|| crate::session_data::session(&row.session_id, cx))
                     .and_then(|session| crate::run_rows::run_agent(session.cli.as_deref()));
-                let root_id = row.root_id.clone();
+                // A thread row opens the thread, a child row that session.
+                let target = if row.depth == 0 {
+                    Screen::Thread {
+                        session_id: row.root_id.clone(),
+                    }
+                } else {
+                    Screen::Session {
+                        session_id: row.session_id.clone(),
+                    }
+                };
                 crate::run_rows::run_row(
                     crate::run_rows::RunRowSpec {
                         id_prefix: "rail-running",
@@ -977,20 +998,16 @@ impl RailView {
                         // EXP-1318: the root session's device icon trails.
                         trailing: crate::threads_view::thread_device_icon(
                             row.device_id.as_deref(),
-                            &format!("rail-{}", row.root_id),
+                            &format!("rail-{}", row.session_id),
                             cx,
                         ),
                         title: SharedString::from(row.title),
                         active,
                         on_open: Box::new(move |_, window, cx| {
-                            crate::navigation::navigate_from_live_rail(
-                                window,
-                                cx,
-                                Screen::Thread {
-                                    session_id: root_id.clone(),
-                                },
-                            );
+                            crate::navigation::navigate_from_live_rail(window, cx, target.clone());
                         }),
+                        guides: guides.get(index).cloned().unwrap_or_default(),
+                        unread: row.unread,
                     },
                     cx,
                 )
@@ -1257,11 +1274,16 @@ impl RailView {
 
     /// EXP-1294: the Threads entry — the team's sessions list page, a dot
     /// while a thread needs you (amber) or one is running (green)
-    /// ([`threads_badge`]).
+    /// ([`threads_badge`]); EXP-1323: else the primary unread dot while a
+    /// thread has an agent reply the viewer has not read (`threads_unread`,
+    /// the Inbox's dot).
     fn rail_threads_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let badge = active_team_id(&self.nav, cx).and_then(|team_id| {
             let (needs_you, running) = crate::session_data::rail_threads_badge(&team_id, cx);
-            threads_badge(needs_you, running).map(RailBadge::Dot)
+            threads_badge(needs_you, running).map(RailBadge::Dot).or_else(|| {
+                crate::session_data::rail_threads_unread(&team_id, cx)
+                    .then(|| RailBadge::Dot(theme::tokens::PRIMARY.to_hsla()))
+            })
         });
         self.rail_screen_entry(
             "rail-threads",

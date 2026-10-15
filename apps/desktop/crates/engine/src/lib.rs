@@ -32,6 +32,8 @@
 //! in its doc comment: E1 core, E2 claude, E3 codex, S1 spike.
 
 pub mod adapters;
+// EXP-1330: a `/btw` aside run's engine half (fork posture, one-shot end).
+pub mod aside;
 // EXP-1206: the human-readable head of a command line (`git status`), the
 // detail a Bash row wears when the agent described nothing. Pure.
 pub mod command_head;
@@ -47,6 +49,9 @@ pub mod context_layout;
 pub mod exp_tool_refs;
 pub mod host;
 pub mod lifecycle;
+// EXP-1331: the synced live caption — the tool-edge builder and its
+// throttled `sessions.report{caption}` forwarder. Pure; the ticker drives it.
+pub mod live_caption;
 pub mod local;
 pub mod mapper;
 pub mod outbox;

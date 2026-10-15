@@ -13,6 +13,9 @@
 //! - Agents: `getAgent` (the server-only instructions), `updateAgent`,
 //!   `deleteAgent`.
 //! - `pullRequests.merge` / `close` / `files`.
+//! - EXP-1323: `markRead`, the suggestions verbs (`startSuggestion`,
+//!   `startAllSuggestions`, `dismissSuggestion`, `fileSuggestion`) and the
+//!   `/btw` aside send ([`SendInput::aside`]).
 //!
 //! Plain blocking calls: run them on a background executor only. Rows
 //! re-stream over the shapes, so callers fire-and-forget; `txId` also
@@ -86,6 +89,10 @@ pub struct SendInput {
     pub repository_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent: Option<AgentInput>,
+    /// EXP-1323: a `/btw` aside child (with `parent_id`; `text` = the
+    /// question): answered without adding to the parent's context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aside: Option<bool>,
 }
 
 impl SendInput {
@@ -97,6 +104,17 @@ impl SendInput {
             // Blank text is no text (the server refuses whitespace alone).
             text: Some(text.to_string()).filter(|text| !text.trim().is_empty()),
             attachment_ids: Some(attachment_ids).filter(|ids| !ids.is_empty()),
+            ..Self::default()
+        }
+    }
+
+    /// EXP-1323: a `/btw` aside under `parent_id` (the server places it on
+    /// the parent's device).
+    pub fn aside(parent_id: &str, question: &str) -> Self {
+        Self {
+            parent_id: Some(parent_id.to_string()),
+            text: Some(question.trim().to_string()).filter(|text| !text.is_empty()),
+            aside: Some(true),
             ..Self::default()
         }
     }
@@ -218,6 +236,78 @@ pub fn resolve_card(trpc: &TrpcClient, input: &AnswerInput) -> Result<serde::de:
 /// Take back a queued (not yet consumed) person message.
 pub fn unqueue(trpc: &TrpcClient, message_id: &str) -> Result<TxOutput, ApiError> {
     trpc.mutation("sessions.unqueue", &MessageIdInput { message_id })
+}
+
+/// EXP-1323: mark `session_id` read for the viewer (`session_reads`; a
+/// root = the thread, a child = that session's view).
+pub fn mark_read(trpc: &TrpcClient, session_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.markRead", &SessionIdInput { session_id })
+}
+
+/// EXP-1323: where a suggested task starts (`sessions.startSuggestion`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SuggestionWhere {
+    /// A child session (`Start`, the Options menu's Start on… / with…).
+    Child,
+    /// A message to the posting session (`Do it here`).
+    Here,
+}
+
+/// `sessions.startSuggestion` input.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartSuggestionInput {
+    pub message_id: String,
+    pub item_id: String,
+    #[serde(rename = "where")]
+    pub where_: SuggestionWhere,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+impl StartSuggestionInput {
+    pub fn new(message_id: &str, item_id: &str, where_: SuggestionWhere) -> Self {
+        Self {
+            message_id: message_id.to_string(),
+            item_id: item_id.to_string(),
+            where_,
+            device_id: None,
+            account: None,
+            model: None,
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SuggestionItemInput<'a> {
+    message_id: &'a str,
+    item_id: &'a str,
+}
+
+/// EXP-1323: start one suggested task (a child, or Do it here).
+pub fn start_suggestion(trpc: &TrpcClient, input: &StartSuggestionInput) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.startSuggestion", input)
+}
+
+/// EXP-1323: start every open item of a suggestions card as children.
+pub fn start_all_suggestions(trpc: &TrpcClient, message_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.startAllSuggestions", &MessageIdInput { message_id })
+}
+
+/// EXP-1323: drop one suggested task (×, Options → Dismiss).
+pub fn dismiss_suggestion(trpc: &TrpcClient, message_id: &str, item_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.dismissSuggestion", &SuggestionItemInput { message_id, item_id })
+}
+
+/// EXP-1323: file one suggested task as an issue (Options → File as issue).
+pub fn file_suggestion(trpc: &TrpcClient, message_id: &str, item_id: &str) -> Result<serde::de::IgnoredAny, ApiError> {
+    trpc.mutation("sessions.fileSuggestion", &SuggestionItemInput { message_id, item_id })
 }
 
 /// `sessions.getAgent` output: the server-only instructions.
@@ -424,6 +514,51 @@ mod tests {
         send(&client(&base), &input).unwrap();
         assert!(request(&captured)
             .ends_with(r#"{"teamId":"t-1","deviceId":"dev-1","actionId":"act-1","inputs":{"repo":"r-1"}}"#));
+    }
+
+    /// EXP-1323: the aside send, markRead and the suggestion verbs.
+    #[test]
+    fn aside_mark_read_and_suggestions_post_their_inputs() {
+        let (base, captured) =
+            one_shot_server(200, r#"{"result":{"data":{"sessionId":"c-9","messageId":"m-9","txid":1}}}"#);
+        send(&client(&base), &SendInput::aside("s-1", " Why? ")).unwrap();
+        assert!(request(&captured).ends_with(r#"{"parentId":"s-1","text":"Why?","aside":true}"#));
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":2}}}"#);
+        mark_read(&client(&base), "s-1").unwrap();
+        let text = request(&captured);
+        assert!(text.starts_with("POST /api/trpc/sessions.markRead HTTP/1.1"), "{text}");
+        assert!(text.ends_with(r#"{"sessionId":"s-1"}"#), "{text}");
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"sessionId":"c-1"}}}"#);
+        let input = StartSuggestionInput {
+            device_id: Some("dev-1".into()),
+            model: Some("opus".into()),
+            ..StartSuggestionInput::new("m-1", "i-1", SuggestionWhere::Child)
+        };
+        start_suggestion(&client(&base), &input).unwrap();
+        assert!(request(&captured)
+            .ends_with(r#"{"messageId":"m-1","itemId":"i-1","where":"child","deviceId":"dev-1","model":"opus"}"#));
+
+        for (path, call) in [
+            (
+                "sessions.dismissSuggestion",
+                dismiss_suggestion as fn(&TrpcClient, &str, &str) -> Result<serde::de::IgnoredAny, ApiError>,
+            ),
+            ("sessions.fileSuggestion", file_suggestion),
+        ] {
+            let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txid":3}}}"#);
+            call(&client(&base), "m-1", "i-2").unwrap();
+            let text = request(&captured);
+            assert!(text.starts_with(&format!("POST /api/trpc/{path} HTTP/1.1")), "{text}");
+            assert!(text.ends_with(r#"{"messageId":"m-1","itemId":"i-2"}"#), "{text}");
+        }
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"started":2}}}"#);
+        start_all_suggestions(&client(&base), "m-1").unwrap();
+        let text = request(&captured);
+        assert!(text.starts_with("POST /api/trpc/sessions.startAllSuggestions HTTP/1.1"), "{text}");
+        assert!(text.ends_with(r#"{"messageId":"m-1"}"#), "{text}");
     }
 
     #[test]

@@ -44,6 +44,8 @@ pub mod agent_login;
 pub mod agent_profiles;
 pub mod agent_update;
 pub mod agent_usage;
+// EXP-1330: a `/btw` aside — a read-only fork of its parent's conversation.
+pub mod aside;
 pub mod atomic_config;
 pub mod argv;
 pub mod triggers;

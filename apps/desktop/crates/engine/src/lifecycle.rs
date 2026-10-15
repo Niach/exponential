@@ -16,7 +16,8 @@
 //!   diffs are local-only);
 //! - `NeedsInputForwarder` (EXP-214) and its `agent_busy` twin (EXP-848),
 //!   plus the blocked/title/status forwarders — every one of them writes
-//!   `sessions.report` (EXP-1292; no heartbeat, no caption column);
+//!   `sessions.report` (EXP-1292; no heartbeat), the EXP-1331 live caption
+//!   included ([`crate::live_caption`], throttled, cleared at the end);
 //! - the FEED-25 stall watchdog ([`crate::stall`]): a live turn silent for
 //!   `STALL_AFTER` gets `Cancel`, one that ignores it for `STALL_KILL_GRACE`
 //!   gets `Shutdown` with a `Failed` reason;
@@ -153,6 +154,11 @@ impl RunLifecycle {
                 });
             }
         }
+        // 4b. EXP-1331: the caption's last write — the clear, or an aside's
+        //     pinned answer — while the row is still live.
+        if !ctx.replay {
+            finish_caption(ctx);
+        }
         // 5. The row's last status. A thread session ends, through the
         //    observer-based path, so the CLI's `registry::end_outcome_resolves`
         //    applies; an agent root idles (agents never end — the next
@@ -205,6 +211,29 @@ impl RunLifecycle {
 /// account switch). The row goes `idle` like an agent root's, never `ended`
 /// (an ended root takes its whole tree with it), and no WIP is saved.
 pub const SUSPEND_OUTCOME: &str = "suspended";
+
+/// EXP-1331: the `sessions.report{caption}` hook.
+fn caption_hook(ctx: &SessionCtx) -> crate::live_caption::CaptionHook {
+    let trpc = Arc::clone(&ctx.trpc);
+    let session_id = ctx.session_id.clone();
+    Arc::new(move |caption: Option<&str>| {
+        let report = api::session_device::SessionReport {
+            caption: Some(caption.map(str::to_string)),
+            ..Default::default()
+        };
+        api::session_device::report(&trpc, &session_id, &report).is_ok()
+    })
+}
+
+/// EXP-1331: the end sequence's caption write, past the throttle. The
+/// tickers stopped first (`active` is down), so nothing writes after it.
+fn finish_caption(ctx: &SessionCtx) {
+    let pin = ctx.aside.as_ref().and_then(crate::aside::AsideState::pin);
+    let hook = caption_hook(ctx);
+    if let Ok(mut forwarder) = ctx.caption_forwarder.lock() {
+        forwarder.finish(pin.as_deref(), &hook);
+    }
+}
 
 /// EXP-1292: the row's last status write at the end of a run.
 fn finish_row(ctx: &SessionCtx, outcome: &str) -> Result<(), api::ApiError> {
@@ -604,6 +633,7 @@ fn spawn_tickers(
             // the end sequence writes the row's last status itself.
             let mut status = steer::StatusForwarder::new();
             let mut stall = crate::stall::StallWatchdog::new();
+            let live_caption_hook = caption_hook(&ctx);
             let report = {
                 let trpc = Arc::clone(&ctx.trpc);
                 let session_id = ctx.session_id.clone();
@@ -707,6 +737,16 @@ fn spawn_tickers(
                 {
                     let title = ctx.agent_title.get();
                     agent_title.tick(title.as_deref(), &title_hook);
+                }
+                {
+                    // EXP-1331: under the forwarder's lock, re-checking
+                    // `active`, so the end sequence's last write is last.
+                    let caption = ctx.live_caption();
+                    if let Ok(mut forwarder) = ctx.caption_forwarder.lock() {
+                        if active.load(Ordering::SeqCst) {
+                            forwarder.tick(caption.as_deref(), &live_caption_hook);
+                        }
+                    }
                 }
                 {
                     // EXP-831 follow-up: a wall whose own reset stamp has

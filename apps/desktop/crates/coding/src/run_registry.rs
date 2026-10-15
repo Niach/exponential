@@ -393,6 +393,10 @@ pub const PENDING_CONSUMES_KEY: &str = "pendingConsumes";
 /// which keeps a thread resumable.
 pub const UNREPORTED_END_KEY: &str = "unreportedEnd";
 
+/// EXP-1330: on a `/btw` aside's record, the PARENT session it forked
+/// ([`crate::aside`]): its cwd is the parent's, never its own to purge.
+pub const ASIDE_OF_KEY: &str = "asideOf";
+
 impl RunRecord {
     /// EXP-1292: the owed consumes ([`PENDING_CONSUMES_KEY`]).
     pub fn pending_consumes(&self) -> Vec<String> {
@@ -430,6 +434,19 @@ impl RunRecord {
         if owed {
             self.extra.insert(UNREPORTED_END_KEY.to_string(), serde_json::Value::Bool(true));
         }
+    }
+
+    /// EXP-1330: the parent session a `/btw` aside forked ([`ASIDE_OF_KEY`]).
+    pub fn aside_of(&self) -> Option<&str> {
+        self.extra.get(ASIDE_OF_KEY).and_then(serde_json::Value::as_str)
+    }
+
+    pub fn is_aside(&self) -> bool {
+        self.aside_of().is_some()
+    }
+
+    pub fn set_aside_of(&mut self, parent: &str) {
+        self.extra.insert(ASIDE_OF_KEY.to_string(), serde_json::Value::String(parent.to_string()));
     }
 }
 
