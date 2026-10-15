@@ -417,7 +417,7 @@ export interface SessionThreadView {
   rows: ThreadRow[]
   composer: { sessionId: string; placeholder: string }
   live: boolean
-  /** EXP-1323: the live tail (Tasks card + status line) reads this
+  /** EXP-1323: the live tail (THE Queue, task-queue.json, + the status line) reads this
    *  session's relay state; null once the root ended. */
   liveSessionId: string | null
   busy: boolean
