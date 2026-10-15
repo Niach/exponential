@@ -23,4 +23,5 @@ First release.
 - Markdown block images align to the top of their box.
 - `SurfaceModel.snap` reaches `max` when the step does not divide the range.
 - The example's `brand` theme loads with `ThemeHandle.loadOrDefault`; a unit test loads every shipped sample theme strictly.
+- Text `shimmer` paints a moving gradient (`textShimmerJson` colours, plain under reduced motion); `Trace` / `TraceItem` and CodeBlock `variant` / `size` / ANSI tokens paint from the core; CodeBlock copy copies the `copy` part's `text` (ANSI escapes stripped).
 - Robolectric unit, conformance and snapshot suites, plus instrumented tests (`src/androidTest`) that run on an emulator in CI.

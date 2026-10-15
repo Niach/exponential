@@ -11,3 +11,4 @@ First release.
 - Runtime themes, light/dark/system mode, locale and time zone, built-in string overrides, and density and contrast settings.
 - Host-owned inputs, overlays on Radix portals, extension registration and the host plugin API.
 - Runs the full conformance suite in headless Chromium.
+- Trace lines, the Text shimmer (reduced motion: plain) and CodeBlock's destructive/sm looks; an `ansi` block copies without its escapes.

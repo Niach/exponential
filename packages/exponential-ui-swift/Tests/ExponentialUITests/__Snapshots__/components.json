@@ -3311,28 +3311,28 @@
     ]
   },
   "CodeBlock\/copyable=false" : {
-    "height" : 51,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          51
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          29
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -3341,7 +3341,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          5,
+          13,
           16,
           20
         ],
@@ -3352,9 +3352,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          30,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -3363,9 +3363,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          30,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -3374,9 +3374,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          30,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -3386,9 +3386,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          30,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -3396,28 +3396,28 @@
     ]
   },
   "CodeBlock\/copyable=true" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -3426,7 +3426,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -3437,22 +3437,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -3461,9 +3461,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -3472,9 +3472,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -3484,9 +3484,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -3494,28 +3494,28 @@
     ]
   },
   "CodeBlock\/example" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -3524,7 +3524,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -3535,22 +3535,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -3559,9 +3559,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -3570,9 +3570,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -3582,38 +3582,38 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
       }
     ]
   },
-  "CodeBlock\/language=bash" : {
-    "height" : 63,
+  "CodeBlock\/language=ansi" : {
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -3622,7 +3622,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           32,
           20
         ],
@@ -3633,22 +3633,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -3657,9 +3657,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -3668,9 +3668,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -3680,38 +3680,38 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
       }
     ]
   },
-  "CodeBlock\/language=css" : {
-    "height" : 63,
+  "CodeBlock\/language=bash" : {
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -3720,7 +3720,105 @@
         "component" : "Text",
         "frame" : [
           13,
+          13,
+          32,
+          20
+        ],
+        "id" : "code-block.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          353,
           11,
+          24,
+          24
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          21,
+          41,
+          8,
+          22.75
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          41,
+          248,
+          22.75
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/language=css" : {
+    "height" : 76.75,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          76.75
+        ],
+        "id" : "code-block",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          13,
+          388,
+          20
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          13,
           24,
           20
         ],
@@ -3731,22 +3829,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -3755,9 +3853,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -3766,9 +3864,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -3778,9 +3876,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -3788,28 +3886,28 @@
     ]
   },
   "CodeBlock\/language=html" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -3818,7 +3916,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           32,
           20
         ],
@@ -3829,22 +3927,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -3853,9 +3951,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -3864,9 +3962,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -3876,9 +3974,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -3886,28 +3984,28 @@
     ]
   },
   "CodeBlock\/language=js" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -3916,7 +4014,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -3927,22 +4025,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -3951,9 +4049,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -3962,9 +4060,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -3974,9 +4072,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -3984,28 +4082,28 @@
     ]
   },
   "CodeBlock\/language=json" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4014,7 +4112,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           32,
           20
         ],
@@ -4025,22 +4123,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4049,9 +4147,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4060,9 +4158,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4072,9 +4170,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4082,28 +4180,28 @@
     ]
   },
   "CodeBlock\/language=kotlin" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4112,7 +4210,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           48,
           20
         ],
@@ -4123,22 +4221,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4147,9 +4245,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4158,9 +4256,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4170,9 +4268,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4180,28 +4278,28 @@
     ]
   },
   "CodeBlock\/language=markdown" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4210,7 +4308,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           64,
           20
         ],
@@ -4221,22 +4319,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4245,9 +4343,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4256,9 +4354,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4268,9 +4366,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4278,28 +4376,28 @@
     ]
   },
   "CodeBlock\/language=plain" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4308,8 +4406,8 @@
         "component" : "Box",
         "frame" : [
           13,
-          21,
-          324,
+          23,
+          332,
           0
         ],
         "id" : "code-block.spacer",
@@ -4319,22 +4417,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4343,9 +4441,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4354,9 +4452,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4366,9 +4464,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4376,28 +4474,28 @@
     ]
   },
   "CodeBlock\/language=python" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4406,7 +4504,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           48,
           20
         ],
@@ -4417,22 +4515,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4441,9 +4539,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4452,9 +4550,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4464,9 +4562,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4474,28 +4572,28 @@
     ]
   },
   "CodeBlock\/language=rust" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4504,7 +4602,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           32,
           20
         ],
@@ -4515,22 +4613,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4539,9 +4637,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4550,9 +4648,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4562,9 +4660,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4572,28 +4670,28 @@
     ]
   },
   "CodeBlock\/language=sql" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4602,7 +4700,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           24,
           20
         ],
@@ -4613,22 +4711,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4637,9 +4735,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4648,9 +4746,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4660,9 +4758,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4670,28 +4768,28 @@
     ]
   },
   "CodeBlock\/language=swift" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4700,7 +4798,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           40,
           20
         ],
@@ -4711,22 +4809,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4735,9 +4833,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4746,9 +4844,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4758,9 +4856,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4768,28 +4866,28 @@
     ]
   },
   "CodeBlock\/language=ts" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4798,7 +4896,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -4809,22 +4907,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4833,9 +4931,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4844,9 +4942,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4856,9 +4954,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4866,28 +4964,28 @@
     ]
   },
   "CodeBlock\/language=tsx" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4896,7 +4994,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           24,
           20
         ],
@@ -4907,22 +5005,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -4931,9 +5029,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -4942,9 +5040,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -4954,9 +5052,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -4964,28 +5062,28 @@
     ]
   },
   "CodeBlock\/language=yaml" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -4994,7 +5092,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           32,
           20
         ],
@@ -5005,22 +5103,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -5029,9 +5127,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -5040,9 +5138,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -5052,9 +5150,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -5062,28 +5160,28 @@
     ]
   },
   "CodeBlock\/lineNumbers=false" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -5092,7 +5190,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -5103,22 +5201,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -5127,9 +5225,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -5138,9 +5236,9 @@
         "component" : "Text",
         "frame" : [
           13,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -5148,28 +5246,28 @@
     ]
   },
   "CodeBlock\/lineNumbers=true" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -5178,7 +5276,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -5189,20 +5287,216 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          21,
+          41,
+          8,
+          22.75
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          41,
+          248,
+          22.75
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/size=default" : {
+    "height" : 76.75,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          76.75
+        ],
+        "id" : "code-block",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          13,
+          388,
+          20
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          13,
+          16,
+          20
+        ],
+        "id" : "code-block.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          353,
+          11,
+          24,
+          24
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          21,
+          41,
+          8,
+          22.75
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          41,
+          248,
+          22.75
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/size=sm" : {
+    "height" : 64,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          64
+        ],
+        "id" : "code-block",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          11,
+          388,
+          16
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          11,
+          9,
+          16,
+          20
+        ],
+        "id" : "code-block.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          355,
+          7,
+          24,
+          24
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          33,
           388,
           20
         ],
@@ -5213,7 +5507,7 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          33,
           388,
           20
         ],
@@ -5223,8 +5517,8 @@
       {
         "component" : "Text",
         "frame" : [
-          21,
-          42,
+          19,
+          33,
           8,
           20
         ],
@@ -5235,10 +5529,206 @@
       {
         "component" : "Text",
         "frame" : [
-          37,
-          42,
+          35,
+          33,
           248,
           20
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/variant=default" : {
+    "height" : 76.75,
+    "nodes" : [
+      {
+        "bg" : "#ffffff0a",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          76.75
+        ],
+        "id" : "code-block",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          13,
+          388,
+          20
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          13,
+          16,
+          20
+        ],
+        "id" : "code-block.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          353,
+          11,
+          24,
+          24
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          21,
+          41,
+          8,
+          22.75
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          41,
+          248,
+          22.75
+        ],
+        "id" : "code-block.code.0",
+        "part" : "code"
+      }
+    ]
+  },
+  "CodeBlock\/variant=destructive" : {
+    "height" : 76.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "border" : 1,
+        "component" : "CodeBlock",
+        "frame" : [
+          0,
+          0,
+          390,
+          76.75
+        ],
+        "id" : "code-block",
+        "radius" : 12
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          13,
+          388,
+          20
+        ],
+        "id" : "code-block.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          13,
+          13,
+          16,
+          20
+        ],
+        "id" : "code-block.title",
+        "part" : "title"
+      },
+      {
+        "bg" : "#00000000",
+        "component" : "Button",
+        "frame" : [
+          353,
+          11,
+          24,
+          24
+        ],
+        "id" : "code-block.copy",
+        "part" : "copy",
+        "radius" : 10
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          1,
+          41,
+          388,
+          22.75
+        ],
+        "id" : "code-block.line.0",
+        "part" : "line"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          21,
+          41,
+          8,
+          22.75
+        ],
+        "id" : "code-block.lineNumber.0",
+        "opacity" : 0.699999988079071,
+        "part" : "lineNumber"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          37,
+          41,
+          248,
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -5246,28 +5736,28 @@
     ]
   },
   "CodeBlock\/wrap=false" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -5276,7 +5766,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -5287,22 +5777,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -5311,9 +5801,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -5322,9 +5812,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -5334,9 +5824,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           248,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -5344,28 +5834,28 @@
     ]
   },
   "CodeBlock\/wrap=true" : {
-    "height" : 63,
+    "height" : 76.75,
     "nodes" : [
       {
-        "bg" : "#ffffff0f",
+        "bg" : "#ffffff0a",
         "border" : 1,
         "component" : "CodeBlock",
         "frame" : [
           0,
           0,
           390,
-          63
+          76.75
         ],
         "id" : "code-block",
-        "radius" : 10
+        "radius" : 12
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          1,
+          13,
           388,
-          41
+          20
         ],
         "id" : "code-block.header",
         "part" : "header"
@@ -5374,7 +5864,7 @@
         "component" : "Text",
         "frame" : [
           13,
-          11,
+          13,
           16,
           20
         ],
@@ -5385,22 +5875,22 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          345,
-          5,
-          32,
-          32
+          353,
+          11,
+          24,
+          24
         ],
         "id" : "code-block.copy",
         "part" : "copy",
-        "radius" : 8
+        "radius" : 10
       },
       {
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.body",
         "part" : "body"
@@ -5409,9 +5899,9 @@
         "component" : "Box",
         "frame" : [
           1,
-          42,
+          41,
           388,
-          20
+          22.75
         ],
         "id" : "code-block.line.0",
         "part" : "line"
@@ -5420,9 +5910,9 @@
         "component" : "Text",
         "frame" : [
           21,
-          42,
+          41,
           8,
-          20
+          22.75
         ],
         "id" : "code-block.lineNumber.0",
         "opacity" : 0.699999988079071,
@@ -5432,9 +5922,9 @@
         "component" : "Text",
         "frame" : [
           37,
-          42,
+          41,
           340,
-          20
+          22.75
         ],
         "id" : "code-block.code.0",
         "part" : "code"
@@ -18361,6 +18851,36 @@
       }
     ]
   },
+  "Text\/shimmer=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
+  "Text\/shimmer=true" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "text"
+      }
+    ]
+  },
   "Text\/tone=danger" : {
     "height" : 20,
     "nodes" : [
@@ -20174,6 +20694,902 @@
           20
         ],
         "id" : "tooltip-child"
+      }
+    ]
+  },
+  "Trace\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace-child"
+      }
+    ]
+  },
+  "Trace\/size=default" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace-child"
+      }
+    ]
+  },
+  "Trace\/size=sm" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace-child"
+      }
+    ]
+  },
+  "TraceItem\/collapsible=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          144,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      }
+    ]
+  },
+  "TraceItem\/collapsible=true" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/example" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/open=false" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      }
+    ]
+  },
+  "TraceItem\/open=true" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/size=default" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/size=sm" : {
+    "height" : 50,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          50
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          156,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          3,
+          14,
+          14
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          20,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          122,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          142,
+          3,
+          14,
+          14
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          6,
+          26,
+          384,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          20,
+          26,
+          366,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/status=error" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/status=pending" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "opacity" : 0.6000000238418579,
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
+      }
+    ]
+  },
+  "TraceItem\/status=running" : {
+    "height" : 52,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          52
+        ],
+        "id" : "trace-item"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          164,
+          20
+        ],
+        "id" : "trace-item.line",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          0,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          0,
+          96,
+          20
+        ],
+        "id" : "trace-item.line.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          128,
+          0,
+          16,
+          20
+        ],
+        "id" : "trace-item.line.description",
+        "opacity" : 0.699999988079071
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          148,
+          2,
+          16,
+          16
+        ],
+        "id" : "trace-item.line.chevron"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          7,
+          28,
+          383,
+          20
+        ],
+        "id" : "trace-item.content"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          24,
+          28,
+          362,
+          20
+        ],
+        "id" : "trace-item-child"
       }
     ]
   },

@@ -130,6 +130,53 @@ class Round2InteractionTest {
     }
 
     @Test
+    fun anAnsiCodeBlockCopiesTheStrippedText() {
+        // EXP-1324: the `copy` part's `text` (escapes stripped) wins over the raw `code`.
+        val host = Host()
+        val code = "\u001b[32mok\u001b[0m done"
+        val m = model(JsonValue.Obj(mapOf("id" to JsonValue.Str("code"), "component" to JsonValue.Str("CodeBlock"), "props" to JsonValue.Obj(mapOf("code" to JsonValue.Str(code), "language" to JsonValue.Str("ansi"))))).json, host = host)
+        val copyText = m.node(m.idx("code.copy"))?.props?.get("text")?.string
+        m.press(m.idx("code.copy"))
+        assertEquals(listOf(copyText ?: code), host.copied)
+        assertFalse(host.copied[0].contains('\u001b'))
+    }
+
+    @Test
+    fun aTraceItemPaintsItsRailPendingLineAndChevron() {
+        val tree = """{"id":"t","component":"Trace","children":[
+            {"id":"a","component":"TraceItem","props":{"title":"Ran bun test","icon":"trace-terminal","status":"pending","collapsible":true,"open":true},"children":[{"id":"a-out","component":"Text","props":{"text":"ok"}}]},
+            {"id":"b","component":"TraceItem","props":{"title":"Editing","icon":"trace-edit","status":"running","collapsible":true,"open":false}}]}"""
+        val m = model(tree)
+        assertEquals(m.issues.toString(), 0, m.issues.size)
+        // The rail: a left border only, in the theme's border colour.
+        val rail = m.boxStyle(m.idx("a.content"))
+        assertNotNull(rail.borderColor)
+        assertTrue("left-only ${rail.sides}", rail.sides[3] > 0f && rail.sides[0] == 0f && rail.sides[1] == 0f && rail.sides[2] == 0f)
+        // A pending line dims to 0.6; a running one does not.
+        assertEquals(0.6f, m.boxStyle(m.idx("a.line")).opacity ?: 1f, 0.001f)
+        assertEquals(1f, m.boxStyle(m.idx("b.line")).opacity ?: 1f, 0.001f)
+        // The chevron turns 90deg while open (the recipe's transform).
+        assertEquals(listOf(at.exponential.ui.theme.TransformOp.Rotate(90f)), m.boxStyle(m.idx("a.line.chevron")).transform)
+        assertTrue(m.boxStyle(m.idx("b.line.chevron")).transform.isEmpty())
+        // A running title shimmers; the closed item has no content.
+        assertEquals(true, m.node(m.idx("b.line.title"))?.props?.get("shimmer")?.bool)
+        assertEquals(null, m.indexOf("b.content")?.takeIf { m.frame(it).height > 0f })
+    }
+
+    @Test
+    fun theTextShimmerFixtureReplaysThroughTheFacade() {
+        val cases = Round2Suites.textShimmer()
+        assertTrue(cases.size >= 4)
+        assertEquals(emptyList<String>(), cases.filter { it.second != null }.map { "${it.first}: ${it.second}" })
+        // The painter's parse of the core's answer.
+        val spec = at.exponential.ui.compose.TextShimmerSpec.of(androidx.compose.ui.graphics.Color(0xFFA1A1A1), dark = true)
+        assertNotNull(spec)
+        assertEquals("#a1a1a1ff", at.exponential.ui.compose.TextShimmerSpec.hex(spec!!.base))
+        assertEquals("#ffffffff", at.exponential.ui.compose.TextShimmerSpec.hex(spec.highlight))
+        assertEquals(2000, spec.durationMs)
+    }
+
+    @Test
     fun toastsDismissAfterTheirDurationUnlessHeld() {
         val scope = TestScope(StandardTestDispatcher())
         val tree = """{"id":"root","component":"Box","children":[{"id":"t","component":"Toast","props":{"title":"Saved","open":true,"duration":4000}}]}"""

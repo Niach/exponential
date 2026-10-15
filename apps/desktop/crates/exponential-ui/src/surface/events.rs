@@ -529,7 +529,11 @@ impl Surface {
             ("Table", Some("row"), "press") => out.extend(self.table_row(&n, &owner_id)),
             ("Table", Some("checkbox"), "press") => out.extend(self.table_check(&n, &owner_id)),
             ("CodeBlock", Some("copy"), "press") => {
-                let code = self.node_by_id(&owner_id).and_then(|o| o.props.get("code")).map(js).unwrap_or_default();
+                // EXP-1324: the text the block shows (`ansi`: escapes removed).
+                let owner = self.node_by_id(&owner_id);
+                let raw = owner.and_then(|o| o.props.get("code")).map(js).unwrap_or_default();
+                let language = owner.and_then(|o| o.props.get("language")).and_then(Value::as_str).unwrap_or("plain").to_string();
+                let code = crate::code::code_text(&raw, &language);
                 self.local.copied.insert(owner_id.clone(), true);
                 self.subtree_pending.insert(owner_id.clone());
                 out.push(OutEvent::Copy { text: code });

@@ -149,6 +149,18 @@ val sinkIcons: Map<String, ImageVector> = mapOf(
     "send" to Icons.AutoMirrored.Outlined.Send,
     "nav-issues" to issues,
     "nav-settings" to Icons.Outlined.Settings,
+    // EXP-1324 Trace concepts (the kitchen sink's and the specimen's).
+    "trace-chevron" to Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+    "trace-terminal" to Icons.AutoMirrored.Outlined.List,
+    "trace-edit" to Icons.Outlined.Edit,
+    "trace-reasoning" to Icons.Outlined.Info,
+    "trace-think" to Icons.Outlined.Info,
+    "trace-search" to Icons.Outlined.Search,
+    "trace-run" to Icons.Outlined.Refresh,
+    "trace-next" to Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+    "trace-out" to Icons.AutoMirrored.Outlined.ExitToApp,
+    "trace-failed" to Icons.Outlined.Close,
+    "trace-task-done" to Icons.Outlined.CheckCircle,
 )
 
 /**

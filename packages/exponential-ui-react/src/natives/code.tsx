@@ -4,10 +4,12 @@
 // `CodeBlock/token` recipe (`when: {kind}`). An optional header (title +
 // the copy button: `builtinIcons` copy/copied, `copied` announced), a
 // line-number gutter, emphasised `highlight` lines (the `selected` state),
-// `wrap`, and `maxLines` before the block scrolls.
+// `wrap`, and `maxLines` before the block scrolls. EXP-1324: `variant`
+// (destructive) and `size` (sm) are recipe props (shadcn's code-block look
+// lives in the theme); `ansi` output copies without its escapes.
 
 import { useMemo, useRef, useState } from "react"
-import { tokenizeCode } from "@exponential-at/ui"
+import { codeText, tokenizeCode } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import type { NativeProps } from "../node-view"
 import { arr, bool, BuiltinIcon, num, str, useParts } from "./shared"
@@ -34,7 +36,7 @@ export function CodeBlockNative({ node, props, rootProps, domId }: NativeProps) 
     const clipboard = typeof navigator === `undefined` ? undefined : navigator.clipboard
     if (!clipboard?.writeText) return
     try {
-      await clipboard.writeText(code)
+      await clipboard.writeText(codeText(code, language))
     } catch {
       return
     }

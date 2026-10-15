@@ -114,6 +114,21 @@ enum Round2Suites {
         }
     }
 
+    /// EXP-1324: the Text `shimmer` colours through the facade, then the
+    /// painter's own `TextShimmer` read of them.
+    static func textShimmer() throws -> [Case] {
+        list(try json("text-shimmer.json"), "cases").map { c in
+            run(s(c, "name")) {
+                let dark = c["dark"]?.bool ?? false
+                if let d = same(textShimmerJson(color: s(c, "color"), dark: dark), c["expected"]!) { return d }
+                guard let t = TextShimmer.resolve(color: s(c, "color"), dark: dark) else { return "TextShimmer did not resolve" }
+                let e = c["expected"]!
+                let got: JSONValue = .object(["base": .string(t.base), "highlight": .string(t.highlight), "mid": .string(t.mid), "durationMs": .number(t.durationMs), "angleDeg": .number(t.angleDeg), "spreadPx": .number(t.spreadPx)])
+                return same(got.json, e)
+            }
+        }
+    }
+
     // MARK: round 2
 
     /// Every call through the PAINTER's formatter (Foundation, en-US / UTC:

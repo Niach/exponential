@@ -68,10 +68,20 @@ extension SurfaceModel {
 
     /// Fire `event` on node `index` through the core and dispatch the result.
     public func fire(_ index: Int, _ event: String, payload: JSONValue? = nil) {
-        guard let events = try? surface.event(index: UInt32(index), name: event, payloadJson: payload?.json) else { return }
+        guard var events = try? surface.event(index: UInt32(index), name: event, payloadJson: payload?.json) else { return }
         let copied = events.contains { $0.kind == "copy" }
+        if copied, let text = Self.copyText(node(index)) {
+            events = events.map { $0.kind == "copy" ? FfiEvent(kind: "copy", json: JSONValue.object(["text": .string(text)]).json) : $0 }
+        }
         dispatch(events)
         if copied { scheduleCopyReset(index) }
+    }
+
+    /// EXP-1324: a CodeBlock `copy` part carries `text` = what to copy (the
+    /// code with ANSI escapes stripped); nil = the core's (the owner's `code`).
+    static func copyText(_ n: NodeInfo?) -> String? {
+        guard let n, n.recipeComponent == "CodeBlock", n.part == "copy", let text = n.props["text"]?.string else { return nil }
+        return text
     }
 
     /// Fire `event` on the node with this id.
