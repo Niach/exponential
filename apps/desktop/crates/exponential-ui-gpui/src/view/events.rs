@@ -171,7 +171,17 @@ impl SurfaceView {
 
     /// Fire `event` on node `index` through the core and dispatch the result.
     pub fn fire(&mut self, index: u32, event: &str, payload: Option<Value>, cx: &mut Context<Self>) {
-        let events = self.surface.event(index, event, payload);
+        // EXP-1324: a CodeBlock `copy` part carries the text to copy (ANSI
+        // escapes stripped); the owner's `code` is the fallback.
+        let copy_text = self.cache.node(index).filter(|n| n.part.as_deref() == Some("copy")).and_then(|n| n.props.get("text")).and_then(Value::as_str).map(str::to_string);
+        let mut events = self.surface.event(index, event, payload);
+        if let Some(t) = copy_text {
+            for e in &mut events {
+                if let OutEvent::Copy { text } = e {
+                    *text = t.clone();
+                }
+            }
+        }
         let copied = events.iter().any(|e| matches!(e, OutEvent::Copy { .. }));
         self.dispatch(events, None, cx);
         if copied {

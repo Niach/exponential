@@ -677,6 +677,7 @@ impl SurfaceView {
             owner_props: &owner_props,
             rtl: style.rtl.unwrap_or(self.rtl),
             reduced_motion: self.surface.settings().reduced_motion,
+            shimmer: self.text_shimmer(index, n, style, ink, window),
             radii,
             formatter: self.surface.formatter().as_ref(),
         };
@@ -756,6 +757,20 @@ impl SurfaceView {
         })
     }
 
+    /// EXP-1324: a `shimmer` Text's gradient now, asking for the next frame
+    /// while it shows (reduced motion = the plain text, no frames).
+    fn text_shimmer(&self, index: u32, n: &PlacedNode, style: &PaintStyle, ink: Hsla, window: &mut Window) -> Option<natives::ShimmerPaint> {
+        if n.component != "Text" || n.props.get("shimmer").and_then(Value::as_bool) != Some(true) || self.surface.settings().reduced_motion || self.ghosting.get() {
+            return None;
+        }
+        let now = self.now();
+        let id = self.cache.ids.get(index as usize)?.clone();
+        let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
+        let elapsed = now.saturating_duration_since(start).as_secs_f64() * 1000.0;
+        window.request_animation_frame();
+        Some(natives::ShimmerPaint::new(ink, self.surface.mode() == exponential_ui::theme::Mode::Dark, natives::ShimmerPaint::progress_at(elapsed), style.rtl.unwrap_or(self.rtl)))
+    }
+
     /// The checked dot of a Radio, centred in its circle.
     fn radio_dot(&self, lcx: &LeafCx) -> AnyElement {
         let props = lcx.part_props("Radio", "dot", &["checked".to_string()]);
@@ -817,7 +832,7 @@ impl SurfaceView {
             }
         }
         let align = if owner == "Tabs" { "center" } else { lcx.align() };
-        if lcx.style.letter_spacing != 0.0 {
+        if lcx.style.letter_spacing != 0.0 || lcx.shimmer.is_some() {
             row = row.child(natives::tracked_text(lcx.tracked(vec![shown], align, true)).min_w_0().flex_1().h(px(ts.line_height)));
         } else {
             row = row.child(aligned(div().min_w_0().flex_1().truncate(), align).child(SharedString::from(text::with_paragraph_direction(&shown, lcx.rtl).into_owned())));

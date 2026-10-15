@@ -83,7 +83,8 @@ impl Glyph {
             "ui-chevron-down" => Glyph::ChevronDown,
             "ui-chevron-up" => Glyph::ChevronUp,
             "ui-chevron-left" => Glyph::ChevronLeft,
-            "ui-chevron-right" => Glyph::ChevronRight,
+            // EXP-1324: the TraceItem chevron (a host SVG wins).
+            "ui-chevron-right" | "trace-chevron" => Glyph::ChevronRight,
             "ui-selector" => Glyph::ChevronsUpDown,
             "ui-close" => Glyph::Close,
             "ui-search" | "search" => Glyph::Search,

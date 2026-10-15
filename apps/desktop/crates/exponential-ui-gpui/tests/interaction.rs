@@ -368,6 +368,20 @@ fn copy_writes_the_clipboard_and_resets(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn copy_takes_the_copy_parts_text_without_ansi_escapes(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "children": [
+        {"id": "log", "component": "CodeBlock", "props": {"code": "\u{1b}[31merror\u{1b}[0m: boom", "language": "ansi"}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    cx.update(|window, cx| view.update(cx, |v, cx| {
+        let i = v.index_of("log.copy").unwrap();
+        v.press(i, window, cx);
+    }));
+    draw(cx);
+    assert_eq!(cx.read_from_clipboard().and_then(|c| c.text()), Some("error: boom".to_string()));
+}
+
+#[gpui::test]
 fn a_right_click_opens_the_context_menu_at_the_pointer(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20}, "children": [
         {"id": "ctx", "component": "Menu", "props": {"openOn": "contextmenu", "items": [{"label": "Copy", "value": "copy"}, {"label": "Delete", "value": "delete"}]}, "children": [
