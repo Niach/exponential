@@ -1236,6 +1236,17 @@
         "result": "none"
       },
       {
+        "name": "sessions_suggest",
+        "title": "Suggest tasks",
+        "blurb": "Proposes follow-up tasks as one card a person starts, files or dismisses.",
+        "progressive": "Suggesting tasks",
+        "done": "Suggested tasks",
+        "progressiveMany": "Suggesting {n} task lists",
+        "doneMany": "Suggested {n} task lists",
+        "subjectKey": "tasks",
+        "result": "none"
+      },
+      {
         "name": "sessions_unlink",
         "title": "Unlink issue from thread",
         "blurb": "Detaches an issue from a thread.",
@@ -1460,6 +1471,7 @@
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_send", "refs": "session@" },
       { "name": "sessions_stop", "refs": "session@$id" },
+      { "name": "sessions_suggest", "refs": "" },
       { "name": "sessions_unlink", "refs": "session@ issue@$issueId" },
       { "name": "statuses_create", "refs": "status@" },
       { "name": "statuses_delete", "refs": "" },

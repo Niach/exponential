@@ -27,6 +27,9 @@ vi.mock(`@/lib/pull-requests`, () => ({ syncPullRequestBodies: async () => {} })
 vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetSessionMessageNotify: () => {},
   notifySessionBlocked: async () => {},
+  // EXP-1328: File as issue runs issues.create.
+  fireAndForgetAssignmentNotify: () => {},
+  fireAndForgetIssueMentionNotify: () => {},
 }))
 
 const ready = await probeRealDb(`
@@ -697,5 +700,172 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     })
     await caller(w.owner).deleteAgent({ sessionId: agent.sessionId })
     expect(await db.select().from(sessions).where(eq(sessions.id, agent.sessionId))).toEqual([])
+  })
+})
+
+describe.skipIf(!ready.ok)(`EXP-1323: reports, asides, reads and suggestions`, async () => {
+  const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+  const { postSuggestions } = await import(`@/lib/sessions/suggestions`)
+  const { sessionReads } = await import(`@/db/schema`)
+  const caller = (userId: string) =>
+    sessionsRouter.createCaller({
+      session: { user: { id: userId } },
+      db,
+      request: new Request(`http://x.test`),
+    } as never)
+  const sessionMessages = (sessionId: string) =>
+    db.select().from(messages).where(eq(messages.sessionId, sessionId))
+
+  it(`a child's question and end land on its parent as pending agent input`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    // The child's MCP key messages its parent: ITS input, not the person's.
+    const asked = await sendSession({
+      userId: w.owner,
+      input: { sessionId: root.sessionId, text: `1:1 ratio?` },
+      callerSessionId: child.sessionId,
+    })
+    const [question] = await db.select().from(messages).where(eq(messages.id, asked.messageId!))
+    expect(question).toMatchObject({ authorKind: `agent`, authorSessionId: child.sessionId, consumedAt: null })
+
+    await endSession({ userId: w.owner, sessionId: child.sessionId, summary: `PR #12 is open.` })
+    const report = (await sessionMessages(root.sessionId)).find(
+      (m) => (m.card as { kind?: string } | null)?.kind === `report`
+    )!
+    expect(report).toMatchObject({
+      authorKind: `agent`,
+      authorSessionId: child.sessionId,
+      body: `PR #12 is open.`,
+      consumedAt: null,
+      card: { kind: `report`, sessionId: child.sessionId, summary: `PR #12 is open.` },
+    })
+    // The device consumes it like a person's message.
+    await caller(w.owner).consume({ sessionId: root.sessionId, messageIds: [report.id, question!.id] })
+    const after = await db.select().from(messages).where(eq(messages.id, report.id))
+    expect(after[0]!.consumedAt).not.toBeNull()
+    // Ending the root reports nowhere (no parent).
+    const before = (await sessionMessages(root.sessionId)).length
+    await endSession({ userId: w.owner, sessionId: root.sessionId })
+    expect(
+      (await sessionMessages(root.sessionId)).filter((m) => (m.card as { kind?: string } | null)?.kind === `report`)
+    ).toHaveLength(1)
+    expect((await sessionMessages(root.sessionId)).length).toBe(before + 1)
+  })
+
+  it(`the device's ended report falls back to the child's last reply; an aside never reports`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: child.sessionId })
+    await host.reply({ sessionId: child.sessionId, body: `All done.` })
+    await host.report({ sessionId: child.sessionId, status: `ended` })
+    const reports = (await sessionMessages(root.sessionId)).filter(
+      (m) => (m.card as { kind?: string } | null)?.kind === `report`
+    )
+    expect(reports.map((m) => m.body)).toEqual([`All done.`])
+
+    const aside = await sendSession({
+      userId: w.owner,
+      input: { parentId: root.sessionId, text: `why is CI red?\nctx`, aside: true },
+    })
+    expect(await row(aside.sessionId)).toMatchObject({
+      aside: true,
+      cli: `claude`,
+      title: `why is CI red?`,
+      depth: 1,
+      deviceId: w.deviceId,
+    })
+    await endSession({ userId: w.owner, sessionId: aside.sessionId, summary: `flaky test` })
+    expect(
+      (await sessionMessages(root.sessionId)).filter((m) => (m.card as { kind?: string } | null)?.kind === `report`)
+    ).toHaveLength(1)
+    // Never on codex.
+    await db.update(sessions).set({ cli: `codex` }).where(eq(sessions.id, root.sessionId))
+    await expect(
+      sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `q`, aside: true } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`reports a caption (trimmed, capped, cleared at turn end)`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const host = caller(w.owner)
+    await host.claim({ sessionId: root.sessionId })
+    await host.report({ sessionId: root.sessionId, busy: true, caption: `  Running ${`x`.repeat(200)}` })
+    expect((await row(root.sessionId)).caption).toHaveLength(80)
+    await host.report({ sessionId: root.sessionId, busy: false })
+    expect((await row(root.sessionId)).caption).toBeNull()
+  })
+
+  it(`markRead upserts the caller's read mark of a visible session only`, async () => {
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const first = await caller(w.owner).markRead({ sessionId: root.sessionId })
+    expect(first.txid).toBeTypeOf(`number`)
+    await caller(w.owner).markRead({ sessionId: root.sessionId })
+    const reads = await db
+      .select()
+      .from(sessionReads)
+      .where(and(eq(sessionReads.sessionId, root.sessionId), eq(sessionReads.userId, w.owner)))
+    expect(reads).toHaveLength(1)
+    // Private session: the teammate cannot mark it.
+    await expect(caller(w.mate).markRead({ sessionId: root.sessionId })).rejects.toMatchObject({
+      code: `NOT_FOUND`,
+    })
+  })
+
+  it(`suggestions: start as a child, do it here, dismiss, file as an issue`, async () => {
+    const w = await world()
+    const issueId = await w.issue(`Gallery`)
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, issueIds: [issueId], text: `r` },
+    })
+    const posted = await postSuggestions({
+      userId: w.owner,
+      callerSessionId: root.sessionId,
+      tasks: [
+        { title: `Thumbnails`, text: `Add lazy thumbnails`, issueIds: [issueId] },
+        { title: `Docs`, text: `Document it` },
+        { title: `Cleanup`, text: `Drop the old grid` },
+        { title: `Followup`, text: `File me` },
+      ],
+    })
+    const [card] = await db.select().from(messages).where(eq(messages.id, posted.messageId))
+    expect(card).toMatchObject({ authorKind: `agent`, authorSessionId: root.sessionId })
+    expect(card!.consumedAt).not.toBeNull()
+    const [a, b, c, d] = posted.itemIds as [string, string, string, string]
+    const host = caller(w.owner)
+
+    const started = await host.startSuggestion({ messageId: posted.messageId, itemId: a, where: `child` })
+    expect(await row(started.sessionId)).toMatchObject({ parentId: root.sessionId, title: `Thumbnails` })
+    const [firstMessage] = await sessionMessages(started.sessionId)
+    expect(firstMessage!.body).toBe(`Thumbnails\n\nAdd lazy thumbnails`)
+    await expect(
+      host.startSuggestion({ messageId: posted.messageId, itemId: a, where: `child` })
+    ).rejects.toMatchObject({ code: `CONFLICT` })
+
+    await host.startSuggestion({ messageId: posted.messageId, itemId: b, where: `here` })
+    expect((await sessionMessages(root.sessionId)).some((m) => m.body === `Docs\n\nDocument it`)).toBe(true)
+    await host.dismissSuggestion({ messageId: posted.messageId, itemId: c })
+    const filed = await host.fileSuggestion({ messageId: posted.messageId, itemId: d })
+    const [issue] = await db.select().from(issues).where(eq(issues.id, filed.issueId))
+    expect(issue).toMatchObject({ boardId: w.boardId, title: `Followup` })
+    const linked = await db
+      .select()
+      .from(sessionIssues)
+      .where(and(eq(sessionIssues.sessionId, root.sessionId), eq(sessionIssues.issueId, filed.issueId)))
+    expect(linked).toHaveLength(1)
+
+    const [stamped] = await db.select().from(messages).where(eq(messages.id, posted.messageId))
+    const items = (stamped!.card as unknown as { items: Array<Record<string, unknown>> }).items
+    expect(items[0]!.sessionId).toBe(started.sessionId)
+    expect(items[1]!.here).toBe(true)
+    expect(items[2]!.dismissed).toBe(true)
+    expect(items[3]!.issueId).toBe(filed.issueId)
+    // Nothing open is left to start.
+    expect((await host.startAllSuggestions({ messageId: posted.messageId })).sessionIds).toEqual([])
   })
 })

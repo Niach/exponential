@@ -38,6 +38,9 @@ export const SESSION_COLUMNS = [
   `ended_at`,
   `shared`,
   `title`,
+  // EXP-1323: the live status line + a `/btw` aside child.
+  `caption`,
+  `aside`,
   `guide`,
   `action_id`,
   `action_name`,

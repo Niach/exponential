@@ -7,6 +7,7 @@ import {
   pullRequestIssues,
   pullRequests,
   sessionIssues,
+  sessionReads,
   sessions,
 } from "@exp/db-schema"
 
@@ -15,6 +16,7 @@ import { ISSUE_DRAFT_COLUMNS } from "./issue-drafts"
 import { SESSION_COLUMNS } from "./sessions"
 import { SESSION_ISSUE_COLUMNS } from "./session-issues"
 import { MESSAGE_COLUMNS } from "./messages"
+import { SESSION_READ_COLUMNS } from "./session-reads"
 import { PULL_REQUEST_COLUMNS } from "./pull-requests"
 import { PULL_REQUEST_ISSUE_COLUMNS } from "./pull-request-issues"
 
@@ -32,6 +34,8 @@ const lists = {
   messages: [MESSAGE_COLUMNS, messages],
   pull_requests: [PULL_REQUEST_COLUMNS, pullRequests],
   pull_request_issues: [PULL_REQUEST_ISSUE_COLUMNS, pullRequestIssues],
+  // EXP-1323
+  session_reads: [SESSION_READ_COLUMNS, sessionReads],
 } as const
 
 describe(`shape column allowlists`, () => {

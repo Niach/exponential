@@ -345,8 +345,10 @@ describe(`steer command catalog`, () => {
     const compact = commands.find((c) => c.name === `compact`)
     expect(compact?.agents).toEqual(contract.codingAgent.values)
     expect(commands.find((c) => c.name === `clear`)?.confirm).toBe(true)
-    // Deliberately tiny (2026-09-03): only the two whose effect every viewer
-    // can see. The desktop maps `clear` per agent.
-    expect(commands.map((c) => c.name)).toEqual([`compact`, `clear`])
+    // Deliberately tiny (2026-09-03): only the ones whose effect every viewer
+    // can see. The desktop maps `clear` per agent; EXP-1330 `btw` (claude
+    // only) posts its aside as a child card.
+    expect(commands.map((c) => c.name)).toEqual([`compact`, `clear`, `btw`])
+    expect(commands.find((c) => c.name === `btw`)?.agents).toEqual([`claude`])
   })
 })

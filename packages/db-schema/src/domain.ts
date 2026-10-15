@@ -1301,6 +1301,8 @@ export const sessionsSendInputSchema = z
     repositoryId: sendUuid.optional(),
     // A NEW team agent root (Settings → Agents).
     agent: agentFacetsSchema.optional(),
+    // EXP-1330: a `/btw` aside child of `parentId` (text = the question).
+    aside: z.boolean().optional(),
   })
   .superRefine((input, ctx) => {
     const issue = (message: string) =>
@@ -1312,11 +1314,14 @@ export const sessionsSendInputSchema = z
       input.agent !== undefined
     if (input.sessionId) {
       if (input.parentId) issue(`sessionId and parentId are exclusive`)
+      if (input.aside) issue(`an aside needs a parentId and a question`)
       if (rootFacets) issue(`a message to a session takes no root facets`)
       if (!input.text?.trim() && !input.attachmentIds?.length && !input.account)
         issue(`a message needs text, attachments or an account`)
       return
     }
+    if (input.aside && (!input.parentId || !input.text?.trim()))
+      issue(`an aside needs a parentId and a question`)
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)
     if (input.agent && (input.issueIds || input.actionId))
       issue(`an agent takes no issues or action`)

@@ -18,7 +18,14 @@ import {
   type MessageCard,
   type SessionsSendResult,
 } from "@exp/db-schema/domain"
-import { attachments, messages, sessionIssues, sessions, type Session } from "@/db/schema"
+import {
+  attachments,
+  messages,
+  sessionIssues,
+  sessionReads,
+  sessions,
+  type Session,
+} from "@/db/schema"
 import { assertTeamOwner } from "@/lib/auth/membership"
 import {
   assertCanSteer,
@@ -30,10 +37,20 @@ import { answeredCard } from "@/lib/sessions/card-answer"
 import { linkIssues, unlinkIssue } from "@/lib/sessions/issues"
 import {
   endSession,
+  postReportToParent,
   relayKillSessionsBestEffort,
   stopSession,
 } from "@/lib/sessions/lifecycle"
-import { postAgentMessage } from "@/lib/sessions/messages"
+import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { normalizeCaption } from "@/lib/sessions/caption"
+import { pendingInput, postAgentMessage } from "@/lib/sessions/messages"
+import {
+  dismissSuggestion,
+  fileSuggestion,
+  startAllSuggestions,
+  startSuggestion,
+} from "@/lib/sessions/suggestions"
+import { issuesRouter } from "@/lib/trpc/issues"
 import { resolveSessionDevice, sendSession, withTriggerIds } from "@/lib/sessions/send"
 import {
   fireAndForgetSessionMessageNotify,
@@ -51,6 +68,8 @@ import {
 // shapes; tRPC returns ids + txids only.
 
 const uuid = z.string().uuid()
+
+const suggestionRef = z.object({ messageId: uuid, itemId: z.string().min(1).max(64) })
 
 /** The cards a DEVICE may post (the server owns event/session cards). */
 const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
@@ -142,7 +161,69 @@ export const sessionsRouter = router({
   send: authedProcedure
     .input(sessionsSendInputSchema)
     .mutation(({ ctx, input }): Promise<SessionsSendResult & { txid: number }> =>
-      sendSession({ userId: ctx.session.user.id, input })
+      sendSession({
+        userId: ctx.session.user.id,
+        input,
+        // EXP-1323: a session's own key stamps its messages (validated in
+        // `sendSession`: only the session's starter or host counts).
+        callerSessionId: ctx.request ? parseMcpSessionHeader(ctx.request) : null,
+      })
+    ),
+
+  /** EXP-1332: the caller read this session (a thread = its root's row).
+   *  Any session the caller may see; upserts `read_at = now`. */
+  markRead: authedProcedure
+    .input(z.object({ sessionId: uuid }))
+    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
+      const userId = ctx.session.user.id
+      const session = await loadSessionForUser(userId, input.sessionId)
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        const now = new Date()
+        await tx
+          .insert(sessionReads)
+          .values({ userId, sessionId: session.id, readAt: now })
+          .onConflictDoUpdate({
+            target: [sessionReads.userId, sessionReads.sessionId],
+            set: { readAt: now, updatedAt: now },
+          })
+        return { txid }
+      })
+    }),
+
+  // ── EXP-1328: the suggestions card (posted by MCP `sessions_suggest`) ──
+
+  /** Start = a child of the card's session (`where: child`, the item's text
+   *  as its request, its title on the child); Do it here = a message to the
+   *  card's session. Stamps the item in the same transaction. */
+  startSuggestion: authedProcedure
+    .input(
+      suggestionRef.extend({
+        where: z.enum([`child`, `here`]),
+        deviceId: z.string().min(1).max(128).optional(),
+        account: z.string().min(1).max(64).optional(),
+        model: z.string().max(64).optional(),
+      })
+    )
+    .mutation(({ ctx, input }) => startSuggestion(ctx.session.user.id, input)),
+
+  /** Start all = a child per open item. */
+  startAllSuggestions: authedProcedure
+    .input(z.object({ messageId: uuid }))
+    .mutation(({ ctx, input }) => startAllSuggestions(ctx.session.user.id, input.messageId)),
+
+  dismissSuggestion: authedProcedure
+    .input(suggestionRef)
+    .mutation(({ ctx, input }) => dismissSuggestion(ctx.session.user.id, input)),
+
+  /** File as issue: on the thread's board, linked to the thread. */
+  fileSuggestion: authedProcedure
+    .input(suggestionRef)
+    .mutation(({ ctx, input }) =>
+      fileSuggestion(ctx.session.user.id, input, async (args) => {
+        const { issue } = await issuesRouter.createCaller(ctx).create(args)
+        return { issueId: issue.id }
+      })
     ),
 
   /** Interrupt the session's current turn (it stays live, goes idle). Every
@@ -462,6 +543,9 @@ export const sessionsRouter = router({
         // rotation may move it off the row's), so the row says it and a
         // person's later pick of the old one is a real switch.
         account: z.string().min(1).max(64).optional(),
+        // EXP-1331: the live status line (throttled by the device; null
+        // clears it). Trimmed and capped at 80 here.
+        caption: z.string().max(1000).nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -499,9 +583,19 @@ export const sessionsRouter = router({
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
             ...(turnEnded ? { lastTurnAt: now } : {}),
+            // The caption is the device's; a turn's end clears a stale one
+            // unless the device says otherwise (an aside keeps its answer).
+            ...(input.caption !== undefined
+              ? { caption: normalizeCaption(input.caption) }
+              : turnEnded && !session.aside && session.caption
+                ? { caption: null }
+                : {}),
             updatedAt: now,
           })
           .where(eq(sessions.id, session.id))
+        // EXP-1329: the agent process went away = the child ended: report
+        // to its parent like an explicit End.
+        if (ending) await postReportToParent(tx, session)
         return txid
       })
       if (newlyBlocked) void notifySessionBlocked(session.id, blocked!)
@@ -560,7 +654,8 @@ export const sessionsRouter = router({
       return result
     }),
 
-  /** The device delivered these person messages into the agent. */
+  /** The device delivered these pending inputs (person messages, another
+   *  session's question or report) into the agent. */
   consume: authedProcedure
     .input(z.object({ sessionId: uuid, messageIds: z.array(uuid).min(1).max(100) }))
     .mutation(async ({ ctx, input }) => {
@@ -576,7 +671,8 @@ export const sessionsRouter = router({
             and(
               eq(messages.sessionId, session.id),
               inArray(messages.id, input.messageIds),
-              eq(messages.authorKind, `user`),
+              // EXP-1323: a person's message or another session's input.
+              pendingInput(),
               isNull(messages.consumedAt)
             )
           )

@@ -16,7 +16,7 @@ Your final text of every turn IS your message in the conversation, read by the w
 
 ## Fan out
 
-Parallel work inside your task: subagents in this process (lanes own disjoint files; never `git stash`, `checkout`, `reset` or `clean`; a running subagent is never messaged: `SendMessage` to its id resumes a second copy onto the same files). A reviewable part that deserves its own branch, PR or device: `exponential_sessions_send({parentId: <your session>, deviceId, text})` starts a child; its card appears in the conversation and its brief tells it to base on your branch (a follow-up child opens its PR with `exponential_pr_open({base: "<your branch>"})`). Caps: depth 3, 10 sessions per tree. Never wait for a child; end your turn, its finish arrives as a message.
+Parallel work inside your task: subagents in this process (lanes own disjoint files; never `git stash`, `checkout`, `reset` or `clean`; a running subagent is never messaged: `SendMessage` to its id resumes a second copy onto the same files). A reviewable part that deserves its own branch, PR or device: `exponential_sessions_send({parentId: <your session>, deviceId, text})` starts a child; its card appears in the conversation and its brief tells it to base on your branch (a follow-up child opens its PR with `exponential_pr_open({base: "<your branch>"})`). Caps: depth 3, 10 sessions per tree. Never wait for a child; end your turn: its end arrives as a `Report from …` message carrying its summary, and a child's question to you arrives the same way (answer with `exponential_sessions_send({sessionId: <child>})`). To propose follow-ups for a person to start, `exponential_sessions_suggest({tasks})`.
 
 ## Pull requests
 
