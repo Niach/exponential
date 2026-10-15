@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { IssueChip } from "./issue-chip"
+import { IssueChip, tabChipMinWidth } from "./issue-chip"
 import { categoryStatusIcon } from "./status-icons"
 
 // SLOP-15: the chip's SMALL mode — the same box, glyph · identifier, no
@@ -79,7 +79,8 @@ describe(`IssueChip size="pager" (EXP-1316)`, () => {
 })
 
 // EXP-1316 (the IDE's strip rule): on md+ a tab chip shrinks first, its
-// title between 7rem (long titles) and 8.75rem with an ellipsis.
+// title at most 8.75rem with an ellipsis, the chip floored by
+// `tabChipMinWidth` (a short title never shrinks).
 describe(`IssueChip size="tab" shrinking`, () => {
   it(`may shrink down to its title floor`, () => {
     const { rerender } = render(
@@ -92,15 +93,18 @@ describe(`IssueChip size="tab" shrinking`, () => {
       />
     )
     const chip = screen.getByTestId(`chip`)
-    expect(chip.className).toContain(`shrink`)
+    expect(chip.className).toContain(`shrink-[4]`)
     expect(chip.className).not.toContain(`shrink-0`)
-    expect(chip.className).toContain(`min-w-min`)
-    let title = chip.querySelector(`[data-slot="issue-chip-title"]`)!
+    // frame 2.625rem + title floor 2.5rem + 5 mono characters × 0.45rem
+    expect(tabChipMinWidth(`EXP-3`, `Syntax highlighting ships every language`)).toBe(
+      `calc(7.375rem + 2px)`
+    )
+    expect(chip.style.minWidth).toContain(`7.375rem`)
+    const title = chip.querySelector(`[data-slot="issue-chip-title"]`)!
     expect(title.className).toContain(`max-w-[8.75rem]`)
-    expect(title.className).toContain(`min-w-[7rem]`)
     expect(title.className).toContain(`truncate`)
+    // A short title never shrinks.
     rerender(<IssueChip identifier="EXP-3" title="Short" status={status} size="tab" testId="chip" />)
-    title = screen.getByTestId(`chip`).querySelector(`[data-slot="issue-chip-title"]`)!
-    expect(title.className).not.toContain(`min-w-[7rem]`)
+    expect(screen.getByTestId(`chip`).style.minWidth).toBe(`max-content`)
   })
 })

@@ -43,9 +43,28 @@ export type IssueChipLinkProps = EntityChipLinkProps
  *  header's badge — where a title per chip is what made them sprawl. */
 export type IssueChipSize = `md` | `sm` | `tab` | `pager`
 
-/** A tab chip's title this long (≈112px at text-sm) keeps a 7rem floor when
- *  the strip shrinks it; a shorter one stays its own width. */
+/** A tab chip's title this long keeps a floor when the strip shrinks it; a
+ *  shorter one stays its own width. */
 const TAB_TITLE_FLOOR_CHARS = 16
+
+/** The chip's frame (padding, glyph, gaps) in rem. */
+const TAB_FRAME_REM = 2.625
+/** The title's shrink floor in rem (a few characters + the ellipsis). */
+const TAB_TITLE_FLOOR_REM = 2.5
+
+/** EXP-1316: the tab chip's shrink FLOOR. A truncating title is `nowrap`, so
+ *  its min-content is the whole title and CSS alone cannot floor it: the
+ *  floor is the chip's own frame (padding 1.25rem + 2px border, the 0.875rem
+ *  glyph, two 0.25rem gaps) + the mono identifier (0.45rem a character at
+ *  text-xs) + the title floor. The IDE floors its title at 112px in its
+ *  smaller type; the web's 18.5px root makes that floor push Guide off a
+ *  1440 strip, so the web title gives way further (the session chips give
+ *  way after it). A short title never shrinks (`max-content`). */
+export function tabChipMinWidth(identifier: string, title: string): string {
+  if (title.length <= TAB_TITLE_FLOOR_CHARS) return `max-content`
+  const rem = TAB_FRAME_REM + TAB_TITLE_FLOOR_REM + identifier.length * 0.45
+  return `calc(${Number(rem.toFixed(3))}rem + 2px)`
+}
 
 export function IssueChip({
   identifier,
@@ -103,7 +122,7 @@ export function IssueChip({
           className={cn(
             `max-w-[8.75rem] truncate`,
             // The IDE's rule: a long title shrinks no further than 112px.
-            title.length > TAB_TITLE_FLOOR_CHARS ? `min-w-[7rem]` : `min-w-0`
+            `min-w-0`
           )}
         >
           {title}
@@ -140,7 +159,7 @@ export function IssueChip({
               // EXP-1316 (the IDE's strip): a tab chip SHRINKS first, its
               // title between 112px and 140px with an ellipsis; the strip
               // scrolls only when even that does not fit.
-              size === `tab` && `shrink min-w-min`
+              size === `tab` && `min-w-0 shrink-[4]`
             )
           : undefined
       }
@@ -156,6 +175,11 @@ export function IssueChip({
       testId={testId}
       removeTestId={removeTestId}
       {...host}
+      style={
+        size === `tab`
+          ? { ...host.style, minWidth: tabChipMinWidth(identifier, title) }
+          : host.style
+      }
     />
   )
 }

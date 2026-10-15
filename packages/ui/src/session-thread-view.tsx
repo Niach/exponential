@@ -93,8 +93,9 @@ export function ThreadTabs({
       className={cn(
         `flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none]`,
         // Phones: nothing shrinks, the pager scrolls. md+: the issue chips
-        // shrink first (`IssueChip size="tab"`), everything else keeps its
-        // natural width; the strip scrolls only past the chips' floor.
+        // shrink first (`IssueChip size="tab"`, weighted 4×), then the
+        // session chips; Conversation, +, Guide keep their natural width; the
+        // strip scrolls only past every floor.
         pager && `[&>*]:shrink-0`,
         className
       )}
@@ -182,7 +183,14 @@ export function ThreadSessionTab({
       role="tab"
       aria-selected={active}
       data-testid="thread-tab-session"
-      className={cn(stripTabClass(active, bordered), `max-w-[11rem]`)}
+      className={cn(
+        stripTabClass(active, bordered),
+        // md+: after the issue chips reached their floor the session chips
+        // give way too (the name truncates, never below 6rem); the pager
+        // never shrinks anything.
+        `max-w-[11rem]`,
+        !bordered && `min-w-[6rem] shrink`
+      )}
       onClick={onSelect}
     >
       <AgentRunMark
@@ -287,7 +295,7 @@ export function ThreadSessionGroup({
   tree?: ReactNode
 }) {
   const group = (
-    <div data-testid="thread-session-group" className="flex shrink-0 items-center gap-1">
+    <div data-testid="thread-session-group" className="flex min-w-0 shrink items-center gap-1">
       {children}
     </div>
   )
