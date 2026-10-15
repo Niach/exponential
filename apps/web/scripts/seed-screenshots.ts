@@ -55,6 +55,7 @@ import {
   pullRequests,
   repositories,
   sessionIssues,
+  sessionReads,
   sessions,
   teamInvites,
   users,
@@ -107,6 +108,7 @@ import {
   DEMO_SHOWCASE_COMMENT_HOURS_AGO,
   DEMO_FEED_QUESTION,
   DEMO_PULL_REQUEST_IDS,
+  DEMO_REPORT_SESSION_ID,
   DEMO_SESSION_ID,
   DEMO_THREAD_ID,
   DEMO_THREAD_IDS,
@@ -692,6 +694,8 @@ async function seedSessionTree(ctx: {
       ...liveState(ids.groupByAssignee),
       cli: `codex`,
       branch: `exp/APP-14`,
+      // EXP-1323: the live caption under its name.
+      caption: `Editing src/board/group-by.tsx`,
     }),
     root(ids.sortReports, {
       ...liveState(ids.sortReports),
@@ -738,6 +742,23 @@ async function seedSessionTree(ctx: {
     dispatch: false,
     title: `Profile the launch path`,
     branch: `exp/APP-5`,
+  })
+  // EXP-1323: a second child, started from the suggested tasks card and
+  // ended: its end landed on the thread as a `Report from …` line.
+  await db.insert(sessions).values({
+    ...root(DEMO_REPORT_SESSION_ID, {
+      status: `ended`,
+      startedAt: minutesAgo(47),
+      lastTurnAt: minutesAgo(20),
+      endedAt: minutesAgo(20),
+      createdAt: minutesAgo(47),
+      updatedAt: minutesAgo(20),
+    }),
+    parentId: ids.coldStart,
+    rootId: ids.coldStart,
+    depth: 1,
+    title: `Measure on the Galaxy A54`,
+    branch: `exp/APP-5-a54`,
   })
 
   // ── the roots' issues ──────────────────────────────────────────────────
@@ -901,6 +922,68 @@ async function seedSessionTree(ctx: {
         at: DEMO_AGENT_CHANNEL_TIMES.reply,
       },
     ].map((spec) => message(spec as MessageSpec))
+  )
+
+  // EXP-1323: the cold-start thread's suggested tasks card (one started, two
+  // open) and the started child's report, posted by that child.
+  const thread = (spec: Partial<typeof messages.$inferInsert> & { at: Date }) => ({
+    sessionId: ids.coldStart,
+    rootId: ids.coldStart,
+    teamId,
+    shared: true,
+    ownerId: demoId,
+    authorKind: `agent` as const,
+    authorId: null,
+    body: ``,
+    consumedAt: spec.at,
+    createdAt: spec.at,
+    updatedAt: spec.at,
+    ...spec,
+  })
+  await db.insert(messages).values([
+    thread({
+      at: minutesAgo(48),
+      card: {
+        kind: `suggestions`,
+        items: [
+          {
+            id: `measure-a54`,
+            title: `Measure on the Galaxy A54`,
+            text: `Check the 800 ms target on a mid-range Android before the PR.`,
+            sessionId: DEMO_REPORT_SESSION_ID,
+          },
+          {
+            id: `lazy-editor`,
+            title: `Lazy-load the markdown editor`,
+            text: `About 90 ms more off the launch path; touches the editor entry point.`,
+          },
+          {
+            id: `icon-cache`,
+            title: `Cache the board icons`,
+            text: `The icons decode on the main thread during the first frame.`,
+          },
+        ],
+      },
+    }),
+    thread({
+      at: minutesAgo(20),
+      authorSessionId: DEMO_REPORT_SESSION_ID,
+      body: `740 ms cold start on the Galaxy A54, under the 800 ms target. The snapshot cache paints in 210 ms.`,
+      card: {
+        kind: `report`,
+        sessionId: DEMO_REPORT_SESSION_ID,
+        summary: `740 ms cold start on the Galaxy A54, under the 800 ms target. The snapshot cache paints in 210 ms.`,
+      },
+    }),
+  ])
+  // EXP-1323: the demo user's read marks: every thread read now but the
+  // cold-start one (read before its child's report: bold).
+  await db.insert(sessionReads).values(
+    [...Object.values(ids), DEMO_SESSION_ID, DEMO_REPORT_SESSION_ID].map((sessionId) => ({
+      userId: demoId,
+      sessionId,
+      readAt: sessionId === ids.coldStart ? minutesAgo(25) : new Date(now),
+    }))
   )
 
   // ── pull requests (all PR state lives here, never on `issues`) ─────────
