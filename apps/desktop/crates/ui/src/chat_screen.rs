@@ -165,27 +165,6 @@ fn device_agent_status(
     )
 }
 
-/// Whether the synced device row advertises `cap`. An unsynced row cannot
-/// say so: no.
-fn device_has_cap(row_id: &str, cap: &str, cx: &App) -> bool {
-    if row_id.is_empty() {
-        return false;
-    }
-    let collections = Store::global(cx).collections();
-    let devices = collections.devices.read(cx);
-    devices
-        .iter()
-        .find(|row| row.id == row_id)
-        .is_some_and(|row| row.cap_ids().iter().any(|own| own == cap))
-}
-
-/// EXP-1249: whether the synced row advertises `computer-use-run` — the
-/// machine reads a start's per-run `computerUse`, so the "+" menu may offer
-/// the toggle for it.
-fn device_reads_computer_use(row_id: &str, cx: &App) -> bool {
-    device_has_cap(row_id, coding::doctor::COMPUTER_USE_RUN_CAP, cx)
-}
-
 /// EXP-862 — a machine's glyph for the device picker: EXP-924 made it the
 /// owner's PICK when the row carries one, and otherwise the kind default the
 /// Devices list and Getting started wear (the headless CLI daemon is a SERVER,
@@ -1103,7 +1082,6 @@ impl ChatScreenView {
                     settings: device.defaults.clone(),
                     accounts,
                     usage,
-                    computer_use_run: device_reads_computer_use(&device.row_id, cx),
                 }
             });
         let has_subject = !matches!(self.subject, Subject::None);

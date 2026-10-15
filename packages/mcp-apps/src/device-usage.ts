@@ -288,10 +288,9 @@ export function addableAgents(device: DeviceListRow): string[] {
   return [...new Set([...(device.agents ?? []), ...(device.unauthedAgents ?? [])])]
 }
 
-/** `accountChipActionable`: only your own, online machine with the
- *  `agent-login` cap runs a sign-in. */
+/** `accountChipActionable`: only your own, online machine runs a sign-in. */
 export function canSignInOn(device: DeviceListRow): boolean {
-  return !device.owner && device.online === true && (device.caps ?? []).includes(`agent-login`)
+  return !device.owner && device.online === true
 }
 
 /** `chipSignsIn`: a signed-out login or a dead credential offers Sign in. */

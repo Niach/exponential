@@ -1092,8 +1092,8 @@ fn advert_transition(
 }
 
 /// Best-effort `devices.register` — registered even with no agents so the
-/// UI can show the machine offline with a reason; an older server without
-/// the router must never break the daemon. Returns whether the register
+/// UI can show the machine offline with a reason; a failed register must
+/// never break the daemon. Returns whether the register
 /// landed, so the daemon can retry a failure on the heartbeat cadence
 /// (EXP-414) instead of running on a stale row until the next restart.
 fn register_device(
@@ -1127,8 +1127,7 @@ fn register_device(
             platform: Some(std::env::consts::OS),
             agents: &advertised.agents,
             unauthed_agents: &advertised.unauthed_agents,
-            // EXP-749: the ACP-ready subset, sent even when empty (a NULL
-            // column means "older build, assume all").
+            // EXP-749: the ACP-ready subset, sent even when empty.
             acp_agents: Some(&advertised.acp_agents),
             caps: &caps,
             launch_defaults: Some(&launch_defaults),
@@ -1157,14 +1156,13 @@ fn register_device(
         Err(err) => {
             // EXP-495: a 4xx is the server REJECTING this build's payload —
             // the machine will be missing from the web UI even though steer
-            // presence reads online, so say that loudly instead of the
-            // best-effort "older server" shrug (which stays for transport
-            // errors and genuinely routerless servers).
+            // presence reads online, so say that loudly; a transport error
+            // stays a warning and retries.
             match &err {
                 api::ApiError::Http { status: 400..=499, .. } => log::error!(
                     "devices.register rejected ({err}) — this machine will not appear in the web UI until a register succeeds (retrying on the heartbeat cadence)"
                 ),
-                _ => log::warn!("devices.register failed (older server?): {err}"),
+                _ => log::warn!("devices.register failed (transport error): {err}"),
             }
             false
         }
@@ -1928,7 +1926,7 @@ fn push_local_defaults(
             }
         }
         Err(err) => {
-            // Offline / older server: queue the retry (next heartbeat's
+            // Offline / transport error: queue the retry (next heartbeat's
             // ReconcileLocal picks the dirty flag up).
             log::debug!("launch defaults: push failed ({err}) — queued");
             let marker = coding::SyncMarker {

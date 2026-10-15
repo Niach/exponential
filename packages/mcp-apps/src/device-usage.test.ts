@@ -119,10 +119,10 @@ describe(`login presentation`, () => {
 describe(`sign-in rules (EXP-1199, agent-account-add.ts / device-agent-account.tsx)`, () => {
   const own = { deviceId: `d`, online: true, caps: [`agent-login`], agents: [`claude`], unauthedAgents: [`codex`] }
 
-  it(`signs in only on your own online machine with the cap`, () => {
+  it(`signs in only on your own online machine`, () => {
     expect(canSignInOn(own)).toBe(true)
     expect(canSignInOn({ ...own, online: false })).toBe(false)
-    expect(canSignInOn({ ...own, caps: [] })).toBe(false)
+    expect(canSignInOn({ ...own, caps: [] })).toBe(true)
     expect(canSignInOn({ ...own, owner: { id: `u`, name: `Ann` } })).toBe(false)
     expect(addableAgents(own)).toEqual([`claude`, `codex`])
   })

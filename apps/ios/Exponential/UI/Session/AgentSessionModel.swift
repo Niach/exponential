@@ -1443,16 +1443,14 @@ final class AgentSessionModel {
     /// EXP-909: ONE `agent_usage_refresh` as the Usage overlay opens — never a
     /// polling loop, because the heartbeat delivers the answer within 30 s.
     ///
-    /// Only on MY machine, only while it is listening, only when its build
-    /// advertises the cap (the server refuses the command below it), and only
-    /// past the device's own 429 floor (`refreshAllowedAt`) — the same four
-    /// gates the Devices page's refresh round applies. It fails quietly: a
+    /// Only on MY machine, only while it is listening, and only past the
+    /// device's own 429 floor (`refreshAllowedAt`) — the same three gates the
+    /// Devices page's refresh round applies. It fails quietly: a
     /// command still queued from a previous open is a CONFLICT, and the next
     /// open simply looks again.
     func requestUsageRefresh() {
         guard let devicesApi, let device = hostSteerDevice, let agent = session?.cli else { return }
         guard device.isMine, device.isOnline,
-              device.caps?.contains(AgentAccountsRows.refreshCap) == true,
               AgentAccountsRows.refreshAllowedAt(runUsage, now: Date()) == nil
         else { return }
         let accountId = accountId

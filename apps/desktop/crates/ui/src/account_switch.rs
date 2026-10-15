@@ -64,7 +64,6 @@ pub(crate) const COST_NOTE: &str =
 
 const REASON_AGENT: &str = "Only claude can switch accounts during a session.";
 const REASON_OFFLINE: &str = "The machine is offline.";
-const REASON_NO_CAP: &str = "Update the app on that machine to switch accounts.";
 pub(crate) const REASON_BUSY: &str = "The agent is working — switching waits for the turn to finish.";
 const REASON_SIGNED_OUT: &str = "Sign in to this account on that machine first.";
 const REASON_NEEDS_RELOGIN: &str = "This account needs a re-login on that machine.";
@@ -144,7 +143,6 @@ pub(crate) fn switch_targets(
     agent: CodingAgent,
     current_account: Option<&str>,
     reported_email: Option<&str>,
-    can_switch: bool,
     working: bool,
 ) -> Vec<SwitchTarget> {
     let host_rows: Vec<&crate::usage_bar::AgentProfileUsageRow> = rows
@@ -157,14 +155,13 @@ pub(crate) fn switch_targets(
         .map(|row| {
             let current = Some(&row.profile_id) == current_account.as_ref();
             // The refusal ORDER is the ×4 one (`SessionAccountSwitch.refusal`):
-            // the run's own facts first (agent, host, build, turn), the
+            // the run's own facts first (agent, host, turn), the
             // account's own last. A broken login is still LISTED — it is an
             // account on this machine, and the reader wants to know — just
             // never offered: resuming into it would fail at the first request.
             let blocked = (agent != CodingAgent::Claude)
                 .then_some(REASON_AGENT)
                 .or_else(|| (!row.online).then_some(REASON_OFFLINE))
-                .or_else(|| (!can_switch).then_some(REASON_NO_CAP))
                 .or_else(|| working.then_some(REASON_BUSY))
                 .or_else(|| (row.health == Health::NeedsRelogin).then_some(REASON_NEEDS_RELOGIN))
                 .or_else(|| {
@@ -220,24 +217,6 @@ pub(crate) struct SwitchContext {
     pub agent: coding::CodingAgent,
     /// A turn is in flight — every target is disabled with the reason.
     pub working: bool,
-}
-
-impl SwitchContext {
-    /// Whether the HOST could take the switch at all: this machine always can
-    /// (the launcher runs right here), another of mine only on a build that
-    /// honours `account` on a live-run resume (EXP-849's `account-switch`) —
-    /// the server refuses the start otherwise.
-    fn can_switch(&self, cx: &App) -> bool {
-        if self.local {
-            return true;
-        }
-        let Some(device_id) = self.device_id.as_deref() else {
-            return false;
-        };
-        crate::queries::device_caps(cx, device_id)
-            .iter()
-            .any(|cap| cap == coding::doctor::ACCOUNT_SWITCH_CAP)
-    }
 }
 
 impl SwitchContext {
@@ -313,7 +292,6 @@ impl SwitchContext {
             self.agent,
             self.current_account(cx).as_deref(),
             self.reported_email(cx).as_deref(),
-            self.can_switch(cx),
             self.working,
         );
         (!targets.is_empty()).then_some(targets)
@@ -563,8 +541,8 @@ mod tests {
     }
 
     /// The three rules, each as its own refusal: claude-only, between turns
-    /// only, and something to switch TO — plus the host facts (offline, a
-    /// build that cannot resume), in the ×4 refusal order.
+    /// only, and something to switch TO — plus the host fact (offline), in
+    /// the ×4 refusal order.
     #[test]
     fn switch_targets_enforce_the_three_rules() {
         let rows = vec![
@@ -576,7 +554,7 @@ mod tests {
 
         // Idle claude on the home login: the other healthy account is
         // offerable, the broken ones are listed with their own sentence.
-        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, false);
         assert_eq!(targets.len(), 4);
         assert!(targets[0].current, "the run's own account leads");
         assert_eq!(targets[0].profile_id, HOME);
@@ -593,7 +571,7 @@ mod tests {
 
         // Mid-turn: every target is disabled and every control says why, in
         // the ×4 sentence.
-        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true);
         assert!(targets
             .iter()
             .filter(|target| !target.current)
@@ -609,15 +587,15 @@ mod tests {
                 row
             })
             .collect();
-        let targets = switch_targets(&codex, "dev-1", CodingAgent::Codex, None, None, true, false);
+        let targets = switch_targets(&codex, "dev-1", CodingAgent::Codex, None, None, false);
         assert!(targets
             .iter()
             .filter(|target| !target.current)
             .all(|target| target.blocked.as_deref()
                 == Some("Only claude can switch accounts during a session.")));
 
-        // An offline host, and a host whose build cannot take the switch: the
-        // run's own facts outrank the accounts' (the ×4 order).
+        // An offline host: the run's own facts outrank the accounts' (the ×4
+        // order).
         let offline: Vec<AgentProfileUsageRow> = rows
             .iter()
             .cloned()
@@ -627,7 +605,7 @@ mod tests {
             })
             .collect();
         let targets =
-            switch_targets(&offline, "dev-1", CodingAgent::Claude, None, None, true, false);
+            switch_targets(&offline, "dev-1", CodingAgent::Claude, None, None, false);
         assert_eq!(
             targets
                 .iter()
@@ -635,27 +613,18 @@ mod tests {
                 .and_then(|target| target.blocked.as_deref()),
             Some("The machine is offline.")
         );
-        let targets =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, false, false);
-        assert_eq!(
-            targets
-                .iter()
-                .find(|target| target.profile_id == "0a1b2c3d")
-                .and_then(|target| target.blocked.as_deref()),
-            Some("Update the app on that machine to switch accounts.")
-        );
 
         // One login only: nothing to switch to — the section hides itself.
         let targets =
-            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, None, true, false);
+            switch_targets(&rows[..1], "dev-1", CodingAgent::Claude, None, None, false);
         assert!(targets.iter().all(|target| target.current));
 
         // Another machine's rows are never offered here.
-        let targets = switch_targets(&rows, "dev-2", CodingAgent::Claude, None, None, true, false);
+        let targets = switch_targets(&rows, "dev-2", CodingAgent::Claude, None, None, false);
         assert!(targets.is_empty());
 
         // The run's CURRENT account is the one it records, not the default.
-        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, Some("0a1b2c3d"), None, true, false);
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, Some("0a1b2c3d"), None, false);
         assert!(targets[0].current && targets[0].profile_id == "0a1b2c3d");
     }
 
@@ -684,7 +653,6 @@ mod tests {
             CodingAgent::Claude,
             Some("0a1b2c3d"),
             None,
-            true,
             false,
         );
         assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
@@ -697,7 +665,6 @@ mod tests {
             CodingAgent::Claude,
             Some("gone"),
             Some("0a1b2c3d@acme.test"),
-            true,
             false,
         );
         assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
@@ -709,14 +676,13 @@ mod tests {
             CodingAgent::Claude,
             None,
             Some("0a1b2c3d@acme.test"),
-            true,
             false,
         );
         assert_eq!(current(&targets).as_deref(), Some("0a1b2c3d"));
 
         // 3. The machine's ACTIVE login, when neither is known.
         let targets =
-            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, false);
         assert_eq!(current(&targets).as_deref(), Some(HOME));
 
         // 4. Nothing to go on at all: no row claims to be the run's, and
@@ -731,7 +697,6 @@ mod tests {
             CodingAgent::Claude,
             None,
             None,
-            true,
             false,
         );
         assert_eq!(current(&targets), None);
@@ -758,7 +723,7 @@ mod tests {
 
         // Idle: the broken accounts carry their own sentence, the healthy one
         // none (its control offers the switch and its cost instead).
-        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, false);
         assert_eq!(
             by_id(&targets, "deadbeef").blocked.as_deref(),
             Some("Sign in to this account on that machine first.")
@@ -774,7 +739,7 @@ mod tests {
 
         // Mid-turn: the run-level sentence lands on EVERY other row's control,
         // outranking the accounts' own (the ×4 refusal order).
-        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, true);
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true);
         let busy = "The agent is working — switching waits for the turn to finish.";
         for id in ["0a1b2c3d", "deadbeef", "badc0ffe"] {
             assert_eq!(by_id(&targets, id).blocked.as_deref(), Some(busy), "{id}");

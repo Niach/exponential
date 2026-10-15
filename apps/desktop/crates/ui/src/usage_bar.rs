@@ -715,12 +715,6 @@ pub(crate) fn sheet_section_title(label: impl Into<SharedString>, cx: &App) -> g
 pub(crate) const RATE_LIMITED_FLOOR_SECS: i64 =
     coding::usage_cache::RATE_LIMITED_FLOOR_SECS as i64;
 
-/// The device cap a machine must advertise before a forced usage refresh is
-/// queued on it (`coding::doctor::DEVICE_CAPS`, web `deviceCanRefreshUsage`).
-/// EXP-909: the Devices list's own refresh round AND the usage overlay's
-/// refresh-on-open both ask for it, so the string lives here with the floor.
-pub(crate) const USAGE_REFRESH_CAP: &str = "agent-usage-refresh";
-
 /// One rendered line of the usage page: a machine, an agent, and ONE of that
 /// agent's account profiles on it.
 #[derive(Clone, Debug, PartialEq)]
@@ -764,9 +758,8 @@ fn non_empty(value: Option<&str>) -> Option<String> {
 }
 
 /// EXP-849: belt-and-braces against a RETIRED agent id (`pi`) still sitting in
-/// a synced row. The server clamps every write (`lib/trpc/devices.ts`), but
-/// rows written before that clamp — or served by a self-hosted instance on an
-/// older image — must still never produce a usage row, an account chip, a tab
+/// a synced row. The server clamps every write (`lib/trpc/devices.ts`), but a
+/// row written before that clamp must still never produce a usage row, an account chip, a tab
 /// or a health verdict for an agent this build has no name, icon or launcher
 /// for. Mirrors web `isContractAgent`.
 pub(crate) fn is_contract_agent(agent: &str) -> bool {
@@ -1056,32 +1049,22 @@ impl ChipAction {
 /// in this fixed order:
 ///
 /// * a sign-in: signed out, or a credential that expired here;
-/// * EXP-1137, sign out: signed in, on a build with the sign-out body
-///   (`can_sign_out`) — the row stays;
-/// * remove: on a build with `can_remove` (EXP-944: signed out or not — a
-///   dead login is the one people most want gone).
+/// * EXP-1137, sign out: signed in — the row stays;
+/// * remove: always (EXP-944: signed out or not — a dead login is the one
+///   people most want gone).
 ///
-/// An empty list means the chip is a STATEMENT, not a control (a machine that
-/// is offline, a teammate's, or too old to take any of the commands). Each cap
-/// is the server's gate for its command: an older machine simply does not
-/// offer that entry.
-pub(crate) fn chip_actions(
-    signed_in: bool,
-    health: coding::agent_accounts::Health,
-    can_remove: bool,
-    can_sign_out: bool,
-) -> Vec<ChipAction> {
+/// The caller shows the menu only on an actionable device (mine, and this
+/// install or online); elsewhere the chip is a STATEMENT, not a control.
+pub(crate) fn chip_actions(signed_in: bool, health: coding::agent_accounts::Health) -> Vec<ChipAction> {
     let signs_in = !signed_in || health == coding::agent_accounts::Health::NeedsRelogin;
     let mut out = Vec::new();
     if signs_in {
         out.push(ChipAction::SignIn);
     }
-    if signed_in && can_sign_out {
+    if signed_in {
         out.push(ChipAction::SignOut);
     }
-    if can_remove {
-        out.push(ChipAction::Remove);
-    }
+    out.push(ChipAction::Remove);
     out
 }
 
@@ -1964,53 +1947,25 @@ mod tests {
         );
     }
 
-    /// EXP-862 — the ×4 chip rule: a broken or missing login leads with a
-    /// sign-in and (EXP-944) offers the removal beside it; a healthy one
-    /// offers the removal (with the cap). Every row is a profile — there is
-    /// no ambient login to special-case.
+    /// EXP-862 / EXP-1137 — the ×4 chip rule, fixed order sign in, sign out,
+    /// remove (web `accountChipActions`, iOS `DeviceLogins`, Android
+    /// `chipActions`): a broken or missing login leads with a sign-in, every
+    /// signed-in login signs out, and (EXP-944) every login removes.
     #[test]
     fn chip_menu_offers_one_thing_per_state() {
         use coding::agent_accounts::Health;
         // Signed out: the sign-in leads, the removal rides along.
         assert_eq!(
-            chip_actions(false, Health::SignedOut, true, false),
+            chip_actions(false, Health::SignedOut),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
-        // Revoked here: the same pair, even though the CLI reports in.
-        assert_eq!(
-            chip_actions(true, Health::NeedsRelogin, true, false),
-            vec![ChipAction::SignIn, ChipAction::Remove]
-        );
-        // An older machine without the remove cap keeps its menu of one.
-        assert_eq!(chip_actions(false, Health::SignedOut, false, false), vec![ChipAction::SignIn]);
-        // Healthy: only the removal (EXP-1158: no entry picks a start's login).
-        assert_eq!(chip_actions(true, Health::Ok, true, false), vec![ChipAction::Remove]);
-        // An older machine advertises no cap: the chip is a statement.
-        assert!(chip_actions(true, Health::Ok, false, false).is_empty());
-    }
-
-    /// EXP-1137: a build with the sign-out body offers "Sign out" on every
-    /// signed-in login — the fixed order ×4 is sign in, sign out, remove (web
-    /// `accountChipActions`, iOS `DeviceLogins`, Android `chipActions`).
-    #[test]
-    fn a_build_that_signs_out_offers_it() {
-        use coding::agent_accounts::Health;
-        assert_eq!(
-            chip_actions(true, Health::Ok, true, true),
-            vec![ChipAction::SignOut, ChipAction::Remove]
-        );
+        // Healthy: sign out and remove (EXP-1158: no entry picks a start's login).
+        assert_eq!(chip_actions(true, Health::Ok), vec![ChipAction::SignOut, ChipAction::Remove]);
         // A revoked credential still signs out: that is how it leaves.
         assert_eq!(
-            chip_actions(true, Health::NeedsRelogin, true, true),
+            chip_actions(true, Health::NeedsRelogin),
             vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
         );
-        // A signed-out login has nothing to sign out of.
-        assert_eq!(
-            chip_actions(false, Health::SignedOut, true, true),
-            vec![ChipAction::SignIn, ChipAction::Remove]
-        );
-        // The sign-out cap alone never removes.
-        assert_eq!(chip_actions(true, Health::Ok, false, true), vec![ChipAction::SignOut]);
         assert!(ChipAction::SignOut.destructive() && ChipAction::Remove.destructive());
         assert!(!ChipAction::SignIn.destructive());
         assert_eq!(ChipAction::SignOut.label(), "Sign out");

@@ -534,10 +534,11 @@ final class SessionTreeTests: XCTestCase {
             TreeMessageCard.parse(#"{"kind":"question","question":"Ship?","options":["Yes","No"]}"#),
             TreeMessageCard(kind: "question", question: "Ship?", options: ["Yes", "No"])
         )
-        // EXP-1322: `{label, description?}` options normalise beside plain labels.
+        // EXP-1322: descriptions ride the `optionDescriptions` sidecar by
+        // ORIGINAL index; non-string options drop.
         XCTAssertEqual(
-            TreeMessageCard.parse(#"{"kind":"question","options":["Yes",{"label":"No","description":"Later"},{"label":"Maybe","description":""},{"description":"x"},3]}"#)?.options,
-            [TreeQuestionOption(label: "Yes"), TreeQuestionOption(label: "No", description: "Later"), TreeQuestionOption(label: "Maybe")]
+            TreeMessageCard.parse(#"{"kind":"question","options":["Yes",{"label":"No"},"Maybe",3,"Later"],"optionDescriptions":["","x","Soon",null]}"#)?.options,
+            [TreeQuestionOption(label: "Yes"), TreeQuestionOption(label: "Maybe", description: "Soon"), TreeQuestionOption(label: "Later")]
         )
     }
 

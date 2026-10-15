@@ -184,7 +184,7 @@ class DeviceEntityDecodeTest {
     }
 
     // EXP-484: the two agent-status jsonb columns ride as raw JSON text like
-    // launch_defaults, and an older server sends neither.
+    // launch_defaults; both are nullable.
     @Test
     fun `agent status jsonb columns decode as text and default absent`() {
         val row = """
@@ -208,7 +208,7 @@ class DeviceEntityDecodeTest {
         )
         assertEquals("2026-08-28T09:58:00Z", camel.agentUsageAt)
 
-        // An older server sends none of the three — the row must still decode.
+        // A partial row carries none of the three — it must still decode.
         val bare = json.decodeFromString(
             DeviceEntity.serializer(),
             """{"id": "row-1", "user_id": "u", "device_id": "d"}""",

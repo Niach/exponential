@@ -134,7 +134,6 @@ fn row_action(entry: &McpServerListEntry) -> RowAction {
         "not_needed" => RowAction::NotNeeded,
         "connected" => RowAction::Connected,
         "expired" | "error" => RowAction::Reconnect,
-        _ if entry.config.auth == "none" => RowAction::NotNeeded,
         _ => RowAction::Connect,
     }
 }
@@ -1330,8 +1329,6 @@ mod tests {
         assert_eq!(row_action(&entry("oauth", "error")), RowAction::Reconnect);
         assert_eq!(row_action(&entry("oauth", "not_connected")), RowAction::Connect);
         assert_eq!(row_action(&entry("secret", "not_connected")), RowAction::Connect);
-        // An older server that never sends `not_needed` for a no-auth row.
-        assert_eq!(row_action(&entry("none", "not_connected")), RowAction::NotNeeded);
     }
 
     #[test]

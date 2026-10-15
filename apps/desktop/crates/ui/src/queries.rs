@@ -912,20 +912,6 @@ pub(crate) fn live_session_device<'a>(
     )
 }
 
-/// EXP-849 — one machine's advertised capabilities off the synced `devices`
-/// rows, for a control that is only offered on a build that runs it (the
-/// account switch asks for `resume-run`). An unknown id has none.
-pub(crate) fn device_caps(cx: &App, device_id: &str) -> Vec<String> {
-    Store::global(cx)
-        .collections()
-        .devices
-        .read(cx)
-        .iter()
-        .find(|row| row.device_id.as_deref() == Some(device_id))
-        .map(|row| row.cap_ids())
-        .unwrap_or_default()
-}
-
 /// EXP-549/550: how a session names its host machine and whether that
 /// machine is offline, resolved against the synced `devices` rows so a
 /// rename shows up everywhere and a lid-closed host stops reading as live.

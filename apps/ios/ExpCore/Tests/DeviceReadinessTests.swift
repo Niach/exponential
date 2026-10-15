@@ -138,8 +138,7 @@ final class DeviceReadinessTests: XCTestCase {
             XCTAssertEqual(pills, c.remotePills, c.name)
             XCTAssertLessThanOrEqual(remoteRows.filter(\.primary).count, 1, c.name)
 
-            // The import pill: on the device, and on another device that
-            // declares `agent-import` — never on one that does not.
+            // The import pill: on the device, and on another device.
             let expectedImports = c.importPills ?? [:]
             func imports(_ rows: [DeviceReadiness.Row]) -> [String: String] {
                 var out: [String: String] = [:]
@@ -148,11 +147,6 @@ final class DeviceReadinessTests: XCTestCase {
             }
             XCTAssertEqual(imports(rows), expectedImports, c.name)
             XCTAssertEqual(imports(remoteRows), expectedImports, c.name)
-            XCTAssertEqual(
-                imports(DeviceReadiness.groups(c.doctor, remote: true, canImport: false).flatMap(\.rows)),
-                [:],
-                c.name
-            )
 
             XCTAssertEqual(DeviceReadiness.runnableAgents(c.doctor), c.runnable, c.name)
         }

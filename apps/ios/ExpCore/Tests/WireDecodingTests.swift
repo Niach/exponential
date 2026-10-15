@@ -478,28 +478,14 @@ final class WireDecodingTests: XCTestCase {
           "oidcProviders": [{ "id": "authentik", "name": "Authentik" }],
           "googleLoginEnabled": false,
           "appleLoginEnabled": false,
-          "githubEnabled": true
+          "githubEnabled": true,
+          "emailOtpEnabled": false,
+          "passkeyEnabled": false
         }
         """#)
         XCTAssertTrue(config.signupEnabled)
         XCTAssertTrue(config.passwordResetEnabled)
         XCTAssertEqual(config.oidcProviders.first?.id, "authentik")
-    }
-
-    func testAuthConfigMissingFlagsDefaultToFalse() throws {
-        // An instance that publishes none of the optional flags must still
-        // decode — the login screen hides the hand-off rather than offering a
-        // dead link.
-        let config = try decode(AuthConfig.self, #"""
-        {
-          "passwordEnabled": true,
-          "oidcProviders": [],
-          "googleLoginEnabled": false
-        }
-        """#)
-        XCTAssertFalse(config.signupEnabled)
-        XCTAssertFalse(config.passwordResetEnabled)
-        XCTAssertFalse(config.appleLoginEnabled)
     }
 
     func testAuthWebHandoffUrlsTrimTrailingSlash() {

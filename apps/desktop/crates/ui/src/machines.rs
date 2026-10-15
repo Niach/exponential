@@ -134,7 +134,6 @@ struct DeviceCard {
     /// Accounts sub-rows read both (EXP-909 retired the row's ▶ gate).
     agents: Vec<String>,
     unauthed_agents: Vec<String>,
-    caps: Vec<String>,
     /// EXP-909: the logins this device holds, one sub-row each, already in
     /// the ×4 order ([`crate::usage_bar::sort_device_logins`]).
     logins: Vec<AgentProfileUsageRow>,
@@ -148,15 +147,10 @@ struct DeviceCard {
 }
 
 impl DeviceCard {
-    fn has_cap(&self, cap: &str) -> bool {
-        self.caps.iter().any(|have| have == cap)
-    }
-
     /// The same gate the login menus apply: mine, and either this very
-    /// install (the login runs in a tab right here) or an online device on a
-    /// build that takes the command.
+    /// install (the login runs in a tab right here) or an online device.
     fn actionable(&self) -> bool {
-        self.mine && (self.own || (self.online && self.has_cap("agent-login")))
+        self.mine && (self.own || self.online)
     }
 }
 
@@ -231,15 +225,10 @@ impl MachinesSection {
     }
 
     /// EXP-909 — whether a login's device may run the refresh at all: one of
-    /// MY devices, online, on a build that runs the command (web
-    /// `deviceCanRefreshUsage`). Pure, so the rule is unit-tested rather than
-    /// asserted by reading the render.
-    fn can_refresh(row: &AgentProfileUsageRow, caps: &[String]) -> bool {
-        row.mine
-            && row.online
-            && caps
-                .iter()
-                .any(|cap| cap == crate::usage_bar::USAGE_REFRESH_CAP)
+    /// MY devices, online (web `deviceCanRefreshUsage`). Pure, so the rule is
+    /// unit-tested rather than asserted by reading the render.
+    fn can_refresh(row: &AgentProfileUsageRow) -> bool {
+        row.mine && row.online
     }
 
     /// Drop the in-flight marks the synced rows have answered (the stamp
@@ -279,7 +268,7 @@ impl MachinesSection {
         self.prune_refreshing(&logins, now_epoch);
         for card in &cards {
             for row in &card.logins {
-                if !Self::can_refresh(row, &card.caps) || self.refreshing.contains_key(&row.key) {
+                if !Self::can_refresh(row) || self.refreshing.contains_key(&row.key) {
                     continue;
                 }
                 if crate::usage_bar::refresh_allowed_at(row.usage.as_ref(), now_epoch).is_some() {
@@ -467,7 +456,6 @@ impl MachinesSection {
                 is_default: owned && row.is_default.unwrap_or(false),
                 agents: row.agent_ids(),
                 unauthed_agents: row.unauthed_agent_ids(),
-                caps: row.cap_ids(),
                 health: coding::agent_accounts::worst_health(&accounts),
                 // EXP-909: ONE device's logins, through the same per-profile
                 // derivation the rest of the app reads (the usage rows), so a
@@ -802,9 +790,6 @@ impl MachinesSection {
             return rows;
         }
         let actionable = device.actionable();
-        let can_remove = device.has_cap(coding::doctor::ACCOUNT_REMOVE_CAP);
-        // EXP-1137: this build signs out, so its own row always may.
-        let can_sign_out = device.own || device.has_cap(coding::doctor::ACCOUNT_SIGN_OUT_CAP);
         let mut rows: Vec<gpui::AnyElement> = Vec::new();
         for (slot, login) in device.logins.iter().enumerate() {
             let Some(agent) = coding::CodingAgent::parse(&login.agent) else {
@@ -819,7 +804,7 @@ impl MachinesSection {
             };
             let badge = crate::usage_bar::health_badge(login.health, cx);
             let actions = if actionable {
-                chip_actions(login.signed_in, login.health, can_remove, can_sign_out)
+                chip_actions(login.signed_in, login.health)
             } else {
                 Vec::new()
             };
@@ -1152,7 +1137,6 @@ mod tests {
             last_seen_at: last_seen.map(str::to_string),
             agents: Vec::new(),
             unauthed_agents: Vec::new(),
-            caps: Vec::new(),
             logins: Vec::new(),
             accounts_reported: false,
             health: coding::agent_accounts::Health::Unknown,
@@ -1220,22 +1204,15 @@ mod tests {
     }
 
     /// EXP-909 (ported from the retired Accounts section): the refresh round
-    /// only ever queues on MY machine, only while it is online, and only on a
-    /// build that advertises the command (web `deviceCanRefreshUsage`).
+    /// only ever queues on MY machine, and only while it is online (web
+    /// `deviceCanRefreshUsage`).
     #[test]
-    fn refresh_needs_my_own_online_machine_with_the_cap() {
-        let caps = vec![crate::usage_bar::USAGE_REFRESH_CAP.to_string()];
-        assert!(MachinesSection::can_refresh(&login_row(true, true), &caps));
+    fn refresh_needs_my_own_online_machine() {
+        assert!(MachinesSection::can_refresh(&login_row(true, true)));
         // A teammate's shared server is not mine to poll.
-        assert!(!MachinesSection::can_refresh(&login_row(false, true), &caps));
+        assert!(!MachinesSection::can_refresh(&login_row(false, true)));
         // Offline: the command would sit queued until it came back.
-        assert!(!MachinesSection::can_refresh(&login_row(true, false), &caps));
-        // An older build that never advertised the cap.
-        assert!(!MachinesSection::can_refresh(&login_row(true, true), &[]));
-        assert!(!MachinesSection::can_refresh(
-            &login_row(true, true),
-            &["agent-login".to_string()]
-        ));
+        assert!(!MachinesSection::can_refresh(&login_row(true, false)));
     }
 
     /// EXP-832: a heartbeat that changes nothing must not repaint the list —

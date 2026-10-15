@@ -241,30 +241,18 @@ export interface ThreadQuestionOption {
   description: string | null
 }
 
-/** A synced card option (a plain label or `{label, description}`) in the
- *  row form; anything else = null (dropped). The sidecar description (see
- *  `questionOptions`) is zipped in by the caller. */
+/** A synced card option (a plain label) in the row form; anything else =
+ *  null (dropped). The sidecar description (see `questionOptions`) is zipped
+ *  in by the caller. */
 export function questionOption(raw: unknown): ThreadQuestionOption | null {
-  if (typeof raw === `string`) return { label: raw, description: null }
-  if (raw && typeof raw === `object` && typeof (raw as { label?: unknown }).label === `string`) {
-    const { label, description } = raw as { label: string; description?: unknown }
-    return { label, description: typeof description === `string` && description !== `` ? description : null }
-  }
-  return null
+  return typeof raw === `string` ? { label: raw, description: null } : null
 }
 
 /** The question card's options in the row form. `card.options` carries plain
  *  label strings; the descriptions ride the parallel `card.optionDescriptions`
  *  sidecar (same length, null / "" = none; the key is omitted when no option
  *  has one): option i = `{label: options[i], description: optionDescriptions?.[i] || null}`.
- *  Cards posted before the sidecar carry `{label, description}` objects
- *  inside `options`; those keep reading (an object's own description wins
- *  over its sidecar slot). Zipped by index BEFORE dropping invalid options.
- *
- *  COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
- *  0.14.69 only read string options. The device may post {label, description}
- *  objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >= 0.14.62
- *  AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form). */
+ *  Zipped by index BEFORE dropping non-string options. */
 export function questionOptions(card: { options?: unknown; optionDescriptions?: unknown }): ThreadQuestionOption[] {
   if (!Array.isArray(card.options)) return []
   const descriptions = Array.isArray(card.optionDescriptions) ? card.optionDescriptions : []
@@ -275,7 +263,7 @@ export function questionOptions(card: { options?: unknown; optionDescriptions?: 
     const sidecar: unknown = descriptions[index]
     rows.push({
       label: option.label,
-      description: option.description ?? (typeof sidecar === `string` && sidecar !== `` ? sidecar : null),
+      description: typeof sidecar === `string` && sidecar !== `` ? sidecar : null,
     })
   })
   return rows

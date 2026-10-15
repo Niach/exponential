@@ -197,14 +197,11 @@ public enum DeviceReadiness {
     /// The block for one device. `remote` = it is ANOTHER device (a phone is
     /// always remote): only `remote: true` actions get a pill.
     /// `computerUseOn` overrides the switch's state with the caller's draft
-    /// (the report only catches up on the next heartbeat). `canImport` = the
-    /// device declares `agent-import` (only read when `remote`): without it a
-    /// remote block offers no Import pill.
+    /// (the report only catches up on the next heartbeat).
     public static func groups(
         _ doctor: DeviceDoctor,
         remote: Bool,
-        computerUseOn: Bool? = nil,
-        canImport: Bool = true
+        computerUseOn: Bool? = nil
     ) -> [Group] {
         let items = doctor.items
         var offState: [String: Bool] = [:]
@@ -230,7 +227,7 @@ public enum DeviceReadiness {
         return order.compactMap { key in
             let rows = ordered.filter { $0.group == key }.map {
                 row(
-                    $0, remote: remote, canImport: canImport, primary: $0.key == primaryKey,
+                    $0, remote: remote, primary: $0.key == primaryKey,
                     switchOff: offState[$0.key] == true
                 )
             }
@@ -253,15 +250,15 @@ public enum DeviceReadiness {
     /// can run or the report does not name it. Its pill (if offered) is the
     /// filled one — it is the only action on screen.
     public static func failingRow(
-        _ doctor: DeviceDoctor, agent: String, remote: Bool, canImport: Bool = true
+        _ doctor: DeviceDoctor, agent: String, remote: Bool
     ) -> Row? {
         if let required = doctor.items.first(where: { $0.group == "required" && $0.state != "ok" }) {
-            return row(required, remote: remote, canImport: canImport, primary: true, switchOff: false)
+            return row(required, remote: remote, primary: true, switchOff: false)
         }
         guard let item = doctor.items.first(where: { $0.key == agent }), item.state != "ok" else {
             return nil
         }
-        return row(item, remote: remote, canImport: canImport, primary: true, switchOff: false)
+        return row(item, remote: remote, primary: true, switchOff: false)
     }
 
     /// The rows that need attention (`action`/`error`), in block order, the
@@ -279,18 +276,15 @@ public enum DeviceReadiness {
     }
 
     /// The `import` pill's email when it is offered: same offer rules as an
-    /// action (`import` is remote), plus the device's `agent-import` cap on
-    /// another device.
-    private static func offeredImport(
-        _ item: DeviceDoctor.Item, remote: Bool, canImport: Bool
-    ) -> String? {
+    /// action (`import` is remote).
+    private static func offeredImport(_ item: DeviceDoctor.Item, remote: Bool) -> String? {
         guard let email = item.importEmail, !email.isEmpty else { return nil }
-        guard !remote || ((actions[importAction]?.remote ?? false) && canImport) else { return nil }
+        guard !remote || (actions[importAction]?.remote ?? false) else { return nil }
         return email
     }
 
     private static func row(
-        _ item: DeviceDoctor.Item, remote: Bool, canImport: Bool, primary: Bool, switchOff: Bool
+        _ item: DeviceDoctor.Item, remote: Bool, primary: Bool, switchOff: Bool
     ) -> Row {
         let isSwitch = item.key == switchKey
         let presentation = states[item.state] ?? (.dash, .muted)
@@ -308,7 +302,7 @@ public enum DeviceReadiness {
             action: action,
             actionLabel: action.map { actions[$0]?.label ?? $0 },
             primary: primary && action != nil,
-            importEmail: isSwitch ? nil : offeredImport(item, remote: remote, canImport: canImport)
+            importEmail: isSwitch ? nil : offeredImport(item, remote: remote)
         )
     }
 }

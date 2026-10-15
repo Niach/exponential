@@ -949,11 +949,9 @@ export interface DeviceLaunchDefaults {
   computerUseModel?: string | null
   agents?: Record<string, DeviceAgentLaunchDefaults>
 }
-// Every field is `.nullish()`, not `.optional()`: 0.14.10 native builds
-// (EXP-495) serialized capability-masked toggles as explicit `null` and a
-// strict schema 400'd the whole register — leaving the machine invisible
-// with no self-heal path (the update request is consumed on register).
-// `clampLaunchDefaults` strips the nulls; stored copies stay null-free.
+// Every field is `.nullish()`, not `.optional()`: an explicit `null` clears
+// a field (EXP-495). `clampLaunchDefaults` strips the nulls; stored copies
+// stay null-free.
 // Plain `z.object` (strip mode) on purpose — never `.strict()`: an unknown
 // key from a newer or older client is dropped, not a reason to 400 the
 // register.
@@ -1324,7 +1322,7 @@ export const devices = pgTable(
       withTimezone: true,
     }),
     // EXP-484: per-agent sign-in status (see DeviceAgentAccount above) as the
-    // machine last probed it. NULL = never reported (older build) — clients
+    // machine last probed it. NULL = never reported — clients
     // render no Agents section rather than claiming "signed out".
     agentAccounts: jsonb(`agent_accounts`).$type<DeviceAgentAccounts>(),
     // EXP-484: per-agent usage windows as the machine last fetched them,
@@ -1335,8 +1333,8 @@ export const devices = pgTable(
     agentUsage: jsonb(`agent_usage`).$type<DeviceAgentUsageMap>(),
     agentUsageAt: timestamp(`agent_usage_at`, { withTimezone: true }),
     // EXP-1196: the device's readiness report (DeviceDoctor above), written
-    // on register + heartbeat. NULL = an older build: clients render no
-    // readiness block.
+    // on register + heartbeat. NULL = not reported yet: clients render
+    // no readiness block.
     doctor: jsonb().$type<DeviceDoctor>(),
     ...timestamps,
   },

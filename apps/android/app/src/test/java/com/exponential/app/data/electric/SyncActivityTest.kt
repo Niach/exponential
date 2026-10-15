@@ -26,19 +26,9 @@ class SyncActivityTest {
     @Test
     fun coreShapesAreTheIssueListShapesOnly() {
         assertEquals(
-            setOf("teams", "boards", "issues", "issue_labels", "labels"),
+            setOf("teams", "boards", "issues", "issue_labels", "labels", "issue_statuses"),
             CORE_SHAPES,
         )
-    }
-
-    @Test
-    fun issueStatusesIsNotCoreSoAnOldServerCannotWedgeTheGate() {
-        // A pre-EXP-314 server 404s the issue_statuses shape forever. If it
-        // were core, its never-completing initial snapshot would pin
-        // isCatchingUp (and the refresh wait) to true for the whole session —
-        // while the list itself renders fine off the constructed builtins.
-        val map = shapes() + ("issue_statuses" to SyncStats.ShapeStatus("issue_statuses", phase = "initial"))
-        assertFalse(isCatchingUp(map, lastKickAt = now - 200, now = now))
     }
 
     @Test

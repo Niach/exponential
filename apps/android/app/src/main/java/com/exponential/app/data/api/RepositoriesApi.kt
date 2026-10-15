@@ -32,8 +32,8 @@ data class RepoBoardRef(
 
 /**
  * The member who shared this repo with the team (EXP-557 per-user sharing —
- * `sharedBy` on `repositories.list` rows). Null for pre-sharing legacy rows,
- * and absent entirely on older servers. Row management (remove, default-branch
+ * `sharedBy` on `repositories.list` rows). Null for pre-sharing legacy rows.
+ * Row management (remove, default-branch
  * pin) is sharer-or-owner; the row is informational for everyone else.
  */
 @Serializable

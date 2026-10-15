@@ -28,7 +28,6 @@ const RELAY_PROBE_TIMEOUT_MS = 3_000
 export interface SteerRelayCounters {
   connectionsAccepted: number
   activityFramesFanned: number
-  startsRouted: number
   slowConsumerEvictions: number
   rateLimitedRejections: number
 }
@@ -41,8 +40,7 @@ export interface SteerRelayProbe {
   devices?: number
   rooms?: number
   startedAt?: number | null
-  /** null = the deployed relay predates /stats (healthz fallback). */
-  counters?: SteerRelayCounters | null
+  counters?: SteerRelayCounters
 }
 
 export interface PushRelayStats {
@@ -64,17 +62,14 @@ export interface PushRelayProbe {
   latencyMs?: number
   firebaseConfigured?: boolean | null
   startedAt?: number | null
-  /** null = the deployed relay predates /stats (healthz fallback). */
-  stats?: PushRelayStats | null
+  stats?: PushRelayStats
 }
 
 function asCount(value: unknown): number {
   return typeof value === `number` && Number.isFinite(value) ? value : 0
 }
 
-/** GET {steer relay}/stats (secret-gated), degrading to the public /healthz
- * gauges against an already-deployed older relay (404 there). Exported for
- * mock-fetch tests. */
+/** GET {steer relay}/stats (secret-gated). Exported for mock-fetch tests. */
 export async function probeSteerRelay(
   config: SteerRelayConfig | null,
   fetchImpl: RelayFetch = globalThis.fetch
@@ -107,32 +102,9 @@ export async function probeSteerRelay(
         counters: {
           connectionsAccepted: asCount(json.counters?.connectionsAccepted),
           activityFramesFanned: asCount(json.counters?.activityFramesFanned),
-          startsRouted: asCount(json.counters?.startsRouted),
           slowConsumerEvictions: asCount(json.counters?.slowConsumerEvictions),
           rateLimitedRejections: asCount(json.counters?.rateLimitedRejections),
         },
-      }
-    }
-    if (res.status === 404) {
-      const health = await fetchImpl(`${base}/healthz`, {
-        signal: AbortSignal.timeout(RELAY_PROBE_TIMEOUT_MS),
-      })
-      if (health.ok) {
-        const json = (await health.json()) as {
-          connections?: number
-          devices?: number
-          rooms?: number
-        }
-        return {
-          configured: true,
-          ok: true,
-          latencyMs: Math.round(performance.now() - start),
-          connections: asCount(json.connections),
-          devices: asCount(json.devices),
-          rooms: asCount(json.rooms),
-          startedAt: null,
-          counters: null,
-        }
       }
     }
     return { configured: true, ok: false, latencyMs }
@@ -141,8 +113,7 @@ export async function probeSteerRelay(
   }
 }
 
-/** GET {push relay}/stats (secret-gated), degrading to /healthz (which
- * carries nothing) against an older relay. Exported for mock-fetch tests. */
+/** GET {push relay}/stats (secret-gated). Exported for mock-fetch tests. */
 export async function probePushRelay(
   env: Record<string, string | undefined> = process.env,
   fetchImpl: RelayFetch = globalThis.fetch
@@ -187,21 +158,6 @@ export async function probePushRelay(
           lastError:
             typeof json.lastError === `string` ? json.lastError : null,
         },
-      }
-    }
-    if (res.status === 404) {
-      const health = await fetchImpl(`${url}/healthz`, {
-        signal: AbortSignal.timeout(RELAY_PROBE_TIMEOUT_MS),
-      })
-      if (health.ok) {
-        return {
-          configured: true,
-          ok: true,
-          latencyMs: Math.round(performance.now() - start),
-          firebaseConfigured: null,
-          startedAt: null,
-          stats: null,
-        }
       }
     }
     return { configured: true, ok: false, latencyMs }

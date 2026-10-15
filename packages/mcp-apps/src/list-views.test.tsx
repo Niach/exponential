@@ -29,7 +29,7 @@ describe(`RunsListView`, () => {
 })
 
 describe(`DevicesView`, () => {
-  it(`lists a machine's logins; no sign-in without the agent-login cap`, () => {
+  it(`lists a machine's logins; a teammate's machine offers no sign-in`, () => {
     const devices = [
       {
         deviceId: `d1`,
@@ -52,7 +52,7 @@ describe(`DevicesView`, () => {
     expect(screen.getByText(`me@x.test`)).toBeTruthy()
     expect(screen.getAllByText(`Needs re-login`).length).toBe(2)
     expect(screen.getByText(`No login reported`)).toBeTruthy()
-    expect(screen.queryByText(/add account/i)).toBeNull()
+    expect(screen.getAllByText(/add account/i).length).toBe(1)
   })
 })
 

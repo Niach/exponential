@@ -76,7 +76,8 @@ pub fn not_ready_names(statuses: &[ShapeStatus]) -> Vec<&'static str> {
 /// see. Byte-parity with the Android core set. Notifications, devices,
 /// support and friends sync on their own schedule and must never park a
 /// spinner on the rail.
-pub const CORE_SHAPES: [&str; 5] = ["teams", "boards", "issues", "issue_labels", "labels"];
+pub const CORE_SHAPES: [&str; 6] =
+    ["teams", "boards", "issues", "issue_labels", "labels", "issue_statuses"];
 
 /// How long a restart may claim "catching up" before the stamp expires. A
 /// healthy pipeline re-reaches head in well under this; an offline one never

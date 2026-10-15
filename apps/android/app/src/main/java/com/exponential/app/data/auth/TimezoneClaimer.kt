@@ -77,8 +77,8 @@ class TimezoneClaimer @Inject constructor(
                 api.setTimezone(accountId, timezone, onlyIfUnset = true)
                 synchronized(claimed) { claimed.add(accountId) }
             } catch (err: Throwable) {
-                // Best-effort — a missed claim (offline, an older server
-                // without the route) just means the digest reads UTC until
+                // Best-effort — a missed claim (offline, a transient
+                // error) just means the digest reads UTC until
                 // the next successful pass or process start.
                 retry = true
                 Log.w(TAG, "Timezone claim failed: ${err.message}")

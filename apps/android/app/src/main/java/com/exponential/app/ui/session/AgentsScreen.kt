@@ -697,10 +697,9 @@ private fun MachineRow(
                 device = device,
                 logins = logins,
                 // A repair only runs on one of MY machines that is listening
-                // and new enough to advertise the cap — the server refuses the
-                // commands without it, and an offline machine would hold them
-                // until it wakes, which reads as a dead tap.
-                actionable = device.isMine && online && device.canAgentLogin,
+                // — an offline machine would hold the commands until it
+                // wakes, which reads as a dead tap.
+                actionable = device.isMine && online,
                 commandStates = commandStates,
                 onRemove = onRemoveAccount,
                 onSignOut = onSignOutAccount,
@@ -741,7 +740,6 @@ private fun DeviceLoginRows(
     // page read as broken. Never on a teammate's machine.
     val canAdd = device.isMine &&
         device.online &&
-        device.canAgentLogin &&
         AgentAccountsRows.addableAgents(device).isNotEmpty()
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         when {
@@ -754,9 +752,6 @@ private fun DeviceLoginRows(
                     DeviceLoginRow(
                         row = login,
                         actionable = actionable,
-                        canRemove = device.canRemoveAccount,
-                        canAgentLogin = device.canAgentLogin,
-                        canSignOut = device.canSignOutAccount,
                         state = commandStates[deviceLoginCommandKey(login)],
                         onRemove = { onRemove(login) },
                         onSignOut = { onSignOut(login) },
@@ -792,12 +787,6 @@ private fun LoginHint(text: String) {
 private fun DeviceLoginRow(
     row: AgentProfileUsageRow,
     actionable: Boolean,
-    /** The machine advertises `account-remove` — see [AgentAccountsRows.chipActions]. */
-    canRemove: Boolean,
-    /** …and `agent-login`, which a removal needs as well. */
-    canAgentLogin: Boolean,
-    /** EXP-1137: …and `account-sign-out`, for the sign-out. */
-    canSignOut: Boolean,
     state: DeviceCommandUiState?,
     onRemove: () -> Unit,
     onSignOut: () -> Unit,
@@ -811,15 +800,9 @@ private fun DeviceLoginRow(
     // EXP-862: the entries, decided in ONE place ×4 — a signed-out or expired
     // login offers a sign-in first; a signed-in one can be signed out
     // (EXP-1137) and any can be removed from it. Empty = the
-    // row is a statement (a teammate's machine, an offline one, a build too
-    // old for any of the commands).
+    // row is a statement (a teammate's machine, an offline one).
     val actions = if (actionable) {
-        AgentAccountsRows.chipActions(
-            row,
-            canRemoveAccount = canRemove,
-            canAgentLogin = canAgentLogin,
-            canSignOutAccount = canSignOut,
-        )
+        AgentAccountsRows.chipActions(row)
     } else {
         emptyList()
     }

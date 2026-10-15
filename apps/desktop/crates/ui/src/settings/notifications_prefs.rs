@@ -135,10 +135,6 @@ const TYPE_ROWS: [(&str, &str, &str); 9] = [
 const DIGEST_OFF: &str = "off";
 const DIGEST_DAILY: &str = "daily";
 
-/// The server's `digest_hour` column default — what a row written before
-/// EXP-369 (or by an older server that omits the field) sends at.
-const DEFAULT_DIGEST_HOUR: i64 = 8;
-
 enum Load {
     Idle,
     Loading,
@@ -316,7 +312,7 @@ impl NotificationsPrefsPane {
     fn set_allow_agent_messages(&mut self, allowed: bool, cx: &mut gpui::Context<Self>) {
         self.apply(
             |prefs| {
-                prefs.allow_agent_messages = Some(allowed);
+                prefs.allow_agent_messages = allowed;
                 UpdateEmailPrefsInput {
                     allow_agent_messages: Some(allowed),
                     ..Default::default()
@@ -329,7 +325,7 @@ impl NotificationsPrefsPane {
     fn set_digest_hour(&mut self, hour: i64, cx: &mut gpui::Context<Self>) {
         self.apply(
             |prefs| {
-                prefs.digest_hour = Some(hour);
+                prefs.digest_hour = hour;
                 UpdateEmailPrefsInput {
                     digest_hour: Some(hour),
                     ..Default::default()
@@ -434,9 +430,8 @@ impl Render for NotificationsPrefsPane {
                 // EXP-801: web's "Messages from teammates' agents" row —
                 // off means another member's agent cannot message this
                 // account over MCP at all (no inbox row, no push); the
-                // account's own agents always get through. Absent on an
-                // older server reads as allowed (the server default).
-                let allow_agent_messages = prefs.allow_agent_messages.unwrap_or(true);
+                // account's own agents always get through.
+                let allow_agent_messages = prefs.allow_agent_messages;
                 rows.push(glass_toggle_row(
                     "Messages from teammates' agents",
                     Some(
@@ -506,7 +501,7 @@ impl Render for NotificationsPrefsPane {
                 // the server's 10-minute sweep resolves send points at hour
                 // resolution, so there is nothing finer to offer.
                 if digest == DIGEST_DAILY {
-                    let hour = prefs.digest_hour.unwrap_or(DEFAULT_DIGEST_HOUR);
+                    let hour = prefs.digest_hour;
                     digest_rows.push(glass_picker_row(
                         "Send time",
                         Some("Full hours only, in your timezone.".into()),

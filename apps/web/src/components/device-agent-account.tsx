@@ -12,11 +12,10 @@
 // its entries in this fixed order:
 //
 //   - "Sign in": signed out, or a credential that expired here.
-//   - "Sign out" (EXP-1137): signed in, on a build with the sign-out body
-//     (`agent_profile_sign_out`: claude's own `auth logout` inside that
+//   - "Sign out" (EXP-1137): signed in (`agent_profile_sign_out`: claude's own `auth logout` inside that
 //     profile's config dir, codex's credential file deleted — never `codex
 //     logout`, which revokes the account server-wide). The row stays.
-//   - "Remove account": on a build with `account-remove` (deletes THIS
+//   - "Remove account": always (deletes THIS
 //     machine's copy of the login: its profile dir and its index row). Every
 //     row is a profile dir; the CLI's own ambient login is never listed.
 //
@@ -26,15 +25,13 @@
 // The account itself is untouched by every entry, which is exactly what each
 // confirm says (`lib/agent-account-remove.ts`).
 //
-// A login with no entry at all (a teammate's machine, an offline one, a build
-// that takes none of the commands) is a statement, not a control — and its
-// health badge is the ONLY signed-out notice on the row.
+// A login on a teammate's machine or an offline one is a statement, not a
+// control — and its health badge is the ONLY signed-out notice on the row.
 //
 // EXP-765: claude's sign-in link carries `code=true` — the browser page ends
 // by showing an authorization CODE the CLI on the machine is still waiting
 // for. The code field under the link hands it back as an `agent_login_code`
-// command (its own cap: a build that only runs the login would report the
-// command unsupported, so the field stays hidden without it).
+// command.
 import { useState, type ReactNode } from "react"
 import type {
   DeviceAgentAccount,
@@ -55,13 +52,11 @@ import {
 } from "@exp/ui"
 import { parseAgentLoginResult, accountName } from "@/lib/agent-usage"
 import {
-  canRemoveAccountOn,
   canSignOutAccountOn,
   removeAccountConfirmCopy,
   signOutConfirmCopy,
 } from "@/lib/agent-account-remove"
 import {
-  deviceCanAgentLogin,
   deviceIsOnline,
   deviceIsMine,
   type SteerDevice,
@@ -123,28 +118,20 @@ export function chipSignsIn(row: AccountChipRow): boolean {
  * ENDS there — a dead named profile can be removed too, and codex logins,
  * which are signed out far more often than claude's, were left with a menu of
  * one. EXP-1137: a signed-in login offers "Sign out". */
-export function accountChipActions(
-  device: Pick<SteerDevice, `caps`>,
-  row: AccountChipRow
-): string[] {
+export function accountChipActions(row: AccountChipRow): string[] {
   const out: string[] = []
   if (chipSignsIn(row)) out.push(ACTION_SIGN_IN)
-  if (canSignOutAccountOn(device, row)) out.push(ACTION_SIGN_OUT)
-  if (canRemoveAccountOn(device)) out.push(ACTION_REMOVE)
+  if (canSignOutAccountOn(row)) out.push(ACTION_SIGN_OUT)
+  out.push(ACTION_REMOVE)
   return out
 }
 
 /** Whether the chip is a CONTROL at all: one of the caller's own machines,
- * listening, able to take the commands — and with an entry to offer. Every
- * action rides the owner→device queue, so an offline machine would hold it
- * until it wakes, which reads as a dead click. */
-export function accountChipActionable(
-  device: SteerDevice,
-  row: AccountChipRow
-): boolean {
-  if (!deviceIsMine(device) || !deviceIsOnline(device)) return false
-  if (!deviceCanAgentLogin(device)) return false
-  return accountChipActions(device, row).length > 0
+ * listening ("Remove account" is always on offer). Every action rides the
+ * owner→device queue, so an offline machine would hold it until it wakes,
+ * which reads as a dead click. */
+export function accountChipActionable(device: SteerDevice): boolean {
+  return deviceIsMine(device) && deviceIsOnline(device)
 }
 
 /** The login a confirm names (`accountName`): its address. */
@@ -242,7 +229,7 @@ export function AccountChipMenu({
   const [busy, setBusy] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [confirmSignOut, setConfirmSignOut] = useState(false)
-  const actions = accountChipActions(device, row)
+  const actions = accountChipActions(row)
   const deviceLabel = device.deviceLabel || device.deviceId
   const loginLabel = accountLabel ?? accountChipLabel(row)
 

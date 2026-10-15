@@ -338,70 +338,22 @@ final class AgentAccountsRowsTests: XCTestCase {
                 health: health
             )
         }
-        // EXP-944: a signed-out or expired NAMED login keeps its Sign in AND
-        // offers Remove account — the removal deletes a profile dir, and the
-        // credential's state never decided whether that is possible.
+        // EXP-944: a signed-out or expired NAMED login keeps its Sign in (and
+        // Remove account, which every actionable row offers).
         let signedOut = chip(false, true, .signedOut)
         XCTAssertTrue(AgentAccountsRows.chipSignsIn(signedOut))
-        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
-            signedOut, canAgentLogin: true, canRemoveAccount: true
-        ))
 
         let expired = chip(true, false, .needsRelogin)
         XCTAssertTrue(AgentAccountsRows.chipSignsIn(expired))
-        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
-            expired, canAgentLogin: true, canRemoveAccount: true
-        ))
 
         let current = chip(true, true, .ok)
         XCTAssertFalse(AgentAccountsRows.chipSignsIn(current))
-        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
-            current, canAgentLogin: true, canRemoveAccount: true
-        ))
 
         let other = chip(true, false, .ok)
         XCTAssertFalse(AgentAccountsRows.chipSignsIn(other))
-        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
-            other, canAgentLogin: true, canRemoveAccount: true
-        ))
     }
 
-    // EXP-862: the removal is capped too, and refused for the same three
-    // reasons the server gives — same sentences, so a raced downgrade reads
-    // the same thing twice.
-    func testRemoveAccountIsCappedAndExplained() throws {
-        let row = AgentProfileUsageRow(
-            key: "dev:claude:work",
-            deviceId: "dev",
-            deviceLabel: "dev",
-            mine: true,
-            online: true,
-            agent: "claude",
-            profileId: "work",
-            active: false,
-            signedIn: true,
-            email: "dev@acme.test",
-            plan: nil,
-            usage: nil,
-            checkedAt: nil,
-            health: .ok
-        )
-        XCTAssertNil(AgentAccountsRows.removeAccountBlockReason(
-            row, canAgentLogin: true, canRemoveAccount: true
-        ))
-        XCTAssertEqual(
-            AgentAccountsRows.removeAccountBlockReason(
-                row, canAgentLogin: true, canRemoveAccount: false
-            ),
-            AgentAccountsRows.removeAccountOldApp
-        )
-        XCTAssertEqual(
-            AgentAccountsRows.removeAccountBlockReason(
-                row, canAgentLogin: false, canRemoveAccount: true
-            ),
-            AgentAccountsRows.removeAccountOldApp
-        )
-        XCTAssertEqual(AgentAccountsRows.removeCap, "account-remove")
+    func testRemoveAccountConfirmCopy() throws {
         XCTAssertEqual(
             AgentAccountsRows.removeAccountConfirmCopy(
                 account: "work@example.com", device: "Mac mini"
@@ -410,24 +362,23 @@ final class AgentAccountsRowsTests: XCTestCase {
         )
     }
 
-    // EXP-1137: a build with the sign-out body offers "Sign out" on every
-    // signed-in login; the fixed order ×4 is sign in, sign out, remove (web
-    // `accountChipActions`, desktop `chip_actions`, Android `chipActions`).
-    func testSignOutRidesTheSignOutCap() throws {
+    // EXP-1137: "Sign out" on every signed-in login; the fixed order ×4 is
+    // sign in, sign out, remove (web `accountChipActions`, desktop
+    // `chip_actions`, Android `chipActions`).
+    func testSignOutRidesASignedInLogin() throws {
         func chip(
             _ signedIn: Bool,
             _ active: Bool,
-            _ health: AgentAccountHealth,
-            profileId: String = "work"
+            _ health: AgentAccountHealth
         ) -> AgentProfileUsageRow {
             AgentProfileUsageRow(
-                key: "dev:codex:\(profileId)",
+                key: "dev:codex:work",
                 deviceId: "dev",
                 deviceLabel: "mint",
                 mine: true,
                 online: true,
                 agent: "codex",
-                profileId: profileId,
+                profileId: "work",
                 active: active,
                 signedIn: signedIn,
                 email: "me@example.com",
@@ -437,81 +388,17 @@ final class AgentAccountsRowsTests: XCTestCase {
                 health: health
             )
         }
-        XCTAssertEqual(AgentAccountsRows.signOutCap, "account-sign-out")
-
-        let live = chip(true, true, .ok)
-        XCTAssertTrue(AgentAccountsRows.chipSignsOut(
-            live, canAgentLogin: true, canSignOutAccount: true
-        ))
-        // ...and not on an EXP-862 build, with the server's sentence.
-        XCTAssertEqual(
-            AgentAccountsRows.signOutBlockReason(
-                live, canAgentLogin: true, canSignOutAccount: false
-            ),
-            AgentAccountsRows.signOutOldApp
-        )
-        // A signed-out login: the sign-in and the removal, nothing to sign
-        // out of.
+        XCTAssertTrue(AgentAccountsRows.chipSignsOut(chip(true, true, .ok)))
+        // A signed-out login: the sign-in, nothing to sign out of.
         let dead = chip(false, true, .signedOut)
         XCTAssertTrue(AgentAccountsRows.chipSignsIn(dead))
-        XCTAssertFalse(AgentAccountsRows.chipSignsOut(
-            dead, canAgentLogin: true, canSignOutAccount: true
-        ))
-        XCTAssertEqual(
-            AgentAccountsRows.signOutBlockReason(
-                dead, canAgentLogin: true, canSignOutAccount: true
-            ),
-            "That login is already signed out there."
-        )
-        XCTAssertTrue(AgentAccountsRows.canRemoveAccount(
-            dead, canAgentLogin: true, canRemoveAccount: true
-        ))
+        XCTAssertFalse(AgentAccountsRows.chipSignsOut(dead))
         // A revoked credential still signs out: that is how it leaves.
-        XCTAssertTrue(AgentAccountsRows.chipSignsOut(
-            chip(true, false, .needsRelogin), canAgentLogin: true, canSignOutAccount: true
-        ))
-        // The sign-out cap never removes a profile, and `agent-login` is
-        // required for everything.
-        XCTAssertFalse(AgentAccountsRows.canRemoveAccount(
-            chip(true, false, .ok), canAgentLogin: true, canRemoveAccount: false
-        ))
-        XCTAssertFalse(AgentAccountsRows.chipSignsOut(
-            chip(true, false, .ok), canAgentLogin: false, canSignOutAccount: true
-        ))
-
-        // The device cap, and the pinned sentence.
-        let signer = SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: [AgentAccountsRows.signOutCap])
-        XCTAssertTrue(signer.canSignOutAccount)
-        XCTAssertFalse(SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: ["account-remove"]).canSignOutAccount)
+        XCTAssertTrue(AgentAccountsRows.chipSignsOut(chip(true, false, .needsRelogin)))
         XCTAssertEqual(
             AgentAccountsRows.signOutConfirmCopy(account: "me@example.com", device: "mint"),
             "Sign me@example.com out on mint? The login stays listed so it can sign in again; the account itself is untouched."
         )
-    }
-
-    // The cap the rule reads is the one `SteerDevice.canSwitchAccount` looks
-    // for — locked so a rename cannot silently disable the switch everywhere.
-    func testTheSwitchCapIsTheDeviceCap() throws {
-        XCTAssertEqual(AgentAccountsRows.switchCap, "account-switch")
-        let withCap = SteerDevice(
-            deviceId: "dev",
-            deviceLabel: "dev",
-            caps: [AgentAccountsRows.switchCap]
-        )
-        XCTAssertTrue(withCap.canSwitchAccount)
-        XCTAssertFalse(SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: ["agent-login"]).canSwitchAccount)
-        let remover = SteerDevice(
-            deviceId: "dev",
-            deviceLabel: "dev",
-            caps: [AgentAccountsRows.removeCap]
-        )
-        XCTAssertTrue(remover.canRemoveAccount)
-        XCTAssertFalse(withCap.canRemoveAccount)
-        XCTAssertEqual(AgentAccountsRows.importCap, "agent-import")
-        XCTAssertTrue(
-            SteerDevice(deviceId: "dev", deviceLabel: "dev", caps: [AgentAccountsRows.importCap]).canImportAgent
-        )
-        XCTAssertFalse(withCap.canImportAgent)
     }
 
     // MARK: - Signing in: the landing by email

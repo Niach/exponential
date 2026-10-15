@@ -42,7 +42,7 @@ export interface SteerDevice {
    * all — pickers say so and block the start. */
   acpAgents?: string[] | null
   /** EXP-253: launch capabilities beyond issue coding (e.g. `actions`);
-   * absent = an older desktop with none. */
+   * absent = none. */
   caps?: string[]
   /** EXP-403 registry fields. */
   kind?: `desktop` | `server`
@@ -77,8 +77,8 @@ export interface SteerDevice {
    * server never prefills off it. */
   isDefault?: boolean
   /** EXP-484: the machine's read-only per-agent sign-in status as it last
-   * probed it. Absent = an older build with no collector (render no Agents
-   * section rather than claiming "signed out"). */
+   * probed it. Absent = not reported yet (render no Agents section rather
+   * than claiming "signed out"). */
   agentAccounts?: DeviceAgentAccounts
   /** EXP-484: the machine's per-agent usage windows as it last fetched them;
    * absent = never reported. Freshness comes from each entry's `fetchedAt`
@@ -88,7 +88,7 @@ export interface SteerDevice {
    * fallback when an entry carries no `fetchedAt`. */
   agentUsageAt?: string | null
   /** EXP-1196: the device's readiness report (`device-doctor.json`); null /
-   * absent = an older build, render no readiness block. */
+   * absent = not reported yet, render no readiness block. */
   doctor?: DeviceDoctor | null
 }
 
@@ -105,7 +105,7 @@ export interface DeviceLaunchDefaults {
 }
 
 /** EXP-437: the device's configured default agent, clamped to what it can
- * actually run — `null` when it advertises none (older build) or the
+ * actually run — `null` when it advertises none or the
  * configured default is not runnable there. */
 export function deviceDefaultAgent(
   device: SteerDevice | undefined
@@ -115,13 +115,6 @@ export function deviceDefaultAgent(
   return deviceAgentIds(device).includes(candidate) ? candidate : null
 }
 
-/** EXP-746: the machine can host ACP sessions at all (the desktop app and the
- * CLI daemon advertise the cap once they ship the engine). Every build above
- * the version floor advertises it, so nothing gates on it anymore. */
-export function deviceSupportsAcp(device: Pick<SteerDevice, `caps`>): boolean {
-  return (device.caps ?? []).includes(`acp`)
-}
-
 /** EXP-437: the device's advertised defaults for one agent — `null` when it
  * advertises none (the caller seeds statically via `agentSeed(agent, null)`). */
 export function deviceAgentLaunchDefaults(
@@ -129,15 +122,6 @@ export function deviceAgentLaunchDefaults(
   agent: string
 ): AgentLaunchDefaults | null {
   return device?.launchDefaults?.agents?.[agent] ?? null
-}
-
-/** EXP-1249: the machine reads the per-run `computerUse` launch flag (the
- * composer's "+" toggle). Older builds only know the device-level default and
- * would silently ignore it, so the composer hides the toggle there. */
-export function deviceCanToggleComputerUse(
-  device: Pick<SteerDevice, `caps`> | undefined
-): boolean {
-  return (device?.caps ?? []).includes(contract.codingSession.computerUseCap)
 }
 
 /** EXP-1196/EXP-1249: the device's own computer-use switch — what a run
@@ -168,10 +152,8 @@ export function deviceIsOnline(device: SteerDevice): boolean {
   return device.online !== false
 }
 
-/** EXP-849: drop every id outside contract `codingAgent`. The server clamps
- * what a machine registers, but a row written before that clamp — or served
- * by a self-hosted instance on an older image — can still carry a RETIRED id
- * (`pi`), and no client has a name, icon or launcher for it. */
+/** EXP-849: drop every id outside contract `codingAgent`: no client has a
+ * name, icon or launcher for an unknown id. */
 function contractAgents(list: readonly string[] | null | undefined): string[] {
   return (list ?? []).filter((a) => contract.codingAgent.values.includes(a))
 }
@@ -183,7 +165,7 @@ export function deviceAgentIds(device: SteerDevice | undefined): string[] {
 }
 
 /** EXP-749: the agents the device drives over ACP, contract-filtered like
- * `deviceAgentIds`. `null` = the machine never reported (an older build):
+ * `deviceAgentIds`. `null` = the machine has not reported yet:
  * callers assume every runnable agent is ACP-ready. An EMPTY array is a real
  * answer — that machine can start nothing right now (EXP-773). */
 export function deviceAcpAgentIds(
@@ -197,7 +179,7 @@ export function deviceAcpAgentIds(
 /** EXP-773/1196: `agent` cannot start on this device. With a doctor report
  * the report decides (device-doctor.json: Git not ok, or the agent's row not
  * ok; `deviceReadinessRunnable` in `@exp/ui` is the same rule). Without one
- * (an older build) the ACP fallback: the machine reported an ACP set and the
+ * (not reported yet) the ACP fallback: the machine reported an ACP set and the
  * agent is outside it; unknown = false, assume the ACP path. */
 export function deviceAgentNotReady(
   device: SteerDevice | undefined,
@@ -232,7 +214,7 @@ export function deviceHasRunnableAgent(device: SteerDevice): boolean {
 
 /** EXP-1196: the device can start a run at all — with a doctor report, Git
  * ok plus at least one coding agent ok (device-doctor.json `runnable`);
- * without one (an older build), EXP-409's runnable-agent rule. Drives the
+ * without one (not reported yet), EXP-409's runnable-agent rule. Drives the
  * device rows' "not ready" dimming. */
 export function deviceReadyForRuns(device: SteerDevice): boolean {
   const doctor = device.doctor
@@ -240,63 +222,6 @@ export function deviceReadyForRuns(device: SteerDevice): boolean {
   return contract.codingAgent.values.some((agent) =>
     doctorAgentRunnable(doctor, agent)
   )
-}
-
-/** EXP-637: resuming an ENDED run (its worktree, its agent transcript) is a
- * launch path of its own — distinct from EXP-481's `resume`, which resumes an
- * issue's live worktree. Runs lists hide Resume on devices without it. */
-export function deviceCanResumeRun(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`resume-run`)
-}
-
-/** EXP-849: the machine honours `account` on a live-run resume — it ends the
- * run, moves the agent transcript into the target profile's config dir and
- * relaunches there. Older builds resume on the RECORDED account and silently
- * ignore the field, so requesters hide the mid-run switch instead. */
-export function deviceCanSwitchAccount(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`account-switch`)
-}
-
-/** EXP-862: the machine runs `agent_profile_remove` — it deletes its own copy
- * of one agent login (never the account). An older build would leave the
- * queued row pending forever, so requesters hide "Remove account" instead;
- * the server refuses it on their behalf either way. */
-export function deviceCanRemoveAccount(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`account-remove`)
-}
-
-/** EXP-1137: the machine runs `agent_profile_sign_out` (sign one login out,
- * keep its row). An older build would leave the row pending forever, so
- * requesters hide "Sign out" instead; the server refuses it on their behalf
- * either way. */
-export function deviceCanSignOutAccount(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`account-sign-out`)
-}
-
-/** EXP-484: the machine runs the `agent_login` device command (the desktop
- * app and the CLI daemon both advertise it). Without the cap the queued row
- * would sit pending forever, so requesters hide Login/Switch account. */
-export function deviceCanAgentLogin(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`agent-login`)
-}
-
-/** The machine runs `agent_login {import: true}`: it MOVES the agent CLI's
- * ambient login into one of its profiles. Without the cap the doctor's
- * Import pill is hidden on another device (the server refuses it too). */
-export function deviceCanImportAgentLogin(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`agent-import`)
 }
 
 /** A launch/trigger/run `account` that pins nothing: absent, blank or the
@@ -307,28 +232,11 @@ export function isUnpinnedAccount(account: string | null | undefined): boolean {
   return trimmed === `` || trimmed === `system`
 }
 
-/** FEED-36: the daemon runs `update_now` — ends every live session on the
- * machine and restarts on the queued self-update. Without the cap the row
- * would sit pending forever, so the machine list hides "Update now". */
-export function deviceCanUpdateNow(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`update-now`)
-}
-
 /** FEED-36 / EXP-1075: the line under a machine whose queued update is
  * parked behind live sessions. ONE dumb sentence: a machine serves every
  * team the caller is in, so any count or name here would either leak
  * another team's runs or lie about the number. */
 export const UPDATE_QUEUED_LINE = `Update queued until all sessions are closed.`
-
-/** EXP-747 C4: the machine runs `agent_usage_refresh` — a forced re-read of
- * one profile's usage windows. The usage page shows Refresh only behind it. */
-export function deviceCanRefreshUsage(
-  device: Pick<SteerDevice, `caps`>
-): boolean {
-  return (device.caps ?? []).includes(`agent-usage-refresh`)
-}
 
 /** The two synced usage slots, as either a `SteerDevice` (absent = undefined)
  * or a raw `devices` ROW (absent = null) — the start path reads the row
@@ -426,7 +334,7 @@ export function resolveStartAccount(
   | { kind: `profile`; account: string }
   | { kind: `none` } {
   const account = device.agentAccounts?.[agent]
-  // Not reported at all (an older build): the device decides.
+  // Not reported at all: the device decides.
   if (!account) return { kind: `last_used` }
   const profiles = (account.profiles ?? []).filter(
     (entry): entry is DeviceAgentProfileEntry =>

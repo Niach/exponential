@@ -74,13 +74,9 @@ import {
 // Mirrors the relay's online-frame bounds (steer-relay protocol.ts): the
 // relay is a dumb pipe and the same strings land here via `register`. Caps
 // are free strings the executor names (coding doctor.rs DEVICE_CAPS +
-// ACTION_CAPS); the ones this router gates on: `agent-login`,
-// `account-switch` (EXP-849: honours `account` on a live-run resume),
-// `agent-usage-refresh` (EXP-747 C4), `update-now` (FEED-36: runs
-// `update_now`), `account-remove` (EXP-862: runs `agent_profile_remove`),
-// `account-sign-out` (EXP-1137: runs `agent_profile_sign_out` and removes its
-// ambient login). The daemon advertises 22 today (13 build + 9 action caps), so the
-// ceiling sits at 24 with headroom, not AT the count.
+// RUN_CAPS); this router gates on none of them (every daemon at the client
+// floor advertises every build cap). The ceiling sits at 24, with headroom
+// for older builds' longer lists.
 const agentsInput = z.array(z.string().min(1).max(32)).max(16)
 const capsInput = z.array(z.string().min(1).max(32)).max(24)
 
@@ -153,8 +149,8 @@ function clampLaunchDefaults(
         entry.subagentModel = d.subagentModel
       }
       // `typeof === boolean`, not `!== undefined`: the nullish schema lets
-      // 0.14.10's explicit-null toggles through (EXP-495) and stored jsonb
-      // must stay null-free (native clients parse it off the devices shape).
+      // explicit-null toggles through (EXP-495) and stored jsonb must stay
+      // null-free (native clients parse it off the devices shape).
       if (typeof d.ultracode === `boolean` && agentSupportsUltracode(agent)) {
         entry.ultracode = d.ultracode
       }
@@ -173,9 +169,8 @@ function clampLaunchDefaults(
 }
 
 // EXP-849: the three agent-ID LISTS `register` writes, under the same
-// ALWAYS-CLAMP contract as the launch defaults above. A fleet still on an
-// older build keeps heart-beating a RETIRED id (`pi`, dropped from contract
-// `codingAgent`) and must keep registering — minus that id. Register is the
+// ALWAYS-CLAMP contract as the launch defaults above: an id outside contract
+// `codingAgent` is dropped, the registration still lands. Register is the
 // sole writer of `agents`/`acp_agents`/`unauthed_agents`, so this is the one
 // place that keeps every picker, chip and tab on the four clients
 // contract-clean; the stored jsonb never carries a name a client has no
@@ -255,8 +250,7 @@ export function clampAgentAccounts(
     }
     // EXP-792 (EXP-747 B5): the device's profiles for this agent,
     // ≤`MAX_AGENT_PROFILES`. A profile without an id is dropped (nothing
-    // could address it); the top-level fields above stay the ACTIVE profile
-    // for older clients.
+    // could address it); the top-level fields above stay the ACTIVE profile.
     const profiles: DeviceAgentProfileEntry[] = []
     for (const profile of account.profiles ?? []) {
       if (!profile || typeof profile.id !== `string` || !profile.id) continue
@@ -403,34 +397,6 @@ function deviceReportsProfile(
   )
 }
 
-/** EXP-1137: the sentence the refusal says when a build cannot run
- * `agent_profile_sign_out`. Byte-identical ×4 (`SIGN_OUT_OLD_APP` on every
- * client). */
-const SIGN_OUT_OLD_APP = `That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.`
-
-/** EXP-1137: `agent-login` + `account-sign-out` — the machine drives its
- * logins at all AND knows the sign-out body. */
-function assertSignOutCaps(row: { caps: string[] | null }): void {
-  const caps = row.caps ?? []
-  if (!caps.includes(`agent-login`) || !caps.includes(`account-sign-out`)) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: SIGN_OUT_OLD_APP,
-    })
-  }
-}
-
-/** FEED-36: `update_now` needs a daemon that knows the kind — an older build
- * would leave the row pending forever, so both queue paths refuse instead. */
-function assertUpdateNowCap(row: { caps: string[] | null }): void {
-  if (!(row.caps ?? []).includes(`update-now`)) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: `This machine's daemon doesn't support Update now yet`,
-    })
-  }
-}
-
 /**
  * The ONE owner→device enqueue (EXP-481): one pending command per (device,
  * kind, payload) — a double-click must not queue the same prune twice — then
@@ -571,10 +537,9 @@ export const devicesRouter = router({
         // it all along; the old zod silently stripped it).
         unauthedAgents: agentsInput.optional(),
         // EXP-749: the subset of `agents` this build can drive over ACP.
-        // ABSENT WRITES NULL on purpose — register is the sole writer, so an
-        // older build re-registering must return the row to "unknown" (every
-        // runnable agent assumed ACP-ready) rather than keep a newer build's
-        // stale list.
+        // ABSENT WRITES NULL on purpose — register is the sole writer, so a
+        // register without it returns the row to "unknown" (every runnable
+        // agent assumed ACP-ready) rather than keep a stale list.
         acpAgents: agentsInput.optional(),
         // EXP-481: the device's local defaults, applied ONLY as a first-ever
         // seed (row column NULL) — after that the server copy is
@@ -767,8 +732,7 @@ export const devicesRouter = router({
   // queued update waits for the machine's live sessions (the daemon ends
   // idle ones after 2h); `endSessions: true` additionally queues an
   // `update_now` command, which ends EVERY live session there and restarts
-  // on the new version. The cap is checked BEFORE the flag lands so a refusal
-  // has no half-applied side effect the UI would then misreport as queued.
+  // on the new version.
   requestUpdate: authedProcedure
     .input(
       z.object({
@@ -781,17 +745,16 @@ export const devicesRouter = router({
         eq(devices.userId, ctx.session.user.id),
         eq(devices.deviceId, input.deviceId)
       )
-      let row: { id: string; caps: string[] | null } | undefined
+      let row: { id: string } | undefined
       if (input.endSessions) {
         const [found] = await ctx.db
-          .select({ id: devices.id, caps: devices.caps })
+          .select({ id: devices.id })
           .from(devices)
           .where(ownRow)
           .limit(1)
         if (!found) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
         }
-        assertUpdateNowCap(found)
         row = found
       }
       const now = new Date()
@@ -1023,7 +986,7 @@ export const devicesRouter = router({
   // EXP-747 C4 adds `agent_usage_refresh`: force one profile's usage
   // collection past the shared TTL (never past the rate-limit floor).
   // FEED-36 adds `update_now` (payload {}): end every live session on the
-  // machine and restart on the queued update, cap-gated on `update-now`.
+  // machine and restart on the queued update.
   // `agent_update` (payload {agent}): run that agent CLI's own self-updater
   // on the machine (`claude update` / `codex update`); the completion names
   // the version move (no cap: the release min-version gate covers it).
@@ -1062,7 +1025,7 @@ export const devicesRouter = router({
         // profile whose email it signed in as; absent = Add account.
         profileId: z.string().min(1).max(64).optional(),
         // `agent_login`: MOVE the agent's ambient login into a profile
-        // instead of signing in (cap `agent-import`).
+        // instead of signing in.
         import: z.boolean().optional(),
       })
     )
@@ -1070,7 +1033,6 @@ export const devicesRouter = router({
       const [row] = await ctx.db
         .select({
           id: devices.id,
-          caps: devices.caps,
           // EXP-862: `agent_profile_remove` is destructive on the device, so
           // its target must be a login the machine actually reported.
           agentAccounts: devices.agentAccounts,
@@ -1095,27 +1057,11 @@ export const devicesRouter = router({
             message: `agent_login needs an agent`,
           })
         }
-        // The executor lives in the desktop app and the daemon, both of
-        // which declare `agent-login` unconditionally (EXP-672 keeps the cap
-        // as the contract): a row without it would leave the command pending
-        // forever, so refuse instead of queueing one.
-        if (!(row.caps ?? []).includes(`agent-login`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That device does not declare the agent-login capability`,
-          })
-        }
         if (input.import === true) {
           if (input.profileId) {
             throw new TRPCError({
               code: `BAD_REQUEST`,
               message: `agent_login takes profileId or import, not both`,
-            })
-          }
-          if (!(row.caps ?? []).includes(`agent-import`)) {
-            throw new TRPCError({
-              code: `PRECONDITION_FAILED`,
-              message: `That machine runs an older Exponential app that cannot import agent logins. Update it first.`,
             })
           }
         }
@@ -1148,21 +1094,12 @@ export const devicesRouter = router({
       }
 
       // EXP-862: "Remove account" — the machine deletes its own copy of that
-      // login. Two caps: `agent-login` to drive the
-      // machine's logins at all, `account-remove` for this command itself. A
-      // build missing either would leave the row pending forever.
+      // login. Gate: a login the machine actually reported.
       if (input.kind === `agent_profile_remove`) {
         if (!input.agent || !input.profileId) {
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `agent_profile_remove needs an agent and a profileId`,
-          })
-        }
-        const caps = row.caps ?? []
-        if (!caps.includes(`agent-login`) || !caps.includes(`account-remove`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
           })
         }
         if (
@@ -1177,8 +1114,8 @@ export const devicesRouter = router({
       }
 
       // EXP-1137: "Sign out" — the machine signs ONE login out and keeps its
-      // row (it stays listed for a later sign-in). Gates: the caps, and a
-      // login the machine actually reported.
+      // row (it stays listed for a later sign-in). Gate: a login the machine
+      // actually reported.
       if (input.kind === `agent_profile_sign_out`) {
         if (!input.agent || !input.profileId) {
           throw new TRPCError({
@@ -1186,7 +1123,6 @@ export const devicesRouter = router({
             message: `agent_profile_sign_out needs an agent and a profileId`,
           })
         }
-        assertSignOutCaps(row)
         if (
           !deviceReportsProfile(row.agentAccounts, input.agent, input.profileId)
         ) {
@@ -1205,16 +1141,8 @@ export const devicesRouter = router({
             message: `agent_usage_refresh needs an agent and a profileId`,
           })
         }
-        if (!(row.caps ?? []).includes(`agent-usage-refresh`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That device does not declare the agent-usage-refresh capability`,
-          })
-        }
         payload = { agent: input.agent, profileId: input.profileId }
       }
-
-      if (input.kind === `update_now`) assertUpdateNowCap(row)
 
       if (input.kind === `agent_update`) {
         if (!input.agent) {

@@ -77,14 +77,6 @@ object SessionAccountSwitch {
     const val REASON_NOT_MINE = "Only the person who started this session can switch its account."
     const val REASON_ENDED = "This session has ended — resume it instead."
     const val REASON_OFFLINE = "The machine is offline."
-    /**
-     * The machine's build cannot take the switch: it either cannot resume a
-     * run at all (`resume-run`) or does not honour `account` on a LIVE one
-     * (`account-switch`, desktop 0.14.38). An older build would resume on the
-     * RECORDED account and drop the field, so the "switch" would quietly keep
-     * the exhausted login — the server refuses it, and so do these rows.
-     */
-    const val REASON_NO_CAP = "Update the app on that machine to switch accounts."
     const val REASON_BUSY = "The agent is working — switching waits for the turn to finish."
     const val REASON_SIGNED_OUT = "Sign in to this account on that machine first."
     const val REASON_NEEDS_RELOGIN = "This account needs a re-login on that machine."
@@ -174,8 +166,6 @@ object SessionAccountSwitch {
         mine: Boolean,
         sessionEnded: Boolean,
         deviceOnline: Boolean,
-        canResume: Boolean,
-        canSwitchAccount: Boolean,
         turnState: String,
         currentAccount: String? = null,
     ): String? = when {
@@ -183,9 +173,6 @@ object SessionAccountSwitch {
         !mine -> REASON_NOT_MINE
         sessionEnded -> REASON_ENDED
         !deviceOnline -> REASON_OFFLINE
-        // BOTH caps: the switch is a resume (`resume-run`) that the machine
-        // has to honour the `account` of on a live run (`account-switch`).
-        !canResume || !canSwitchAccount -> REASON_NO_CAP
         // EXP-848's turn slot is the idle test: ENDED is the default, so a
         // viewer that has not seen a `turn` event yet reads as idle.
         turnState == TURN_STATE_STARTED -> REASON_BUSY

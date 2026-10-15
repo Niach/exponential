@@ -185,7 +185,7 @@ describe.each(cases)(`device-doctor.json: $name`, (fixtureCase) => {
 })
 
 describe(`DeviceReadiness edge rules`, () => {
-  it(`renders nothing for an older build (doctor = null)`, () => {
+  it(`renders nothing without a report (doctor = null)`, () => {
     const { container } = render(
       <DeviceReadiness doctor={null} remote onAction={() => {}} />
     )

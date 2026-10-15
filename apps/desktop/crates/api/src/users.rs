@@ -176,7 +176,7 @@ struct MintInput<'a> {
     name: Option<&'a str>,
     /// EXP-1140: `agent` tags the hidden key the launcher mints for the
     /// agent it spawns (the server stores it as the key's `kind`); absent =
-    /// a person's own key, so an older server sees the wire it always did.
+    /// a person's own key.
     #[serde(skip_serializing_if = "Option::is_none")]
     purpose: Option<&'a str>,
     /// FEED-76: the key's team/board scope; absent = a full key (and the

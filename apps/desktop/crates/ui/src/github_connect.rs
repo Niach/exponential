@@ -9,7 +9,7 @@
 //!
 //! - [`fetch_github_status`] → `integrations.github.status`
 //!   (`{configured, linked, needsReconnect, login, installed, installUrl,
-//!   connectUrl, installations[]}`) drives the connection block of Settings ›
+//!   installations[]}`) drives the connection block of Settings ›
 //!   Repositories and the readiness checklist's GitHub step;
 //! - [`fetch_github_repos`] → `integrations.github.repos` (the same fields
 //!   plus `repos[]`/`hasMore`) lists the push-able repositories inline,
@@ -158,12 +158,6 @@ pub(crate) struct GithubStatus {
     /// on another account.
     #[serde(default)]
     pub install_url: Option<String>,
-    /// The guided web page (`/integrations/github?return=app`). Natives
-    /// prefer the in-app link hop ([`connect_github`]); kept decoded for
-    /// older servers and as the documented hand-back origin.
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub connect_url: Option<String>,
     /// The accounts where the app is installed, as the viewer's token sees
     /// them. Empty while not linked.
     #[serde(default)]
@@ -218,9 +212,6 @@ pub(crate) struct GithubReposResult {
     pub installed: bool,
     #[serde(default)]
     pub install_url: Option<String>,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub connect_url: Option<String>,
     /// Every push-able repo of every installation, deduped and sorted.
     #[serde(default)]
     pub repos: Vec<GithubRepo>,
@@ -521,8 +512,7 @@ pub(crate) fn report_github_connected(outcome: GithubConnectOutcome, cx: &mut Ap
 
 /// Human copy for a github-connected `?error=` slug. SLOP-7's guided page
 /// hands back without an error (every failure is shown on the page itself),
-/// so any slug — an older server's `session|exchange|none|…` included — reads
-/// as the one generic line, never raw.
+/// so any slug reads as the one generic line, never raw.
 pub(crate) fn connect_error_message(_code: &str) -> &'static str {
     copy::CONNECT_FAILED
 }
@@ -634,8 +624,8 @@ pub(crate) mod copy {
     /// Every browser opener failed — the start URL is on the clipboard.
     pub const CONNECT_OPENER_FAILED: &str = "Couldn\u{2019}t open your browser. The connect link \
         was copied \u{2014} paste it into a browser to continue.";
-    /// The `exponential://github-connected?error=…` hand-back (older
-    /// servers only; the guided page itself shows SLOP-7's failures).
+    /// The `exponential://github-connected?error=…` hand-back (the guided
+    /// page itself shows SLOP-7's failures).
     pub const CONNECT_FAILED: &str = "Something went wrong while connecting GitHub. Please try \
         again.";
 }
@@ -803,7 +793,7 @@ mod tests {
     #[test]
     fn repos_result_decodes_the_connection_and_the_rows() {
         let result: GithubReposResult = serde_json::from_str(
-            r#"{"configured":true,"connectConfigured":true,"linked":true,"needsReconnect":false,"login":"octocat","installed":true,"installUrl":"https://github.com/apps/exp/installations/new","connectUrl":null,"repos":[{"fullName":"acme/web","private":true,"defaultBranch":"main","installationId":7}],"hasMore":false,"installations":[{"installationId":7,"accountLogin":null,"suspended":true}]}"#,
+            r#"{"configured":true,"connectConfigured":true,"linked":true,"needsReconnect":false,"login":"octocat","installed":true,"installUrl":"https://github.com/apps/exp/installations/new","repos":[{"fullName":"acme/web","private":true,"defaultBranch":"main","installationId":7}],"hasMore":false,"installations":[{"installationId":7,"accountLogin":null,"suspended":true}]}"#,
         )
         .unwrap();
         assert_eq!(result.prerequisite(), Prerequisite::Ready);
