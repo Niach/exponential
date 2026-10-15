@@ -312,6 +312,8 @@ export interface SessionCardModel {
   tone: string
   elapsed: string | null
   running: boolean
+  /** EXP-1323: the live status line, the card's muted second line. */
+  caption?: string | null
   testId: string
 }
 
@@ -326,7 +328,9 @@ export const SESSION_CARD_TONE: Record<string, string> = {
  * EXP-1291 THE session card ×4: a session inside a thread (or a thread an
  * agent started) is ONE card = the Work card's header row in the Work
  * card's shell (radius lg, card hairline, no shadow). Tapping it opens that
- * session's raw view. No device, account, branch or other caption.
+ * session's raw view. No device, account or branch; EXP-1323: the live
+ * `caption` (what it does right now) is the muted second line under the
+ * name, aligned with it.
  */
 export function SessionCard({
   card,
@@ -348,6 +352,16 @@ export function SessionCard({
       after={onOpen ? <ChevronIcon className="size-3.5 shrink-0" /> : undefined}
     />
   )
+  const caption = card.caption ? (
+    <div
+      data-slot="session-card-caption"
+      className="-mt-1.5 truncate pr-3 pb-2 text-muted-foreground"
+      // The name's x: the row's 12px padding + the 14px icon + its 8px gap.
+      style={{ paddingLeft: 34 }}
+    >
+      {card.caption}
+    </div>
+  ) : null
   const shell = cn(
     `block w-full min-w-0 overflow-clip rounded-lg border border-glass-stroke-card bg-glass-row text-left text-xs`,
     className
@@ -356,6 +370,7 @@ export function SessionCard({
     return (
       <div data-testid={card.testId} data-state={card.state} className={shell}>
         {header}
+        {caption}
       </div>
     )
   }
@@ -368,6 +383,7 @@ export function SessionCard({
       onClick={onOpen}
     >
       {header}
+      {caption}
     </button>
   )
 }

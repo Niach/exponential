@@ -18,6 +18,7 @@ import {
   useSessionThread,
   useTreeSessions,
 } from "@/hooks/use-session-tree"
+import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import type { SessionRow } from "@/lib/session-tree"
@@ -35,7 +36,8 @@ import { cn } from "@/lib/utils"
 //                    session's name and Stop while live
 //
 // The feed always shows the work (no faces, no Show work, no Guide), and the
-// reply box posts to THIS session. Visibility is the shape's.
+// reply box posts to THIS session. Visibility is the shape's. EXP-1323:
+// opening either marks THIS session read (`useOpenedSessionRead`).
 
 const BackIcon = conceptIcon(`ui-back`)
 const StopIcon = conceptIcon(`coding-stop`)
@@ -59,8 +61,15 @@ function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boole
   )
 }
 
+/** EXP-1323: an open session view marks the session read, again whenever
+ *  its newer agent reply lands while it stays open. */
+function useOpenedSessionRead(sessionId: string) {
+  useMarkRead(sessionId, useNewestAgentMessageAt([sessionId]))
+}
+
 /** md+: the session open IN PLACE inside its thread. */
 export function InPlaceSession({ row }: { row: SessionRow }) {
+  useOpenedSessionRead(row.id)
   return (
     <div className="min-h-0 flex-1" data-testid="thread-session-body">
       <AgentSessionView key={row.id} session={row} composer={<SessionReply row={row} />} />
@@ -70,6 +79,7 @@ export function InPlaceSession({ row }: { row: SessionRow }) {
 
 /** The session on its own screen (phones; sessions under an agent). */
 export function SessionScreen({ teamSlug, row }: { teamSlug: string; row: SessionRow }) {
+  useOpenedSessionRead(row.id)
   const isMobile = useIsMobile()
   const rootId = row.rootId ?? row.id
   const { tree } = useTreeSessions(rootId)

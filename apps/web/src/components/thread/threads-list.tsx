@@ -7,11 +7,15 @@ import {
   conceptIcon,
   EmptyState,
   GlassSectionHeader,
+  SessionRow,
   SkeletonRows,
   ThreadsListItem,
+  treeGuides,
   type RunMarkState,
 } from "@exp/ui"
+import { threadRunMarkState } from "@/components/team/sidebar-running"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
+import { useEnteringRows } from "@/hooks/use-entering-rows"
 import { pullRequestCollection } from "@/lib/collections"
 import {
   THREAD_ROW_WORDS,
@@ -32,7 +36,10 @@ import {
 // needs you, else the PR glyph its word names), the title (it names the
 // issue), the trailing word AND the lock when private, then the root's
 // device glyph (EXP-1318). Phones
-// put the team's Agents band on top.
+// put the team's Agents band on top. EXP-1323: a live tree nests its
+// children under the root (`SessionRow` depth + TreeGuides, opening that
+// session), a bold title = unread, the live caption the muted second line,
+// and a row that changes band enters on the motion tokens.
 
 const NeedsYouIcon = conceptIcon(`coding-needs-input`)
 const RecentIcon = conceptIcon(`ui-check`)
@@ -113,10 +120,11 @@ export function ThreadsListView({
   loading = false,
   activeId = null,
   onOpenThread,
+  onOpenSession,
   onOpenAgent,
 }: {
   groups: readonly ThreadsListGroup[]
-  /** The root's agent CLI (its mark). */
+  /** Every listed session's agent CLI (its mark), roots and children. */
   cliByRoot: ReadonlyMap<string, string | null>
   prsByRoot: ReadonlyMap<string, readonly WordPr[]>
   teamPrs: readonly WordPr[]
@@ -125,9 +133,14 @@ export function ThreadsListView({
   loading?: boolean
   activeId?: string | null
   onOpenThread: (sessionId: string) => void
+  /** EXP-1323: a nested child row opens that session in its thread
+   *  (absent = the thread). */
+  onOpenSession?: (rootId: string, sessionId: string) => void
   onOpenAgent?: (sessionId: string) => void
 }) {
-  const deviceGlyph = useDeviceGlyphs()
+  const entering = useEnteringRows(
+    groups.flatMap((group) => group.rows.map((row) => `${group.key}:${row.sessionId}`))
+  )
   if (loading) return <SkeletonRows rowHeight={36} />
   const empty = groups.length === 0 && (agents?.length ?? 0) === 0
   return (
@@ -162,31 +175,97 @@ export function ThreadsListView({
       {groups.map((group) => (
         <section key={group.key} data-testid={`threads-band-${group.key}`}>
           <GlassSectionHeader label={group.title} leading={GROUP_GLYPH[group.key]} />
-          <div className="flex flex-col">
-            {group.rows.map((row) => {
-              const word = threadWordOf(row, prsByRoot.get(row.sessionId) ?? [], teamPrs)
-              return (
-                <ThreadsListItem
-                  key={row.sessionId}
-                  lead={rowLead(row, cliByRoot.get(row.sessionId) ?? null, word)}
-                  title={row.title}
-                  word={word ? THREAD_ROW_WORDS[word] : null}
-                  wordIcon={
-                    word === `stack` ? <PrStackIcon className="size-3 shrink-0" /> : undefined
-                  }
-                  locked={row.private}
-                  device={deviceGlyph(row.deviceId)}
-                  active={row.sessionId === activeId}
-                  onOpen={() => onOpenThread(row.sessionId)}
-                />
-              )
-            })}
-          </div>
+          <GroupRows
+            group={group}
+            cliByRoot={cliByRoot}
+            prsByRoot={prsByRoot}
+            teamPrs={teamPrs}
+            activeId={activeId}
+            entering={entering}
+            onOpenThread={onOpenThread}
+            onOpenSession={onOpenSession}
+          />
         </section>
       ))}
       {empty && (
         <EmptyState icon={ThreadsIcon} title={THREADS_LIST_COPY.empty} size="page" />
       )}
+    </div>
+  )
+}
+
+/** One band's rows: roots as THE thread row, children nested under them. */
+function GroupRows({
+  group,
+  cliByRoot,
+  prsByRoot,
+  teamPrs,
+  activeId,
+  entering,
+  onOpenThread,
+  onOpenSession,
+}: {
+  group: ThreadsListGroup
+  cliByRoot: ReadonlyMap<string, string | null>
+  prsByRoot: ReadonlyMap<string, readonly WordPr[]>
+  teamPrs: readonly WordPr[]
+  activeId: string | null
+  entering: (key: string) => string
+  onOpenThread: (sessionId: string) => void
+  onOpenSession?: (rootId: string, sessionId: string) => void
+}) {
+  const deviceGlyph = useDeviceGlyphs()
+  const guides = treeGuides(group.rows.map((row) => row.depth))
+  return (
+    <div className="flex flex-col">
+      {group.rows.map((row, index) => {
+        const enter = entering(`${group.key}:${row.sessionId}`)
+        if (row.depth > 0) {
+          const device = deviceGlyph(row.deviceId)
+          return (
+            <SessionRow
+              key={row.sessionId}
+              size={row.caption ? `big` : `small`}
+              agent={cliByRoot.get(row.sessionId) ?? null}
+              markState={threadRunMarkState(row)}
+              title={row.title}
+              caption={row.caption}
+              unread={row.unread}
+              depth={row.depth}
+              guide={guides[index]}
+              deviceIcon={device?.icon}
+              deviceName={device?.name ?? null}
+              active={row.sessionId === activeId}
+              data-testid="threads-row-child"
+              className={enter}
+              onClick={() =>
+                onOpenSession
+                  ? onOpenSession(row.rootId, row.sessionId)
+                  : onOpenThread(row.rootId)
+              }
+            />
+          )
+        }
+        const word = threadWordOf(row, prsByRoot.get(row.sessionId) ?? [], teamPrs)
+        return (
+          <ThreadsListItem
+            key={row.sessionId}
+            lead={rowLead(row, cliByRoot.get(row.sessionId) ?? null, word)}
+            title={row.title}
+            unread={row.unread}
+            caption={row.caption}
+            className={enter}
+            word={word ? THREAD_ROW_WORDS[word] : null}
+            wordIcon={
+              word === `stack` ? <PrStackIcon className="size-3 shrink-0" /> : undefined
+            }
+            locked={row.private}
+            device={deviceGlyph(row.deviceId)}
+            active={row.sessionId === activeId}
+            onOpen={() => onOpenThread(row.sessionId)}
+          />
+        )
+      })}
     </div>
   )
 }

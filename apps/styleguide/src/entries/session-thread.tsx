@@ -22,7 +22,11 @@ import type { StyleguideEntry } from "./types.ts"
 // text, a child's session card, an event line, a question card answered in
 // the card (THE session view's card, `ask-card.tsx`, EXP-1316; case 0's
 // options carry descriptions, EXP-1322) and the
-// viewer's own queued row with its X (EXP-1317).
+// viewer's own queued row with its X (EXP-1317). EXP-1323: the dispatcher
+// cases: THE suggested tasks card in every state (open with Start all;
+// started = the child's session card with its live caption; Sent here;
+// Filed EXP-9), a child's `Report from …` line, a /btw aside's card whose
+// caption is its answer.
 
 type Input = Parameters<typeof buildSessionThread>[0]
 
@@ -91,6 +95,24 @@ const paragraph = (text: string) => (
 
 const AT = Date.UTC(2026, 9, 13, 19, 56)
 
+const SUGGESTION_ACTIONS = {
+  onStart: noop,
+  onStartAll: noop,
+  onHere: noop,
+  onDismiss: noop,
+  onFile: noop,
+  devices: [{ id: `dev-mac`, name: `Alex's MacBook Pro` }],
+  models: [
+    { value: `fable`, label: `Fable` },
+    { value: `opus`, label: `Opus` },
+    { value: `sonnet`, label: `Sonnet` },
+    { value: `haiku`, label: `Haiku` },
+  ],
+}
+
+/** The EXP-1323 dispatcher cases (by name, the fixture may grow). */
+const caseIndex = (prefix: string) => fixture.cases.findIndex((entry) => entry.name.startsWith(prefix))
+
 function Case({ index }: { index: number }) {
   const found = fixture.cases[index]
   if (!found) return null
@@ -110,6 +132,7 @@ function Case({ index }: { index: number }) {
       onDecide={() => {}}
       viewerId="u-dana"
       onUnqueue={() => {}}
+      suggestions={SUGGESTION_ACTIONS}
     />
     </TooltipProvider>
   )
@@ -120,7 +143,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1293`,
   title: `Conversation`,
-  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it; the viewer's OWN queued row carries the \`Remove from queue\` X with its tooltip, EXP-1317); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question or plan card is THE session view's card (EXP-1316, \`AskCard\` + \`AskPrompt\`): a question offers its options (label, and its description under it when the option carries one, EXP-1322) and a free-text row (\`Type something.\` opens the inline field), a plan Approve / Reject (Reject opens a note field); an answered card renders closed (the answer, options gone); a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. No captions, no Show work, no right sidebar. Below it THE session composer, the same box on the thread (targeting the root), an opened session and an agent's channel: the "+", the model pin (THE model picker inline, all four models, no Default; a pick sends \`/model <alias>\`), the plan read-out only on a plan-mode session that is not a dispatcher, then the context ring (its usage popover on click) and Send ⇄ Stop; \`/\` opens the command menu; placeholder \`Reply…\`. Phones: the floating capsule expands into the same card. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
+  blurb: `A thread's Conversation tab (a thread IS a root session): the root's own session card first, then the ROOT's messages oldest first. A person's message is the right-aligned bubble (\`<name> · <time>\` under it, \`queued\` until the device consumed it; the viewer's OWN queued row carries the \`Remove from queue\` X with its tooltip, EXP-1317); the agent's reply is markdown at the reading width; a system line is muted. A \`session\` / \`thread_started\` card is THE session card (the Work card's header row) opening that session; a question or plan card is THE session view's card (EXP-1316, \`AskCard\` + \`AskPrompt\`): a question offers its options (label, and its description under it when the option carries one, EXP-1322) and a free-text row (\`Type something.\` opens the inline field), a plan Approve / Reject (Reject opens a note field); an answered card renders closed (the answer, options gone); a subagent is a muted row, a picture the image, an event one muted line (\`Linked EXP-12\`, \`Opened PR #45\`). Children's own messages never inline. EXP-1323: THE suggested tasks card = the Work card's shell: the header (\`3 suggested tasks\`, \`· 2 started\`; \`Start all\` while more than one is open), then per item the title and text with ×, \`Options ▾\` (THE Menu: Start on… a device, Start with… a model, File as issue, Dismiss), \`Do it here\` and \`Start\` (phones stack the buttons); a started item IS the child's session card with its live caption under the name, then \`Sent here\` / \`Filed EXP-9\`. A child's end = ONE line \`Report from <session> ›\` opening it (the parent's next message relays the summary). A /btw aside is a plain session card whose caption is its answer's first line. While the root is live the Conversation ends on the raw view's transcript bottom (THE Queue) + status line. No captions, no Show work, no right sidebar. Below it THE session composer, the same box on the thread (targeting the root), an opened session and an agent's channel: the "+", the model pin (THE model picker inline, all four models, no Default; a pick sends \`/model <alias>\`), the plan read-out only on a plan-mode session that is not a dispatcher, then the context ring (its usage popover on click) and Send ⇄ Stop; \`/\` opens the command menu; placeholder \`Reply…\`. Phones: the floating capsule expands into the same card. Model = \`buildSessionThread()\` (fixture \`session-thread.json\` ×4).`,
   status: {
     web: {
       state: `ok`,
@@ -163,6 +186,8 @@ export const entry: StyleguideEntry = {
         </p>
         <SessionComposerSpecimen model="opus" percent={78} tone="warning" plan busy />
       </div>
+      <Case index={caseIndex(`EXP-1323: an ended`)} />
+      <Case index={caseIndex(`EXP-1323: a live`)} />
     </div>
   ),
 }

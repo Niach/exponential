@@ -31,6 +31,11 @@ describe(`thread title readiness`, () => {
     const row = (sessionId: string, title: string) => ({
       sessionId,
       teamId: `t`,
+      depth: 0,
+      parentId: null,
+      rootId: sessionId,
+      unread: false,
+      caption: null,
       title,
       private: false,
       deviceId: null,
