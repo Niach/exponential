@@ -434,12 +434,6 @@ fun AgentSessionScreen(
     // (the server re-checks).
     val canStop = live && (row?.shared == true || row?.userId == currentUserId)
     val rootId = row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id
-    // FEED-79: a refused send / unqueue = `Couldn't send the message`.
-    val sendError by viewModel.sendError.collectAsStateWithLifecycle()
-    com.exponential.app.ui.components.FailedActionToast(
-        sendError?.let { com.exponential.app.ui.components.FailedAction("send", "the message", it.ifBlank { null }) },
-        onShown = viewModel::clearSendError,
-    )
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
@@ -626,8 +620,6 @@ private fun RunFaceContent(
         }.toMap()
     }
     val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
-    val steerSending by viewModel.steerSending.collectAsStateWithLifecycle()
-    val steerImageError by viewModel.steerImageError.collectAsStateWithLifecycle()
     // EXP-621: the draft lives with the connection, not in a `remember` — so a
     // half-typed message survives a reconnect, a back-tap and a rotation.
     val draft by viewModel.draft.collectAsStateWithLifecycle()
@@ -663,27 +655,6 @@ private fun RunFaceContent(
     // (`SlashCommands.agentId`), which has no contract rows at all.
     val catalogAgent = SlashCommands.agentId(session?.cli, sessionConfig != null)
 
-    // Steer attach (EXP-511, wave D: ANY file, images included) — the system
-    // document picker feeds the VM's pending list; the upload rides the
-    // SESSION route (EXP-698), so every kind of run accepts one.
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments(),
-    ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        scope.launch {
-            // ContentResolver reads can stream from a cloud-backed provider —
-            // [readComposerPick] stays off the main thread. One pick at a time
-            // through the VM, so its caps (4 images, 4 files) + toasts apply.
-            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
-                is ComposerPick.Read ->
-                    viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
-                is ComposerPick.Refused -> viewModel.refusePendingAttachment(picked.message)
-            }
-        }
-    }
-
     // Attaching revives the connection (EXP-625): since EXP-621 a return visit
     // re-attaches to the running one and its feed is already there, but a dial
     // loop that died while the screen was away is redialed here instead of
@@ -696,16 +667,6 @@ private fun RunFaceContent(
     // host's title dot flips amber so it never looks silently stuck.
     val awaitingInput = phase == AgentPhase.Live &&
         remember(feed) { activeQuestionIds(feed) }.isNotEmpty()
-    // EXP-820: while a question or plan waits on THIS viewer (live, so this
-    // client may answer), the card is the whole input — its rows and the
-    // inline field a free-text/reject row opens answer it — and the composer
-    // LEAVES rather than doubling as the card's text path (EXP-788, retired).
-    // The draft stays in the connection and comes back with the composer.
-    // EXP-1306: the ONE rule ×4, `SessionTree.composerYieldsToCard`.
-    val composerHidden = SessionTree.composerYieldsToCard(
-        live = phase == AgentPhase.Live && !sessionEnded,
-        pendingAsk = awaitingInput,
-    )
     // EXP-389/848: the agent is actively working. ONE rule, shared ×4
     // (`agentWorking`): a live, unended run MID-TURN with nothing parked on it —
     // no active question card, synced needs_input clear, no usage wall, not
@@ -788,110 +749,6 @@ private fun RunFaceContent(
         }
     }
 
-    // EXP-724: the `/` command menu. `slashSelected` is the highlighted row
-    // (↑/↓ wrap); `slashDismissedFor` is the draft Escape/Back was pressed on
-    // — the menu stays shut until the text changes, so dismissing is not
-    // undone by the next recomposition. `slashConfirm` holds the command
-    // awaiting its "context is discarded" confirmation.
-    var slashSelected by remember { mutableIntStateOf(0) }
-    var slashDismissedFor by remember { mutableStateOf<String?>(null) }
-    var slashConfirm by remember { mutableStateOf<SlashCommand?>(null) }
-    val slashMatches by viewModel.slashMatches.collectAsStateWithLifecycle()
-    val slashMenuOpen = slashMatches.isNotEmpty() && slashDismissedFor != draft
-    // A changed candidate list can never leave the highlight past its end.
-    LaunchedEffect(slashMatches) { slashSelected = 0 }
-
-    // ── EXP-802/EXP-805: the composer's `@` / `#` / `:` autocomplete ─────────
-    // The steer composer speaks the same three triggers as the issue comment
-    // composer, so the field's TextFieldValue is hoisted HERE: the menu mounts
-    // as a plain sibling above the composer (exactly like the `/` menu), and a
-    // picked row splices against this very value. The draft string still lives
-    // in the connection — it has to survive a reconnect — so this is the
-    // caret's home, not the text's.
-    var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
-    // The ARMED latch (BlockTextField parity, EXP-322): only a TEXT change may
-    // OPEN the menu. Moving the caret back into an existing `#EXP-238` or
-    // `@ann@example.com` must not pop it — on a phone the caret moves on every
-    // tap, and a menu that reopens on a tap is a menu nothing can dismiss.
-    var composerArmed by remember { mutableStateOf(false) }
-    // The draft is the authority (EXP-621). Reconciled in an EFFECT and only
-    // when the text ACTUALLY differs: the draft round-trips through a
-    // StateFlow, so doing it in composition reset the caret mid-typing and
-    // dropped the IME's in-flight composing word. The selection is CLAMPED
-    // into the new text rather than jumped to its end, and `composition` is
-    // dropped on purpose — it indexes characters that are gone. An outside
-    // rewrite (a send clearing the draft, a `/` pick, a restored draft) is not
-    // typing, so it also DISARMS.
-    LaunchedEffect(draft) {
-        if (composerField.text != draft) {
-            val start = composerField.selection.start.coerceIn(0, draft.length)
-            val end = composerField.selection.end.coerceIn(0, draft.length)
-            composerField = TextFieldValue(draft, TextRange(start, end))
-            composerArmed = false
-        }
-    }
-    val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
-    // `#` needs no plumbing beyond the handler the feed already builds — the
-    // composer sits OUTSIDE that provider (what the user types must stay the
-    // stored `#IDENTIFIER` contract, never a bare identifier), so it reads the
-    // same object directly.
-    val composerTriggers = autocompleteTriggersAt(
-        beforeCaret = composerField.text.take(composerField.selection.start),
-        mentionsEnabled = mentionMembers.isNotEmpty(),
-        refsEnabled = issueRefCandidates.isNotEmpty(),
-    )
-    val composerMentions = mentionCandidatesFor(mentionMembers, composerTriggers.mentionQuery)
-    // EXP-892: ranked by the shared engine, with the server's full-text hits
-    // (comment bodies included) spliced in behind them once typing settles.
-    // SLOP-28 (EXP-1259 D4): `#` opens THE search list in a bottom sheet
-    // (the IssueTypeaheadSheetHost below), never issue rows in this menu.
-    val composerRefs = emptyList<IssueRefTarget>()
-    val composerEmojiMatch = composerTriggers.emoji
-    val composerEmojiData = rememberEmojiData(enabled = composerEmojiMatch != null)
-    val composerEmojiPrefs = rememberEmojiPrefs()
-    val composerEmoji = if (composerEmojiMatch != null && composerEmojiData != null) {
-        composerEmojiData.search(composerEmojiMatch.query, limit = EMOJI_TYPEAHEAD_LIMIT)
-    } else {
-        emptyList()
-    }
-    // The trigger stopped matching (the caret left the token, whitespace was
-    // typed, the trigger was deleted): a fresh text change has to re-arm.
-    LaunchedEffect(composerTriggers.none) {
-        if (composerTriggers.none) composerArmed = false
-    }
-    // EXP-892: the highlighted autocomplete row — the TOP one while typing,
-    // moved by a hardware ↑/↓ and picked by Enter/Tab, like the `/` menu.
-    val composerCandidateCount =
-        autocompleteCandidateCount(composerMentions, composerRefs, composerEmoji)
-    var autocompleteSelected by remember { mutableIntStateOf(0) }
-    LaunchedEffect(composerMentions, composerRefs, composerEmoji) { autocompleteSelected = 0 }
-    // Every pick splices against the LIVE value (EXP-655) and clears the latch.
-    fun commitComposerToken(spliced: TextFieldValue?) {
-        val next = spliced ?: return
-        composerField = next
-        viewModel.setDraft(next.text)
-        composerArmed = false
-    }
-    IssueTypeaheadSheetHost(
-        handler = issueRefHandler.takeIf { issueRefCandidates.isNotEmpty() },
-        field = composerField,
-        armed = composerArmed && composerTriggers.issueRef != null,
-        onDisarm = { composerArmed = false },
-        onCommit = { next -> commitComposerToken(next) },
-    )
-    // `:tada:` — the closing colon plus an EXACT shortcode commits immediately
-    // (no trailing space), so a user who habitually types the closed form never
-    // leaves literal shortcode text in a steered message. Web/iOS/desktop
-    // parity, and armed-gated like the menu: re-reading an old `:tada:` with
-    // the caret must not rewrite it.
-    val composerClosedShortcode = composerEmojiMatch?.takeIf { it.closed }?.query
-    LaunchedEffect(composerClosedShortcode, composerEmojiData, composerArmed) {
-        val code = composerClosedShortcode ?: return@LaunchedEffect
-        if (!composerArmed) return@LaunchedEffect
-        val record = composerEmojiData?.findShortcode(code) ?: return@LaunchedEffect
-        commitComposerToken(composerField.withEmoji(record, trailingSpace = false))
-        composerEmojiPrefs.pushRecent(record.unicode)
-    }
     // EXP-688/893: the Usage sheet, opened by the bar's ring (and the wall's
     // "Switch account" pill).
     var usageSheetOpen by remember { mutableStateOf(false) }
@@ -919,29 +776,7 @@ private fun RunFaceContent(
     var everRendered by remember { mutableStateOf(false) }
     LaunchedEffect(feed.isEmpty()) { if (feed.isNotEmpty()) everRendered = true }
 
-    // EXP-746/849: the ring (and the sheet behind it) is reachable on this
-    // run's OWN context numbers, on the machine's rate-limit windows, or on
-    // the logins the machine reports — whichever arrives first.
-    val hasUsage = agentUsage != null || sessionUsage != null || accountSwitch.options.isNotEmpty()
-    val contextPercent = AgentUsagePresentation.contextPercent(sessionUsage)
 
-    // The ONE menu above the composer. `/` commands and the three
-    // composer triggers are already mutually exclusive on CONTENT (a
-    // slash command matches only a draft that opens with `/`, the
-    // others only a token at the caret), so resolving them into one
-    // value is DEFENCE, not arbitration: it makes it impossible for
-    // two menus to stack, or for the key guards below to drive a menu
-    // that is not on screen.
-    val composerMenu = when {
-        // EXP-1291: an ended session's composer still sends (the server
-        // continues it), so only a card waiting on the viewer retires it.
-        composerHidden -> ComposerMenu.None
-        slashMenuOpen -> ComposerMenu.Slash
-        composerArmed &&
-            (composerMentions.isNotEmpty() || composerRefs.isNotEmpty() ||
-                composerEmoji.isNotEmpty()) -> ComposerMenu.Autocomplete
-        else -> ComposerMenu.None
-    }
     // EXP-1162: the transcript runs UNDER the header band and the bottom
     // band (banners, strips, menus, the composer), which FLOATS over its tail
     // like iOS's `safeAreaInset(edge: .bottom)`: the list's bottom content
@@ -1183,7 +1018,7 @@ private fun RunFaceContent(
         }
         }
 
-        // ── The bottom band: floats over the transcript's tail ───────────────
+        // ── The bottom band: floats over the transcript's tail
         FloatingBarEdge(
             bottomInset = bottomInset,
             // An expanded composer card is its own surface.
@@ -1195,445 +1030,228 @@ private fun RunFaceContent(
                 .fillMaxWidth()
                 .padding(bottom = bottomInset),
         ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
-        ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-        ) {
-            // ── Status banners (feed retained above) ─────────────────────────
-            val pausedBanner = hostOffline && phase.isWaitingForStream
-            // EXP-550: an offline host outranks the "reconnecting" /
-            // "starting" captions — the reason the stream is quiet is the
-            // machine, not the connection, and the run resumes when it is
-            // back. Only shown with a feed above it; an empty feed already
-            // renders the centered offline state.
-            if (pausedBanner) {
-                if (feed.isNotEmpty()) {
-                    BannerRow {
-                        Icon(
-                            ExpIcons.uiDeviceOffline,
-                            contentDescription = null,
-                            tint = LostGray,
-                            modifier = Modifier.size(13.dp),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "${hostDevice.displayLabel} is offline",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                DEVICE_OFFLINE_DETAIL,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
-                    }
-                }
-            } else {
-                when (val p = phase) {
-                    is AgentPhase.Ended -> BannerRow {
-                        Text(
-                            p.detail ?: "Session ended",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
-                    }
-                    is AgentPhase.Closed -> BannerRow {
-                        if (p.reconnecting) {
-                            // EXP-1259 D8.1: the band's inline spinner.
-                            InlineSpinner()
-                        }
-                        Text(
-                            p.detail
-                                ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    AgentPhase.Starting -> if (feed.isNotEmpty()) {
+        // THE session composer (shared with the thread + the agent channel);
+        // the face hands it its banners and the strips around the menus.
+        SessionComposer(
+            viewModel = viewModel,
+            expanded = composerExpanded,
+            onExpandedChange = { composerExpanded = it },
+            onOpenUsage = { usageSheetOpen = true },
+            trailing = trailingBarSlot,
+            merge = mergeBarSlot,
+            modifier = Modifier.onSizeChanged { if (it.height != bandHeightPx) bandHeightPx = it.height },
+            banners = {
+                // ── Status banners (feed retained above) ─────────────────────────
+                val pausedBanner = hostOffline && phase.isWaitingForStream
+                // EXP-550: an offline host outranks the "reconnecting" /
+                // "starting" captions — the reason the stream is quiet is the
+                // machine, not the connection, and the run resumes when it is
+                // back. Only shown with a feed above it; an empty feed already
+                // renders the centered offline state.
+                if (pausedBanner) {
+                    if (feed.isNotEmpty()) {
                         BannerRow {
-                            // EXP-1259 D8.1: the band's inline spinner.
-                            InlineSpinner()
+                            Icon(
+                                ExpIcons.uiDeviceOffline,
+                                contentDescription = null,
+                                tint = LostGray,
+                                modifier = Modifier.size(13.dp),
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "${hostDevice.displayLabel} is offline",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    DEVICE_OFFLINE_DETAIL,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    when (val p = phase) {
+                        is AgentPhase.Ended -> BannerRow {
                             Text(
-                                "The agent is starting. Waiting for the live stream…",
+                                p.detail ?: "Session ended",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             )
                         }
-                    }
-                    else -> Unit
-                }
-            }
-
-
-            // A rejected pick or a failed image upload (EXP-511) — the text and
-            // the thumbnails survive, so the send is retryable.
-            val imageFailure = steerImageError
-            if (imageFailure != null) {
-                BannerRow {
-                    Text(
-                        imageFailure,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-
-            // EXP-784: the agent's rate-limit window — ONE banner from the
-            // latest-wins slot (never a run of identical feed rows), with how
-            // long until the reset when the agent named one. Gone the
-            // moment an empty/`ok` status clears the slot; never up for a
-            // bare warning (EXP-818) and, on the 30s clock, dropped a minute
-            // past the reset it named (EXP-831).
-            val rateLimit = activity.rateLimit
-            if (rateLimit != null && phase !is AgentPhase.Ended &&
-                rateLimitBannerShows(rateLimit, nowMs)
-            ) {
-                val caption = rateLimitCaption(rateLimit.message, rateLimit.resetsAt, nowMs)
-                // Web `RateLimitBanner` is the reference: ONE row, 6dp gaps,
-                // centered — the usage glyph + the message in the semantic
-                // yellow (one truncating line), the relative countdown as a
-                // separate muted caption, then the Switch account pill.
-                ReadingColumn {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .glassRow()
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
-                            .testTag("agent-rate-limit")
-                            .semantics(mergeDescendants = true) {
-                                contentDescription = caption.accessibilityLabel
-                            },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Icon(
-                            ExpIcons.uiUsage,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = DesignTokens.Semantic.Yellow,
-                        )
-                        Text(
-                            caption.message,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = DesignTokens.Semantic.Yellow,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        Text(
-                            caption.detail,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            softWrap = false,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        // EXP-849: the PRIMARY move on a usage wall is another
-                        // account, not waiting for the reset — the button opens the
-                        // account rows (with their own numbers) and the switch
-                        // clears this notice by continuing the run over there.
-                        // Absent unless a switch is actually possible, so the wall
-                        // never offers a dead end.
-                        if (accountSwitch.canSwitchAny(activity.turnState)) {
-                            GlassPill(
-                                SessionAccountSwitch.WALL_SWITCH_LABEL,
-                                onClick = { usageSheetOpen = true },
-                                size = PillSize.Sm,
-                                mode = PillMode.Action,
-                                icon = ExpIcons.uiSwap,
-                                primary = true,
-                                modifier = Modifier.testTag("rate-limit-switch-account"),
-                            )
-                        }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // EXP-724: the agent is compacting its context — an indeterminate
-            // strip, never a feed row, so the 10-170s of silence has a visible
-            // reason. It closes on `compaction ended` (which leaves the quiet
-            // marker in the feed), on the connection's 180s backstop, and with
-            // the session itself.
-            if (activity.compacting != null && phase !is AgentPhase.Ended) {
-                ReadingColumn {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .glassRow()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Icon(
-                            ExpIcons.codingCompact,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Secondary,
-                            ),
-                        )
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
+                        is AgentPhase.Closed -> BannerRow {
+                            if (p.reconnecting) {
+                                // EXP-1259 D8.1: the band's inline spinner.
+                                InlineSpinner()
+                            }
                             Text(
-                                COMPACTING_LABEL,
+                                p.detail
+                                    ?: if (p.reconnecting) "Connection lost. Reconnecting…" else "Disconnected",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth().height(3.dp),
-                                color = Color.White,
-                                trackColor = Color.White.copy(alpha = 0.12f),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                modifier = Modifier.weight(1f),
                             )
                         }
-                    }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // EXP-861: what the device holds for the agent's next turn — one
-            // line per queued message, each with the X that revokes it.
-            // Never while the run is over: an ended run delivers nothing. The
-            // composer stays live beneath it.
-            // EXP-1291: messages ride `sessions.send` now, so the server's
-            // not-yet-consumed rows are the queue (X = `sessions.unqueue`);
-            // the device's own relay queue still shows while it reports one.
-            val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
-            if (serverQueue.isNotEmpty()) {
-                ReadingColumn {
-                    QueueStrip(messages = serverQueue, onRemove = viewModel::unqueueMessage)
-                }
-                Spacer(Modifier.height(8.dp))
-            } else if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
-                ReadingColumn {
-                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // EXP-850 (S1/S2): what the machine is doing BESIDE the turn —
-            // one line per background task it is running, plus one per open
-            // `wait` call the agent is parked on. Absent when there is
-            // neither, and never while the run is over.
-            if (phase == AgentPhase.Live && !sessionEnded &&
-                (stripTasks.isNotEmpty() || openWaits.isNotEmpty())
-            ) {
-                ReadingColumn { BackgroundWorkStrip(tasks = stripTasks, waits = openWaits) }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // EXP-724/EXP-802: both menus are a normal child above the
-            // composer, not a Popup — the composer is already pinned to the
-            // bottom above the IME, so a menu simply grows upward from it, and
-            // a sibling cannot steal the field's focus by construction.
-            when (composerMenu) {
-                ComposerMenu.Slash -> {
-                    SlashCommandMenu(
-                        commands = slashMatches,
-                        selected = slashSelected,
-                        onPick = { command ->
-                            viewModel.setDraft(command.insertion)
-                            // Accepting closes the menu; it reopens as soon as
-                            // the draft changes again (never auto-sends).
-                            slashDismissedFor = command.insertion
-                        },
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                ComposerMenu.Autocomplete -> {
-                    AutocompleteRows(
-                        mentionCandidates = composerMentions,
-                        refCandidates = composerRefs,
-                        emojiCandidates = composerEmoji,
-                        selectedIndex = autocompleteSelected,
-                        onPickMention = { commitComposerToken(composerField.withMention(it)) },
-                        onPickIssueRef = { commitComposerToken(composerField.withIssueRef(it)) },
-                        onPickEmoji = { record ->
-                            commitComposerToken(
-                                composerField.withEmoji(record, trailingSpace = true),
-                            )
-                            composerEmojiPrefs.pushRecent(record.unicode)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                }
-                ComposerMenu.None -> Unit
-            }
-            // EXP-927/EXP-1191: the agent's own plan — ALWAYS the last block,
-            // directly on the composer, under the queued steer messages and
-            // the background lines (a menu opens above it). One collapsed
-            // line until somebody opens it. Same live gate as the blocks
-            // above: a finished run has no plan left to work.
-            if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
-                ReadingColumn {
-                    TaskListWorkCard(entries = activity.taskList)
-                }
-                Spacer(Modifier.height(4.dp))
-            }
-            // Escape has no hardware key on most phones — Back dismisses
-            // the menu, and only the menu (EXP-724). One handler per menu,
-            // and [composerMenu] guarantees at most one is ever enabled.
-            BackHandler(enabled = composerMenu == ComposerMenu.Slash) {
-                slashDismissedFor = draft
-            }
-            BackHandler(enabled = composerMenu == ComposerMenu.Autocomplete) {
-                composerArmed = false
-            }
-        }
-
-        // ── The floating bottom bar / steering input ─────────────────────────
-        // Fully seamless (EXP-312): no captions, no operator state; live
-        // implies ownership, input just sends. EXP-621: the composer is
-        // present for the WHOLE life of the session, not only while the
-        // socket happens to be up — a mid-reconnect blip used to yank the
-        // keyboard and the typed text away. Only a finished session retires
-        // it; until the stream is live, sending is disabled rather than
-        // hidden. EXP-820: a card waiting on this viewer takes its place (see
-        // [composerHidden]). EXP-893: retired or displaced, the BAR stays —
-        // with only the host's trailing circle — and goes without one.
-        if (!composerHidden) {
-            SteerComposer(
-                value = composerField,
-                // A user edit is the ONLY write that may arm the `@`/`#`/`:`
-                // menu (web parity: the autocomplete opens on a document
-                // change, never on a caret move).
-                onValueChange = { next ->
-                    if (next.text != composerField.text) composerArmed = true
-                    composerField = next
-                    viewModel.setDraft(next.text)
-                },
-                // The composer's own rewrites — the `[Image #k]` markers and
-                // their renumbering — write the same state and never arm.
-                onValueRewrite = { next ->
-                    composerField = next
-                    viewModel.setDraft(next.text)
-                },
-                fieldModifier = Modifier.onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    // EXP-892: the autocomplete owns the same four keys while
-                    // IT is the menu that is up.
-                    if (composerMenu == ComposerMenu.Autocomplete && composerCandidateCount > 0) {
-                        return@onPreviewKeyEvent when (event.key) {
-                            Key.DirectionUp -> {
-                                autocompleteSelected =
-                                    (autocompleteSelected - 1 + composerCandidateCount) %
-                                        composerCandidateCount
-                                true
-                            }
-                            Key.DirectionDown -> {
-                                autocompleteSelected =
-                                    (autocompleteSelected + 1) % composerCandidateCount
-                                true
-                            }
-                            Key.Enter, Key.NumPadEnter, Key.Tab -> {
-                                pickAutocompleteAt(
-                                    index = autocompleteSelected
-                                        .coerceIn(0, composerCandidateCount - 1),
-                                    mentionCandidates = composerMentions,
-                                    refCandidates = composerRefs,
-                                    emojiCandidates = composerEmoji,
-                                    onPickMention = {
-                                        commitComposerToken(composerField.withMention(it))
-                                    },
-                                    onPickIssueRef = {
-                                        commitComposerToken(composerField.withIssueRef(it))
-                                    },
-                                    onPickEmoji = { record ->
-                                        commitComposerToken(
-                                            composerField.withEmoji(record, trailingSpace = true),
-                                        )
-                                        composerEmojiPrefs.pushRecent(record.unicode)
-                                    },
+                        AgentPhase.Starting -> if (feed.isNotEmpty()) {
+                            BannerRow {
+                                // EXP-1259 D8.1: the band's inline spinner.
+                                InlineSpinner()
+                                Text(
+                                    "The agent is starting. Waiting for the live stream…",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                                 )
-                                true
                             }
-                            Key.Escape -> {
-                                composerArmed = false
-                                true
+                        }
+                        else -> Unit
+                    }
+                }
+
+
+                // EXP-784: the agent's rate-limit window — ONE banner from the
+                // latest-wins slot (never a run of identical feed rows), with how
+                // long until the reset when the agent named one. Gone the
+                // moment an empty/`ok` status clears the slot; never up for a
+                // bare warning (EXP-818) and, on the 30s clock, dropped a minute
+                // past the reset it named (EXP-831).
+                val rateLimit = activity.rateLimit
+                if (rateLimit != null && phase !is AgentPhase.Ended &&
+                    rateLimitBannerShows(rateLimit, nowMs)
+                ) {
+                    val caption = rateLimitCaption(rateLimit.message, rateLimit.resetsAt, nowMs)
+                    // Web `RateLimitBanner` is the reference: ONE row, 6dp gaps,
+                    // centered — the usage glyph + the message in the semantic
+                    // yellow (one truncating line), the relative countdown as a
+                    // separate muted caption, then the Switch account pill.
+                    ReadingColumn {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .glassRow()
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                                .testTag("agent-rate-limit")
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription = caption.accessibilityLabel
+                                },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                ExpIcons.uiUsage,
+                                contentDescription = null,
+                                modifier = Modifier.size(12.dp),
+                                tint = DesignTokens.Semantic.Yellow,
+                            )
+                            Text(
+                                caption.message,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = DesignTokens.Semantic.Yellow,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            Text(
+                                caption.detail,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            // EXP-849: the PRIMARY move on a usage wall is another
+                            // account, not waiting for the reset — the button opens the
+                            // account rows (with their own numbers) and the switch
+                            // clears this notice by continuing the run over there.
+                            // Absent unless a switch is actually possible, so the wall
+                            // never offers a dead end.
+                            if (accountSwitch.canSwitchAny(activity.turnState)) {
+                                GlassPill(
+                                    SessionAccountSwitch.WALL_SWITCH_LABEL,
+                                    onClick = { usageSheetOpen = true },
+                                    size = PillSize.Sm,
+                                    mode = PillMode.Action,
+                                    icon = ExpIcons.uiSwap,
+                                    primary = true,
+                                    modifier = Modifier.testTag("rate-limit-switch-account"),
+                                )
                             }
-                            else -> false
                         }
                     }
-                    // Keyed on the RESOLVED menu, not on `slashMenuOpen`:
-                    // ↑/↓/Enter must only ever drive the menu that is up.
-                    if (composerMenu != ComposerMenu.Slash) return@onPreviewKeyEvent false
-                    when (event.key) {
-                        // ↑/↓ wrap around the candidate list.
-                        Key.DirectionUp -> {
-                            slashSelected =
-                                (slashSelected - 1 + slashMatches.size) % slashMatches.size
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            slashSelected = (slashSelected + 1) % slashMatches.size
-                            true
-                        }
-                        // Enter ACCEPTS while the menu is open; it never
-                        // sends the half-typed command underneath it.
-                        Key.Enter, Key.NumPadEnter -> {
-                            val picked = slashMatches.getOrNull(slashSelected)
-                            if (picked != null) {
-                                viewModel.setDraft(picked.insertion)
-                                slashDismissedFor = picked.insertion
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                // EXP-724: the agent is compacting its context — an indeterminate
+                // strip, never a feed row, so the 10-170s of silence has a visible
+                // reason. It closes on `compaction ended` (which leaves the quiet
+                // marker in the feed), on the connection's 180s backstop, and with
+                // the session itself.
+                if (activity.compacting != null && phase !is AgentPhase.Ended) {
+                    ReadingColumn {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .glassRow()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Icon(
+                                ExpIcons.codingCompact,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.onSurface.copy(
+                                    alpha = TextEmphasis.Secondary,
+                                ),
+                            )
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    COMPACTING_LABEL,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                LinearProgressIndicator(
+                                    modifier = Modifier.fillMaxWidth().height(3.dp),
+                                    color = Color.White,
+                                    trackColor = Color.White.copy(alpha = 0.12f),
+                                )
                             }
-                            true
                         }
-                        Key.Escape -> {
-                            slashDismissedFor = draft
-                            true
-                        }
-                        else -> false
                     }
-                },
-                pendingImages = pendingImages,
-                sending = steerSending,
-                // EXP-1291: a message is `sessions.send({sessionId})` — the
-                // server holds it until the device takes it (an idle session
-                // resumes, an ended one continues), so the relay socket no
-                // longer gates sending.
-                live = true,
-                // EXP-790: mid-turn, the empty field's send glyph is a
-                // Stop that interrupts the agent.
-                working = agentWorking,
-                onInterrupt = viewModel::interrupt,
-                expanded = composerExpanded,
-                onExpandedChange = { composerExpanded = it },
-                onPickImages = { filePicker.launch(arrayOf("*/*")) },
-                onRemoveImage = viewModel::removePendingImage,
-                // EXP-724: a command that discards the conversation is
-                // confirmed first; everything else sends straight out.
-                onSend = {
-                    val command = viewModel.pendingSlashCommand()
-                    if (command?.confirm == true) slashConfirm = command else viewModel.sendDraft()
-                },
-                // EXP-893: the footer's Plan chip, model picker and ring.
-                planMode = planModeBadge(sessionConfig) != null,
-                model = sessionModel(sessionConfig),
-                modelPickable = catalogAgent == DEFAULT_AGENT,
-                onPickModel = { alias -> viewModel.sendCommand("/model $alias") },
-                contextPercent = contextPercent,
-                hasUsage = hasUsage,
-                onOpenUsage = { usageSheetOpen = true },
-                trailing = trailingBarSlot,
-                merge = mergeBarSlot,
-            )
-        } else if (trailingBarSlot != null || mergeBarSlot != null) {
-            FloatingBottomBar(right = trailingBarSlot, afterCentre = mergeBarSlot) {
-                Spacer(Modifier.weight(1f))
-            }
-        }
-        }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+            },
+            beforeMenus = {
+                // EXP-850 (S1/S2): what the machine is doing BESIDE the turn —
+                // one line per background task it is running, plus one per open
+                // `wait` call the agent is parked on. Absent when there is
+                // neither, and never while the run is over.
+                if (phase == AgentPhase.Live && !sessionEnded &&
+                    (stripTasks.isNotEmpty() || openWaits.isNotEmpty())
+                ) {
+                    ReadingColumn { BackgroundWorkStrip(tasks = stripTasks, waits = openWaits) }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+            },
+            beforeComposer = {
+                // EXP-927/EXP-1191: the agent's own plan — ALWAYS the last block,
+                // directly on the composer, under the queued steer messages and
+                // the background lines (a menu opens above it). One collapsed
+                // line until somebody opens it. Same live gate as the blocks
+                // above: a finished run has no plan left to work.
+                if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
+                    ReadingColumn {
+                        TaskListWorkCard(entries = activity.taskList)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
+            },
+        )
         }
     }
 
@@ -1897,28 +1515,6 @@ private fun RunFaceContent(
         }
     }
 
-    // EXP-724: `/clear` throws the conversation away — the same
-    // confirm shape as the kill dialog, with the copy pinned ×4.
-    val confirmCommand = slashConfirm
-    if (confirmCommand != null) {
-        GlassAlert(
-            title = SlashCommands.confirmTitle(confirmCommand.name),
-            body = SlashCommands.CONFIRM_BODY,
-            onDismiss = { slashConfirm = null },
-            trailing = listOf(
-                GlassAlertAction("Cancel", onClick = { slashConfirm = null }),
-                GlassAlertAction(
-                    SlashCommands.confirmButton(confirmCommand.name),
-                    destructive = true,
-                    onClick = {
-                        slashConfirm = null
-                        viewModel.sendDraft()
-                    },
-                ),
-            ),
-            defaultAction = 0,
-        )
-    }
 }
 
 // ── Status captions (FEED-26; the host's title dot reads `sessionDotTone`) ──
@@ -4669,6 +4265,494 @@ private fun middleTruncate(s: String, max: Int = 72): String {
 // ── Steering input ───────────────────────────────────────────────────────────
 
 /**
+ * THE session composer ×4 (dispatcher roots, thread 2eb4b1a1): one box for the
+ * session view, the THREAD (fed by its ROOT session's view model, so the
+ * message rides `sessions.send({sessionId: root})`) and the agent channel —
+ * the queue strip, the `/` menu (steerCommands ∪ agent commands) and the
+ * `@`/`#`/`:` autocomplete above the card, and the card's footer: `+`, the
+ * ONE `/model` picker, the context ring and Send ⇄ Stop while busy. A
+ * dispatcher (`sessions.dispatch`) never shows the plan chip.
+ *
+ * The host's own blocks slot in around the menus: [banners] (status /
+ * rate-limit lines), [beforeMenus] (the background-work strip) and
+ * [beforeComposer] (the task list). [onOpenUsage] null = the ring is a gauge
+ * only (the host has no Usage sheet).
+ */
+@Composable
+internal fun SessionComposer(
+    viewModel: AgentSessionViewModel,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = STEER_COMPOSER_PLACEHOLDER,
+    capsuleTestTag: String = "steer-composer-capsule",
+    onOpenUsage: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    merge: (@Composable () -> Unit)? = null,
+    banners: @Composable ColumnScope.() -> Unit = {},
+    beforeMenus: @Composable ColumnScope.() -> Unit = {},
+    beforeComposer: @Composable ColumnScope.() -> Unit = {},
+) {
+    val session by viewModel.session.collectAsStateWithLifecycle()
+    val phase by viewModel.phase.collectAsStateWithLifecycle()
+    val activity by viewModel.activity.collectAsStateWithLifecycle()
+    val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
+    val steerSending by viewModel.steerSending.collectAsStateWithLifecycle()
+    val steerImageError by viewModel.steerImageError.collectAsStateWithLifecycle()
+    val draft by viewModel.draft.collectAsStateWithLifecycle()
+    val agentUsage by viewModel.agentUsage.collectAsStateWithLifecycle()
+    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
+    val sessionConfig by viewModel.sessionConfig.collectAsStateWithLifecycle()
+    val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
+    val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
+    // FEED-79: a refused send / unqueue = `Couldn't send the message`.
+    val sendError by viewModel.sendError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(
+        sendError?.let { com.exponential.app.ui.components.FailedAction("send", "the message", it.ifBlank { null }) },
+        onShown = viewModel::clearSendError,
+    )
+    // The `#` typeahead's handler (the composer sits OUTSIDE the feed's
+    // provider: what the user types stays the stored `#IDENTIFIER`).
+    val composerRefHandler = remember(issueRefCandidates) {
+        IssueRefHandler(issueRefCandidates, searchServer = viewModel::searchIssueRefs) { }
+    }
+    val catalogAgent = SlashCommands.agentId(session?.cli, sessionConfig != null)
+    val sessionEnded = session?.isEnded == true
+    // The session view's ONE rule ×4: a card waiting on this viewer takes the
+    // composer's place (EXP-820, `SessionTree.composerYieldsToCard`).
+    val awaitingInput = phase == AgentPhase.Live &&
+        remember(activity.feed) { activeQuestionIds(activity.feed) }.isNotEmpty()
+    val composerHidden = SessionTree.composerYieldsToCard(
+        live = phase == AgentPhase.Live && !sessionEnded,
+        pendingAsk = awaitingInput,
+    )
+    // EXP-790: mid-turn, the empty field's send glyph is a Stop.
+    val agentWorking = agentWorking(
+        live = phase == AgentPhase.Live,
+        sessionEnded = sessionEnded,
+        turnState = activity.turnState,
+        awaitingInput = awaitingInput,
+        needsInput = session?.needsInput == true,
+        blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
+        compacting = activity.compacting != null,
+    )
+    // EXP-746/849: the ring is reachable on this run's OWN context numbers,
+    // the machine's rate-limit windows or its logins — the latter two only
+    // where the host has the Usage sheet behind it.
+    val hasUsage = if (onOpenUsage != null) {
+        agentUsage != null || sessionUsage != null || accountSwitch.options.isNotEmpty()
+    } else {
+        sessionUsage != null
+    }
+    val contextPercent = AgentUsagePresentation.contextPercent(sessionUsage)
+
+    // Steer attach (EXP-511, wave D: ANY file, images included) — the system
+    // document picker feeds the VM's pending list; the upload rides the
+    // SESSION route (EXP-698), so every kind of run accepts one.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            // ContentResolver reads can stream from a cloud-backed provider —
+            // [readComposerPick] stays off the main thread. One pick at a time
+            // through the VM, so its caps (4 images, 4 files) + toasts apply.
+            for (uri in uris) when (val picked = readComposerPick(context, uri)) {
+                is ComposerPick.Read ->
+                    viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+                is ComposerPick.Refused -> viewModel.refusePendingAttachment(picked.message)
+            }
+        }
+    }
+
+    // EXP-724: the `/` command menu. `slashSelected` is the highlighted row
+    // (↑/↓ wrap); `slashDismissedFor` is the draft Escape/Back was pressed on
+    // — the menu stays shut until the text changes, so dismissing is not
+    // undone by the next recomposition. `slashConfirm` holds the command
+    // awaiting its "context is discarded" confirmation.
+    var slashSelected by remember { mutableIntStateOf(0) }
+    var slashDismissedFor by remember { mutableStateOf<String?>(null) }
+    var slashConfirm by remember { mutableStateOf<SlashCommand?>(null) }
+    val slashMatches by viewModel.slashMatches.collectAsStateWithLifecycle()
+    val slashMenuOpen = slashMatches.isNotEmpty() && slashDismissedFor != draft
+    // A changed candidate list can never leave the highlight past its end.
+    LaunchedEffect(slashMatches) { slashSelected = 0 }
+
+    // ── EXP-802/EXP-805: the composer's `@` / `#` / `:` autocomplete ─────────
+    // The steer composer speaks the same three triggers as the issue comment
+    // composer, so the field's TextFieldValue is hoisted HERE: the menu mounts
+    // as a plain sibling above the composer (exactly like the `/` menu), and a
+    // picked row splices against this very value. The draft string still lives
+    // in the connection — it has to survive a reconnect — so this is the
+    // caret's home, not the text's.
+    var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    // The ARMED latch (BlockTextField parity, EXP-322): only a TEXT change may
+    // OPEN the menu. Moving the caret back into an existing `#EXP-238` or
+    // `@ann@example.com` must not pop it — on a phone the caret moves on every
+    // tap, and a menu that reopens on a tap is a menu nothing can dismiss.
+    var composerArmed by remember { mutableStateOf(false) }
+    // The draft is the authority (EXP-621). Reconciled in an EFFECT and only
+    // when the text ACTUALLY differs: the draft round-trips through a
+    // StateFlow, so doing it in composition reset the caret mid-typing and
+    // dropped the IME's in-flight composing word. The selection is CLAMPED
+    // into the new text rather than jumped to its end, and `composition` is
+    // dropped on purpose — it indexes characters that are gone. An outside
+    // rewrite (a send clearing the draft, a `/` pick, a restored draft) is not
+    // typing, so it also DISARMS.
+    LaunchedEffect(draft) {
+        if (composerField.text != draft) {
+            val start = composerField.selection.start.coerceIn(0, draft.length)
+            val end = composerField.selection.end.coerceIn(0, draft.length)
+            composerField = TextFieldValue(draft, TextRange(start, end))
+            composerArmed = false
+        }
+    }
+    val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
+    // `#` needs no plumbing beyond the handler the feed already builds — the
+    // composer sits OUTSIDE that provider (what the user types must stay the
+    // stored `#IDENTIFIER` contract, never a bare identifier), so it reads the
+    // same object directly.
+    val composerTriggers = autocompleteTriggersAt(
+        beforeCaret = composerField.text.take(composerField.selection.start),
+        mentionsEnabled = mentionMembers.isNotEmpty(),
+        refsEnabled = issueRefCandidates.isNotEmpty(),
+    )
+    val composerMentions = mentionCandidatesFor(mentionMembers, composerTriggers.mentionQuery)
+    // EXP-892: ranked by the shared engine, with the server's full-text hits
+    // (comment bodies included) spliced in behind them once typing settles.
+    // SLOP-28 (EXP-1259 D4): `#` opens THE search list in a bottom sheet
+    // (the IssueTypeaheadSheetHost below), never issue rows in this menu.
+    val composerRefs = emptyList<IssueRefTarget>()
+    val composerEmojiMatch = composerTriggers.emoji
+    val composerEmojiData = rememberEmojiData(enabled = composerEmojiMatch != null)
+    val composerEmojiPrefs = rememberEmojiPrefs()
+    val composerEmoji = if (composerEmojiMatch != null && composerEmojiData != null) {
+        composerEmojiData.search(composerEmojiMatch.query, limit = EMOJI_TYPEAHEAD_LIMIT)
+    } else {
+        emptyList()
+    }
+    // The trigger stopped matching (the caret left the token, whitespace was
+    // typed, the trigger was deleted): a fresh text change has to re-arm.
+    LaunchedEffect(composerTriggers.none) {
+        if (composerTriggers.none) composerArmed = false
+    }
+    // EXP-892: the highlighted autocomplete row — the TOP one while typing,
+    // moved by a hardware ↑/↓ and picked by Enter/Tab, like the `/` menu.
+    val composerCandidateCount =
+        autocompleteCandidateCount(composerMentions, composerRefs, composerEmoji)
+    var autocompleteSelected by remember { mutableIntStateOf(0) }
+    LaunchedEffect(composerMentions, composerRefs, composerEmoji) { autocompleteSelected = 0 }
+    // Every pick splices against the LIVE value (EXP-655) and clears the latch.
+    fun commitComposerToken(spliced: TextFieldValue?) {
+        val next = spliced ?: return
+        composerField = next
+        viewModel.setDraft(next.text)
+        composerArmed = false
+    }
+    IssueTypeaheadSheetHost(
+        handler = composerRefHandler.takeIf { issueRefCandidates.isNotEmpty() },
+        field = composerField,
+        armed = composerArmed && composerTriggers.issueRef != null,
+        onDisarm = { composerArmed = false },
+        onCommit = { next -> commitComposerToken(next) },
+    )
+    // `:tada:` — the closing colon plus an EXACT shortcode commits immediately
+    // (no trailing space), so a user who habitually types the closed form never
+    // leaves literal shortcode text in a steered message. Web/iOS/desktop
+    // parity, and armed-gated like the menu: re-reading an old `:tada:` with
+    // the caret must not rewrite it.
+    val composerClosedShortcode = composerEmojiMatch?.takeIf { it.closed }?.query
+    LaunchedEffect(composerClosedShortcode, composerEmojiData, composerArmed) {
+        val code = composerClosedShortcode ?: return@LaunchedEffect
+        if (!composerArmed) return@LaunchedEffect
+        val record = composerEmojiData?.findShortcode(code) ?: return@LaunchedEffect
+        commitComposerToken(composerField.withEmoji(record, trailingSpace = false))
+        composerEmojiPrefs.pushRecent(record.unicode)
+    }
+
+    // The ONE menu above the composer. `/` commands and the three
+    // composer triggers are already mutually exclusive on CONTENT (a
+    // slash command matches only a draft that opens with `/`, the
+    // others only a token at the caret), so resolving them into one
+    // value is DEFENCE, not arbitration: it makes it impossible for
+    // two menus to stack, or for the key guards below to drive a menu
+    // that is not on screen.
+    val composerMenu = when {
+        // EXP-1291: an ended session's composer still sends (the server
+        // continues it), so only a card waiting on the viewer retires it.
+        composerHidden -> ComposerMenu.None
+        slashMenuOpen -> ComposerMenu.Slash
+        composerArmed &&
+            (composerMentions.isNotEmpty() || composerRefs.isNotEmpty() ||
+                composerEmoji.isNotEmpty()) -> ComposerMenu.Autocomplete
+        else -> ComposerMenu.None
+    }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+        ) {
+            banners()
+            // A rejected pick or a failed image upload (EXP-511) — the text and
+            // the thumbnails survive, so the send is retryable.
+            val imageFailure = steerImageError
+            if (imageFailure != null) {
+                BannerRow {
+                    Text(
+                        imageFailure,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+
+            // EXP-861: what the device holds for the agent's next turn — one
+            // line per queued message, each with the X that revokes it.
+            // Never while the run is over: an ended run delivers nothing. The
+            // composer stays live beneath it.
+            // EXP-1291: messages ride `sessions.send` now, so the server's
+            // not-yet-consumed rows are the queue (X = `sessions.unqueue`);
+            // the device's own relay queue still shows while it reports one.
+            val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
+            if (serverQueue.isNotEmpty()) {
+                ReadingColumn {
+                    QueueStrip(messages = serverQueue, onRemove = viewModel::unqueueMessage)
+                }
+                Spacer(Modifier.height(8.dp))
+            } else if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
+                ReadingColumn {
+                    QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            beforeMenus()
+
+            // EXP-724/EXP-802: both menus are a normal child above the
+            // composer, not a Popup — the composer is already pinned to the
+            // bottom above the IME, so a menu simply grows upward from it, and
+            // a sibling cannot steal the field's focus by construction.
+            when (composerMenu) {
+                ComposerMenu.Slash -> {
+                    SlashCommandMenu(
+                        commands = slashMatches,
+                        selected = slashSelected,
+                        onPick = { command ->
+                            viewModel.setDraft(command.insertion)
+                            // Accepting closes the menu; it reopens as soon as
+                            // the draft changes again (never auto-sends).
+                            slashDismissedFor = command.insertion
+                        },
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                ComposerMenu.Autocomplete -> {
+                    AutocompleteRows(
+                        mentionCandidates = composerMentions,
+                        refCandidates = composerRefs,
+                        emojiCandidates = composerEmoji,
+                        selectedIndex = autocompleteSelected,
+                        onPickMention = { commitComposerToken(composerField.withMention(it)) },
+                        onPickIssueRef = { commitComposerToken(composerField.withIssueRef(it)) },
+                        onPickEmoji = { record ->
+                            commitComposerToken(
+                                composerField.withEmoji(record, trailingSpace = true),
+                            )
+                            composerEmojiPrefs.pushRecent(record.unicode)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
+                ComposerMenu.None -> Unit
+            }
+            beforeComposer()
+            // Escape has no hardware key on most phones — Back dismisses
+            // the menu, and only the menu (EXP-724). One handler per menu,
+            // and [composerMenu] guarantees at most one is ever enabled.
+            BackHandler(enabled = composerMenu == ComposerMenu.Slash) {
+                slashDismissedFor = draft
+            }
+            BackHandler(enabled = composerMenu == ComposerMenu.Autocomplete) {
+                composerArmed = false
+            }
+        }
+        // ── The floating bottom bar / steering input ─────────────────────────
+        // Fully seamless (EXP-312): no captions, no operator state; live
+        // implies ownership, input just sends. EXP-621: the composer is
+        // present for the WHOLE life of the session, not only while the
+        // socket happens to be up — a mid-reconnect blip used to yank the
+        // keyboard and the typed text away. Only a finished session retires
+        // it; until the stream is live, sending is disabled rather than
+        // hidden. EXP-820: a card waiting on this viewer takes its place (see
+        // [composerHidden]). EXP-893: retired or displaced, the BAR stays —
+        // with only the host's trailing circle — and goes without one.
+        if (!composerHidden) {
+            SteerComposer(
+                value = composerField,
+                // A user edit is the ONLY write that may arm the `@`/`#`/`:`
+                // menu (web parity: the autocomplete opens on a document
+                // change, never on a caret move).
+                onValueChange = { next ->
+                    if (next.text != composerField.text) composerArmed = true
+                    composerField = next
+                    viewModel.setDraft(next.text)
+                },
+                // The composer's own rewrites — the `[Image #k]` markers and
+                // their renumbering — write the same state and never arm.
+                onValueRewrite = { next ->
+                    composerField = next
+                    viewModel.setDraft(next.text)
+                },
+                fieldModifier = Modifier.onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    // EXP-892: the autocomplete owns the same four keys while
+                    // IT is the menu that is up.
+                    if (composerMenu == ComposerMenu.Autocomplete && composerCandidateCount > 0) {
+                        return@onPreviewKeyEvent when (event.key) {
+                            Key.DirectionUp -> {
+                                autocompleteSelected =
+                                    (autocompleteSelected - 1 + composerCandidateCount) %
+                                        composerCandidateCount
+                                true
+                            }
+                            Key.DirectionDown -> {
+                                autocompleteSelected =
+                                    (autocompleteSelected + 1) % composerCandidateCount
+                                true
+                            }
+                            Key.Enter, Key.NumPadEnter, Key.Tab -> {
+                                pickAutocompleteAt(
+                                    index = autocompleteSelected
+                                        .coerceIn(0, composerCandidateCount - 1),
+                                    mentionCandidates = composerMentions,
+                                    refCandidates = composerRefs,
+                                    emojiCandidates = composerEmoji,
+                                    onPickMention = {
+                                        commitComposerToken(composerField.withMention(it))
+                                    },
+                                    onPickIssueRef = {
+                                        commitComposerToken(composerField.withIssueRef(it))
+                                    },
+                                    onPickEmoji = { record ->
+                                        commitComposerToken(
+                                            composerField.withEmoji(record, trailingSpace = true),
+                                        )
+                                        composerEmojiPrefs.pushRecent(record.unicode)
+                                    },
+                                )
+                                true
+                            }
+                            Key.Escape -> {
+                                composerArmed = false
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    // Keyed on the RESOLVED menu, not on `slashMenuOpen`:
+                    // ↑/↓/Enter must only ever drive the menu that is up.
+                    if (composerMenu != ComposerMenu.Slash) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        // ↑/↓ wrap around the candidate list.
+                        Key.DirectionUp -> {
+                            slashSelected =
+                                (slashSelected - 1 + slashMatches.size) % slashMatches.size
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            slashSelected = (slashSelected + 1) % slashMatches.size
+                            true
+                        }
+                        // Enter ACCEPTS while the menu is open; it never
+                        // sends the half-typed command underneath it.
+                        Key.Enter, Key.NumPadEnter -> {
+                            val picked = slashMatches.getOrNull(slashSelected)
+                            if (picked != null) {
+                                viewModel.setDraft(picked.insertion)
+                                slashDismissedFor = picked.insertion
+                            }
+                            true
+                        }
+                        Key.Escape -> {
+                            slashDismissedFor = draft
+                            true
+                        }
+                        else -> false
+                    }
+                },
+                pendingImages = pendingImages,
+                sending = steerSending,
+                // EXP-1291: a message is `sessions.send({sessionId})` — the
+                // server holds it until the device takes it (an idle session
+                // resumes, an ended one continues), so the relay socket no
+                // longer gates sending.
+                live = true,
+                // EXP-790: mid-turn, the empty field's send glyph is a
+                // Stop that interrupts the agent.
+                working = agentWorking,
+                onInterrupt = viewModel::interrupt,
+                expanded = expanded,
+                onExpandedChange = onExpandedChange,
+                onPickImages = { filePicker.launch(arrayOf("*/*")) },
+                onRemoveImage = viewModel::removePendingImage,
+                // EXP-724: a command that discards the conversation is
+                // confirmed first; everything else sends straight out.
+                onSend = {
+                    val command = viewModel.pendingSlashCommand()
+                    if (command?.confirm == true) slashConfirm = command else viewModel.sendDraft()
+                },
+                // EXP-893: the footer's Plan chip, model picker and ring.
+                // Dispatcher roots: NO plan chip on a dispatcher (plan mode is a
+                // work pick for its children).
+                planMode = planModeBadge(sessionConfig) != null && session?.dispatch != true,
+                model = sessionModel(sessionConfig),
+                modelPickable = catalogAgent == DEFAULT_AGENT,
+                onPickModel = { alias -> viewModel.sendCommand("/model $alias") },
+                contextPercent = contextPercent,
+                hasUsage = hasUsage,
+                onOpenUsage = { onOpenUsage?.invoke() },
+                placeholder = placeholder,
+                capsuleTestTag = capsuleTestTag,
+                trailing = trailing,
+                merge = merge,
+            )
+        } else if (trailing != null || merge != null) {
+            FloatingBottomBar(right = trailing, afterCentre = merge) {
+                Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+
+    // EXP-724: `/clear` throws the conversation away — the same
+    // confirm shape as the kill dialog, with the copy pinned ×4.
+    val confirmCommand = slashConfirm
+    if (confirmCommand != null) {
+        GlassAlert(
+            title = SlashCommands.confirmTitle(confirmCommand.name),
+            body = SlashCommands.CONFIRM_BODY,
+            onDismiss = { slashConfirm = null },
+            trailing = listOf(
+                GlassAlertAction("Cancel", onClick = { slashConfirm = null }),
+                GlassAlertAction(
+                    SlashCommands.confirmButton(confirmCommand.name),
+                    destructive = true,
+                    onClick = {
+                        slashConfirm = null
+                        viewModel.sendDraft()
+                    },
+                ),
+            ),
+            defaultAction = 0,
+        )
+    }
+}
+
+/**
  * Which menu is up over the steer composer (EXP-802/EXP-805). The `/` commands
  * and the `@`/`#`/`:` autocomplete cannot both match the same draft, so this is
  * DEFENCE rather than arbitration: one value means two menus can never stack,
@@ -4745,11 +4829,14 @@ private fun SteerComposer(
     trailing: (@Composable () -> Unit)?,
     /** EXP-1191: the collapsed bar's Merge circle, right of the capsule. */
     merge: (@Composable () -> Unit)? = null,
+    /** The host's copy (the thread's `Reply…`, an agent channel's). */
+    placeholder: String = STEER_COMPOSER_PLACEHOLDER,
+    capsuleTestTag: String = "steer-composer-capsule",
 ) {
     // EXP-893: ONE placeholder ×4 (`STEER_COMPOSER_PLACEHOLDER`); typing is
     // always allowed while the stream is down, the message just waits for it
     // to come back (EXP-621), and the placeholder says so.
-    val placeholder = if (live) STEER_COMPOSER_PLACEHOLDER else "$STEER_COMPOSER_PLACEHOLDER (reconnecting…)"
+    val shownPlaceholder = if (live) placeholder else "$placeholder (reconnecting…)"
     // EXP-1316: the fold / expand / collapse-on-blur machinery is THE
     // [FloatingComposer] the thread wears too; this keeps the steer card.
     // EXP-893: the folded composer IS the Work screen's bar — the usage ring
@@ -4758,10 +4845,10 @@ private fun SteerComposer(
     FloatingComposer(
         expanded = expanded,
         onExpandedChange = onExpandedChange,
-        placeholder = placeholder,
+        placeholder = shownPlaceholder,
         hasDraft = value.text.isNotBlank() || pendingImages.isNotEmpty(),
         working = working,
-        capsuleTestTag = "steer-composer-capsule",
+        capsuleTestTag = capsuleTestTag,
         left = if (hasUsage) {
             { BarCircle(onClick = onOpenUsage) { ContextRing(percent = contextPercent) } }
         } else {
@@ -4775,7 +4862,7 @@ private fun SteerComposer(
             onValueChange = onValueChange,
             onValueRewrite = onValueRewrite,
             fieldModifier = fieldModifier.then(this.fieldModifier),
-            placeholder = placeholder,
+            placeholder = shownPlaceholder,
             pendingImages = pendingImages,
             sending = sending,
             live = live,
@@ -4854,14 +4941,12 @@ private fun ExpandedSteerComposer(
     // takes focus (and the keyboard) at once.
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    // EXP-893: the model menu — the current value first, then the launch
-    // catalog (`modelOptionsFor`), deduplicated; a pick sends `/model <alias>`
-    // as a plain message and the re-emitted `config_state` is the
-    // confirmation, so nothing here waits or locks.
+    // EXP-893: the model menu = THE model list (all four claude models, no
+    // Default: every model is explicit); a pick sends `/model <alias>` as a
+    // plain message and the re-emitted `config_state` is the confirmation,
+    // so nothing here waits or locks.
     var modelMenuOpen by remember { mutableStateOf(false) }
-    val modelChoices = remember(model) {
-        (listOfNotNull(model) + modelOptionsFor(DEFAULT_AGENT)).distinct()
-    }
+    val modelChoices = modelOptionsFor(DEFAULT_AGENT)
     GlassComposer(
         // The composer floats over the scrolling activity feed.
         opaque = true,

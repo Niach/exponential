@@ -116,6 +116,25 @@ class DeviceEntityDecodeTest {
         assertNull(bareDefaults?.computerUseModel)
     }
 
+    /** Dispatcher roots: the per-agent `threadModel` survives the jsonb text
+     *  and the retired-agent filter; absent stays null (= contract default). */
+    @Test
+    fun `launch_defaults keeps each agent's thread model`() {
+        val row = """
+            {
+              "id": "row-1",
+              "user_id": "user-1",
+              "device_id": "dev-1",
+              "launch_defaults": {"agents": {"claude": {"model": "opus", "threadModel": "sonnet", "subagentModel": "haiku"}, "codex": {"model": "gpt-5.6-sol"}}}
+            }
+        """.trimIndent()
+        val entity = json.decodeFromString(DeviceEntity.serializer(), row)
+        val defaults = com.exponential.app.domain.parseLaunchDefaults(entity.launchDefaults)!!
+        assertEquals("sonnet", defaults.agents.getValue("claude").threadModel)
+        assertEquals("haiku", defaults.agents.getValue("claude").subagentModel)
+        assertNull(defaults.agents.getValue("codex").threadModel)
+    }
+
     @Test
     fun `camelCase (tRPC-shaped) keys decode via JsonNames`() {
         val row = """

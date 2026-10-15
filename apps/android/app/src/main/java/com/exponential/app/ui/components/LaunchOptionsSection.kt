@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -106,9 +107,12 @@ internal fun LaunchOptionsSection(
     onModelChange: (String) -> Unit,
     effort: String,
     onEffortChange: (String) -> Unit,
-    /** EXP-981: claude's subagent model — "" is the CLI's own default. */
-    subagentModel: String = CLI_DEFAULT_MODEL,
+    /** EXP-981: claude's subagent model (always explicit). */
+    subagentModel: String = DomainContract.deviceAgentDefaultsSubagentModel,
     onSubagentModelChange: ((String) -> Unit)? = null,
+    /** The dispatcher root's model (threads + team agents); null = no row. */
+    threadModel: String = defaultThreadModelFor(agent),
+    onThreadModelChange: ((String) -> Unit)? = null,
     noDeviceNote: String? = null,
     ultracode: Boolean = false,
     onUltracodeChange: (Boolean) -> Unit = {},
@@ -204,33 +208,29 @@ internal fun LaunchOptionsSection(
             GroupDivider()
         }
 
-        // Every variant speaks the launch "CLI default" sentinel (EXP-615); a
-        // binding offers it for EVERY agent, because a blank pin is what stores
-        // NULL on the row and lets the machine decide.
-        PickerRow(
-            label = "Model",
-            value = modelLabel(model),
-            options = if (binding) {
-                listOf(CLI_DEFAULT_MODEL) + modelValuesFor(agent)
-            } else {
-                modelOptionsFor(agent)
-            },
-            selected = model,
-            optionLabel = ::modelLabel,
-            onSelect = onModelChange,
-        )
-        // P25: Model · Subagent model · Effort ×4.
+        // Every model row = THE model picker (all of the agent's models, no
+        // default entry: every model is explicit).
+        ModelPickerRow(label = "Model", agent = agent, value = model, onSelect = onModelChange)
+        // The dispatcher root's model, right under Model, per agent.
+        if (onThreadModelChange != null) {
+            GroupDivider()
+            ModelPickerRow(
+                label = THREAD_MODEL_LABEL,
+                agent = agent,
+                value = threadModel,
+                onSelect = onThreadModelChange,
+            )
+        }
+        // P25: Model · Thread model · Subagent model · Effort ×4.
         // EXP-981: the model a claude run's SUBAGENTS spend, stored per agent
         // in the machine's launch defaults. Offered only where the caller
         // edits it (the device sheet today); every other agent has none.
         if (onSubagentModelChange != null && supportsSubagentModel(agent)) {
             GroupDivider()
-            PickerRow(
+            ModelPickerRow(
                 label = SUBAGENT_MODEL_LABEL,
-                value = subagentModelLabel(subagentModel),
-                options = subagentModelOptions(),
-                selected = subagentModel,
-                optionLabel = ::subagentModelLabel,
+                agent = DEFAULT_AGENT,
+                value = subagentModel,
                 onSelect = onSubagentModelChange,
             )
         }
@@ -311,7 +311,7 @@ internal fun availableAgentsFor(device: SteerDevice?): List<String> =
 /** Every launch option for one agent, ready to drop into the sheet's state. */
 internal data class AgentSeed(
     val model: String,
-    /** EXP-981: claude only — "" is the CLI's own default for subagents. */
+    /** EXP-981: claude only (always explicit). */
     val subagentModel: String,
     val effort: String,
     val ultracode: Boolean,
@@ -337,25 +337,29 @@ internal fun defaultAgentFor(device: SteerDevice?): String {
  * back per field to the static contract defaults — an older desktop advertises
  * nothing, and the sheet must still open on something startable. Advertised
  * values are validated against this agent's vocabularies (an empty string is
- * the explicit "CLI default", which claude has no entry for) and the toggles
+ * a blank is no model: every model is explicit) and the toggles
  * are capability-clamped, so a machine can never seed a combination the server
  * would reject.
  */
 internal fun agentSeed(device: SteerDevice?, agent: String): AgentSeed {
     val defaults = device?.launchDefaults?.agents?.get(agent)
-        ?: return AgentSeed(defaultModelFor(agent), CLI_DEFAULT_MODEL, CLI_DEFAULT_EFFORT, false, false)
-    val models = modelValuesFor(agent)
+        ?: return AgentSeed(
+            defaultModelFor(agent),
+            DomainContract.deviceAgentDefaultsSubagentModel,
+            CLI_DEFAULT_EFFORT,
+            false,
+            false,
+        )
     return AgentSeed(
-        model = defaults.model
-            ?.takeIf {
-                if (agent == DEFAULT_AGENT) it in models
-                else it == CLI_DEFAULT_MODEL || it in models
-            }
-            ?: defaultModelFor(agent),
+        // Every model is explicit: a blank or unknown stored value reads as
+        // the contract default.
+        model = seedModel(defaults.model, agent, defaultModelFor(agent)),
         // EXP-981: claude only; every other agent ignores a stored value.
-        subagentModel = defaults.subagentModel
-            ?.takeIf { supportsSubagentModel(agent) && (it == CLI_DEFAULT_MODEL || it in models) }
-            ?: CLI_DEFAULT_MODEL,
+        subagentModel = seedModel(
+            defaults.subagentModel?.takeIf { supportsSubagentModel(agent) },
+            DEFAULT_AGENT,
+            DomainContract.deviceAgentDefaultsSubagentModel,
+        ),
         effort = defaults.effort
             ?.takeIf { it == CLI_DEFAULT_EFFORT || it in effortValuesFor(agent) }
             ?: CLI_DEFAULT_EFFORT,

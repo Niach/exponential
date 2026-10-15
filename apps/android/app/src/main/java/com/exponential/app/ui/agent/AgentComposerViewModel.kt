@@ -145,7 +145,7 @@ data class LaunchDraft(
     val pickedDeviceId: String? = null,
     val agent: String = DEFAULT_AGENT,
     val model: String = "",
-    /** EXP-981: claude only — the model its subagents run on ("" = default). */
+    /** EXP-981: claude only — the model its subagents run on. */
     val subagentModel: String = "",
     val effort: String = "",
     val ultracode: Boolean = false,
@@ -717,7 +717,7 @@ class AgentComposerViewModel @Inject constructor(
         _launch.value = _launch.value.copy(effort = value)
     }
 
-    /** EXP-981: claude's subagent model; "" = the CLI's own default. */
+    /** EXP-981: claude's subagent model (always explicit). */
     fun setSubagentModel(value: String) {
         _launch.value = _launch.value.copy(subagentModel = value)
     }
