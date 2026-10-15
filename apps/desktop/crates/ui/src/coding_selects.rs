@@ -40,32 +40,20 @@ impl SearchableListItem for ChoiceItem {
 /// these lists are tiny and never searched).
 pub type ChoiceSelect = Entity<SelectState<Vec<ChoiceItem>>>;
 
-/// Claude `--model` aliases — default Fable (rework decision 6; Claude is
-/// explicit-always, so no blank row here). These are the CLI's family
-/// aliases, which it resolves to the newest model of that family (Claude
-/// Code ≥ 2.1.257: `fable` → `claude-fable-5-1`); the labels carry no
-/// version number on purpose — see `coding::settings::DEFAULT_CLAUDE_MODEL`.
-pub const MODEL_CHOICES: [(&str, &str); 3] =
-    [("Fable", "fable"), ("Opus", "opus"), ("Sonnet", "sonnet")];
-
-/// EXP-981: the claude SUBAGENT model picks — the same aliases as
-/// [`MODEL_CHOICES`], with the blank "Default" in front (a subagent pin
-/// is optional, unlike claude's explicit-always `--model`; "Default" ×4, the
-/// web `CLI_DEFAULT_MODEL`). The labels are the Model picker's own, so the
-/// two rows read alike.
-pub const SUBAGENT_MODEL_CHOICES: [(&str, &str); 4] = [
-    (crate::launch_options::SUBAGENT_DEFAULT_LABEL, ""),
+/// THE claude model list — contract `codingModel` (fable, opus, sonnet,
+/// haiku), the ONE set every claude model pick offers: the run's Model, the
+/// Thread model a dispatcher root runs on, the Subagent model and the
+/// Computer use model. Models are explicit ALWAYS: no blank "Default" /
+/// "CLI default" row in any of them. These are the CLI's family aliases,
+/// which it resolves to the newest model of that family (Claude Code ≥
+/// 2.1.257: `fable` → `claude-fable-5-1`); the labels carry no version
+/// number on purpose — see `coding::settings::DEFAULT_CLAUDE_MODEL`.
+pub const MODEL_CHOICES: [(&str, &str); 4] = [
     ("Fable", "fable"),
     ("Opus", "opus"),
     ("Sonnet", "sonnet"),
+    ("Haiku", "haiku"),
 ];
-
-/// EXP-1236: the model a run's screen-driving subagents run on
-/// (`Settings::computer_use_model`), in contract order with the default
-/// (Haiku) first — `coding::settings::COMPUTER_USE_MODELS`, labelled like
-/// the Model picker's aliases. No blank row: the setting always holds a value.
-pub const COMPUTER_USE_MODEL_CHOICES: [(&str, &str); 4] =
-    [("Haiku", "haiku"), ("Sonnet", "sonnet"), ("Opus", "opus"), ("Fable", "fable")];
 
 /// Claude `--effort` levels; blank = leave the flag off (the CLI's own
 /// default).
@@ -78,9 +66,9 @@ pub const EFFORT_CHOICES: [(&str, &str); 6] = [
     ("Max", "max"),
 ];
 
-/// Codex `-m` slugs (the GPT-5.6 tiers); blank = codex's own default model.
-pub const CODEX_MODEL_CHOICES: [(&str, &str); 4] = [
-    ("CLI default", ""),
+/// Codex `-m` slugs (the GPT-5.6 tiers, contract `codexModel`) — explicit
+/// like claude's: no blank "CLI default" row.
+pub const CODEX_MODEL_CHOICES: [(&str, &str); 3] = [
     ("GPT-5.6 Sol", "gpt-5.6-sol"),
     ("GPT-5.6 Terra", "gpt-5.6-terra"),
     ("GPT-5.6 Luna", "gpt-5.6-luna"),
@@ -103,6 +91,19 @@ pub fn model_choices_for(agent: coding::CodingAgent) -> &'static [(&'static str,
         coding::CodingAgent::Claude => &MODEL_CHOICES,
         coding::CodingAgent::Codex => &CODEX_MODEL_CHOICES,
     }
+}
+
+/// THE model select — every model pick of a settings surface (Model,
+/// Thread model, Subagent model, Computer use model) is this one component
+/// over `agent`'s whole list ([`model_choices_for`]), never a variant with a
+/// default row.
+pub fn model_select(
+    agent: coding::CodingAgent,
+    initial: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> ChoiceSelect {
+    choice_select(model_choices_for(agent), initial, window, cx)
 }
 
 /// The effort/reasoning/thinking choice list for `agent`.
@@ -577,22 +578,23 @@ pub fn selected(state: &ChoiceSelect, cx: &App) -> String {
 
 #[cfg(test)]
 mod tests {
-    /// EXP-1236: the Computer use model picker offers exactly the aliases the
-    /// launcher accepts, in the contract's order, the default leading.
+    /// Every model pick offers the contract's models, explicit: no blank
+    /// row, and the computer-use / thread defaults are in the list.
     #[test]
-    fn computer_use_model_choices_mirror_the_settings_vocabulary() {
-        let values: Vec<&str> = super::COMPUTER_USE_MODEL_CHOICES
-            .iter()
-            .map(|(_, value)| *value)
-            .collect();
-        assert_eq!(values, coding::settings::COMPUTER_USE_MODELS.to_vec());
-        assert_eq!(values, domain::contract::COMPUTER_USE_MODEL_VALUES.to_vec());
-        assert_eq!(
-            super::COMPUTER_USE_MODEL_CHOICES[0].1,
-            coding::settings::DEFAULT_COMPUTER_USE_MODEL
-        );
-        for (label, value) in super::COMPUTER_USE_MODEL_CHOICES {
+    fn model_choices_are_the_contract_models_without_a_default_row() {
+        let values: Vec<&str> = super::MODEL_CHOICES.iter().map(|(_, value)| *value).collect();
+        assert_eq!(values, domain::contract::CODING_MODEL_VALUES.to_vec());
+        assert!(values.contains(&domain::contract::DEVICE_COMPUTER_USE_DEFAULTS_MODEL));
+        assert!(values.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_THREAD_MODEL));
+        assert!(values.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_SUBAGENT_MODEL));
+        for (label, value) in super::MODEL_CHOICES {
             assert_eq!(label.to_lowercase(), value, "title-cased alias");
+        }
+        let codex: Vec<&str> = super::CODEX_MODEL_CHOICES.iter().map(|(_, value)| *value).collect();
+        assert!(codex.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL));
+        assert!(codex.contains(&domain::contract::DEVICE_AGENT_DEFAULTS_CODEX_MODEL));
+        for choices in [&super::MODEL_CHOICES[..], &super::CODEX_MODEL_CHOICES[..]] {
+            assert!(choices.iter().all(|(_, value)| !value.is_empty()));
         }
     }
 
@@ -626,21 +628,6 @@ mod tests {
         );
     }
 
-    /// EXP-981: the subagent picks are the MODEL picks with the blank
-    /// "CLI default" in front — same aliases, same labels, so the two rows
-    /// can never name the same model differently.
-    #[test]
-    fn subagent_model_choices_mirror_the_model_choices() {
-        use super::{MODEL_CHOICES, SUBAGENT_MODEL_CHOICES};
-        assert_eq!(SUBAGENT_MODEL_CHOICES[0].1, "");
-        assert_eq!(
-            SUBAGENT_MODEL_CHOICES[0].0,
-            crate::launch_options::SUBAGENT_DEFAULT_LABEL
-        );
-        assert_eq!(SUBAGENT_MODEL_CHOICES[0].0, "Default", "×4: the unset subagent reads Default");
-        assert_eq!(&SUBAGENT_MODEL_CHOICES[1..], &MODEL_CHOICES[..]);
-    }
-
     use super::*;
 
     // The `coding` crate deliberately does not depend on `domain` — this
@@ -671,25 +658,16 @@ mod tests {
         let ids: Vec<&str> = coding::CodingAgent::ALL.iter().map(|a| a.id()).collect();
         assert_eq!(ids, domain::contract::CODING_AGENT_VALUES);
 
-        // Every codex list leads with the local-only blank "CLI default"
-        // row; the contract carries only the real values.
-        for (choices, contract_values, agent_values) in [
-            (
-                &CODEX_MODEL_CHOICES[..],
-                domain::contract::CODEX_MODEL_VALUES,
-                &coding::agent::CODEX_MODELS[..],
-            ),
-            (
-                &CODEX_EFFORT_CHOICES[..],
-                domain::contract::CODEX_EFFORT_VALUES,
-                &coding::agent::CODEX_EFFORTS[..],
-            ),
-        ] {
-            assert_eq!(choices[0].1, "");
-            let values: Vec<&str> = choices[1..].iter().map(|(_, value)| *value).collect();
-            assert_eq!(values, contract_values);
-            assert_eq!(values, agent_values);
-        }
+        // The codex models are explicit; the effort list leads with the
+        // local-only blank "CLI default" row. The contract carries only the
+        // real values.
+        let models: Vec<&str> = CODEX_MODEL_CHOICES.iter().map(|(_, value)| *value).collect();
+        assert_eq!(models, domain::contract::CODEX_MODEL_VALUES);
+        assert_eq!(models, coding::agent::CODEX_MODELS);
+        assert_eq!(CODEX_EFFORT_CHOICES[0].1, "");
+        let efforts: Vec<&str> = CODEX_EFFORT_CHOICES[1..].iter().map(|(_, value)| *value).collect();
+        assert_eq!(efforts, domain::contract::CODEX_EFFORT_VALUES);
+        assert_eq!(efforts, coding::agent::CODEX_EFFORTS);
 
         // The per-agent accessors route to the right lists.
         assert_eq!(

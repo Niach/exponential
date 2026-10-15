@@ -20,18 +20,21 @@
 //! Stop ([`SubmitKind`]): same ring, the glyph swaps.
 //!
 //! EXP-877: the steer composer's model and context controls sit in a footer
-//! UNDER the card (`steer_viewer::render_composer_footer`); its attach "+"
-//! is back in the card's tool row (EXP-1294).
+//! UNDER the card ([`session_composer_footer`]); its attach "+" is back in
+//! the card's tool row (EXP-1294).
 //!
 //! Every slot is optional except the field; the caller owns all state and
 //! handlers, this only lays the card out.
 //!
 //! EXP-1294: [`session_composer_box`] is THE session composer box — Home's
 //! launcher card (a 2–8 line field, the "+" bottom-left, the round send
-//! bottom-right) on the work column, so the session view, the thread reply
-//! and the agent channel paint the composer box from Home. [`SessionReply`]
-//! gives the thread reply and the agent channel the session view's attach,
-//! paste and upload-then-send.
+//! bottom-right) on the work column. Dispatcher roots (2026-10-15): the
+//! thread screen and the agent channel no longer build a reply of their
+//! own — they host the ROOT session's composer (`session_screen::
+//! root_composer_view`), so all three paint ONE composer: the box, the `/`
+//! menu ([`session_slash_menu`]), the footer ([`session_composer_footer`]:
+//! [`session_model_pin`] + [`session_context_ring`]), Send⇄Stop and the
+//! queue strip.
 
 use gpui::{
     div, px, AnyElement, App, AppContext as _, ClickEvent, Div, ElementId, Entity,
@@ -424,217 +427,262 @@ pub(crate) fn session_composer_box(props: SessionComposerBox, cx: &App) -> AnyEl
         .into_any_element()
 }
 
-/// EXP-1294 — the parts of a reply host (the thread reply, the agent
-/// channel) the shared attach / paste / send helpers drive.
-pub(crate) struct ReplyParts<'a> {
-    pub(crate) input: &'a Entity<gpui_component::input::TextareaState>,
-    pub(crate) images: &'a mut crate::composer_images::PendingImages,
-    /// The strip's notice (too many / too big), shown under the card.
-    pub(crate) notice: &'a mut Option<SharedString>,
-    pub(crate) sending: &'a mut bool,
-}
+// ---------------------------------------------------------------------------
+// THE session composer's footer, model pin, context ring and `/` menu — ONE
+// implementation for every surface that types at a session: the session
+// view (`steer_viewer::render_composer`), the thread screen and the agent
+// channel (both host the ROOT session's composer, `steer_viewer::
+// render_session_composer`), and the styleguide's thread parts.
+// ---------------------------------------------------------------------------
 
-/// EXP-1294 — a view hosting THE session composer box that sends to one
-/// session: images stage like the session view's and upload to the
-/// session route before `sessions.send({sessionId, text, attachmentIds})`.
-pub(crate) trait SessionReply: Sized + 'static {
-    fn reply(&mut self) -> ReplyParts<'_>;
-}
+/// EXP-847: the footer's read-only plan read (`config_state.currentMode`).
+pub(crate) const PLAN_MODE_FOOTER: &str = "Plan mode";
 
-/// The "+" of a reply box: Add file or image (the session view's attach).
-pub(crate) fn reply_attach_tool<V: SessionReply>(
-    id: impl Into<ElementId>,
-    sending: bool,
-    cx: &mut gpui::Context<V>,
+/// EXP-877 — the row UNDER the composer card. Left: the plan-mode read
+/// (`plan`, never on a dispatcher root). Right: which model the run is on
+/// ([`session_model_pin`]) and how full its context window is
+/// ([`session_context_ring`]). Everything here is ABOUT the run rather than
+/// part of the message (EXP-1294: the attach "+" sits inside the card).
+pub(crate) fn session_composer_footer(
+    plan: bool,
+    model_pin: Option<AnyElement>,
+    context_ring: Option<AnyElement>,
+    cx: &App,
 ) -> AnyElement {
-    composer_tool(id, crate::icons::registry::UI_ADD, cx)
-        .tooltip("Add file or image")
-        .disabled(sending)
-        .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-            crate::composer_images::pick_attachment_files(window, cx, stage_reply_files::<V>);
-        }))
+    use gpui::prelude::FluentBuilder as _;
+    let muted = cx.theme().muted_foreground;
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .items_center()
+        .gap_1()
+        .pt_1()
+        .px_1()
+        .when(plan, |row| {
+            row.child(
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(t::BLUE.to_hsla())
+                    .child(SharedString::from(PLAN_MODE_FOOTER)),
+            )
+        })
+        .child(div().flex_1().min_w_0())
+        .children(model_pin)
+        .children(context_ring)
+        .text_color(muted)
         .into_any_element()
 }
 
-/// The pending strip of a reply box (`None` while nothing is staged).
-pub(crate) fn reply_strip<V: SessionReply + gpui::Render>(
-    view: &mut V,
-    prefix: &'static str,
+/// EXP-877 — THE model pin: the model the run is on (`value`, off
+/// `config_state.options[model]`). `picker` (claude) makes it a menu over THE
+/// model list ([`crate::coding_selects::MODEL_CHOICES`], all four, no
+/// default row); picking calls `on_pick` with the alias (the session view
+/// sends `/model <alias>`). Codex has no such prompt, so its model is a
+/// plain label. `None` for a blank value: a footer reports what the run IS
+/// on, and a blank names no model.
+pub(crate) fn session_model_pin<V: gpui::Render>(
+    id: impl Into<ElementId>,
+    value: &str,
+    picker: bool,
+    enabled: bool,
+    on_pick: impl Fn(&mut V, &str, &mut Window, &mut gpui::Context<V>) + 'static,
     cx: &mut gpui::Context<V>,
 ) -> Option<AnyElement> {
-    let parts = view.reply();
-    let sending = *parts.sending;
-    (!parts.images.is_empty())
-        .then(|| parts.images.render_strip(prefix, sending, remove_reply_file::<V>, cx))
+    if value.trim().is_empty() {
+        return None;
+    }
+    let label = SharedString::from(crate::steer_viewer::model_label(value));
+    if !picker {
+        return Some(
+            div()
+                .flex_shrink_0()
+                .px_1()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(label)
+                .into_any_element(),
+        );
+    }
+    let trigger = Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .xsmall()
+        .label(label)
+        .disabled(!enabled);
+    Some(
+        crate::launch_options::choice_pin(
+            trigger,
+            &crate::coding_selects::MODEL_CHOICES,
+            value.to_string(),
+            on_pick,
+            cx,
+        )
+        .into_any_element(),
+    )
 }
 
-/// The strip's notice as the box's footer line.
-pub(crate) fn reply_notice<V: SessionReply>(view: &mut V, cx: &App) -> Option<AnyElement> {
-    let notice = view.reply().notice.clone()?;
+/// What [`session_context_ring`] reads: the run's usage + seeded layout, and
+/// where the run lives (the sheet's account windows and its switch).
+pub(crate) struct ContextRingProps {
+    pub(crate) id: SharedString,
+    pub(crate) session_id: String,
+    pub(crate) device_id: Option<String>,
+    pub(crate) agent: Option<coding::CodingAgent>,
+    pub(crate) local: bool,
+    pub(crate) working: bool,
+    pub(crate) usage: Option<steer::SessionUsage>,
+    pub(crate) layout: Vec<steer::ContextSegment>,
+    pub(crate) legend_open: bool,
+    /// Flips the host's legend fold (EXP-1051: the sheet is a pure render).
+    pub(crate) on_toggle_legend: std::rc::Rc<dyn Fn(&mut Window, &mut App)>,
+}
+
+/// EXP-877 — THE context ring and the usage sheet it opens. `None` when the
+/// run published no window.
+pub(crate) fn session_context_ring(props: ContextRingProps, cx: &App) -> Option<AnyElement> {
+    let ContextRingProps {
+        id,
+        session_id,
+        device_id,
+        agent,
+        local,
+        working,
+        usage,
+        layout,
+        legend_open,
+        on_toggle_legend,
+    } = props;
+    let percent = crate::usage_bar::context_percent(usage.as_ref())?;
+    let ring = crate::usage_sheet::context_ring(id.clone(), percent, usage.as_ref(), cx);
+    let open_session_id = session_id.clone();
+    let open_device_id = device_id.clone();
     Some(
-        div()
-            .pt_1()
-            .px_1()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(notice)
+        gpui_component::popover::Popover::new(SharedString::from(format!("{id}-usage")))
+            .p_2()
+            .trigger(ring)
+            // EXP-909: opening the sheet asks for ONE fresh read of the run's
+            // own login (a glance, not a Refresh; no polling while open).
+            .on_open_change(move |open, _window, cx| {
+                if !*open {
+                    return;
+                }
+                let Some(agent) = agent else {
+                    return;
+                };
+                crate::steer_viewer::refresh_run_usage(
+                    &open_session_id,
+                    open_device_id.as_deref(),
+                    agent,
+                    local,
+                    cx,
+                );
+            })
+            .content(move |_, _window, cx| {
+                // The run's OWN login's rate-limit windows: the local agent
+                // status for a run hosted here, the synced `devices` row for
+                // one hosted anywhere else (EXP-875 §1).
+                let windows = agent.and_then(|agent| {
+                    if local {
+                        let account = crate::steer_viewer::run_account(&session_id, cx);
+                        let (accounts, usage) = crate::device_settings::own_agent_status(cx);
+                        crate::usage_sheet::account_windows(&accounts, &usage, agent, account.as_deref())
+                    } else {
+                        crate::usage_sheet::device_usage(device_id.as_deref(), agent, cx)
+                    }
+                });
+                let switch = agent.map(|agent| crate::account_switch::SwitchContext {
+                    session_id: session_id.clone(),
+                    device_id: device_id.clone(),
+                    local,
+                    agent,
+                    working,
+                });
+                crate::usage_sheet::render_usage_sheet(
+                    agent,
+                    usage.as_ref(),
+                    &layout,
+                    legend_open,
+                    on_toggle_legend.clone(),
+                    windows.as_ref(),
+                    switch,
+                    cx,
+                )
+            })
             .into_any_element(),
     )
 }
 
-/// Whether a reply box has something to send.
-pub(crate) fn reply_has_content<V: SessionReply>(view: &mut V, cx: &App) -> bool {
-    let parts = view.reply();
-    !parts.input.read(cx).value().trim().is_empty() || !parts.images.is_empty()
-}
-
-/// The paste capture of a reply box's card: clipboard images stage, text
-/// falls through to the field.
-pub(crate) fn on_reply_paste<V: SessionReply>(
-    view: &mut V,
-    _: &gpui_component::input::Paste,
-    window: &mut Window,
+/// EXP-724 — THE `/` command menu INSIDE the composer card, above the field:
+/// mono name, muted argument hint, muted description. Hovering MOVES the
+/// selection (`on_hover(view, index)`), a press accepts it
+/// (`on_pick(view, index)`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn session_slash_menu<V: 'static>(
+    id: &'static str,
+    row_id: &'static str,
+    items: &[crate::slash_commands::MenuCommand],
+    selected: usize,
+    scroll: &gpui::ScrollHandle,
+    on_hover: fn(&mut V, usize, &mut gpui::Context<V>),
+    on_pick: fn(&mut V, usize, &mut Window, &mut gpui::Context<V>),
+    window: &Window,
     cx: &mut gpui::Context<V>,
-) {
-    let files = crate::composer_images::clipboard_images(cx);
-    if files.is_empty() {
-        return;
+) -> AnyElement {
+    use gpui::prelude::FluentBuilder as _;
+    use gpui::InteractiveElement as _;
+    use gpui::StatefulInteractiveElement as _;
+    let muted = cx.theme().muted_foreground;
+    let mut rows: Vec<AnyElement> = Vec::with_capacity(items.len());
+    for (index, command) in items.iter().enumerate() {
+        rows.push(
+            crate::controls::typeahead_row((row_id, index), index == selected, cx)
+                // EXP-892: hovering MOVES the selection onto the row under
+                // the pointer, it never paints a second highlight.
+                .on_hover(cx.listener(move |view, hovered: &bool, _window, cx| {
+                    if *hovered {
+                        on_hover(view, index, cx);
+                    }
+                }))
+                .on_mouse_down(
+                    gpui::MouseButton::Left,
+                    cx.listener(move |view, _, window, cx| on_pick(view, index, window, cx)),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_xs()
+                        .font_family(theme::terminal::FONT_FAMILY)
+                        .child(SharedString::from(format!("/{}", command.name))),
+                )
+                .when(!command.arg_hint.is_empty(), |row| {
+                    row.child(
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .font_family(theme::terminal::FONT_FAMILY)
+                            .child(SharedString::from(command.arg_hint.to_string())),
+                    )
+                })
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(SharedString::from(command.description.to_string())),
+                )
+                .into_any_element(),
+        );
     }
-    cx.stop_propagation();
-    stage_reply_files(view, files, window, cx);
-}
-
-fn stage_reply_files<V: SessionReply>(
-    view: &mut V,
-    files: Vec<crate::composer_images::StagedFile>,
-    window: &mut Window,
-    cx: &mut gpui::Context<V>,
-) {
-    let parts = view.reply();
-    *parts.notice = parts.images.stage(files, parts.input, window, cx);
-    cx.notify();
-}
-
-fn remove_reply_file<V: SessionReply>(
-    view: &mut V,
-    key: u64,
-    window: &mut Window,
-    cx: &mut gpui::Context<V>,
-) {
-    let parts = view.reply();
-    parts.images.remove(key, parts.input, window, cx);
-    *parts.notice = None;
-    cx.notify();
-}
-
-/// Put the draft back when a send failed, unless something new was typed.
-fn restore_draft(
-    input: &Entity<gpui_component::input::TextareaState>,
-    text: &str,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    if input.read(cx).value().trim().is_empty() {
-        let text = text.to_string();
-        input.update(cx, |state, cx| state.set_value(text, window, cx));
-    }
-}
-
-/// EXP-1294 — send a reply box to `session_id`: the draft clears at once,
-/// the staged images upload SEQUENTIALLY and idempotently to the session
-/// route (a retry uploads only the rest), then `sessions.send`. A failure
-/// restores the draft and toasts "Couldn't …"; the images stay staged.
-pub(crate) fn send_session_reply<V: SessionReply>(
-    view: &mut V,
-    session_id: &str,
-    window: &mut Window,
-    cx: &mut gpui::Context<V>,
-) {
-    let parts = view.reply();
-    let text = parts.input.read(cx).value().to_string();
-    if *parts.sending || (text.trim().is_empty() && parts.images.is_empty()) {
-        return;
-    }
-    let Some(trpc) = crate::queries::trpc_client(cx) else {
-        crate::action_error::failed_action("send", "the message", None, cx);
-        return;
-    };
-    let jobs = parts.images.jobs();
-    let transport = if jobs.is_empty() {
-        None
-    } else {
-        let Some(transport) = crate::queries::attachment_transport(cx) else {
-            crate::action_error::failed_action("upload", "the attachment", None, cx);
-            return;
-        };
-        Some(transport)
-    };
-    *parts.sending = true;
-    *parts.notice = None;
-    let input = parts.input.clone();
-    input.update(cx, |state, cx| state.set_value("", window, cx));
-    cx.notify();
-    let session_id = session_id.to_string();
-    cx.spawn_in(window, async move |this, cx| {
-        let uploaded = match transport {
-            None => Ok(Vec::new()),
-            Some(transport) => {
-                let session_id = session_id.clone();
-                cx.background_executor()
-                    .spawn(async move {
-                        crate::composer_images::upload_all(jobs, |filename, content_type, bytes| {
-                            transport.upload_session(&session_id, filename, content_type, bytes)
-                        })
-                    })
-                    .await
-            }
-        };
-        let resolved = match uploaded {
-            Ok(resolved) => resolved,
-            Err((resolved, error)) => {
-                log::warn!("[ui] reply upload failed: {error}");
-                let _ = this.update_in(cx, |this, window, cx| {
-                    let parts = this.reply();
-                    *parts.sending = false;
-                    parts.images.note_uploaded(&resolved);
-                    let input = parts.input.clone();
-                    restore_draft(&input, &text, window, cx);
-                    crate::action_error::failed_action("upload", "the attachment", None, cx);
-                    cx.notify();
-                });
-                return;
-            }
-        };
-        let Ok((message, ids)) = this.update(cx, |this, _| {
-            let parts = this.reply();
-            parts.images.note_uploaded(&resolved);
-            let message = if resolved.is_empty() {
-                text.trim().to_string()
-            } else {
-                parts.images.message(&text)
-            };
-            (message, resolved.iter().map(|(_, id, _)| id.clone()).collect::<Vec<_>>())
-        }) else {
-            return;
-        };
-        let input = api::sessions::SendInput::message(&session_id, &message, ids);
-        let result = cx
-            .background_executor()
-            .spawn(async move { api::sessions::send(&trpc, &input) })
-            .await;
-        let _ = this.update_in(cx, |this, window, cx| {
-            let parts = this.reply();
-            *parts.sending = false;
-            match result {
-                Ok(_) => parts.images.clear(),
-                Err(err) => {
-                    let input = parts.input.clone();
-                    restore_draft(&input, &text, window, cx);
-                    crate::action_error::failed_action_err("send", "the message", &err, cx);
-                }
-            }
-            cx.notify();
-        });
-    })
-    .detach();
+    // EXP-970: the ONE typeahead surface, in the composer card's flow.
+    crate::controls::typeahead_menu(
+        id,
+        crate::controls::TypeaheadArm::Inline,
+        rows,
+        scroll,
+        window,
+        cx,
+    )
 }

@@ -123,6 +123,28 @@ fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
     }
 }
 
+/// THE session composer of a ROOT (the thread screen, the agent channel):
+/// the session view over the root's own live source, never painted itself —
+/// its host renders [`SteerSessionView::render_session_composer`], so the
+/// composer, its footer (model pin, context ring), the `/` menu, Send⇄Stop
+/// and the queue strip are the session view's, byte for byte.
+pub(crate) fn root_composer_view(
+    root_id: &str,
+    placeholder: impl Into<SharedString>,
+    ids: crate::steer_viewer::ComposerIds,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<SteerSessionView> {
+    let (_, source) = resolve_source(root_id, cx);
+    let placeholder = placeholder.into();
+    let root_id = root_id.to_string();
+    cx.new(|cx| {
+        let mut view = SteerSessionView::with_source(root_id, source, window, cx);
+        view.host_root_composer(placeholder, ids, window, cx);
+        view
+    })
+}
+
 /// EXP-773 — this device's journal for `session_id`, folded and replay-ready
 /// ([`steer::read_journal`]). `None` when the file is not there: this machine
 /// never ran the session, or the retention prune (EXP-886, Settings →

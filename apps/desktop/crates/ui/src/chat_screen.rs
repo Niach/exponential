@@ -2661,11 +2661,11 @@ pub(crate) fn plus_menu(
                     window,
                     cx,
                     move |mut sub, _, _| {
-                        for (label, choice) in crate::coding_selects::SUBAGENT_MODEL_CHOICES.iter() {
+                        // THE model list, explicit: no "Default" row.
+                        for (label, choice) in crate::coding_selects::MODEL_CHOICES.iter() {
                             let view = view.clone();
                             let choice = (*choice).to_string();
-                            let label = if choice.is_empty() { launch_options::SUBAGENT_DEFAULT_LABEL } else { *label };
-                            sub = sub.item(pointer_check_item(label, picked == choice, move |window, cx| {
+                            sub = sub.item(pointer_check_item(*label, picked == choice, move |window, cx| {
                                 if let Some(view) = view.upgrade() {
                                     view.update(cx, |this, cx| {
                                         ChatScreenView::launch_access(this)

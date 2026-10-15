@@ -89,8 +89,7 @@ use steer::{
 use theme::tokens::transcript;
 
 use crate::controls::{
-    disclosure_header, text_button, typeahead_menu, typeahead_row, ChevronSide, TextButtonVariant,
-    TypeaheadArm, WebText as _,
+    disclosure_header, text_button, ChevronSide, TextButtonVariant, WebText as _,
 };
 use crate::icons::registry;
 use crate::slash_commands;
@@ -445,6 +444,11 @@ pub(crate) struct SteerSessionView {
     slash_dismissed_for: Option<String>,
     /// EXP-698/EXP-825: the staged images (the shared composer strip).
     pending_images: PendingImages,
+    /// Hosted as a ROOT session's composer ([`Self::host_root_composer`]):
+    /// Send⇄Stop follows the whole tree.
+    tree_scope: bool,
+    /// The composer controls' element ids.
+    composer_ids: ComposerIds,
     sending: bool,
     notice: Option<SharedString>,
     /// Question-card local state, keyed by `answer_key`.
@@ -689,6 +693,8 @@ impl SteerSessionView {
             slash_scroll: ScrollHandle::new(),
             slash_dismissed_for: None,
             pending_images: PendingImages::default(),
+            tree_scope: false,
+            composer_ids: ComposerIds::session(),
             sending: false,
             notice: None,
             picked: HashMap::new(),
@@ -2874,7 +2880,21 @@ impl SteerSessionView {
     /// the draft is empty whenever the button shows Stop, and the person
     /// can edit and re-send. The device's empty `queue` frame confirms.
     fn stop_turn(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        stop_session(&self.session_id, cx);
+        if self.tree_scope {
+            // A root's composer stops the TREE: every session of it that is
+            // working right now, the root's own turn included — and nothing
+            // else (a Stop on an idle or queued root would be a no-op at
+            // best).
+            let mut busy = busy_tree_sessions(&self.session_id, cx);
+            if self.working_now() && !busy.contains(&self.session_id) {
+                busy.push(self.session_id.clone());
+            }
+            for session_id in busy {
+                stop_session(&session_id, cx);
+            }
+        } else {
+            stop_session(&self.session_id, cx);
+        }
         let unread = self.feed.take_queue();
         if !unread.is_empty() {
             let held = unread
@@ -2895,7 +2915,12 @@ impl SteerSessionView {
     fn shows_stop(&self, cx: &App) -> bool {
         let has_draft =
             !self.input.read(cx).value().trim().is_empty() || !self.pending_images.is_empty();
-        self.working && !has_draft && self.may_message
+        let working = if self.tree_scope {
+            self.working_now() || !busy_tree_sessions(&self.session_id, cx).is_empty()
+        } else {
+            self.working
+        };
+        working && !has_draft && self.may_message
     }
 
     fn send_confirmed(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -3023,22 +3048,42 @@ impl SteerSessionView {
 
     /// EXP-877 — send `text` to the agent as a message, WITHOUT going near
     /// the composer. The model picker's whole implementation: `/model
-    /// <alias>` is a prompt the CLI acts on, so [`Self::deliver`] — the same
-    /// routine Enter ends up in — queues it mid-turn like anything else and
-    /// the republished `config_state` is the confirmation.
+    /// <alias>` is a prompt the CLI acts on, so it rides `sessions.send` —
+    /// the same path Enter ends up on — queues mid-turn like anything else
+    /// and the republished `config_state` is the confirmation.
     ///
     /// Deliberately NOT "type it into the field and press Enter": that
     /// clobbered a half-written draft, and a pick made while one was in the
     /// field either did nothing or left `/model opus` sitting there when the
-    /// send bailed. A refusal is a notice, never silence.
+    /// send bailed. A refusal is a toast, never silence.
     fn send_command(&mut self, text: &str, cx: &mut gpui::Context<Self>) {
         if !self.run_open() {
             self.notice = Some(SharedString::from(NOT_CONNECTED));
             cx.notify();
             return;
         }
-        self.notice = (!self.deliver(text)).then(|| SharedString::from(NOT_CONNECTED));
+        // The database is the bus (EXP-1294): the command is a `messages`
+        // row like any other, so it reaches a session hosted anywhere —
+        // the session view and a root's composer alike.
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("change", "the model", None, cx);
+            return;
+        };
+        let input = api::sessions::SendInput::message(&self.session_id, text, Vec::new());
+        self.notice = None;
         cx.notify();
+        cx.spawn(async move |_this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::sessions::send(&trpc, &input) })
+                .await;
+            if let Err(err) = result {
+                let _ = cx.update(|cx| {
+                    crate::action_error::failed_action_err("change", "the model", &err, cx)
+                });
+            }
+        })
+        .detach();
     }
 
     fn clear_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -3091,6 +3136,16 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 /// …and the same row when the run left nothing to replay (its workspace,
 /// and with it the device journal, is gone).
 pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this session";
+
+/// The sessions of `root_id`'s tree that are working right now (the synced
+/// `busy`, the ONE spinner input ×4) — what a root's composer Stops.
+pub(crate) fn busy_tree_sessions(root_id: &str, cx: &App) -> Vec<String> {
+    crate::session_data::tree_of_root(root_id, cx)
+        .into_iter()
+        .filter(|session| session.busy && !session.is_ended())
+        .map(|session| session.id)
+        .collect()
+}
 
 /// EXP-1294 — who may message and Stop a session: any team member when it
 /// is SHARED, only its starter when it is private.
@@ -3390,6 +3445,38 @@ pub(crate) fn clampable(text: &str) -> bool {
 /// thing it has to teach — byte-identical with the web.
 pub(crate) const COMPOSER_PLACEHOLDER: &str = "Type / for commands";
 
+/// The element ids of one composer's controls — the session view's own,
+/// or a host's ([`SteerSessionView::host_root_composer`]: the thread screen
+/// and the agent channel name theirs, so captures and tests tell them apart).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ComposerIds {
+    pub(crate) send: SharedString,
+    pub(crate) attach: SharedString,
+    pub(crate) model: SharedString,
+    pub(crate) context: SharedString,
+}
+
+impl ComposerIds {
+    /// The session view's own.
+    pub(crate) fn session() -> Self {
+        Self::new("steer-send", "steer-attach", "steer-model", "steer-context")
+    }
+
+    pub(crate) fn new(
+        send: impl Into<SharedString>,
+        attach: impl Into<SharedString>,
+        model: impl Into<SharedString>,
+        context: impl Into<SharedString>,
+    ) -> Self {
+        Self {
+            send: send.into(),
+            attach: attach.into(),
+            model: model.into(),
+            context: context.into(),
+        }
+    }
+}
+
 /// EXP-820 — whether the card keyboard (digits, ↑/↓, Enter) is live. A text
 /// field that wants the keys wins: the inline answer field whenever it is
 /// open, and the composer once it holds a draft or a `/` menu. With the
@@ -3524,14 +3611,6 @@ pub(crate) fn answer_digit(keystroke: &gpui::Keystroke) -> Option<usize> {
 /// `max-w-[85%]`), and the narrowest bubble worth drawing.
 const USER_BUBBLE_MAX_FRACTION: f32 = 0.85;
 const USER_BUBBLE_MIN_W: f32 = 48.;
-
-/// EXP-877 — the transcript composer's FOOTER: plan state and attach on the
-/// left, the model and the context ring on the right, all UNDER the card.
-/// (EXP-790 put the tools inside the card and wrapped them onto their own
-/// line on a narrow pane; the wrap flapped while the pane was dragged and the
-/// row competed with the field for the card's width. A footer never wraps
-/// because nothing in it grows.)
-const PLAN_MODE_FOOTER: &str = "Plan mode";
 
 /// The `config_state.options` id the footer's model pin reads (EXP-877 — the
 /// only option the wire carries).
@@ -6598,10 +6677,13 @@ impl SteerSessionView {
                 this.send(window, cx);
             }
         });
-        let submit =
-            crate::composer::SessionComposerSubmit::send("steer-send", !stop && !can_send, on_click)
-                .kind(kind)
-                .loading(self.sending);
+        let submit = crate::composer::SessionComposerSubmit::send(
+            self.composer_ids.send.clone(),
+            !stop && !can_send,
+            on_click,
+        )
+        .kind(kind)
+        .loading(self.sending);
         // The captures run before the field's own handlers, so with a `/`
         // menu open Enter/Tab accept and never reach the textarea (so
         // `PressEnter`, the thing that SENDS, never fires for them). EXP-820:
@@ -6618,9 +6700,34 @@ impl SteerSessionView {
         // EXP-1294: THE session composer box — the same card the thread
         // reply and the agent channel paint. EXP-724: the `/` menu sits
         // INSIDE the card, above the field.
+        let slash = self.slash.as_ref().map(|menu| {
+            crate::composer::session_slash_menu(
+                "steer-slash-menu",
+                "steer-slash-row",
+                &menu.items,
+                menu.selected,
+                &self.slash_scroll,
+                |this: &mut Self, index, cx| {
+                    if let Some(menu) = this.slash.as_mut() {
+                        if menu.selected != index {
+                            menu.selected = index;
+                            cx.notify();
+                        }
+                    }
+                },
+                |this: &mut Self, index, window, cx| {
+                    if let Some(menu) = this.slash.as_mut() {
+                        menu.selected = index;
+                    }
+                    this.accept_slash(window, cx);
+                },
+                window,
+                cx,
+            )
+        });
         crate::composer::session_composer_box(
             crate::composer::SessionComposerBox::new(self.mention.clone(), submit)
-                .above_field(self.render_slash_menu(window, cx))
+                .above_field(slash)
                 .field_hook(move |field| {
                     field
                         .key_context("SteerComposer")
@@ -6635,7 +6742,7 @@ impl SteerSessionView {
                 // upload to the session route. EXP-850 §13: `ui-add` ×4.
                 // EXP-1294: inside the card, Home's "+" slot.
                 .tool(
-                    crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
+                    crate::composer::composer_tool(self.composer_ids.attach.clone(), registry::UI_ADD, cx)
                         .tooltip("Add file or image")
                         .disabled(self.sending)
                         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -6648,35 +6755,82 @@ impl SteerSessionView {
         )
     }
 
-    /// EXP-877 — the row UNDER the composer card. Left: the plan-mode read.
-    /// Right: which model the run is on, and how full its context window is.
-    /// Everything here is ABOUT the run rather than part of the message
-    /// (EXP-1294: the attach "+" is part of the message, so it sits inside
-    /// the card in Home's tool slot).
-    fn render_composer_footer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_1()
-            .pt_1()
-            .px_1()
-            // EXP-847: a READ-ONLY read of `config_state.currentMode` — plan
-            // is a launch-time choice (EXP-790), so this says what the run is
-            // doing, it does not offer to change it.
-            .children(self.plan_mode_label().map(|_| {
+    /// The composer's bottom stack — the queue bar, a notice, THE composer
+    /// box — for a screen hosting this view as a ROOT session's composer
+    /// (the thread screen, the agent channel): the SAME composer and footer
+    /// the session view paints, targeting this session. `None` while the
+    /// composer yields (a pending card, a reader who may not steer).
+    pub(crate) fn render_session_composer(
+        &mut self,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        self.refresh_derived();
+        let queue = queue_strip_visible(self.run_open(), self.feed.queue().len())
+            .then(|| self.render_queue_strip(cx))
+            .flatten();
+        let notice = self.notice.clone().map(|notice| {
+            banner_block(
                 div()
-                    .flex_shrink_0()
                     .text_xs()
-                    .text_color(theme::tokens::BLUE.to_hsla())
-                    .child(SharedString::from(PLAN_MODE_FOOTER))
-            }))
-            .child(div().flex_1().min_w_0())
-            .children(self.render_model_pin(cx))
-            .children(self.render_context_ring(cx))
-            .text_color(muted)
+                    .text_color(theme::tokens::YELLOW.to_hsla())
+                    .child(notice)
+                    .into_any_element(),
+            )
             .into_any_element()
+        });
+        let composer = self.composer_visible().then(|| self.render_composer(window, cx));
+        if queue.is_none() && notice.is_none() && composer.is_none() {
+            return None;
+        }
+        Some(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .children(queue)
+                .children(notice)
+                .children(composer)
+                .into_any_element(),
+        )
+    }
+
+    /// Host this view as a ROOT session's composer (the thread screen, the
+    /// agent channel): its own placeholder and element ids, and Send⇄Stop
+    /// following the whole TREE — Stop shows while any session of it works
+    /// and interrupts every working one.
+    pub(crate) fn host_root_composer(
+        &mut self,
+        placeholder: impl Into<SharedString>,
+        ids: ComposerIds,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.tree_scope = true;
+        self.composer_ids = ids;
+        self.set_placeholder(placeholder, window, cx);
+    }
+
+    /// The composer field's placeholder.
+    pub(crate) fn set_placeholder(
+        &mut self,
+        placeholder: impl Into<SharedString>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let placeholder = placeholder.into();
+        self.input
+            .update(cx, |input, cx| input.set_placeholder(placeholder, window, cx));
+    }
+
+    /// EXP-877 — the row UNDER the composer card ([`crate::composer::
+    /// session_composer_footer`]): the plan read (never on a DISPATCHER root,
+    /// which hands the work to children), the model pin, the context ring.
+    fn render_composer_footer(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let dispatcher = self.row.as_ref().is_some_and(|row| row.dispatch);
+        let plan = !dispatcher && self.plan_mode_label().is_some();
+        let model = self.render_model_pin(cx);
+        let ring = self.render_context_ring(cx);
+        crate::composer::session_composer_footer(plan, model, ring, cx)
     }
 
     /// EXP-877 — the model the run is on, off `config_state.options[model]`
@@ -6686,47 +6840,20 @@ impl SteerSessionView {
     /// as a message: that prompt is how the CLI switches, so it queues
     /// mid-turn like anything else and the republished `config_state` is the
     /// confirmation. Nothing is written optimistically — a pick the CLI
-    /// refuses must not leave the footer lying.
-    ///
-    /// Codex has no such prompt, so its model is a plain label. Nothing
-    /// renders at all when the run published no `model` option (an older
-    /// device) or a BLANK one (codex on its CLI default — "CLI default" is a
-    /// launch-picker word, and in a footer that reports what the run IS on it
-    /// would read as the name of a model). Web `sessionModel` ×2.
+    /// refuses must not leave the footer lying. Codex's is a plain label.
+    /// Nothing renders when the run published no `model` option (an older
+    /// device) or a blank one. Web `sessionModel` ×2.
     fn render_model_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let chip = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)?;
-        if chip.value.trim().is_empty() {
-            return None;
-        }
-        let label = SharedString::from(model_label(&chip.value));
-        if self.agent() != SessionAgent::Claude {
-            return Some(
-                div()
-                    .flex_shrink_0()
-                    .px_1()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(label)
-                    .into_any_element(),
-            );
-        }
-        let trigger = Button::new("steer-model")
-            .ghost()
-            .cursor_pointer()
-            .xsmall()
-            .label(label)
-            .disabled(!self.run_open());
-        Some(
-            crate::launch_options::choice_pin(
-                trigger,
-                &crate::coding_selects::MODEL_CHOICES,
-                chip.value.clone(),
-                |view: &mut Self, alias: &str, _window, cx| {
-                    view.send_command(&format!("/model {alias}"), cx);
-                },
-                cx,
-            )
-            .into_any_element(),
+        crate::composer::session_model_pin(
+            self.composer_ids.model.clone(),
+            &chip.value,
+            self.agent() == SessionAgent::Claude,
+            self.run_open(),
+            |view: &mut Self, alias: &str, _window, cx| {
+                view.send_command(&format!("/model {alias}"), cx);
+            },
+            cx,
         )
     }
 
@@ -6738,172 +6865,34 @@ impl SteerSessionView {
         if self.source.read_only() || self.session_over() {
             return None;
         }
-        let usage = self.usage();
-        let percent = crate::usage_bar::context_percent(usage.as_ref())?;
-        let ring = crate::usage_sheet::context_ring("steer-context", percent, usage.as_ref(), cx);
         // EXP-1051: the sheet is a pure render — the layout and the legend's
         // fold are read off the view HERE (the popover's content closure runs
         // while this view is leased, so it can never read the entity back) and
         // the toggle flips the field and notifies, which rebuilds the popover
         // with the rest of this view's tree.
-        let layout = self.context_layout();
-        let legend_open = self.context_legend_open;
         let view = cx.entity();
-        let on_toggle: std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)> =
+        let on_toggle_legend: std::rc::Rc<dyn Fn(&mut Window, &mut gpui::App)> =
             std::rc::Rc::new(move |_window, cx| {
                 view.update(cx, |view, cx| {
                     view.context_legend_open = !view.context_legend_open;
                     cx.notify();
                 });
             });
-        let agent = self.builtin_agent();
-        let device_id = self.session_row().and_then(|row| row.device_id.clone());
-        let local = self.is_local();
-        let working = self.working_now();
-        let session_id = self.session_id.to_string();
-        let open_session_id = session_id.clone();
-        let open_device_id = device_id.clone();
-        Some(
-            gpui_component::popover::Popover::new("session-usage")
-                .p_2()
-                .trigger(ring)
-                // EXP-909: opening the sheet asks for ONE fresh read of the
-                // run's own login — a run parked on an account nobody else is
-                // spending would otherwise show numbers from its last turn.
-                // A glance, not a Refresh: every floor the device sets itself
-                // still holds, and there is no polling loop while it is open
-                // (the beat delivers the rest).
-                .on_open_change(move |open, _window, cx| {
-                    if !*open {
-                        return;
-                    }
-                    let Some(agent) = agent else {
-                        return;
-                    };
-                    refresh_run_usage(
-                        &open_session_id,
-                        open_device_id.as_deref(),
-                        agent,
-                        local,
-                        cx,
-                    );
-                })
-                .content(move |_, _window, cx| {
-                    // The run's OWN login's rate-limit windows: the local
-                    // agent status for a run hosted here, the synced
-                    // `devices` row for one hosted anywhere else — in both
-                    // cases the profile the run spends, never simply the
-                    // machine's active login (EXP-875 §1).
-                    let windows = agent.and_then(|agent| {
-                        if local {
-                            let account = run_account(&session_id, cx);
-                            let (accounts, usage) =
-                                crate::device_settings::own_agent_status(cx);
-                            crate::usage_sheet::account_windows(
-                                &accounts,
-                                &usage,
-                                agent,
-                                account.as_deref(),
-                            )
-                        } else {
-                            crate::usage_sheet::device_usage(device_id.as_deref(), agent, cx)
-                        }
-                    });
-                    let switch = agent.map(|agent| crate::account_switch::SwitchContext {
-                        session_id: session_id.clone(),
-                        device_id: device_id.clone(),
-                        local,
-                        agent,
-                        working,
-                    });
-                    crate::usage_sheet::render_usage_sheet(
-                        agent,
-                        usage.as_ref(),
-                        &layout,
-                        legend_open,
-                        on_toggle.clone(),
-                        windows.as_ref(),
-                        switch,
-                        cx,
-                    )
-                })
-                .into_any_element(),
-        )
-    }
-
-    /// EXP-724: the `/` command rows — mono name, muted argument hint, muted
-    /// description. `None` when no menu is open.
-    fn render_slash_menu(
-        &self,
-        window: &Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<AnyElement> {
-        let menu = self.slash.as_ref()?;
-        let muted = cx.theme().muted_foreground;
-        let mut rows: Vec<AnyElement> = Vec::with_capacity(menu.items.len());
-        for (index, command) in menu.items.iter().enumerate() {
-            let selected = index == menu.selected;
-            rows.push(
-                typeahead_row(("steer-slash-row", index), selected, cx)
-                    // EXP-892: hovering MOVES the selection onto the row
-                    // under the pointer, it never paints a second highlight.
-                    .on_hover(cx.listener(move |this, hovered: &bool, _window, cx| {
-                        if !*hovered {
-                            return;
-                        }
-                        if let Some(menu) = this.slash.as_mut() {
-                            if menu.selected != index {
-                                menu.selected = index;
-                                cx.notify();
-                            }
-                        }
-                    }))
-                    .on_mouse_down(
-                        gpui::MouseButton::Left,
-                        cx.listener(move |this, _, window, cx| {
-                            if let Some(menu) = this.slash.as_mut() {
-                                menu.selected = index;
-                            }
-                            this.accept_slash(window, cx);
-                        }),
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .font_family(theme::terminal::FONT_FAMILY)
-                            .child(SharedString::from(format!("/{}", command.name))),
-                    )
-                    .when(!command.arg_hint.is_empty(), |this| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(muted)
-                                .font_family(theme::terminal::FONT_FAMILY)
-                                .child(SharedString::from(command.arg_hint.to_string())),
-                        )
-                    })
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(SharedString::from(command.description.to_string())),
-                    )
-                    .into_any_element(),
-            );
-        }
-        // EXP-970: the ONE typeahead surface, in the composer card's flow.
-        Some(typeahead_menu(
-            "steer-slash-menu",
-            TypeaheadArm::Inline,
-            rows,
-            &self.slash_scroll,
-            window,
+        crate::composer::session_context_ring(
+            crate::composer::ContextRingProps {
+                id: self.composer_ids.context.clone(),
+                session_id: self.session_id.to_string(),
+                device_id: self.session_row().and_then(|row| row.device_id.clone()),
+                agent: self.builtin_agent(),
+                local: self.is_local(),
+                working: self.working_now(),
+                usage: self.usage(),
+                layout: self.context_layout(),
+                legend_open: self.context_legend_open,
+                on_toggle_legend,
+            },
             cx,
-        ))
+        )
     }
 
     /// EXP-724: the pinned strip while the agent folds its context. The bar
@@ -7067,7 +7056,7 @@ pub(crate) fn split_image_markers(text: &str, count: usize) -> Vec<MarkerSegment
 /// recorded it (`runs.json`): its profile id. `None` when this machine has no
 /// record of the run (or a legacy one naming none) — and then nothing is
 /// guessed, the sheet falls back to the machine's own report.
-fn run_account(session_id: &str, cx: &App) -> Option<String> {
+pub(crate) fn run_account(session_id: &str, cx: &App) -> Option<String> {
     coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id)
         .and_then(|record| record.account())
 }
@@ -7082,7 +7071,7 @@ fn run_account(session_id: &str, cx: &App) -> Option<String> {
 /// machine is online, advertises the cap and its last fetch is past the
 /// shared floor, which is the same gate the Devices page applies. A
 /// teammate's machine is never asked: it is not mine to poll.
-fn refresh_run_usage(
+pub(crate) fn refresh_run_usage(
     session_id: &str,
     device_id: Option<&str>,
     agent: coding::CodingAgent,

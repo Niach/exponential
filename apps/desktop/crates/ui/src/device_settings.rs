@@ -66,7 +66,7 @@ use crate::coding_flow::CodingHub;
 use crate::controls::{glass_input, WebControl as _};
 use crate::device_readiness;
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
+    agent_icon, choice_select, effort_choices_for, selected, ChoiceSelect,
 };
 use crate::icons::registry;
 use crate::launch_options::{AgentDefaultsGroup, AgentPill, DefaultsToggle};
@@ -331,6 +331,10 @@ pub struct DeviceSettingsView {
     effort_select: ChoiceSelect,
     codex_model_select: ChoiceSelect,
     codex_effort_select: ChoiceSelect,
+    /// The model a DISPATCHER root (every new thread or team agent) runs on,
+    /// per agent: `Settings.claude_thread_model` / `codex_thread_model`.
+    thread_model_select: ChoiceSelect,
+    codex_thread_model_select: ChoiceSelect,
     /// EXP-981/EXP-1020: the model claude's SUBAGENTS run on — the row web
     /// had and the IDE did not.
     subagent_model_select: ChoiceSelect,
@@ -453,42 +457,30 @@ impl DeviceSettingsView {
             state.set_value(row.label.clone().unwrap_or_default(), window, cx);
             state
         });
-        let model_select = choice_select(
-            model_choices_for(CodingAgent::Claude),
-            &seeded.claude_model,
-            window,
-            cx,
-        );
+        // ONE model select component for every model row (all four
+        // models, no default row).
+        let model_select = crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_model, window, cx);
+        let thread_model_select =
+            crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_thread_model, window, cx);
         let effort_select = choice_select(
             effort_choices_for(CodingAgent::Claude),
             &seeded.claude_effort,
             window,
             cx,
         );
-        let codex_model_select = choice_select(
-            model_choices_for(CodingAgent::Codex),
-            &seeded.codex_model,
-            window,
-            cx,
-        );
+        let codex_model_select = crate::coding_selects::model_select(CodingAgent::Codex, &seeded.codex_model, window, cx);
+        let codex_thread_model_select =
+            crate::coding_selects::model_select(CodingAgent::Codex, &seeded.codex_thread_model, window, cx);
         let codex_effort_select = choice_select(
             effort_choices_for(CodingAgent::Codex),
             &seeded.codex_effort,
             window,
             cx,
         );
-        let subagent_model_select = choice_select(
-            &crate::coding_selects::SUBAGENT_MODEL_CHOICES,
-            &seeded.claude_subagent_model,
-            window,
-            cx,
-        );
-        let computer_use_model_select = choice_select(
-            &crate::coding_selects::COMPUTER_USE_MODEL_CHOICES,
-            &seeded.computer_use_model,
-            window,
-            cx,
-        );
+        let subagent_model_select =
+            crate::coding_selects::model_select(CodingAgent::Claude, &seeded.claude_subagent_model, window, cx);
+        let computer_use_model_select =
+            crate::coding_selects::model_select(CodingAgent::Claude, &seeded.computer_use_model, window, cx);
 
         let mut subscriptions = vec![
             // EXP-490: a devices delta re-renders AND mirrors the new
@@ -517,6 +509,8 @@ impl DeviceSettingsView {
             &effort_select,
             &codex_model_select,
             &codex_effort_select,
+            &thread_model_select,
+            &codex_thread_model_select,
             &subagent_model_select,
             &computer_use_model_select,
         ] {
@@ -556,6 +550,8 @@ impl DeviceSettingsView {
             effort_select,
             codex_model_select,
             codex_effort_select,
+            thread_model_select,
+            codex_thread_model_select,
             subagent_model_select,
             claude_ultracode: seeded.claude_ultracode,
             claude_plan_mode: seeded.claude_plan_mode,
@@ -712,6 +708,11 @@ impl DeviceSettingsView {
             (&self.effort_select, baseline.claude_effort.clone()),
             (&self.codex_model_select, baseline.codex_model.clone()),
             (&self.codex_effort_select, baseline.codex_effort.clone()),
+            (&self.thread_model_select, baseline.claude_thread_model.clone()),
+            (
+                &self.codex_thread_model_select,
+                baseline.codex_thread_model.clone(),
+            ),
             (
                 &self.subagent_model_select,
                 baseline.claude_subagent_model.clone(),
@@ -746,6 +747,8 @@ impl DeviceSettingsView {
         drafted.claude_effort = selected(&self.effort_select, cx);
         drafted.codex_model = selected(&self.codex_model_select, cx);
         drafted.codex_effort = selected(&self.codex_effort_select, cx);
+        drafted.claude_thread_model = selected(&self.thread_model_select, cx);
+        drafted.codex_thread_model = selected(&self.codex_thread_model_select, cx);
         drafted.claude_subagent_model = selected(&self.subagent_model_select, cx);
         drafted.claude_ultracode = self.claude_ultracode;
         drafted.claude_plan_mode = self.claude_plan_mode;
@@ -1453,11 +1456,16 @@ impl DeviceSettingsView {
                 note: None,
             })
             .collect();
-        let (model, effort) = match agent_tab {
-            CodingAgent::Claude => (self.model_select.clone(), self.effort_select.clone()),
+        let (model, effort, thread) = match agent_tab {
+            CodingAgent::Claude => (
+                self.model_select.clone(),
+                self.effort_select.clone(),
+                self.thread_model_select.clone(),
+            ),
             CodingAgent::Codex => (
                 self.codex_model_select.clone(),
                 self.codex_effort_select.clone(),
+                self.codex_thread_model_select.clone(),
             ),
         };
         let mut group = AgentDefaultsGroup::new(
@@ -1474,7 +1482,9 @@ impl DeviceSettingsView {
             model,
             effort,
         )
-        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode);
+        .effort_disabled(agent_tab == CodingAgent::Claude && self.claude_ultracode)
+        // The dispatcher's model, right under Model, for every agent.
+        .thread(thread);
         // EXP-981/EXP-1020: claude's subagent model, the row the IDE was
         // missing while web had it.
         if agent_tab.supports_subagent_model() {
