@@ -1043,6 +1043,14 @@ pub(crate) struct SessionCtx {
     /// from it; and the ticker thread must not walk a transcript once a
     /// second either.
     pub(crate) workflows: Mutex<Vec<steer::WorkflowState>>,
+    /// EXP-1317: the `question` cards this run has published and not yet
+    /// resolved (newest last, capped at [`OPEN_QUESTIONS_CAP`]) — what an
+    /// answer is translated against for the synced card's write-back
+    /// ([`answer_ask`] → `steer::answer_tap`). Folded by [`SessionCtx::deliver`]
+    /// off the wire, so EVERY answer path (relay frame, the local card, the
+    /// CLI's own TUI) resolves the same way; the publisher's journal used to
+    /// be the only source, and only the relay path read it.
+    pub(crate) open_questions: Mutex<std::collections::VecDeque<steer::ActivityEvent>>,
     pub(crate) agent: coding::CodingAgent,
     /// REV2-17: the ONE redactor of this run — the session's launcher secrets
     /// (EXP-73 credential file, a token in the remote URL, the
@@ -1463,6 +1471,12 @@ impl SessionCtx {
     }
 
     fn deliver(&self, mut out: MapOut) {
+        // EXP-1317: the open-question fold (see `open_questions`).
+        if let Ok(mut held) = self.open_questions.lock() {
+            for event in &out.wire {
+                fold_open_question(&mut held, event);
+            }
+        }
         // EXP-1292: the Conversation's half of the step — the replies in
         // order, and every card the engine resolved (answered anywhere, or
         // dismissed) stops reading open. A replay writes nothing.
@@ -2144,11 +2158,13 @@ fn handle_command(
                 );
                 return true;
             };
-            answer_ask(ctx, mapped.answer);
+            // The synced card IS what answered: no tap (the pickup marks it
+            // answered itself — a tap here would race that and re-resolve it).
+            resolve_ask(ctx, mapped.answer);
             // The Conversation never shows a stepper's submit marker: the
             // card that answered its last step submits the form.
             if let Some(submit) = ctx.with_mapper(|mapper| mapper.pending_submit(&question_id)) {
-                answer_ask(ctx, submit);
+                resolve_ask(ctx, submit);
             }
             // A rejected plan's feedback is what the person wants instead —
             // the agent reads it as their next message.
@@ -2421,9 +2437,32 @@ fn gate_or_start(
     send_prompt(cx, ctx, session_id, announce, prompt, turns, message_id);
 }
 
-/// One answer for a parked ask — a relay `answer` frame, the local card, or
-/// (EXP-1292) a card answered in the Conversation.
+/// One answer for a parked ask from the SESSION view — a relay `answer`
+/// frame, the IDE's local card, or the CLI's TUI (EXP-1292's Conversation
+/// cards go to [`resolve_ask`] directly).
 fn answer_ask(ctx: &Arc<SessionCtx>, answer: steer::RemoteAnswer) {
+    // EXP-1317: the synced card this question was posted as closes too
+    // (the host's tap writes `sessions.resolveCard`). This is the ONE choke
+    // point every answer path shares — the relay pump (`EngineCommand::
+    // Answer` off the publisher's `AnswerLink`), the IDE's local card
+    // (`EngineSession::answer`) and the CLI's own TUI — so the tap lives
+    // here, not in the publisher (which only saw the relay's). BEFORE the
+    // mapper resolves it: the tap maps the question onto the card's
+    // `messages.id` through the outbox's still-open cards, which `deliver`
+    // drops on the `question_resolved` this step emits.
+    let resolution = {
+        let held = ctx.open_questions.lock().unwrap_or_else(|err| err.into_inner());
+        let question = open_question(&held, &answer.question_id);
+        steer::answer_tap::card_resolution(&answer, question)
+    };
+    steer::answer_tap::notify(&ctx.session_id, &resolution);
+    resolve_ask(ctx, answer);
+}
+
+/// Resolve one answer in the mapper and release its parked ask — no tap
+/// (the Conversation's own card answers come straight here: the synced row
+/// is already what answered).
+fn resolve_ask(ctx: &Arc<SessionCtx>, answer: steer::RemoteAnswer) {
     let mut out = MapOut::default();
     let (key, decision) = ctx.with_mapper(|mapper| {
         let key = mapper.ask_key(&answer);
@@ -2445,6 +2484,42 @@ fn answer_ask(ctx: &Arc<SessionCtx>, answer: steer::RemoteAnswer) {
         // nothing; a re-tap re-acked; an unknown id was dropped.
         _ => {}
     }
+}
+
+/// EXP-1317: how many unresolved `question` cards [`SessionCtx::open_questions`]
+/// keeps (the oldest evicted past it) — the journal's workflow cap, for the
+/// same reason: a run that parks more open cards than this is already
+/// unreadable, and an evicted one still closes by its raw keys.
+const OPEN_QUESTIONS_CAP: usize = steer::journal::JOURNAL_WORKFLOW_CAP;
+
+/// EXP-1317: fold one wire event into the open-question table: a `question`
+/// replaces any held card of its id (an elicitation step re-published) and
+/// joins newest-last; a `question_resolved` with an id drops it. Anything
+/// else is ignored.
+fn fold_open_question(held: &mut std::collections::VecDeque<steer::ActivityEvent>, event: &steer::ActivityEvent) {
+    match event {
+        steer::ActivityEvent::Question { id, .. } => {
+            held.retain(|open| !matches!(open, steer::ActivityEvent::Question { id: open_id, .. } if open_id == id));
+            held.push_back(event.clone());
+            while held.len() > OPEN_QUESTIONS_CAP {
+                held.pop_front();
+            }
+        }
+        steer::ActivityEvent::QuestionResolved { id: Some(id), .. } => {
+            held.retain(|open| !matches!(open, steer::ActivityEvent::Question { id: open_id, .. } if open_id == id));
+        }
+        _ => {}
+    }
+}
+
+/// The held `question` card with `question_id`, if still open.
+fn open_question<'a>(
+    held: &'a std::collections::VecDeque<steer::ActivityEvent>,
+    question_id: &str,
+) -> Option<&'a steer::ActivityEvent> {
+    held.iter()
+        .rev()
+        .find(|open| matches!(open, steer::ActivityEvent::Question { id, .. } if id == question_id))
 }
 
 /// EXP-873: hand one message to the agent NOW. Between turns it is the next
@@ -2988,6 +3063,80 @@ pub(crate) fn steer_images_dir(worktree: &std::path::Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1317: the open-question table `answer_ask` translates an answer
+    /// against — folded off the wire like `deliver` does, so a plan card's
+    /// reject (its LAST option) still reads as `rejected` once the answer
+    /// comes in through the local card or the CLI, not only the relay. A
+    /// resolved card leaves the table; a re-published id replaces its older
+    /// frame; the cap evicts the oldest.
+    #[test]
+    fn an_answer_resolves_the_synced_card_off_the_open_question_table() {
+        let question = |id: &str, plan: bool| steer::ActivityEvent::Question {
+            text: "Proceed?".into(),
+            options: vec![
+                steer::QuestionOption::new("Yes", "allow"),
+                steer::QuestionOption::new("No", "reject"),
+            ],
+            multi_select: None,
+            plan_mode: plan.then_some(true),
+            id: id.into(),
+            ask_id: None,
+            index: None,
+            total: None,
+            header: None,
+            at: None,
+        };
+        let answer = |id: &str, key: &str, text: Option<&str>| steer::RemoteAnswer {
+            question_id: id.into(),
+            ask_id: None,
+            keys: vec![key.into()],
+            text: text.map(str::to_string),
+        };
+        let mut held = std::collections::VecDeque::new();
+        fold_open_question(&mut held, &steer::ActivityEvent::narration("x"));
+        fold_open_question(&mut held, &question("q-plan", true));
+        fold_open_question(&mut held, &question("q-ask", false));
+        assert_eq!(held.len(), 2);
+
+        // The plan's reject is a decision with the note; approve has none.
+        let rejected = steer::answer_tap::card_resolution(
+            &answer("q-plan", "reject", Some("Smaller")),
+            open_question(&held, "q-plan"),
+        );
+        assert_eq!(rejected.decision.as_deref(), Some("rejected"));
+        assert_eq!(rejected.feedback.as_deref(), Some("Smaller"));
+        // A question answers with the picked LABEL (the journal used to
+        // supply the options; the table does now).
+        let picked = steer::answer_tap::card_resolution(&answer("q-ask", "allow", None), open_question(&held, "q-ask"));
+        assert_eq!(picked.answer.as_deref(), Some("Yes"));
+        assert_eq!(picked.decision, None);
+
+        // Resolved = gone; an unknown id still closes by its raw key.
+        fold_open_question(
+            &mut held,
+            &steer::ActivityEvent::QuestionResolved {
+                id: Some("q-ask".into()),
+                ask_id: None,
+                answers: None,
+                dismissed: None,
+                at: None,
+            },
+        );
+        assert!(open_question(&held, "q-ask").is_none());
+        let raw = steer::answer_tap::card_resolution(&answer("q-ask", "allow", None), open_question(&held, "q-ask"));
+        assert_eq!(raw.answer.as_deref(), Some("allow"));
+
+        // A re-published id replaces its frame (one entry), and the cap holds.
+        fold_open_question(&mut held, &question("q-plan", false));
+        assert_eq!(held.len(), 1);
+        assert!(matches!(open_question(&held, "q-plan"), Some(steer::ActivityEvent::Question { plan_mode: None, .. })));
+        for index in 0..OPEN_QUESTIONS_CAP + 3 {
+            fold_open_question(&mut held, &question(&format!("q-{index}"), false));
+        }
+        assert_eq!(held.len(), OPEN_QUESTIONS_CAP);
+        assert!(open_question(&held, "q-plan").is_none(), "the oldest went");
+    }
 
     /// EXP-850 §8: the caption's precedence — latest-wins per id, the NEWEST
     /// running card speaks, and nothing speaks once they are all finished.

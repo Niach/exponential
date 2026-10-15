@@ -424,7 +424,8 @@ fun ThreadContent(
                     verb = null,
                     verbEnabled = false,
                     onVerb = {},
-                    menu = guideMenu?.takeIf { selected is SessionTree.ThreadTab.Guide },
+                    // EXP-1316: the `…` rides every tab ×4 while the Guide has a PR.
+                    menu = guideMenu,
                     tabs = if (view != null) {
                         {
                             ThreadTabStrip(

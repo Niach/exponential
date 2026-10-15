@@ -143,16 +143,22 @@ export function AskAnsweredLine({
 export function AskInlineField({
   placeholder,
   allowEmpty,
+  defaultValue = ``,
+  onChange,
   onSubmit,
   onCancel,
 }: {
   placeholder: string
   /** A plan's reject sends with nothing typed; a typed reply never does. */
   allowEmpty: boolean
+  /** The draft to reopen with (the host keeps it across a lock). */
+  defaultValue?: string
+  /** Every keystroke, so the host can keep the draft when the field leaves. */
+  onChange?: (text: string) => void
   onSubmit: (text: string) => void
   onCancel: () => void
 }) {
-  const [text, setText] = useState(``)
+  const [text, setText] = useState(defaultValue)
   const sendable = allowEmpty || text.trim().length > 0
   return (
     <Composer
@@ -162,7 +168,10 @@ export function AskInlineField({
       <Textarea
         autoFocus
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value)
+          onChange?.(e.target.value)
+        }}
         placeholder={placeholder}
         aria-label={placeholder}
         rows={1}
@@ -226,25 +235,49 @@ export function AskPrompt({
   const [picked, setPicked] = useState<string[]>(() => [...(initialPicked ?? [])])
   /** The option whose inline field is open, by key. */
   const [typing, setTyping] = useState<string | null>(null)
+  /** The inline fields' drafts by option key: the field unmounts while the
+   *  card is locked, so a failed answer reopens with what was typed. */
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  // `initialPicked` re-seeds the picks when it changes (the host flips a
+  // mounted card into / out of `editing`): derived during render, so the
+  // reset lands in the same pass.
+  const seedKey = initialPicked === undefined ? null : initialPicked.join(`\u0000`)
+  const [seeded, setSeeded] = useState(seedKey)
+  if (seeded !== seedKey) {
+    setSeeded(seedKey)
+    setPicked([...(initialPicked ?? [])])
+    setTyping(null)
+  }
   const open = answerable && !locked
   const item = { planMode, options }
+  const listRef = useRef<HTMLDivElement | null>(null)
 
   const labelsFor = (keys: readonly string[]) =>
     options.filter((o) => keys.includes(o.key)).map((o) => o.label)
 
   const choose = (option: AskOption, index: number) => {
     if (!open) return
+    // A row that opens the field (free text, a plan's reject) does so in a
+    // multi-select too: its key never joins the picks.
+    if (askOpensField(item, index)) {
+      setTyping((prev) => (prev === option.key ? null : option.key))
+      return
+    }
     if (multiSelect) {
       setPicked((prev) =>
         prev.includes(option.key) ? prev.filter((k) => k !== option.key) : [...prev, option.key]
       )
       return
     }
-    if (askOpensField(item, index)) {
-      setTyping((prev) => (prev === option.key ? null : option.key))
-      return
-    }
     onAnswer([option.key], [option.label])
+  }
+
+  /** Escape in the field: close it and hand focus back to its option row
+   *  (the field unmounts; without this focus would land on the body). */
+  const cancelInline = (index: number) => {
+    setTyping(null)
+    const buttons = listRef.current?.querySelectorAll<HTMLButtonElement>(`[data-testid="ask-option"]`)
+    buttons?.[index]?.focus()
   }
 
   const submitPicked = () => {
@@ -325,7 +358,7 @@ export function AskPrompt({
 
   return (
     <>
-      <div className="mt-2 flex flex-col items-stretch gap-1">
+      <div ref={listRef} className="mt-2 flex flex-col items-stretch gap-1">
         {options.map((option, index) => {
           const primary = variant !== `default` && index === 0
           const selected = picked.includes(option.key)
@@ -401,8 +434,10 @@ export function AskPrompt({
                       : ASK_CARD_COPY.freeTextPlaceholder
                   }
                   allowEmpty={planMode}
+                  defaultValue={drafts[option.key] ?? ``}
+                  onChange={(text) => setDrafts((prev) => ({ ...prev, [option.key]: text }))}
                   onSubmit={(text) => submitInline(option, text)}
-                  onCancel={() => setTyping(null)}
+                  onCancel={() => cancelInline(index)}
                 />
               )}
             </Fragment>

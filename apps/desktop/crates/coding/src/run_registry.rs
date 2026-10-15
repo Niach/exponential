@@ -282,7 +282,30 @@ impl RunRecord {
         self.extra.remove(ACCOUNT_KEY);
         self.extra.extend(account_extra(account));
     }
+
+    /// EXP-849: the synced `sessions.account` this run last honored, as a
+    /// profile id (`""` = the row named none). A start pick or a rotation
+    /// may run the session on ANOTHER login than the row names; only a row
+    /// that moves past this value is a person's switch. A record written
+    /// before the key existed honors the login it ran on.
+    pub fn honored_row_account(&self) -> String {
+        match self.extra.get(ROW_ACCOUNT_KEY).and_then(|value| value.as_str()) {
+            Some(id) => crate::agent_profiles::profile_id(Some(id)),
+            None => crate::agent_profiles::profile_id(self.account().as_deref()),
+        }
+    }
+
+    /// EXP-849: stamp the row's account the run was (re)launched for.
+    pub fn set_honored_row_account(&mut self, row_account: Option<&str>) {
+        self.extra.insert(
+            ROW_ACCOUNT_KEY.to_string(),
+            serde_json::Value::String(crate::agent_profiles::profile_id(row_account)),
+        );
+    }
 }
+
+/// EXP-849: the [`RunRecord::extra`] key of [`RunRecord::honored_row_account`].
+pub const ROW_ACCOUNT_KEY: &str = "row_account";
 
 /// EXP-792: the `extra` entry an account pick writes — empty for an
 /// unpinned slot.

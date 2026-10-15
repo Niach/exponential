@@ -7,8 +7,8 @@ import { MobileWorkBar, MobileWorkCapsule } from "./mobile-work-bar"
 // phone. Collapsed = the floating bar's capsule reading the placeholder
 // (`MobileWorkBar` / `MobileWorkCapsule`, over the content above the bottom
 // edge fade, never pushing it); a tap expands it into THE Composer card the
-// host hands in (text, + images/files, send, Stop while busy); focus leaving
-// the card collapses it. The card stays MOUNTED while collapsed, so a draft
+// host hands in (text, + images/files, send, Stop while busy); a press
+// outside the card (or Tab / Escape leaving it) collapses it. The card stays MOUNTED while collapsed, so a draft
 // survives (the capsule then reads the draft instead of the placeholder).
 // Web md+ keeps the in-flow Composer box.
 
@@ -46,6 +46,33 @@ export function FloatingComposer({
     setDraft(field?.value.trim() ?? ``)
     setExpanded(false)
   }
+  const collapseRef = useRef(collapse)
+  collapseRef.current = collapse
+
+  // A press OUTSIDE the card collapses it — from a document `pointerdown`,
+  // not the field's blur: Safari (iOS and macOS) does not focus buttons on
+  // tap, so a tap on Send or the file picker blurred the textarea with
+  // relatedTarget null and the card went display:none between pointerdown
+  // and click, swallowing the click. A press inside the card, or in a popover
+  // / dialog it opened (portalled out of it), keeps it open.
+  useEffect(() => {
+    if (!expanded) return
+    const onPointerDown = (event: Event) => {
+      const card = cardRef.current
+      const target = event.target
+      if (!card || !(target instanceof Node)) return
+      if (card.contains(target)) return
+      if (
+        target instanceof Element &&
+        target.closest(`[data-radix-popper-content-wrapper], [role="dialog"]`)
+      ) {
+        return
+      }
+      collapseRef.current()
+    }
+    document.addEventListener(`pointerdown`, onPointerDown, true)
+    return () => document.removeEventListener(`pointerdown`, onPointerDown, true)
+  }, [expanded])
 
   return (
     <MobileWorkBar
@@ -65,8 +92,11 @@ export function FloatingComposer({
             ref={cardRef}
             className={cn(!expanded && `hidden`)}
             onBlur={(event) => {
+              // Keyboard dismissal only (Tab leaving the card): a blur with
+              // no relatedTarget is a Safari tap or the window losing focus,
+              // and the pointerdown listener above owns taps.
               const next = event.relatedTarget as Node | null
-              if (next && event.currentTarget.contains(next)) return
+              if (!next || event.currentTarget.contains(next)) return
               collapse()
             }}
             onKeyDown={(event) => {

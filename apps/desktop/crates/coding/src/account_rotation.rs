@@ -559,10 +559,11 @@ pub struct WalledRun {
     pub resets_at_ms: Option<i64>,
     /// The turn slot: `true` = between turns.
     pub idle: bool,
-    /// No clone to re-create a worktree from (a repo-less scratch run, or a
-    /// run this host has no record of): the switch's end purges the run
-    /// and its resume has nowhere to go, so it waits for the reset.
-    pub repo_less: bool,
+    /// No run record on this host: the switch has nothing to resume from,
+    /// so it waits for the reset. A repo-less (scratch) run DOES rotate: the
+    /// switch suspends it (EXP-1292) and resumes it in the same scratch dir,
+    /// which a suspended run's exit never purges.
+    pub unrecorded: bool,
 }
 
 /// Why a walled run is NOT being rotated right now — logged once per change
@@ -573,9 +574,8 @@ pub enum Hold {
     Off,
     /// Codex: one login per session by contract; it waits for the reset.
     AgentNeverRotates,
-    /// A repo-less run: ending it purges its dir, so it cannot be resumed
-    /// on another account. It waits for the reset.
-    ScratchRun,
+    /// No run record on this host to resume from. It waits for the reset.
+    NoRecord,
     /// A turn is in flight — the switch waits for it to finish.
     MidTurn,
     /// Rotated recently; the chain is left alone until `until_ms`.
@@ -748,8 +748,8 @@ impl RotationTracker {
         if !rotates(run.agent) {
             return Step::Hold(Hold::AgentNeverRotates);
         }
-        if run.repo_less {
-            return Step::Hold(Hold::ScratchRun);
+        if run.unrecorded {
+            return Step::Hold(Hold::NoRecord);
         }
         if !run.idle {
             return Step::Hold(Hold::MidTurn);
@@ -1061,7 +1061,7 @@ mod tests {
             window: window.to_string(),
             resets_at_ms: Some(NOW + 3_600_000),
             idle,
-            repo_less: false,
+            unrecorded: false,
         }
     }
 
@@ -1552,19 +1552,32 @@ mod tests {
         assert_eq!(until_suffix(None), "");
     }
 
-    /// A repo-less run is never rotated: the switch would purge its scratch
-    /// dir and the resume would have nowhere to go. It waits like codex.
+    /// A run with no record here is never rotated: the resume would have
+    /// nothing to re-enter. It waits like codex.
     #[test]
-    fn a_scratch_run_holds_for_the_reset() {
+    fn an_unrecorded_run_holds_for_the_reset() {
         let tracker = RotationTracker::new();
-        let mut scratch = walled("a", "session", true);
-        scratch.repo_less = true;
-        assert_eq!(tracker.step(&scratch, true, NOW), Step::Hold(Hold::ScratchRun));
-        // The hold ranks after the agent check and before the turn slot: a
-        // mid-turn scratch run is still a scratch run.
-        scratch.idle = false;
-        assert_eq!(tracker.step(&scratch, true, NOW), Step::Hold(Hold::ScratchRun));
+        let mut unrecorded = walled("a", "session", true);
+        unrecorded.unrecorded = true;
+        assert_eq!(tracker.step(&unrecorded, true, NOW), Step::Hold(Hold::NoRecord));
+        // The hold ranks after the agent check and before the turn slot.
+        unrecorded.idle = false;
+        assert_eq!(tracker.step(&unrecorded, true, NOW), Step::Hold(Hold::NoRecord));
         assert_eq!(tracker.step(&walled("a", "session", true), true, NOW), Step::Probe);
+    }
+
+    /// EXP-1292: a repo-less (scratch) run rotates like any other — the
+    /// switch suspends it and resumes it in the same dir. The beat walls
+    /// it, probes it and switches it; the wall's `handled` agrees.
+    #[test]
+    fn a_scratch_run_rotates_like_any_other() {
+        let mut tracker = RotationTracker::new();
+        let scratch = walled("a", "session", true);
+        assert!(!scratch.unrecorded);
+        assert_eq!(tracker.step(&scratch, true, NOW), Step::Probe);
+        let profiles = vec![profile("a", 100, 10), profile("b", 10, 10)];
+        assert!(matches!(tracker.decide(&scratch, &profiles, NOW), Decision::Switch { .. }));
+        assert!(wall_handled_by(CodingAgent::Claude, &settings(true), &profiles));
     }
 
     /// `handled` mutes the owner's wall push, so it is true only when this

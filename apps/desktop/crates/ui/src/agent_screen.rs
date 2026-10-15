@@ -254,6 +254,7 @@ impl AgentScreenView {
                 expanded: true,
                 on_toggle: None,
                 on_open: None,
+                images: Some(self.images.clone()),
             },
             cx,
         )

@@ -127,6 +127,11 @@ pub struct SessionReport {
     pub branch: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// EXP-849: the login (profile id) the run ACTUALLY runs on — a start
+    /// pick or a rotation may move it off the row's `account`. An older
+    /// server strips the key (its zod object is not strict).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -151,33 +156,95 @@ pub fn report(trpc: &TrpcClient, session_id: &str, report: &SessionReport) -> Re
 /// (`kind` tag, camelCase keys). `questionId` rides the tolerant passthrough
 /// card schema so an answered card maps back to the engine's pending
 /// question without device-side state.
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+///
+/// Serialized by hand (not derived): a question card's options go out as
+/// `options: string[]` (labels) plus the EXP-1322 `optionDescriptions`
+/// sidecar, see [`option_descriptions`].
+#[derive(Clone, Debug, PartialEq)]
 pub enum ReplyCard {
     Question {
         question: String,
         options: Vec<ReplyOption>,
-        #[serde(rename = "questionId")]
         question_id: String,
     },
     Plan {
         plan: String,
-        #[serde(rename = "questionId")]
         question_id: String,
     },
     Subagent {
         title: String,
         status: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
         summary: Option<String>,
     },
 }
 
-/// EXP-1322: one option of a question card. A described option posts as
-/// `{label, description}` (the thread card shows it like the session view's
-/// card); an undescribed one stays a plain label string, so an older server
-/// reads it unchanged.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+impl serde::Serialize for ReplyCard {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::Question {
+                question,
+                options,
+                question_id,
+            } => {
+                // COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 /
+                // desktop 0.14.69 only read string options. The device may post
+                // {label, description} objects again once CLIENT_MIN_VERSION_IOS
+                // >= 0.14.60 AND _ANDROID >= 0.14.62 AND _DESKTOP >= 0.14.70 (or
+                // keep the sidecar as the permanent form).
+                let labels: Vec<&str> = options.iter().map(ReplyOption::label).collect();
+                let descriptions = option_descriptions(options);
+                let mut map =
+                    serializer.serialize_map(Some(4 + usize::from(descriptions.is_some())))?;
+                map.serialize_entry("kind", "question")?;
+                map.serialize_entry("question", question)?;
+                map.serialize_entry("options", &labels)?;
+                if let Some(descriptions) = &descriptions {
+                    map.serialize_entry("optionDescriptions", descriptions)?;
+                }
+                map.serialize_entry("questionId", question_id)?;
+                map.end()
+            }
+            Self::Plan { plan, question_id } => {
+                let mut map = serializer.serialize_map(Some(3))?;
+                map.serialize_entry("kind", "plan")?;
+                map.serialize_entry("plan", plan)?;
+                map.serialize_entry("questionId", question_id)?;
+                map.end()
+            }
+            Self::Subagent {
+                title,
+                status,
+                summary,
+            } => {
+                let mut map = serializer.serialize_map(Some(3 + usize::from(summary.is_some())))?;
+                map.serialize_entry("kind", "subagent")?;
+                map.serialize_entry("title", title)?;
+                map.serialize_entry("status", status)?;
+                if let Some(summary) = summary {
+                    map.serialize_entry("summary", summary)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
+/// EXP-1322: one option of a question card: its label and, when the feed
+/// option carries one, its description (the thread card shows it like the
+/// session view's card). The answer names the option by its label.
+///
+/// On the wire the card posts `options` as plain label strings and the
+/// descriptions in the parallel `optionDescriptions` sidecar
+/// ([`option_descriptions`]); this enum's own (untagged) serde form —
+/// a string or `{label, description}` — is what a READER tolerates, since
+/// cards posted before the sidecar carry objects inside `options`.
+///
+/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
+/// 0.14.69 only read string options. The device may post {label, description}
+/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
+/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ReplyOption {
     Label(String),
@@ -185,8 +252,7 @@ pub enum ReplyOption {
 }
 
 impl ReplyOption {
-    /// The wire form for a feed option: described only when the description
-    /// carries text.
+    /// A feed option: described only when the description carries text.
     pub fn new(label: impl Into<String>, description: Option<&str>) -> Self {
         let label = label.into();
         match description.map(str::trim).filter(|text| !text.is_empty()) {
@@ -200,6 +266,27 @@ impl ReplyOption {
             Self::Label(label) | Self::Described { label, .. } => label,
         }
     }
+
+    /// The description, `None` for a plain label.
+    pub fn description(&self) -> Option<&str> {
+        match self {
+            Self::Label(_) => None,
+            Self::Described { description, .. } => Some(description),
+        }
+    }
+}
+
+/// The EXP-1322 `optionDescriptions` sidecar of a question card: parallel to
+/// `options` (same length), `None` = that option has no description; `None`
+/// altogether (the key is omitted) when no option carries one.
+///
+/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
+/// 0.14.69 only read string options. The device may post {label, description}
+/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
+/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
+pub fn option_descriptions(options: &[ReplyOption]) -> Option<Vec<Option<&str>>> {
+    let descriptions: Vec<Option<&str>> = options.iter().map(ReplyOption::description).collect();
+    descriptions.iter().any(Option::is_some).then_some(descriptions)
 }
 
 impl From<&str> for ReplyOption {
@@ -394,6 +481,7 @@ mod tests {
     fn report_serializes_every_field_and_the_blocked_tristate() {
         let wall = SessionReport {
             status: Some(ReportStatus::Running),
+            busy: None,
             needs_input: Some(true),
             blocked: Some(Some(BlockedInput {
                 kind: "rate_limit".to_string(),
@@ -405,7 +493,7 @@ mod tests {
             })),
             branch: Some("exp/EXP-1".to_string()),
             title: Some("Fix the login".to_string()),
-            ..Default::default()
+            account: Some("0a1b2c3d".to_string()),
         };
         let input = ReportInput {
             session_id: "s1",
@@ -413,7 +501,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&input).unwrap(),
-            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login"}"#
+            r#"{"sessionId":"s1","status":"running","needsInput":true,"blocked":{"kind":"rate_limit","agent":"claude","window":"session","resetsAt":"2026-10-13T12:00:00Z","since":"2026-10-13T10:00:00Z","handled":true},"branch":"exp/EXP-1","title":"Fix the login","account":"0a1b2c3d"}"#
         );
 
         // Some(None) = an explicit null (the wall cleared); a no-reset wall
@@ -465,7 +553,7 @@ mod tests {
         assert_eq!(
             body_of(&request),
             format!(
-                r#"{{"sessionId":"{SESSION}","body":"","card":{{"kind":"question","question":"Which DB?","options":[{{"label":"Postgres","description":"Managed, shared"}},"SQLite"],"questionId":"q-1"}}}}"#
+                r#"{{"sessionId":"{SESSION}","body":"","card":{{"kind":"question","question":"Which DB?","options":["Postgres","SQLite"],"optionDescriptions":["Managed, shared",null],"questionId":"q-1"}}}}"#
             )
         );
 
@@ -484,7 +572,10 @@ mod tests {
     #[test]
     fn reply_cards_match_the_message_card_wire() {
         let json = |card: &ReplyCard| serde_json::to_string(card).unwrap();
-        // EXP-1322: described options post as objects, the rest as labels.
+        // EXP-1322 sidecar: options post as labels; descriptions ride the
+        // parallel `optionDescriptions` (null = none), omitted when no option
+        // carries one. COMPAT: old iOS 0.14.59 / Android 0.14.61 / desktop
+        // 0.14.69 only read string options.
         assert_eq!(
             json(&ReplyCard::Question {
                 question: "Ship?".to_string(),
@@ -495,9 +586,34 @@ mod tests {
                 ],
                 question_id: "q-3".to_string(),
             }),
-            r#"{"kind":"question","question":"Ship?","options":[{"label":"Now","description":"Behind a flag"},"Later","Never"],"questionId":"q-3"}"#
+            r#"{"kind":"question","question":"Ship?","options":["Now","Later","Never"],"optionDescriptions":["Behind a flag",null,null],"questionId":"q-3"}"#
+        );
+        assert_eq!(
+            json(&ReplyCard::Question {
+                question: "Ship?".to_string(),
+                options: vec!["Now".into(), ReplyOption::new("Never", Some(" "))],
+                question_id: "q-4".to_string(),
+            }),
+            r#"{"kind":"question","question":"Ship?","options":["Now","Never"],"questionId":"q-4"}"#
+        );
+        assert_eq!(
+            json(&ReplyCard::Question {
+                question: "Anything?".to_string(),
+                options: vec![],
+                question_id: "q-5".to_string(),
+            }),
+            r#"{"kind":"question","question":"Anything?","options":[],"questionId":"q-5"}"#
         );
         assert_eq!(ReplyOption::new("Now", Some("x")).label(), "Now");
+        assert_eq!(ReplyOption::new("Now", Some("x")).description(), Some("x"));
+        assert_eq!(ReplyOption::new("Now", None).description(), None);
+        assert_eq!(option_descriptions(&["A".into(), "B".into()]), None);
+        // A reader keeps tolerating both element forms (cards posted before
+        // the sidecar carry objects inside `options`).
+        assert_eq!(
+            serde_json::from_str::<Vec<ReplyOption>>(r#"["A",{"label":"B","description":"b"}]"#).unwrap(),
+            vec![ReplyOption::Label("A".into()), ReplyOption::new("B", Some("b"))]
+        );
         assert_eq!(
             json(&ReplyCard::Plan {
                 plan: "1. Do it".to_string(),

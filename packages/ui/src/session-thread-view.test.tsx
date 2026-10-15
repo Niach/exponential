@@ -245,6 +245,22 @@ describe(`session chips`, () => {
       [`a`, 1],
       [`a1`, 2],
     ])
+    // A parent cycle reaches no root: its rows still list (promoted), once.
+    const cyclic = [
+      ...rows,
+      { sessionId: `x`, parentId: `y`, name: `X`, agent: null, markState: `waiting` as const },
+      { sessionId: `y`, parentId: `x`, name: `Y`, agent: null, markState: `waiting` as const },
+      { sessionId: `y1`, parentId: `y`, name: `Y1`, agent: null, markState: `waiting` as const },
+    ]
+    expect(threadTreeRows(cyclic).map((entry) => [entry.row.sessionId, entry.depth])).toEqual([
+      [`r`, 0],
+      [`b`, 1],
+      [`a`, 1],
+      [`a1`, 2],
+      [`x`, 0],
+      [`y`, 1],
+      [`y1`, 2],
+    ])
     const onOpen = vi.fn()
     render(<ThreadSessionTree rows={rows} activeId="a" onOpen={onOpen} />)
     const items = screen.getAllByTestId(`thread-session-tree-row`)

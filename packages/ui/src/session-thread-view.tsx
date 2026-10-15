@@ -1,5 +1,6 @@
 import {
   useLayoutEffect,
+  useMemo,
   useRef,
   type ComponentProps,
   type ComponentType,
@@ -144,9 +145,10 @@ export function ThreadTabs({
         {guide.dot && (
           <span
             data-testid="thread-guide-dot"
-            aria-label="The Guide has content"
             className="size-1.5 shrink-0 rounded-full bg-emerald-400"
-          />
+          >
+            <span className="sr-only">The Guide has content</span>
+          </span>
         )}
       </Button>
     </div>
@@ -234,13 +236,24 @@ export function threadTreeRows(
     children.set(parent, list)
   }
   const out: { row: ThreadTreeRow; depth: number }[] = []
+  const visited = new Set<string>()
   const walk = (parent: string | null, depth: number) => {
     for (const row of children.get(parent) ?? []) {
+      if (visited.has(row.sessionId)) continue
+      visited.add(row.sessionId)
       out.push({ row, depth })
       walk(row.sessionId, depth + 1)
     }
   }
   walk(null, 0)
+  // A parent cycle (a ↔ b, a row naming itself) reaches no root and would
+  // vanish: promote its first unreached row to a root and walk under it.
+  for (const row of rows) {
+    if (visited.has(row.sessionId)) continue
+    visited.add(row.sessionId)
+    out.push({ row, depth: 0 })
+    walk(row.sessionId, 1)
+  }
   return out
 }
 
@@ -521,16 +534,23 @@ function ThreadQuestionCard({
   busy: boolean
   onAnswer?: (answer: string) => void
 }) {
-  const options: AskOption[] = [
-    // EXP-1322: label + description like the session view's card; the
-    // answer names the option by its label.
-    ...row.options.map((option, index) => ({
-      key: `${index}:${option.label}`,
-      label: option.label,
-      ...(option.description ? { description: option.description } : {}),
-    })),
-    ...(row.custom ? [{ key: FREE_TEXT_KEY, label: ASK_CARD_COPY.freeTextRow, freeText: true }] : []),
-  ]
+  // Memoized: `AskPrompt` keys its hotkey listener on `options`, and the
+  // thread view is rebuilt every second (useNow).
+  const options = useMemo<AskOption[]>(
+    () => [
+      // EXP-1322: label + description like the session view's card; the
+      // answer names the option by its label.
+      ...row.options.map((option, index) => ({
+        key: `${index}:${option.label}`,
+        label: option.label,
+        ...(option.description ? { description: option.description } : {}),
+      })),
+      ...(row.custom
+        ? [{ key: FREE_TEXT_KEY, label: ASK_CARD_COPY.freeTextRow, freeText: true }]
+        : []),
+    ],
+    [row.options, row.custom]
+  )
   return (
     <AskCard data-slot="thread-question" data-answered={row.answered || undefined}>
       <div className="text-sm text-foreground/90">{renderText(row.question)}</div>
@@ -659,6 +679,7 @@ export function ThreadsListItem({
       )}
       {locked && (
         <PrivateIcon
+          role="img"
           aria-label="Private"
           data-slot="threads-row-lock"
           className="size-3.5 shrink-0 text-muted-foreground"

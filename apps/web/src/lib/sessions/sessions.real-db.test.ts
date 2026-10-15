@@ -290,6 +290,71 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(onChild).toMatchObject({ sessionId: cont.sessionId, rootId: root.sessionId, body: `one more` })
   })
 
+  it(`an account on a message switches the live session's login; alone it posts no message`, async () => {
+    const w = await world()
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `aaaa1111`, text: `first` },
+    })
+    const before = await db.select().from(messages).where(eq(messages.sessionId, root.sessionId))
+
+    // Account-only: the row's login moves (the device acts on it), no bubble.
+    const alone = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, account: `bbbb2222` } })
+    expect(alone).toMatchObject({ sessionId: root.sessionId, messageId: null })
+    expect(alone.txid).toBeTypeOf(`number`)
+    expect(await row(root.sessionId)).toMatchObject({ account: `bbbb2222`, status: `queued` })
+    const after = await db.select().from(messages).where(eq(messages.sessionId, root.sessionId))
+    expect(after).toHaveLength(before.length)
+
+    // With text: the switch and the message land together.
+    const both = await sendSession({
+      userId: w.owner,
+      input: { sessionId: root.sessionId, account: `cccc3333`, text: `carry on` },
+    })
+    expect(both.messageId).not.toBeNull()
+    expect(await row(root.sessionId)).toMatchObject({ account: `cccc3333` })
+
+    // Codex keeps one login per session.
+    const codex = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `codex`, text: `codex` },
+    })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: codex.sessionId, account: `dddd4444` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+
+    // A session with NO cli runs the device's default agent: a codex
+    // default refuses the switch too; an unknowable one is left to the device.
+    const defaulted = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `default agent` },
+    })
+    expect((await row(defaulted.sessionId)).cli).toBeNull()
+    await sendSession({ userId: w.owner, input: { sessionId: defaulted.sessionId, account: `ffff6666` } })
+    expect((await row(defaulted.sessionId)).account).toBe(`ffff6666`)
+    await db
+      .update(devices)
+      .set({ launchDefaults: { defaultAgent: `codex` } })
+      .where(eq(devices.deviceId, w.deviceId))
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: defaulted.sessionId, account: `gggg7777` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+
+    // An ended thread: a switch alone is refused; with a message the
+    // continuation child runs on the new login.
+    await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: root.sessionId, account: `eeee5555` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    const cont = await sendSession({
+      userId: w.owner,
+      input: { sessionId: root.sessionId, account: `eeee5555`, text: `again` },
+    })
+    expect(cont.sessionId).not.toBe(root.sessionId)
+    expect(await row(cont.sessionId)).toMatchObject({ account: `eeee5555`, parentId: root.sessionId })
+    expect(await row(root.sessionId)).toMatchObject({ account: `cccc3333`, status: `ended` })
+  })
+
   it(`ending a root ends its whole tree; an agent refuses End`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
@@ -506,6 +571,13 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect((await row(sent.sessionId)).lastTurnAt).not.toBeNull()
     await host.report({ sessionId: sent.sessionId, title: `Other` })
     expect((await row(sent.sessionId)).title).toBe(`Auto`)
+
+    // EXP-849: the device reports the login the run actually runs on (a
+    // start pick or a rotation moved it); a report without one leaves it.
+    await host.report({ sessionId: sent.sessionId, account: `bbbb2222` })
+    expect((await row(sent.sessionId)).account).toBe(`bbbb2222`)
+    await host.report({ sessionId: sent.sessionId, busy: true })
+    expect((await row(sent.sessionId)).account).toBe(`bbbb2222`)
 
     const { brief } = await host.brief({ sessionId: sent.sessionId })
     expect(brief).toContain(`start`)

@@ -329,8 +329,7 @@ function TriggerTimeRow({
 export interface TriggerAccountPin {
   /** `` = no agent pinned yet (only while no device is bound). */
   agent: string
-  /** `` = unpinned (stored NULL): the machine's LAST USED login for `agent`.
-   *  The server folds a legacy `system` to unpinned too. */
+  /** `` = unpinned (stored NULL): the machine's LAST USED login for `agent`. */
   account: string
 }
 

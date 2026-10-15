@@ -109,6 +109,10 @@ public enum SessionsSendInput: Sendable, Equatable {
     /// A message into an existing session (resumes it when idle; an ended
     /// thread continues in a new child server-side). Needs text or files.
     case message(sessionId: String, text: String? = nil, attachmentIds: [String]? = nil)
+    /// EXP-849: the mid-session account SWITCH — `{sessionId, account}`, no
+    /// text. The server moves the synced `sessions.account`; the host device
+    /// resumes the SAME row on that login between turns.
+    case switchAccount(sessionId: String, account: String)
 }
 
 // Synthesized-style encodeIfPresent per field: every nil is OMITTED, never
@@ -157,6 +161,9 @@ extension SessionsSendInput: Encodable {
             try c.encode(sessionId, forKey: .sessionId)
             try c.encodeIfPresent(text, forKey: .text)
             try c.encodeIfPresent(attachmentIds, forKey: .attachmentIds)
+        case let .switchAccount(sessionId, account):
+            try c.encode(sessionId, forKey: .sessionId)
+            try c.encode(account, forKey: .account)
         }
     }
 }

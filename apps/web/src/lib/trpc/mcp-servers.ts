@@ -627,8 +627,7 @@ export const mcpServersRouter = router({
   // `actor`, plus `members`: the roster of who is in, who is not. Any other
   // session: no extras, `members: []`.
   resolveForLaunch: authedProcedure
-    // `serverIds`: accepted and ignored since the 0.14.66 floor.
-    .input(z.object({ serverIds: z.array(z.string().uuid()).max(16).optional() }))
+    .input(z.object({}))
     .mutation(async ({ ctx }) => {
       const userId = ctx.session.user.id
       if (await isAgentApiKeySession(ctx.db, ctx.session)) {

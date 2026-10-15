@@ -3413,10 +3413,16 @@ const PENDING_ECHOES_MAX: usize = 8;
 /// `answer.text`, and picking the row with nothing typed means "no answer".
 const FREE_TEXT_KEY: &str = "text";
 
-/// `(value, label)` per multi-select item, over both shapes the schema has.
 /// EXP-1322: a question card's options = the feed options minus the
 /// free-text row, each carrying its description when it has one (the thread
-/// card shows it like the session view's card).
+/// card shows it like the session view's card). `ReplyCard`'s serializer
+/// splits them into the wire pair: `options` (labels) + the
+/// `optionDescriptions` sidecar.
+///
+/// COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
+/// 0.14.69 only read string options. The device may post {label, description}
+/// objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >=
+/// 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
 fn card_options(options: &[QuestionOption]) -> Vec<api::session_device::ReplyOption> {
     options
         .iter()
@@ -6628,6 +6634,38 @@ mod conversation_tests {
                 },
                 ReplyOption::Label("Open the PR".into()),
             ]
+        );
+        // The wire pair (EXP-1322 sidecar): labels in `options`, descriptions
+        // in the parallel `optionDescriptions` (null = none).
+        assert_eq!(
+            serde_json::to_value(api::session_device::ReplyCard::Question {
+                question: "Which?".into(),
+                options: card_options(&options),
+                question_id: "q-1".into(),
+            })
+            .unwrap(),
+            json!({
+                "kind": "question",
+                "question": "Which?",
+                "options": ["Lazy-load", "Open the PR"],
+                "optionDescriptions": ["~90ms more", null],
+                "questionId": "q-1",
+            })
+        );
+        // No description anywhere = no sidecar key at all.
+        assert_eq!(
+            serde_json::to_value(api::session_device::ReplyCard::Question {
+                question: "Which?".into(),
+                options: card_options(&options[1..]),
+                question_id: "q-2".into(),
+            })
+            .unwrap(),
+            json!({
+                "kind": "question",
+                "question": "Which?",
+                "options": ["Open the PR"],
+                "questionId": "q-2",
+            })
         );
     }
 

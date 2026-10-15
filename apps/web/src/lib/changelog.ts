@@ -25,6 +25,19 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-15-release-train-described-options`,
+    date: `2026-10-15`,
+    title: `Release 2026-10-15: described options everywhere, the phone dawn, and the review fixes`,
+    summary: `An agent's question options can carry a short description on web, IDE, iPhone and Android, Home on phones puts the composer on the dawn, a walled session switches accounts again, and the release review fixed sending from Safari and thread renames on older apps.`,
+    body: `- **Described options**: when an agent asks a question, each option can carry a short description under its label, on every device. Older phones and desktops still see the plain labels.
+- **Phones**: Home puts the composer on the dawn at the bottom, and the floating reply box no longer folds away when you tap Send in Safari.
+- **IDE**: New agent opens the Settings page like on web, animations repaint only on their own step, a thread never carries the Inbox beside it and pictures in thread messages load.
+- **Accounts**: a session that hits its usage limit can switch to another signed-in account from its wall on every device, and switching on its own now also covers threads without a repository.
+- **Members**: adding a person without an invite and inviting them at the same time no longer fails on the invite side.
+- **Sign-in**: a personal API key the server rejects answers with a plain sign-in error instead of a server failure.
+- **Older apps**: renaming a thread by hand keeps working from Android 0.14.61 and the desktop 0.14.69 until they update.`,
+  },
+  {
     id: `2026-10-15-add-without-inviting`,
     date: `2026-10-15`,
     title: `Add a teammate without inviting them`,

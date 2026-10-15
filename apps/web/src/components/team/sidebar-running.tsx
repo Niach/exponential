@@ -33,6 +33,25 @@ import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 // the thread with the `running` origin, which creates NO work tab
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`).
 
+/** The words a row shows while its title is held (EXP-1316: an
+ *  issue-linked row waits for the issue shapes). */
+export const SIDEBAR_RUNNING_LOADING_LABEL = `Loading`
+
+/** A held row's title line: a skeleton bar in the text's place, never an
+ *  empty row beside a glyph. */
+function SidebarRunningTitle({ title }: { title: string }) {
+  if (title) return <span className="min-w-0 flex-1 truncate">{title}</span>
+  return (
+    <span className="flex min-w-0 flex-1 items-center" aria-label={SIDEBAR_RUNNING_LOADING_LABEL}>
+      <span
+        data-testid="sidebar-running-title-skeleton"
+        aria-hidden
+        className="h-2.5 w-24 max-w-full animate-pulse rounded-md bg-accent"
+      />
+    </span>
+  )
+}
+
 /** The list data the sidebar reads ONCE and hands to its sections. */
 export interface SidebarThreads {
   groups: ThreadsListGroup[]
@@ -140,7 +159,7 @@ export function SidebarRunningSection({
                   data-testid={`sidebar-running-${row.sessionId}`}
                 >
                   <ThreadRunMark row={row} />
-                  <span className="min-w-0 flex-1 truncate">{row.title}</span>
+                  <SidebarRunningTitle title={row.title} />
                   {/* EXP-1318: the root's device, trailing. */}
                   {device && <SessionRowDevice icon={device.icon} name={device.name} />}
                 </SidebarMenuButton>
@@ -183,7 +202,7 @@ export function SidebarRunningIcons({
       {rows.map((row) =>
         renderItem({
           key: row.sessionId,
-          label: row.title,
+          label: row.title || SIDEBAR_RUNNING_LOADING_LABEL,
           active: shown === row.sessionId,
           onClick: () => openThread(row.sessionId),
           icon: <ThreadRunMark row={row} />,

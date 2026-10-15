@@ -393,8 +393,9 @@ fun ThreadTabStrip(
     }
 }
 
-/** EXP-1316: every chip of the strip is ONE height. */
-private val ThreadTabHeight = 36.dp
+/** EXP-1316: every chip of the strip is ONE height — entity-chip `tab` size
+ *  (web `STRIP_TAB_CLASS`: `h-8 rounded-md` = 32dp tall, the 10dp row radius). */
+private val ThreadTabHeight = 32.dp
 
 /** A session chip's lead: the thread row mark of that session. */
 @Composable
@@ -793,7 +794,11 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
         is SessionTree.ThreadRow.Question -> AgentFeedItem.Question(
             id = row.id.hashCode().toLong(),
             text = row.question,
-            options = row.options.map { QuestionOption(label = it.label, key = it.label, description = it.description) },
+            // Keyed `index:label` like web — two identical labels stay two rows;
+            // the answer still names the option by its label (below).
+            options = row.options.mapIndexed { index, option ->
+                QuestionOption(label = option.label, key = "$index:${option.label}", description = option.description)
+            },
             multiSelect = false,
             resolved = row.answered,
             answer = row.answer,
@@ -827,7 +832,9 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
                 if (row is SessionTree.ThreadRow.Plan) {
                     onDecidePlan(row.id, key == PLAN_APPROVE_KEY, null, settle)
                 } else {
-                    val answer = text?.takeIf { it.isNotBlank() } ?: key.orEmpty()
+                    val answer = text?.takeIf { it.isNotBlank() }
+                        ?: item.options.firstOrNull { it.key == key }?.label
+                        ?: key.orEmpty()
                     onAnswer(row.id, answer, settle)
                 }
             },

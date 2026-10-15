@@ -41,7 +41,8 @@ pub struct AgentInput {
 
 /// `sessions.send` input. Every key is optional and omitted when unset; the
 /// server's rules decide which combinations are valid (a message needs
-/// `session_id` + text/attachments, a child `parent_id` + `device_id`, a new
+/// `session_id` + text/attachments/`account` — an `account` on a message is
+/// an account SWITCH, EXP-849, and may ride alone — a child `parent_id` + `device_id`, a new
 /// root `team_id` + `device_id` + text/issues/action, a new agent `agent`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

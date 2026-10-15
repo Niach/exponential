@@ -37,6 +37,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             expanded: false,
             on_toggle: Some(std::rc::Rc::new(|_, _| {})),
             on_open: None,
+            images: None,
         },
         cx,
     );

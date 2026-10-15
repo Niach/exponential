@@ -232,6 +232,20 @@ export type AddPlaceholderResult =
  * later "Send invite" still binds a link, and accepting from a password
  * account merges the row. Runs inside the caller's transaction.
  */
+/**
+ * THE per-address serialization point: every path that may create a
+ * `users` row for a typed address (addPlaceholderToRoster by hand or from
+ * the import, teamInvites.create by email) takes this transaction-scoped
+ * advisory lock FIRST, so two concurrent adds of one new address queue
+ * instead of racing `users.email` UNIQUE (the loser would 500 otherwise).
+ * `email` must already be normalized (normalizeInviteEmail).
+ */
+export async function lockPlaceholderAddress(tx: DbOrTx, email: string): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`placeholder_address:${email}`}))`
+  )
+}
+
 export async function addPlaceholderToRoster(
   tx: DbOrTx,
   input: {
@@ -247,9 +261,7 @@ export async function addPlaceholderToRoster(
     email: input.email,
     name: input.name,
   })
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${`placeholder_address:${identity.email}`}))`
-  )
+  await lockPlaceholderAddress(tx, identity.email)
   const [owner] = await tx
     .select({ id: users.id, placeholderAt: users.placeholderAt })
     .from(users)

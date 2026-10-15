@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-// Regression lock for the /auth/login + /auth/register open redirect:
+// Regression lock for the /auth/login open redirect:
 // `?redirect=` flows into `window.location.href` after sign-in, so only
 // same-origin absolute paths may survive. Anything scheme-bearing
 // (`javascript:`, `https://evil.example`), protocol-relative (`//host`),

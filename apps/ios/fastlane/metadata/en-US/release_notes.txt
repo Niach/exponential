@@ -1,4 +1,5 @@
-- Threads: every piece of work is one conversation, listed as Needs you, Running and Recent, with each session as a card
-- Team agents: add agents in Settings that look after a board from their own device and start a thread for each piece of work
-- Shared threads: a thread on a device shared with the team is visible to the whole team, who can reply, answer and stop it
-- Actions are saved prompts, and merging a pull request no longer ends a session
+- Threads: a thread is one screen on every device, with its issues, sessions and Guide in one strip, and Home puts the composer on the dawn at the bottom
+- Titles: a thread is named after its work, like Implement EXP-12 or Run Triage, so every list reads the same on phone, web and desktop
+- Questions: an agent's options can carry a short description, and every question has a row to type your own answer
+- Guide: a picture opens next to its notes, with arrows to the next one, and people added to the team without an invite show as Not invited
+- Accounts: a session that hits its usage limit can switch to another signed-in account and keep going

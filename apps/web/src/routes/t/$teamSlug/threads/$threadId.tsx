@@ -179,8 +179,11 @@ function ThreadPage() {
 
   // EXP-1316: until the issue shapes reported ready the title could still
   // flip from the request text to `Implement EXP-12` (and the chips pop in):
-  // hold the page on its placeholder.
-  if (!team || !thread.view || !thread.root || !thread.titleReady) {
+  // hold the page on its placeholder — but only for the sync grace: a shape
+  // that never reports ready must not leave a permanent skeleton, so past it
+  // the page renders with whatever it has (the title settles in place).
+  const titleHeld = !thread.titleReady && !graceOver
+  if (!team || !thread.view || !thread.root || titleHeld) {
     if (team && thread.isReady && !thread.root && graceOver) {
       return (
         <div className="flex h-full flex-col items-center justify-center">
@@ -460,9 +463,11 @@ function ThreadScreen({
     )
   }
 
-  // EXP-1307: the header's `…` (Open on GitHub, Close PR) on the Guide.
+  // EXP-1307/1316: the header's `…` (Open on GitHub, Close PR) on EVERY tab
+  // while the Guide has a PR (the fixture's header merge; iOS and desktop
+  // already do), not only on the Guide.
   const guideMenu = (className?: string) =>
-    tab.kind === `guide` && guidePr ? (
+    guidePr ? (
       <ThreadGuideMenu pr={guidePr} canClose={permissions.isMember} className={className} />
     ) : null
 
@@ -477,6 +482,7 @@ function ThreadScreen({
       </h1>
       {view.private && (
         <PrivateIcon
+          role="img"
           aria-label="Private"
           data-testid="thread-private"
           className="size-4 shrink-0 text-muted-foreground"
@@ -598,7 +604,11 @@ function ConversationBody({
   const { data: session } = useSession()
   // EXP-1316 (1n): the session feed's scroll — opens at the newest row,
   // follows while pinned, THE jump button once scrolled up.
-  const follow = useFollowScroll([view.rows])
+  // Keyed on the row count + the last row's id, not `view.rows`: the view is
+  // rebuilt every second (useNow) and an identity key would re-run the
+  // follow effect each tick.
+  const lastRowId = view.rows.at(-1)?.id ?? null
+  const follow = useFollowScroll([view.rows.length, lastRowId])
   const isMobile = useIsMobile()
   const composer = canReply ? (
     <SessionComposer

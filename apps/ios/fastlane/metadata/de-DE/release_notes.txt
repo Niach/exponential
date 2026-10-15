@@ -1,4 +1,5 @@
-- Threads: jede Aufgabe ist eine Unterhaltung, gelistet als Braucht dich, Läuft und Zuletzt, mit jeder Session als Karte
-- Team-Agenten: füge in den Einstellungen Agenten hinzu, die sich von ihrem eigenen Gerät aus um ein Board kümmern und für jede Aufgabe einen Thread starten
-- Geteilte Threads: ein Thread auf einem mit dem Team geteilten Gerät ist für das ganze Team sichtbar, das antworten und ihn stoppen kann
-- Aktionen sind gespeicherte Prompts, und das Mergen eines Pull Requests beendet keine Session mehr
+- Threads: ein Thread ist auf jedem Gerät ein Bildschirm, mit Issues, Sessions und Guide in einer Leiste, und Home zeigt das Eingabefeld unten auf dem Morgenrot
+- Titel: ein Thread heißt nach seiner Arbeit, etwa Implement EXP-12 oder Run Triage, sodass jede Liste auf Telefon, Web und Desktop gleich aussieht
+- Fragen: die Optionen eines Agenten können eine kurze Beschreibung haben, und jede Frage hat eine Zeile für deine eigene Antwort
+- Guide: ein Bild öffnet sich neben seinen Notizen, mit Pfeilen zum nächsten, und ohne Einladung zum Team hinzugefügte Personen erscheinen als Not invited
+- Konten: eine Session, die ihr Nutzungslimit erreicht, kann zu einem anderen angemeldeten Konto wechseln und weiterlaufen

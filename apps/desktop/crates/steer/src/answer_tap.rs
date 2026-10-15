@@ -1,8 +1,11 @@
-//! EXP-1316 — the relay-answer TAP: a question/plan card answered in the
-//! SESSION view reaches the engine over the relay (`ServerFrame::Answer`),
+//! EXP-1316 — the answer TAP: a question/plan card answered in the SESSION
+//! view reaches the engine as a `RemoteAnswer` (over the relay's
+//! `ServerFrame::Answer`, the IDE's local card, or the CLI's own TUI),
 //! never through the synced `messages` row the device posted for it, so the
-//! thread's card would stay open on every other client. The publisher hands
-//! each such answer, translated into `sessions.resolveCard` terms
+//! thread's card would stay open on every other client. The engine host
+//! hands each such answer (EXP-1317: from its `answer_ask`, the one choke
+//! point every path shares — the publisher used to, and only saw the
+//! relay's), translated into `sessions.resolveCard` terms
 //! ([`card_resolution`]), to every tap a host installed
 //! ([`add_answer_tap`]); the host maps the question id onto the card's
 //! `messages.id` (`coding::pickup::LiveRegistry::resolve_card_input`) and
@@ -38,9 +41,10 @@ pub fn add_answer_tap(tap: AnswerTap) {
     }
 }
 
-/// Hand `resolution` to every installed tap (the publisher, before the
-/// engine sees the answer: the card is still open in its outbox).
-pub(crate) fn notify(session_id: &str, resolution: &CardResolution) {
+/// Hand `resolution` to every installed tap (the engine's `answer_ask`,
+/// before the mapper resolves the answer: the card is still open in the
+/// outbox the tap maps it through).
+pub fn notify(session_id: &str, resolution: &CardResolution) {
     let taps: Vec<AnswerTap> = match TAPS.read() {
         Ok(taps) => taps.clone(),
         Err(_) => return,
@@ -54,8 +58,8 @@ fn non_blank(text: Option<&str>) -> Option<String> {
     text.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
-/// Translate a relay answer against the question it answers (the
-/// publisher's recorded `question` event; `None` = not in the journal): a
+/// Translate an answer against the question it answers (the engine's held
+/// `question` event; `None` = unknown or evicted): a
 /// plan card's LAST option is its reject (the session view's rule), any
 /// other key approves; a question answers with its typed text, else the
 /// picked options' labels (`, `-joined), else the raw keys.
@@ -91,16 +95,6 @@ pub fn card_resolution(answer: &RemoteAnswer, question: Option<&ActivityEvent>) 
         non_blank(Some(&labels.join(", ")))
     });
     resolution
-}
-
-/// The recorded `question` event with `question_id`, newest first.
-pub(crate) fn find_question<'a>(
-    events: impl Iterator<Item = &'a ActivityEvent>,
-    question_id: &str,
-) -> Option<&'a ActivityEvent> {
-    events
-        .filter(|event| matches!(event, ActivityEvent::Question { id, .. } if id == question_id))
-        .last()
 }
 
 #[cfg(test)]
@@ -156,13 +150,5 @@ mod tests {
         assert_eq!(rejected.decision.as_deref(), Some("rejected"));
         assert_eq!(rejected.feedback.as_deref(), Some("Smaller"));
         assert_eq!(rejected.answer, None);
-    }
-
-    #[test]
-    fn the_newest_recorded_question_wins() {
-        let events = [question(false), ActivityEvent::narration("x"), question(true)];
-        let found = find_question(events.iter(), "q-1");
-        assert!(matches!(found, Some(ActivityEvent::Question { plan_mode: Some(true), .. })));
-        assert!(find_question(events.iter(), "q-9").is_none());
     }
 }

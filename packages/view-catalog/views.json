@@ -83,10 +83,6 @@
       "reason": "Static third-party licence notices (EXP-262). Legal text, no product surface worth a shot."
     },
     {
-      "route": "/auth/register",
-      "reason": "Unconditional redirect to /auth/login since EXP-188; the create-account state is the same card with its toggle flipped."
-    },
-    {
       "route": "/auth/forgot-password",
       "reason": "Transactional password-recovery form; no product surface, and capturing it needs a live mail sink."
     },

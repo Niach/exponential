@@ -1,4 +1,5 @@
-- Szálak: minden munka egy beszélgetés, Rád vár, Fut és Legutóbbi listákban, minden munkamenet egy kártya
-- Csapatügynökök: a Beállításokban adj hozzá ügynököket, amelyek a saját eszközükről gondoznak egy táblát, és minden munkához szálat indítanak
-- Megosztott szálak: a csapattal megosztott eszközön futó szálat az egész csapat látja, válaszolhat rá és leállíthatja
-- A műveletek mentett promptok, és egy pull request egyesítése már nem zár le munkamenetet
+- Szálak: egy szál minden eszközön egy képernyő, a feladatai, munkamenetei és a Guide egy sávban, a Home pedig alul, a hajnalon mutatja a szerkesztőt
+- Címek: a szál a munkájáról kapja a nevét, például Implement EXP-12 vagy Run Triage, így minden lista ugyanúgy néz ki telefonon, weben és asztali gépen
+- Kérdések: az ügynök opcióihoz rövid leírás tartozhat, és minden kérdésnél van egy sor a saját válaszodhoz
+- Guide: a kép a jegyzetei mellett nyílik meg, nyilakkal a következőhöz, a meghívó nélkül a csapathoz adott emberek pedig Not invited jelzést kapnak
+- Fiókok: a használati korlátját elérő munkamenet átválthat egy másik bejelentkezett fiókra, és folytathatja a munkát

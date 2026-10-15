@@ -1,0 +1,5 @@
+Threads: a thread is one screen on every device, with its issues, sessions and Guide in one strip, and Home puts the composer on the dawn at the bottom.
+Titles: a thread is named after its work.
+Questions: an agent's options can carry a short description, and every question has a row to type your own answer.
+Guide: a picture opens next to its notes, and people added without an invite show as Not invited.
+Accounts: a session at its usage limit can switch to another login.

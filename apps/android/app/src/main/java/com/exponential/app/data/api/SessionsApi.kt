@@ -43,7 +43,7 @@ data class SessionsSendInput(
     val teamId: String? = null,
     val sessionId: String? = null,
     val parentId: String? = null,
-    // Runner pickers (new sessions only).
+    // Runner pickers (new sessions; `account` alone on a message = a switch).
     val deviceId: String? = null,
     val cli: String? = null,
     val account: String? = null,
@@ -148,6 +148,14 @@ data class SessionsSendInput(
             text = text,
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
         )
+
+        /**
+         * EXP-849: the mid-session account SWITCH — `{sessionId, account}`, no
+         * text. The server moves the synced `sessions.account` and the host
+         * device resumes the SAME row on that login between turns.
+         */
+        fun switchAccount(sessionId: String, account: String): SessionsSendInput =
+            SessionsSendInput(sessionId = sessionId, account = account)
     }
 }
 

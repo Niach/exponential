@@ -58,6 +58,14 @@ const DEVICE_CARD_KINDS = new Set([`question`, `plan`, `subagent`, `picture`])
 /** EXP-1322: a question card's options: labels or `{label, description}`. */
 const questionCardOptionsSchema = z.array(questionCardOptionSchema).max(50)
 
+/** Sidecar to plain-label `options` (iOS <= 0.14.59 drops object options):
+ *  one description or null per option, parallel to `options`. Stored on the
+ *  card as posted (messageCardSchema is passthrough); the type of each entry
+ *  is checked, the length is left to the device. */
+const questionCardOptionDescriptionsSchema = z
+  .array(z.string().max(2000).nullable())
+  .max(50)
+
 async function loadAgent(userId: string, sessionId: string): Promise<Session> {
   const agent = await loadSessionForUser(userId, sessionId)
   if (agent.kind !== `agent`) {
@@ -155,6 +163,27 @@ export const sessionsRouter = router({
         sessionId: input.sessionId,
       })
       return { txid }
+    }),
+
+  // COMPAT (EXP-1316): Android <= 0.14.61 and desktop <= 0.14.69 rename a
+  // thread by hand through this procedure. The stored `sessions.title` now
+  // ranks BELOW the agent/action/issue names in the contract's threadTitle
+  // ladder, so the write is harmless. Delete once
+  // CLIENT_MIN_VERSION_ANDROID >= 0.14.62 AND CLIENT_MIN_VERSION_DESKTOP >= 0.14.70.
+  setTitle: authedProcedure
+    .input(z.object({ sessionId: uuid, title: z.string().trim().max(255).nullable() }))
+    .mutation(async ({ ctx, input }): Promise<{ txid: number }> => {
+      const userId = ctx.session.user.id
+      const session = await loadSessionForUser(userId, input.sessionId)
+      await assertCanSteer(userId, session)
+      return ctx.db.transaction(async (tx) => {
+        const txid = await generateTxId(tx)
+        await tx
+          .update(sessions)
+          .set({ title: input.title || null, updatedAt: new Date() })
+          .where(eq(sessions.id, session.id))
+        return { txid }
+      })
     }),
 
   /** Link issues to a thread (always lands on the ROOT; the header "+"). */
@@ -429,6 +458,10 @@ export const sessionsRouter = router({
         blocked: codingSessionBlockedSchema.nullable().optional(),
         branch: z.string().max(255).optional(),
         title: z.string().max(255).optional(),
+        // EXP-849: the login the run ACTUALLY runs on (a start pick or a
+        // rotation may move it off the row's), so the row says it and a
+        // person's later pick of the old one is a real switch.
+        account: z.string().min(1).max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -461,6 +494,7 @@ export const sessionsRouter = router({
                 }),
             ...(input.blocked !== undefined ? { blocked: blocked ?? null } : {}),
             ...(input.branch ? { branch: input.branch } : {}),
+            ...(input.account ? { account: input.account } : {}),
             // The CLI's auto-name only fills a blank title (a person's or
             // the agent's own title wins).
             ...(input.title?.trim() && !session.title ? { title: input.title.trim() } : {}),
@@ -497,6 +531,15 @@ export const sessionsRouter = router({
         !questionCardOptionsSchema.safeParse(card.options).success
       ) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid question options` })
+      }
+      if (
+        card?.kind === `question` &&
+        (card as { optionDescriptions?: unknown }).optionDescriptions !== undefined &&
+        !questionCardOptionDescriptionsSchema.safeParse(
+          (card as { optionDescriptions?: unknown }).optionDescriptions
+        ).success
+      ) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid question option descriptions` })
       }
       if (!card && !input.body.trim()) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: `A reply needs a body or a card` })

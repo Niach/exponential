@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import type { GuideViewerState } from "@exp/domain-contract/guide-viewer"
 import { Button } from "./button"
+import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
 import { ImagePreviewDialog, type PreviewNaturalSize } from "./image-preview-dialog"
 import { Pill } from "./pill"
@@ -32,9 +33,20 @@ export function GuidePictureViewerPanel({
   renderText?: (text: string) => ReactNode
   onSelect: (attachmentId: string) => void
 }) {
+  // At either end the button is a no-op wearing `aria-disabled`, never
+  // `disabled`: a focused button that disables drops focus to the body and
+  // the dialog's onKeyDown stops seeing ←/→.
+  const atStart = state.prevId === null
+  const atEnd = state.nextId === null
+  const endClass = `aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent`
   return (
     <div data-testid="guide-viewer-panel" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 pt-6 pb-4 sm:pr-12">
+      {/* Keyed on the picture (its place in the set) so the panel's scroll
+          resets per picture. */}
+      <div
+        key={state.index}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-6 pt-6 pb-4 sm:pr-12"
+      >
         <h2 data-testid="guide-viewer-topic" className="text-lg font-semibold text-foreground">
           {state.topic}
         </h2>
@@ -54,7 +66,8 @@ export function GuidePictureViewerPanel({
           size="icon-sm"
           aria-label={GUIDE_VIEWER_COPY.previous}
           data-testid="guide-viewer-prev"
-          disabled={state.prevId === null}
+          aria-disabled={atStart || undefined}
+          className={cn(endClass)}
           onClick={() => state.prevId && onSelect(state.prevId)}
         >
           <PrevIcon />
@@ -68,7 +81,8 @@ export function GuidePictureViewerPanel({
           size="icon-sm"
           aria-label={GUIDE_VIEWER_COPY.next}
           data-testid="guide-viewer-next"
-          disabled={state.nextId === null}
+          aria-disabled={atEnd || undefined}
+          className={cn(endClass)}
           onClick={() => state.nextId && onSelect(state.nextId)}
         >
           <NextIcon />

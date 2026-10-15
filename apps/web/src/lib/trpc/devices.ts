@@ -1064,9 +1064,6 @@ export const devicesRouter = router({
         // `agent_login`: MOVE the agent's ambient login into a profile
         // instead of signing in (cap `agent-import`).
         import: z.boolean().optional(),
-        // RETIRED (profiles carry no names): still accepted from old app
-        // builds and dropped from the payload.
-        newProfileLabel: z.string().trim().min(1).max(64).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

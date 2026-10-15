@@ -753,7 +753,7 @@ describe(`mcpServers.resolveForLaunch`, () => {
 
   it(`hands the caller its own values for the run's pick, scoped to the run's team`, async () => {
     seed()
-    const result = await inRun().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
+    const result = await inRun().resolveForLaunch({})
     expect(result.servers).toEqual([
       expect.objectContaining({ id: SERVER, headers: [{ name: `Authorization`, value: `Bearer tok` }] }),
     ])
@@ -763,40 +763,38 @@ describe(`mcpServers.resolveForLaunch`, () => {
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
   })
 
-  it(`resolves the row's pick whatever serverIds says`, async () => {
+  it(`resolves only the row's own pick`, async () => {
     seed({ sessions: [run({ mcpServerIds: [SERVER_B] })] })
     // SERVER is connected for the caller, but this run never picked it.
-    for (const input of [{ serverIds: [SERVER, SERVER_B] }, { serverIds: [SERVER] }, {}]) {
-      const result = await inRun().resolveForLaunch(input)
-      expect(result.servers).toEqual([])
-      expect(result.skipped).toEqual([
-        { id: SERVER_B, name: `Grafana`, reason: `not connected` },
-      ])
-      expect(JSON.stringify(result)).not.toContain(`tok`)
-    }
+    const result = await inRun().resolveForLaunch({})
+    expect(result.servers).toEqual([])
+    expect(result.skipped).toEqual([
+      { id: SERVER_B, name: `Grafana`, reason: `not connected` },
+    ])
+    expect(JSON.stringify(result)).not.toContain(`tok`)
   })
 
   it(`refuses without the session header`, async () => {
     seed()
     await expect(
-      callerFor().resolveForLaunch({ serverIds: [SERVER] })
+      callerFor().resolveForLaunch({})
     ).rejects.toMatchObject({ code: `FORBIDDEN` })
     await expect(
-      callerFor(`actor`, { sessionId: `not-a-uuid` }).resolveForLaunch({ serverIds: [SERVER] })
+      callerFor(`actor`, { sessionId: `not-a-uuid` }).resolveForLaunch({})
     ).rejects.toMatchObject({ code: `FORBIDDEN` })
   })
 
   it(`refuses another member's run, an ended run and a vanished row`, async () => {
     seed({ sessions: [run({ userId: `teammate` })] })
-    await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
+    await expect(inRun().resolveForLaunch({})).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
     seed({ sessions: [run({ status: `ended` })] })
-    await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
+    await expect(inRun().resolveForLaunch({})).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
     seed({ sessions: [] })
-    await expect(inRun().resolveForLaunch({ serverIds: [SERVER] })).rejects.toMatchObject({
+    await expect(inRun().resolveForLaunch({})).rejects.toMatchObject({
       code: `FORBIDDEN`,
     })
   })
@@ -804,7 +802,7 @@ describe(`mcpServers.resolveForLaunch`, () => {
   it(`resolves a shared-device host's OWN credentials for a teammate's run`, async () => {
     // The daemon calls as the device owner; the row belongs to the requester.
     seed({ sessions: [run({ userId: `teammate`, hostUserId: `actor` })] })
-    const result = await inRun().resolveForLaunch({ serverIds: [SERVER] })
+    const result = await inRun().resolveForLaunch({})
     expect(result.servers).toEqual([
       expect.objectContaining({ id: SERVER, headers: [{ name: `Authorization`, value: `Bearer tok` }] }),
     ])
@@ -820,21 +818,12 @@ describe(`mcpServers.resolveForLaunch`, () => {
       ],
     })
     await expect(
-      inRun(`actor`, `key-agent`).resolveForLaunch({ serverIds: [SERVER] })
+      inRun(`actor`, `key-agent`).resolveForLaunch({})
     ).rejects.toMatchObject({ code: `FORBIDDEN` })
     for (const keyId of [`key-person`, `key-legacy`]) {
-      const result = await inRun(`actor`, keyId).resolveForLaunch({ serverIds: [SERVER] })
+      const result = await inRun(`actor`, keyId).resolveForLaunch({})
       expect(result.servers).toHaveLength(1)
     }
-  })
-
-  it(`bounds the id list at 16 uuids`, async () => {
-    seed()
-    await expect(
-      inRun().resolveForLaunch({
-        serverIds: Array.from({ length: 17 }, () => SERVER),
-      })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 })
 
@@ -1012,9 +1001,9 @@ describe(`mcpServers.resolveForLaunch — action runs spend shared connections (
     ])
   })
 
-  it(`resolves the row's pick whatever serverIds says`, async () => {
+  it(`resolves only the row's own pick`, async () => {
     seed({ mcpServerIds: [SERVER] })
-    const result = await inRun().resolveForLaunch({ serverIds: [SERVER_B] })
+    const result = await inRun().resolveForLaunch({})
     expect(result.servers.map((entry) => entry.name)).toEqual([`Linear`, `Linear-as-chris`])
     expect(result.skipped).toEqual([])
     expect(result.members.every((member) => member.serverId === SERVER)).toBe(true)

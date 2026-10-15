@@ -138,6 +138,7 @@ import {
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import { useIssueRefs } from "@/components/issue-ref-provider"
 import { IssueChip } from "@/components/issue-chip"
+import { SessionAccountSwitchButton } from "@/components/session-account-switch"
 import { EntityRefChips } from "@/components/entity-preview/entity-ref-chips"
 import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
@@ -922,10 +923,12 @@ export function AgentSessionView({
             <div
               className={cn(
                 TRANSCRIPT_COLUMN,
-                `text-[11px] font-medium text-amber-400`
+                `flex items-center gap-2 text-[11px] font-medium text-amber-400`
               )}
             >
-              {blockedLabel}
+              <span className="min-w-0 flex-1">{blockedLabel}</span>
+              {/* EXP-849: the way out of a wall is another login. */}
+              {!sessionEnded && <SessionAccountSwitchButton session={session} />}
             </div>
           </div>
         )}

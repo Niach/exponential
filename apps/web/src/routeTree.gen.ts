@@ -17,7 +17,6 @@ import { Route as SupportTokenRouteImport } from './routes/support/$token'
 import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as IntegrationsGithubRouteImport } from './routes/integrations/github'
 import { Route as AuthResetPasswordRouteImport } from './routes/auth/reset-password'
-import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AuthForgotPasswordRouteImport } from './routes/auth/forgot-password'
 import { Route as AuthDeviceRouteImport } from './routes/auth/device'
@@ -166,11 +165,6 @@ const IntegrationsGithubRoute = IntegrationsGithubRouteImport.update({
 const AuthResetPasswordRoute = AuthResetPasswordRouteImport.update({
   id: '/auth/reset-password',
   path: '/auth/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthRegisterRoute = AuthRegisterRouteImport.update({
-  id: '/auth/register',
-  path: '/auth/register',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
@@ -790,7 +784,6 @@ export interface FileRoutesByFullPath {
   '/auth/device': typeof AuthDeviceRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
-  '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -908,7 +901,6 @@ export interface FileRoutesByTo {
   '/auth/device': typeof AuthDeviceRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
-  '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -1029,7 +1021,6 @@ export interface FileRoutesById {
   '/auth/device': typeof AuthDeviceRoute
   '/auth/forgot-password': typeof AuthForgotPasswordRoute
   '/auth/login': typeof AuthLoginRoute
-  '/auth/register': typeof AuthRegisterRoute
   '/auth/reset-password': typeof AuthResetPasswordRoute
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
@@ -1151,7 +1142,6 @@ export interface FileRouteTypes {
     | '/auth/device'
     | '/auth/forgot-password'
     | '/auth/login'
-    | '/auth/register'
     | '/auth/reset-password'
     | '/integrations/github'
     | '/invite/$token'
@@ -1269,7 +1259,6 @@ export interface FileRouteTypes {
     | '/auth/device'
     | '/auth/forgot-password'
     | '/auth/login'
-    | '/auth/register'
     | '/auth/reset-password'
     | '/integrations/github'
     | '/invite/$token'
@@ -1389,7 +1378,6 @@ export interface FileRouteTypes {
     | '/auth/device'
     | '/auth/forgot-password'
     | '/auth/login'
-    | '/auth/register'
     | '/auth/reset-password'
     | '/integrations/github'
     | '/invite/$token'
@@ -1507,7 +1495,6 @@ export interface RootRouteChildren {
   AuthDeviceRoute: typeof AuthDeviceRoute
   AuthForgotPasswordRoute: typeof AuthForgotPasswordRoute
   AuthLoginRoute: typeof AuthLoginRoute
-  AuthRegisterRoute: typeof AuthRegisterRoute
   AuthResetPasswordRoute: typeof AuthResetPasswordRoute
   IntegrationsGithubRoute: typeof IntegrationsGithubRoute
   InviteTokenRoute: typeof InviteTokenRoute
@@ -1615,13 +1602,6 @@ declare module '@tanstack/react-router' {
       path: '/auth/reset-password'
       fullPath: '/auth/reset-password'
       preLoaderRoute: typeof AuthResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth/register': {
-      id: '/auth/register'
-      path: '/auth/register'
-      fullPath: '/auth/register'
-      preLoaderRoute: typeof AuthRegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/login': {
@@ -2566,7 +2546,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthDeviceRoute: AuthDeviceRoute,
   AuthForgotPasswordRoute: AuthForgotPasswordRoute,
   AuthLoginRoute: AuthLoginRoute,
-  AuthRegisterRoute: AuthRegisterRoute,
   AuthResetPasswordRoute: AuthResetPasswordRoute,
   IntegrationsGithubRoute: IntegrationsGithubRoute,
   InviteTokenRoute: InviteTokenRoute,

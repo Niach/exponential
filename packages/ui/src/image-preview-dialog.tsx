@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react"
+import { useRef, type KeyboardEvent, type ReactNode, type TouchEvent } from "react"
 import { Dialog, DialogContent, DialogTitle } from "./dialog"
 import { SESSION_RESULT_TALL_ASPECT } from "./session-results"
 
@@ -132,7 +132,35 @@ export function ImagePreviewDialog({
   onPrev,
   onNext,
 }: ImagePreviewDialogProps) {
-  const swipeFrom = useRef<number | null>(null)
+  const swipeFrom = useRef<{ x: number; y: number } | null>(null)
+  // ←/→ and the phone swipe step the set in BOTH presentations (the panel
+  // one and the bare lightbox); a swipe counts only when it is mostly
+  // horizontal (|dx| > |dy|), so a vertical scroll over a tall picture
+  // never flips the page.
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === `ArrowLeft` && onPrev) {
+      event.preventDefault()
+      onPrev()
+    } else if (event.key === `ArrowRight` && onNext) {
+      event.preventDefault()
+      onNext()
+    }
+  }
+  const onTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0]
+    swipeFrom.current = touch ? { x: touch.clientX, y: touch.clientY } : null
+  }
+  const onTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const from = swipeFrom.current
+    swipeFrom.current = null
+    const touch = event.changedTouches[0]
+    if (from === null || !touch) return
+    const dx = touch.clientX - from.x
+    const dy = touch.clientY - from.y
+    if (Math.abs(dx) <= Math.abs(dy)) return
+    if (dx > SWIPE_PX) onPrev?.()
+    else if (-dx > SWIPE_PX) onNext?.()
+  }
   if (panel !== undefined) {
     const tall = isTallPreview(naturalSize)
     return (
@@ -140,33 +168,18 @@ export function ImagePreviewDialog({
         <DialogContent
           mobile="page"
           data-testid="image-preview-panel-dialog"
-          className="gap-0 p-0 max-sm:overflow-y-auto sm:h-[min(85vh,52rem)] sm:w-[min(96vw,80rem)] sm:max-w-[min(96vw,80rem)] sm:flex-row"
+          // The `page` arm re-states `max-sm:p-6 sm:p-6`, which an unprefixed
+          // `p-0` loses to: zero the padding per breakpoint.
+          className="gap-0 max-sm:p-0 sm:p-0 max-sm:overflow-y-auto sm:h-[min(85vh,52rem)] sm:w-[min(96vw,80rem)] sm:max-w-[min(96vw,80rem)] sm:flex-row"
           aria-describedby={undefined}
-          onKeyDown={(event) => {
-            if (event.key === `ArrowLeft` && onPrev) {
-              event.preventDefault()
-              onPrev()
-            } else if (event.key === `ArrowRight` && onNext) {
-              event.preventDefault()
-              onNext()
-            }
-          }}
+          onKeyDown={onKeyDown}
         >
           <DialogTitle className="sr-only">{label}</DialogTitle>
           <div
             data-testid="image-preview-media"
             className="flex min-h-0 min-w-0 items-center justify-center bg-black/30 p-4 max-sm:shrink-0 max-sm:pt-[calc(3.5rem+env(safe-area-inset-top))] sm:flex-1"
-            onTouchStart={(event) => {
-              swipeFrom.current = event.touches[0]?.clientX ?? null
-            }}
-            onTouchEnd={(event) => {
-              const from = swipeFrom.current
-              swipeFrom.current = null
-              const to = event.changedTouches[0]?.clientX
-              if (from === null || to === undefined) return
-              if (to - from > SWIPE_PX) onPrev?.()
-              else if (from - to > SWIPE_PX) onNext?.()
-            }}
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
           >
             {tall ? (
               // A full-page capture: fit to width, scroll it (EXP-1128).
@@ -209,6 +222,9 @@ export function ImagePreviewDialog({
         // (the grid-era content-center/justify-items-center equivalents).
         className="w-auto max-w-[min(96vw,80rem)] p-2 max-sm:w-auto max-sm:items-center max-sm:justify-center max-sm:p-2 sm:w-auto sm:max-w-[min(96vw,80rem)]"
         aria-describedby={undefined}
+        onKeyDown={onKeyDown}
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
       >
         <DialogTitle className="sr-only">{label}</DialogTitle>
         <PreviewMedia
