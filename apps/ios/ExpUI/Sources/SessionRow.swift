@@ -26,6 +26,8 @@ public struct SessionRow<Lead: View>: View {
     private let active: Bool
     private let word: String?
     private let wordIcon: String?
+    private let deviceIcon: String?
+    private let deviceName: String?
     private let lead: Lead
 
     /// - Parameters:
@@ -37,6 +39,9 @@ public struct SessionRow<Lead: View>: View {
     ///   - needsYou: a live session waits on a person — the amber dot.
     ///   - word: ONE quiet trailing word (EXP-1309), the lock rides after it.
     ///   - wordIcon: the word's glyph (`AppIcons.prStack` for `stack`).
+    ///   - deviceIcon: EXP-1316: the root's device glyph
+    ///     (`DeviceIconDisplay`), last on the row; nil = none.
+    ///   - deviceName: the device glyph's accessibility label.
     public init(
         identifier: String? = nil,
         title: String,
@@ -47,6 +52,8 @@ public struct SessionRow<Lead: View>: View {
         active: Bool = false,
         word: String? = nil,
         wordIcon: String? = nil,
+        deviceIcon: String? = nil,
+        deviceName: String? = nil,
         @ViewBuilder lead: () -> Lead
     ) {
         self.identifier = identifier
@@ -58,6 +65,8 @@ public struct SessionRow<Lead: View>: View {
         self.active = active
         self.word = word
         self.wordIcon = wordIcon
+        self.deviceIcon = deviceIcon
+        self.deviceName = deviceName
         self.lead = lead()
     }
 
@@ -97,6 +106,12 @@ public struct SessionRow<Lead: View>: View {
                 AppIcon(AppIcons.uiPrivate, size: 12)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .accessibilityLabel("Private")
+            }
+            if let deviceIcon {
+                AppIcon(deviceIcon, size: 13)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityLabel(deviceName ?? "")
+                    .accessibilityIdentifier("session-row-device")
             }
             if busy {
                 InlineSpinner()

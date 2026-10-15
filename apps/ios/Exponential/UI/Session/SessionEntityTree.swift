@@ -33,7 +33,8 @@ extension TreeSession {
             startedAt: row.startedAt,
             endedAt: row.endedAt,
             createdAt: row.createdAt,
-            updatedAt: row.updatedAt
+            updatedAt: row.updatedAt,
+            deviceId: row.deviceId.isEmpty ? nil : row.deviceId
         )
     }
 }

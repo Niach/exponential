@@ -67,7 +67,8 @@ final class SessionTreeTests: XCTestCase {
             startedAt: string(row["startedAt"]),
             endedAt: string(row["endedAt"]),
             createdAt: try XCTUnwrap(string(row["createdAt"])),
-            updatedAt: try XCTUnwrap(string(row["updatedAt"]))
+            updatedAt: try XCTUnwrap(string(row["updatedAt"])),
+            deviceId: string(row["deviceId"])
         )
     }
 
@@ -193,6 +194,7 @@ final class SessionTreeTests: XCTestCase {
                     "busy": row.busy,
                     "needsYou": row.needsYou,
                     "activityAt": row.activityAt,
+                    "deviceId": json(row.deviceId),
                 ]
             },
         ]
@@ -472,7 +474,8 @@ final class SessionTreeTests: XCTestCase {
                             isPrivate: try XCTUnwrap(row["private"] as? Bool),
                             busy: try XCTUnwrap(row["busy"] as? Bool),
                             needsYou: try XCTUnwrap(row["needsYou"] as? Bool),
-                            activityAt: try XCTUnwrap(string(row["activityAt"]))
+                            activityAt: try XCTUnwrap(string(row["activityAt"])),
+                            deviceId: string(row["deviceId"])
                         )
                     }
                 )

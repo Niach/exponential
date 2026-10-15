@@ -25,6 +25,7 @@ struct ThreadsView: View {
                     agents: lists.agents,
                     clis: lists.clis,
                     words: lists.words,
+                    devices: lists.devices,
                     teams: teamState.teams,
                     onOpen: { rootId in
                         pushRoute(.thread(accountId: accountId, threadId: rootId))
@@ -62,6 +63,8 @@ struct ThreadsListContent: View {
     var clis: [String: String] = [:]
     /// EXP-1309: a root's quiet word, by root id.
     var words: [String: ThreadRowWord] = [:]
+    /// EXP-1316: a root's device glyph, by root id.
+    var devices: [String: ThreadRowDevice] = [:]
     let teams: [TeamEntity]
     let onOpen: (String) -> Void
 
@@ -188,7 +191,8 @@ struct ThreadsListContent: View {
             ThreadRowLabel(
                 row: row,
                 cli: clis[row.sessionId],
-                word: .some(words[row.sessionId])
+                word: .some(words[row.sessionId]),
+                device: devices[row.sessionId]
             )
         }
         .buttonStyle(.plain)
@@ -228,6 +232,9 @@ struct ThreadRowLabel: View {
     var cli: String? = nil
     /// nil = Home's row (spinner / dot); `.some` = the Threads tab's row.
     var word: ThreadRowWord?? = nil
+    /// EXP-1316: the root's device glyph, last on the row (after the word
+    /// and the lock); nil = none.
+    var device: ThreadRowDevice? = nil
 
     var body: some View {
         if let word {
@@ -235,7 +242,9 @@ struct ThreadRowLabel: View {
                 title: row.title,
                 isPrivate: row.isPrivate,
                 word: word?.text,
-                wordIcon: word == .stack ? AppIcons.prStack : nil
+                wordIcon: word == .stack ? AppIcons.prStack : nil,
+                deviceIcon: device?.icon,
+                deviceName: device?.name
             ) {
                 threadsLead(word)
             }
@@ -244,7 +253,9 @@ struct ThreadRowLabel: View {
                 title: row.title,
                 isPrivate: row.isPrivate,
                 busy: row.busy,
-                needsYou: row.needsYou
+                needsYou: row.needsYou,
+                deviceIcon: device?.icon,
+                deviceName: device?.name
             ) {
                 // EXP-1312: the ×4 rule (`threadRowMarkState`, web
                 // `ThreadRunMark`, Android `AgentRunMark(state = …)`).

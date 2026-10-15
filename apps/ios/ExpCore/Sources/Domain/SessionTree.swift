@@ -89,6 +89,9 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
     public let endedAt: String?
     public let createdAt: String
     public let updatedAt: String
+    /// EXP-1316: the steer device id of the machine that runs it (the
+    /// thread row's device glyph); nil when unknown.
+    public let deviceId: String?
 
     public init(
         id: String,
@@ -112,8 +115,10 @@ public struct TreeSession: Equatable, Sendable, Identifiable {
         startedAt: String?,
         endedAt: String?,
         createdAt: String,
-        updatedAt: String
+        updatedAt: String,
+        deviceId: String? = nil
     ) {
+        self.deviceId = deviceId
         self.id = id
         self.teamId = teamId
         self.parentId = parentId
@@ -510,6 +515,9 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
     public let needsYou: Bool
     /// The tree's newest `updatedAt` (wire text).
     public let activityAt: String
+    /// EXP-1316: the ROOT's device (the row's trailing device glyph,
+    /// resolved against the synced devices rows); nil = none.
+    public let deviceId: String?
 
     public var id: String { sessionId }
 
@@ -520,8 +528,10 @@ public struct ThreadsListRow: Equatable, Sendable, Identifiable {
         isPrivate: Bool,
         busy: Bool,
         needsYou: Bool,
-        activityAt: String
+        activityAt: String,
+        deviceId: String? = nil
     ) {
+        self.deviceId = deviceId
         self.sessionId = sessionId
         self.teamId = teamId
         self.title = title
@@ -954,7 +964,8 @@ public enum SessionTree {
                 isPrivate: !root.shared,
                 busy: live.contains { $0.busy },
                 needsYou: needsYou,
-                activityAt: activity
+                activityAt: activity,
+                deviceId: root.deviceId
             )
             buckets[needsYou ? .needsYou : running ? .running : .recent, default: []].append(row)
         }
