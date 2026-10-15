@@ -76,3 +76,110 @@ export async function assertDemoLiveSessions(now: number = Date.now()): Promise<
 
   return written
 }
+
+// ── EXP-1324: the Trace + Queue tail of "Profile the launch path" ──────────
+// The scripted feed (screenshot-desktop.ts `FEED`) splices these in right
+// before the closing narration, so the `session` view's tail reads like the
+// approved draft: "Thought for 5s", "Ran ./gradlew :app:startupProfile" with
+// its Output, "Ran the Explore agent" (1m 12s), the red "Failed: 1 of 12
+// tests in StartupBenchmark", then the Queue. The native lanes read the same
+// constants for their own demo feeds. `atFromEndMs` pins an event's `at`
+// (epoch ms) to the capture clock, where a duration depends on two stamps.
+
+/** What `./gradlew :app:startupProfile` printed (the Output block). */
+export const DEMO_PROFILE_OUTPUT = [
+  `> Task :app:startupProfile`,
+  `Pixel 6a     p50 740 ms   p90 812 ms`,
+  `Galaxy A54   p50 790 ms   p90 840 ms`,
+  `BUILD SUCCESSFUL in 41s`,
+].join(`\n`)
+
+/** What the failing benchmark run printed (gradle's summary + its failure
+ *  line, so `parseTestResults` reads 1 of 12 in StartupBenchmark). */
+export const DEMO_BENCHMARK_OUTPUT = [
+  `> Task :benchmark:connectedBenchmarkAndroidTest`,
+  ``,
+  `StartupBenchmark > coldStart FAILED`,
+  `    java.lang.AssertionError: p90 812 ms > 800 ms`,
+  `        at com.exponential.benchmark.StartupBenchmark.coldStart(StartupBenchmark.kt:42)`,
+  ``,
+  `12 tests completed, 1 failed`,
+  ``,
+  `FAILURE: Build failed with an exception.`,
+].join(`\n`)
+
+/** The Explore subagent's wall time on the badge: 1m 12s. */
+export const DEMO_EXPLORE_MS = 72_000
+
+/** The tail events, in feed order. Tool rows use the stub's shorthand
+ *  (`output`/`failed` ride the settle, the toolKind comes from the name). */
+export const DEMO_TRACE_FEED: readonly Record<string, unknown>[] = [
+  { kind: `thought`, id: `th-launch-path`, state: `started`, atFromEndMs: 9 * 60_000 },
+  {
+    kind: `thought`,
+    id: `th-launch-path`,
+    state: `ended`,
+    durationMs: 5_200,
+    atFromEndMs: 9 * 60_000 - 5_200,
+  },
+  {
+    kind: `tool`,
+    name: `Bash`,
+    detail: `./gradlew :app:startupProfile`,
+    output: DEMO_PROFILE_OUTPUT,
+  },
+  {
+    kind: `subagent`,
+    id: `sub-galaxy-numbers`,
+    agentType: `Explore`,
+    title: `Collect the Galaxy A54 traces`,
+    status: `started`,
+    atFromEndMs: 7 * 60_000,
+  },
+  {
+    kind: `tool`,
+    name: `Read`,
+    detail: `benchmark/StartupBenchmark.kt`,
+    subagentId: `sub-galaxy-numbers`,
+  },
+  {
+    kind: `subagent`,
+    id: `sub-galaxy-numbers`,
+    agentType: `Explore`,
+    title: `Collect the Galaxy A54 traces`,
+    status: `completed`,
+    detail: `p90 sits 12 ms over target on the A54 only`,
+    toolCalls: 6,
+    atFromEndMs: 7 * 60_000 - DEMO_EXPLORE_MS,
+  },
+  {
+    kind: `tool`,
+    name: `Bash`,
+    detail: `./gradlew :benchmark:connectedBenchmarkAndroidTest`,
+    output: DEMO_BENCHMARK_OUTPUT,
+    failed: true,
+  },
+]
+
+/** The agent's task list: 2 completed, 1 in progress, 1 pending. */
+export const DEMO_TASK_LIST = [
+  { content: `Profile the cold start`, status: `completed` },
+  { content: `Defer the snapshot cache warm-up`, status: `completed` },
+  { content: `Measuring on the Galaxy A54`, status: `in_progress` },
+  { content: `Open the PR with the numbers`, status: `pending` },
+] as const
+
+/** How long the background capture has been running at capture time. */
+export const DEMO_BACKGROUND_ELAPSED_MS = 130_000
+
+/** The CLI's background work: one shell task, started 2m 10s ago. */
+export function demoBackgroundTasks(now: number = Date.now()) {
+  return [
+    {
+      id: `bg-web-captures`,
+      kind: `shell`,
+      description: `Rerun the web and web-phone captures`,
+      startedAt: now - DEMO_BACKGROUND_ELAPSED_MS,
+    },
+  ]
+}

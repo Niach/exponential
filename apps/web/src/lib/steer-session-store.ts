@@ -37,6 +37,7 @@ import {
   trimFeed,
   HISTORY_PAGE_LIMIT,
   type AnswerStates,
+  stampBackgroundStarts,
   type BackgroundTask,
   type TaskListEntry,
   type EchoEntry,
@@ -262,6 +263,18 @@ export type ActivityEvent =
       at?: number
     }
   | { kind: `permission`; tool: string; detail?: string; at?: number }
+  // EXP-1324: the agent's reasoning, a Trace line ("Thinking" → "Thought for
+  // 5s"). `started` opens the row, `ended` (same `id`) settles it with the
+  // duration; no text rides the wire. A row whose `ended` never came reads
+  // settled, without a duration, once the turn ends.
+  | {
+      kind: `thought`
+      id: string
+      state: `started` | `ended`
+      durationMs?: number
+      subagentId?: string
+      at?: number
+    }
   // EXP-724: the agent is folding its context. `started` opens the
   // indeterminate strip, `ended` closes it AND leaves a marker row behind.
   // Codex publishes no start marker for its automatic compaction, so a BARE
@@ -528,6 +541,16 @@ export type FeedItem = FeedSeq &
       at?: number
     }
   | { id: number; kind: `permission`; tool: string; detail?: string }
+  // EXP-1324: one reasoning stretch, its Trace line. `settled` once its
+  // `ended` edge (or the turn's end) landed; `durationMs` only from the edge.
+  | {
+      id: number
+      kind: `thought`
+      thoughtId: string
+      settled: boolean
+      durationMs?: number
+      subagentId?: string
+    }
   // A transient API failure shown where it happened (never the rate-limit
   // banner); `errorType` = the API's error type when it sent one.
   | {
@@ -553,6 +576,8 @@ export type FeedItem = FeedSeq &
        *  completed edge carries it); absent on the started edge and on older
        *  publishers. `summarizeSubagentRow` prefers it over the visible rows. */
       toolCalls?: number
+      /** EXP-1324: the edge's stamp — the subagent line's duration badge. */
+      at?: number
     }
   | {
       id: number
@@ -812,6 +837,9 @@ export function createSteerSessionStore(
   // EXP-850 §2/§3: the two new latest-wins slots. `workflows` is keyed per
   // workflow id, in first-appearance order (a Map preserves insertion order).
   let backgroundTasks: BackgroundTask[] = []
+  // EXP-1324: when this client first saw each background task id — kept
+  // across replays, so a reconnect never restarts a task's elapsed time.
+  const backgroundFirstSeen = new Map<string, number>()
   // EXP-927: the agent's own task list, latest-wins whole.
   let taskList: TaskListEntry[] = []
   // EXP-861: the device-held queue, the seventh latest-wins slot.
@@ -1235,7 +1263,44 @@ export function createSteerSessionStore(
           workflowId: event.workflowId?.trim()
             ? event.workflowId.trim()
             : undefined,
+          at:
+            typeof event.at === `number` && Number.isFinite(event.at)
+              ? event.at
+              : undefined,
         })
+        return
+      }
+      case `thought`: {
+        // EXP-1324: `started` appends the Reasoning row; `ended` settles the
+        // newest row with the same id. An `ended` this feed has no row for
+        // (evicted, below the window) is dropped, like a `tool_update`.
+        const thoughtId = typeof event.id === `string` ? event.id.trim() : ``
+        if (!thoughtId) return
+        const subagentId = event.subagentId?.trim() ? event.subagentId : undefined
+        if (event.state === `started`) {
+          append({ kind: `thought`, thoughtId, settled: false, subagentId })
+          return
+        }
+        if (event.state !== `ended`) return
+        let at = -1
+        for (let i = feed.length - 1; i >= 0; i--) {
+          const item = feed[i]
+          if (item.kind === `thought` && item.thoughtId === thoughtId) {
+            at = i
+            break
+          }
+        }
+        if (at < 0) return
+        const current = feed[at] as Extract<FeedItem, { kind: `thought` }>
+        const durationMs =
+          typeof event.durationMs === `number` &&
+          Number.isFinite(event.durationMs) &&
+          event.durationMs >= 0
+            ? Math.round(event.durationMs)
+            : undefined
+        const updated = feed.slice()
+        updated[at] = { ...current, settled: true, durationMs }
+        setFeed(updated, [])
         return
       }
       case `permission`: {
@@ -1311,6 +1376,14 @@ export function createSteerSessionStore(
         // mid-turn would stop the working indicator over a thinking agent.
         const next = parseTurnState(event)
         if (next) turnState = next
+        // EXP-1324: a turn that ended settles every thought still open (an
+        // `ended` edge that never came reads settled, without a duration).
+        if (next === `ended` && feed.some((i) => i.kind === `thought` && !i.settled)) {
+          setFeed(
+            feed.map((i) => (i.kind === `thought` && !i.settled ? { ...i, settled: true } : i)),
+            []
+          )
+        }
         // EXP-850 §5: `startedAt`/`tokens` ride the same slot. A republish
         // that omits either NEVER blanks what the slot already learned (the
         // publisher throttles the token tick, so most frames carry the start
@@ -1333,7 +1406,9 @@ export function createSteerSessionStore(
         // unreadable payload keeps the previous list (the `config_state`
         // rule) rather than hiding work that is still running.
         const tasks = parseBackgroundTasks(event)
-        if (tasks) backgroundTasks = tasks
+        // EXP-1324: every task carries a start (the wire's, else first sight).
+        if (tasks)
+          backgroundTasks = stampBackgroundStarts(tasks, backgroundFirstSeen, Date.now())
         return
       }
       case `task_list`: {

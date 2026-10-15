@@ -221,6 +221,13 @@ html {
   /* EXP-1243: press + popover enter-from scales (tokens.json motion.scale). */
   --motion-scale-press: 0.97;
   --motion-scale-popover-from: 0.96;
+  /* EXP-1324: the shimmer a running Trace title wears (tokens.json
+     motion.shimmer). The `shimmer` utility itself is shadcn's (imported
+     above from shadcn/tailwind.css, dark arm = the token's highlight rule);
+     these pin its knobs to the token so the four clients loop alike. */
+  --shimmer-duration: 2000ms;
+  --shimmer-angle: 20deg;
+  --shimmer-spread: 60px;
   /* EXP-787 transcript measure + rhythm. THEME-INVARIANT like the motion
      tokens, so :root only. Values mirror packages/design-tokens/tokens.json
      `transcript`; design-tokens.test.ts guards the parity, and the gap ladder

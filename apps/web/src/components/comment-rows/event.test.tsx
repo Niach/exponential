@@ -39,6 +39,15 @@ function line(node: React.ReactElement): string {
   return container.textContent ?? ``
 }
 
+/** EXP-1324: the row is a Trace line — the time is its description. */
+function when(node: React.ReactElement): string | null {
+  const { container } = render(node)
+  return (
+    container.querySelector(`[data-slot="trace-description"]`)?.textContent ??
+    null
+  )
+}
+
 describe(`EventRow`, () => {
   it(`ends the phrase with a relative time`, () => {
     const text = line(
@@ -47,7 +56,20 @@ describe(`EventRow`, () => {
     expect(text).toContain(`Ada Lovelace`)
     expect(text).toContain(`added label`)
     expect(text).toContain(`bug`)
-    expect(text).toContain(` · 2 hours ago`)
+    expect(
+      when(<EventRow event={event({})} userMap={userMap} labelMap={labelMap} />)
+    ).toBe(`2 hours ago`)
+  })
+
+  it(`is a Trace line at size sm: icon, sentence title, time description`, () => {
+    const { container } = render(
+      <EventRow event={event({})} userMap={userMap} labelMap={labelMap} />
+    )
+    expect(container.querySelector(`[data-slot="trace"]`)?.getAttribute(`data-size`)).toBe(`sm`)
+    expect(container.querySelector(`[data-slot="trace-icon"] svg`)).not.toBeNull()
+    expect(container.querySelector(`[data-slot="trace-title"]`)?.textContent).toBe(
+      `Ada Lovelace added label bug`
+    )
   })
 
   it(`dates every type the same way`, () => {
@@ -57,16 +79,14 @@ describe(`EventRow`, () => {
       `pr_opened`,
       `pr_merged`,
     ] as const) {
-      const text = line(
+      const time = when(
         <EventRow
           event={event({ type, payload: {} })}
           userMap={userMap}
           labelMap={labelMap}
         />
       )
-      expect(text.includes(` · 2 hours ago`) ? type : `${type} has no time`).toBe(
-        type
-      )
+      expect(time === `2 hours ago` ? type : `${type} has no time`).toBe(type)
     }
   })
 

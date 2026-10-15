@@ -4521,7 +4521,7 @@
       "id": "work-card",
       "group": "coding",
       "title": "Work card",
-      "blurb": "ONE card ×4 for a workflow, a task list and a subagent (EXP-1240, work-card.json): kind icon, name, kind word, progress and elapsed over a segment bar; finished phases fold to one row, the running phase lists its lanes one line each.",
+      "blurb": "ONE card ×4 for a workflow (EXP-1240, work-card.json): kind icon, name, kind word, progress and elapsed over a segment bar; finished phases fold to one row, the running phase lists its lanes one line each. EXP-1324: a subagent is its Trace line and the task list THE Queue, so a transcript's one Work card is a workflow's.",
       "order": 13,
       "web": {
         "route": "/t/$teamSlug/sessions/$sessionId",
@@ -4552,9 +4552,9 @@
         }
       },
       "notes": {
-        "web": "The raw session view (`session`; EXP-1293: its feed always shows the work, no Show work toggle): `scrollToWorkCards` centres the last subagent's Work card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
-        "web-mobile": "Inherits web: the phone transcript draws the same cards at full width.",
-        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the relay-fed demo feed's task list (apps/web/scripts/screenshot-desktop.ts) is the Work card in the strip under the transcript; the two subagent cards sit above the fold. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
+        "web": "The raw session view (`session`; EXP-1293: its feed always shows the work): `scrollToWorkCards` centres the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the demo feed's workflow card (apps/web/scripts/screenshot-desktop.ts) sits in the transcript. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {
@@ -4639,6 +4639,84 @@
       }
     },
     {
+      "id": "trace",
+      "group": "coding",
+      "title": "Trace",
+      "blurb": "THE Trace ×4 (EXP-1324, trace.json): a session transcript's tool calls, tool groups, reasoning, subagents and failed test runs as one-line Trace lines at size sm (icon, title, muted description; running shimmers, error is rose, pending dims), a collapsible line opening onto its railed content; the Queue (task-queue.json) at the bottom: “n to do” open, “n completed” folded.",
+      "order": 21,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "settleMs": 1500,
+        "anchor": {
+          "testId": "session-thought-line",
+          "timeoutMs": 30000
+        },
+        "recipe": "openTraceOutput"
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_trace",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_trace",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:trace"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The raw session view (`session`) over the relay-fed demo feed: `openTraceOutput` opens the `./gradlew :app:startupProfile` line onto its Output and centres the Trace tail (“Thought for 5s”, “Ran the Explore agent” with its 1m 12s badge, “Failed: 1 of 12 tests in StartupBenchmark”), the Queue below. The styleguide island `trace` (apps/styleguide/src/entries/trace.tsx) draws every state on the real primitive. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same lines at full width.",
+        "ios": "The ExpUI Trace specimen (the same lines and Queue as the web island), shot sg_trace.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:trace`: the IDE styleguide entry `trace.rs` drawn full-window on the real `crate::trace` primitive (the draft's transcript tail, then THE Queue); the `session` view's transcript draws the same lines."
+      }
+    },
+    {
+      "id": "code-block",
+      "group": "coding",
+      "title": "Code block",
+      "blurb": "THE CodeBlock ×4 (EXP-1324, trace.json geometry.codeBlock): a tool's Output inside a Trace line at size sm, the title and the copy action over the mono code, coloured by the catalog's one tokenizer (`ansi` for command output); a failed call's block is destructive.",
+      "order": 22,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "settleMs": 1500,
+        "anchor": {
+          "testId": "session-tool-output",
+          "timeoutMs": 30000
+        },
+        "recipe": "openTraceOutput"
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_code-block",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_code-block",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:code-block"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The raw session view (`session`): `openTraceOutput` opens the `./gradlew :app:startupProfile` line and centres its Output block (`ansi`: the `> Task` line muted, BUILD SUCCESSFUL green). The styleguide island `code-block` (apps/styleguide/src/entries/code-block.tsx) draws default, sm, destructive and ansi. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same block at full width.",
+        "ios": "The ExpUI CodeBlock specimen (default, sm, destructive, ansi), shot sg_code-block.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:code-block`: the IDE styleguide entry `code_block.rs` drawn full-window on the real `crate::code_block` primitive (ansi Output, destructive, plain code)."
+      }
+    },
+    {
       "id": "feedback-states",
       "group": "coding",
       "title": "Feedback states",
@@ -4720,7 +4798,8 @@
           "text": "Profile the launch path",
           "timeoutMs": 30000
         },
-        "settleMs": 2500
+        "settleMs": 2500,
+        "recipe": "openTraceOutput"
       },
       "webMobile": "inherit",
       "ios": {
@@ -4740,7 +4819,7 @@
       "notes": {
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: a session card of the cold-start thread opens DEMO_SESSION_ID (\"Profile the launch path\"), its feed from `screenshots:desktop`, the pending question card in the composer's place.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land."
+        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land. EXP-1324: `openTraceOutput` opens the `./gradlew :app:startupProfile` Trace line onto its Output and centres the tail (the thought, the Explore subagent's badge, the failed benchmark run, the Queue below), as the approved draft shows it."
       }
     },
     {

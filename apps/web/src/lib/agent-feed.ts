@@ -29,6 +29,7 @@ import {
   type WorkCardLane,
 } from "@exp/domain-contract/work-card"
 import type { ScriptCall, ScriptCardInput } from "@exp/domain-contract/script-card"
+import { taskQueue, type TaskQueue } from "@exp/domain-contract/task-queue"
 import scriptCardSpec from "@exp/domain-contract/fixtures/script-card.json"
 import {
   entityRefKinds,
@@ -254,6 +255,7 @@ export const COMPACTION_TIMEOUT_MS = 180_000
 export function resumesAfterCompaction(kind: string): boolean {
   return (
     kind === `narration` ||
+    kind === `thought` ||
     kind === `tool` ||
     kind === `question` ||
     kind === `subagent`
@@ -708,6 +710,7 @@ export function isSubagentScoped(item: {
     item.kind === `subagent` ||
     item.kind === `tool` ||
     item.kind === `narration` ||
+    item.kind === `thought` ||
     item.kind === `user_message` ||
     item.kind === `api_error`
   )
@@ -1075,6 +1078,8 @@ export function rowClass<T extends { id: number; kind: string }>(
     case `tool`:
     case `subagent`:
     case `permission`:
+    // EXP-1324: a reasoning line is a Trace line like a tool's.
+    case `thought`:
       return `tool`
     default:
       // narration, question, compaction and anything a newer publisher adds:
@@ -2164,6 +2169,10 @@ export interface BackgroundTask {
   kind: BackgroundTaskKind
   description: string
   toolId?: string
+  /** EXP-1324: epoch ms the device saw it start (wire `startedAt`); the
+   *  store fills a missing one with the moment this client first saw the
+   *  id, so the Queue's elapsed time never restarts on a republish. */
+  startedAt?: number
 }
 
 function clampText(value: unknown): string | undefined {
@@ -2332,9 +2341,35 @@ export function parseBackgroundTasks(event: unknown): BackgroundTask[] | null {
         : `other`,
       description,
       toolId: wireId(raw.toolId) ?? undefined,
+      ...(typeof raw.startedAt === `number` &&
+      Number.isFinite(raw.startedAt) &&
+      raw.startedAt > 0
+        ? { startedAt: Math.round(raw.startedAt) }
+        : {}),
     })
   }
   return tasks
+}
+
+/** EXP-1324: stamp each task with a start — the wire's, else the first time
+ *  this client saw its id (`firstSeen`, kept across frames by the caller and
+ *  pruned to the live ids here). */
+export function stampBackgroundStarts(
+  tasks: readonly BackgroundTask[],
+  firstSeen: Map<string, number>,
+  now: number
+): BackgroundTask[] {
+  const live = new Set(tasks.map((task) => task.id))
+  for (const id of [...firstSeen.keys()]) if (!live.has(id)) firstSeen.delete(id)
+  return tasks.map((task) => {
+    if (task.startedAt !== undefined) {
+      firstSeen.set(task.id, task.startedAt)
+      return task
+    }
+    const seen = firstSeen.get(task.id) ?? now
+    firstSeen.set(task.id, seen)
+    return { ...task, startedAt: seen }
+  })
 }
 
 /** The newest workflow that is still running, or null — the caption source
@@ -2529,6 +2564,63 @@ export function backgroundStripLines(input: {
     })
   }
   return lines
+}
+
+/** EXP-1321/1324: THE Queue at the bottom of the transcript — the agent's
+ *  task list, the CLI's background tasks (never an agent) and every OPEN
+ *  `wait` tool row, as the contract's `taskQueue` (fixture `task-queue.json`
+ *  ×4). Replaces `backgroundStripLines` + the tasks Work card. */
+export function sessionTaskQueue(input: {
+  taskList: readonly TaskListEntry[]
+  backgroundTasks?: readonly BackgroundTask[] | null
+  feed: readonly {
+    id: number
+    kind: string
+    name?: string
+    detail?: string
+    toolKind?: ToolKind
+    settled?: boolean
+  }[]
+  now: number
+}): TaskQueue | null {
+  const waits: { id: string; subject: string }[] = []
+  for (const item of input.feed) {
+    if (item.kind !== `tool` || item.toolKind !== `wait`) continue
+    if (item.settled === true) continue
+    waits.push({
+      id: String(item.id),
+      subject: item.detail?.trim() || item.name?.trim() || ``,
+    })
+  }
+  return taskQueue({
+    tasks: input.taskList,
+    backgroundTasks: (input.backgroundTasks ?? []).map((task) => ({
+      id: task.id,
+      kind: task.kind,
+      description: task.description,
+      startedAt: task.startedAt ?? null,
+    })),
+    waits,
+    now: input.now,
+  })
+}
+
+/** EXP-1324: a subagent's wall time off its lifecycle edges' `at` stamps —
+ *  the first `started` edge to the last `completed` one, or to `now` while
+ *  it runs. Null without a start stamp (an older publisher). */
+export function subagentDurationMs(
+  items: readonly { kind: string; status?: string; at?: number }[],
+  now: number
+): number | null {
+  let startedAt: number | null = null
+  let endedAt: number | null = null
+  for (const item of items) {
+    if (item.kind !== `subagent` || typeof item.at !== `number`) continue
+    if (item.status === `started` && startedAt === null) startedAt = item.at
+    if (item.status === `completed`) endedAt = item.at
+  }
+  if (startedAt === null) return null
+  return Math.max(0, (endedAt ?? now) - startedAt)
 }
 
 /** EXP-850 §3: the workflow cards this client holds whose `Workflow` tool row

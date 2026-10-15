@@ -1908,6 +1908,33 @@ describe(`queue slot (EXP-861)`, () => {
     store.dispose()
   })
 
+  it(`EXP-1324: a task keeps its start — the wire's, else its first sight`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    const frame = (startedAt?: number) =>
+      socket.frame({
+        t: `activity`,
+        event: {
+          kind: `background_tasks`,
+          tasks: [
+            { id: `a`, kind: `shell`, description: `Rerun the captures` },
+            { id: `b`, kind: `shell`, description: `Watch`, ...(startedAt ? { startedAt } : {}) },
+          ],
+        },
+      })
+    frame(1_792_000_000_000)
+    await vi.advanceTimersByTimeAsync(100)
+    const first = store.getSnapshot().backgroundTasks
+    expect(first[1]?.startedAt).toBe(1_792_000_000_000)
+    const seen = first[0]?.startedAt
+    await vi.advanceTimersByTimeAsync(5_000)
+    frame(1_792_000_000_000)
+    await vi.advanceTimersByTimeAsync(100)
+    // A republish never restarts the clock.
+    expect(store.getSnapshot().backgroundTasks[0]?.startedAt).toBe(seen)
+    store.dispose()
+  })
+
   it(`an unreadable payload keeps the list standing`, async () => {
     const { store, sockets } = makeStore()
     const socket = await goLive(store, sockets)
@@ -2820,12 +2847,16 @@ describe(`background_tasks (§2)`, () => {
       },
     })
     await vi.advanceTimersByTimeAsync(100)
+    // EXP-1324: no wire start = the moment this client first saw it.
+    const firstSeen = store.getSnapshot().backgroundTasks[0]?.startedAt
+    expect(typeof firstSeen).toBe(`number`)
     expect(store.getSnapshot().backgroundTasks).toEqual([
       {
         id: `b4mwz6csc`,
         kind: `shell`,
         description: `Sleep in the background`,
         toolId: `toolu_01MC`,
+        startedAt: firstSeen,
       },
     ])
     // Never a feed row.
@@ -3051,6 +3082,56 @@ describe(`subagent edges (§4)`, () => {
     })
     await vi.advanceTimersByTimeAsync(100)
     expect(store.getSnapshot().feed[0]).toMatchObject({ status: `started` })
+    store.dispose()
+  })
+})
+
+describe(`thought rows (EXP-1324)`, () => {
+  it(`started opens a row, ended settles it with the duration`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `thought`, id: `t1`, state: `started` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().feed[0]).toMatchObject({
+      kind: `thought`,
+      thoughtId: `t1`,
+      settled: false,
+    })
+    socket.frame({
+      t: `activity`,
+      event: { kind: `thought`, id: `t1`, state: `ended`, durationMs: 5400 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    expect(store.getSnapshot().feed[0]).toMatchObject({ settled: true, durationMs: 5400 })
+    store.dispose()
+  })
+
+  it(`an ended edge without its row is dropped; a turn end settles an open one`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({ t: `activity`, event: { kind: `thought`, id: `gone`, state: `ended` } })
+    socket.frame({ t: `activity`, event: { kind: `thought`, id: `t2`, state: `started` } })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed).toHaveLength(1)
+    socket.frame({ t: `activity`, event: { kind: `turn`, state: `ended` } })
+    await vi.advanceTimersByTimeAsync(100)
+    const row = store.getSnapshot().feed[0]
+    expect(row).toMatchObject({ kind: `thought`, settled: true })
+    expect((row as { durationMs?: number }).durationMs).toBeUndefined()
+    store.dispose()
+  })
+
+  it(`a subagent edge keeps its stamp for the duration badge`, async () => {
+    const { store, sockets } = makeStore()
+    const socket = await goLive(store, sockets)
+    socket.frame({
+      t: `activity`,
+      event: { kind: `subagent`, id: `s1`, agentType: `Explore`, status: `started`, at: 1000 },
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(store.getSnapshot().feed[0]).toMatchObject({ kind: `subagent`, at: 1000 })
     store.dispose()
   })
 })

@@ -7,7 +7,8 @@
       "search-list", "menu-submenu",
       "toast",
       "jump-to-bottom",
-      "feedback-states"
+      "feedback-states",
+      "trace", "code-block"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings",
@@ -37,6 +38,8 @@
     "issue-context-menu": "EXP-1074",
     "toast": "EXP-1031",
     "jump-to-bottom": "EXP-1191",
+    "trace": "EXP-1324",
+    "code-block": "EXP-1324",
     "composer-dialog": "EXP-1019",
     "session-row": "EXP-1248",
     "pr-row": "EXP-1248",

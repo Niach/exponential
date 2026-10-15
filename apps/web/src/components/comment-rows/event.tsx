@@ -1,6 +1,13 @@
 import type { IssueEvent, Label, Board, User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
-import { conceptIcon } from "@exp/ui"
+import {
+  conceptIcon,
+  Trace,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from "@exp/ui"
 import { relationEventParts } from "@/lib/issue-relations"
 import { priorityLabel, statusLabel } from "@/lib/issue-event-labels"
 import { estimateEventPhrase } from "@/lib/issue-estimate"
@@ -302,27 +309,33 @@ export function EventRow({
   }
 
   // EXP-698 r5: the glyph is CENTRED in the timeline gutter, on the same rail
-  // the creation row and the comment avatars ride.
+  // the creation row and the comment avatars ride. EXP-1324: the row IS a
+  // Trace line at size sm — the glyph its icon (in the gutter, so the rail
+  // stays whole), the sentence its title with the rich parts, the relative
+  // time its description (EXP-723: every event line ends in its own time;
+  // desktop `timeline.rs` mirrors it).
   return (
-    <TimelineRow
-      lineBelow={lineBelow}
-      marker={icon ?? <Icon className="size-3.5 shrink-0" />}
-      markerSize={14}
-      markerTop={3}
-    >
-      {/* `min-h-5` + the row's default padding is what leaves the 6px break
-          around a 14px glyph somewhere to go: a shorter row draws no rail at
-          all and the feed's spine breaks (see `TimelineRow`). */}
-      <div className="flex min-h-5 items-center text-xs text-muted-foreground">
-        <span className="truncate">
-          <span className="font-medium text-foreground">{actorName}</span>{` `}
-          {text}
-          {/* EXP-723: every event line ends in its own relative time, the way
-              the synthesized creation row already did — a feed where only one
-              line is dated reads as a bug. Desktop `timeline.rs` mirrors it. */}
-          {when ? ` · ${when}` : ``}
-        </span>
-      </div>
-    </TimelineRow>
+    <Trace size="sm" className="gap-0">
+      <TimelineRow
+        lineBelow={lineBelow}
+        marker={<TraceIcon>{icon ?? <Icon />}</TraceIcon>}
+        markerSize={14}
+        markerTop={3}
+      >
+        {/* `min-h-5` + the row's default padding is what leaves the 6px break
+            around a 14px glyph somewhere to go: a shorter row draws no rail at
+            all and the feed's spine breaks (see `TimelineRow`). */}
+        <div className="flex min-h-5 items-center" data-testid="event-line">
+          <TraceLine className="max-w-full">
+            <TraceTitle>
+              <span className="font-medium text-foreground">{actorName}</span>
+              {` `}
+              {text}
+            </TraceTitle>
+            {when ? <TraceDescription>{when}</TraceDescription> : null}
+          </TraceLine>
+        </div>
+      </TimelineRow>
+    </Trace>
   )
 }

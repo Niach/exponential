@@ -86,6 +86,7 @@ const PINNED_RECIPES = [
   `scrollToWorkCards`,
   `scrollToScriptCard`,
   `scrollToCommentCard`,
+  `openTraceOutput`,
 ]
 
 // ---------------------------------------------------------------- 1. shape
