@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-15-thread-dispatcher`,
+    date: `2026-10-15`,
+    title: `Threads hand work to their own sessions`,
+    summary: `A thread now runs a small dispatcher on the thread model (Haiku by default): it answers quick questions itself and starts a session for real work, with the same reply box and model switch as a session. Every model pick is explicit.`,
+    body: `- **Threads**: starting a thread or chatting with an agent runs a dispatcher on the thread model. Quick questions get answered in the thread, real work starts its own session with your model, effort and plan mode, and the dispatcher reports back in a line or two.
+- **Reply box**: the thread and agent channel use the session's reply box on every device, with the model switch, the context ring, slash commands and Stop.
+- **Thread model**: device settings gain a Thread model under Model for each agent, Haiku for Claude by default.
+- **Models**: every model picker lists Fable, Opus, Sonnet and Haiku (Codex its three models) with no Default entry. Saved CLI defaults become Fable for the model and Opus for subagents.`,
+  },
+  {
     id: `2026-10-15-release-train-described-options`,
     date: `2026-10-15`,
     title: `Release 2026-10-15: described options everywhere, the phone dawn, and the review fixes`,
