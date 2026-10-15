@@ -99,7 +99,7 @@ export interface DeviceLaunchDefaults {
   /** EXP-1196: device-level computer-use switch; absent = off. */
   computerUse?: boolean | null
   /** EXP-1236: the screen-driving subagents' model alias (contract
-   * `computerUseModel`); absent = `deviceComputerUseDefaults.model`. */
+   * `codingModel`, THE model vocabulary); absent = `deviceComputerUseDefaults.model`. */
   computerUseModel?: string | null
   agents?: Record<string, AgentLaunchDefaults>
 }

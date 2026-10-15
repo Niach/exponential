@@ -2860,6 +2860,7 @@ export const selectSessionSchema = createSelectSchema(sessions, {
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
   hostUserId: true,
   mcpServerIds: true,
+  workLaunch: true,
   instructions: true,
 })
 export const selectSessionIssueSchema = createSelectSchema(sessionIssues, {

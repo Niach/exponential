@@ -195,6 +195,13 @@ describe(`domain-contract parity`, () => {
     expect(DEVICE_AGENT_DEFAULTS).toEqual({
       model: contract.deviceAgentDefaults.model,
       subagentModel: contract.deviceAgentDefaults.subagentModel,
+      threadModel: contract.deviceAgentDefaults.threadModel,
+    })
+    // Every model is explicit (owner 2026-10-15): no blank default.
+    expect(DEVICE_AGENT_DEFAULTS).toEqual({
+      model: `fable`,
+      subagentModel: `opus`,
+      threadModel: `haiku`,
     })
   })
 

@@ -146,26 +146,28 @@ describe(`device launch defaults`, () => {
     expect(agentSeed(`claude`, { model: `opus`, effort: ``, planMode: true })).toEqual(
       {
         model: `opus`,
-        // EXP-981: blank = the CLI's own subagent model.
-        subagentModel: ``,
+        // Every model is explicit: the contract subagent + thread defaults.
+        subagentModel: `opus`,
+        threadModel: `haiku`,
         effort: ``,
         ultracode: false,
         planMode: true,
       }
     )
-    // Blank model is valid for codex.
+    // No blank model anywhere, codex included: it reads as the default.
     expect(agentSeed(`codex`, { model: ``, effort: `high` })).toEqual({
-      model: ``,
+      model: `gpt-5.6-sol`,
       subagentModel: ``,
+      threadModel: `gpt-5.6-luna`,
       effort: `high`,
       ultracode: false,
       planMode: false,
     })
-    // A foreign/unknown value falls back to the static default; claude never
-    // takes a blank model.
+    // A foreign/unknown value falls back to the static default.
     expect(agentSeed(`claude`, { model: ``, effort: `warp9` })).toEqual({
       model: `fable`,
-      subagentModel: ``,
+      subagentModel: `opus`,
+      threadModel: `haiku`,
       effort: ``,
       ultracode: false,
       planMode: false,
@@ -176,7 +178,8 @@ describe(`device launch defaults`, () => {
       agentSeed(`claude`, { model: `fable`, planMode: true, ultracode: true })
     ).toEqual({
       model: `fable`,
-      subagentModel: ``,
+      subagentModel: `opus`,
+      threadModel: `haiku`,
       effort: ``,
       ultracode: true,
       planMode: true,
@@ -188,18 +191,24 @@ describe(`device launch defaults`, () => {
     // `null` = the static fallback for devices that advertise nothing.
     expect(agentSeed(`claude`, null)).toEqual({
       model: `fable`,
-      subagentModel: ``,
+      subagentModel: `opus`,
+      threadModel: `haiku`,
       effort: ``,
       ultracode: false,
       planMode: false,
     })
     // EXP-981: the subagent model is claude's alone, and only a contract
-    // model value survives the seed.
+    // model value survives the seed (else the default).
     expect(
       agentSeed(`claude`, { subagentModel: `sonnet` }).subagentModel
     ).toBe(`sonnet`)
-    expect(agentSeed(`claude`, { subagentModel: `warp9` }).subagentModel).toBe(``)
+    expect(agentSeed(`claude`, { subagentModel: `warp9` }).subagentModel).toBe(`opus`)
+    expect(agentSeed(`claude`, { subagentModel: `` }).subagentModel).toBe(`opus`)
     expect(agentSeed(`codex`, { subagentModel: `sonnet` }).subagentModel).toBe(``)
+    // The thread model: a contract value of THAT agent, else its default.
+    expect(agentSeed(`claude`, { threadModel: `sonnet` }).threadModel).toBe(`sonnet`)
+    expect(agentSeed(`claude`, { threadModel: `gpt-5.6-luna` }).threadModel).toBe(`haiku`)
+    expect(agentSeed(`codex`, { threadModel: `gpt-5.6-terra` }).threadModel).toBe(`gpt-5.6-terra`)
   })
 })
 

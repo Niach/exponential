@@ -26,7 +26,7 @@ import type { Device } from "@/db/schema"
 import {
   conceptIcon,
   Button,
-  Picker,
+  ModelPicker,
   DeviceReadiness,
   Dialog,
   DialogContent,
@@ -70,7 +70,7 @@ import {
 import {
   AgentOptionsFields,
   CLI_DEFAULT_EFFORT,
-  modelLabel,
+  subagentModelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { queueAgentImport } from "@/components/device-readiness-notice"
@@ -96,8 +96,10 @@ const DEFAULTS_DEBOUNCE_MS = 1_000
 
 interface AgentDraft {
   model: string
-  /** EXP-981: claude only; `""` = the CLI's own default. */
+  /** EXP-981: claude only; always explicit. */
   subagentModel?: string
+  /** The dispatcher root's model (threads + team agents). */
+  threadModel?: string
   effort: string
   ultracode: boolean
   planMode: boolean
@@ -126,10 +128,11 @@ interface TrackedCommand {
   key: string
 }
 
-/** EXP-1236: a stored or picked computer-use model, clamped to the contract
- * vocabulary; anything else (absent, null, version skew) = the default. */
+/** EXP-1236: a stored or picked computer-use model, clamped to THE model
+ * vocabulary (`codingModel`); anything else (absent, null, version skew) =
+ * the default. */
 function clampComputerUseModel(value: string | null | undefined): string {
-  return value && contract.computerUseModel.values.includes(value)
+  return value && contract.codingModel.values.includes(value)
     ? value
     : contract.deviceComputerUseDefaults.model
 }
@@ -454,6 +457,8 @@ export function DeviceSettingsDialog({
       string,
       {
         model?: string
+        subagentModel?: string
+        threadModel?: string
         effort?: string
         ultracode?: boolean
         planMode?: boolean
@@ -463,10 +468,11 @@ export function DeviceSettingsDialog({
     for (const [agent, value] of Object.entries(snapshot.drafts)) {
       agents[agent] = {
         model: value.model,
-        // EXP-981: claude only, and only when it is not the CLI default.
+        // EXP-981: claude only.
         ...(agentSupportsSubagentModel(agent) && value.subagentModel
           ? { subagentModel: value.subagentModel }
           : {}),
+        ...(value.threadModel ? { threadModel: value.threadModel } : {}),
         effort: value.effort,
         ...(agentSupportsUltracode(agent) ? { ultracode: value.ultracode } : {}),
         ...(agentSupportsPlanMode(agent) ? { planMode: value.planMode } : {}),
@@ -878,18 +884,13 @@ export function DeviceSettingsDialog({
                 is on (off = the setting has nothing to drive). */}
             {computerUse && (
               <GlassGroup>
-                <Picker
-                  mode="single"
+                <ModelPicker
                   triggerVariant="row"
+                  width="md"
                   mobileTitle="Computer use model"
                   value={computerUseModel}
-                  onChange={(value) => {
-                    if (value !== null) pickComputerUseModel(value)
-                  }}
-                  items={contract.computerUseModel.values.map((value) => ({
-                    value,
-                    label: modelLabel(value),
-                  }))}
+                  onChange={pickComputerUseModel}
+                  models={subagentModelChoices()}
                 />
               </GlassGroup>
             )}
@@ -909,6 +910,10 @@ export function DeviceSettingsDialog({
               onAgentChange={setAgentTab}
               model={draft.model}
               onModelChange={(value) => patchDraft({ model: value })}
+              threadModel={draft.threadModel ?? ``}
+              onThreadModelChange={(value) =>
+                patchDraft({ threadModel: value })
+              }
               subagentModel={draft.subagentModel ?? ``}
               onSubagentModelChange={(value) =>
                 patchDraft({ subagentModel: value })

@@ -276,7 +276,9 @@ describe(`devices.register`, () => {
           ultracode: false,
           planMode: true,
         },
-        codex: { model: ``, effort: `` },
+        // Every model is explicit: a blank codex model is dropped (it reads
+        // as the contract default), a blank effort is still CLI default.
+        codex: { effort: `` },
       },
     })
   })
@@ -922,7 +924,7 @@ describe(`devices.setLaunchDefaults`, () => {
     expect(JSON.stringify(result.launchDefaults)).not.toContain(`null`)
     expect(result.launchDefaults).toEqual({
       defaultAgent: `codex`,
-      agents: { codex: { model: ``, effort: `` } },
+      agents: { codex: { effort: `` } },
     })
   })
 
@@ -998,7 +1000,8 @@ describe(`devices.setLaunchDefaults`, () => {
       defaultAgent: `claude`,
       agents: { claude: { model: `fable`, subagentModel: `sonnet` } },
     }
-    // Blank = "the CLI's own default" (EXP-981): an explicit value, kept.
+    // Every model is explicit (owner 2026-10-15): a blank subagent model is
+    // dropped and reads as the contract default (opus); a value replaces.
     h.state.selectQueue = deviceRow({ launchDefaults: stored })
     let result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
@@ -1009,7 +1012,19 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     expect(result.launchDefaults).toEqual({
       defaultAgent: `claude`,
-      agents: { claude: { model: `fable`, subagentModel: `` } },
+      agents: { claude: { model: `fable` } },
+    })
+    h.state.selectQueue = deviceRow({ launchDefaults: stored })
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        defaultAgent: `claude`,
+        agents: { claude: { model: `fable`, subagentModel: `haiku` } },
+      },
+    })
+    expect(result.launchDefaults).toEqual({
+      defaultAgent: `claude`,
+      agents: { claude: { model: `fable`, subagentModel: `haiku` } },
     })
 
     // An explicit null (the key is PRESENT) is a clear, not an omission: the
@@ -1114,6 +1129,40 @@ describe(`devices.setLaunchDefaults`, () => {
   // under the same contract: a contract alias passes, an unknown one is
   // dropped (never an error), and a save that OMITS the key or sends null
   // clears it.
+  // Dispatch (owner 2026-10-15): the thread model is per agent, over THAT
+  // agent's vocabulary; blanks and foreign values are dropped.
+  it(`clamps threadModel per agent to its own vocabulary`, async () => {
+    h.state.selectQueue = deviceRow()
+    const result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        agents: {
+          claude: { model: `fable`, threadModel: `haiku` },
+          codex: { model: `gpt-5.6-sol`, threadModel: `gpt-5.6-luna` },
+        },
+      },
+    })
+    expect(result.launchDefaults).toEqual({
+      agents: {
+        claude: { model: `fable`, threadModel: `haiku` },
+        codex: { model: `gpt-5.6-sol`, threadModel: `gpt-5.6-luna` },
+      },
+    })
+    h.state.selectQueue = deviceRow()
+    const dropped = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: {
+        agents: {
+          claude: { model: ``, threadModel: `gpt-5.6-luna` },
+          codex: { model: `gpt-5.6-sol`, threadModel: `` },
+        },
+      },
+    })
+    expect(dropped.launchDefaults).toEqual({
+      agents: { codex: { model: `gpt-5.6-sol` } },
+    })
+  })
+
   it(`clamps computerUseModel to the contract and clears it on omission`, async () => {
     h.state.selectQueue = deviceRow()
     let result = await caller.setLaunchDefaults({
@@ -1131,6 +1180,14 @@ describe(`devices.setLaunchDefaults`, () => {
       launchDefaults: { computerUse: true, computerUseModel: `gpt-5.6-sol` },
     })
     expect(result.launchDefaults).toEqual({ computerUse: true })
+
+    // THE model vocabulary (codingModel) includes haiku, the default.
+    h.state.selectQueue = deviceRow()
+    result = await caller.setLaunchDefaults({
+      deviceId: `dev-1`,
+      launchDefaults: { computerUse: true, computerUseModel: `haiku` },
+    })
+    expect(result.launchDefaults).toEqual({ computerUse: true, computerUseModel: `haiku` })
 
     const stored = { computerUse: true, computerUseModel: `opus` }
     h.state.selectQueue = deviceRow({ launchDefaults: stored })

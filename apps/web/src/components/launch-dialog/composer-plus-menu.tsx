@@ -4,12 +4,12 @@ import {
   Button,
   ComposerTool,
   Menu,
+  ModelMenuRows,
   PickerMenuRows,
   conceptIcon,
   type MenuEntry,
   type ValueChoice,
 } from "@exp/ui"
-import { contract } from "@exp/domain-contract"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import {
   agentEffortValues,
@@ -19,9 +19,8 @@ import { ActionPickerList } from "@/components/launch-dialog/action-picker"
 import { ComposerIssuePicker } from "@/components/launch-dialog/issue-picker"
 import {
   CLI_DEFAULT_EFFORT,
-  CLI_DEFAULT_MODEL,
   effortLabel,
-  modelLabel,
+  subagentModelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
 import {
@@ -81,15 +80,9 @@ export function ComposerPlusMenu({
   ]
   const effortValue =
     launch.effortValue === `` ? CLI_DEFAULT_EFFORT : launch.effortValue
-  const subagentOptions: ValueChoice[] = [
-    { value: CLI_DEFAULT_MODEL, label: `Default` },
-    ...contract.codingModel.values.map((value) => ({
-      value,
-      label: modelLabel(value),
-    })),
-  ]
-  const subagentValue =
-    launch.subagentModel === `` ? CLI_DEFAULT_MODEL : launch.subagentModel
+  // Every model is explicit: THE model choices, no Default row.
+  const subagentOptions: ValueChoice[] = subagentModelChoices()
+  const subagentValue = launch.subagentModel
   const labelOf = (options: ValueChoice[], value: string) =>
     options.find((option) => option.value === value)?.label
 
@@ -185,13 +178,10 @@ export function ComposerPlusMenu({
           kind: `submenu`,
           value: labelOf(subagentOptions, subagentValue),
           body: (
-            <PickerMenuRows
-              mode="single"
-              items={subagentOptions}
-              value={subagentValue}
-              onChange={(value) =>
-                launch.setSubagentModel(value === CLI_DEFAULT_MODEL ? `` : value)
-              }
+            <ModelMenuRows
+              models={subagentOptions}
+              value={subagentValue || null}
+              onChange={launch.setSubagentModel}
             />
           ),
         }

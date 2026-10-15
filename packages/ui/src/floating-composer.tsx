@@ -15,6 +15,9 @@ import { MobileWorkBar, MobileWorkCapsule } from "./mobile-work-bar"
 /** The scroll clearance a conversation reserves under the capsule. */
 export { MOBILE_WORK_BAR_CLEARANCE as FLOATING_COMPOSER_CLEARANCE } from "./mobile-work-bar"
 
+/** A popover or sheet the card opened, portalled out of it. */
+const POPUP_SELECTOR = `[data-radix-popper-content-wrapper], [role="dialog"]`
+
 export function FloatingComposer({
   placeholder,
   children,
@@ -64,7 +67,7 @@ export function FloatingComposer({
       if (card.contains(target)) return
       if (
         target instanceof Element &&
-        target.closest(`[data-radix-popper-content-wrapper], [role="dialog"]`)
+        target.closest(POPUP_SELECTOR)
       ) {
         return
       }
@@ -97,10 +100,15 @@ export function FloatingComposer({
               // and the pointerdown listener above owns taps.
               const next = event.relatedTarget as Node | null
               if (!next || event.currentTarget.contains(next)) return
+              // The card's own popups (the model pin's sheet, the ring's
+              // usage sheet) portal out of it: focus moving there stays in.
+              if (next instanceof Element && next.closest(POPUP_SELECTOR)) return
               collapse()
             }}
             onKeyDown={(event) => {
-              if (event.key === `Escape`) collapse()
+              // An Escape the field's own menu (`/`, `@`) consumed is not
+              // the reader leaving the card.
+              if (event.key === `Escape` && !event.defaultPrevented) collapse()
             }}
           >
             {children}
