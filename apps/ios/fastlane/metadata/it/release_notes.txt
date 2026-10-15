@@ -2,3 +2,4 @@
 - Titoli: un thread prende il nome dal suo lavoro, come Implement EXP-12 o Run Triage, così ogni elenco si legge allo stesso modo su telefono, web e desktop
 - Domande: le opzioni di un agente possono avere una breve descrizione e ogni domanda ha una riga per scrivere la tua risposta
 - Guide: un'immagine si apre accanto alle sue note, con frecce verso la successiva, e chi è aggiunto al team senza invito appare come Not invited
+- Account: una sessione che raggiunge il limite di utilizzo può passare a un altro account connesso e continuare

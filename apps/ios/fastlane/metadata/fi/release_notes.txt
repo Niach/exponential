@@ -2,3 +2,4 @@
 - Otsikot: ketju nimetään työnsä mukaan, kuten Implement EXP-12 tai Run Triage, joten jokainen lista näyttää samalta puhelimessa, verkossa ja työpöydällä
 - Kysymykset: agentin vaihtoehdoilla voi olla lyhyt kuvaus, ja jokaisessa kysymyksessä on rivi omalle vastauksellesi
 - Guide: kuva avautuu muistiinpanojensa viereen nuolin seuraavaan, ja tiimiin ilman kutsua lisätyt näkyvät tilassa Not invited
+- Tilit: käyttörajansa saavuttava istunto voi vaihtaa toiseen kirjautuneeseen tiliin ja jatkaa

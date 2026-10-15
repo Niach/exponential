@@ -2,3 +2,4 @@
 - Titlar: en tråd heter efter sitt arbete, som Implement EXP-12 eller Run Triage, så att varje lista ser likadan ut i mobil, webb och dator
 - Frågor: en agents alternativ kan ha en kort beskrivning, och varje fråga har en rad där du skriver ditt eget svar
 - Guide: en bild öppnas bredvid sina anteckningar, med pilar till nästa, och personer som lagts till i teamet utan inbjudan visas som Not invited
+- Konton: en session som når sin användningsgräns kan byta till ett annat inloggat konto och fortsätta

@@ -2,3 +2,4 @@
 - Títulos: un hilo se llama como su trabajo, por ejemplo Implement EXP-12 o Run Triage, así cada lista se lee igual en móvil, web y escritorio
 - Preguntas: las opciones de un agente pueden llevar una breve descripción, y cada pregunta tiene una fila para escribir tu propia respuesta
 - Guide: una imagen se abre junto a sus notas, con flechas a la siguiente, y quienes se añaden al equipo sin invitación aparecen como Not invited
+- Cuentas: una sesión que alcanza su límite de uso puede cambiar a otra cuenta con sesión iniciada y seguir adelante

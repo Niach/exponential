@@ -2,3 +2,4 @@
 - Naslovi: nit nosi ime svog posla, poput Implement EXP-12 ili Run Triage, pa svaki popis izgleda isto na mobitelu, webu i računalu
 - Pitanja: opcije agenta mogu imati kratak opis, a svako pitanje ima redak u koji upisujete vlastiti odgovor
 - Guide: slika se otvara uz svoje bilješke, sa strelicama prema sljedećoj, a osobe dodane u tim bez pozivnice prikazuju se kao Not invited
+- Računi: sesija koja dosegne ograničenje korištenja može se prebaciti na drugi prijavljeni račun i nastaviti

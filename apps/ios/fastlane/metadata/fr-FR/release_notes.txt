@@ -2,3 +2,4 @@
 - Titres : un fil porte le nom de son travail, comme Implement EXP-12 ou Run Triage, pour que chaque liste se lise pareil sur téléphone, web et ordinateur
 - Questions : les options d'un agent peuvent avoir une courte description, et chaque question a une ligne pour saisir votre propre réponse
 - Guide : une image s'ouvre à côté de ses notes, avec des flèches vers la suivante, et les personnes ajoutées à l'équipe sans invitation apparaissent comme Not invited
+- Comptes : une session qui atteint sa limite d'utilisation peut passer à un autre compte connecté et continuer

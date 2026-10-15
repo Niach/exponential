@@ -2,3 +2,4 @@
 - Tytuły: wątek nosi nazwę swojej pracy, np. Implement EXP-12 albo Run Triage, więc każda lista wygląda tak samo na telefonie, w sieci i na komputerze
 - Pytania: opcje agenta mogą mieć krótki opis, a każde pytanie ma wiersz na Twoją własną odpowiedź
 - Guide: obraz otwiera się obok swoich notatek, ze strzałkami do następnego, a osoby dodane do zespołu bez zaproszenia widnieją jako Not invited
+- Konta: sesja, która osiągnie limit użycia, może przełączyć się na inne zalogowane konto i działać dalej

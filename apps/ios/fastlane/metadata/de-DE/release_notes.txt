@@ -2,3 +2,4 @@
 - Titel: ein Thread heißt nach seiner Arbeit, etwa Implement EXP-12 oder Run Triage, sodass jede Liste auf Telefon, Web und Desktop gleich aussieht
 - Fragen: die Optionen eines Agenten können eine kurze Beschreibung haben, und jede Frage hat eine Zeile für deine eigene Antwort
 - Guide: ein Bild öffnet sich neben seinen Notizen, mit Pfeilen zum nächsten, und ohne Einladung zum Team hinzugefügte Personen erscheinen als Not invited
+- Konten: eine Session, die ihr Nutzungslimit erreicht, kann zu einem anderen angemeldeten Konto wechseln und weiterlaufen

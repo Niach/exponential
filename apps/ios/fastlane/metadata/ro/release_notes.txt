@@ -2,3 +2,4 @@
 - Titluri: un fir poartă numele lucrării sale, ca Implement EXP-12 sau Run Triage, astfel încât fiecare listă arată la fel pe telefon, web și desktop
 - Întrebări: opțiunile unui agent pot avea o scurtă descriere, iar fiecare întrebare are un rând în care îți scrii propriul răspuns
 - Guide: o imagine se deschide lângă notițele ei, cu săgeți spre următoarea, iar persoanele adăugate în echipă fără invitație apar ca Not invited
+- Conturi: o sesiune care atinge limita de utilizare poate trece pe alt cont conectat și poate continua

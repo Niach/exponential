@@ -2,3 +2,4 @@
 - Titels: een thread is vernoemd naar zijn werk, zoals Implement EXP-12 of Run Triage, zodat elke lijst hetzelfde leest op telefoon, web en desktop
 - Vragen: de opties van een agent kunnen een korte beschrijving hebben, en elke vraag heeft een regel om je eigen antwoord te typen
 - Guide: een afbeelding opent naast de notities, met pijlen naar de volgende, en mensen die zonder uitnodiging aan het team zijn toegevoegd tonen als Not invited
+- Accounts: een sessie die zijn gebruikslimiet bereikt, kan overschakelen naar een ander ingelogd account en doorgaan

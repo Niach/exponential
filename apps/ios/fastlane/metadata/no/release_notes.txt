@@ -2,3 +2,4 @@
 - Titler: en tråd er oppkalt etter arbeidet sitt, som Implement EXP-12 eller Run Triage, så alle lister ser like ut på telefon, web og desktop
 - Spørsmål: en agents valg kan ha en kort beskrivelse, og hvert spørsmål har en rad der du kan skrive ditt eget svar
 - Guide: et bilde åpnes ved siden av notatene sine, med piler til det neste, og personer lagt til i teamet uten invitasjon vises som Not invited
+- Kontoer: en økt som når bruksgrensen sin, kan bytte til en annen innlogget konto og fortsette

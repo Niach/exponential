@@ -2,3 +2,4 @@
 - Názvy: vlákno sa volá podľa svojej práce, napríklad Implement EXP-12 alebo Run Triage, takže každý zoznam vyzerá rovnako na telefóne, webe aj desktope
 - Otázky: možnosti agenta môžu mať krátky popis a každá otázka má riadok, kam napíšete vlastnú odpoveď
 - Guide: obrázok sa otvorí vedľa svojich poznámok so šípkami k ďalšiemu a ľudia pridaní do tímu bez pozvánky sa zobrazia ako Not invited
+- Účty: relácia, ktorá narazí na limit využitia, sa môže prepnúť na iný prihlásený účet a pokračovať
