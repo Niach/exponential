@@ -104,6 +104,13 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   }
 
   input.issues = await rootIssues(root.id)
+  // A thread's dispatcher started on work by construction hands it off at
+  // once instead of judging it: plan mode, linked issues or an action.
+  input.handOff =
+    session.dispatch &&
+    session.kind === `thread` &&
+    session.parentId === null &&
+    Boolean(session.workLaunch?.planMode || input.issues.length > 0 || input.action)
 
   let parentBranch: string | null = null
   if (session.parentId) {

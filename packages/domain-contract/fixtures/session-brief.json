@@ -1,10 +1,11 @@
 {
-  "$comment": "EXP-1291 Threads v2: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept) · Action '<name>' (the action body trimmed, then for each filled input in declaration order '- <label>: <display>' after an 'Inputs:' line and a blank line) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line.",
+  "$comment": "EXP-1291 Threads v2: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept) · Action '<name>' (the action body trimmed, then for each filled input in declaration order '- <label>: <display>' after an 'Inputs:' line and a blank line) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template) · Dispatch (a dispatcher root whose start is work by construction, `handOff`: plan mode, linked issues or an action; body = `handOff`). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line.",
   "headings": {
     "request": "Request",
     "action": "Action: {name}",
     "issues": "Issues",
-    "parent": "Parent"
+    "parent": "Parent",
+    "dispatch": "Dispatch"
   },
   "inputsLine": "Inputs:",
   "parent": "You are a sub-session (depth {depth} of {maxDepth}) of \"{title}\". Base your work on its branch: `git fetch origin {branch} && git reset --hard origin/{branch}` before any edit, then open your PR with `pr_open({base: \"{branch}\"})`.",
@@ -98,11 +99,26 @@
       "expected": "## Request\n\nLook around.\n\n## Parent\n\nYou are a sub-session (depth 2 of 3) of \"Research\"."
     },
     {
+      "name": "a dispatcher started on an issue in plan mode hands it off",
+      "input": {
+        "text": "Fix it.",
+        "issues": [
+          {
+            "identifier": "APP-5",
+            "title": "Reduce cold start below 800 ms"
+          }
+        ],
+        "handOff": true
+      },
+      "expected": "## Request\n\nFix it.\n\n## Issues\n\n- APP-5 Reduce cold start below 800 ms\n\n## Dispatch\n\nThis start is work: hand it to a child session in this turn with `exponential_sessions_send({parentId: <your session>, text: <a self-contained brief>})` (it inherits the model, effort and plan mode picked for the work and sees the Issues and Action itself), then reply in one line. Do not research it yourself first."
+    },
+    {
       "name": "nothing at all",
       "input": {
         "text": "   "
       },
       "expected": "Wait for the next message."
     }
-  ]
+  ],
+  "handOff": "This start is work: hand it to a child session in this turn with `exponential_sessions_send({parentId: <your session>, text: <a self-contained brief>})` (it inherits the model, effort and plan mode picked for the work and sees the Issues and Action itself), then reply in one line. Do not research it yourself first."
 }
