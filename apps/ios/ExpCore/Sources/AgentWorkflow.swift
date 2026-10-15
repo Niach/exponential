@@ -17,12 +17,19 @@ public struct AgentBackgroundTask: Equatable, Sendable, Identifiable {
     /// The launching tool_use_id, once the CLI names one — the first list
     /// frame for a task carries none.
     public let toolId: String?
+    /// EXP-1324: epoch ms the device saw it start (nil on older publishers:
+    /// the client's first sight of the id stands in).
+    public let startedAt: Int64?
 
-    public init(id: String, kind: String, description: String, toolId: String? = nil) {
+    public init(
+        id: String, kind: String, description: String, toolId: String? = nil,
+        startedAt: Int64? = nil
+    ) {
         self.id = id
         self.kind = kind
         self.description = description
         self.toolId = toolId
+        self.startedAt = startedAt
     }
 
     /// A wire `backgroundTaskKind`, folded onto `other` for anything this

@@ -174,8 +174,34 @@ final class AgentSessionModel {
     /// EXP-850 §2: the background tasks the agent is running right now — a
     /// latest-wins slot (an empty list closes the strip above the composer).
     private(set) var backgroundTasks: [AgentBackgroundTask] = [] {
-        didSet { rebuildStripLines() }
+        didSet {
+            rebuildStripLines()
+            // EXP-1324: a task the wire gave no `startedAt` counts from the
+            // first time this client saw its id.
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            for task in backgroundTasks where backgroundFirstSeen[task.id] == nil {
+                backgroundFirstSeen[task.id] = now
+            }
+        }
     }
+    /// EXP-1324: each subagent's start/end stamps (epoch ms, the edges' `at`).
+    @ObservationIgnored private var subagentSpans: [String: (start: Int64?, end: Int64?)] = [:]
+
+    /// EXP-1324: a subagent's duration for its Trace badge — end − start once
+    /// done, else the time since it started; nil without a start stamp.
+    func subagentDurationMs(_ subagentId: String, done: Bool) -> Int? {
+        guard let span = subagentSpans[subagentId], let start = span.start else { return nil }
+        let end = done ? span.end : Int64(Date().timeIntervalSince1970 * 1000)
+        guard let end else { return nil }
+        return Int(max(0, end - start))
+    }
+
+    /// EXP-1324: first sight per background-task id (epoch ms).
+    @ObservationIgnored private var backgroundFirstSeen: [String: Int64] = [:]
+    /// EXP-1321: the Queue's two open states — the reader's toggle sticks for
+    /// the session ("to do" open, "completed" collapsed by default).
+    var queueTodoOpen = true
+    var queueCompletedOpen = false
     /// EXP-927 §2c: the agent's own task list — a latest-wins slot (the FULL
     /// list in order; an empty one hides the block above the strip).
     private(set) var taskList: [AgentTaskListEntry] = []
@@ -678,6 +704,31 @@ final class AgentSessionModel {
     /// EXP-927 §2c: the strip's FIRST block — the agent's own task list, gone
     /// once the run is over, exactly like the lines below it.
     var visibleTaskList: [AgentTaskListEntry] { isOver ? [] : taskList }
+
+    /// EXP-1321/1324: THE Queue at `now` (`fixtures/task-queue.json`): the
+    /// task list, the background tasks and the open waits; nil = no block.
+    /// Gone once the run is over, like the strip it replaced.
+    func taskQueue(now: Date) -> TaskQueue? {
+        guard !isOver else { return nil }
+        let waits: [TaskQueueInput.Wait] = stripLines.compactMap { line in
+            guard line.kind == .wait else { return nil }
+            return TaskQueueInput.Wait(
+                id: String(line.id.dropFirst("wait:".count)),
+                subject: String(line.text.dropFirst(AgentFeed.waitingOnPrefix.count))
+            )
+        }
+        return TaskQueue.build(TaskQueueInput(
+            tasks: taskList.map { WorkCardTask(content: $0.content, status: $0.status.rawValue) },
+            backgroundTasks: backgroundTasks.map {
+                TaskQueueInput.BackgroundTask(
+                    id: $0.id, kind: $0.kind, description: $0.description,
+                    startedAt: $0.startedAt ?? backgroundFirstSeen[$0.id]
+                )
+            },
+            waits: waits,
+            now: Int64(now.timeIntervalSince1970 * 1000)
+        ))
+    }
 
     private func rebuildStripLines() {
         stripLines = AgentFeed.stripLines(backgroundTasks: backgroundTasks, feed: feed)
@@ -2266,6 +2317,16 @@ final class AgentSessionModel {
             // and a stepper advances to its next step.
             answerTracker.acknowledge(id)
         case let .subagent(subagentId, agentType, status, detail, toolCalls, title, workflowId):
+            // EXP-1324: the edges' own `at` stamps give the line its badge.
+            if let at = (event?["at"] as? NSNumber)?.int64Value {
+                var span = subagentSpans[subagentId] ?? (start: nil, end: nil)
+                if status == .completed {
+                    span.end = max(span.end ?? at, at)
+                } else if status == .started {
+                    span.start = min(span.start ?? at, at)
+                }
+                subagentSpans[subagentId] = span
+            }
             append(.subagent(
                 id: takeEventId(),
                 subagentId: subagentId,
@@ -2317,6 +2378,19 @@ final class AgentSessionModel {
             // closes the strip above the composer.
             guard !prependingPage else { return }
             backgroundTasks = tasks
+        case let .thought(thoughtId, started, durationMs, subagentId):
+            // EXP-1324: the Reasoning line. `ended` patches its `started` row
+            // (same wire id) in place; anything unmatched appends.
+            if let next = AgentFeed.applyThought(
+                feed, thoughtId: thoughtId, started: started, durationMs: durationMs
+            ) {
+                feed = next
+            } else {
+                append(.thought(
+                    id: takeEventId(), thoughtId: thoughtId, running: started,
+                    durationMs: durationMs, subagentId: subagentId
+                ))
+            }
         case let .taskList(entries):
             // EXP-927 §2c: the FULL list, latest-wins — an empty array hides
             // the block. Present-tense state, like the tasks beside it. A

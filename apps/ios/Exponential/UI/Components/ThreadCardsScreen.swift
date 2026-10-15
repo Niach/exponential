@@ -12,7 +12,7 @@ import SwiftUI
 struct ThreadCardsScreen: View {
     let kind: String
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block"]
 
     var body: some View {
         ZStack {
@@ -22,6 +22,8 @@ struct ThreadCardsScreen: View {
                     switch kind {
                     case "script-card": scriptCards
                     case "comment-call-card": commentCards
+                    case "trace": traceSpecimens
+                    case "code-block": codeBlockSpecimens
                     default: workCards
                     }
                 }
@@ -81,6 +83,97 @@ struct ThreadCardsScreen: View {
             )),
             onOpenSubagent: {}
         )
+    }
+
+    // MARK: - Trace (EXP-1324)
+
+    @State private var todoOpen = true
+    @State private var completedOpen = false
+
+    private static let gradleOutput = """
+    > Task :app:startupProfile
+    Pixel 6a     p50 740 ms   p90 812 ms
+    Galaxy A54   p50 790 ms   p90 840 ms
+    BUILD SUCCESSFUL in 41s
+    """
+
+    private static let failingTests = """
+    StartupBenchmark > coldStart FAILED
+        java.lang.AssertionError
+
+    12 tests completed, 1 failed
+    """
+
+    /// The web draft's transcript, line for line, at the transcript's size
+    /// (sm), then every line state at the default size.
+    @ViewBuilder
+    private var traceSpecimens: some View {
+        TraceStack(size: .sm) {
+            TraceLine(Trace.reasoning(running: false, durationMs: 5_400), size: .sm)
+            TraceCollapsible(size: .sm, initiallyOpen: true) {
+                TraceLine(Trace.tool(
+                    toolKind: "execute", name: "Bash", detail: "./gradlew :app:startupProfile",
+                    settled: true, failed: false
+                ), size: .sm)
+            } content: {
+                CodeBlockView(Self.gradleOutput, language: .ansi)
+            }
+            TraceLine(
+                title: "Ran the Explore agent", size: .sm,
+                icon: { AppIcon(AppIcons.traceSubagent, size: Trace.Geometry.sm.icon) },
+                accessory: { TraceBadge("1m 12s", size: .sm) }
+            )
+            if let failed = Trace.failedTests(Trace.parseTestResults(Self.failingTests)) {
+                TraceCollapsible(size: .sm) {
+                    TraceLine(failed, size: .sm)
+                } content: {
+                    CodeBlockView(Self.failingTests, language: .ansi, destructive: true)
+                }
+            }
+        }
+        if let queue = TaskQueue.build(TaskQueueInput(
+            tasks: [
+                WorkCardTask(content: "Profile the launch path", status: "completed"),
+                WorkCardTask(content: "Persist the snapshot cache on ON_STOP", status: "completed"),
+                WorkCardTask(content: "Measuring on the Galaxy A54", status: "in_progress"),
+                WorkCardTask(content: "Open the PR with the numbers", status: "pending"),
+            ],
+            backgroundTasks: [TaskQueueInput.BackgroundTask(
+                id: "b1", kind: "shell", description: "Rerun the web captures", startedAt: 0
+            )],
+            waits: [],
+            now: 130_000
+        )) {
+            TaskQueueBlock(queue: queue, todoOpen: $todoOpen, completedOpen: $completedOpen)
+                .padding(.top, 12)
+        }
+        Divider().overlay(DesignTokens.Palette.border).padding(.vertical, 8)
+        TraceStack {
+            TraceLine(Trace.tool(toolKind: "read", name: "Read", detail: "src/a.ts", settled: true, failed: false))
+            TraceLine(Trace.tool(toolKind: "search", name: "Grep", detail: "persistOnStop", settled: false, failed: false))
+            TraceLine(Trace.tool(toolKind: "execute", name: "Bash", detail: "bun test", settled: true, failed: true))
+            TraceLine(Trace.tool(toolKind: "other", name: "TodoWrite", detail: "3 tasks", settled: true, failed: false))
+            TraceLine(Trace.reasoning(running: true, durationMs: nil))
+            TraceLine(TraceLineModel(
+                icon: TaskQueue.Icons.pending, title: "Open the PR with the numbers",
+                description: nil, status: .pending
+            ))
+        }
+    }
+
+    // MARK: - CodeBlock (EXP-1324)
+
+    @ViewBuilder
+    private var codeBlockSpecimens: some View {
+        CodeBlockView(Self.gradleOutput, language: .ansi)
+        CodeBlockView(
+            "\u{1B}[32m✓\u{1B}[0m warm start \u{1B}[2m(0.2ms)\u{1B}[0m\n"
+                + "\u{1B}[31m(fail)\u{1B}[0m StartupBenchmark > cold [1.2ms]\n"
+                + "warning: snapshot cache is cold\n\n 11 pass\n 1 fail",
+            language: .ansi
+        )
+        CodeBlockView(Self.failingTests, language: .ansi, destructive: true)
+        CodeBlockView("const answer = 42", title: nil)
     }
 
     // MARK: - Script card (D13)

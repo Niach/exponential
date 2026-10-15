@@ -309,17 +309,22 @@ struct CommentThreadView: View {
             // Append a relative timestamp (EXP-169) — only when it parses, so
             // an unparseable created_at never leaves a dangling " · ".
             let time = relativeDate(event.createdAt)
+            // EXP-1324: the event is a Trace line (size sm): its glyph in the
+            // timeline gutter, the sentence as the title, the relative time
+            // as the muted description.
             TimelineRow(
                 showTop: showTop,
                 showBottom: showBottom,
-                markerSize: 16,
+                markerSize: Trace.Geometry.sm.lineHeight,
                 topPadding: 5,
                 bottomPadding: 5,
                 marker: { eventMarker(event) }
             ) {
-                Text(time.isEmpty ? "\(who) \(phrase)" : "\(who) \(phrase) · \(time)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                TraceLine(
+                    title: "\(who) \(phrase)",
+                    description: time.isEmpty ? nil : time,
+                    size: .sm
+                ) { EmptyView() }
             }
         }
     }
@@ -364,11 +369,11 @@ struct CommentThreadView: View {
     private func eventMarker(_ event: IssueEventEntity) -> some View {
         switch eventGlyph(event, statuses: teamStatuses) {
         case .status(let status)?:
-            AppIcon(status.iconName, size: 12)
+            AppIcon(status.iconName, size: Trace.Geometry.sm.icon)
                 .foregroundStyle(status.color)
         case .plain(let name)?:
-            AppIcon(name, size: 12)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            AppIcon(name, size: Trace.Geometry.sm.icon)
+                .foregroundStyle(DesignTokens.Palette.mutedForeground)
         case nil:
             eventDot
         }

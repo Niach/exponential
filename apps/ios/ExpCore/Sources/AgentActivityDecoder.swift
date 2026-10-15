@@ -171,6 +171,10 @@ public enum AgentActivityEvent: Equatable, Sendable {
     case compaction(AgentCompactionEdge)
     /// EXP-850 §2: the FULL current list — an empty array closes the strip.
     case backgroundTasks([AgentBackgroundTask])
+    /// EXP-1324: a reasoning block's edge — `started` opens a running
+    /// "Thinking" line, `ended` patches the SAME id ("Thought for 5s"). No
+    /// text rides the wire.
+    case thought(id: String, started: Bool, durationMs: Int?, subagentId: String?)
     /// EXP-927 §2c: the agent's OWN task list, in full and in order — an empty
     /// array hides the block.
     /// Nil = the frame carried no readable `entries` array: KEEP the list
@@ -266,6 +270,16 @@ public enum AgentActivityDecoder {
             return .compaction(compaction(event))
         case "background_tasks":
             return .backgroundTasks(backgroundTasks(event))
+        case "thought":
+            guard let id = string(event["id"]),
+                  let state = event["state"] as? String,
+                  state == "started" || state == "ended" else { return nil }
+            return .thought(
+                id: id,
+                started: state == "started",
+                durationMs: int(event["durationMs"]),
+                subagentId: string(event["subagentId"])
+            )
         case "task_list":
             return .taskList(taskList(event))
         case "queue":
@@ -453,7 +467,9 @@ public enum AgentActivityDecoder {
                 id: id,
                 kind: AgentBackgroundTask.kind(row["kind"]),
                 description: description,
-                toolId: string(row["toolId"])
+                toolId: string(row["toolId"]),
+                // EXP-1324: epoch ms the device saw it start.
+                startedAt: (row["startedAt"] as? NSNumber)?.int64Value
             )
         }
     }

@@ -233,10 +233,8 @@ struct AgentSessionView: View {
                     model.unqueue(id)
                 }
             }
-            // EXP-850 §1/§2: the monitors and background shell commands.
-            // Absent when there is nothing running. EXP-1191: the agent's own
-            // task list closes it — ALWAYS the last block, on the composer.
-            AgentBottomStrip(lines: model.visibleStripLines, taskList: model.visibleTaskList)
+            // EXP-1321: the background lines, waits and task list moved
+            // into THE Queue at the transcript's end (`TaskQueueView`).
             bottomBar(model)
         }
         // EXP-1162: the bottom edge strip behind the band — not behind an
@@ -639,7 +637,10 @@ struct AgentSessionView: View {
                                 agentType: focused.agentType,
                                 title: focused.title,
                                 status: focused.done ? .completed : .started,
-                                detail: focused.detail
+                                detail: focused.detail,
+                                durationMs: model.subagentDurationMs(
+                                    focused.subagentId, done: focused.done
+                                )
                             )
                             if focused.items.isEmpty {
                                 EmptyState(.transcript)
@@ -710,6 +711,17 @@ struct AgentSessionView: View {
                                         prev: rows.last?.rowClass, cur: .tool
                                     )))
                             }
+                        }
+                        // EXP-1321/1324: THE Queue closes the transcript —
+                        // the task list, background work and open waits —
+                        // right above the queued-messages strip.
+                        if agentTab == nil {
+                            TaskQueueView(
+                                todoOpen: Bindable(model).queueTodoOpen,
+                                completedOpen: Bindable(model).queueCompletedOpen,
+                                build: { model.taskQueue(now: $0) }
+                            )
+                            .padding(.top, DesignTokens.Transcript.gapBlock)
                         }
                         Color.clear
                             .frame(height: 1)
@@ -847,8 +859,19 @@ struct AgentSessionView: View {
             // of hiding inside a generic "N other tools".
             ExpToolGroupRow(items: items, refs: markdownContext.issueRefs)
         case let .subagentRun(run):
-            // EXP-1240: THE Work card; a tap opens the subagent's own tab.
-            SubagentWorkCardRow(run: run, onOpen: { openAgentTab(run.subagentId) })
+            // EXP-1324: the subagent Trace line + its duration badge; a tap
+            // opens the subagent's own tab.
+            VStack(alignment: .leading, spacing: 4) {
+                SubagentTraceLine(
+                    label: run.label, running: !run.done,
+                    durationMs: model?.subagentDurationMs(run.subagentId, done: run.done),
+                    onOpen: { openAgentTab(run.subagentId) }
+                )
+                // EXP-856: a second copy of this agent — amber, verbatim.
+                if let duplicate = run.duplicateDetail {
+                    AgentDuplicateWarningRow(detail: duplicate)
+                }
+            }
         case let .ask(group):
             askCard(group)
         case let .single(item):
@@ -858,11 +881,11 @@ struct AgentSessionView: View {
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(
-                id, name, detail, _, callId, _, settled, failed, diff, preview, output, script,
+                id, name, detail, _, callId, kind, settled, failed, diff, preview, output, script,
                 settledAt
             ):
                 toolOrWorkflowRow(
-                    item: item, name: name, detail: detail, callId: callId,
+                    item: item, name: name, kind: kind, detail: detail, callId: callId,
                     settled: settled, failed: failed, diff: diff,
                     preview: preview, output: output, live: id == liveToolRowId,
                     script: script, settledAt: settledAt
@@ -892,6 +915,17 @@ struct AgentSessionView: View {
                 PermissionRow(tool: tool, detail: detail)
             case .compaction:
                 CompactionMarkerRow()
+            case let .thought(_, _, running, durationMs, _):
+                // EXP-1324: the Reasoning line. A `started` edge whose `ended`
+                // never came reads settled once the turn is over.
+                TraceLine(
+                    Trace.reasoning(
+                        running: running && model?.agentWorking == true,
+                        durationMs: durationMs
+                    ),
+                    size: .sm
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -909,6 +943,7 @@ struct AgentSessionView: View {
     private func toolOrWorkflowRow(
         item: AgentFeedItem,
         name: String,
+        kind: String?,
         detail: String?,
         callId: String?,
         settled: Bool,
@@ -951,7 +986,8 @@ struct AgentSessionView: View {
             ToolRow(
                 name: name, detail: detail, failed: failed,
                 settled: settled, preview: preview,
-                refs: markdownContext.issueRefs, output: output, live: live
+                refs: markdownContext.issueRefs, output: output, live: live,
+                kind: kind
             )
         }
     }
@@ -2745,51 +2781,37 @@ struct QuestionCard: View {
     }
 }
 
-/// Tool-call headline — compact single line, consecutive rows visually tight.
+/// EXP-1324: a tool call as its Trace line (`Trace.tool`, size sm): "Ran
+/// bun test", "Reading README.md", another tool's name + detail. A settled
+/// call that PRINTED something (an `execute`'s output) is a Trace collapsible
+/// whose content is the Output CodeBlock (`ansi` for a command, destructive
+/// when the call failed); the RUNNING call is its line alone (EXP-1206: the
+/// transcript never jumps while a command prints). A settled command whose
+/// output parses as a test run with a failure adds the failed-tests line.
 private struct ToolRow: View {
     let name: String
     let detail: String?
-    /// EXP-785: the call failed — the row tints red (web parity) so a
-    /// collapsed group's "1 failed" has a row to point at once expanded.
+    /// EXP-785: the call failed — the line tints destructive.
     var failed: Bool = false
-    /// EXP-787: a row INSIDE an expanded group keeps the compact inner rhythm
-    /// this used to give every tool row; an outermost one is spaced by the
-    /// transcript's gap ladder instead.
+    /// EXP-787: a row INSIDE an expanded group (kept for the call sites; the
+    /// Trace's own `lineGap` spaces nested lines now).
     var nested: Bool = false
-    /// EXP-846: the call SETTLED — a `tool_update` status landed. What swaps an
-    /// Exponential row's progressive caption ("Creating issue") for its done
-    /// one ("Created issue").
+    /// EXP-846: the call SETTLED — a `tool_update` status landed.
     var settled: Bool = false
-    /// EXP-846: the result the publisher distilled out of an Exponential MCP
-    /// call's own answer. Nil for every other tool.
+    /// EXP-846: the result an Exponential MCP call distilled. Nil otherwise.
     var preview: AgentToolPreview? = nil
     /// EXP-846: the run's team + where a tapped issue preview goes.
     var refs: AgentIssueRefContext? = nil
-    /// EXP-895: what an `execute` call PRINTED, as its settle published it —
-    /// redacted and tail-cut by the publisher. Nil for every other call.
+    /// EXP-895: what an `execute` call PRINTED (redacted, tail-cut).
     var output: String? = nil
     /// EXP-895: this call is the ONE still running (`AgentFeed.liveToolRowId`).
-    /// EXP-1206: it is the headline ALONE — nothing streams under it, so the
-    /// transcript never jumps while a command prints.
     var live: Bool = false
-
-    /// EXP-806: a settled row opens only on the reader's tap.
-    @State private var pinned: Bool = false
-
-    /// The disclosure's state. One toggle for one row: since EXP-916 an edit's
-    /// patch belongs to the edited-files card, so the only evidence a tool row
-    /// discloses is an `execute`'s output.
-    private var showsDetail: Bool { hasDetail && pinned }
-    /// Whether there is anything to disclose at all — never while the call
-    /// still runs (EXP-1206).
-    private var hasDetail: Bool { output != nil && !live }
+    /// The contract `toolKind` (nil = `other`).
+    var kind: String? = nil
 
     var body: some View {
-        // EXP-846: one of OUR OWN MCP tools gets its own row — the Exponential
-        // mark, the contract's caption and the result preview — because
-        // `mcp__exponential__exponential_issues_create` told a reader nothing.
-        // A FAILED call keeps the generic red tool row: a failure has no result
-        // to show, and the failure is the thing to see.
+        // EXP-846: one of OUR OWN MCP tools keeps its own sentence + mark (as
+        // a Trace line); a FAILED call is the generic destructive line.
         if !failed, let display = ExpToolDisplay.resolve(toolName: name) {
             ExpToolRow(
                 display: display,
@@ -2798,69 +2820,55 @@ private struct ToolRow: View {
                 preview: preview,
                 refs: refs
             )
-            .padding(.vertical, nested ? 2 : 0)
         } else {
             genericRow
         }
     }
 
-    /// Every other tool: the neutral glyph, the tool's name, its detail, and —
-    /// behind a disclosure — the evidence the call produced: an `execute`'s
-    /// output. An `edit` never reaches here (EXP-916: it is a card row).
+    private var line: TraceLineModel {
+        Trace.tool(
+            toolKind: kind ?? "other", name: name, detail: detail,
+            settled: settled,
+            failed: failed
+        )
+    }
+
+    /// Anything to disclose — never while the call still runs (EXP-1206).
+    private var shownOutput: String? {
+        guard let output, !live, !output.isEmpty else { return nil }
+        return output
+    }
+
+    private var failedTests: TraceLineModel? {
+        guard settled, kind == "execute", let shownOutput else { return nil }
+        return Trace.failedTests(Trace.parseTestResults(shownOutput))
+    }
+
+    @ViewBuilder
     private var genericRow: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !hasDetail {
-                headline
-            } else {
-                Button { pinned = !showsDetail } label: {
-                    headline.contentShape(Rectangle())
+        TraceStack(size: .sm) {
+            if let shownOutput {
+                TraceCollapsible(size: .sm, accessibilityId: "agent-tool-row") {
+                    TraceLine(line, size: .sm)
+                } content: {
+                    CodeBlockView(
+                        shownOutput,
+                        language: kind == "execute" ? .ansi : .plain,
+                        destructive: failed
+                    )
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(showsDetail ? "Hide the output" : "Show the output")
-            }
-            if showsDetail, let output {
-                ToolOutputBlock(output: output)
-                    .padding(.top, 4)
-            }
-        }
-        .padding(.vertical, nested ? 2 : 0)
-    }
-
-    private var headline: some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.codingTool, size: 11)
-                .foregroundStyle(
-                    failed ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.tertiary)
-                )
-            Text(name)
-                .transcriptToolText(.medium)
-                .foregroundStyle(failed ? DesignTokens.Semantic.red : .white)
-            if let detail {
-                Text(Self.middleTruncate(detail))
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Spacer(minLength: 0)
+                TraceLine(line, size: .sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // The disclosure sits on the TRAILING edge on purpose: a leading
-            // chevron would indent the evidence-carrying rows out of line with
-            // every other tool row in the same run.
-            if hasDetail {
-                AppIcon(showsDetail ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if let failedTests, let shownOutput {
+                TraceCollapsible(size: .sm) {
+                    TraceLine(failedTests, size: .sm)
+                } content: {
+                    CodeBlockView(shownOutput, language: .ansi, destructive: true)
+                }
             }
         }
-    }
-
-    /// Middle-truncate a tool detail (paths etc.) so head AND tail stay
-    /// readable (Android AgentSessionScreen parity).
-    private static func middleTruncate(_ s: String, max: Int = 72) -> String {
-        guard s.count > max else { return s }
-        let head = max * 2 / 3
-        let tail = max - head - 1
-        return String(s.prefix(head)) + "…" + String(s.suffix(tail))
     }
 }
 
@@ -2918,22 +2926,17 @@ private struct ExpToolRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                ExpLogoMark(size: 11)
-                Text(display.caption(settled: settled))
-                    .transcriptToolText(.medium)
-                    .foregroundStyle(.white)
-                if let trimmedSubject {
-                    Text(trimmedSubject)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Spacer(minLength: 0)
-                }
+            // EXP-1324: the contract's sentence + our mark, as a Trace line
+            // (the subject is its muted description).
+            TraceLine(
+                title: display.caption(settled: settled),
+                description: trimmedSubject,
+                status: settled ? nil : .running,
+                size: .sm
+            ) {
+                ExpLogoMark(size: Trace.Geometry.sm.icon)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             // Only a SETTLED call has a result; a preview that arrived early
             // (the publisher only sends one with a status) waits for it.
             if settled, let preview {
@@ -3075,50 +3078,6 @@ private struct ExpToolIssuePreview: View {
     }
 }
 
-/// EXP-895 — what one `execute` call printed, as its settle put it on the wire:
-/// already redacted and tail-cut by the publisher, so this only has to be a
-/// readable box. A cut log OPENS with the `\ N more lines truncated` marker (the
-/// dropped lines were at the front, unlike a patch's trailing note), which reads
-/// as its first line and needs no parsing.
-///
-/// Scrolled to the BOTTOM: the verdict is the last line, and it is why the output
-/// is on the wire at all.
-private struct ToolOutputBlock: View {
-    let output: String
-
-    /// Web's `max-h-72` — tall enough to read a failure in, short enough that
-    /// the prose after the call stays on screen.
-    private static let maxHeight: CGFloat = 288
-    private static let bottom = "exp-tool-output-bottom"
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(output)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Color.clear.frame(height: 0).id(Self.bottom)
-                }
-                .padding(8)
-            }
-            .frame(maxHeight: Self.maxHeight)
-            // Web's `overscroll-contain`: a short log has nothing to scroll
-            // here, so the drag belongs to the transcript.
-            .scrollBounceBehavior(.basedOnSize)
-            .background(Color.white.opacity(0.03))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
-            )
-            .onAppear { proxy.scrollTo(Self.bottom, anchor: .bottom) }
-        }
-    }
-}
-
 /// A run of ≥2 consecutive tool calls collapsed into one "N tool calls" row
 /// (EXP-97), expandable to the individual rows. While the run is the trailing
 /// row of a live session, the latest call stays visible under the count so
@@ -3143,55 +3102,50 @@ private struct ToolGroupRow: View {
         })
     }
 
+    /// EXP-1324: the group is a Trace collapsible: the tool glyph + the
+    /// contract caption; open, its calls are Trace lines on the rail.
+    private var groupFailed: Bool {
+        items.contains { item in
+            if case let .tool(_, _, _, _, _, _, _, failed, _, _, _, _, _) = item { return failed }
+            return false
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    AppIcon(AppIcons.codingTool, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    Text(caption)
-                        .transcriptToolText(.medium)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Collapse tool calls" : "Expand tool calls")
-            if expanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(items) { item in
-                        if case let .tool(
-                            id, name, detail, _, _, _, settled, failed, _, preview, output, _, _
-                        ) = item {
-                            // EXP-1206: inside the group too, the RUNNING call
-                            // is its headline alone — the same rule the
-                            // top-level rows follow.
-                            ToolRow(
-                                name: name, detail: detail, failed: failed,
-                                nested: true,
-                                settled: settled, preview: preview, refs: refs,
-                                output: output, live: liveTail && id == items.last?.id
-                            )
-                        }
+            TraceCollapsible(size: .sm, open: $expanded, accessibilityId: "agent-tool-group") {
+                TraceLine(
+                    TraceLineModel(icon: Trace.Icons.tool, title: caption, description: nil, status: nil),
+                    size: .sm
+                )
+            } content: {
+                ForEach(items) { item in
+                    if case let .tool(
+                        id, name, detail, _, _, kind, settled, failed, _, preview, output, _, _
+                    ) = item {
+                        // EXP-1206: inside the group too, the RUNNING call
+                        // is its line alone.
+                        ToolRow(
+                            name: name, detail: detail, failed: failed,
+                            nested: true,
+                            settled: settled, preview: preview, refs: refs,
+                            output: output, live: liveTail && id == items.last?.id,
+                            kind: kind
+                        )
                     }
                 }
-                .padding(.leading, 20)
-            } else if liveTail, let last = items.last,
-                      case let .tool(
-                          _, name, detail, _, _, _, settled, failed, _, preview, output, _, _
-                      ) = last {
+            }
+            // The live tail: while the run is the trailing row of a live
+            // session, the latest call shows under the collapsed caption.
+            if !expanded, liveTail, let last = items.last,
+               case let .tool(_, name, detail, _, _, kind, settled, failed, _, preview, output, _, _) = last {
                 ToolRow(
                     name: name, detail: detail, failed: failed, nested: true,
                     settled: settled, preview: preview, refs: refs,
-                    output: output, live: true
+                    output: output, live: true, kind: kind
                 )
-                    .padding(.leading, 20)
+                .padding(.leading, Trace.Geometry.sm.contentInset)
+                .padding(.top, Trace.Geometry.sm.contentTop)
             }
         }
     }
@@ -3235,23 +3189,26 @@ private struct ExpToolGroupRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                expanded.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    ExpLogoMark(size: 11)
-                    Text(caption)
-                        .transcriptToolText(.medium)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
+            // EXP-1324: a Trace collapsible — our mark + the contract's
+            // plural sentence; open, the calls are Trace lines on the rail.
+            TraceCollapsible(size: .sm, open: $expanded, accessibilityId: "agent-exp-tool-group") {
+                TraceLine(title: caption, size: .sm) {
+                    ExpLogoMark(size: Trace.Geometry.sm.icon)
                 }
-                .contentShape(Rectangle())
+            } content: {
+                ForEach(items) { item in
+                    if case let .tool(
+                        _, name, detail, _, _, kind, settled, failed, _, preview, output, _, _
+                    ) = item {
+                        ToolRow(
+                            name: name, detail: detail, failed: failed,
+                            nested: true,
+                            settled: settled, preview: preview, refs: refs,
+                            output: output, kind: kind
+                        )
+                    }
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Collapse tool calls" : "Expand tool calls")
             let pictures = foldedPictures
             if !pictures.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -3260,23 +3217,6 @@ private struct ExpToolGroupRow: View {
                     }
                 }
                 .padding(.top, 8)
-            }
-            if expanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(items) { item in
-                        if case let .tool(
-                            _, name, detail, _, _, _, settled, failed, _, preview, output, _, _
-                        ) = item {
-                            ToolRow(
-                                name: name, detail: detail, failed: failed,
-                                nested: true,
-                                settled: settled, preview: preview, refs: refs,
-                                output: output
-                            )
-                        }
-                    }
-                }
-                .padding(.leading, 20)
             }
         }
     }
@@ -3335,15 +3275,17 @@ struct SubagentItemRow: View {
             where ScriptCards.isScriptCall(name: name, toolKind: kind):
             // EXP-1279: a lane's code-mode call is its Script card too.
             ScriptCallRow(settled: settled, failed: failed, script: script)
-        case let .tool(_, name, detail, _, _, _, settled, failed, _, preview, output, _, _):
+        case let .tool(_, name, detail, _, _, kind, settled, failed, _, preview, output, _, _):
             // A subagent's rows are a digest inside the main transcript — its
             // own tab is where its work is read — so none of them is the live
             // row here; the reader's tap still opens one.
             ToolRow(
                 name: name, detail: detail, failed: failed,
                 settled: settled, preview: preview, refs: context.issueRefs,
-                output: output
+                output: output, kind: kind
             )
+        case let .thought(_, _, running, durationMs, _):
+            TraceLine(Trace.reasoning(running: running, durationMs: durationMs), size: .sm)
         case let .narration(_, text, _, _):
             NarrationBubble(text: text, context: context)
         case let .apiError(_, message, errorType, _):
@@ -3357,34 +3299,61 @@ struct SubagentItemRow: View {
 }
 
 /// A stray subagent marker (EXP-249) — a `completed` whose `started` fell off
-/// the top of the feed, or a start with nothing published under it yet.
+/// the top of the feed, or a start with nothing published under it yet; also
+/// the focused tab's header. EXP-1324: the subagent Trace line.
 private struct SubagentRow: View {
     let agentType: String
     /// EXP-847: the spawn's own description, when it named one.
     var title: String? = nil
     let status: AgentSubagentStatus
     let detail: String?
+    var durationMs: Int? = nil
 
     /// EXP-847: the title leads, the agent type is the fallback — mirroring
     /// `AgentSubagentRun.label`.
     private var label: String { title ?? agentType }
 
     var body: some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.codingSubagent, size: 11)
-                .foregroundStyle(DesignTokens.Semantic.blue)
-            Text(status == .completed ? "\(label) finished" : "\(label) started")
-                .transcriptToolText(.medium)
-                .foregroundStyle(.white)
-            if let detail {
-                Text(detail)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Spacer(minLength: 0)
+        SubagentTraceLine(
+            label: label, running: status != .completed, durationMs: durationMs
+        )
+    }
+}
+
+/// EXP-1324: THE subagent line — "Running the Explore agent" → "Ran the
+/// Explore agent" + the duration as the outline Badge.
+struct SubagentTraceLine: View {
+    let label: String
+    let running: Bool
+    var durationMs: Int? = nil
+    /// Tap = open the subagent's own tab (the line then carries a chevron).
+    var onOpen: (() -> Void)? = nil
+
+    var body: some View {
+        let model = Trace.subagent(
+            label: label, running: running, failed: false, durationMs: durationMs
+        )
+        let line = TraceLine(
+            title: model.title, status: model.status, size: .sm,
+            icon: { AppIcon(TraceIcons.glyph(model.icon), size: Trace.Geometry.sm.icon) },
+            accessory: {
+                if let badge = model.description { TraceBadge(badge, size: .sm) }
             }
+        )
+        if let onOpen {
+            Button(action: onOpen) {
+                HStack(spacing: Trace.Geometry.sm.chevronGap) {
+                    line
+                    AppIcon(AppIcons.traceChevron, size: Trace.Geometry.sm.icon)
+                        .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("agent-subagent-line")
+        } else {
+            line.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
