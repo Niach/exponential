@@ -323,6 +323,23 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
       sendSession({ userId: w.owner, input: { sessionId: codex.sessionId, account: `dddd4444` } })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
 
+    // A session with NO cli runs the device's default agent: a codex
+    // default refuses the switch too; an unknowable one is left to the device.
+    const defaulted = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, text: `default agent` },
+    })
+    expect((await row(defaulted.sessionId)).cli).toBeNull()
+    await sendSession({ userId: w.owner, input: { sessionId: defaulted.sessionId, account: `ffff6666` } })
+    expect((await row(defaulted.sessionId)).account).toBe(`ffff6666`)
+    await db
+      .update(devices)
+      .set({ launchDefaults: { defaultAgent: `codex` } })
+      .where(eq(devices.deviceId, w.deviceId))
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: defaulted.sessionId, account: `gggg7777` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+
     // An ended thread: a switch alone is refused; with a message the
     // continuation child runs on the new login.
     await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
@@ -554,6 +571,13 @@ describe.skipIf(!ready.ok)(`the sessions router: device procedures and answers`,
     expect((await row(sent.sessionId)).lastTurnAt).not.toBeNull()
     await host.report({ sessionId: sent.sessionId, title: `Other` })
     expect((await row(sent.sessionId)).title).toBe(`Auto`)
+
+    // EXP-849: the device reports the login the run actually runs on (a
+    // start pick or a rotation moved it); a report without one leaves it.
+    await host.report({ sessionId: sent.sessionId, account: `bbbb2222` })
+    expect((await row(sent.sessionId)).account).toBe(`bbbb2222`)
+    await host.report({ sessionId: sent.sessionId, busy: true })
+    expect((await row(sent.sessionId)).account).toBe(`bbbb2222`)
 
     const { brief } = await host.brief({ sessionId: sent.sessionId })
     expect(brief).toContain(`start`)

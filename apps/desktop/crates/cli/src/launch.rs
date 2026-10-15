@@ -314,6 +314,7 @@ fn run_foreground_pickup(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
     let mut synced: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
     let mut last_plan: Option<Instant> = None;
     let mut last_poll: Option<Instant> = None;
+    let mut refused_switch: Option<String> = None;
     let live = || deps.live.get(session_id).is_some_and(|engine| !engine.is_done());
     while live() {
         let mut changed = false;
@@ -338,7 +339,7 @@ fn run_foreground_pickup(ctx: &Ctx, deps: &PickupDeps, session_id: &str) {
             Some(store) if ready => {
                 if changed || last_plan.is_none_or(|at| at.elapsed() >= FOREGROUND_TICK) {
                     last_plan = Some(Instant::now());
-                    foreground_pass(&store, deps, session_id);
+                    foreground_pass(&store, deps, session_id, &mut refused_switch);
                 }
             }
             _ => {
@@ -385,7 +386,12 @@ fn start_foreground_sync(ctx: &Ctx, db_path: &std::path::Path) -> Option<Arc<syn
 /// One plan over the private store, acting on THIS session only: deliveries
 /// to the live engine, revokes, answers and the kill. Never a launch or a
 /// resume — this process runs one engine and exits with it.
-fn foreground_pass(store: &sync::store::ShapeStore, deps: &PickupDeps, session_id: &str) {
+fn foreground_pass(
+    store: &sync::store::ShapeStore,
+    deps: &PickupDeps,
+    session_id: &str,
+    refused_switch: &mut Option<String>,
+) {
     use coding::pickup::PickupAction;
     let rows: Vec<SessionRow> = crate::commands::daemon::read_shape_rows(store, "sessions");
     let messages: Vec<domain::rows::MessageRow> =
@@ -408,14 +414,34 @@ fn foreground_pass(store: &sync::store::ShapeStore, deps: &PickupDeps, session_i
             | PickupAction::Kill { session_id: id } => id == session_id,
             PickupAction::Launch { .. } | PickupAction::Resume { .. } => false,
             // EXP-849: this process runs ONE engine and exits with it, so it
-            // never relaunches on another login: it keeps its own (the row's
-            // account is honored as is) and the next pass delivers again.
-            PickupAction::Switch { session, account, .. } => {
+            // never relaunches on another login: the person hears so ONCE
+            // per pick, the pick stays UNhonored (the first wake after this
+            // run ends makes the switch), and the messages that rode the
+            // switch go to this engine meanwhile.
+            PickupAction::Switch { session, account, messages } => {
                 if session.id == session_id {
-                    log::warn!(
-                        "foreground pickup: session {session_id} keeps its login — a foreground run cannot switch to {account}"
-                    );
-                    deps.live.set_row_account(session_id, Some(account.clone()));
+                    if note_foreground_switch(refused_switch, account) {
+                        log::info!(
+                            "foreground pickup: session {session_id} keeps its login — a foreground run cannot switch to {account}"
+                        );
+                        if let Err(err) = api::session_device::reply(
+                            &deps.coding.trpc,
+                            session_id,
+                            coding::pickup::REASON_FOREGROUND_SWITCH,
+                            None,
+                        ) {
+                            log::warn!("foreground pickup: switch refusal not replied: {err}");
+                        }
+                    }
+                    if !messages.is_empty() {
+                        let deliver = PickupAction::Deliver {
+                            session_id: session_id.to_string(),
+                            messages: messages.clone(),
+                        };
+                        if let Err(err) = coding::pickup::execute(&deliver, deps) {
+                            log::warn!("foreground pickup: {err}");
+                        }
+                    }
                 }
                 false
             }
@@ -426,6 +452,16 @@ fn foreground_pass(store: &sync::store::ShapeStore, deps: &PickupDeps, session_i
             }
         }
     }
+}
+
+/// EXP-849: whether a foreground run's refusal of the switch to `account`
+/// is still to be said — once per pick (a NEW pick says it again).
+fn note_foreground_switch(refused: &mut Option<String>, account: &str) -> bool {
+    if refused.as_deref() == Some(account) {
+        return false;
+    }
+    *refused = Some(account.to_string());
+    true
 }
 
 /// The end half without shapes: an `ended` row kills the run.
@@ -687,5 +723,17 @@ mod tests {
         assert!(ClaimLock::try_acquire(&dir.0, FOREGROUND_START_LOCK)
             .unwrap()
             .is_some());
+    }
+
+    /// EXP-849: a foreground run says it cannot switch ONCE per pick, and
+    /// never stamps the pick honored (the wake after it ends switches).
+    #[test]
+    fn a_foreground_run_refuses_each_account_pick_once() {
+        let mut refused = None;
+        assert!(note_foreground_switch(&mut refused, "aaaa"));
+        assert!(!note_foreground_switch(&mut refused, "aaaa"));
+        assert!(note_foreground_switch(&mut refused, "bbbb"));
+        assert!(!note_foreground_switch(&mut refused, "bbbb"));
+        assert!(note_foreground_switch(&mut refused, "aaaa"));
     }
 }

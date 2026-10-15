@@ -324,6 +324,26 @@ export async function sendSession(args: {
   }
 }
 
+/** EXP-849: the agent a session runs — its `cli`, else (NULL = the device's
+ *  default agent) its host device's synced `launchDefaults.defaultAgent`.
+ *  `null` = unknowable here; the device's own switch check decides. */
+export async function effectiveCli(
+  target: Pick<Session, `cli` | `deviceId` | `hostUserId` | `userId`>
+): Promise<string | null> {
+  if (target.cli) return target.cli
+  const [device] = await db
+    .select({ launchDefaults: devices.launchDefaults })
+    .from(devices)
+    .where(
+      and(
+        eq(devices.deviceId, target.deviceId),
+        eq(devices.userId, target.hostUserId ?? target.userId)
+      )
+    )
+    .limit(1)
+  return device?.launchDefaults?.defaultAgent ?? null
+}
+
 async function messageSession(
   userId: string,
   uploaderIds: string[],
@@ -342,7 +362,7 @@ async function messageSession(
     // device sees it move and resumes the SAME row on that login between
     // turns (`coding::pickup` Switch). An account-only send posts no message.
     const switching = input.account !== undefined && input.account !== target.account
-    if (switching && target.cli === `codex`) {
+    if (switching && (await effectiveCli(target)) === `codex`) {
       throw new TRPCError({
         code: `BAD_REQUEST`,
         message: `Only claude can switch accounts during a session.`,

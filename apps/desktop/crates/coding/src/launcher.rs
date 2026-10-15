@@ -2075,12 +2075,16 @@ fn prepare_resume(
         (Some(note), None) => Some(note.clone()),
         (None, body) => body,
     };
+    // An account-only switch of an IDLE session seeds no turn of its own
+    // (it resumes idle on the new login); one picked on the usage WALL
+    // continues the walled work.
+    let walled = row.blocked.as_ref().is_some_and(|wall| !wall.is_null());
     let rendered = match (switching, rendered) {
         (true, Some(body)) => {
             Some(format!("{body}\n\n{}", crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT))
         }
-        (true, None) => Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT.to_string()),
-        (false, body) => body,
+        (true, None) if walled => Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT.to_string()),
+        (_, body) => body,
     };
     let personal_key = join_personal_key(key_handle.unwrap_or_else(|| spawn_personal_key(deps)))?;
     guard_agent_mcp(agent, &cwd, false)?;
@@ -4241,26 +4245,34 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(record.account().as_deref(), Some(target.id.as_str()));
     }
 
-    /// EXP-935: a switch with nothing to say still opens the turn itself.
+    /// EXP-935: a switch with nothing to say, picked on the usage WALL,
+    /// still opens the turn itself (the walled work continues); the same
+    /// pick on an idle, unwalled session resumes idle — no turn of its own.
     #[test]
-    fn an_account_switch_without_a_message_opens_with_the_continue_prompt() {
-        let dir = temp_dir("resume-switch-prompt");
-        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
-        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
-        seed_transcript(&dir.0, &mut deps, "claude-1");
-        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
-        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
-        req.options.account = Some(target.id.clone());
-        if let Some(resume) = req.resume.as_mut() {
-            resume.prompt = String::new();
-            resume.message_id = None;
+    fn an_account_switch_without_a_message_continues_only_a_walled_session() {
+        for walled in [true, false] {
+            let dir = temp_dir(if walled { "resume-switch-prompt" } else { "resume-switch-idle" });
+            let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+            let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+            seed_transcript(&dir.0, &mut deps, "claude-1");
+            let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+            let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+            req.options.account = Some(target.id.clone());
+            if walled {
+                req.session.blocked = Some(serde_json::json!({"kind": "rate_limit"}));
+            }
+            if let Some(resume) = req.resume.as_mut() {
+                resume.prompt = String::new();
+                resume.message_id = None;
+            }
+            let prepared = ready(launch(req, &deps));
+            let expected = walled.then_some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT);
+            assert_eq!(prepared.acp.prompt.as_deref(), expected, "walled = {walled}");
+            assert_eq!(prepared.seed_message_id, None);
+            // Either way the run now lives on the target login.
+            let record = crate::run_registry::get(&dir.0, "sess-old").expect("record");
+            assert_eq!(record.account().as_deref(), Some(target.id.as_str()));
         }
-        let prepared = ready(launch(req, &deps));
-        assert_eq!(
-            prepared.acp.prompt.as_deref(),
-            Some(crate::prompt::ACCOUNT_SWITCH_CONTINUE_PROMPT)
-        );
-        assert_eq!(prepared.seed_message_id, None);
     }
 
     /// EXP-849 — the switches the launcher refuses outright, before it
