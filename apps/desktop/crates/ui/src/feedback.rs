@@ -32,10 +32,11 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, div, point, prelude::FluentBuilder as _, px, Animation, AnimationExt as _,
-    AnyElement, App, Bounds, ContentMask, Div, ElementId, Global, Hsla, InteractiveElement as _,
-    IntoElement, ParentElement as _, Pixels, SharedString, Styled, Window,
+    canvas, div, point, prelude::FluentBuilder as _, px, Animation, AnyElement, App, Bounds,
+    ContentMask, Div, ElementId, Global, Hsla, InteractiveElement as _, IntoElement,
+    ParentElement as _, Pixels, SharedString, Styled, Window,
 };
+use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui_component::button::Button;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, ElementExt as _, Icon};
 
@@ -334,7 +335,7 @@ pub(crate) fn placeholder_bar(width: f32, cx: &App) -> Div {
 /// [`placeholder_bar`], pulsing like the skeleton rows.
 pub(crate) fn skeleton_value(id: impl Into<ElementId>, width: f32, cx: &App) -> AnyElement {
     placeholder_bar(width, cx)
-        .with_animation(id, Animation::new(SKELETON_PULSE).repeat(), |bar, delta| {
+        .with_stepped_animation(id, Animation::new(SKELETON_PULSE).repeat(), SMOOTH_STEP, |bar, delta| {
             bar.opacity(skeleton_opacity(delta))
         })
         .into_any_element()
@@ -348,7 +349,7 @@ pub(crate) fn skeleton_block(id: impl Into<ElementId>, height: f32, cx: &App) ->
         .h(px(height))
         .rounded(px(SKELETON_RADIUS))
         .bg(skeleton_fill(cx))
-        .with_animation(id, Animation::new(SKELETON_PULSE).repeat(), |block, delta| {
+        .with_stepped_animation(id, Animation::new(SKELETON_PULSE).repeat(), SMOOTH_STEP, |block, delta| {
             block.opacity(skeleton_opacity(delta))
         })
         .into_any_element()
@@ -363,7 +364,7 @@ pub(crate) fn skeleton_text(id: impl Into<ElementId>, cx: &App) -> AnyElement {
         .w_full()
         .gap_3()
         .children(LINES.iter().map(|width| skeleton_bar(*width, fill)))
-        .with_animation(id, Animation::new(SKELETON_PULSE).repeat(), |block, delta| {
+        .with_stepped_animation(id, Animation::new(SKELETON_PULSE).repeat(), SMOOTH_STEP, |block, delta| {
             block.opacity(skeleton_opacity(delta))
         })
         .into_any_element()
@@ -403,9 +404,10 @@ pub(crate) fn skeleton_rows(
     let list = v_flex()
         .w_full()
         .children((0..rows).map(|ix| crate::surface::list_row(skeleton_row(ix, row_h, cx))));
-    list.with_animation(
+    list.with_stepped_animation(
         id,
         Animation::new(SKELETON_PULSE).repeat(),
+        SMOOTH_STEP,
         |list, delta| list.opacity(skeleton_opacity(delta)),
     )
     .into_any_element()
@@ -530,7 +532,7 @@ pub(crate) fn mark(id: impl Into<ElementId>, size: f32, ground: Hsla, cx: &App) 
     div()
         .flex_none()
         .size(px(size))
-        .with_animation(id, Animation::new(MARK_LOOP).repeat(), move |slot, delta| {
+        .with_stepped_animation(id, Animation::new(MARK_LOOP).repeat(), SMOOTH_STEP, move |slot, delta| {
             slot.child(mark_canvas(size, ink, ground, Some(delta as f64)))
         })
         .into_any_element()
@@ -577,9 +579,12 @@ pub(crate) fn starting_row(
                 .flex_none()
                 .text_xs()
                 .text_color(muted)
-                .with_animation(
+                // EXP-1325: the label changes every 100 ms — repaint then,
+                // not every frame.
+                .with_stepped_animation(
                     ElementId::NamedChild(std::sync::Arc::new(id), "elapsed".into()),
                     Animation::new(Duration::from_millis(100)).repeat(),
+                    Duration::from_millis(100),
                     move |slot, _| slot.child(elapsed_label(since.elapsed())),
                 ),
         )

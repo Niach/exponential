@@ -3,11 +3,12 @@
 use std::time::Duration;
 
 use gpui::{
-    bounce, div, px, Animation, AnimationExt as _, App, Div, FontWeight, IntoElement,
+    bounce, div, px, Animation, App, Div, FontWeight, IntoElement,
     ParentElement as _, SharedString, Styled, Window,
 };
 use gpui_component::{v_flex, ActiveTheme as _, Icon};
 
+use super::animation::{SteppedAnimationExt as _, SMOOTH_STEP};
 use crate::chrome::{ease, Chrome};
 
 /// EXP-1274 — ONE empty state, two sizes (the web `EmptyState size`; the ×4
@@ -150,11 +151,13 @@ impl gpui::RenderOnce for Skeleton {
             .rounded(px(radius))
             .bg(cx.theme().skeleton)
             .refine_style(&self.style)
-            .with_animation(
+            // EXP-1325: a placeholder lives as long as its load — stepped.
+            .with_stepped_animation(
                 "skeleton-pulse",
                 Animation::new(SKELETON_PULSE)
                     .repeat()
                     .with_easing(bounce(ease(curve))),
+                SMOOTH_STEP,
                 |block, delta| block.opacity(1. - 0.5 * delta),
             )
     }

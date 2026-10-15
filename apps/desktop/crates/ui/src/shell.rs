@@ -30,7 +30,8 @@ use anyhow::{anyhow, bail, Context as _, Result};
 use gpui::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, ClickEvent,
     Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Pixels, Render, SharedString, Size, Styled, Task, WeakEntity, Window,
+    ParentElement, Pixels, Render, SharedString, Size, StyleRefinement, Styled, Task,
+    WeakEntity, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -294,6 +295,17 @@ impl Shell {
             this.refresh_team_runs(cx)
         })
         .detach();
+        // EXP-1326: the dock area (every screen) renders as a CACHED view
+        // (see `render`), reused until it or a view inside it is notified.
+        // A screen that reads a collection without observing it would go
+        // stale behind that cache, so every synced change notifies the dock
+        // area outright — the whole-window re-render such a screen relied
+        // on until now, confined to the dock.
+        for subscription in collections.observe_all_with(cx, |this: &mut Self, cx| {
+            this.dock_area.update(cx, |_, cx| cx.notify());
+        }) {
+            subscription.detach();
+        }
         let team_live_runs = crate::session_data::own_live_roots_by_team(cx);
 
         // Re-render when the launch-time update check flips the "update
@@ -1044,7 +1056,23 @@ impl Render for Shell {
                                 )
                                 .children(self.render_update_banner(cx))
                                 .children(self.render_offline_banner(cx))
-                                .child(div().flex_1().min_h_0().child(self.dock_area.clone())),
+                                // EXP-1326: the dock area is a CACHED view.
+                                // gpui re-renders every view of the window
+                                // on every draw; a sidebar tick (a working
+                                // mark's frame, 11-30 times a second) was
+                                // re-laying out the whole issue board. Cached,
+                                // the dock's prepaint and paint are reused
+                                // until it or a view inside it is notified
+                                // (every screen state change does that), any
+                                // collection changes (`new`), or the window
+                                // refreshes (hover, scroll, focus, tooltips —
+                                // gpui's own `refresh` calls). Caching needs
+                                // a definite size: the wrapper's box.
+                                .child(div().flex_1().min_h_0().child(
+                                    self.dock_area
+                                        .clone()
+                                        .cached(StyleRefinement::default().size_full()),
+                                )),
                         )
                         .child(
                             // EXP-771: the session bar band — the content
@@ -1675,5 +1703,93 @@ mod tests {
         assert_eq!(LeftOccupant::Settings.panel().default_width(), 272.);
         assert!(!LeftOccupant::Rail.panel().resizable());
         assert!(LeftOccupant::Settings.panel().resizable());
+    }
+
+    /// EXP-1326 — the dock's cache contract, drawn: a stand-in shell wired
+    /// exactly like [`Shell`] (a sidebar view beside the dock view, the dock
+    /// `cached`, every collection fanned into the dock through
+    /// `observe_all_with`). A sidebar notify (a working mark's frame)
+    /// re-renders the root but REUSES the dock; a synced collection's
+    /// notify, or the dock's own, rebuilds it.
+    #[gpui::test]
+    async fn a_sidebar_tick_reuses_the_cached_dock(cx: &mut gpui::TestAppContext) {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        struct Dock(Rc<Cell<usize>>);
+        impl Render for Dock {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                self.0.set(self.0.get() + 1);
+                div().size_full()
+            }
+        }
+        struct Sidebar;
+        impl Render for Sidebar {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                div().w(px(40.)).h_full()
+            }
+        }
+        struct StandIn {
+            sidebar: Entity<Sidebar>,
+            dock: Entity<Dock>,
+            root_renders: Rc<Cell<usize>>,
+        }
+        impl StandIn {
+            fn new(renders: Rc<Cell<usize>>, root_renders: Rc<Cell<usize>>, cx: &mut gpui::Context<Self>) -> Self {
+                let dock = cx.new(|_| Dock(renders));
+                let sidebar = cx.new(|_| Sidebar);
+                let collections = Store::global(cx).collections().clone();
+                for subscription in collections.observe_all_with(cx, |this: &mut Self, cx| {
+                    this.dock.update(cx, |_, cx| cx.notify());
+                }) {
+                    subscription.detach();
+                }
+                Self { sidebar, dock, root_renders }
+            }
+        }
+        impl Render for StandIn {
+            fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                self.root_renders.set(self.root_renders.get() + 1);
+                div()
+                    .size_full()
+                    .flex()
+                    .child(self.sidebar.clone())
+                    .child(div().flex_1().min_h_0().child(
+                        self.dock.clone().cached(StyleRefinement::default().size_full()),
+                    ))
+            }
+        }
+
+        cx.update(|cx| {
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let renders = Rc::new(Cell::new(0));
+        let root_renders = Rc::new(Cell::new(0));
+        // `add_window_view`'s leaked context keeps the app alive past gpui's
+        // exit-time leak check (`Store::open` holds its handles for the
+        // process's life) — the issue-detail suite's escape hatch.
+        let (root, cx) = cx.add_window_view({
+            let (renders, root_renders) = (renders.clone(), root_renders.clone());
+            move |_, cx| StandIn::new(renders, root_renders, cx)
+        });
+        cx.run_until_parked();
+        assert_eq!((root_renders.get(), renders.get()), (1, 1), "both drew once");
+
+        let sidebar = root.read_with(cx, |root, _| root.sidebar.clone());
+        sidebar.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        assert_eq!(root_renders.get(), 2, "a sidebar tick re-renders the root");
+        assert_eq!(renders.get(), 1, "a sidebar tick reuses the cached dock");
+
+        let boards = cx.update(|_, cx| Store::global(cx).collections().boards.clone());
+        boards.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        assert_eq!(renders.get(), 2, "a synced change rebuilds the dock");
+
+        let dock = root.read_with(cx, |root, _| root.dock.clone());
+        dock.update(cx, |_, cx| cx.notify());
+        cx.run_until_parked();
+        assert_eq!(renders.get(), 3, "the dock's own notify rebuilds it");
     }
 }

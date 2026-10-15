@@ -8,15 +8,16 @@
 //! purpose — fractional hairlines vanish on 1x-scale displays.
 
 use gpui::{
-    div, px, AnyElement, App, Div, ElementId, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, Stateful, Styled,
+    div, ease_in_out, percentage, px, Animation, AnyElement, App, Div, ElementId, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Stateful, Styled,
+    Transformation,
 };
 use gpui_component::input::Input;
 use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_component::select::Select;
-use gpui_component::spinner::Spinner;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
+use super::animation::{SteppedAnimationExt as _, SMOOTH_STEP};
 use super::sizing::CTL_LG_H;
 use crate::chrome::Chrome;
 
@@ -72,14 +73,29 @@ pub fn glass_section_band(
 /// EXP-1275 — THE spinner (`feedback-states.json` kind 1, INLINE): the
 /// chrome's `icons.refresh` glyph at `size` px in `color`, spinning. Every
 /// wait the IDE draws as a spinner is this glyph.
+///
+/// EXP-1325: gpui-component's `Spinner` in every respect (its 0.8 s
+/// ease-in-out turn), except STEPPED: a spinner may turn for as long as a
+/// start or a fetch takes, and gpui repaints the whole window per
+/// animation frame.
 pub fn spinner(size: f32, color: gpui::Hsla, cx: &App) -> AnyElement {
     let icon = Icon::empty().path(Chrome::global(cx).icons.refresh.clone());
-    Spinner::new()
-        .icon(icon)
-        .with_size(px(size))
-        .color(color)
+    div()
+        .child(
+            icon.with_size(px(size))
+                .text_color(color)
+                .with_stepped_animation(
+                    "circle",
+                    Animation::new(SPINNER_TURN).repeat().with_easing(ease_in_out),
+                    SMOOTH_STEP,
+                    |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
+                ),
+        )
         .into_any_element()
 }
+
+/// One turn of the spinner (gpui-component's `Spinner` default).
+const SPINNER_TURN: std::time::Duration = std::time::Duration::from_millis(800);
 
 /// The inline spinner's edge (`feedback-states.json` `inline.spinner`).
 pub const INLINE_SPINNER_PX: f32 = 10.;

@@ -61,11 +61,12 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     bounce, div, ease_in_out, list, prelude::FluentBuilder as _, px, relative,
-    AnimationExt as _, AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
+    AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
     Focusable, FollowMode, InteractiveElement as _, IntoElement, ListAlignment, ListState,
     ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Task, Window,
 };
+use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
@@ -6942,11 +6943,12 @@ impl SteerSessionView {
                             .w(relative(0.35))
                             .rounded_full()
                             .bg(muted.opacity(0.55))
-                            .with_animation(
+                            .with_stepped_animation(
                                 "steer-compacting",
                                 gpui::Animation::new(Duration::from_millis(1400))
                                     .repeat()
                                     .with_easing(bounce(ease_in_out)),
+                                SMOOTH_STEP,
                                 |bar, delta| bar.ml(relative(delta * 0.65)),
                             ),
                     ),
