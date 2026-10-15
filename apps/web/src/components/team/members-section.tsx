@@ -463,7 +463,9 @@ function InviteControls({ teamId }: { teamId: string }) {
     <div className="space-y-4">
       <div>
         <GlassSectionHeader label="Invite members" />
-        <InviteMemberForm teamId={teamId} />
+        {/* FEED-108: Send invite · Add without inviting (a placeholder member
+            with no link: assignable now, no mail, no seat). */}
+        <InviteMemberForm teamId={teamId} allowAddWithoutInvite />
       </div>
 
       {inviteUrl && <InviteLinkRow url={inviteUrl} />}

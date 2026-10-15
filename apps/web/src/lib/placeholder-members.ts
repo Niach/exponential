@@ -120,11 +120,11 @@ export async function createPlaceholderMember(
  * still random and unique — the row is a placeholder binding, not a
  * credential anybody holds.
  *
- * Called only by the import's placeholder port
- * (apps/web/src/lib/import/apply-db.ts), which imports it with EXACTLY this
- * signature — `email` is taken as input rather than looked up so the caller's
- * existing `users` read is not repeated. `teamInvites.create` mints the real
- * link later (stamping `sentAt`, seat-gated as a first send).
+ * Called by `addPlaceholderToRoster` below (the import's placeholder port and
+ * FEED-108's by-hand "Add without inviting"); `email` is taken as input
+ * rather than looked up so the caller's existing `users` read is not
+ * repeated. `teamInvites.create` mints the real link later (stamping
+ * `sentAt`, seat-gated as a first send).
  */
 export async function createUnsentPlaceholderInvite(
   tx: DbOrTx,
@@ -153,6 +153,170 @@ export async function createUnsentPlaceholderInvite(
     updatedAt: now,
   })
   return { inviteId }
+}
+
+/**
+ * EXP-1141: does this placeholder hold a team_members row on ANY roster? A
+ * seated one belongs to that team (an invite elsewhere stays unbound, a
+ * by-hand add elsewhere is refused); a seatless one is nobody's.
+ */
+export async function isSeatedAnywhere(
+  tx: Pick<DbOrTx, `select`>,
+  userId: string
+): Promise<boolean> {
+  const [row] = await tx
+    .select({ id: teamMembers.id })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+    .limit(1)
+  return Boolean(row)
+}
+
+/**
+ * Is this seatless placeholder claimed, or referenced by ANOTHER team? A
+ * provider login already linked to it (the claim hook has not flipped the
+ * flag yet), an attribution in another team's issues, comments, events or
+ * uploads, or a pending invite from another team all mean the identity is
+ * not this team's to seat: once seated here, the re-invite path could
+ * re-address it — and with it everything the other team's rows point at.
+ * Hand-qualified SQL like `deletePlaceholderIfOrphaned`.
+ */
+export async function placeholderReferencedOutside(
+  tx: Pick<DbOrTx, `execute`>,
+  userId: string,
+  teamId: string
+): Promise<boolean> {
+  const result = await tx.execute(sql`
+    SELECT EXISTS (SELECT 1 FROM accounts acc WHERE acc.user_id = ${userId})
+      OR EXISTS (SELECT 1 FROM issues i WHERE (i.assignee_id = ${userId} OR i.creator_id = ${userId}) AND i.team_id IS DISTINCT FROM ${teamId}::uuid)
+      OR EXISTS (SELECT 1 FROM comments c WHERE c.author_id = ${userId} AND c.team_id IS DISTINCT FROM ${teamId}::uuid)
+      OR EXISTS (SELECT 1 FROM issue_events e WHERE e.actor_user_id = ${userId} AND e.team_id IS DISTINCT FROM ${teamId}::uuid)
+      OR EXISTS (SELECT 1 FROM attachments a WHERE a.uploader_id = ${userId} AND a.team_id IS DISTINCT FROM ${teamId}::uuid)
+      OR EXISTS (SELECT 1 FROM team_invites ti WHERE ti.placeholder_user_id = ${userId} AND ti.team_id <> ${teamId}::uuid AND ti.accepted_at IS NULL)
+      AS referenced_outside
+  `)
+  const row = (
+    result as unknown as { rows?: { referenced_outside: boolean }[] } | undefined
+  )?.rows?.[0]
+  return Boolean(row?.referenced_outside)
+}
+
+export type AddPlaceholderResult =
+  /** A fresh users + team_members row and the unsent invite binding. */
+  | { kind: `created`; userId: string }
+  /** A seatless placeholder referenced only by this team, re-seated here. */
+  | { kind: `rebound`; userId: string }
+  /** The address is already on THIS roster (a real account or a placeholder). */
+  | { kind: `member`; userId: string }
+  /** A real account, or a placeholder seated/referenced/invited elsewhere. */
+  | { kind: `outside` }
+
+/**
+ * THE roster-without-an-invitation path (EXP-1076 for the import, FEED-108
+ * by hand): put a person on the team as a placeholder member, mailing nothing
+ * and spending no seat. The Linear import's port and `teamMembers.addPlaceholder`
+ * both run this, so an address resolves the same way wherever the add starts.
+ * Always role `member` — a row nobody can sign in as must never be a team's
+ * only owner; promote later with `teamMembers.updateRole`.
+ *
+ * Order: the per-address advisory lock first (two teams, or the import and
+ * an owner, adding one address at once serialize on it); then the address:
+ * unknown → a fresh placeholder; on this roster → `member`; a real account or
+ * a placeholder SEATED elsewhere → `outside` (a typed address proves nothing,
+ * the person joins by invite); a seatless placeholder → dropped and re-created
+ * when nothing references it (EXP-1132), re-seated here when only this team
+ * does (EXP-1141: a removed member's comments stay attributable), refused when
+ * another team does (`placeholderReferencedOutside`).
+ *
+ * No `placeholderClaimable()` gate: a never-invited row is a roster entry; the
+ * later "Send invite" still binds a link, and accepting from a password
+ * account merges the row. Runs inside the caller's transaction.
+ */
+export async function addPlaceholderToRoster(
+  tx: DbOrTx,
+  input: {
+    teamId: string
+    email: string
+    name?: string | null
+    invitedById: string
+    now?: Date
+  }
+): Promise<AddPlaceholderResult> {
+  const now = input.now ?? new Date()
+  const identity = resolvePlaceholderIdentity({
+    email: input.email,
+    name: input.name,
+  })
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`placeholder_address:${identity.email}`}))`
+  )
+  const [owner] = await tx
+    .select({ id: users.id, placeholderAt: users.placeholderAt })
+    .from(users)
+    .where(sql`lower(${users.email}) = ${identity.email}`)
+    .limit(1)
+  if (owner) {
+    const [member] = await tx
+      .select({ id: teamMembers.id })
+      .from(teamMembers)
+      .where(
+        and(eq(teamMembers.teamId, input.teamId), eq(teamMembers.userId, owner.id))
+      )
+      .limit(1)
+    if (member) return { kind: `member`, userId: owner.id }
+    if (!owner.placeholderAt || (await isSeatedAnywhere(tx, owner.id))) {
+      return { kind: `outside` }
+    }
+    if (!(await deletePlaceholderIfOrphaned(tx, owner.id))) {
+      if (await placeholderReferencedOutside(tx, owner.id, input.teamId)) {
+        return { kind: `outside` }
+      }
+      await tx.insert(teamMembers).values({
+        teamId: input.teamId,
+        userId: owner.id,
+        role: `member`,
+      })
+      // A link the owner already sent (EXP-1141, bound but unseated) stays
+      // live; only a row with no binding here gets the unsent one.
+      const [bound] = await tx
+        .select({ id: teamInvites.id })
+        .from(teamInvites)
+        .where(
+          and(
+            eq(teamInvites.teamId, input.teamId),
+            eq(teamInvites.placeholderUserId, owner.id),
+            isNull(teamInvites.acceptedAt)
+          )
+        )
+        .limit(1)
+      if (!bound) {
+        await createUnsentPlaceholderInvite(tx, {
+          teamId: input.teamId,
+          placeholderUserId: owner.id,
+          invitedById: input.invitedById,
+          email: identity.email,
+          role: `member`,
+          now,
+        })
+      }
+      return { kind: `rebound`, userId: owner.id }
+    }
+  }
+  const { userId } = await createPlaceholderMember(tx, {
+    teamId: input.teamId,
+    role: `member`,
+    identity,
+    now,
+  })
+  await createUnsentPlaceholderInvite(tx, {
+    teamId: input.teamId,
+    placeholderUserId: userId,
+    invitedById: input.invitedById,
+    email: identity.email,
+    role: `member`,
+    now,
+  })
+  return { kind: `created`, userId }
 }
 
 /**

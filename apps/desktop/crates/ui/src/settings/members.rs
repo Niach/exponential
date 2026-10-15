@@ -88,7 +88,7 @@ impl MembersPane {
         let collections = Store::global(cx).collections().clone();
         let team_id = active_team_id(&nav, cx).unwrap_or_default();
         let invite_form =
-            cx.new(|cx| InviteForm::new(team_id, None, InviteFormLayout::Row, window, cx));
+            cx.new(|cx| InviteForm::new(team_id, None, InviteFormLayout::Row, true, window, cx));
         let subscriptions = vec![
             cx.observe(&nav, |this, _, cx| {
                 // Team switch: the generated URL belongs to the old one, and so

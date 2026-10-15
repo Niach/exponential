@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import {
+  addPlaceholderToRoster,
   claimPlaceholder,
   collectPlaceholderMemberIds,
   createPlaceholderMember,
@@ -293,5 +294,146 @@ describe(`team-delete placeholder purge (EXP-1132)`, () => {
       expect(predicate).toContain(`NOT EXISTS (SELECT 1 FROM ${guard})`)
     }
     expect((tx as { delete: ReturnType<typeof vi.fn> }).delete).not.toHaveBeenCalled()
+  })
+})
+
+// FEED-108: THE roster-without-an-invitation resolver, shared by the Linear
+// import's placeholder port and `teamMembers.addPlaceholder`. The fake tx's
+// `execute` serves, in order: the per-address advisory lock, then the
+// orphan predicate (`deletePlaceholderIfOrphaned`), then the outside-reference
+// predicate (`placeholderReferencedOutside`).
+describe(`addPlaceholderToRoster (FEED-108)`, () => {
+  const NOW = new Date(`2026-10-15T12:00:00.000Z`)
+  const seated = (id: string) => ({ id, placeholderAt: NOW })
+  const account = (id: string) => ({ id, placeholderAt: null })
+
+  function roster(selects: unknown[][], executes: unknown[] = []) {
+    const made = fakeTx(selects)
+    const queue = [...executes]
+    made.execute.mockImplementation(async () => (queue.shift() ?? { rows: [] }) as never)
+    const del = vi.fn(() => ({ where: async () => undefined }))
+    ;(made.tx as { delete: unknown }).delete = del
+    return { ...made, del }
+  }
+
+  const add = (tx: never, email = `Hannes@Example.com`, name?: string) =>
+    addPlaceholderToRoster(tx, {
+      teamId: `team-1`,
+      email,
+      name,
+      invitedById: `owner-1`,
+      now: NOW,
+    })
+
+  it(`takes the per-address lock first, then seats an unknown address as a fresh placeholder`, async () => {
+    const { tx, inserts, execute } = roster([[]])
+    const result = await add(tx, `Hannes@Example.com`, `Hannes`)
+    expect(result.kind).toBe(`created`)
+    const calls = execute.mock.calls as unknown[][]
+    expect(sqlText(calls[0]?.[0])).toContain(`pg_advisory_xact_lock(hashtext(`)
+    expect(JSON.stringify(calls[0]?.[0])).toContain(`placeholder_address:hannes@example.com`)
+    // users + team_members (member role, never owner) + the unsent invite.
+    expect(inserts.map((row) => row.table)).toEqual([users, teamMembers, teamInvites])
+    expect(inserts[0]!.values).toMatchObject({
+      name: `Hannes`,
+      email: `hannes@example.com`,
+      placeholderAt: NOW,
+    })
+    expect(inserts[1]!.values).toMatchObject({ teamId: `team-1`, role: `member` })
+    expect(inserts[2]!.values).toMatchObject({
+      teamId: `team-1`,
+      invitedById: `owner-1`,
+      email: `hannes@example.com`,
+      sentAt: null,
+      expiresAt: NOW,
+    })
+    if (result.kind === `created`) {
+      expect(inserts[1]!.values.userId).toBe(result.userId)
+      expect(inserts[2]!.values.placeholderUserId).toBe(result.userId)
+    }
+  })
+
+  it(`an empty name falls back to the mailbox local part`, async () => {
+    const { tx, inserts } = roster([[]])
+    await add(tx, `hannes@example.com`)
+    expect(inserts[0]!.values.name).toBe(`hannes`)
+  })
+
+  it(`an address already on this roster is a member, real account or placeholder alike`, async () => {
+    for (const owner of [account(`u-real`), seated(`u-ph`)]) {
+      const { tx, inserts, del } = roster([[owner], [{ id: `m-1` }]])
+      expect(await add(tx)).toEqual({ kind: `member`, userId: owner.id })
+      expect(inserts).toHaveLength(0)
+      expect(del).not.toHaveBeenCalled()
+    }
+  })
+
+  it(`a real account that is not a member here is outside: the person joins by invite`, async () => {
+    const { tx, inserts } = roster([[account(`u-real`)], []])
+    expect(await add(tx)).toEqual({ kind: `outside` })
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`a placeholder seated on another team is outside too (a typed address proves nothing)`, async () => {
+    // owner → not a member here → seated somewhere.
+    const { tx, inserts, execute } = roster([[seated(`u-ph`)], [], [{ id: `m-other` }]])
+    expect(await add(tx)).toEqual({ kind: `outside` })
+    expect(inserts).toHaveLength(0)
+    // Only the lock ran — no orphan probe, no outside probe.
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  it(`EXP-1132: a seatless ghost nothing references is dropped and re-created`, async () => {
+    const { tx, inserts, del } = roster(
+      [[seated(`u-ghost`)], [], []],
+      [{ rows: [] }, { rows: [{ orphaned: true }] }]
+    )
+    const result = await add(tx)
+    expect(result.kind).toBe(`created`)
+    expect(del).toHaveBeenCalledTimes(1)
+    expect(inserts.map((row) => row.table)).toEqual([users, teamMembers, teamInvites])
+    if (result.kind === `created`) expect(result.userId).not.toBe(`u-ghost`)
+  })
+
+  it(`EXP-1141: a seatless placeholder referenced only by this team is re-seated with its id`, async () => {
+    // orphaned: false (it has comments here) → referenced_outside: false →
+    // no invite bound here yet.
+    const { tx, inserts, del } = roster(
+      [[seated(`u-removed`)], [], [], []],
+      [{ rows: [] }, { rows: [{ orphaned: false }] }, { rows: [{ referenced_outside: false }] }]
+    )
+    expect(await add(tx)).toEqual({ kind: `rebound`, userId: `u-removed` })
+    expect(del).not.toHaveBeenCalled()
+    expect(inserts.map((row) => row.table)).toEqual([teamMembers, teamInvites])
+    expect(inserts[0]!.values).toMatchObject({ teamId: `team-1`, userId: `u-removed`, role: `member` })
+    expect(inserts[1]!.values).toMatchObject({ placeholderUserId: `u-removed`, sentAt: null })
+  })
+
+  it(`re-seating keeps a link the owner already sent (no second invite row)`, async () => {
+    const { tx, inserts } = roster(
+      [[seated(`u-removed`)], [], [], [{ id: `inv-live` }]],
+      [{ rows: [] }, { rows: [{ orphaned: false }] }, { rows: [{ referenced_outside: false }] }]
+    )
+    expect(await add(tx)).toEqual({ kind: `rebound`, userId: `u-removed` })
+    expect(inserts.map((row) => row.table)).toEqual([teamMembers])
+  })
+
+  it(`a seatless placeholder another team references or invited is outside, nothing written`, async () => {
+    const { tx, inserts, execute } = roster(
+      [[seated(`u-theirs`)], [], []],
+      [{ rows: [] }, { rows: [{ orphaned: false }] }, { rows: [{ referenced_outside: true }] }]
+    )
+    expect(await add(tx)).toEqual({ kind: `outside` })
+    expect(inserts).toHaveLength(0)
+    const calls = execute.mock.calls as unknown[][]
+    const predicate = sqlText(calls[2]?.[0]).replace(/\s+/g, ` `)
+    // A linked login, another team's attributions, another team's pending invite.
+    expect(predicate).toContain(`FROM accounts acc WHERE acc.user_id =`)
+    expect(predicate).toContain(`i.team_id IS DISTINCT FROM`)
+    expect(predicate).toContain(`c.team_id IS DISTINCT FROM`)
+    expect(predicate).toContain(`e.team_id IS DISTINCT FROM`)
+    expect(predicate).toContain(`a.team_id IS DISTINCT FROM`)
+    expect(predicate).toContain(`ti.placeholder_user_id =`)
+    expect(predicate).toContain(`ti.accepted_at IS NULL`)
   })
 })

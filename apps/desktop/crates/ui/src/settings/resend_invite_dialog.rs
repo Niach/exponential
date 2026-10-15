@@ -66,7 +66,7 @@ impl ResendInviteDialogView {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let form = cx
-            .new(|cx| InviteForm::new(team_id, Some(target), InviteFormLayout::Stack, window, cx));
+            .new(|cx| InviteForm::new(team_id, Some(target), InviteFormLayout::Stack, false, window, cx));
         let subscriptions = vec![
             // A delivered link is the whole errand — the dialog closes on it
             // (web `onInvited`); a failed delivery keeps it open around the

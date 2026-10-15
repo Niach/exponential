@@ -588,6 +588,25 @@
       ]
     },
     {
+      "name": "members_add: the placeholder member just seated",
+      "tool": "exponential_members_add",
+      "result": {
+        "id": "u-ph",
+        "memberId": "m-ph",
+        "name": "Hannes",
+        "email": "hannes@example.com",
+        "role": "member",
+        "placeholder": true
+      },
+      "refs": [
+        {
+          "kind": "member",
+          "id": "u-ph",
+          "title": "Hannes"
+        }
+      ]
+    },
+    {
       "name": "members_list: the user, never the membership row",
       "tool": "exponential_members_list",
       "result": [

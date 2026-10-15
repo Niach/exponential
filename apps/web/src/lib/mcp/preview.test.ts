@@ -135,6 +135,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_mcp_servers_add: [],
   exponential_mcp_servers_list: [],
   exponential_mcp_servers_remove: [],
+  exponential_members_add: [`member`],
   exponential_members_list: [`list`, `member`],
   exponential_notifications_list: [`list`, `notification`],
   exponential_notifications_mark_read: [],

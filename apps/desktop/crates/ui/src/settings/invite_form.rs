@@ -13,6 +13,13 @@
 //! address stays editable — a resend is usually there to fix a typo — and the
 //! fields then KEEP their values (the dialog closes on
 //! [`InviteDelivered`] instead).
+//!
+//! FEED-108: the Members pane's form (`allow_add_without_invite`) also wears
+//! the OUTLINE "Add without inviting" beside "Send invite" — the same
+//! placeholder member, but nothing is mailed and no seat is spent
+//! (`teamMembers.addPlaceholder`, what the Linear import does for the people it
+//! finds). The row reads "Not invited" until Send invite. Web parity:
+//! `invite-member-form.tsx` `allowAddWithoutInvite`.
 
 use gpui::{
     div, px, App, AppContext as _, ElementId, Entity, FontWeight, IntoElement, ParentElement,
@@ -86,6 +93,12 @@ pub struct InviteForm {
     sending: bool,
     /// EXP-1259 D8: the Send button's pending face ("Inviting").
     pending: crate::feedback::Pending,
+    /// FEED-108: the outline "Add without inviting" is offered (Members pane
+    /// only — a resend dialog re-invites, it never adds).
+    allow_add_without_invite: bool,
+    /// FEED-108: `teamMembers.addPlaceholder` is in flight — the Add button
+    /// spins (`.loading`), no word (web parity: no `pendingLabel`).
+    adding: bool,
     /// FEED-79: the address the server refused — INVALID INPUT, so it stays
     /// under the field (13px rose) until the address changes; every other
     /// failure is a toast.
@@ -108,6 +121,7 @@ impl InviteForm {
         team_id: String,
         resend: Option<ResendTarget>,
         layout: InviteFormLayout,
+        allow_add_without_invite: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -149,6 +163,8 @@ impl InviteForm {
             email_input,
             sending: false,
             pending: crate::feedback::Pending::default(),
+            allow_add_without_invite,
+            adding: false,
             email_error: None,
             out_of_seats: false,
             invite_url: None,
@@ -158,10 +174,82 @@ impl InviteForm {
         }
     }
 
-    /// The send is in flight — the pane's own controls go with it, and the
-    /// dialog refuses to close mid-request.
+    /// A request is in flight (send or add) — the pane's own controls go with
+    /// it, and the dialog refuses to close mid-request.
     pub(super) fn sending(&self) -> bool {
-        self.sending
+        self.sending || self.adding
+    }
+
+    /// FEED-108: `teamMembers.addPlaceholder` — the roster row WITHOUT a link.
+    /// Nothing is mailed, so there is no link to fall back to; a refused
+    /// address (already a member, or an account that must be invited) stays
+    /// under the field like the invite's, everything else toasts. Web
+    /// `handleAdd`.
+    fn add(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.sending || self.adding {
+            return;
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let email = self.email_input.read(cx).value().trim().to_string();
+        if email.is_empty() {
+            return;
+        }
+        let name = self.name_input.read(cx).value().trim().to_string();
+        let team_id = self.team_id.clone();
+
+        self.adding = true;
+        self.email_error = None;
+        self.out_of_seats = false;
+        cx.notify();
+
+        cx.spawn_in(window, async move |this, window| {
+            let request = (email, name);
+            let result = window
+                .background_executor()
+                .spawn(async move {
+                    let (email, name) = request;
+                    api::teams::team_members_add_placeholder(
+                        &trpc,
+                        &team_id,
+                        &email,
+                        Some(name.as_str()),
+                    )
+                })
+                .await;
+            let _ = this.update_in(window, |this, window, cx| {
+                this.adding = false;
+                match result {
+                    Ok(member) => {
+                        // Web: `Added <name> to the team`, then an empty form
+                        // for the next person. The roster row arrives over
+                        // sync and reads "Not invited".
+                        let added = format!("Added {} to the team", member.name);
+                        crate::navigation::defer_in_result_window(window, cx, move |w, cx| {
+                            crate::toast::success(added, w, cx);
+                        });
+                        this.name_input.update(cx, |state, cx| {
+                            state.set_value("", window, cx);
+                        });
+                        this.email_input.update(cx, |state, cx| {
+                            state.set_value("", window, cx);
+                        });
+                        this.invite_url = None;
+                    }
+                    // The refusal stays under its field (feedback-states.json's
+                    // invalid-input rule), exactly like a refused invite address.
+                    Err(api::ApiError::Http { status: 400, message }) => {
+                        let message = crate::action_error::description_of(&message)
+                            .unwrap_or_else(|| INVALID_EMAIL.to_string());
+                        this.email_error = Some(message.into());
+                    }
+                    Err(err) => crate::action_error::failed_action_err("add", "the member", &err, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Team switch (the pane's nav observer): the minted link and every notice
@@ -179,7 +267,7 @@ impl InviteForm {
     /// Delivery is best-effort — with no transport configured (or on a failed
     /// send) the link is shown so the owner can share it by hand.
     fn send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.sending {
+        if self.sending || self.adding {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -297,11 +385,28 @@ impl Render for InviteForm {
                 .web_sm()
                 .label("Send invite")
                 .icon(registry::UI_MAIL)
-                .disabled(email_empty)
+                .disabled(email_empty || self.adding)
                 .on_click(cx.listener(|this, _, window, cx| this.send(window, cx))),
             crate::feedback::PENDING_INVITE,
             cx,
         );
+        // FEED-108: the OUTLINE twin — a spinner while adding, no word (web
+        // parity: that button carries no pendingLabel).
+        let add_button = self.allow_add_without_invite.then(|| {
+            Button::new("invite-add-without-inviting")
+                .outline()
+                .web_sm()
+                .label("Add without inviting")
+                .icon(registry::UI_INVITE)
+                .loading(self.adding)
+                .disabled(email_empty || self.sending)
+                .on_click(cx.listener(|this, _, window, cx| this.add(window, cx)))
+        });
+        let buttons = h_flex()
+            .gap_2()
+            .items_center()
+            .child(send_button)
+            .children(add_button);
 
         let controls = match self.layout {
             // Web `sm:w-44`: the optional name is the NARROW half of the pair —
@@ -311,14 +416,15 @@ impl Render for InviteForm {
                 .items_center()
                 .child(div().w(px(176.)).flex_shrink_0().child(name_field))
                 .child(div().flex_1().min_w_0().child(email_field))
-                .child(send_button),
-            // A dialog column is too narrow for three controls abreast: one
-            // field per line, the button trailing (web `layout="stack"`).
+                .child(buttons),
+            // A dialog column is too narrow for the fields and the buttons
+            // abreast: one field per line, the buttons trailing (web
+            // `layout="stack"`).
             InviteFormLayout::Stack => v_flex()
                 .gap_2()
                 .child(name_field)
                 .child(email_field)
-                .child(h_flex().justify_end().child(send_button)),
+                .child(h_flex().justify_end().child(buttons)),
         };
 
         let mut form = v_flex()

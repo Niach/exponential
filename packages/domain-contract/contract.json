@@ -1007,6 +1007,17 @@
         "result": "none"
       },
       {
+        "name": "members_add",
+        "title": "Add member",
+        "blurb": "Adds a person to a team's roster without inviting them.",
+        "progressive": "Adding member",
+        "done": "Added member",
+        "progressiveMany": "Adding {n} members",
+        "doneMany": "Added {n} members",
+        "subjectKey": "email",
+        "result": "none"
+      },
+      {
         "name": "members_list",
         "title": "List members",
         "blurb": "Lists a team's members with their roles.",
@@ -1420,6 +1431,7 @@
       { "name": "mcp_servers_add", "refs": "" },
       { "name": "mcp_servers_list", "refs": "" },
       { "name": "mcp_servers_remove", "refs": "" },
+      { "name": "members_add", "refs": "member@" },
       { "name": "members_list", "refs": "list:member@" },
       { "name": "notifications_list", "refs": "list:notification@" },
       { "name": "notifications_mark_read", "refs": "" },

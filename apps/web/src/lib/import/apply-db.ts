@@ -23,8 +23,6 @@ import {
   issueEvents,
   issueLabels,
   issues,
-  teamMembers,
-  users,
 } from "@/db/schema"
 import { boardIconValues, type BoardIcon } from "@/lib/domain"
 import { router, type Context } from "@/lib/trpc"
@@ -35,11 +33,7 @@ import { teamsRouter } from "@/lib/trpc/teams"
 import { teamInvitesRouter } from "@/lib/trpc/team-invites"
 import { assertWithinStorageLimit } from "@/lib/billing"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
-import {
-  createPlaceholderMember,
-  createUnsentPlaceholderInvite,
-  resolvePlaceholderIdentity,
-} from "@/lib/placeholder-members"
+import { addPlaceholderToRoster } from "@/lib/placeholder-members"
 import { deleteObject, uploadObject } from "@/lib/storage"
 import {
   buildAttachmentStorageKey,
@@ -230,43 +224,22 @@ export function createDbApplyPorts(args: DbPortsArgs): ApplyPorts {
 
     // EXP-1076: the import's own placeholder port — NOT the invite router,
     // because nothing is mailed and no seat is spent: the people an import
-    // found never asked to join. One transaction: an address that already
-    // belongs to an account is never re-created (only its owner may add it to
-    // a team — `null` sends the content to the importer), everyone else gets
-    // the roster row plus the unsent invite binding `teamInvites.create`
-    // turns into a real link later.
+    // found never asked to join. FEED-108: ONE shared resolver with the
+    // by-hand "Add without inviting" (lib/placeholder-members.ts). An address
+    // that belongs to an account outside the team is never re-created (only
+    // its owner may add it — `null` sends the content to the importer);
+    // everyone else gets the roster row plus the unsent invite binding
+    // `teamInvites.create` turns into a real link later.
     async createPlaceholder(input) {
-      const identity = resolvePlaceholderIdentity({ email: input.email, name: input.name })
-      return db.transaction(async (tx) => {
-        const [existing] = await tx
-          .select({ id: users.id })
-          .from(users)
-          .where(sql`lower(${users.email}) = ${identity.email}`)
-          .limit(1)
-        if (existing) {
-          const [member] = await tx
-            .select({ userId: teamMembers.userId })
-            .from(teamMembers)
-            .where(
-              and(eq(teamMembers.teamId, job.teamId), eq(teamMembers.userId, existing.id))
-            )
-            .limit(1)
-          return { memberUserId: member ? existing.id : null }
-        }
-        const { userId } = await createPlaceholderMember(tx, {
+      const outcome = await db.transaction((tx) =>
+        addPlaceholderToRoster(tx, {
           teamId: job.teamId,
-          role: `member`,
-          identity,
-        })
-        await createUnsentPlaceholderInvite(tx, {
-          teamId: job.teamId,
-          placeholderUserId: userId,
+          email: input.email,
+          name: input.name,
           invitedById: importer.id,
-          role: `member`,
-          email: identity.email,
         })
-        return { memberUserId: userId }
-      })
+      )
+      return { memberUserId: outcome.kind === `outside` ? null : outcome.userId }
     },
 
     // The seat-gated, mailing option the wizard still offers.

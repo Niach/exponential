@@ -1036,6 +1036,46 @@ async function main() {
     expiresAt: DEMO_PENDING_INVITE_EXPIRY.demo,
   })
 
+  // FEED-108: a member added WITHOUT an invite (what "Add without inviting"
+  // and the Linear import create): a placeholder users row, a membership and
+  // the unsent invite binding it — so the `settings-members` view shows the
+  // "Not invited" pill the way a real roster does. Teardown drops the team;
+  // the users row goes with the orphan purge of the next seed (the ON
+  // CONFLICT keeps a re-seed idempotent).
+  await db
+    .insert(users)
+    .values({
+      id: `demo-hannes`,
+      name: `Hannes Gruber`,
+      email: `hannes@acme.dev`,
+      emailVerified: true,
+      placeholderAt: daysAgo(3),
+      createdAt: daysAgo(3),
+      updatedAt: daysAgo(3),
+    })
+    .onConflictDoNothing({ target: users.email })
+  const [hannes] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, `hannes@acme.dev`))
+  await db.insert(teamMembers).values({
+    teamId: ws.id,
+    userId: hannes!.id,
+    role: `member`,
+    createdAt: daysAgo(3),
+  })
+  await db.insert(teamInvites).values({
+    teamId: ws.id,
+    invitedById: demoId,
+    role: `member`,
+    token: `screenshots-demo-invite-hannes-unsent`,
+    email: `hannes@acme.dev`,
+    placeholderUserId: hannes!.id,
+    createdAt: daysAgo(3),
+    sentAt: null,
+    expiresAt: daysAgo(3),
+  })
+
   // Two MORE unconsumed invites for the `settings-members` view — its pending
   // list renders nothing at all when empty. One was mailed to an address, one
   // is a bare shareable link (the two shapes the row styles differently).
