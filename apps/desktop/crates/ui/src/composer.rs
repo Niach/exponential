@@ -522,6 +522,53 @@ pub(crate) fn session_model_pin<V: gpui::Render>(
     )
 }
 
+/// The model a session runs on BEFORE its relay says (no `config_state`
+/// yet, or no live room at all): the row's own pick, else (a dispatcher) the
+/// device's thread model for the row's agent, else the device's model, else
+/// the contract defaults. `device_agents` = the devices row's
+/// `launch_defaults.agents`. Web `fallbackModel` (session-composer.tsx).
+pub(crate) fn fallback_session_model(
+    row: Option<&domain::rows::SessionRow>,
+    device_agents: Option<&serde_json::Value>,
+) -> String {
+    use domain::contract as c;
+    let agent = row.and_then(|row| row.cli.as_deref()).unwrap_or("claude");
+    if let Some(model) = row.and_then(|row| row.model.as_deref()).filter(|m| !m.is_empty()) {
+        return model.to_string();
+    }
+    let pick = |key: &str| {
+        device_agents
+            .and_then(|agents| agents.get(agent))
+            .and_then(|defaults| defaults.get(key))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let codex = agent == "codex";
+    if row.is_some_and(|row| row.dispatch) {
+        return pick("threadModel").unwrap_or_else(|| {
+            if codex { c::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL } else { c::DEVICE_AGENT_DEFAULTS_THREAD_MODEL }
+                .to_string()
+        });
+    }
+    pick("model").unwrap_or_else(|| {
+        if codex { c::DEVICE_AGENT_DEFAULTS_CODEX_MODEL } else { c::DEVICE_AGENT_DEFAULTS_MODEL }.to_string()
+    })
+}
+
+/// [`fallback_session_model`] off the synced stores: the row's device is
+/// looked up in the `devices` shape (`sessions.device_id` = its row id).
+pub(crate) fn session_fallback_model(row: Option<&domain::rows::SessionRow>, cx: &App) -> String {
+    let device = row
+        .and_then(|row| row.device_id.as_deref())
+        .and_then(|id| sync::Store::global(cx).collections().devices.read(cx).get(id).cloned());
+    let agents = device
+        .as_ref()
+        .and_then(|device| device.launch_defaults.as_ref())
+        .and_then(|defaults| defaults.get("agents"));
+    fallback_session_model(row, agents)
+}
+
 /// What [`session_context_ring`] reads: the run's usage + seeded layout, and
 /// where the run lives (the sheet's account windows and its switch).
 pub(crate) struct ContextRingProps {
@@ -685,4 +732,47 @@ pub(crate) fn session_slash_menu<V: 'static>(
         window,
         cx,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fallback_session_model;
+    use domain::contract as c;
+    use domain::rows::SessionRow;
+
+    /// Web `fallbackModel`: the row's pick, else (a dispatcher) the device's
+    /// thread model, else the device's model, else the contract defaults.
+    #[test]
+    fn the_pin_falls_back_like_web() {
+        let agents = serde_json::json!({
+            "claude": { "model": "opus", "threadModel": "sonnet" },
+            "codex": { "model": "", "threadModel": "" },
+        });
+        let row = |cli: Option<&str>, model: Option<&str>, dispatch: bool| SessionRow {
+            id: "s".into(),
+            cli: cli.map(Into::into),
+            model: model.map(Into::into),
+            dispatch,
+            ..Default::default()
+        };
+        // The row's own pick wins.
+        assert_eq!(fallback_session_model(Some(&row(None, Some("fable"), true)), Some(&agents)), "fable");
+        // A dispatcher: the device's thread model, else the contract's.
+        assert_eq!(fallback_session_model(Some(&row(None, None, true)), Some(&agents)), "sonnet");
+        assert_eq!(
+            fallback_session_model(Some(&row(None, None, true)), None),
+            c::DEVICE_AGENT_DEFAULTS_THREAD_MODEL
+        );
+        assert_eq!(
+            fallback_session_model(Some(&row(Some("codex"), None, true)), Some(&agents)),
+            c::DEVICE_AGENT_DEFAULTS_CODEX_THREAD_MODEL
+        );
+        // A worker: the device's model, else the contract's.
+        assert_eq!(fallback_session_model(Some(&row(None, None, false)), Some(&agents)), "opus");
+        assert_eq!(
+            fallback_session_model(Some(&row(Some("codex"), None, false)), Some(&agents)),
+            c::DEVICE_AGENT_DEFAULTS_CODEX_MODEL
+        );
+        assert_eq!(fallback_session_model(None, None), c::DEVICE_AGENT_DEFAULTS_MODEL);
+    }
 }

@@ -6842,13 +6842,19 @@ impl SteerSessionView {
     /// mid-turn like anything else and the republished `config_state` is the
     /// confirmation. Nothing is written optimistically — a pick the CLI
     /// refuses must not leave the footer lying. Codex's is a plain label.
-    /// Nothing renders when the run published no `model` option (an older
-    /// device) or a blank one. Web `sessionModel` ×2.
+    /// Before the run publishes a `model` option (or with no live relay at
+    /// all) the pin reads [`crate::composer::session_fallback_model`].
     fn render_model_pin(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let chip = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)?;
+        // The model in force (the relay's `config_state`), else the row's /
+        // device's pick (web `sessionModel(config) ?? fallback`): a thread
+        // with no live relay still names its model.
+        let value = crate::session_extras::option_chip(self.feed.config(), CONFIG_MODEL_ID)
+            .map(|chip| chip.value)
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| crate::composer::session_fallback_model(self.row.as_ref(), cx));
         crate::composer::session_model_pin(
             self.composer_ids.model.clone(),
-            &chip.value,
+            &value,
             self.agent() == SessionAgent::Claude,
             self.run_open(),
             |view: &mut Self, alias: &str, _window, cx| {

@@ -76,8 +76,9 @@ use crate::surface;
 
 /// EXP-862: what the dialog's form actually needs — Name, Default device,
 /// Sharing and the agent defaults. It is a CAP, not a floor: a short screen
-/// still gets the old 85% and the stack scrolls inside it.
-const CONTENT_H: f32 = 560.;
+/// still gets the old 85% and the stack scrolls inside it. 640 = the form
+/// WHOLE (Remove device included) since the Thread model row joined it.
+const CONTENT_H: f32 = 640.;
 
 /// Queued-command poll cadence while the dialog is open (offline machines
 /// keep their commands queued server-side — poll slowly).
@@ -313,6 +314,24 @@ pub(crate) fn parse_agent_map<T: serde::de::DeserializeOwned>(
         }
     }
     out
+}
+
+/// A REMOTE row's defaults baseline: its `launch_defaults` clamped onto a
+/// default Settings (remote_admin's apply, the same clamp the device itself
+/// runs). Plan mode reads OFF until the row says otherwise (web `agentSeed`:
+/// `planMode ?? false`, ×4): the local Settings default (ON) is THIS
+/// machine's, never a seed for another one's.
+fn remote_baseline(launch_defaults: Option<&serde_json::Value>) -> coding::Settings {
+    let mut seeded = coding::Settings {
+        claude_plan_mode: false,
+        ..coding::Settings::default()
+    };
+    if let Some(value) = launch_defaults {
+        if let Ok(patch) = serde_json::from_value::<coding::DefaultsPatch>(value.clone()) {
+            coding::apply_defaults_patch(&mut seeded, &patch);
+        }
+    }
+    seeded
 }
 
 pub struct DeviceSettingsView {
@@ -616,15 +635,7 @@ impl DeviceSettingsView {
         let mut seeded = if own {
             CodingHub::global(cx).read(cx).settings.clone()
         } else {
-            let mut seeded = coding::Settings::default();
-            if let Some(value) = row.launch_defaults.as_ref() {
-                if let Ok(patch) =
-                    serde_json::from_value::<coding::DefaultsPatch>(value.clone())
-                {
-                    coding::apply_defaults_patch(&mut seeded, &patch);
-                }
-            }
-            seeded
+            remote_baseline(row.launch_defaults.as_ref())
         };
         let configured: Vec<String> = row
             .launch_defaults
@@ -2059,6 +2070,16 @@ mod tests {
 
     /// EXP-765: the code field is offered for a REMOTE machine only — the own
     /// machine's login tab is right there to type into.
+    /// A remote device with NO saved launch defaults reads Plan mode OFF
+    /// (web/iOS/Android `planMode ?? false`); a saved pick still wins.
+    #[test]
+    fn remote_baseline_seeds_plan_mode_off() {
+        assert!(!super::remote_baseline(None).claude_plan_mode);
+        assert!(!super::remote_baseline(Some(&serde_json::json!({}))).claude_plan_mode);
+        let saved = serde_json::json!({ "agents": { "claude": { "planMode": true } } });
+        assert!(super::remote_baseline(Some(&saved)).claude_plan_mode);
+    }
+
     #[test]
     fn parse_agent_map_tolerates_garbage() {
         let value = serde_json::json!({
