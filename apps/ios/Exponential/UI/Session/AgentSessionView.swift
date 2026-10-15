@@ -149,6 +149,9 @@ struct AgentSessionView: View {
     /// folds again on blur when nothing would be lost (IssueDetailBottomBar's
     /// rule). A non-empty draft or a pending image keeps it open regardless.
     @State private var composerExpanded = false
+    /// EXP-1316: the floating bottom band's measured height (the feed's
+    /// bottom inset) — a pinned feed re-pins as it changes.
+    @State private var bottomBandHeight: CGFloat = 0
     /// Set by `expandComposer`, cleared once the editor takes focus (or the
     /// retry window passes): the EXP-931 idle fold stands down meanwhile.
     @State private var composerFocusPending = false
@@ -203,6 +206,12 @@ struct AgentSessionView: View {
         feedBody(model)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 bottomBand(model)
+                    // EXP-1316: the band's measured height IS the feed's
+                    // bottom inset; a pinned feed re-pins when it changes
+                    // (the composer expanding, the keyboard, late layout).
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                        bottomBandHeight = height
+                    }
             }
     }
 
@@ -734,6 +743,17 @@ struct AgentSessionView: View {
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(50))
                         if atBottom {
+                            proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
+                        }
+                    }
+                }
+                .onChange(of: bottomBandHeight) { old, new in
+                    guard atBottom, new != old else { return }
+                    // After the inset lands (one runloop hop), and again once
+                    // the band's animation and the keyboard have settled.
+                    for delay in [0.0, 0.05, DesignTokens.Motion.Duration.standard + 0.2] {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                            guard atBottom else { return }
                             proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                         }
                     }

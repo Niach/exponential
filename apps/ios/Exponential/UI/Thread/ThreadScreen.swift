@@ -63,6 +63,15 @@ struct ThreadScreen: View {
     @State private var atBottom = true
     /// The composer expanded on a pinned reader: the keyboard's inset re-pins.
     @State private var pinOnInset = false
+    /// The floating composer's measured height = the conversation's bottom
+    /// inset; a pinned conversation re-pins whenever it changes.
+    @State private var composerHeight: CGFloat = 0
+    /// The composer's top edge and the newest row's bottom anchor (global):
+    /// what the scroll view's inset leaves under the open composer while the
+    /// keyboard is up is measured and padded out (`insetCorrection`).
+    @State private var composerTop: CGFloat = 0
+    @State private var anchorBottom: CGFloat = 0
+    @State private var insetCorrection: CGFloat = 0
     // Guide
     @State private var guideSection: GuideSectionKey?
     @State private var focusPath: String?
@@ -318,8 +327,13 @@ struct ThreadScreen: View {
                         .padding(.vertical, 12)
                         .transcriptColumn()
                         Color.clear
+                            .frame(height: insetCorrection)
+                        Color.clear
                             .frame(height: 1)
                             .id(Self.bottomId)
+                            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).maxY }) { bottom in
+                                anchorBottom = bottom
+                            }
                     }
                     .background(
                         GeometryReader { content in
@@ -356,9 +370,10 @@ struct ThreadScreen: View {
                     guard pinOnInset || atBottom else { return }
                     pinOnInset = false
                     atBottom = true
-                    withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                    repin(scroller)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+                    insetCorrection = 0
                     guard atBottom else { return }
                     withAnimation(motion.standard) { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
                 }
@@ -372,14 +387,22 @@ struct ThreadScreen: View {
                         onExpand: {
                             // Remember the pin BEFORE the inset moves it.
                             pinOnInset = atBottom
-                            guard atBottom else { return }
-                            DispatchQueue.main.async {
-                                withAnimation(motion.standard) {
-                                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
-                                }
-                            }
                         }
                     )
+                    // EXP-1316 (Android 247c806b33): the floating composer's
+                    // MEASURED height (capsule or open card, + its edge) is
+                    // the conversation's bottom inset; a pinned conversation
+                    // re-pins whenever it changes — expansion, keyboard,
+                    // late layout — so the newest row never hides under it.
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                        composerTop = frame.minY
+                        guard frame.height != composerHeight else { return }
+                        if frame.height < composerHeight { insetCorrection = 0 }
+                        composerHeight = frame.height
+                        guard pinOnInset || atBottom else { return }
+                        atBottom = true
+                        repin(scroller)
+                    }
                     .overlay(alignment: .top) {
                         ZStack {
                             if !atBottom {
@@ -402,6 +425,35 @@ struct ThreadScreen: View {
     }
 
     private static let coordSpace = "thread-conversation-scroll"
+
+    /// EXP-1316: pin the newest row above the floating composer — now, after
+    /// the next layout pass (the safe-area inset lands one pass late) and
+    /// once the card's open animation and the keyboard have settled.
+    private func repin(_ scroller: ScrollViewProxy) {
+        scroller.scrollTo(Self.bottomId, anchor: .bottom)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            guard atBottom else { return }
+            scroller.scrollTo(Self.bottomId, anchor: .bottom)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + DesignTokens.Motion.Duration.standard + 0.2) {
+            guard atBottom else { return }
+            scroller.scrollTo(Self.bottomId, anchor: .bottom)
+            // Settled: with the keyboard up the scroll view's inset falls
+            // short of the composer by the bottom safe area it swallowed
+            // (34pt on a home-indicator phone). The anchor always lands on
+            // the scroll view's own bottom, so the shortfall is measured
+            // against it once and padded out above the anchor; a later pass
+            // measures the same gap and changes nothing.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                let shortfall = anchorBottom - composerTop - insetCorrection
+                guard atBottom, composerTop > 0, shortfall > 0.5, shortfall < 200 else { return }
+                insetCorrection += shortfall
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    scroller.scrollTo(Self.bottomId, anchor: .bottom)
+                }
+            }
+        }
+    }
     private static let bottomId = "thread-conversation-bottom"
 
     @ViewBuilder
