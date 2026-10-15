@@ -18,6 +18,7 @@ import {
   claimPlaceholder,
   createPlaceholderMember,
   deletePlaceholderIfOrphaned,
+  isSeatedAnywhere,
   mergePlaceholderIntoUser,
   normalizeInviteEmail,
   resolvePlaceholderIdentity,
@@ -123,22 +124,6 @@ async function hasLiveSentInvite(
         gt(teamInvites.expiresAt, now)
       )
     )
-    .limit(1)
-  return Boolean(row)
-}
-
-// EXP-1141: does this placeholder hold a team_members row on ANY roster? A
-// seated one belongs to that team (its invite here stays unbound); a seatless
-// one is nobody's, so an invite to its address binds it (or, when nothing
-// references it, replaces it).
-async function isSeatedAnywhere(
-  tx: Pick<typeof db, `select`>,
-  userId: string
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: teamMembers.id })
-    .from(teamMembers)
-    .where(eq(teamMembers.userId, userId))
     .limit(1)
   return Boolean(row)
 }

@@ -2968,7 +2968,7 @@ export function registerExponentialTools(
     `exponential_members_list`,
     {
       annotations: READ_ONLY,
-      description: `List the members of a team. id is the USER id (use it for assigneeId); memberId is the team_members row id (what teamMembers.updateRole/remove take).`,
+      description: `List the members of a team. id is the USER id (use it for assigneeId); memberId is the team_members row id. placeholder: no account yet (added or invited, not joined).`,
       inputSchema: strictInput({
         teamId: uuidString,
         limit: z.number().int().min(1).max(200).default(50),
@@ -2987,6 +2987,9 @@ export function registerExponentialTools(
             email: users.email,
             image: users.image,
             role: teamMembers.role,
+            // FEED-108: a placeholder member (EXP-630) has no account — the
+            // flag itself is server-only, so this is where agents learn it.
+            placeholder: sql<boolean>`${users.placeholderAt} is not null`,
           })
           .from(teamMembers)
           .innerJoin(users, eq(users.id, teamMembers.userId))
@@ -2995,6 +2998,32 @@ export function registerExponentialTools(
           .limit(limit)
           .offset(offset)
         return ok(rows)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // FEED-108: the by-hand placeholder member — what the Linear import does
+  // for the people it finds, for ONE person: on the roster at once, assignable,
+  // no mail, no seat. Owner-only (teamMembers.addPlaceholder).
+  server.registerTool(
+    `exponential_members_add`,
+    {
+      description: `Add a person to a team WITHOUT inviting them: a placeholder member (no account) to assign issues to; id is the assigneeId. No mail, no seat; Send invite brings them in later. Owner only. Fails for an address that has an account: use exponential_invites_create then.`,
+      inputSchema: strictInput({
+        teamId: uuidString,
+        email: z.string().email().max(255),
+        name: z.string().trim().max(180).optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        assertTeamFullyGranted(access, input.teamId)
+        const result = await caller(user, request).teamMembers.addPlaceholder(
+          input
+        )
+        return ok(result.member)
       } catch (e) {
         return err(e)
       }

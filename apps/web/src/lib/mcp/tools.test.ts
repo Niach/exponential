@@ -32,6 +32,8 @@ const h = vi.hoisted(() => {
     boards: { delete: vi.fn(), setRepository: vi.fn() },
     teams: { create: vi.fn(), update: vi.fn() },
     teamInvites: { create: vi.fn(), list: vi.fn(), revoke: vi.fn() },
+    // FEED-108: the by-hand placeholder member.
+    teamMembers: { addPlaceholder: vi.fn() },
     attachments: { delete: vi.fn() },
     // EXP-660: the deferred families.
     statuses: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -603,6 +605,33 @@ const descriptors: Array<Descriptor> = [
       memberUserId: null,
     },
     calledWith: { teamId: WS, role: `member` },
+  },
+  // FEED-108: the member row comes back bare (the preview's `member@` ref
+  // resolves to its id + name); txId stays server-side.
+  {
+    tool: `exponential_members_add`,
+    pick: () => caller.teamMembers.addPlaceholder,
+    args: { teamId: WS, email: `hannes@example.com`, name: `Hannes` },
+    resolved: {
+      member: {
+        id: `u-ph`,
+        memberId: `m-ph`,
+        name: `Hannes`,
+        email: `hannes@example.com`,
+        role: `member`,
+        placeholder: true,
+      },
+      txId: 7,
+    },
+    expected: {
+      id: `u-ph`,
+      memberId: `m-ph`,
+      name: `Hannes`,
+      email: `hannes@example.com`,
+      role: `member`,
+      placeholder: true,
+    },
+    calledWith: { teamId: WS, email: `hannes@example.com`, name: `Hannes` },
   },
   {
     tool: `exponential_invites_list`,

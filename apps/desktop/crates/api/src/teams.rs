@@ -238,6 +238,55 @@ pub fn team_members_remove(trpc: &TrpcClient, member_id: &str) -> Result<(), Api
     Ok(())
 }
 
+/// The member row `teamMembers.addPlaceholder` hands back (FEED-108): the
+/// placeholder just seated — `id` is the USER id (the assignee id), `name` the
+/// typed name or the mailbox local part the server fell back to.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedPlaceholder {
+    pub id: String,
+    pub member_id: String,
+    pub name: String,
+    pub email: String,
+    #[serde(default)]
+    pub role: Option<String>,
+}
+
+/// `teamMembers.addPlaceholder` — mutation (owner-only). FEED-108 "Add
+/// without inviting": puts the person on the roster as a PLACEHOLDER member
+/// (web `InviteMemberForm`'s outline button) — assignable at once, no mail, no
+/// seat; the row reads "Not invited" until Send invite. `name` empty/absent =
+/// the mailbox local part. A 400 carries the refusal (already a member, or an
+/// address that has an account and must be invited).
+pub fn team_members_add_placeholder(
+    trpc: &TrpcClient,
+    team_id: &str,
+    email: &str,
+    name: Option<&str>,
+) -> Result<AddedPlaceholder, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+        email: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<&'a str>,
+    }
+    #[derive(Deserialize)]
+    struct Output {
+        member: AddedPlaceholder,
+    }
+    let out: Output = trpc.mutation(
+        "teamMembers.addPlaceholder",
+        &Input {
+            team_id,
+            email,
+            name: name.filter(|name| !name.is_empty()),
+        },
+    )?;
+    Ok(out.member)
+}
+
 // ---------------------------------------------------------------------------
 // teamInvites.* (Settings → Members invites + the accept surface)
 // ---------------------------------------------------------------------------

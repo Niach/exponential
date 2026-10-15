@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { router, authedProcedure } from "@/lib/trpc"
+import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import {
   devices,
   issues,
@@ -8,13 +8,30 @@ import {
   mcpOauthFlows,
   pins,
   teamMembers,
+  users,
 } from "@/db/schema"
 import { and, arrayContains, eq, sql } from "drizzle-orm"
 import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { endForeignHostedSessions } from "@/lib/sessions/lifecycle"
-import { deletePlaceholderIfOrphaned } from "@/lib/placeholder-members"
+import {
+  addPlaceholderToRoster,
+  deletePlaceholderIfOrphaned,
+  normalizeInviteEmail,
+} from "@/lib/placeholder-members"
+import { isUniqueViolation } from "@/lib/trpc/db-errors"
+
+// FEED-108: the refusals of `addPlaceholder`, exported for the tests and the
+// MCP tool. ONE neutral sentence covers a real account and a placeholder that
+// belongs to another team alike — the error must not tell an owner which
+// addresses have Exponential accounts.
+export const ADD_PLACEHOLDER_COPY = {
+  alreadyMember: (email: string) =>
+    `${email} is already a member of this team.`,
+  needsInvite: (email: string) =>
+    `${email} can't be added without an invite. Use Send invite instead.`,
+} as const
 
 // v7: the self-service `join` procedure is gone with public teams —
 // membership is invite-only everywhere; the only anonymous write path is
@@ -86,6 +103,107 @@ async function assertNotLastOwner(
 }
 
 export const teamMembersRouter = router({
+  // FEED-108: "Add without inviting" — a PLACEHOLDER member by hand (name +
+  // email), the way the Linear import seats the people it finds (EXP-1076):
+  // on the roster at once, assignable and mentionable everywhere, badged "Not
+  // invited" on every client, costing no seat and getting no mail. Send invite
+  // on the row later mints the link (seat-gated there); signing in through the
+  // mailbox or accepting that link claims the row (lib/placeholder-members.ts).
+  // Owner-only like every member write. No team lock: it never ends an
+  // ownership (the last-owner rule is what `lockTeamMembers` guards); the
+  // per-address lock inside the resolver serializes the real race.
+  addPlaceholder: authedProcedure
+    .input(
+      z.object({
+        teamId: z.string().uuid(),
+        email: z.string().trim().email().max(255),
+        // Empty = the mailbox local part (resolvePlaceholderIdentity).
+        name: z.string().trim().max(180).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      await assertCanManageMembers(ctx.session.user.id, input.teamId)
+      const email = normalizeInviteEmail(input.email)
+      let result: {
+        member: {
+          id: string
+          memberId: string
+          name: string
+          email: string
+          role: `owner` | `member`
+          placeholder: true
+        }
+        txId: number
+      }
+      try {
+        result = await ctx.db.transaction(async (tx) => {
+          const outcome = await addPlaceholderToRoster(tx, {
+            teamId: input.teamId,
+            email,
+            name: input.name,
+            invitedById: ctx.session.user.id,
+          })
+          if (outcome.kind === `member`) {
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: ADD_PLACEHOLDER_COPY.alreadyMember(email),
+            })
+          }
+          if (outcome.kind === `outside`) {
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: ADD_PLACEHOLDER_COPY.needsInvite(email),
+            })
+          }
+          const [row] = await tx
+            .select({
+              memberId: teamMembers.id,
+              name: users.name,
+              email: users.email,
+              role: teamMembers.role,
+            })
+            .from(teamMembers)
+            .innerJoin(users, eq(users.id, teamMembers.userId))
+            .where(
+              and(
+                eq(teamMembers.teamId, input.teamId),
+                eq(teamMembers.userId, outcome.userId)
+              )
+            )
+            .limit(1)
+          if (!row) {
+            throw new TRPCError({ code: `NOT_FOUND`, message: `Member not found` })
+          }
+          const txId = await generateTxId(tx)
+          return {
+            member: {
+              id: outcome.userId,
+              memberId: row.memberId,
+              name: row.name,
+              email: row.email,
+              role: row.role,
+              placeholder: true as const,
+            },
+            txId,
+          }
+        })
+      } catch (err) {
+        // Two owners adding one address at once: the loser's (team_id,
+        // user_id) or email unique index fires — the row IS there now.
+        if (isUniqueViolation(err)) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: ADD_PLACEHOLDER_COPY.alreadyMember(email),
+          })
+        }
+        throw err
+      }
+      // Post-commit (never inside the tx — a concurrent shape renewal would
+      // repopulate the cache with pre-commit membership).
+      invalidateMembershipCaches()
+      return result
+    }),
+
   updateRole: authedProcedure
     .input(
       z.object({

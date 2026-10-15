@@ -15,7 +15,13 @@ import { UpgradeDialog } from "@/components/upgrade-dialog"
 // the roster, assignable) and mails the link; when the mail cannot go out the
 // link is shown for sharing by hand. `placeholderUserId` turns the form into
 // a re-invite of an existing placeholder (the address stays editable).
+//
+// FEED-108: `allowAddWithoutInvite` adds the OUTLINE "Add without inviting"
+// beside "Send invite" (Members settings only): the same placeholder member,
+// but no mail goes out and no seat is spent — what the Linear import does for
+// the people it finds. The row reads "Not invited" until Send invite.
 const UiMailIcon = conceptIcon(`ui-mail`)
+const UiInviteIcon = conceptIcon(`ui-invite`)
 const UiCopyIcon = conceptIcon(`ui-copy`)
 const UiCheckIcon = conceptIcon(`ui-check`)
 /** feedback-states.json's invalid-email input case. */
@@ -37,6 +43,7 @@ export function InviteMemberForm({
   submitLabel = `Send invite`,
   autoFocus,
   layout = `row`,
+  allowAddWithoutInvite = false,
   onInvited,
 }: {
   teamId: string
@@ -48,11 +55,14 @@ export function InviteMemberForm({
   // `row` = name · email · button on one line (wide settings sections);
   // `stack` = one field per line (dialogs).
   layout?: `row` | `stack`
+  // FEED-108: the second, outline button (Members settings only).
+  allowAddWithoutInvite?: boolean
   onInvited?: (invited: InvitedMember) => void
 }) {
   const [name, setName] = useState(defaultName)
   const [email, setEmail] = useState(defaultEmail)
   const [sending, setSending] = useState(false)
+  const [adding, setAdding] = useState(false)
   // Invalid input (the address the server refused) stays under the field.
   const [emailError, setEmailError] = useState<string | null>(null)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
@@ -126,6 +136,64 @@ export function InviteMemberForm({
     }
   }
 
+  // FEED-108: the roster row WITHOUT a link — `teamMembers.addPlaceholder`.
+  // Nothing is mailed, so there is no link to fall back to; a refused address
+  // (already a member, or an account that must be invited) stays under the
+  // field like the invite's, everything else toasts.
+  const handleAdd = async () => {
+    const to = email.trim()
+    if (!to) return
+    setAdding(true)
+    setEmailError(null)
+    try {
+      const { member } = await trpc.teamMembers.addPlaceholder.mutate(
+        { teamId, email: to, name: name.trim() || undefined },
+        SKIP_ERROR_TOAST
+      )
+      toast.success(`Added ${member.name} to the team`)
+      setName(``)
+      setEmail(``)
+      setInviteUrl(null)
+    } catch (err) {
+      if (trpcErrorCode(err) === `BAD_REQUEST`) {
+        setEmailError(trpcErrorMessage(err, INVALID_EMAIL))
+      } else {
+        failedAction(`add`, `the member`, err)
+      }
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const busy = sending || adding
+  const buttons = (
+    <>
+      <Button
+        className={layout === `stack` ? undefined : `shrink-0`}
+        onClick={() => void handleSend()}
+        disabled={!email.trim() || adding}
+        pending={sending}
+        pendingLabel={FEEDBACK_WORDS.pending.invite}
+      >
+        <UiMailIcon className="mr-2 h-4 w-4" />
+        {submitLabel}
+      </Button>
+      {allowAddWithoutInvite && (
+        <Button
+          variant="outline"
+          className={layout === `stack` ? undefined : `shrink-0`}
+          onClick={() => void handleAdd()}
+          disabled={!email.trim() || sending}
+          pending={adding}
+          data-testid="invite-add-without-inviting"
+        >
+          <UiInviteIcon className="mr-2 h-4 w-4" />
+          Add without inviting
+        </Button>
+      )}
+    </>
+  )
+
   return (
     <>
       <div className="space-y-2">
@@ -157,19 +225,16 @@ export function InviteMemberForm({
             aria-invalid={emailError ? true : undefined}
             autoFocus={autoFocus === `email`}
             onKeyDown={(e) => {
-              if (e.key === `Enter`) void handleSend()
+              if (e.key === `Enter` && !busy) void handleSend()
             }}
           />
-          <Button
-            className={layout === `stack` ? `self-end` : `shrink-0`}
-            onClick={() => void handleSend()}
-            disabled={!email.trim()}
-            pending={sending}
-            pendingLabel={FEEDBACK_WORDS.pending.invite}
-          >
-            <UiMailIcon className="mr-2 h-4 w-4" />
-            {submitLabel}
-          </Button>
+          {/* Stack: the buttons trail on their own line (a dialog column is
+              too narrow for the fields and two buttons abreast). */}
+          {layout === `stack` ? (
+            <div className="flex justify-end gap-2">{buttons}</div>
+          ) : (
+            buttons
+          )}
         </div>
         <FieldError>{emailError}</FieldError>
         {inviteUrl && <InviteLinkRow url={inviteUrl} />}

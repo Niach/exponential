@@ -51,7 +51,7 @@ type FakeDb = {
   select: () => ReturnType<typeof selectChain>
   delete: (table: unknown) => { where: () => Promise<void> }
   update: (table: unknown) => UpdateChain
-  execute: (query: unknown) => Promise<void>
+  execute: (query: unknown) => Promise<{ rows: { txid: string }[] }>
   transaction: (fn: (tx: FakeDb) => Promise<unknown>) => Promise<unknown>
 }
 
@@ -75,7 +75,8 @@ const fakeDb: FakeDb = {
   }),
   execute: (query: unknown) => {
     executes.push({ query, inTx })
-    return Promise.resolve()
+    // FEED-108: generateTxId reads rows[0].txid off the same handle.
+    return Promise.resolve({ rows: [{ txid: `42` }] })
   },
   transaction: async (fn) => {
     inTx = true
@@ -114,7 +115,18 @@ vi.mock(`@/lib/sessions/lifecycle`, () => ({
   endForeignHostedSessions: vi.fn(async () => [] as string[]),
 }))
 
-import { teamMembersRouter } from "@/lib/trpc/team-members"
+// FEED-108: the roster resolver is a unit of its own (placeholder-members.test.ts);
+// here it is driven by outcome so the router mapping is what is under test.
+vi.mock(`@/lib/placeholder-members`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/placeholder-members")>()),
+  addPlaceholderToRoster: vi.fn(),
+}))
+
+import {
+  ADD_PLACEHOLDER_COPY,
+  teamMembersRouter,
+} from "@/lib/trpc/team-members"
+import { addPlaceholderToRoster } from "@/lib/placeholder-members"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { endForeignHostedSessions } from "@/lib/sessions/lifecycle"
 import {
@@ -377,5 +389,112 @@ describe(`instance-admin bypass removal (EXP-557)`, () => {
     // The old owner-OR-admin helper consulted this first; nothing does now.
     expect(isUserAdmin).not.toHaveBeenCalled()
     vi.mocked(isUserAdmin).mockResolvedValue(false)
+  })
+})
+
+// FEED-108: "Add without inviting" — the by-hand placeholder member. The
+// resolver's outcome maps to ONE of two refusals or the seated row + txId;
+// the membership caches clear post-commit; nothing is seat-gated.
+describe(`teamMembers.addPlaceholder (FEED-108)`, () => {
+  const resolver = vi.mocked(addPlaceholderToRoster)
+  const input = { teamId: WS, email: ` Hannes@Example.com `, name: `Hannes` }
+  const seatedRow = {
+    memberId: MEMBER_ID,
+    name: `Hannes`,
+    email: `hannes@example.com`,
+    role: `member` as const,
+  }
+
+  beforeEach(() => {
+    resolver.mockReset()
+  })
+
+  it(`seats the address and returns the member row with the sync barrier`, async () => {
+    resolver.mockResolvedValueOnce({ kind: `created`, userId: `u-ph` })
+    selectQueue.push([seatedRow])
+
+    const result = await callerFor(`owner-a`).addPlaceholder(input)
+
+    expect(result).toEqual({
+      member: {
+        id: `u-ph`,
+        memberId: MEMBER_ID,
+        name: `Hannes`,
+        email: `hannes@example.com`,
+        role: `member`,
+        placeholder: true,
+      },
+      txId: 42,
+    })
+    // Owner-only, like every member write.
+    expect(assertTeamMember).toHaveBeenCalledWith(`owner-a`, WS, [`owner`])
+    // The address reaches the resolver normalized; the caller is the inviter
+    // of record on the unsent invite row.
+    expect(resolver).toHaveBeenCalledWith(
+      fakeDb,
+      expect.objectContaining({
+        teamId: WS,
+        email: `hannes@example.com`,
+        name: `Hannes`,
+        invitedById: `owner-a`,
+      })
+    )
+    // The resolver and the row re-read ran inside the transaction.
+    expect(selectInTx).toEqual([true])
+    expect(invalidateMembershipCaches).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a re-seated placeholder (EXP-1141) is a success too`, async () => {
+    resolver.mockResolvedValueOnce({ kind: `rebound`, userId: `u-removed` })
+    selectQueue.push([{ ...seatedRow, name: `Removed Earlier` }])
+
+    const result = await callerFor(`owner-a`).addPlaceholder(input)
+
+    expect(result.member).toMatchObject({ id: `u-removed`, name: `Removed Earlier` })
+    expect(invalidateMembershipCaches).toHaveBeenCalledTimes(1)
+  })
+
+  it(`an address already on the roster is refused as a member, caches untouched`, async () => {
+    resolver.mockResolvedValueOnce({ kind: `member`, userId: `u-1` })
+
+    await expect(callerFor(`owner-a`).addPlaceholder(input)).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: ADD_PLACEHOLDER_COPY.alreadyMember(`hannes@example.com`),
+    })
+    expect(invalidateMembershipCaches).not.toHaveBeenCalled()
+  })
+
+  it(`an account elsewhere gets the ONE neutral refusal (never which addresses have accounts)`, async () => {
+    resolver.mockResolvedValueOnce({ kind: `outside` })
+
+    await expect(callerFor(`owner-a`).addPlaceholder(input)).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: ADD_PLACEHOLDER_COPY.needsInvite(`hannes@example.com`),
+    })
+    expect(ADD_PLACEHOLDER_COPY.needsInvite(`x@example.com`)).toBe(
+      `x@example.com can't be added without an invite. Use Send invite instead.`
+    )
+  })
+
+  it(`a concurrent duplicate (unique violation) reads as already a member`, async () => {
+    resolver.mockRejectedValueOnce(
+      Object.assign(new Error(`duplicate key`), { code: `23505` })
+    )
+
+    await expect(callerFor(`owner-a`).addPlaceholder(input)).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: ADD_PLACEHOLDER_COPY.alreadyMember(`hannes@example.com`),
+    })
+  })
+
+  it(`refuses a non-owner before touching the roster`, async () => {
+    assertTeamMember.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Owner only` })
+    )
+
+    await expect(callerFor(`member-b`).addPlaceholder(input)).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+    })
+    expect(resolver).not.toHaveBeenCalled()
   })
 })

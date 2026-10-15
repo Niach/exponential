@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-15-add-without-inviting",
+    date: "2026-10-15",
+    title: "Add a teammate without inviting them",
+    summary: "Settings → Members puts a person on the team by name and email without sending a link: assignable and mentionable right away, no seat, no mail, invited whenever you choose.",
+    body: r#"- **Add without inviting**: next to Send invite, Members gains a button that adds the person to the team without mailing them. They can be assigned issues and mentioned at once, cost no seat and get no mail. The row reads Not invited until you use Send invite on it, and signing in or accepting that invite makes the account theirs.
+- **Agents**: the exponential_members_add tool does the same, and exponential_members_list says which members have no account yet."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_47: ChangelogEntry = ChangelogEntry {
     id: "2026-10-14-threads-consistency",
     date: "2026-10-14",
     title: "Threads look the same everywhere: titles, header chips, lists and the Guide's pictures",
