@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.SessionComposer
+import com.exponential.app.ui.session.SessionUsageSheet
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
@@ -148,6 +149,8 @@ fun ThreadScreen(
         key = "session:${viewModel.rootId}",
     ) { factory -> factory.create(viewModel.rootId) }
     LaunchedEffect(rootSession) { rootSession.ensureConnected() }
+    // The ring opens THE session view's Usage sheet (account switch included).
+    var usageSheetOpen by remember { mutableStateOf(false) }
 
     val statusById = remember(issues, statuses) {
         issues.associate { it.id to IssueStatusResolver.resolve(it, statuses) }
@@ -226,6 +229,9 @@ fun ThreadScreen(
                         onExpandedChange = onExpandedChange,
                         placeholder = placeholder,
                         capsuleTestTag = "thread-composer-capsule",
+                        // Queued rows already sit in the Conversation (EXP-1317).
+                        showQueue = false,
+                        onOpenUsage = { usageSheetOpen = true },
                         modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_COMPOSER),
                     )
                 },
@@ -258,6 +264,11 @@ fun ThreadScreen(
         }
     }
 
+    SessionUsageSheet(
+        viewModel = rootSession,
+        open = usageSheetOpen,
+        onDismiss = { usageSheetOpen = false },
+    )
     menuFor?.let { target ->
         ThreadMenuSheet(
             issue = target.issue,

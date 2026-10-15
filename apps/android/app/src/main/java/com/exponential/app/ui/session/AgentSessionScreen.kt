@@ -752,9 +752,6 @@ private fun RunFaceContent(
     // EXP-688/893: the Usage sheet, opened by the bar's ring (and the wall's
     // "Switch account" pill).
     var usageSheetOpen by remember { mutableStateOf(false) }
-    // EXP-1051: the context-window legend is folded by default — the bar and
-    // its headline are the glance, the per-layer numbers the follow-up.
-    var contextLayoutExpanded by rememberSaveable { mutableStateOf(false) }
     // EXP-1051/EXP-1031: a refused account switch says why when its disabled
     // control is tapped, as an error toast — the toast window draws above the
     // Usage sheet, so it is no longer an inline line inside it. (`toaster`
@@ -1255,6 +1252,40 @@ private fun RunFaceContent(
         }
     }
 
+    // ── The Usage overlay — THE sheet, shared with the thread's composer ring.
+    SessionUsageSheet(
+        viewModel = viewModel,
+        open = usageSheetOpen,
+        onDismiss = { usageSheetOpen = false },
+    )
+}
+
+/**
+ * THE Usage sheet (EXP-688/EXP-909) behind a session composer's ring and the
+ * rate-limit wall's "Switch account": the run's account, its windows, the
+ * context window and the other logins to switch to. The session view and the
+ * thread / agent channel (the ROOT's view model) open the same one.
+ */
+@Composable
+internal fun SessionUsageSheet(
+    viewModel: AgentSessionViewModel,
+    open: Boolean,
+    onDismiss: () -> Unit,
+) {
+    val activity by viewModel.activity.collectAsStateWithLifecycle()
+    val agentUsage by viewModel.agentUsage.collectAsStateWithLifecycle()
+    val agentAccount by viewModel.agentAccount.collectAsStateWithLifecycle()
+    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
+    val switchingAccount by viewModel.switchingAccount.collectAsStateWithLifecycle()
+    val sessionUsage by viewModel.sessionUsage.collectAsStateWithLifecycle()
+    val sessionContextLayout by viewModel.sessionContextLayout.collectAsStateWithLifecycle()
+    val toaster = LocalToaster.current
+    // EXP-1051: the context-window legend is folded by default — the bar and
+    // its headline are the glance, the per-layer numbers the follow-up.
+    var contextLayoutExpanded by rememberSaveable { mutableStateOf(false) }
+    // The header's brand mark: the run's agent (claude when it named none).
+    val session by viewModel.session.collectAsStateWithLifecycle()
+    val workingAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
     // ── The Usage overlay (EXP-688/EXP-909) — behind the bar's ring
     // (EXP-893). It retires with the run: an ended row reports no windows, so
     // nothing here has anything to show. Stale numbers are NOT a reason to
@@ -1266,16 +1297,16 @@ private fun RunFaceContent(
     val switchOptions = accountSwitch.options
     LaunchedEffect(sheetUsage, contextUsage, switchOptions) {
         if (sheetUsage == null && contextUsage == null && switchOptions.isEmpty()) {
-            usageSheetOpen = false
+            onDismiss()
         }
     }
     // EXP-909: one on-demand refresh of the run's login when the overlay
     // opens — the machine answers by re-reporting, which arrives through sync.
     // Once per open; the VM refuses it when there is nothing to ask.
-    LaunchedEffect(usageSheetOpen) {
-        if (usageSheetOpen) viewModel.refreshRunUsage()
+    LaunchedEffect(open) {
+        if (open) viewModel.refreshRunUsage()
     }
-    if (usageSheetOpen && (sheetUsage != null || contextUsage != null || switchOptions.isNotEmpty())) {
+    if (open && (sheetUsage != null || contextUsage != null || switchOptions.isNotEmpty())) {
         // EXP-909: THE overlay, identical ×4 — the run's account as the
         // header, its windows, the Context line, then only the OTHER accounts.
         val nowMs = rememberUsageClock()
@@ -1285,7 +1316,7 @@ private fun RunFaceContent(
         // window above it knows whether anything follows it (EXP-1051).
         val headerCaption = runAccount?.caption
             ?: agentAccount?.let(AgentUsagePresentation::accountCaption)
-        GlassSheet(title = "Usage", onDismiss = { usageSheetOpen = false }) {
+        GlassSheet(title = "Usage", onDismiss = onDismiss) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1501,7 +1532,7 @@ private fun RunFaceContent(
                             // the host resumes the same row on that login.
                             onSwitch = {
                                 viewModel.switchAccount(option)
-                                usageSheetOpen = false
+                                onDismiss()
                             },
                             // EXP-1051: a refused row no longer carries its
                             // reason as a permanent caption — tapping the
@@ -1514,7 +1545,6 @@ private fun RunFaceContent(
             }
         }
     }
-
 }
 
 // ── Status captions (FEED-26; the host's title dot reads `sessionDotTone`) ──
@@ -4275,8 +4305,8 @@ private fun middleTruncate(s: String, max: Int = 72): String {
  *
  * The host's own blocks slot in around the menus: [banners] (status /
  * rate-limit lines), [beforeMenus] (the background-work strip) and
- * [beforeComposer] (the task list). [onOpenUsage] null = the ring is a gauge
- * only (the host has no Usage sheet).
+ * [beforeComposer] (the task list). [onOpenUsage] opens [SessionUsageSheet];
+ * null = the ring is a gauge only.
  */
 @Composable
 internal fun SessionComposer(
@@ -4287,6 +4317,10 @@ internal fun SessionComposer(
     placeholder: String = STEER_COMPOSER_PLACEHOLDER,
     capsuleTestTag: String = "steer-composer-capsule",
     onOpenUsage: (() -> Unit)? = null,
+    /** The queue strip above the card. The thread + agent channel pass false:
+     *  their Conversation already renders queued rows with the Remove X
+     *  (EXP-1317). */
+    showQueue: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
     merge: (@Composable () -> Unit)? = null,
     banners: @Composable ColumnScope.() -> Unit = {},
@@ -4518,12 +4552,12 @@ internal fun SessionComposer(
             // not-yet-consumed rows are the queue (X = `sessions.unqueue`);
             // the device's own relay queue still shows while it reports one.
             val serverQueue by viewModel.queuedMessages.collectAsStateWithLifecycle()
-            if (serverQueue.isNotEmpty()) {
+            if (showQueue && serverQueue.isNotEmpty()) {
                 ReadingColumn {
                     QueueStrip(messages = serverQueue, onRemove = viewModel::unqueueMessage)
                 }
                 Spacer(Modifier.height(8.dp))
-            } else if (phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
+            } else if (showQueue && phase == AgentPhase.Live && !sessionEnded && activity.queue.isNotEmpty()) {
                 ReadingColumn {
                     QueueStrip(messages = activity.queue, onRemove = viewModel::unqueue)
                 }
