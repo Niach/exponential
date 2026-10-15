@@ -41,6 +41,19 @@ pub const PRESS_SCALE: f32 = m::scale::PRESS;
 /// overlays enter as a fade (plus the SDK's short rise), never a scale.
 pub const POPOVER_FROM_SCALE: f32 = m::scale::POPOVER_FROM;
 
+/// EXP-1324: the running Trace title's shimmer (`motion.shimmer`) — the ONE
+/// ambient loop that is a token. One sweep lasts [`SHIMMER`]; the band is
+/// [`SHIMMER_SPREAD_PX`] each side of its centre; the highlight is the text
+/// colour at OKLCH lightness max([`SHIMMER_LIGHTNESS_MIN`], l +
+/// [`SHIMMER_LIGHTNESS_BOOST`]) and alpha + [`SHIMMER_ALPHA_BOOST`]. gpui has
+/// no reduce-motion signal (above), so it always runs.
+pub const SHIMMER: Duration = Duration::from_millis(m::shimmer::DURATION_MS as u64);
+pub const SHIMMER_SPREAD_PX: f32 = m::shimmer::SPREAD_PX;
+pub const SHIMMER_ANGLE_DEG: f32 = m::shimmer::ANGLE_DEG;
+pub const SHIMMER_LIGHTNESS_MIN: f32 = m::shimmer::HIGHLIGHT_LIGHTNESS_MIN;
+pub const SHIMMER_LIGHTNESS_BOOST: f32 = m::shimmer::HIGHLIGHT_LIGHTNESS_BOOST;
+pub const SHIMMER_ALPHA_BOOST: f32 = m::shimmer::HIGHLIGHT_ALPHA_BOOST;
+
 /// EXP-1243: an overlay's ENTER — [`STANDARD`] on [`decelerate`].
 pub const ENTER: Duration = STANDARD;
 /// EXP-1243: an overlay's EXIT — faster than the enter, [`FAST`] on
