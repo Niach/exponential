@@ -234,4 +234,13 @@ pub mod motion {
         pub const PRESS: f32 = 0.97;
         pub const POPOVER_FROM: f32 = 0.96;
     }
+
+    pub mod shimmer {
+        pub const DURATION_MS: f32 = 2000.0;
+        pub const ANGLE_DEG: f32 = 20.0;
+        pub const SPREAD_PX: f32 = 60.0;
+        pub const HIGHLIGHT_LIGHTNESS_MIN: f32 = 0.8;
+        pub const HIGHLIGHT_LIGHTNESS_BOOST: f32 = 0.4;
+        pub const HIGHLIGHT_ALPHA_BOOST: f32 = 0.4;
+    }
 }

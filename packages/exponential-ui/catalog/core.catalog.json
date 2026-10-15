@@ -42,8 +42,8 @@
     "imageLoading": ["lazy", "eager"],
     "scrollDirection": ["vertical", "horizontal", "both"],
     "collapseBelow": ["never", "sm", "md", "lg", "xl"],
-    "codeLanguage": ["plain", "json", "js", "ts", "tsx", "rust", "swift", "kotlin", "python", "bash", "html", "css", "sql", "yaml", "markdown"],
-    "codeToken": ["plain", "keyword", "string", "number", "comment", "punctuation", "operator", "type", "function", "property", "tag", "attribute"]
+    "codeLanguage": ["plain", "json", "js", "ts", "tsx", "rust", "swift", "kotlin", "python", "bash", "html", "css", "sql", "yaml", "markdown", "ansi"],
+    "codeToken": ["plain", "keyword", "string", "number", "comment", "punctuation", "operator", "type", "function", "property", "tag", "attribute", "success", "warning", "error"]
   },
   "defs": {
     "option": {

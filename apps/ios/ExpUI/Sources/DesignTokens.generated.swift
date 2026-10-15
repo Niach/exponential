@@ -218,5 +218,14 @@ public enum DesignTokens {
             public static let press: CGFloat = 0.97
             public static let popoverFrom: CGFloat = 0.96
         }
+
+        public enum Shimmer {
+            public static let durationMs: Double = 2000.0
+            public static let angleDeg: Double = 20.0
+            public static let spreadPx: Double = 60.0
+            public static let highlightLightnessMin: Double = 0.8
+            public static let highlightLightnessBoost: Double = 0.4
+            public static let highlightAlphaBoost: Double = 0.4
+        }
     }
 }

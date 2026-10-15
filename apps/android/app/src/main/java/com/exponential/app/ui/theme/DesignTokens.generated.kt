@@ -225,5 +225,14 @@ object DesignTokens {
             const val Press: Float = 0.97f
             const val PopoverFrom: Float = 0.96f
         }
+
+        object Shimmer {
+            const val DurationMs: Float = 2000.0f
+            const val AngleDeg: Float = 20.0f
+            const val SpreadPx: Float = 60.0f
+            const val HighlightLightnessMin: Float = 0.8f
+            const val HighlightLightnessBoost: Float = 0.4f
+            const val HighlightAlphaBoost: Float = 0.4f
+        }
     }
 }

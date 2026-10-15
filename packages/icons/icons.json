@@ -379,7 +379,23 @@
     "ui-star-off": "star-off",
     "ui-hide": "eye-off",
     "ui-docs": "book-open",
-    "tool-script": "braces"
+    "tool-script": "braces",
+    "trace-terminal": "terminal",
+    "trace-reasoning": "brain",
+    "trace-read": "file-text",
+    "trace-edit": "pencil",
+    "trace-search": "search",
+    "trace-fetch": "globe",
+    "trace-tool": "wrench",
+    "trace-subagent": "bot",
+    "trace-failed": "circle-x",
+    "trace-todo": "list-todo",
+    "trace-completed": "list-checks",
+    "trace-task-running": "circle-dot",
+    "trace-task-pending": "circle",
+    "trace-task-done": "circle-check",
+    "trace-background": "repeat",
+    "trace-chevron": "chevron-right"
   },
   "imported": {
     "os-apple": {
