@@ -1078,9 +1078,17 @@ export const messageEventKindValues = [
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
-/** EXP-1322: one option of a question card: a plain label (the old form,
- *  still valid everywhere) or the label with the description the session
- *  view's card shows. An answer names the option by its label. */
+/** EXP-1322: one option of a question card: a plain label (THE wire form:
+ *  `options` is always `string[]`), or — tolerated on read, since cards posted
+ *  before the sidecar carry them — the label with its description as an
+ *  object. An answer names the option by its label. The description of
+ *  option i rides the parallel `optionDescriptions` sidecar
+ *  (`questionCardOptionDescriptionsSchema`) instead.
+ *
+ *  COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
+ *  0.14.69 only read string options. The device may post {label, description}
+ *  objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >= 0.14.62
+ *  AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form). */
 export type QuestionCardOption = string | { label: string; description?: string | null }
 
 export const questionCardOptionSchema = z.union([
@@ -1088,13 +1096,54 @@ export const questionCardOptionSchema = z.union([
   z.object({ label: z.string().max(500), description: z.string().max(2000).nullish() }).passthrough(),
 ])
 
+/** Cap on a question card's options (and so on its sidecar). */
+export const QUESTION_CARD_OPTIONS_MAX = 50
+
+/** EXP-1322 sidecar: `messages.card.optionDescriptions`, parallel to
+ *  `options` (same length); null or "" = that option has no description.
+ *  Omitted entirely when no option has a description. Readers resolve option
+ *  i as `{label: options[i], description: optionDescriptions?.[i] || null}`. */
+export type QuestionCardOptionDescriptions = (string | null)[]
+
+export const questionCardOptionDescriptionsSchema = z
+  .array(z.string().max(2000).nullable())
+  .max(QUESTION_CARD_OPTIONS_MAX)
+
+/** The question card as a device posts it (`sessions.reply`) and as it is
+ *  read back: `options` = labels, `optionDescriptions` = the sidecar (must be
+ *  parallel to `options` when present). Passthrough like `messageCardSchema`
+ *  (`questionId` rides along). */
+export const questionCardSchema = z
+  .object({
+    kind: z.literal(`question`),
+    question: z.string(),
+    options: z.array(questionCardOptionSchema).max(QUESTION_CARD_OPTIONS_MAX).optional(),
+    optionDescriptions: questionCardOptionDescriptionsSchema.nullish(),
+    answer: z.string().nullish(),
+  })
+  .passthrough()
+  .refine(
+    (card) =>
+      card.optionDescriptions == null ||
+      card.options === undefined ||
+      card.optionDescriptions.length === card.options.length,
+    { message: `optionDescriptions must be parallel to options`, path: [`optionDescriptions`] },
+  )
+
 /** messages.card: what a non-text conversation row shows. `session` = ONE
  *  child session's card (the Work card header row, EXP-1240; opens that
  *  session), `thread_started` = an agent channel's "started ▸ Thread" card,
  *  `question`/`plan` answer IN the card (`answer` + messages.answered_at),
  *  `picture` = a Guide picture the session showed while it worked. */
 export type MessageCard =
-  | { kind: `question`; question: string; options?: QuestionCardOption[]; answer?: string | null }
+  | {
+      kind: `question`
+      question: string
+      options?: QuestionCardOption[]
+      /** EXP-1322 sidecar, parallel to `options`; absent when no option has a description. */
+      optionDescriptions?: QuestionCardOptionDescriptions | null
+      answer?: string | null
+    }
   | { kind: `plan`; plan: string; decision?: `approved` | `rejected` | null; feedback?: string | null }
   | { kind: `subagent`; title: string; status: string; summary?: string | null }
   | { kind: `session`; sessionId: string }
@@ -1109,7 +1158,9 @@ export type MessageCard =
   | { kind: `thread_started`; sessionId: string }
 
 // Tolerant read schema (a future card kind must not brick a collection):
-// clients render unknown kinds as nothing.
+// clients render unknown kinds as nothing. Stays passthrough: the EXP-1322
+// `optionDescriptions` sidecar and `questionId` ride through unvalidated here
+// (`questionCardSchema` validates a posted question card).
 export const messageCardSchema = z
   .object({ kind: z.string().max(32) })
   .passthrough()

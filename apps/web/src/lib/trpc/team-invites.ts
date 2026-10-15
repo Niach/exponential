@@ -19,10 +19,12 @@ import {
   createPlaceholderMember,
   deletePlaceholderIfOrphaned,
   isSeatedAnywhere,
+  lockPlaceholderAddress,
   mergePlaceholderIntoUser,
   normalizeInviteEmail,
   resolvePlaceholderIdentity,
 } from "@/lib/placeholder-members"
+import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { recordConversionEvent } from "@/lib/conversion/events"
 import { assertCanInviteMember } from "@/lib/billing"
 import { deliveryStatus, sendTeamInviteEmail } from "@/lib/email"
@@ -173,9 +175,14 @@ export const teamInvitesRouter = router({
       const email = input.email ? normalizeInviteEmail(input.email) : null
 
       let memberAdded = false
-      const { invite, placeholderUserId } = await ctx.db.transaction(
-        async (tx) => {
+      const createInTx = () =>
+        ctx.db.transaction(async (tx) => {
           let placeholderUserId: string | null = null
+
+          // Same per-address lock as addPlaceholderToRoster: an invite and
+          // an add-by-hand of one NEW address at once serialize here instead
+          // of racing users.email UNIQUE (the loser 500ed before).
+          if (email) await lockPlaceholderAddress(tx, email)
 
           if (input.placeholderUserId) {
             if (!email) {
@@ -375,8 +382,23 @@ export const teamInvitesRouter = router({
             })
             .returning()
           return { invite, placeholderUserId }
+        })
+      let created: Awaited<ReturnType<typeof createInTx>>
+      try {
+        created = await createInTx()
+      } catch (err) {
+        // The lock serializes NEW addresses; a row that landed between the
+        // lookup and the insert anyway (users.email or team_members unique)
+        // IS on the roster now: the same answer as the member check above.
+        if (isUniqueViolation(err) && email) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `${email} is already a member of this team.`,
+          })
         }
-      )
+        throw err
+      }
+      const { invite, placeholderUserId } = created
       // Post-commit (never inside the tx — a concurrent shape renewal would
       // repopulate the cache with pre-commit membership).
       if (memberAdded) {

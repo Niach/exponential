@@ -11,6 +11,7 @@ import {
   listAgents,
   partitionThreads,
   questionOption,
+  questionOptions,
   railThreads,
   sessionCard,
   threadInStack,
@@ -88,5 +89,43 @@ describe(`questionOption (EXP-1322)`, () => {
     expect(questionOption({ label: `Yes` })).toEqual({ label: `Yes`, description: null })
     expect(questionOption({ description: `x` })).toBeNull()
     expect(questionOption(3)).toBeNull()
+  })
+
+  // COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
+  // 0.14.69 only read string options, so the wire is `options: string[]` +
+  // the parallel `optionDescriptions`; object options stay readable.
+  test(`questionOptions zips the optionDescriptions sidecar by index and keeps object tolerance`, () => {
+    expect(
+      questionOptions({ options: [`Yes`, `No`, `Later`, `Never`], optionDescriptions: [`Ship it`, null, ``, `Not now`] }),
+    ).toEqual([
+      { label: `Yes`, description: `Ship it` },
+      { label: `No`, description: null },
+      { label: `Later`, description: null },
+      { label: `Never`, description: `Not now` },
+    ])
+    // No sidecar / a short sidecar / a non-array sidecar = undescribed.
+    expect(questionOptions({ options: [`A`, `B`] })).toEqual([
+      { label: `A`, description: null },
+      { label: `B`, description: null },
+    ])
+    expect(questionOptions({ options: [`A`, `B`], optionDescriptions: [`a`] })).toEqual([
+      { label: `A`, description: `a` },
+      { label: `B`, description: null },
+    ])
+    expect(questionOptions({ options: [`A`], optionDescriptions: `a` })).toEqual([{ label: `A`, description: null }])
+    // Objects posted before the sidecar: their own description wins; the
+    // sidecar index follows the ORIGINAL position even past a dropped option.
+    expect(
+      questionOptions({
+        options: [{ label: `Own`, description: `Mine` }, 3, { label: `Plain` }, `Z`],
+        optionDescriptions: [`sidecar`, `dropped`, `filled`, null],
+      }),
+    ).toEqual([
+      { label: `Own`, description: `Mine` },
+      { label: `Plain`, description: `filled` },
+      { label: `Z`, description: null },
+    ])
+    expect(questionOptions({})).toEqual([])
+    expect(questionOptions({ options: `Yes` })).toEqual([])
   })
 })

@@ -431,6 +431,26 @@ describe(`teamInvites.create — placeholder members (EXP-630)`, () => {
     expect(inserts).toHaveLength(0)
   })
 
+  it(`serializes on the per-address advisory lock and maps a lost race to "already a member"`, async () => {
+    // Address free at lookup time; the concurrent add-by-hand lands its
+    // users row first, so the placeholder insert hits users.email UNIQUE.
+    selectQueue.push([])
+    createPlaceholderMember.mockRejectedValueOnce(
+      Object.assign(new Error(`duplicate key`), { code: `23505` })
+    )
+
+    await expect(
+      caller().create({ teamId: WS, email: `Race@Example.com` })
+    ).rejects.toThrow(/race@example.com is already a member of this team/)
+    // The lock ran FIRST, inside the tx, keyed like addPlaceholderToRoster.
+    const lock = fakeDb.execute.mock.calls
+      .map((call) => call[0] as { queryChunks?: unknown[] } | undefined)
+      .find((q) => JSON.stringify(q?.queryChunks ?? ``).includes(`pg_advisory_xact_lock`))
+    expect(lock).toBeDefined()
+    expect(JSON.stringify(lock)).toContain(`placeholder_address:race@example.com`)
+    expect(inserts).toHaveLength(0)
+  })
+
   it(`re-links an unclaimed placeholder already on the roster instead of a second one`, async () => {
     insertReturningQueue.push([{ id: INVITE_ID, teamId: WS }])
     selectQueue.push([{ id: `ph-old`, placeholderAt: new Date() }])

@@ -166,3 +166,31 @@ describe(`the nav state`, () => {
     expect(threadRunMarkState({ needsYou: false, busy: false })).toBeUndefined()
   })
 })
+
+// EXP-1316: a row whose title is still held (its issue shapes pending) shows
+// a skeleton line in the text's place, never a glyph with no text.
+describe(`SidebarRunningSection — held titles`, () => {
+  it(`renders a skeleton line for a held title`, () => {
+    render(
+      <SidebarProvider>
+        <TooltipProvider>
+          <SidebarRunningSection
+            teamSlug="acme"
+            threads={{
+              groups: [
+                {
+                  key: `running`,
+                  title: `Running`,
+                  rows: [row(`t-held`, ``, { busy: true }), row(`t-run`, `Group board issues`, { busy: true })],
+                },
+              ],
+              wordOf: () => null,
+            }}
+          />
+        </TooltipProvider>
+      </SidebarProvider>
+    )
+    expect(screen.getByTestId(`sidebar-running-title-skeleton`)).toBeTruthy()
+    expect(screen.getByTestId(`sidebar-running-t-run`).textContent).toContain(`Group board issues`)
+  })
+})
