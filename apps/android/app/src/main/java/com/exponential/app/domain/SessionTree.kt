@@ -55,6 +55,8 @@ object SessionTree {
         val endedAt: String?,
         val createdAt: String,
         val updatedAt: String,
+        /** The steer device that runs it (`devices.device_id`); null = none. */
+        val deviceId: String? = null,
     )
 
     data class SessionIssue(val sessionId: String, val issueId: String, val sortOrder: Double)
@@ -555,6 +557,8 @@ object SessionTree {
         val busy: Boolean,
         val needsYou: Boolean,
         val activityAt: String,
+        /** The ROOT's device (the row's trailing device icon); null = none. */
+        val deviceId: String? = null,
     )
 
     data class ThreadsListGroup(val key: ThreadsGroupKey, val title: String, val rows: List<ThreadsListRow>)
@@ -602,6 +606,7 @@ object SessionTree {
                 busy = live.any { it.busy },
                 needsYou = needsYou,
                 activityAt = activity,
+                deviceId = root.deviceId,
             )
             val key = when {
                 needsYou -> ThreadsGroupKey.NeedsYou
@@ -808,6 +813,7 @@ object SessionTree {
         endedAt = row.endedAt,
         createdAt = row.createdAt,
         updatedAt = row.updatedAt,
+        deviceId = row.deviceId.ifBlank { null },
     )
 
     fun sessionIssue(row: SessionIssueEntity): SessionIssue =

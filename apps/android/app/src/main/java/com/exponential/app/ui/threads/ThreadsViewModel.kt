@@ -55,8 +55,19 @@ class ThreadsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Each listed row's glyph + identifier, keyed by root session id. */
-    val rowMeta: StateFlow<Map<String, ThreadRowMeta>> = combine(groups, inputs, sessionRows) { g, input, rows ->
-        threadRowMeta(g, input.links, input.issues, rows.associate { it.id to it.cli })
+    val rowMeta: StateFlow<Map<String, ThreadRowMeta>> = combine(
+        groups,
+        inputs,
+        sessionRows,
+        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+    ) { g, input, rows, devices ->
+        threadRowMeta(
+            g,
+            input.links,
+            input.issues,
+            rows.associate { it.id to it.cli },
+            devices.associate { it.deviceId to ThreadRowDevice(it.label, it.icon, it.kind == "server") },
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
@@ -110,12 +121,17 @@ class ThreadsViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
 
-/** A Threads row's extras: the first linked issue's identifier and the
- *  root's agent (its brand mark). */
+/** A Threads row's extras: the first linked issue's identifier, the root's
+ *  agent (its brand mark) and the root's device (the trailing icon). */
 data class ThreadRowMeta(
     val identifier: String?,
     val agent: String?,
+    val device: ThreadRowDevice? = null,
 )
+
+/** EXP-1318: the synced device a root runs on — its name (the icon's
+ *  label) and its icon pick, drawn like the Devices screen draws it. */
+data class ThreadRowDevice(val name: String, val icon: String?, val isServer: Boolean)
 
 /**
  * The extras each [SessionTree.ThreadsListRow] draws beside its title: the
@@ -127,6 +143,8 @@ fun threadRowMeta(
     links: List<SessionTree.SessionIssue>,
     issues: List<SessionTree.Issue>,
     agentByRoot: Map<String, String?>,
+    /** Synced devices by steer `device_id`; a root on an unknown one draws none. */
+    devices: Map<String, ThreadRowDevice> = emptyMap(),
 ): Map<String, ThreadRowMeta> {
     val issueById = issues.associateBy { it.id }
     val linksByRoot = links.groupBy { it.sessionId }
@@ -134,6 +152,10 @@ fun threadRowMeta(
         val first = linksByRoot[row.sessionId].orEmpty()
             .sortedWith(compareBy<SessionTree.SessionIssue>({ it.sortOrder }, { it.issueId }))
             .firstNotNullOfOrNull { issueById[it.issueId] }
-        row.sessionId to ThreadRowMeta(first?.identifier, agentByRoot[row.sessionId])
+        row.sessionId to ThreadRowMeta(
+            first?.identifier,
+            agentByRoot[row.sessionId],
+            row.deviceId?.let { devices[it] },
+        )
     }
 }

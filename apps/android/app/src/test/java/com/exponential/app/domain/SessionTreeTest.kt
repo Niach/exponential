@@ -70,6 +70,7 @@ class SessionTreeTest {
         endedAt = json.str("endedAt"),
         createdAt = json.str("createdAt")!!,
         updatedAt = json.str("updatedAt")!!,
+        deviceId = json.str("deviceId"),
     )
 
     private fun sessionIssue(json: JsonObject) = SessionTree.SessionIssue(
@@ -227,6 +228,7 @@ class SessionTreeTest {
                         put("busy", row.busy)
                         put("needsYou", row.needsYou)
                         put("activityAt", row.activityAt)
+                        put("deviceId", nullable(row.deviceId))
                     }
                 },
             ),

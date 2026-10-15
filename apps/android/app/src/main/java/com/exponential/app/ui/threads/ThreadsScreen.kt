@@ -43,6 +43,7 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamSectionHeader
+import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
@@ -261,6 +262,16 @@ internal fun ThreadListRow(
                 contentDescription = "Private",
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                 modifier = Modifier.size(12.dp).testTag("threads-row-private"),
+            )
+        }
+        // EXP-1318 ×4: the ROOT's device, last (after the word and the lock),
+        // its icon as the Devices screen draws it; unknown device = none.
+        meta?.device?.let { device ->
+            Icon(
+                deviceIcon(device.icon, device.isServer),
+                contentDescription = device.name,
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                modifier = Modifier.size(14.dp).testTag("threads-row-device"),
             )
         }
         when {

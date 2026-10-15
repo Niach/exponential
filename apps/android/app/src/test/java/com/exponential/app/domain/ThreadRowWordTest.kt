@@ -83,6 +83,7 @@ class ThreadRowWordTest {
                             busy = row.bool("busy"),
                             needsYou = row.bool("needsYou"),
                             activityAt = row.str("activityAt")!!,
+                            deviceId = row.str("deviceId"),
                         )
                     },
                 )
