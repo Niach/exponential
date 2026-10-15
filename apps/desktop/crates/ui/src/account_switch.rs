@@ -469,7 +469,7 @@ pub(crate) fn switch_to(
                 .map(|record| record.agent)
         })
         .flatten();
-    if !end_then_resume_on_account(session_id, profile_id.clone(), None, cx) {
+    if !end_then_resume_on_account(session_id, profile_id.clone(), cx) {
         crate::toast::show(
             crate::action_error::failed_toast("switch", "the account", Some(REASON_BUSY.into())),
             window,
@@ -483,8 +483,7 @@ pub(crate) fn switch_to(
     }
 }
 
-/// EXP-849 — continue `session_id` on `profile_id`: the ONE body behind a
-/// person's switch and the account-rotation host (EXP-1005).
+/// EXP-849 — continue `session_id` on `profile_id`: a person's switch.
 ///
 /// `false` = refused because the agent is MID-TURN (a switch then would
 /// truncate exactly the output the reader is waiting for; the caller says so,
@@ -492,14 +491,16 @@ pub(crate) fn switch_to(
 /// local engine's own signal for a session hosted here, the synced `busy`
 /// column otherwise.
 ///
-/// EXP-1294: the switch is a `sessions.send{sessionId, account, text}`
-/// message the host acts on; `prompt` = the resume's first message (the
-/// rotation's "moved this run from … to …" line), `None` for a person's
-/// switch. A refusal is the usual "Couldn't switch the account" toast.
+/// EXP-1294: the switch is an account-only `sessions.send{sessionId,
+/// account}`: the server moves the synced `sessions.account`, and the
+/// HOSTING device (this one or another) sees it move and resumes the SAME
+/// row on that login between turns (`coding::pickup` Switch). The account
+/// rotation (EXP-1005) switches its local runs directly
+/// ([`crate::session_pickup::switch_locally`]). A refusal is the usual
+/// "Couldn't switch the account" toast.
 pub(crate) fn end_then_resume_on_account(
     session_id: String,
     profile_id: String,
-    prompt: Option<String>,
     cx: &mut App,
 ) -> bool {
     let local_busy = crate::coding_flow::LocalSessions::global(cx)
@@ -516,11 +517,7 @@ pub(crate) fn end_then_resume_on_account(
         crate::action_error::failed_action("switch", "the account", None, cx);
         return true;
     };
-    let mut input = api::sessions::SendInput::message(
-        &session_id,
-        prompt.as_deref().unwrap_or_default(),
-        Vec::new(),
-    );
+    let mut input = api::sessions::SendInput::message(&session_id, "", Vec::new());
     input.account = Some(profile_id);
     cx.spawn(async move |cx| {
         let result = cx

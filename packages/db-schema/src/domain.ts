@@ -1185,7 +1185,10 @@ export const sessionsSendInputSchema = z
     teamId: sendUuid.optional(),
     sessionId: sendUuid.optional(),
     parentId: sendUuid.optional(),
-    // Runner pickers (new sessions only).
+    // Runner pickers (new sessions only), except `account`: on a message
+    // (`sessionId`) it SWITCHES the session's login (EXP-849, claude only;
+    // the host device resumes the same row on it between turns) and may be
+    // sent alone, with no text.
     deviceId: z.string().min(1).max(128).optional(),
     cli: z.string().min(1).max(16).optional(),
     account: z.string().min(1).max(64).optional(),
@@ -1221,8 +1224,8 @@ export const sessionsSendInputSchema = z
     if (input.sessionId) {
       if (input.parentId) issue(`sessionId and parentId are exclusive`)
       if (rootFacets) issue(`a message to a session takes no root facets`)
-      if (!input.text?.trim() && !input.attachmentIds?.length)
-        issue(`a message needs text or attachments`)
+      if (!input.text?.trim() && !input.attachmentIds?.length && !input.account)
+        issue(`a message needs text, attachments or an account`)
       return
     }
     if (input.parentId && rootFacets) issue(`a child session takes no root facets`)

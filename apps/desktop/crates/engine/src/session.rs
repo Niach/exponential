@@ -642,6 +642,20 @@ impl coding::pickup::LiveEngine for EngineSession {
     fn is_done(&self) -> bool {
         EngineSession::is_done(self)
     }
+
+    /// EXP-849: the turn slot — a switch waits for it.
+    fn is_idle(&self) -> bool {
+        self.turn_signal().is_idle()
+    }
+
+    /// EXP-1292: the account switch's stop — the row idles, never ends.
+    fn suspend(&self) {
+        EngineSession::kill(self, crate::lifecycle::SUSPEND_OUTCOME);
+    }
+
+    fn wait_done(&self, timeout: std::time::Duration) -> bool {
+        self.wait_timeout(timeout).is_some()
+    }
 }
 
 struct CtxSpec {

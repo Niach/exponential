@@ -641,6 +641,13 @@ private fun RunFaceContent(
     // EXP-849 phase 3: the logins this run could continue under, and everything
     // the switch gates on but the turn slot (which is right here in `activity`).
     val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
+    val switchingAccount by viewModel.switchingAccount.collectAsStateWithLifecycle()
+    // EXP-849: a refused switch = `Couldn't switch the account`.
+    val switchError by viewModel.switchError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(
+        switchError?.let { com.exponential.app.ui.components.FailedAction("switch", "the account", it.ifBlank { null }) },
+        onShown = viewModel::clearSwitchError,
+    )
     // EXP-746: the agent's live configuration (the composer footer + the run's
     // own `/` commands) and its context/spend meter. Both null on a PTY run,
     // which publishes neither.
@@ -1870,10 +1877,14 @@ private fun RunFaceContent(
                         SessionAccountRow(
                             option = option,
                             refusal = accountSwitch.refusal(option, activity.turnState),
-                            switching = false,
+                            switching = switchingAccount == option.profileId,
                             nowMs = nowMs,
-                            // EXP-1291: no mid-run account switch (no resume path).
-                            onSwitch = { usageSheetOpen = false },
+                            // EXP-849: `sessions.send({sessionId, account})`;
+                            // the host resumes the same row on that login.
+                            onSwitch = {
+                                viewModel.switchAccount(option)
+                                usageSheetOpen = false
+                            },
                             // EXP-1051: a refused row no longer carries its
                             // reason as a permanent caption — tapping the
                             // disabled control says it, once.

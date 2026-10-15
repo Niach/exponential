@@ -290,6 +290,54 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect(onChild).toMatchObject({ sessionId: cont.sessionId, rootId: root.sessionId, body: `one more` })
   })
 
+  it(`an account on a message switches the live session's login; alone it posts no message`, async () => {
+    const w = await world()
+    const root = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `aaaa1111`, text: `first` },
+    })
+    const before = await db.select().from(messages).where(eq(messages.sessionId, root.sessionId))
+
+    // Account-only: the row's login moves (the device acts on it), no bubble.
+    const alone = await sendSession({ userId: w.owner, input: { sessionId: root.sessionId, account: `bbbb2222` } })
+    expect(alone).toMatchObject({ sessionId: root.sessionId, messageId: null })
+    expect(alone.txid).toBeTypeOf(`number`)
+    expect(await row(root.sessionId)).toMatchObject({ account: `bbbb2222`, status: `queued` })
+    const after = await db.select().from(messages).where(eq(messages.sessionId, root.sessionId))
+    expect(after).toHaveLength(before.length)
+
+    // With text: the switch and the message land together.
+    const both = await sendSession({
+      userId: w.owner,
+      input: { sessionId: root.sessionId, account: `cccc3333`, text: `carry on` },
+    })
+    expect(both.messageId).not.toBeNull()
+    expect(await row(root.sessionId)).toMatchObject({ account: `cccc3333` })
+
+    // Codex keeps one login per session.
+    const codex = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `codex`, text: `codex` },
+    })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: codex.sessionId, account: `dddd4444` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+
+    // An ended thread: a switch alone is refused; with a message the
+    // continuation child runs on the new login.
+    await endSession({ userId: w.owner, sessionId: root.sessionId, summary: `Done.` })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: root.sessionId, account: `eeee5555` } })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    const cont = await sendSession({
+      userId: w.owner,
+      input: { sessionId: root.sessionId, account: `eeee5555`, text: `again` },
+    })
+    expect(cont.sessionId).not.toBe(root.sessionId)
+    expect(await row(cont.sessionId)).toMatchObject({ account: `eeee5555`, parentId: root.sessionId })
+    expect(await row(root.sessionId)).toMatchObject({ account: `cccc3333`, status: `ended` })
+  })
+
   it(`ending a root ends its whole tree; an agent refuses End`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })

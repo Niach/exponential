@@ -5,10 +5,10 @@
 //! [`coding::account_rotation::RotationTracker`] what to do, and — on a
 //! probe — spends the FORCED usage read of every profile of the agent OFF the
 //! foreground ([`coding::agent_usage::collect_now`]), then either switches
-//! the run (the same resume-on-another-account a person's "Switch account"
-//! makes, [`crate::account_switch::end_then_resume_on_account`], with the
-//! rotation's own line as the resume's first message) or parks it until the
-//! reset. Every guard lives in `coding::account_rotation`; this file is the
+//! the run (THE switch a person's "Switch account" also lands on,
+//! `coding::pickup::switch_session` via [`crate::session_pickup::switch_locally`],
+//! with the rotation's own line as the resume's seed turn) or parks it until
+//! the reset. Every guard lives in `coding::account_rotation`; this file is the
 //! wiring. The CLI daemon runs the same beat headlessly.
 //!
 //! EXP-1107: ONE probe per AGENT per beat (`RotationTracker::plan_beat`,
@@ -91,8 +91,8 @@ pub fn start_account_rotation_host(cx: &mut App) {
 }
 
 /// One live session's wall in the rotation's vocabulary — `None` unless the
-/// wall is a rate limit. A record with no clone (a scratch run), or no
-/// record at all, is a run a switch could not resume.
+/// wall is a rate limit. No record at all is a run a switch could not
+/// resume (a repo-less scratch run with a record rotates, EXP-1292).
 fn walled_run(
     session_id: &str,
     worktree: &std::path::Path,
@@ -115,7 +115,7 @@ fn walled_run(
             .as_deref()
             .and_then(coding::agent_accounts::unix_millis_from_iso),
         idle,
-        repo_less: record.map_or(true, |record| record.clone.is_none()),
+        unrecorded: record.is_none(),
     })
 }
 
@@ -124,7 +124,7 @@ fn hold_key(hold: &Hold) -> &'static str {
     match hold {
         Hold::Off => "off",
         Hold::AgentNeverRotates => "agent_never_rotates",
-        Hold::ScratchRun => "scratch_run",
+        Hold::NoRecord => "no_record",
         Hold::MidTurn => "mid_turn",
         Hold::CoolingDown { .. } => "cooling_down",
         Hold::Capped => "capped",
@@ -358,19 +358,12 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
                 run.session_id,
                 run.account
             );
-            // The server inherits started_reason and the parent from the
-            // predecessor (EXP-906). A refusal (a
-            // turn started meanwhile) hands back `false`: the caller undoes
-            // the rotation the tracker counted (EXP-1107). A resume that
-            // fails LATER (the old run did not stop in time) is reported by
-            // `end_then_resume_on_account` itself and keeps its count — the
-            // cooldown is then what spaces the retry.
-            if crate::account_switch::end_then_resume_on_account(
-                run.session_id.clone(),
-                target,
-                Some(prompt),
-                cx,
-            ) {
+            // A refusal (a turn started meanwhile, a step holds the
+            // session) hands back `false`: the caller undoes the rotation
+            // the tracker counted (EXP-1107). A switch that fails LATER (the
+            // old run did not stop in time) keeps its count — the cooldown
+            // is then what spaces the retry.
+            if crate::session_pickup::switch_locally(&run.session_id, target, prompt, cx) {
                 true
             } else {
                 log::warn!(
@@ -417,9 +410,8 @@ mod tests {
         assert_eq!(run.account, "", "no record names no profile");
         assert_eq!(run.window, "weekly");
         assert!(run.resets_at_ms.is_some());
-        // No record: nothing to resume into, so the run is held like a
-        // scratch one.
-        assert!(run.repo_less);
+        // No record: nothing to resume into, so the run is held.
+        assert!(run.unrecorded);
         let other = steer::SessionBlocked {
             kind: "something_else".to_string(),
             ..wall

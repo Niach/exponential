@@ -407,6 +407,18 @@ fn foreground_pass(store: &sync::store::ShapeStore, deps: &PickupDeps, session_i
             | PickupAction::Answer { session_id: id, .. }
             | PickupAction::Kill { session_id: id } => id == session_id,
             PickupAction::Launch { .. } | PickupAction::Resume { .. } => false,
+            // EXP-849: this process runs ONE engine and exits with it, so it
+            // never relaunches on another login: it keeps its own (the row's
+            // account is honored as is) and the next pass delivers again.
+            PickupAction::Switch { session, account, .. } => {
+                if session.id == session_id {
+                    log::warn!(
+                        "foreground pickup: session {session_id} keeps its login — a foreground run cannot switch to {account}"
+                    );
+                    deps.live.set_row_account(session_id, Some(account.clone()));
+                }
+                false
+            }
         };
         if ours {
             if let Err(err) = coding::pickup::execute(&action, deps) {

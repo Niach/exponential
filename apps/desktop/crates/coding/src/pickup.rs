@@ -35,6 +35,10 @@ pub struct LiveView {
     /// Open question/plan cards this session posted: `messages.id` → the
     /// engine's question id (the card also carries it as `questionId`).
     pub open_cards: HashMap<String, String>,
+    /// EXP-849: the row's `account` (a profile id, `""` = none) this engine
+    /// was launched for. A row whose account moves past it is a person's
+    /// SWITCH ([`PickupAction::Switch`]); `None` = unknown, never switched.
+    pub row_account: Option<String>,
 }
 
 /// One pass's input.
@@ -78,6 +82,12 @@ pub enum PickupAction {
     /// A live session whose row is `ended` or gone from the shape: kill its
     /// engine with [`KILL_OUTCOME`] (replaces the kill watch / kill poll).
     Kill { session_id: String },
+    /// EXP-849: a live session whose row's `account` moved past the one its
+    /// engine runs for (a person's switch, `sessions.send{sessionId,
+    /// account}`): [`switch_session`] suspends it between turns and resumes
+    /// the SAME row on `account`, the oldest pending message (if any) as
+    /// the seed turn. Its deliveries wait for the switch.
+    Switch { session: SessionRow, account: String, messages: Vec<MessageRow> },
 }
 
 /// Decide one pass. Pure.
@@ -91,6 +101,8 @@ pub enum PickupAction {
 /// - **Revoke**: a handed message whose row is gone (unqueued).
 /// - **Deliver**: a live session's pending person messages not yet handed.
 /// - **Answer**: an open card of a live session whose row is answered.
+/// - **Switch**: a live session whose row's account moved past its engine's
+///   (instead of its deliveries).
 ///
 /// Rows naming another device and sessions [`PickupInput::in_flight`] get
 /// nothing; a killed session gets nothing else in the same pass.
@@ -151,7 +163,9 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     starts.sort_by(|(a, _), (b, _)| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)));
     actions.extend(starts.into_iter().map(|(_, action)| action));
 
-    // 3. Revokes, deliveries, answers of the surviving live sessions.
+    // 3. Switches, revokes, deliveries, answers of the surviving live
+    // sessions.
+    let mut switches = Vec::new();
     let mut revokes = Vec::new();
     let mut deliveries: Vec<(&MessageRow, PickupAction)> = Vec::new();
     let mut answers: Vec<(&MessageRow, PickupAction)> = Vec::new();
@@ -171,7 +185,16 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
             .get(session_id)
             .map(|queue| queue.iter().copied().filter(|m| !view.handed.contains(&m.id)).collect())
             .unwrap_or_default();
-        if let Some(first) = fresh.first().copied() {
+        let switch = rows
+            .get(session_id)
+            .and_then(|row| switch_target(row, view).map(|account| (*row, account)));
+        if let Some((row, account)) = switch {
+            switches.push(PickupAction::Switch {
+                session: row.clone(),
+                account,
+                messages: fresh.into_iter().cloned().collect(),
+            });
+        } else if let Some(first) = fresh.first().copied() {
             deliveries.push((
                 first,
                 PickupAction::Deliver {
@@ -196,10 +219,19 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     }
     deliveries.sort_by(|(a, _), (b, _)| message_order(a, b));
     answers.sort_by(|(a, _), (b, _)| message_order(a, b));
+    actions.extend(switches);
     actions.extend(revokes);
     actions.extend(deliveries.into_iter().map(|(_, action)| action));
     actions.extend(answers.into_iter().map(|(_, action)| action));
     actions
+}
+
+/// EXP-849: the profile a live session must move to — its row names an
+/// account (non-empty) that is not the one its engine was launched for.
+fn switch_target(row: &SessionRow, view: &LiveView) -> Option<String> {
+    let wanted = crate::agent_profiles::profile_id(row.account.as_deref());
+    let honored = view.row_account.as_deref()?;
+    (!wanted.is_empty() && wanted != honored).then_some(wanted)
 }
 
 /// EXP-1316: the `messages.id` of the open card the engine posted for
@@ -313,6 +345,23 @@ pub trait LiveEngine: Send + Sync {
     /// writing the close-out reply.
     fn kill(&self, outcome: &'static str);
     fn is_done(&self) -> bool;
+    /// EXP-849: between turns (nothing in flight) — a switch waits for it.
+    fn is_idle(&self) -> bool;
+    /// EXP-1292: stop the PROCESS but not the session (the row idles, the
+    /// run's workspace — a scratch dir included — is kept) for an immediate
+    /// re-spawn of the same row on another account.
+    fn suspend(&self);
+    /// Wait up to `timeout` for the run to end; `true` = it did.
+    fn wait_done(&self, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while !self.is_done() {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        true
+    }
 }
 
 /// Spawn the engine for a prepared launch (the host's `engine::start` +
@@ -354,6 +403,8 @@ struct LiveEntry {
     _claim: Option<ClaimLock>,
     handed: HashSet<String>,
     answered: HashSet<String>,
+    /// [`LiveView::row_account`].
+    row_account: Option<String>,
 }
 
 impl LiveRegistry {
@@ -369,9 +420,27 @@ impl LiveRegistry {
         engine: std::sync::Arc<dyn LiveEngine>,
         claim: Option<ClaimLock>,
     ) {
+        self.insert_for(session_id, engine, claim, None);
+    }
+
+    /// [`Self::insert`] naming the row account the engine was launched for
+    /// ([`LiveView::row_account`]).
+    pub fn insert_for(
+        &self,
+        session_id: &str,
+        engine: std::sync::Arc<dyn LiveEngine>,
+        claim: Option<ClaimLock>,
+        row_account: Option<String>,
+    ) {
         self.lock().insert(
             session_id.to_string(),
-            LiveEntry { engine, _claim: claim, handed: HashSet::new(), answered: HashSet::new() },
+            LiveEntry {
+                engine,
+                _claim: claim,
+                handed: HashSet::new(),
+                answered: HashSet::new(),
+                row_account,
+            },
         );
         self.refused
             .lock()
@@ -424,9 +493,24 @@ impl LiveRegistry {
             .map(|(id, entry)| {
                 let mut open_cards = entry.engine.open_cards();
                 open_cards.retain(|message_id, _| !entry.answered.contains(message_id));
-                (id.clone(), LiveView { handed: entry.handed.clone(), open_cards })
+                (
+                    id.clone(),
+                    LiveView {
+                        handed: entry.handed.clone(),
+                        open_cards,
+                        row_account: entry.row_account.clone(),
+                    },
+                )
             })
             .collect()
+    }
+
+    /// EXP-849: the row account the session's engine now honors (a switch
+    /// that found it already there, or one it refused).
+    pub fn set_row_account(&self, session_id: &str, row_account: Option<String>) {
+        if let Some(entry) = self.lock().get_mut(session_id) {
+            entry.row_account = row_account;
+        }
     }
 
     /// Record message ids as handed to the session's engine.
@@ -805,7 +889,8 @@ pub fn launch_queued(row: &SessionRow, deps: &PickupDeps) -> Result<LaunchQueued
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
             deps.live.settle(&row.id);
-            spawn(&row.id, row.is_agent(), prepared, claim, false, deps)?;
+            let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
+            spawn(&row.id, row.is_agent(), prepared, claim, false, honored, deps)?;
             Ok(LaunchQueued::Launched { session_id: row.id.clone() })
         }
         Ok(Prepared::Disabled(reason)) => {
@@ -917,6 +1002,9 @@ fn deliver(
         return Ok(Vec::new());
     };
     let record = crate::run_registry::get(&deps.coding.data_dir, session_id);
+    // EXP-849: only a row AT HAND can ask for a switch (one rebuilt from the
+    // record names the record's own login).
+    let row_account = row.map(|row| row.account.clone());
     let row = match (row, &record) {
         (Some(row), _) => row.clone(),
         (None, Some(record)) => row_from_record(record, &deps.device_id),
@@ -945,9 +1033,13 @@ fn deliver(
     let seeded = resume.is_some();
     let mut options = deps.options.clone();
     // On a resume a named account is a SWITCH (EXP-849); an ordinary wake
-    // keeps the recorded login.
-    if seeded {
-        options.account = None;
+    // keeps the recorded login — unless the row's account moved past the
+    // one the run last honored (a person switched while no engine ran).
+    let honored = row_account_to_honor(row_account.as_ref(), resume.as_ref().map(|r| &r.record));
+    if let Some(resume) = &resume {
+        options.account = row_account
+            .as_ref()
+            .and_then(|account| resume_switch(account.as_deref(), &resume.record));
     }
     let req = SessionLaunchRequest {
         session: row.clone(),
@@ -965,7 +1057,7 @@ fn deliver(
     };
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
-            let engine = spawn(session_id, is_agent, prepared, claim, true, deps)
+            let engine = spawn(session_id, is_agent, prepared, claim, true, honored, deps)
                 .inspect_err(|_| deps.live.note_refused(session_id, &pending))?;
             let mut delivered = covered;
             let mut rest = pending.clone();
@@ -1019,7 +1111,200 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
             }
             Ok(())
         }
+        PickupAction::Switch { session, account, messages } => {
+            switch_session(session, account, None, messages, deps).map(|_| ()).map_err(|err| err.to_string())
+        }
     }
+}
+
+/// EXP-849: the row account a (re)launched engine honors: the row's when
+/// the row is at hand, else what its record last honored.
+fn row_account_to_honor(
+    row_account: Option<&Option<String>>,
+    record: Option<&RunRecord>,
+) -> Option<String> {
+    match (row_account, record) {
+        (Some(account), _) => Some(crate::agent_profiles::profile_id(account.as_deref())),
+        (None, Some(record)) => Some(record.honored_row_account()),
+        (None, None) => None,
+    }
+}
+
+/// EXP-849: the account a WAKE of `record` runs on: `Some(target)` when the
+/// row names a login the run never honored (a person's switch made while no
+/// engine ran here), else `None` = the recorded login.
+fn resume_switch(row_account: Option<&str>, record: &RunRecord) -> Option<String> {
+    let wanted = crate::agent_profiles::profile_id(row_account);
+    (!wanted.is_empty() && wanted != record.honored_row_account()).then_some(wanted)
+}
+
+/// Why [`switch_session`] did not move the session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SwitchError {
+    /// A turn is in flight: nothing moved, try again between turns.
+    Busy,
+    /// The switch failed (no engine or record here, the run did not stop in
+    /// time, a launch error).
+    Failed(String),
+}
+
+impl std::fmt::Display for SwitchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            // The ×4 sentence (`SessionAccountSwitch.REASON_BUSY`).
+            Self::Busy => f.write_str("The agent is working — switching waits for the turn to finish."),
+            Self::Failed(reason) => f.write_str(reason),
+        }
+    }
+}
+
+impl std::error::Error for SwitchError {}
+
+/// What [`switch_session`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Switched {
+    /// Suspended and resumed on the target login.
+    Moved,
+    /// The run already runs on the target login: nothing to do.
+    AlreadyOn,
+    /// The machine cannot honor it (codex, a login not set up here): the
+    /// reason was replied into the conversation and the session keeps its
+    /// login.
+    Refused(String),
+}
+
+/// How long a suspended engine gets to stop before the switch gives up.
+const SWITCH_STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// EXP-849/EXP-1005/EXP-1292 — THE account switch, for a person's
+/// (`sessions.send{sessionId, account}` → [`PickupAction::Switch`]) and the
+/// rotation's (`prompt` = its "moved this session" line): suspend the live,
+/// IDLE engine of `row` (the row idles, its workspace — a scratch dir too —
+/// is kept), then re-spawn the SAME row's agent natively from its run record
+/// under `target`. The seed turn is `prompt`, else the oldest of `messages`'
+/// pending person rows (consumed by the engine), else the launcher's
+/// continue prompt; the rest are handed to the new engine.
+pub fn switch_session(
+    row: &SessionRow,
+    target: &str,
+    prompt: Option<&str>,
+    messages: &[MessageRow],
+    deps: &PickupDeps,
+) -> Result<Switched, SwitchError> {
+    let session_id = row.id.as_str();
+    let target = crate::agent_profiles::profile_id(Some(target));
+    let honored = Some(crate::agent_profiles::profile_id(row.account.as_deref()));
+    let failed = |reason: String| SwitchError::Failed(reason);
+    let engine = deps
+        .live
+        .get(session_id)
+        .filter(|engine| !engine.is_done())
+        .ok_or_else(|| failed(format!("session {session_id} is not running here any more")))?;
+    let record = crate::run_registry::get(&deps.coding.data_dir, session_id)
+        .ok_or_else(|| failed(format!("no local run record for session {session_id}")))?;
+    if target.is_empty() || record.account().as_deref() == Some(target.as_str()) {
+        deps.live.set_row_account(session_id, honored);
+        return Ok(Switched::AlreadyOn);
+    }
+    if let Some(reason) = switch_refusal(&record, &target, deps) {
+        log::info!("pickup: account switch of {session_id} refused: {reason}");
+        if let Err(err) = session_device::reply(&deps.coding.trpc, session_id, &reason, None) {
+            log::warn!("pickup: switch refusal of {session_id} not replied: {err}");
+        }
+        deps.live.set_row_account(session_id, honored);
+        return Ok(Switched::Refused(reason));
+    }
+    if !engine.is_idle() {
+        return Err(SwitchError::Busy);
+    }
+    let handed = deps.live.handed(session_id);
+    let mut pending: Vec<&MessageRow> = messages
+        .iter()
+        .filter(|m| m.session_id == session_id && m.is_queued() && !handed.contains(&m.id))
+        .collect();
+    pending.sort_by(|a, b| message_order(a, b));
+    log::info!("pickup: account switch of {session_id} -> {target}: suspending the run");
+    engine.suspend();
+    if !engine.wait_done(SWITCH_STOP_TIMEOUT) {
+        return Err(failed(format!(
+            "account switch for {session_id} refused: the session did not stop in time"
+        )));
+    }
+    // The old entry (and its claim lock) goes; the resume takes a fresh one.
+    deps.live.remove(session_id);
+    let claim = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)
+        .map_err(failed)?
+        .ok_or_else(|| failed(format!("session {session_id} is held by another process")))?;
+    let brief = session_device::brief(&deps.coding.trpc, session_id)
+        .map_err(|err| failed(format!("brief of session {session_id}: {err}")))?;
+    let mut identifiers = (deps.issue_identifiers)(row.root_id_or_self());
+    if identifiers.is_empty() {
+        identifiers = brief_issue_identifiers(&brief.brief);
+    }
+    if identifiers.is_empty() {
+        identifiers = record.issues.clone();
+    }
+    let seed = if prompt.is_some() { None } else { pending.first().copied() };
+    let resume = ResumeRun {
+        record,
+        prompt: prompt.map(str::to_string).or_else(|| seed.and_then(|m| m.body.clone())).unwrap_or_default(),
+        message_id: seed.map(|m| m.id.clone()),
+    };
+    let mut options = deps.options.clone();
+    // EXP-849: a named account on a resume IS the switch.
+    options.account = Some(target);
+    let req = SessionLaunchRequest {
+        session: row.clone(),
+        brief,
+        issue_identifiers: identifiers,
+        resume: Some(resume),
+        device_label: deps.device_label.clone(),
+        options,
+    };
+    let is_agent = row.is_agent();
+    match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
+        Ok(Prepared::Ready(prepared)) => {
+            let engine = spawn(session_id, is_agent, prepared, claim, true, honored, deps)
+                .map_err(failed)?;
+            let mut rest = pending;
+            if let Some(seed) = seed {
+                deps.live.mark_handed(session_id, std::slice::from_ref(&seed.id));
+                rest.retain(|m| m.id != seed.id);
+            }
+            hand(&*engine, session_id, &rest, deps);
+            let running = session_device::SessionReport {
+                status: Some(session_device::ReportStatus::Running),
+                ..session_device::SessionReport::default()
+            };
+            if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &running) {
+                log::warn!("pickup: switched session {session_id} not reported running: {err}");
+            }
+            Ok(Switched::Moved)
+        }
+        Ok(Prepared::Disabled(reason)) => {
+            let reason = reason.message();
+            refuse(is_agent, session_id, &reason, true, deps);
+            Ok(Switched::Refused(reason))
+        }
+        Err(err) => {
+            let reason = format!("Couldn't resume this session: {err}");
+            refuse(is_agent, session_id, &reason, true, deps);
+            Err(failed(reason))
+        }
+    }
+}
+
+/// EXP-849 — a switch the machine cannot honor, decided BEFORE the run is
+/// touched: codex (its conversation lives in the login's own rollout
+/// store) and a target login that is not set up here.
+fn switch_refusal(record: &RunRecord, target: &str, deps: &PickupDeps) -> Option<String> {
+    if record.agent != crate::agent::CodingAgent::Claude {
+        // The ×4 sentence (`SessionAccountSwitch.REASON_AGENT`).
+        return Some("Only claude can switch accounts during a session.".to_string());
+    }
+    crate::agent_profiles::account_dir(&deps.coding.data_dir, Some(record.agent), Some(target))
+        .is_none()
+        .then(|| format!("That account ({target}) is not set up on this machine."))
 }
 
 /// The outcome a [`PickupAction::Kill`] ends a run with. EXP-1292: the row
@@ -1057,17 +1342,19 @@ fn hand(
 
 /// `deps.launch` + the registry entry (holding `claim`); a failed spawn is
 /// refused like a disabled prepare.
+#[allow(clippy::too_many_arguments)]
 fn spawn(
     session_id: &str,
     is_agent: bool,
     prepared: crate::PreparedLaunch,
     claim: ClaimLock,
     waking: bool,
+    row_account: Option<String>,
     deps: &PickupDeps,
 ) -> Result<std::sync::Arc<dyn LiveEngine>, String> {
     match (deps.launch)(prepared) {
         Ok(engine) => {
-            deps.live.insert(session_id, std::sync::Arc::clone(&engine), Some(claim));
+            deps.live.insert_for(session_id, std::sync::Arc::clone(&engine), Some(claim), row_account);
             Ok(engine)
         }
         Err(err) => {
@@ -1450,6 +1737,7 @@ mod tests {
             LiveView {
                 handed: HashSet::from(["revoked".to_string()]),
                 open_cards: HashMap::from([("c1".to_string(), "q-1".to_string())]),
+                row_account: None,
             },
         )
         .live("l2", LiveView::default())
@@ -1506,6 +1794,8 @@ mod tests {
         cards: Mutex<HashMap<String, String>>,
         killed: Mutex<Option<&'static str>>,
         done: AtomicBool,
+        /// A turn in flight (`is_idle` = false).
+        working: AtomicBool,
     }
 
     impl FakeEngine {
@@ -1534,6 +1824,12 @@ mod tests {
         fn is_done(&self) -> bool {
             self.done.load(Ordering::SeqCst)
         }
+        fn is_idle(&self) -> bool {
+            !self.working.load(Ordering::SeqCst)
+        }
+        fn suspend(&self) {
+            self.kill("suspended");
+        }
     }
 
     #[test]
@@ -1557,6 +1853,7 @@ mod tests {
         assert_eq!(views["s1"], LiveView {
             handed: HashSet::from(["m2".to_string()]),
             open_cards: HashMap::from([("c2".to_string(), "q-2".to_string())]),
+            row_account: None,
         });
         assert!(registry.contains_live("s1"));
         assert!(!registry.contains_live("s2"));
@@ -2076,6 +2373,186 @@ mod tests {
         ];
         assert_eq!(deliver_messages("sess-1", &rows, &host.deps).unwrap(), vec!["m2"]);
         assert_eq!(host.spawned.lock().unwrap()[0].seed_message_id.as_deref(), Some("m2"));
+    }
+
+    // ---- EXP-849: the account switch ----
+
+    fn on_account(mut row: SessionRow, account: &str) -> SessionRow {
+        row.account = Some(account.to_string());
+        row
+    }
+
+    fn honoring(account: &str) -> LiveView {
+        LiveView { row_account: Some(account.to_string()), ..LiveView::default() }
+    }
+
+    /// A live session whose row's account moved past the one its engine
+    /// honors switches — its pending messages ride the switch instead of a
+    /// delivery. The same account, no account and an unknown honor do not.
+    #[test]
+    fn a_row_whose_account_moved_plans_a_switch_instead_of_deliveries() {
+        let moved = on_account(session("s1", "idle", DEV, "2026-10-01T00:00:00Z"), "bbbb");
+        let same = on_account(session("s2", "idle", DEV, "2026-10-01T00:00:01Z"), "aaaa");
+        let cleared = session("s3", "idle", DEV, "2026-10-01T00:00:02Z");
+        let unknown = on_account(session("s4", "idle", DEV, "2026-10-01T00:00:03Z"), "bbbb");
+        let pending = message("m1", "s1", "2026-10-02T00:00:00Z");
+        let pass = Pass::new(
+            vec![moved.clone(), same, cleared, unknown],
+            vec![pending.clone(), message("m2", "s2", "2026-10-02T00:00:00Z")],
+        )
+        .live("s1", honoring("aaaa"))
+        .live("s2", honoring("aaaa"))
+        .live("s3", honoring("aaaa"))
+        .live("s4", LiveView::default());
+        assert_eq!(
+            pass.run(),
+            vec![
+                PickupAction::Switch {
+                    session: moved,
+                    account: "bbbb".to_string(),
+                    messages: vec![pending],
+                },
+                PickupAction::Deliver {
+                    session_id: "s2".to_string(),
+                    messages: vec![message("m2", "s2", "2026-10-02T00:00:00Z")],
+                },
+            ]
+        );
+    }
+
+    /// A fresh launch honors the row's account: the next pass plans
+    /// nothing for it, a later move of the row plans the switch.
+    #[test]
+    fn a_launch_honors_the_rows_account() {
+        let dir = temp_dir("pickup-honor");
+        let base = canned_server(vec![
+            (200, CLAIM_OK.to_string()),
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let row = on_account(session("sess-1", "queued", DEV, "t"), "aaaa");
+        assert!(matches!(launch_queued(&row, &host.deps).unwrap(), LaunchQueued::Launched { .. }));
+        let views = host.deps.live.live_views();
+        assert_eq!(views["sess-1"].row_account.as_deref(), Some("aaaa"));
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
+        assert_eq!(record.honored_row_account(), "aaaa");
+        let running = on_account(session("sess-1", "running", DEV, "t"), "aaaa");
+        let pass = |row: SessionRow| {
+            plan(PickupInput {
+                device_id: DEV,
+                sessions: std::slice::from_ref(&row),
+                messages: &[],
+                live: &views,
+                in_flight: &HashSet::new(),
+            })
+        };
+        assert!(pass(running.clone()).is_empty());
+        assert!(matches!(
+            pass(on_account(running, "bbbb")).as_slice(),
+            [PickupAction::Switch { account, .. }] if account == "bbbb"
+        ));
+    }
+
+    /// THE switch: an idle engine is suspended, the SAME row resumed on the
+    /// target login with the pending message as its seed turn, and the new
+    /// engine honors the row's account. A busy engine is refused untouched.
+    #[test]
+    fn a_switch_suspends_the_idle_engine_and_resumes_on_the_target() {
+        let dir = temp_dir("pickup-switch");
+        let (base, requests) = canned_server_recording(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let mut on_a = record(&dir.0, "sess-1");
+        on_a.set_account(Some(crate::test_support::TEST_PROFILE));
+        crate::run_registry::record(&dir.0, on_a);
+        let old = Arc::new(FakeEngine::default());
+        host.deps.live.insert_for(
+            "sess-1",
+            old.clone(),
+            None,
+            Some(crate::test_support::TEST_PROFILE.to_string()),
+        );
+        let row = on_account(session("sess-1", "idle", DEV, "t"), &target.id);
+        let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+
+        old.working.store(true, Ordering::SeqCst);
+        assert_eq!(
+            switch_session(&row, &target.id, None, &pending, &host.deps),
+            Err(SwitchError::Busy)
+        );
+        assert_eq!(*old.killed.lock().unwrap(), None, "a busy engine is never touched");
+        old.working.store(false, Ordering::SeqCst);
+
+        assert_eq!(switch_session(&row, &target.id, None, &pending, &host.deps), Ok(Switched::Moved));
+        assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
+        assert_eq!(
+            procedures(&requests),
+            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
+        );
+        let spawned = host.spawned.lock().unwrap().clone();
+        assert_eq!(spawned.len(), 1);
+        assert_eq!(spawned[0].session_id, "sess-1", "the SAME row");
+        assert_eq!(spawned[0].seed_message_id.as_deref(), Some("m1"));
+        let record = crate::run_registry::get(&dir.0, "sess-1").expect("record");
+        assert_eq!(record.account().as_deref(), Some(target.id.as_str()));
+        assert_eq!(record.honored_row_account(), target.id);
+        assert_eq!(host.deps.live.live_views()["sess-1"].row_account.as_deref(), Some(target.id.as_str()));
+        // The scratch dir the run lives in survives the switch.
+        assert!(record.cwd.is_dir());
+    }
+
+    /// A switch to the login the run is already on just honors the row; one
+    /// the machine cannot take (codex, a login not set up here) is explained
+    /// once and the session keeps working on its login.
+    #[test]
+    fn a_switch_it_need_not_or_cannot_make_leaves_the_engine_running() {
+        let dir = temp_dir("pickup-switch-noop");
+        let (base, requests) = canned_server_recording(vec![(200, REPLY_OK.to_string())]);
+        let host = host(&base, &dir.0, |_| {});
+        let mut on_a = record(&dir.0, "sess-1");
+        on_a.set_account(Some("aaaa"));
+        crate::run_registry::record(&dir.0, on_a);
+        host.deps.live.insert_for("sess-1", host.engine.clone(), None, Some(String::new()));
+
+        let same = on_account(session("sess-1", "idle", DEV, "t"), "aaaa");
+        assert_eq!(switch_session(&same, "aaaa", None, &[], &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(host.deps.live.live_views()["sess-1"].row_account.as_deref(), Some("aaaa"));
+
+        let missing = on_account(session("sess-1", "idle", DEV, "t"), "nope");
+        let Ok(Switched::Refused(reason)) = switch_session(&missing, "nope", None, &[], &host.deps) else {
+            panic!("expected a refusal");
+        };
+        assert!(reason.contains("not set up on this machine"), "{reason}");
+        assert_eq!(procedures(&requests), vec!["sessions.reply"]);
+        assert_eq!(*host.engine.killed.lock().unwrap(), None);
+        assert_eq!(host.deps.live.live_views()["sess-1"].row_account.as_deref(), Some("nope"));
+        assert!(host.spawned.lock().unwrap().is_empty());
+    }
+
+    /// A row whose account moved while no engine ran here wakes ON it; a
+    /// record that honors the row's account wakes on its recorded login.
+    #[test]
+    fn a_wake_honors_a_switch_made_while_no_engine_ran() {
+        let mut on_a = record(&temp_dir("pickup-wake-switch").0, "sess-1");
+        on_a.set_account(Some("aaaa"));
+        on_a.set_honored_row_account(Some("aaaa"));
+        assert_eq!(resume_switch(Some("bbbb"), &on_a), Some("bbbb".to_string()));
+        assert_eq!(resume_switch(Some("aaaa"), &on_a), None);
+        assert_eq!(resume_switch(None, &on_a), None);
+        // A start pick moved the run off the row's (walled) login: the row
+        // still names the honored one, so the wake keeps the recorded login.
+        let mut picked = on_a.clone();
+        picked.set_account(Some("cccc"));
+        assert_eq!(resume_switch(Some("aaaa"), &picked), None);
+        // A record from before the key honors the login it ran on.
+        let mut legacy = on_a.clone();
+        legacy.extra.remove(crate::run_registry::ROW_ACCOUNT_KEY);
+        assert_eq!(legacy.honored_row_account(), "aaaa");
     }
 
     #[test]

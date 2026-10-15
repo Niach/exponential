@@ -1596,8 +1596,18 @@ fn prepare_session(
             acp_child_pid: None,
             host_pid: None,
             recorded_at: crate::run_registry::now_secs(),
-            // EXP-792: the account profile, for a resume to re-enter.
-            extra: launch_extra(&[], options.account.as_deref()),
+            // EXP-792: the account profile, for a resume to re-enter;
+            // EXP-849: plus the row's account this launch honored.
+            extra: {
+                let mut extra = launch_extra(&[], options.account.as_deref());
+                extra.insert(
+                    crate::run_registry::ROW_ACCOUNT_KEY.to_string(),
+                    serde_json::Value::String(crate::agent_profiles::profile_id(
+                        row.account.as_deref(),
+                    )),
+                );
+                extra
+            },
         },
     );
 
@@ -2154,6 +2164,9 @@ fn prepare_resume(
     // not the recorded one — the next resume must re-enter the login that
     // now holds the transcript.
     resumed_record.set_account(options.account.as_deref());
+    // EXP-849: the row's account this resume honors — a later person's
+    // switch is a row that moves past it.
+    resumed_record.set_honored_row_account(row.account.as_deref());
     // EXP-1292: the row runs again — an END its last exit owed is moot.
     resumed_record.set_unreported_end(false);
     crate::run_registry::record(&deps.data_dir, resumed_record);

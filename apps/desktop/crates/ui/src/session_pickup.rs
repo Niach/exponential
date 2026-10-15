@@ -143,7 +143,9 @@ fn schedule(cx: &mut App) {
 /// The session a pickup action is about.
 fn action_session_id(action: &PickupAction) -> &str {
     match action {
-        PickupAction::Launch { session } | PickupAction::Resume { session, .. } => &session.id,
+        PickupAction::Launch { session }
+        | PickupAction::Resume { session, .. }
+        | PickupAction::Switch { session, .. } => &session.id,
         PickupAction::Deliver { session_id, .. }
         | PickupAction::Revoke { session_id, .. }
         | PickupAction::Answer { session_id, .. }
@@ -204,7 +206,10 @@ fn run_pass(cx: &mut App) {
     // — the plan only launches `queued` ones.
     actions.extend(live.retry_launches(&device_id, &sessions, &in_flight));
     let blocking = |action: &PickupAction| match action {
-        PickupAction::Launch { .. } | PickupAction::Resume { .. } => true,
+        // EXP-849: a switch suspends + relaunches (network + git).
+        PickupAction::Launch { .. } | PickupAction::Resume { .. } | PickupAction::Switch { .. } => {
+            true
+        }
         // A delivery to an engine that just finished wakes it.
         PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
         _ => false,
@@ -260,6 +265,9 @@ fn run_pass(cx: &mut App) {
             PickupAction::Deliver { messages, .. } => {
                 woke(&session_id, pickup::deliver_messages(&session_id, messages, &deps))
             }
+            PickupAction::Switch { session, account, messages } => {
+                switched(&session_id, pickup::switch_session(session, account, None, messages, &deps))
+            }
             other => match pickup::execute(other, &deps) {
                 Ok(()) => StepOutcome::Progressed,
                 Err(err) => {
@@ -269,6 +277,43 @@ fn run_pass(cx: &mut App) {
             },
         });
     }
+}
+
+/// EXP-1005 — the account ROTATION's switch of a session hosted here: THE
+/// switch ([`pickup::switch_session`], the one a person's `sessions.send
+/// {sessionId, account}` takes through the pass), run with the session in
+/// flight and `prompt` (the rotation's note) as the seed turn. `false` =
+/// refused before anything moved: the session is not hosted here, a step
+/// already holds it, or its turn is in flight.
+pub(crate) fn switch_locally(
+    session_id: &str,
+    target: String,
+    prompt: String,
+    cx: &mut App,
+) -> bool {
+    let Some(host) = cx.try_global::<PickupHost>() else {
+        return false;
+    };
+    if host.in_flight.contains(session_id) {
+        return false;
+    }
+    let live = Arc::clone(&host.live);
+    if !live.get(session_id).is_some_and(|engine| !engine.is_done() && engine.is_idle()) {
+        return false;
+    }
+    let Some(row) = crate::session_data::session(session_id, cx) else {
+        return false;
+    };
+    let device_id = queries::own_device_id(cx);
+    let Some(deps) = pickup_deps(&device_id, std::slice::from_ref(&row), cx) else {
+        return false;
+    };
+    let at = fingerprint(&row, &[]);
+    let id = session_id.to_string();
+    spawn_step(id.clone(), at, cx, move || {
+        switched(&id, pickup::switch_session(&row, &target, Some(&prompt), &[], &deps))
+    });
+    true
 }
 
 /// Did a wake (a Resume, or a delivery that had to re-spawn) hand anything
@@ -286,6 +331,25 @@ fn woke(session_id: &str, result: Result<Vec<String>, String>) -> StepOutcome {
         }
         Err(err) => {
             log::warn!("[pickup] delivering to {session_id} failed: {err}");
+            StepOutcome::Failed
+        }
+    }
+}
+
+/// How a switch ended: a busy engine waits for its turn to end (the row's
+/// `busy` edge moves its fingerprint), a failure for the retry timer.
+fn switched(
+    session_id: &str,
+    result: Result<pickup::Switched, pickup::SwitchError>,
+) -> StepOutcome {
+    match result {
+        Ok(outcome) => {
+            log::info!("[pickup] account switch of {session_id}: {outcome:?}");
+            StepOutcome::Progressed
+        }
+        Err(pickup::SwitchError::Busy) => StepOutcome::Stalled,
+        Err(err) => {
+            log::warn!("[pickup] account switch of {session_id} failed: {err}");
             StepOutcome::Failed
         }
     }

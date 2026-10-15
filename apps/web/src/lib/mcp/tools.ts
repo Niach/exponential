@@ -2136,7 +2136,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message that session (an idle one resumes, an ended thread continues in a child). parentId = start a child under it (yours to fork work). Neither = a new thread (text, issueIds, actionId+inputs, repositoryId) or, with agent {name, icon, color, instructions?, triggers?}, a team agent. New sessions need deviceId (exponential_devices_list); cli/account/model/effort/planMode/computerUse/ultracode/mcpServerIds pick the runner. teamId defaults to your session's team; mention people as @email in text. New sessions return at once as status queued (pending pickup): never resend.`,
+      description: `THE one call for sessions. sessionId = message that session (an idle one resumes, an ended thread continues in a child; account alone = switch its claude login). parentId = start a child under it. Neither = a new thread (text, issueIds, actionId+inputs, repositoryId) or, with agent {name, icon, color, instructions?, triggers?}, a team agent. New sessions need deviceId (exponential_devices_list); cli/account/model/effort/planMode/computerUse/ultracode/mcpServerIds pick the runner. teamId defaults to your session's team; mention people as @email in text. New sessions return at once as queued: never resend.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),

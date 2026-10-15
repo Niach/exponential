@@ -33,6 +33,11 @@ public struct AccountPicker<Trigger: View>: View {
     public let open: Binding<Bool>?
     public let hideTrigger: Bool
     public let onDismiss: (() -> Void)?
+    /// Rows rendered but never pickable (by `key`) — EXP-849's usage-wall
+    /// switch lists a refused login rather than hiding it (web `disabled`).
+    public let disabledKeys: Set<String>
+    /// The sheet's header; the launch surfaces say "Account".
+    public let title: String
     private let trigger: () -> Trigger
 
     public init(
@@ -43,6 +48,8 @@ public struct AccountPicker<Trigger: View>: View {
         open: Binding<Bool>? = nil,
         hideTrigger: Bool = false,
         onDismiss: (() -> Void)? = nil,
+        disabledKeys: Set<String> = [],
+        title: String = "Account",
         @ViewBuilder trigger: @escaping () -> Trigger
     ) {
         self.options = options
@@ -52,6 +59,8 @@ public struct AccountPicker<Trigger: View>: View {
         self.open = open
         self.hideTrigger = hideTrigger
         self.onDismiss = onDismiss
+        self.disabledKeys = disabledKeys
+        self.title = title
         self.trigger = trigger
     }
 
@@ -60,12 +69,16 @@ public struct AccountPicker<Trigger: View>: View {
     /// email and the agent as search keywords — the agent because a row does
     /// NOT spell it, it only wears its brand mark, so "codex" has nothing else
     /// to match on.
-    nonisolated public static func items(_ options: [AccountOption]) -> [PickerItem<String>] {
+    nonisolated public static func items(
+        _ options: [AccountOption],
+        disabledKeys: Set<String> = []
+    ) -> [PickerItem<String>] {
         options.map { option in
             PickerItem(
                 value: option.key,
                 label: option.email,
                 description: option.health.badgeLabel,
+                disabled: disabledKeys.contains(option.key),
                 keywords: [option.email, option.agent]
             )
         }
@@ -77,7 +90,7 @@ public struct AccountPicker<Trigger: View>: View {
 
     public var body: some View {
         GlassPicker(
-            items: Self.items(options),
+            items: Self.items(options, disabledKeys: disabledKeys),
             mode: .single,
             value: value.map { [$0] } ?? [],
             onChange: { picked in picked.first.map(onChange) },
@@ -86,7 +99,7 @@ public struct AccountPicker<Trigger: View>: View {
             // several agents lists a login per agent, and "codex" is the
             // fastest way to the right one.
             search: true,
-            title: "Account",
+            title: title,
             // A lone login is not a choice: the trigger still says which one
             // it is, and there is no sheet to open (web collapses its inline
             // word for the same reason).

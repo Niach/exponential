@@ -671,7 +671,11 @@ fn spawn_tickers(
                     // the wall edge (rare) so a toggle flipped mid-run
                     // counts; codex never rotates and a one-login machine
                     // cannot, so neither is "handled" — the owner hears
-                    // about it, throttled.
+                    // about it, throttled. A repo-less (scratch) run rotates
+                    // like any other (EXP-1292: the switch suspends, never
+                    // purges), so the rotation's holds and this verdict
+                    // agree; the one hold left out (no run record) cannot
+                    // happen to a run this engine hosts — `prepare` wrote it.
                     let blocked = wall.map(|wall| {
                         wall.report_input(Some(
                             rotation_host

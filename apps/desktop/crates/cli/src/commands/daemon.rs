@@ -506,9 +506,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // steer journal. A team agent's is kept (EXP-1292: it only idles).
         {
             let mut guard = lock_sessions(&sessions);
+            // EXP-1292: a SUSPENDED run (an account switch re-spawns the
+            // same row right after) is no finished run — its worktree or
+            // scratch dir is what the resume re-enters.
             let reaped: Vec<(String, Option<coding::RunCleanup>, PathBuf)> = guard
                 .iter()
-                .filter(|live| live.session.is_done())
+                .filter(|live| live.session.is_done() && !live.session.was_suspended())
                 .map(|live| {
                     (
                         live.session.session_id.clone(),
@@ -1305,8 +1308,8 @@ const ROTATION_BEAT: Duration = Duration::from_secs(5);
 
 /// One live run's wall in the rotation's vocabulary — `None` unless the
 /// wall is a rate limit. `account` = the run registry's recorded login (a
-/// legacy record names none); a record with no clone (a scratch run), or no
-/// record at all, is a run a switch could not resume.
+/// legacy record names none); no record at all is a run a switch could not
+/// resume (a repo-less scratch run with a record rotates, EXP-1292).
 fn walled_run(
     session_id: &str,
     worktree: &Path,
@@ -1329,7 +1332,7 @@ fn walled_run(
             .as_deref()
             .and_then(coding::agent_accounts::unix_millis_from_iso),
         idle,
-        repo_less: record.map_or(true, |record| record.clone.is_none()),
+        unrecorded: record.is_none(),
     })
 }
 
@@ -1340,7 +1343,7 @@ fn hold_key(hold: &coding::account_rotation::Hold) -> &'static str {
     match hold {
         Hold::Off => "off",
         Hold::AgentNeverRotates => "agent_never_rotates",
-        Hold::ScratchRun => "scratch_run",
+        Hold::NoRecord => "no_record",
         Hold::MidTurn => "mid_turn",
         Hold::CoolingDown { .. } => "cooling_down",
         Hold::Capped => "capped",
@@ -1628,14 +1631,13 @@ impl std::fmt::Display for SwitchBusy {
 
 impl std::error::Error for SwitchBusy {}
 
-/// EXP-849/EXP-1005 — move a live, IDLE session onto another account: stop
-/// its engine (the agent cannot be in two processes in one worktree), then
-/// re-spawn the SAME row's agent CLI natively under `target` from its run
-/// record, `prompt` (the switch note) as the seed turn. EXP-1292: the same
-/// row and record key, no resume row; the session stays in the pickup's
-/// in-flight set throughout. The old engine is SUSPENDED, not ended (its row
-/// goes `idle` — an ended root would take its whole tree with it), and the
-/// new one is reported `running` right away.
+/// EXP-849/EXP-1005 — move a live, IDLE session onto another account
+/// through THE switch ([`coding::pickup::switch_session`], the same one a
+/// person's `sessions.send{sessionId, account}` takes): the engine is
+/// SUSPENDED (its row idles, its workspace — a scratch dir too — stays) and
+/// the SAME row's agent CLI re-spawned natively under `target`, `prompt`
+/// (the rotation's note) as the seed turn. The session stays in the
+/// pickup's in-flight set throughout.
 ///
 /// `Err(SwitchBusy)` = refused before anything moved (mid-turn, or an attempt
 /// already holds the session); any other error is a switch that FAILED.
@@ -1649,70 +1651,18 @@ fn switch_account(
     let Some(_in_flight) = pickup.begin(session_id) else {
         return Err(busy().into());
     };
-    let live = lock_sessions(&pickup.sessions)
-        .iter()
-        .find(|live| live.session.session_id == session_id && !live.session.is_done())
-        .map(|live| Arc::clone(&live.session));
-    let Some(live) = live else {
-        anyhow::bail!("session {session_id} is not running here any more");
-    };
-    if !live.is_idle() {
-        return Err(busy().into());
-    }
-    let record = coding::run_registry::get(&pickup.ctx.data_dir, session_id)
-        .ok_or_else(|| anyhow::anyhow!("no local run record for session {session_id}"))?;
     let row = pickup
         .store()
         .and_then(|store| session_row(&store, session_id))
         .ok_or_else(|| anyhow::anyhow!("session {session_id} is not synced on this device"))?;
-    log::info!("account switch: stopping session {session_id} before the resume");
-    live.suspend();
-    // ~10s: an engine teardown is sub-second. Past that the resume is refused
-    // rather than launched into a worktree something may still hold.
-    if live.wait_timeout(Duration::from_secs(10)).is_none() {
-        anyhow::bail!("account switch for {session_id} refused: the session did not stop in time");
-    }
-    // The old entry (and its claim lock) goes; the resume takes a fresh one.
-    pickup.live.remove(session_id);
-    let claim = coding::pickup::ClaimLock::try_acquire(&pickup.ctx.data_dir, session_id)
-        .map_err(|err| anyhow::anyhow!(err))?
-        .ok_or_else(|| anyhow::anyhow!("session {session_id} is held by another process"))?;
-    let brief = api::session_device::brief(&pickup.ctx.trpc, session_id)
-        .with_context(|| format!("brief of session {session_id}"))?;
-    let deps = pickup.deps();
-    let mut options = deps.options.clone();
-    // EXP-849: a named account on a resume IS the switch.
-    options.account = Some(target);
-    let identifiers = match (deps.issue_identifiers)(row.root_id_or_self()) {
-        found if !found.is_empty() => found,
-        _ => record.issues.clone(),
-    };
-    let request = coding::SessionLaunchRequest {
-        session: row,
-        brief,
-        issue_identifiers: identifiers,
-        resume: Some(coding::ResumeRun { record, prompt, message_id: None }),
-        device_label: deps.device_label.clone(),
-        options,
-    };
-    let prepared = match coding::prepare(&coding::PrepareRequest::Session(request), &deps.coding)
-        .map_err(|err| anyhow::anyhow!("{err}"))?
-    {
-        coding::Prepared::Ready(prepared) => prepared,
-        coding::Prepared::Disabled(reason) => {
-            anyhow::bail!("account switch for {session_id} refused: {}", reason.message())
+    match coding::pickup::switch_session(&row, &target, Some(&prompt), &[], &pickup.deps()) {
+        Ok(coding::pickup::Switched::Moved | coding::pickup::Switched::AlreadyOn) => Ok(()),
+        Ok(coding::pickup::Switched::Refused(reason)) => {
+            anyhow::bail!("account switch for {session_id} refused: {reason}")
         }
-    };
-    let engine = (deps.launch)(prepared).map_err(|err| anyhow::anyhow!(err))?;
-    pickup.live.insert(session_id, engine, Some(claim));
-    let running = api::session_device::SessionReport {
-        status: Some(api::session_device::ReportStatus::Running),
-        ..api::session_device::SessionReport::default()
-    };
-    if let Err(err) = api::session_device::report(&pickup.ctx.trpc, session_id, &running) {
-        log::warn!("account switch: session {session_id} not reported running: {err}");
+        Err(coding::pickup::SwitchError::Busy) => Err(busy().into()),
+        Err(coding::pickup::SwitchError::Failed(reason)) => anyhow::bail!(reason),
     }
-    Ok(())
 }
 
 /// EXP-758 (EXP-478): register a launched run, THEN release its launch gate.
@@ -2655,7 +2605,9 @@ fn rescan_events(batch: &[DaemonWork]) -> bool {
 fn action_session_id(action: &coding::pickup::PickupAction) -> &str {
     use coding::pickup::PickupAction;
     match action {
-        PickupAction::Launch { session } | PickupAction::Resume { session, .. } => &session.id,
+        PickupAction::Launch { session }
+        | PickupAction::Resume { session, .. }
+        | PickupAction::Switch { session, .. } => &session.id,
         PickupAction::Deliver { session_id, .. }
         | PickupAction::Revoke { session_id, .. }
         | PickupAction::Answer { session_id, .. }
@@ -2732,7 +2684,10 @@ impl DaemonHost {
                     );
                     continue;
                 }
-                PickupAction::Launch { .. } | PickupAction::Resume { .. } => true,
+                PickupAction::Launch { .. }
+                | PickupAction::Resume { .. }
+                // EXP-849: a switch suspends + relaunches (network + git).
+                | PickupAction::Switch { .. } => true,
                 // A delivery to an engine that just finished wakes it.
                 PickupAction::Deliver { session_id, .. } => !live.contains_live(session_id),
                 _ => false,

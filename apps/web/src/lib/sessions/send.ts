@@ -335,11 +335,36 @@ async function messageSession(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The session is in another team` })
   }
 
+  const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length
   if (target.status !== `ended` || target.kind === `agent`) {
+    // EXP-849: `account` on a message = an account SWITCH. The synced
+    // `sessions.account` is the login the session should run on; the host
+    // device sees it move and resumes the SAME row on that login between
+    // turns (`coding::pickup` Switch). An account-only send posts no message.
+    const switching = input.account !== undefined && input.account !== target.account
+    if (switching && target.cli === `codex`) {
+      throw new TRPCError({
+        code: `BAD_REQUEST`,
+        message: `Only claude can switch accounts during a session.`,
+      })
+    }
     return db.transaction(async (tx) => {
       const txid = await generateTxId(tx)
+      if (switching) {
+        await tx
+          .update(sessions)
+          .set({ account: input.account, updatedAt: new Date() })
+          .where(eq(sessions.id, target.id))
+      }
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds)
       return { sessionId: target.id, messageId, status: target.status, txid, queued: null }
+    })
+  }
+  if (!hasMessage) {
+    // Nothing to continue an ended thread with: a switch alone has no run.
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `This session has ended: send a message to continue it`,
     })
   }
 
@@ -362,7 +387,8 @@ async function messageSession(
       userId,
       hostUserId: device.hostUserId,
       deviceId: target.deviceId,
-      ...runnerFields({}, target),
+      // A switch sent with the message carries into the continuation.
+      ...runnerFields({ account: input.account }, target),
       mcpServerIds: target.mcpServerIds,
       repositoryId: target.repositoryId ?? root.repositoryId,
       status: `queued`,

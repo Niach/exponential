@@ -159,6 +159,7 @@ export function AccountPicker({
   align,
   width = `md`,
   className,
+  trigger,
   "data-testid": testId,
 }: {
   /** The picked option's `key`, or null while none is. */
@@ -171,6 +172,9 @@ export function AccountPicker({
   align?: `start` | `end`
   width?: `sm` | `md` | `lg`
   className?: string
+  /** EXP-849: the caller's own trigger (the usage wall's "Switch account"
+   *  button) in place of the chip; it never collapses to plain text. */
+  trigger?: React.ReactNode
   "data-testid"?: string
 }) {
   const touch = useIsMobile()
@@ -193,7 +197,7 @@ export function AccountPicker({
   // One login is not a choice: the sentence just says it (the `inline` rule
   // `Combobox` keeps for its own word). It still carries the picker marker —
   // this IS the account picker, with nothing left to pick.
-  if (variant === `inline` && options.length <= 1) {
+  if (!trigger && variant === `inline` && options.length <= 1) {
     const word = picked ?? options[0]
     return (
       <span data-slot="picker" data-picker-mode="single" className="contents">
@@ -221,13 +225,15 @@ export function AccountPicker({
       disabled={disabled}
       data-testid={testId}
       trigger={
-        <PickerTrigger
-          variant={variant}
-          label={mobileTitle}
-          value={picked ? <AccountOptionLabel option={picked} /> : undefined}
-          disabled={disabled}
-          className={className}
-        />
+        trigger ?? (
+          <PickerTrigger
+            variant={variant}
+            label={mobileTitle}
+            value={picked ? <AccountOptionLabel option={picked} /> : undefined}
+            disabled={disabled}
+            className={className}
+          />
+        )
       }
       // The EXP-992 preview is the one bespoke row body in the package: a
       // hover card beside the row on a pointer, the bars inline on touch.

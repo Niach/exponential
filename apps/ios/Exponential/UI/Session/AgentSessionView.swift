@@ -126,6 +126,8 @@ struct AgentSessionView: View {
     /// EXP-688: the Usage sheet — the per-window cards, opened by the usage
     /// RING.
     @State private var showUsageSheet = false
+    /// EXP-849: the usage wall's account picker.
+    @State private var showAccountSwitch = false
     /// Whether the feed is scrolled to (within slack of) its bottom —
     /// auto-scroll only while pinned; scrolling up pauses follow and surfaces
     /// the "Jump to bottom" pill.
@@ -357,6 +359,10 @@ struct AgentSessionView: View {
             .onChange(of: model?.sendError) { _, message in
                 guard let message else { return }
                 toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: message)
+            }
+            .onChange(of: model?.switchError) { _, message in
+                guard let message else { return }
+                toaster.error(FeedbackStates.Errors.title(verb: "switch", thing: "the account"), description: message)
             }
             // EXP-790: blur collapses the composer ONLY when nothing would be
             // lost — empty draft, no pending images, no picker mid-flight
@@ -1277,30 +1283,86 @@ struct AgentSessionView: View {
             // yellow (one truncating line), the relative countdown as a
             // separate muted caption.
             HStack(alignment: .center, spacing: 6) {
-                AppIcon(AppIcons.uiUsage, size: AppIcon.Size.small)
-                    .foregroundStyle(DesignTokens.Semantic.yellow)
-                Text(verbatim: caption.message)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.yellow)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(verbatim: AgentFeed.rateLimitDetail(caption.countdown))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                HStack(alignment: .center, spacing: 6) {
+                    AppIcon(AppIcons.uiUsage, size: AppIcon.Size.small)
+                        .foregroundStyle(DesignTokens.Semantic.yellow)
+                    Text(verbatim: caption.message)
+                        .font(.caption)
+                        .foregroundStyle(DesignTokens.Semantic.yellow)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(verbatim: AgentFeed.rateLimitDetail(caption.countdown))
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(
+                    AgentFeed.rateLimitAccessibilityLabel(limit, now: model.activityNow)
+                )
                 Spacer(minLength: 0)
+                // EXP-849: the wall's PRIMARY move is another login — only
+                // for whoever may steer the session.
+                if model.mayPost {
+                    accountSwitchControl(model)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow(isOpaque: true)
             // The transcript's reading column (EXP-927 §2c), like the strips.
             .transcriptColumn()
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(
-                AgentFeed.rateLimitAccessibilityLabel(limit, now: model.activityNow)
-            )
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("agent-rate-limit")
+        }
+    }
+
+    /// EXP-849: "Switch account" — THE account picker the composer uses,
+    /// narrowed to the session's agent on its host machine; a pick sends
+    /// `sessions.send({sessionId, account})` and the host resumes the SAME
+    /// session on that login between turns (web `SessionAccountSwitchButton`).
+    /// A refused switch keeps its control and says why when tapped.
+    @ViewBuilder
+    private func accountSwitchControl(_ model: AgentSessionModel) -> some View {
+        let blocked = model.accountSwitchBlocked
+        let options = model.accountSwitchOptions
+        let pill = GlassPill(
+            SessionAccountSwitch.wallSwitchLabel,
+            icon: AppIcons.uiSwap,
+            mode: .action { showAccountSwitch = true },
+            primary: true,
+            enabled: blocked == nil && !model.switchingAccount
+        )
+        .accessibilityHint(blocked ?? SessionAccountSwitch.costNote)
+        .accessibilityIdentifier("session-account-switch")
+        if let blocked {
+            pill.overlay(
+                Color.clear
+                    .contentShape(Capsule())
+                    .onTapGesture { toaster.error(blocked) }
+            )
+        } else {
+            pill.background(
+                AccountPicker(
+                    options: options.map(\.account),
+                    value: options.first(where: \.current)?.account.key,
+                    onChange: { key in
+                        guard let picked = options.first(where: { $0.account.key == key }) else { return }
+                        if let refusal = picked.blockedReason {
+                            toaster.error(refusal)
+                            return
+                        }
+                        Task { await model.switchAccount(to: picked.account) }
+                    },
+                    mark: { AgentBrandMark.image($0) },
+                    open: $showAccountSwitch,
+                    hideTrigger: true,
+                    disabledKeys: Set(options.filter { $0.blockedReason != nil }.map(\.account.key)),
+                    title: SessionAccountSwitch.wallSwitchLabel,
+                    trigger: { EmptyView() }
+                )
+            )
         }
     }
 

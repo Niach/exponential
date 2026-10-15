@@ -142,6 +142,14 @@ impl RunningSession {
         self.session.kill(engine::SUSPEND_OUTCOME);
     }
 
+    /// EXP-1292: the run ended by [`Self::suspend`] (an account switch
+    /// re-spawns the same row): its workspace — a scratch dir too — stays.
+    pub fn was_suspended(&self) -> bool {
+        self.session
+            .wait_timeout(Duration::ZERO)
+            .is_some_and(|exit| exit.outcome == engine::SUSPEND_OUTCOME)
+    }
+
     /// EXP-1292: the engine handle the pickup drives (`coding::pickup::
     /// LiveEngine` — deliver, unqueue, answer, kill). A cheap clone.
     pub fn engine(&self) -> engine::EngineSession {
