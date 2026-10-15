@@ -18,6 +18,8 @@ export interface TreeSession {
   rootId: string
   kind: string
   userId: string
+  /** The logical `devices.device_id` that runs it (null/absent = unset). */
+  deviceId?: string | null
   status: string
   busy: boolean
   needsInput: boolean
@@ -501,6 +503,9 @@ export interface ThreadsListRow {
   teamId: string
   title: string
   private: boolean
+  /** EXP-1318: the ROOT's device (the row's trailing device icon);
+   *  `partitionThreads` always sets it, hand-built rows may omit it (= null). */
+  deviceId?: string | null
   busy: boolean
   needsYou: boolean
   activityAt: string
@@ -574,6 +579,7 @@ export function partitionThreads(input: {
       teamId: root.teamId,
       title,
       private: !root.shared,
+      deviceId: root.deviceId ?? null,
       busy: live.some((s) => s.busy),
       needsYou,
       activityAt: activity,
