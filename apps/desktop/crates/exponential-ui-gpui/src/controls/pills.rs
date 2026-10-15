@@ -2,12 +2,13 @@
 //! and the count badge.
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, Animation, AnimationExt as _, AnyElement, App, Div,
+    div, prelude::FluentBuilder as _, px, Animation, AnyElement, App, Div,
     ElementId, FontWeight, Hsla, InteractiveElement as _, IntoElement as _, ParentElement as _,
     SharedString, Stateful, Styled,
 };
 use gpui_component::ActiveTheme as _;
 
+use super::animation::{SteppedAnimationExt as _, SMOOTH_STEP};
 use super::buttons::custom_variant_fill;
 use super::sizing::{WebControl as _, CTL_LG_H, CTL_MD_H, CTL_SM_H};
 use crate::chrome::{ease, Chrome, EASE_DECELERATE};
@@ -243,11 +244,13 @@ pub fn live_dot(tone: Hsla, ping: bool) -> AnyElement {
         .flex_shrink_0()
         .size(px(LIVE_DOT_PX))
         .child(
-            div().absolute().rounded_full().bg(tone).with_animation(
+            // EXP-1325: a ping lives as long as its row — stepped.
+            div().absolute().rounded_full().bg(tone).with_stepped_animation(
                 "live-dot-ping",
                 Animation::new(LIVE_DOT_PING)
                     .repeat()
                     .with_easing(ease(EASE_DECELERATE)),
+                SMOOTH_STEP,
                 |halo, delta| {
                     let grow = LIVE_DOT_PX * delta;
                     halo.left(px(-grow / 2.))
