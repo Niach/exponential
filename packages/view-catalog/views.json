@@ -4452,6 +4452,72 @@
       }
     },
     {
+      "id": "exponential-ui-trace",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · Trace",
+      "blurb": "A column of TraceItem lines (an agent's steps). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/trace/.",
+      "order": 90,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-trace",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-trace"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-trace",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-trace",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-trace-item",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · TraceItem",
+      "blurb": "One step line: icon, title, muted detail; may expand to show its children. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/trace-item/.",
+      "order": 91,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-trace-item",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-trace-item"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-trace-item",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-trace-item",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "work-card",
       "group": "coding",
       "title": "Work card",
