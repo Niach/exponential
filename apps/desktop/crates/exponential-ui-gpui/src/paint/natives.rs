@@ -18,6 +18,8 @@ use gpui::{
     RenderImage, SharedString, TextRun, Transformation, Window,
 };
 use gpui_component::Icon;
+
+use crate::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
 use serde_json::{Map, Value};
 
 use super::color::{color_of, hsl};
@@ -383,7 +385,8 @@ pub fn spinner_glyph(id: impl Into<gpui::ElementId>, size: f32, color: Hsla) -> 
     Icon::new(gpui_component::IconName::LoaderCircle)
         .size(px(size))
         .text_color(color)
-        .with_animation(id, Animation::new(Duration::from_millis(800)).repeat(), |icon, delta| icon.transform(Transformation::rotate(gpui::percentage(delta))))
+        // EXP-1325: a loader may spin for a long while — stepped.
+        .with_stepped_animation(id, Animation::new(Duration::from_millis(800)).repeat(), SMOOTH_STEP, |icon, delta| icon.transform(Transformation::rotate(gpui::percentage(delta))))
         .into_any_element()
 }
 
@@ -1056,7 +1059,7 @@ pub fn skeleton(cx: &LeafCx) -> AnyElement {
     }
     let (low, high) = (SKELETON_OPACITY_LOW as f32, SKELETON_OPACITY_HIGH as f32);
     block
-        .with_animation(SharedString::from(format!("{}.pulse", cx.node.id)), Animation::new(Duration::from_millis(SKELETON_PULSE_MS as u64)).repeat(), move |d, t| {
+        .with_stepped_animation(SharedString::from(format!("{}.pulse", cx.node.id)), Animation::new(Duration::from_millis(SKELETON_PULSE_MS as u64)).repeat(), SMOOTH_STEP, move |d, t| {
             let phase = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
             d.opacity(low + (high - low) * super::cubic_bezier([0.42, 0.0, 0.58, 1.0], phase))
         })

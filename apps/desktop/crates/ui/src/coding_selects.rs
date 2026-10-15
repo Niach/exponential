@@ -157,7 +157,9 @@ const CLAUDE_WRITING_FRAMES: [crate::icons::ExpIcon; 8] = [
 ];
 
 /// One frame of the spark lasts 90 ms; the loop is 8 of them.
-pub(crate) const CLAUDE_WRITING_LOOP: std::time::Duration = std::time::Duration::from_millis(720);
+pub(crate) const CLAUDE_WRITING_FRAME: std::time::Duration = std::time::Duration::from_millis(90);
+pub(crate) const CLAUDE_WRITING_LOOP: std::time::Duration =
+    std::time::Duration::from_millis(90 * CLAUDE_WRITING_FRAMES.len() as u64);
 
 /// The frame the spark shows `delta` (0..=1) of the way through its loop:
 /// `floor(delta * 8)`, clamped (the loop's own end lands on the last frame,
@@ -172,14 +174,21 @@ pub(crate) fn claude_writing_frame(delta: f32) -> usize {
 /// its own (codex, an unknown one = `None`'s generic glyph) keeps its mark
 /// with the EXP-850 opacity pulse. `size` square. A live element — gpui
 /// animates by repainting — so draw it only while the agent works.
+///
+/// EXP-1325: this mark lives in the sidebar, the tabs and the thread rows
+/// for as long as a session works, and gpui repaints the WHOLE window for
+/// every animation frame, at the monitor's rate while focused — so both
+/// faces are STEPPED (`with_stepped_animation`): the spark repaints only
+/// when its 90 ms frame changes, the pulse at the smooth step.
 pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) -> gpui::Div {
-    use gpui::AnimationExt as _;
+    use exponential_ui_gpui::controls::{SteppedAnimationExt as _, SMOOTH_STEP};
     let slot = div().flex_shrink_0().size(px(size));
     match agent {
         Some(coding::CodingAgent::Claude) => slot.child(
-            div().size(px(size)).with_animation(
+            div().size(px(size)).with_stepped_animation(
                 "agent-working-claude",
                 gpui::Animation::new(CLAUDE_WRITING_LOOP).repeat(),
+                CLAUDE_WRITING_FRAME,
                 move |frame, delta| {
                     frame.child(
                         Icon::from(CLAUDE_WRITING_FRAMES[claude_writing_frame(delta)].clone())
@@ -195,11 +204,12 @@ pub(crate) fn agent_working_mark(agent: Option<coding::CodingAgent>, size: f32) 
                 None => Icon::new(registry::SETTINGS_AGENTS),
             };
             slot.child(
-                div().child(mark.with_size(px(size))).with_animation(
+                div().child(mark.with_size(px(size))).with_stepped_animation(
                     "agent-working-pulse",
                     gpui::Animation::new(crate::steer_viewer::WORKING_PULSE)
                         .repeat()
                         .with_easing(gpui::bounce(gpui::ease_in_out)),
+                    SMOOTH_STEP,
                     |mark, delta| mark.opacity(0.4 + 0.6 * delta),
                 ),
             )

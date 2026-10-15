@@ -18,6 +18,7 @@
 //! Colours that ARE the gpui-component theme (foreground, muted, primary,
 //! danger, popover, list hover) keep coming from `cx.theme()`.
 
+mod animation;
 mod buttons;
 mod fades;
 mod feedback;
@@ -28,6 +29,7 @@ mod pills;
 mod rows;
 mod sizing;
 
+pub use animation::{until_next_step, SteppedAnimationElement, SteppedAnimationExt, SMOOTH_STEP};
 pub use buttons::{
     custom_variant_fill, ghost_icon_button, glass_icon_button, text_button, web_switch,
     TextButtonVariant, CUSTOM_VARIANT_ALPHA_FACTOR,

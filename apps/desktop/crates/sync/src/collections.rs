@@ -558,9 +558,22 @@ impl Collections {
     }
 
     fn observe_all<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
+        self.observe_all_with(cx, |_, cx| cx.notify())
+    }
+
+    /// Run `on_change` on `V` whenever ANY of the 25 collections notifies
+    /// (EXP-1326: the IDE's cached dock area re-renders on every synced
+    /// change this way, so a screen reading a collection without observing
+    /// it never goes stale behind the cache).
+    pub fn observe_all_with<V: 'static>(
+        &self,
+        cx: &mut gpui::Context<V>,
+        on_change: impl Fn(&mut V, &mut gpui::Context<V>) + Clone + 'static,
+    ) -> Vec<Subscription> {
         let mut out = Vec::with_capacity(crate::shapes::SHAPES.len());
         for_each_collection!(self, entity => {
-            out.push(cx.observe(entity, |_, _, cx| cx.notify()))
+            let on_change = on_change.clone();
+            out.push(cx.observe(entity, move |this, _, cx| on_change(this, cx)))
         });
         out
     }
