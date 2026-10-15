@@ -939,6 +939,10 @@ pub struct ThreadsListRow {
     pub team_id: String,
     pub title: String,
     pub private: bool,
+    /// EXP-1318: the ROOT session's logical `device_id` (the trailing
+    /// device icon); `None` when unset.
+    #[serde(default)]
+    pub device_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
     /// The tree's newest `updated_at` (the sort key), verbatim.
@@ -1034,6 +1038,7 @@ pub fn partition_threads(input: ThreadsListInput<'_>) -> Vec<ThreadsListGroup> {
             team_id: root.team_id.clone().unwrap_or_default(),
             title,
             private: !root.shared,
+            device_id: root.device_id.clone(),
             busy: live.iter().any(|session| session.busy),
             needs_you,
             activity_at: activity,

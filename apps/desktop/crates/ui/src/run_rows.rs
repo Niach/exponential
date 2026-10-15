@@ -89,6 +89,8 @@ pub(crate) struct RunRowSpec {
     pub(crate) title: SharedString,
     pub(crate) active: bool,
     pub(crate) on_open: RunRowAction,
+    /// EXP-1318: after the title (a thread row's device icon).
+    pub(crate) trailing: Option<gpui::AnyElement>,
 }
 
 /// EXP-1248/EXP-1294 — THE session row, small (web `@exp/ui` SessionRow):
@@ -104,6 +106,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         title,
         active,
         on_open,
+        trailing,
     } = spec;
     let theme = cx.theme();
     let muted = theme.muted_foreground;
@@ -149,6 +152,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         .hover(move |style| style.bg(if active { row_active } else { row_hover }))
         .child(run_mark(agent, state, cx))
         .child(title_line)
+        .children(trailing)
         .on_click(move |event, window, cx| on_open(event, window, cx))
         .into_any_element()
 }

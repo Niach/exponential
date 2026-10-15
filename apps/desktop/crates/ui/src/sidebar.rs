@@ -974,6 +974,12 @@ impl RailView {
                         agent,
                         state,
                         identifier: None,
+                        // EXP-1318: the root session's device icon trails.
+                        trailing: crate::threads_view::thread_device_icon(
+                            row.device_id.as_deref(),
+                            &format!("rail-{}", row.root_id),
+                            cx,
+                        ),
                         title: SharedString::from(row.title),
                         active,
                         on_open: Box::new(move |_, window, cx| {

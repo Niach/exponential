@@ -100,12 +100,41 @@ pub(crate) fn thread_row_lead(
     }
 }
 
+/// EXP-1318: a thread row's trailing DEVICE ICON — the root session's
+/// device resolved against the synced `devices` rows, its pick through the
+/// device-icon concept map (the Devices page's glyph), the device's name as
+/// the tooltip; an unknown or invisible device (or none) draws nothing.
+pub(crate) fn thread_device_icon(device_id: Option<&str>, row_key: &str, cx: &App) -> Option<gpui::AnyElement> {
+    use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+    let device = crate::entity_preview::find_device(device_id?, cx)?;
+    let name = device
+        .label
+        .clone()
+        .map(|label| label.trim().to_string())
+        .filter(|label| !label.is_empty())
+        .unwrap_or_else(|| "Device".to_string());
+    let glyph = crate::icons::device_icon(device.icon.as_deref(), device.is_server());
+    Some(
+        gpui::div()
+            .id(SharedString::from(format!("thread-device-{row_key}")))
+            .flex_shrink_0()
+            .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx))
+            .child(Icon::new(glyph).xsmall().text_color(cx.theme().muted_foreground))
+            .into_any_element(),
+    )
+}
+
 /// The row's trailing slot: the quiet word (the stack word carries the
-/// stack glyph in front) AND the lock when private; `None` when both are
-/// absent.
-pub(crate) fn thread_row_trailing(word: Option<ThreadRowWord>, private: bool, cx: &App) -> Option<gpui::AnyElement> {
+/// stack glyph in front), the lock when private, then the device icon;
+/// `None` when all are absent.
+pub(crate) fn thread_row_trailing(
+    word: Option<ThreadRowWord>,
+    private: bool,
+    device: Option<gpui::AnyElement>,
+    cx: &App,
+) -> Option<gpui::AnyElement> {
     let muted = cx.theme().muted_foreground;
-    if word.is_none() && !private {
+    if word.is_none() && !private && device.is_none() {
         return None;
     }
     Some(
@@ -126,6 +155,7 @@ pub(crate) fn thread_row_trailing(word: Option<ThreadRowWord>, private: bool, cx
                     .child(word.text())
             }))
             .children(private.then(|| Icon::new(registry::UI_PRIVATE).xsmall().flex_shrink_0().text_color(muted)))
+            .children(device)
             .into_any_element(),
     )
 }
@@ -176,7 +206,8 @@ impl ThreadsView {
     fn row(&self, row: &ThreadsListRow, snapshot: &PrSnapshot, cx: &App) -> gpui::AnyElement {
         let lead = thread_row_lead(&row.session_id, row.busy, row.needs_you, &snapshot.pulls, cx);
         let word = thread_word(&row.session_id, row.busy, row.needs_you, &snapshot.pulls);
-        let trailing = thread_row_trailing(word, row.private, cx);
+        let device = thread_device_icon(row.device_id.as_deref(), &row.session_id, cx);
+        let trailing = thread_row_trailing(word, row.private, device, cx);
         let session_id = row.session_id.clone();
         pr_row(
             PrRowSpec {

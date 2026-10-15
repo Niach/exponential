@@ -646,6 +646,8 @@ pub(crate) struct LiveRootRow {
     pub(crate) title: String,
     pub(crate) busy: bool,
     pub(crate) needs_you: bool,
+    /// EXP-1318: the root session's device (the trailing device icon).
+    pub(crate) device_id: Option<String>,
     /// Every session of the tree — the row stays lit while one is on screen.
     pub(crate) session_ids: Vec<String>,
 }
@@ -675,6 +677,7 @@ pub(crate) fn live_roots_from(
             title: row.title,
             busy: row.busy,
             needs_you: row.needs_you,
+            device_id: row.device_id,
         }
     })
     .collect()
@@ -807,6 +810,7 @@ mod tests {
                     team_id: "t1".into(),
                     title: id.to_string(),
                     private: false,
+                    device_id: None,
                     busy: false,
                     needs_you: false,
                     activity_at: String::new(),
@@ -841,6 +845,7 @@ mod tests {
                 team_id: "t".into(),
                 title: "x".into(),
                 private: false,
+                device_id: None,
                 busy: false,
                 needs_you: false,
                 activity_at: String::new(),
