@@ -481,6 +481,7 @@ mod tests {
     fn report_serializes_every_field_and_the_blocked_tristate() {
         let wall = SessionReport {
             status: Some(ReportStatus::Running),
+            busy: None,
             needs_input: Some(true),
             blocked: Some(Some(BlockedInput {
                 kind: "rate_limit".to_string(),
