@@ -1,4 +1,4 @@
-- Thread: ogni lavoro è una conversazione, elencata come Ti aspetta, In corso e Recenti, con ogni sessione come scheda
-- Agenti del team: aggiungi in Impostazioni agenti che seguono una bacheca dal proprio dispositivo e avviano un thread per ogni lavoro
-- Thread condivisi: un thread su un dispositivo condiviso con il team è visibile a tutto il team, che può rispondere e fermarlo
-- Le azioni sono prompt salvati e il merge di una pull request non termina più una sessione
+- Thread: un thread è una sola schermata su ogni dispositivo, con issue, sessioni e Guide in un'unica striscia, e Home mette il campo di scrittura in basso sull'alba
+- Titoli: un thread prende il nome dal suo lavoro, come Implement EXP-12 o Run Triage, così ogni elenco si legge allo stesso modo su telefono, web e desktop
+- Domande: le opzioni di un agente possono avere una breve descrizione e ogni domanda ha una riga per scrivere la tua risposta
+- Guide: un'immagine si apre accanto alle sue note, con frecce verso la successiva, e chi è aggiunto al team senza invito appare come Not invited

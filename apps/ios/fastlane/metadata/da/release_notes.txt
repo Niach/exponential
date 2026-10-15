@@ -1,4 +1,4 @@
-- Tråde: hvert stykke arbejde er én samtale, listet som Kræver dig, Kører og Seneste, med hver session som et kort
-- Teamagenter: tilføj agenter i Indstillinger, der passer en tavle fra deres egen enhed og starter en tråd for hvert stykke arbejde
-- Delte tråde: en tråd på en enhed delt med teamet er synlig for hele teamet, som kan svare og stoppe den
-- Handlinger er gemte prompts, og en merge af en pull request afslutter ikke længere en session
+- Tråde: en tråd er én skærm på alle enheder, med opgaver, sessioner og Guide i én stribe, og Home har skrivefeltet nederst på daggryet
+- Titler: en tråd er opkaldt efter sit arbejde, som Implement EXP-12 eller Run Triage, så alle lister ser ens ud på telefon, web og desktop
+- Spørgsmål: en agents valgmuligheder kan have en kort beskrivelse, og hvert spørgsmål har en række, hvor du kan skrive dit eget svar
+- Guide: et billede åbner ved siden af sine noter med pile til det næste, og personer tilføjet til teamet uden invitation vises som Not invited

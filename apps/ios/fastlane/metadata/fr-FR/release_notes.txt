@@ -1,4 +1,4 @@
-- Fils : chaque travail est une conversation, listée en À traiter, En cours et Récents, avec chaque session sous forme de carte
-- Agents d'équipe : ajoutez dans Réglages des agents qui s'occupent d'un tableau depuis leur propre appareil et ouvrent un fil pour chaque travail
-- Fils partagés : un fil sur un appareil partagé avec l'équipe est visible par toute l'équipe, qui peut répondre et l'arrêter
-- Les actions sont des prompts enregistrés, et fusionner une pull request ne termine plus une session
+- Fils : un fil est un seul écran sur chaque appareil, avec ses tickets, sessions et Guide dans une bande, et Home place la saisie en bas sur l'aube
+- Titres : un fil porte le nom de son travail, comme Implement EXP-12 ou Run Triage, pour que chaque liste se lise pareil sur téléphone, web et ordinateur
+- Questions : les options d'un agent peuvent avoir une courte description, et chaque question a une ligne pour saisir votre propre réponse
+- Guide : une image s'ouvre à côté de ses notes, avec des flèches vers la suivante, et les personnes ajoutées à l'équipe sans invitation apparaissent comme Not invited

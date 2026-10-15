@@ -1,4 +1,4 @@
-- Ketjut: jokainen työ on yksi keskustelu, listattuna Tarvitsee sinua, Käynnissä ja Viimeisimmät, ja jokainen istunto korttina
-- Tiimiagentit: lisää Asetuksissa agentteja, jotka hoitavat taulua omalta laitteeltaan ja aloittavat ketjun jokaiselle työlle
-- Jaetut ketjut: tiimin kanssa jaetun laitteen ketju näkyy koko tiimille, joka voi vastata ja pysäyttää sen
-- Toiminnot ovat tallennettuja kehotteita, eikä pull requestin yhdistäminen enää päätä istuntoa
+- Ketjut: ketju on yksi näkymä jokaisella laitteella, ja sen tehtävät, istunnot ja Guide ovat yhdessä nauhassa, ja Home tuo kirjoituskentän alas aamuruskon päälle
+- Otsikot: ketju nimetään työnsä mukaan, kuten Implement EXP-12 tai Run Triage, joten jokainen lista näyttää samalta puhelimessa, verkossa ja työpöydällä
+- Kysymykset: agentin vaihtoehdoilla voi olla lyhyt kuvaus, ja jokaisessa kysymyksessä on rivi omalle vastauksellesi
+- Guide: kuva avautuu muistiinpanojensa viereen nuolin seuraavaan, ja tiimiin ilman kutsua lisätyt näkyvät tilassa Not invited

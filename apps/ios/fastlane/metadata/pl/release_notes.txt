@@ -1,4 +1,4 @@
-- Wątki: każda praca to jedna rozmowa, na listach Czeka na Ciebie, Trwa i Ostatnie, z każdą sesją jako kartą
-- Agenci zespołu: dodaj w Ustawieniach agentów, którzy ze swojego urządzenia dbają o tablicę i dla każdej pracy zakładają wątek
-- Wspólne wątki: wątek na urządzeniu udostępnionym zespołowi widzi cały zespół, który może odpowiadać i go zatrzymać
-- Akcje to zapisane prompty, a scalenie pull requesta nie kończy już sesji
+- Wątki: wątek to jeden ekran na każdym urządzeniu, z zadaniami, sesjami i Guide w jednym pasku, a Home ma pole pisania na dole, na tle świtu
+- Tytuły: wątek nosi nazwę swojej pracy, np. Implement EXP-12 albo Run Triage, więc każda lista wygląda tak samo na telefonie, w sieci i na komputerze
+- Pytania: opcje agenta mogą mieć krótki opis, a każde pytanie ma wiersz na Twoją własną odpowiedź
+- Guide: obraz otwiera się obok swoich notatek, ze strzałkami do następnego, a osoby dodane do zespołu bez zaproszenia widnieją jako Not invited

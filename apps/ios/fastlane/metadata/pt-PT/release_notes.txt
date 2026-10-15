@@ -1,4 +1,4 @@
-- Threads: cada trabalho é uma conversa, listada como Precisa de si, Em curso e Recentes, com cada sessão como cartão
-- Agentes da equipa: adicione em Definições agentes que cuidam de um quadro a partir do seu próprio dispositivo e abrem uma thread para cada trabalho
-- Threads partilhadas: uma thread num dispositivo partilhado com a equipa é visível para toda a equipa, que pode responder e pará-la
-- As ações são prompts guardados, e fazer merge de um pull request já não termina uma sessão
+- Threads: uma thread é um só ecrã em cada dispositivo, com issues, sessões e Guide numa faixa, e o Home põe o campo de escrita em baixo, sobre a aurora
+- Títulos: uma thread tem o nome do seu trabalho, como Implement EXP-12 ou Run Triage, para que cada lista se leia igual no telemóvel, na web e no computador
+- Perguntas: as opções de um agente podem ter uma breve descrição, e cada pergunta tem uma linha para escrever a sua própria resposta
+- Guide: uma imagem abre ao lado das suas notas, com setas para a seguinte, e quem é adicionado à equipa sem convite aparece como Not invited

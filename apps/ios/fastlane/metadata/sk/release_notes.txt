@@ -1,4 +1,4 @@
-- Vlákna: každá práca je jedna konverzácia, zoradená ako Čaká na vás, Beží a Nedávne, s každou reláciou ako kartou
-- Tímoví agenti: v Nastaveniach pridajte agentov, ktorí sa zo svojho zariadenia starajú o nástenku a pre každú prácu spustia vlákno
-- Zdieľané vlákna: vlákno na zariadení zdieľanom s tímom vidí celý tím, ktorý môže odpovedať a zastaviť ho
-- Akcie sú uložené prompty a zlúčenie pull requestu už neukončí reláciu
+- Vlákna: vlákno je na každom zariadení jedna obrazovka, s úlohami, reláciami a Guide v jednom páse, a Home má editor dole na pozadí úsvitu
+- Názvy: vlákno sa volá podľa svojej práce, napríklad Implement EXP-12 alebo Run Triage, takže každý zoznam vyzerá rovnako na telefóne, webe aj desktope
+- Otázky: možnosti agenta môžu mať krátky popis a každá otázka má riadok, kam napíšete vlastnú odpoveď
+- Guide: obrázok sa otvorí vedľa svojich poznámok so šípkami k ďalšiemu a ľudia pridaní do tímu bez pozvánky sa zobrazia ako Not invited

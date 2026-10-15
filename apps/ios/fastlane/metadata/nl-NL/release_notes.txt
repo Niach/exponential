@@ -1,4 +1,4 @@
-- Threads: elk stuk werk is één gesprek, gelijst als Wacht op jou, Actief en Recent, met elke sessie als kaart
-- Teamagents: voeg in Instellingen agents toe die vanaf hun eigen apparaat een bord bijhouden en voor elk stuk werk een thread starten
-- Gedeelde threads: een thread op een met het team gedeeld apparaat is zichtbaar voor het hele team, dat kan antwoorden en hem kan stoppen
-- Acties zijn opgeslagen prompts, en het mergen van een pull request beëindigt geen sessie meer
+- Threads: een thread is één scherm op elk apparaat, met issues, sessies en Guide in één strook, en Home zet het invoerveld onderaan op de dageraad
+- Titels: een thread is vernoemd naar zijn werk, zoals Implement EXP-12 of Run Triage, zodat elke lijst hetzelfde leest op telefoon, web en desktop
+- Vragen: de opties van een agent kunnen een korte beschrijving hebben, en elke vraag heeft een regel om je eigen antwoord te typen
+- Guide: een afbeelding opent naast de notities, met pijlen naar de volgende, en mensen die zonder uitnodiging aan het team zijn toegevoegd tonen als Not invited

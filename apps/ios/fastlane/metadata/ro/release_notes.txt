@@ -1,4 +1,4 @@
-- Fire: fiecare lucrare este o conversație, listată ca Are nevoie de tine, Rulează și Recente, cu fiecare sesiune ca un card
-- Agenți de echipă: adaugă în Setări agenți care au grijă de un panou de pe propriul dispozitiv și pornesc un fir pentru fiecare lucrare
-- Fire partajate: un fir pe un dispozitiv partajat cu echipa este vizibil întregii echipe, care poate răspunde și îl poate opri
-- Acțiunile sunt prompturi salvate, iar îmbinarea unui pull request nu mai încheie o sesiune
+- Fire: un fir este un singur ecran pe fiecare dispozitiv, cu issue-uri, sesiuni și Guide într-o bandă, iar Home pune editorul jos, pe zori
+- Titluri: un fir poartă numele lucrării sale, ca Implement EXP-12 sau Run Triage, astfel încât fiecare listă arată la fel pe telefon, web și desktop
+- Întrebări: opțiunile unui agent pot avea o scurtă descriere, iar fiecare întrebare are un rând în care îți scrii propriul răspuns
+- Guide: o imagine se deschide lângă notițele ei, cu săgeți spre următoarea, iar persoanele adăugate în echipă fără invitație apar ca Not invited

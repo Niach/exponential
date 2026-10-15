@@ -1,4 +1,4 @@
-- Niti: svaki posao je jedan razgovor, popisan kao Treba vas, U tijeku i Nedavno, sa svakom sesijom kao karticom
-- Timski agenti: u Postavkama dodajte agente koji se sa svog uređaja brinu o ploči i pokreću nit za svaki posao
-- Dijeljene niti: nit na uređaju dijeljenom s timom vidi cijeli tim, koji može odgovoriti i zaustaviti je
-- Akcije su spremljeni promptovi, a spajanje pull requesta više ne završava sesiju
+- Niti: nit je jedan zaslon na svakom uređaju, sa zadacima, sesijama i Guide u jednoj traci, a Home stavlja polje za pisanje dolje na zoru
+- Naslovi: nit nosi ime svog posla, poput Implement EXP-12 ili Run Triage, pa svaki popis izgleda isto na mobitelu, webu i računalu
+- Pitanja: opcije agenta mogu imati kratak opis, a svako pitanje ima redak u koji upisujete vlastiti odgovor
+- Guide: slika se otvara uz svoje bilješke, sa strelicama prema sljedećoj, a osobe dodane u tim bez pozivnice prikazuju se kao Not invited
