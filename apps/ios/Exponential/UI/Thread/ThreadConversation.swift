@@ -175,7 +175,7 @@ struct ThreadConversationView: View {
                 id: 0,
                 wireId: id,
                 text: question,
-                options: options.map { AgentQuestionOption(label: $0, key: $0) },
+                options: options.map { AgentQuestionOption(label: $0.label, key: $0.label, description: $0.description) },
                 resolved: answered,
                 answers: answer.map { [$0] } ?? []
             )

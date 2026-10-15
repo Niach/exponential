@@ -169,6 +169,25 @@ public struct TreeIssue: Equatable, Sendable, Identifiable {
     }
 }
 
+/// One question-card option (EXP-1322): the answer IS the label; the
+/// description (nil when absent) renders under it. The synced card carries a
+/// bare string or `{label, description?}`; both normalise here.
+public struct TreeQuestionOption: Equatable, Sendable {
+    public let label: String
+    public let description: String?
+
+    public init(label: String, description: String? = nil) {
+        self.label = label
+        self.description = description
+    }
+}
+
+extension TreeQuestionOption: ExpressibleByStringLiteral {
+    public init(stringLiteral value: String) {
+        self.init(label: value)
+    }
+}
+
 /// A message's `card` jsonb (contract `messageCardKindValues`), read
 /// tolerantly: every field the rows use, nil when absent or mistyped.
 public struct TreeMessageCard: Equatable, Sendable {
@@ -177,7 +196,7 @@ public struct TreeMessageCard: Equatable, Sendable {
     public let sessionId: String?
     /// question.
     public let question: String?
-    public let options: [String]
+    public let options: [TreeQuestionOption]
     public let answer: String?
     /// plan.
     public let plan: String?
@@ -199,7 +218,7 @@ public struct TreeMessageCard: Equatable, Sendable {
         kind: String?,
         sessionId: String? = nil,
         question: String? = nil,
-        options: [String] = [],
+        options: [TreeQuestionOption] = [],
         answer: String? = nil,
         plan: String? = nil,
         decision: String? = nil,
@@ -254,8 +273,12 @@ public struct TreeMessageCard: Equatable, Sendable {
             question: loose("question"),
             options: (object["options"] as? [Any])?.compactMap { option in
                 switch option {
-                case let string as String: string
-                case let number as NSNumber: number.stringValue
+                case let string as String: TreeQuestionOption(label: string)
+                case let entry as [String: Any]:
+                    (entry["label"] as? String).map {
+                        let description = entry["description"] as? String
+                        return TreeQuestionOption(label: $0, description: description?.isEmpty == false ? description : nil)
+                    }
                 default: nil
                 }
             } ?? [],
@@ -434,7 +457,7 @@ public enum ThreadRow: Equatable, Sendable {
     case session(id: String, card: SessionCard)
     /// `custom` = a free-text answer is offered beside the options (always,
     /// EXP-1316: THE session view's card).
-    case question(id: String, question: String, options: [String], custom: Bool, answer: String?, answered: Bool)
+    case question(id: String, question: String, options: [TreeQuestionOption], custom: Bool, answer: String?, answered: Bool)
     case plan(id: String, plan: String, decision: String?)
     case subagent(id: String, title: String, status: String)
     case picture(id: String, attachmentId: String, width: Double?, height: Double?, caption: String?)

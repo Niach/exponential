@@ -154,7 +154,7 @@ final class SessionTreeTests: XCTestCase {
         case let .session(id, card):
             ["type": "session", "id": id, "card": json(card)]
         case let .question(id, question, options, custom, answer, answered):
-            ["type": "question", "id": id, "question": question, "options": options, "custom": custom, "answer": json(answer), "answered": answered]
+            ["type": "question", "id": id, "question": question, "options": options.map { ["label": $0.label, "description": json($0.description)] as [String: Any] }, "custom": custom, "answer": json(answer), "answered": answered]
         case let .plan(id, plan, decision):
             ["type": "plan", "id": id, "plan": plan, "decision": json(decision)]
         case let .subagent(id, title, status):
@@ -533,6 +533,11 @@ final class SessionTreeTests: XCTestCase {
         XCTAssertEqual(
             TreeMessageCard.parse(#"{"kind":"question","question":"Ship?","options":["Yes","No"]}"#),
             TreeMessageCard(kind: "question", question: "Ship?", options: ["Yes", "No"])
+        )
+        // EXP-1322: `{label, description?}` options normalise beside plain labels.
+        XCTAssertEqual(
+            TreeMessageCard.parse(#"{"kind":"question","options":["Yes",{"label":"No","description":"Later"},{"label":"Maybe","description":""},{"description":"x"},3]}"#)?.options,
+            [TreeQuestionOption(label: "Yes"), TreeQuestionOption(label: "No", description: "Later"), TreeQuestionOption(label: "Maybe")]
         )
     }
 
