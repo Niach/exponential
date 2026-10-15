@@ -863,7 +863,8 @@ struct AgentSessionView: View {
             // opens the subagent's own tab.
             VStack(alignment: .leading, spacing: 4) {
                 SubagentTraceLine(
-                    label: run.label, running: !run.done,
+                    label: SubagentTraceLine.label(run.agentType),
+                    running: !run.done && model?.phase == .live,
                     durationMs: model?.subagentDurationMs(run.subagentId, done: run.done),
                     onOpen: { openAgentTab(run.subagentId) }
                 )
@@ -3309,13 +3310,10 @@ private struct SubagentRow: View {
     let detail: String?
     var durationMs: Int? = nil
 
-    /// EXP-847: the title leads, the agent type is the fallback — mirroring
-    /// `AgentSubagentRun.label`.
-    private var label: String { title ?? agentType }
-
     var body: some View {
         SubagentTraceLine(
-            label: label, running: status != .completed, durationMs: durationMs
+            label: SubagentTraceLine.label(agentType),
+            running: status != .completed, durationMs: durationMs
         )
     }
 }
@@ -3328,6 +3326,13 @@ struct SubagentTraceLine: View {
     var durationMs: Int? = nil
     /// Tap = open the subagent's own tab (the line then carries a chevron).
     var onOpen: (() -> Void)? = nil
+
+    /// The line names the agent TYPE ("Ran the Explore agent", web parity);
+    /// the wire's fallback type reads as the unnamed "Ran a subagent".
+    static func label(_ agentType: String) -> String {
+        let type = agentType.trimmingCharacters(in: .whitespaces)
+        return type == AgentFeed.subagentFallbackType ? "" : type
+    }
 
     var body: some View {
         let model = Trace.subagent(
