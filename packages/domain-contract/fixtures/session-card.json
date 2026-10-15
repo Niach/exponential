@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, ordinal, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `blocked` when blocked is set, else `queued` when status queued, else `working` when busy, else `waiting`. name = the trimmed title, else '<copy.session> <ordinal>' (ordinal = 1-based place in the tree's creation order, ties by id). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working. tone = `tones[state]`.",
+  "$comment": "EXP-1291 Threads v2: THE session card ×4 — a session inside a thread (the root's own session first, every child where its `session` card message sits, an agent channel's `thread_started` cards) is ONE card = the Work card's HEADER row (work-card.json geometry.header px, radius lg, card hairline, no shadow): the state `icon` (concept), the `name` (medium, truncates), the muted `kindWord`, trailing the muted `elapsed` (tabular figures) with a 12px spinner in front while `running`. No device, account, branch or other caption. Tapping it opens that session's raw view (today's session view). Model = pure `sessionCard(session, ordinal, now)` (TS reference packages/domain-contract/src/session-tree.ts; mirrors desktop domain::session_tree, iOS ExpCore SessionTree.swift, Android domain/SessionTree.kt), every mirror replays `cases` and compares the WHOLE expected object. state = `ended` when status ended, else `needs_you` when needsInput, else `blocked` when blocked is set, else `queued` when status queued, else `working` when busy, else `waiting`. name = the trimmed title, else '<copy.session> <ordinal>' (ordinal = 1-based place in the tree's creation order, ties by id). elapsed = startedAt → now (ended: → endedAt, else updatedAt), the work card's ladder ('37s', '2m 04s', '1h 03m'); null while queued or without a parsable startedAt. running = state working. tone = `tones[state]`. EXP-1323: `caption` = the session's trimmed live status line (synced `sessions.caption`, device-written on tool edges, throttled, <=80 chars, cleared at turn end) as the card's muted second line; blank/absent = null; an ended session's caption drops unless `aside` (a /btw answer keeps its first line).",
   "copy": {
     "session": "Session",
     "states": {
@@ -70,6 +70,7 @@
         "tone": "foreground",
         "elapsed": "12m 34s",
         "running": true,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -112,6 +113,7 @@
         "tone": "muted",
         "elapsed": "12m 34s",
         "running": false,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -154,6 +156,7 @@
         "tone": "muted",
         "elapsed": null,
         "running": false,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -198,6 +201,7 @@
         "tone": "amber",
         "elapsed": "12m 34s",
         "running": false,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -243,6 +247,7 @@
         "tone": "rose",
         "elapsed": "12m 34s",
         "running": false,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -285,6 +290,7 @@
         "tone": "muted",
         "elapsed": "1h 03m",
         "running": false,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -327,6 +333,7 @@
         "tone": "muted",
         "elapsed": "37s",
         "running": false,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -369,6 +376,7 @@
         "tone": "foreground",
         "elapsed": "2m 04s",
         "running": true,
+        "caption": null,
         "testId": "session-card"
       }
     },
@@ -411,6 +419,191 @@
         "tone": "muted",
         "elapsed": null,
         "running": false,
+        "caption": null,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1323: a live caption rides the second line, trimmed",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": "Fix the cart",
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-15T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-15T10:00:00.000Z",
+          "updatedAt": "2026-10-15T10:00:00.000Z",
+          "caption": "  Reading CartLineItem.tsx ",
+          "aside": false,
+          "rootId": "r",
+          "id": "r"
+        },
+        "ordinal": 2,
+        "now": "2026-10-15T10:00:18.000Z"
+      },
+      "expected": {
+        "sessionId": "r",
+        "icon": "coding-running",
+        "name": "Fix the cart",
+        "kindWord": "Working",
+        "state": "working",
+        "tone": "foreground",
+        "elapsed": "18s",
+        "running": true,
+        "caption": "Reading CartLineItem.tsx",
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1323: a blank caption reads null",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "running",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-15T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-15T10:00:00.000Z",
+          "updatedAt": "2026-10-15T10:00:00.000Z",
+          "caption": "   ",
+          "aside": false,
+          "rootId": "r",
+          "id": "r"
+        },
+        "ordinal": 1,
+        "now": "2026-10-15T10:00:05.000Z"
+      },
+      "expected": {
+        "sessionId": "r",
+        "icon": "coding-assistant",
+        "name": "Session 1",
+        "kindWord": "Waiting",
+        "state": "waiting",
+        "tone": "muted",
+        "elapsed": "5s",
+        "running": false,
+        "caption": null,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1323: an ended session drops a stale caption",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "ended",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-15T10:00:00.000Z",
+          "endedAt": "2026-10-15T10:02:00.000Z",
+          "createdAt": "2026-10-15T10:00:00.000Z",
+          "updatedAt": "2026-10-15T10:00:00.000Z",
+          "caption": "Editing ProductCard.tsx",
+          "aside": false,
+          "rootId": "r",
+          "id": "r"
+        },
+        "ordinal": 3,
+        "now": "2026-10-15T11:00:00.000Z"
+      },
+      "expected": {
+        "sessionId": "r",
+        "icon": "coding-ended",
+        "name": "Session 3",
+        "kindWord": "Ended",
+        "state": "ended",
+        "tone": "muted",
+        "elapsed": "2m 00s",
+        "running": false,
+        "caption": null,
+        "testId": "session-card"
+      }
+    },
+    {
+      "name": "EXP-1323: an ended aside keeps its answer's first line",
+      "input": {
+        "session": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "ended",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": "what does useCart do?",
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-15T10:00:00.000Z",
+          "endedAt": "2026-10-15T10:00:09.000Z",
+          "createdAt": "2026-10-15T10:00:00.000Z",
+          "updatedAt": "2026-10-15T10:00:00.000Z",
+          "caption": "It returns the cart store's items and totals.",
+          "aside": true,
+          "rootId": "r",
+          "id": "r"
+        },
+        "ordinal": 4,
+        "now": "2026-10-15T11:00:00.000Z"
+      },
+      "expected": {
+        "sessionId": "r",
+        "icon": "coding-ended",
+        "name": "what does useCart do?",
+        "kindWord": "Ended",
+        "state": "ended",
+        "tone": "muted",
+        "elapsed": "9s",
+        "running": false,
+        "caption": "It returns the cart store's items and totals.",
         "testId": "session-card"
       }
     }

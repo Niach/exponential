@@ -40,7 +40,7 @@ public enum DomainContract {
     public static let issueRelationSourceValues: [String] = ["user", "reference"]
     public static let sessionIssueSourceValues: [String] = ["user", "agent"]
     public static let messageAuthorKindValues: [String] = ["user", "agent", "system"]
-    public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started"]
+    public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions"]
     public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet", "haiku"]
@@ -52,11 +52,11 @@ public enum DomainContract {
     public static let mcpAuthValues: [String] = ["none", "oauth", "secret"]
     public static let agentTriggerEventValues: [String] = ["created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged"]
     public static let agentScheduleIntervalValues: [String] = ["daily", "weekly", "monthly"]
-    public static let steerCommandNames: [String] = ["compact", "clear"]
-    public static let steerCommandDescriptions: [String] = ["Compact the conversation context", "Start a fresh conversation (context is discarded)"]
-    public static let steerCommandArgHints: [String] = ["instructions", ""]
-    public static let steerCommandAgents: [String] = ["claude,codex", "claude,codex"]
-    public static let steerCommandConfirm: [Bool] = [false, true]
+    public static let steerCommandNames: [String] = ["compact", "clear", "btw"]
+    public static let steerCommandDescriptions: [String] = ["Compact the conversation context", "Start a fresh conversation (context is discarded)", "Ask a quick side question without adding to the session"]
+    public static let steerCommandArgHints: [String] = ["instructions", "", "question"]
+    public static let steerCommandAgents: [String] = ["claude,codex", "claude,codex", "claude"]
+    public static let steerCommandConfirm: [Bool] = [false, true, false]
     public static let mcpCatalogIds: [String] = ["github", "gitlab", "gitlab-self-managed", "linear", "atlassian", "notion", "slack", "sentry", "stripe", "paypal", "supabase", "cloudflare", "netlify", "figma", "airtable", "box", "dropbox", "posthog", "todoist"]
     public static let mcpCatalogNames: [String] = ["GitHub", "GitLab", "GitLab (self-managed)", "Linear", "Jira & Confluence", "Notion", "Slack", "Sentry", "Stripe", "PayPal", "Supabase", "Cloudflare", "Netlify", "Figma", "Airtable", "Box", "Dropbox", "PostHog", "Todoist"]
     public static let mcpCatalogUrls: [String] = ["https://api.githubcopilot.com/mcp/", "https://gitlab.com/api/v4/mcp", "https://{host}/api/v4/mcp", "https://mcp.linear.app/mcp", "https://mcp.atlassian.com/v1/mcp", "https://mcp.notion.com/mcp", "https://mcp.slack.com/mcp", "https://mcp.sentry.dev/mcp", "https://mcp.stripe.com", "https://mcp.paypal.com/mcp", "https://mcp.supabase.com/mcp", "https://mcp.cloudflare.com/mcp", "https://mcp.netlify.com/mcp", "https://mcp.figma.com/mcp", "https://mcp.airtable.com/mcp", "https://mcp.box.com/mcp", "https://mcp.dropbox.com/mcp", "https://mcp.posthog.com/mcp", "https://ai.todoist.net/mcp"]
@@ -251,6 +251,8 @@ public enum DomainContract {
     public static let messageCardKindPicture: String = "picture"
     public static let messageCardKindEvent: String = "event"
     public static let messageCardKindThreadStarted: String = "thread_started"
+    public static let messageCardKindReport: String = "report"
+    public static let messageCardKindSuggestions: String = "suggestions"
     public static let messageEventKindIssueLinked: String = "issue_linked"
     public static let messageEventKindIssueFiled: String = "issue_filed"
     public static let messageEventKindIssueUnlinked: String = "issue_unlinked"

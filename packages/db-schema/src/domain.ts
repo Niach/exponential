@@ -1076,6 +1076,8 @@ export const messageCardKindValues = [
   `picture`,
   `event`,
   `thread_started`,
+  `report`,
+  `suggestions`,
 ] as const
 export type MessageCardKind = (typeof messageCardKindValues)[number]
 
@@ -1168,6 +1170,30 @@ export type MessageCard =
       sessionId?: string | null
     }
   | { kind: `thread_started`; sessionId: string }
+  | { kind: `report`; sessionId: string; summary: string }
+  | { kind: `suggestions`; items: SuggestionItem[] }
+
+/** EXP-1323: one item of a `suggestions` card (`sessions_suggest`). Start =
+ *  a child (`sessionId` stamped), Do it here = a message to the posting
+ *  session (`here` stamped), File as issue = `issueId` stamped. */
+export interface SuggestionItem {
+  id: string
+  title: string
+  text: string
+  issueIds?: string[] | null
+  sessionId?: string | null
+  issueId?: string | null
+  here?: boolean | null
+  dismissed?: boolean | null
+}
+
+export const SUGGESTIONS_MAX = 10
+
+export const suggestionInputSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  text: z.string().trim().min(1).max(4000),
+  issueIds: z.array(z.string()).max(10).optional(),
+})
 
 // Tolerant read schema (a future card kind must not brick a collection):
 // clients render unknown kinds as nothing. Stays passthrough: the EXP-1322

@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291 Threads v2: the THREAD screen ×4 (a thread IS a root session). Header = the title + ONE tab strip: Conversation · one issue chip per linked issue (session_issues of the ROOT by sortOrder; unsynced issues drop out) · '+' (link/file an issue; ALWAYS right after the issue chips) · the session chips (EXP-1316, below) · Guide (a dot while the root's guide holds any text or picture); nothing else (no captions, no Stop, no right sidebar). Phones use the strip as the pager. Conversation rows = the root's own session card first (session-card.json, ordinal 1), then the ROOT's messages oldest first (createdAt, ties by id): a card-less row = a message bubble (author user|agent|system, empty bodies skipped; a person's row reads `queued` until the device consumed it); card `session`/`thread_started` = that session's card (ordinal = its place in the tree's creation order; an unsynced target drops out); `question` (question, options, answer, answered = answeredAt set; EXP-1322: `card.options` = plain label strings and the parallel `card.optionDescriptions` sidecar carries the descriptions (same length; null or '' = none; the key is omitted when no option has one), so row option i = `{label: options[i], description: optionDescriptions?.[i] || null}`; cards posted before the sidecar carry `{label, description}` objects inside `options` and those keep reading (an object's own description wins over its sidecar slot; an option without a string label is dropped); the thread card renders label + description like the session view's card; the answer names the option by its label. COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop 0.14.69 only read string options. The device may post {label, description} objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >= 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form)) and `plan` (plan, decision) answer IN the card; `subagent` (title, status); `picture` (attachmentId, width, height, caption; no attachmentId = dropped); `event` = one muted line from `copy.events` ({issue} = the issue's identifier, {pr} = '#<number>'; an unresolvable target or unknown event = dropped); unknown card kinds are dropped. Children's own messages never inline: they show when that session is opened. The composer below = THE session composer box (Composer primitive), placeholder `copy.placeholder`, sending `sessions.send({sessionId: root})` (an ended thread continues server-side in a new child). title = threadTitle (EXP-1316, nobody renames a thread ×4, no `sessions.setTitle`): kind agent → its `name`; else an action → `titles.action` (`Run <action name>`); else linked issues (the root's SYNCED issues by sortOrder) → `titles.issue` (`Implement EXP-12`), with n>1 `titles.issues` (`Implement EXP-12 + <n-1>`), plain text, no pill; else the stored title (the CLI's auto-name, written by `sessions.report` only while blank; the engine asks for it only on pure chats: no issues, no action); else the first line of the root's first person message (image lines skipped, capped at `titleMax` chars with '…'); else `copy.untitled`. The server's `deriveSessionTitle` = the same function. private = !root.shared (a lock glyph beside the title). live/busy/needsYou aggregate the tree's non-ended sessions. Model = pure `buildSessionThread(input)` (packages/domain-contract/src/session-tree.ts), every mirror replays `cases` comparing the WHOLE expected object. EXP-1306 (owner 2026-10-14): the GUIDE tab ×4 = the root's Guide text over ONE pull request, `guidePullRequest(pullRequests)` (the root's pull_requests; every mirror replays `guidePullRequestCases`): the newest OPEN one (createdAt, ties by the higher number), else the newest MERGED one, else none (a closed PR never counts). When that PR sits in a linear open stack (pr-stack-view.json `stackView` over the repository's pull requests: head = branch, base = prBaseBranch) a `copy.stack` band (the pr-stack glyph, no count) + THE StackRail (top first, the PR's row = the current wash, down to its base branch; a row opens that PR's thread, the hovered/long-pressed row offers Merge through here) leads the Guide; no stack = no block. NO pull-request rows, no inline Merge, no Pull requests band. While the PR is open THE white bottom Merge capsule closes the tab (`testIds.guideMerge`; `Merge stack` on an open-stack member, the one stack confirm). The SESSION view (a session card opens it): while a question or plan card waits on the viewer the CARD takes the composer's place (EXP-820) ×4, the composer leaves and its draft comes back with it: `composerYieldsToCard({live, pendingAsk})` = live AND an unanswered question/plan the viewer may answer; every mirror replays `composerCases`. EXP-1307 (2026-10-14): Open on GitHub + Close PR live in ONE `…` (ui-more) in the thread HEADER's trailing slot ×4 (web/desktop: the title row's end; phones: the header's action slot), shown on every tab while the Guide has a PR (EXP-1316, ×4) (`guidePullRequest`); `testIds.guideMenu` = the trigger. Its entries = `guideMenuEntries({state, member})` (state = that PR's state, null = no PR; every mirror replays `guideMenuCases`): `open-github` (contract diffUi.openOnGithub, the ui-github glyph) always, then `close-pr` (close-pr.json menuItem, pr-closed glyph, destructive) while the PR is open and the viewer is a member; Close confirms with close-pr.json's dialog (batchLine when the PR links other issues). Empty = no trigger. The bottom capsule stays Merge alone. EXP-1316 session chips: `tabs` carries `{kind: 'session', sessionId, name, markState}` after `add` and before `guide` = the sessions at the VIEWED level: on the thread = the root's own run, then its DIRECT children (tree creation order, createdAt then id); with `buildSessionThread(input, {focus})` (cases carry `options.focus`) = that session first (the active chip), then ITS direct children; nothing deeper. `focusId` = the focused session (null = the thread). name = sessionCard's name (stored title, else `Session N` by tree ordinal); markState = sessionTabMarkState = threadRowMarkState({needsYou, busy}) of THAT session, `ended` once it ended. Every chip in the strip is ONE height (entity-chip.json tab size). Clicking a session chip or a session card opens the session IN PLACE on web md+ and the IDE (`?tab=session&session=<id>` on the thread route; `/sessions/$sessionId` stays a redirect for deep links): the header + strip stay, the body = the raw work, the header's trailing slot gains its Stop pill while live; phones keep pushing the session screen (own back header). Hover (md+/IDE) or long-press (phones) on the session group = the tree popover (list-item.json SessionRow small rows + TreeGuides, the whole tree, the current row washed). EXP-1316 embedded issue: the issue tab = the issue body WITHOUT its own header bar, mobile header, Threads row, Start control or pin (title row, properties, description, files, relations, activity + comments stay; the phone bottom bar keeps properties + Comment only). EXP-1316 phone header: the thread screen wears detail-chrome.json's header band (blur + scrim + edge fade, content scrolls under it): `‹` · the title on ONE line (not tappable) + the lock · `…`, the strip (the pager) inside the band. Phones' reply box = THE floating composer capsule (collapsed: a capsule reading `copy.placeholder` floating over the content above the bottom edge fade; tap expands it into THE Composer card: text, + images/files, send, Stop while busy; collapses on blur), the session view uses the same component; web md+/IDE keep the in-flow Composer box. EXP-1316 header merge (amends EXP-1306/1307 on web md+ and the IDE): while `guidePullRequest` is open the header's trailing slot = the Merge pill (`Merge PR` | `Merge stack`), then the Stop pill while the focused session is live, then the `…` (every tab ×4, see EXP-1307); phones keep the white bottom Merge capsule on the Guide tab. EXP-1316 one card: `question` and `plan` rows render THE session view's card ×4 (the same component and answer path, `sessions.answer`): a question offers its options AND a free-text answer (`custom: true`; `answer` may be any string, not only an option), a plan its decision + note; the thread draws no reduced card of its own. An answered card renders CLOSED (chosen answer / decision shown, options inert) on every client whichever path answered it: the thread card (`sessions.answer`) or the session view (relay → device → `sessions.resolveCard`). `sessions.resolveCard({messageId, answer?, decision?, feedback?})` = the DEVICE's write-back (its owner's token, the same steer auth as `answer`): stamps the same answered `card` + `answeredAt` while still null, `{ok: true}` idempotently when already answered (never CONFLICT), and enqueues nothing: the engine resolved that question itself, so the card left the engine's open cards (`outbox.resolve_question`) and the pickup, which only feeds answered cards still OPEN in the engine, never re-feeds it. DISPATCH (owner 2026-10-15, thread 2eb4b1a1): every new root (thread or team agent, `sessions.dispatch`) is a dispatcher on the device's thread model that answers shallow questions itself and starts child sessions for real work; its composer = THE session composer of the session view ×4 targeting the ROOT: text, + (files), Send ⇄ Stop while the tree is busy, the model pin (ONE model picker, all four models, no Default; a pick sends `/model <alias>` through `sessions.send`), the context ring off the root's relay state, the `/` menu (steerCommands ∪ agent commands); NO queue strip on the thread (the person's queued rows already show in the Conversation with their Remove X, EXP-1317); NO plan chip/toggle on a dispatcher (plan mode is a work pick for its children). Placeholder `copy.placeholder`. EXP-1317 queue: a person's OWN queued row (queued = true, authorId = the viewer) carries ONE `Remove from queue` X ×4 (the ui-close glyph, tooltip `Remove from queue`, `sessions.unqueue`); its tooltip never outlives the button (the IDE keys the button on (message id, queued) and drops the tooltip when the row flips).",
+  "$comment": "EXP-1291 Threads v2: the THREAD screen ×4 (a thread IS a root session). Header = the title + ONE tab strip: Conversation · one issue chip per linked issue (session_issues of the ROOT by sortOrder; unsynced issues drop out) · '+' (link/file an issue; ALWAYS right after the issue chips) · the session chips (EXP-1316, below) · Guide (a dot while the root's guide holds any text or picture); nothing else (no captions, no Stop, no right sidebar). Phones use the strip as the pager. Conversation rows = the root's own session card first (session-card.json, ordinal 1), then the ROOT's messages oldest first (createdAt, ties by id): a card-less row = a message bubble (author user|agent|system, empty bodies skipped; a person's row reads `queued` until the device consumed it); card `session`/`thread_started` = that session's card (ordinal = its place in the tree's creation order; an unsynced target drops out); `question` (question, options, answer, answered = answeredAt set; EXP-1322: `card.options` = plain label strings and the parallel `card.optionDescriptions` sidecar carries the descriptions (same length; null or '' = none; the key is omitted when no option has one), so row option i = `{label: options[i], description: optionDescriptions?.[i] || null}`; cards posted before the sidecar carry `{label, description}` objects inside `options` and those keep reading (an object's own description wins over its sidecar slot; an option without a string label is dropped); the thread card renders label + description like the session view's card; the answer names the option by its label. COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop 0.14.69 only read string options. The device may post {label, description} objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >= 0.14.62 AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form)) and `plan` (plan, decision) answer IN the card; `subagent` (title, status); `picture` (attachmentId, width, height, caption; no attachmentId = dropped); `event` = one muted line from `copy.events` ({issue} = the issue's identifier, {pr} = '#<number>'; an unresolvable target or unknown event = dropped); unknown card kinds are dropped. Children's own messages never inline: they show when that session is opened. The composer below = THE session composer box (Composer primitive), placeholder `copy.placeholder`, sending `sessions.send({sessionId: root})` (an ended thread continues server-side in a new child). title = threadTitle (EXP-1316, nobody renames a thread ×4, no `sessions.setTitle`): kind agent → its `name`; else an action → `titles.action` (`Run <action name>`); else linked issues (the root's SYNCED issues by sortOrder) → `titles.issue` (`Implement EXP-12`), with n>1 `titles.issues` (`Implement EXP-12 + <n-1>`), plain text, no pill; else the stored title (the CLI's auto-name, written by `sessions.report` only while blank; the engine asks for it only on pure chats: no issues, no action); else the first line of the root's first person message (image lines skipped, capped at `titleMax` chars with '…'); else `copy.untitled`. The server's `deriveSessionTitle` = the same function. private = !root.shared (a lock glyph beside the title). live/busy/needsYou aggregate the tree's non-ended sessions. Model = pure `buildSessionThread(input)` (packages/domain-contract/src/session-tree.ts), every mirror replays `cases` comparing the WHOLE expected object. EXP-1306 (owner 2026-10-14): the GUIDE tab ×4 = the root's Guide text over ONE pull request, `guidePullRequest(pullRequests)` (the root's pull_requests; every mirror replays `guidePullRequestCases`): the newest OPEN one (createdAt, ties by the higher number), else the newest MERGED one, else none (a closed PR never counts). When that PR sits in a linear open stack (pr-stack-view.json `stackView` over the repository's pull requests: head = branch, base = prBaseBranch) a `copy.stack` band (the pr-stack glyph, no count) + THE StackRail (top first, the PR's row = the current wash, down to its base branch; a row opens that PR's thread, the hovered/long-pressed row offers Merge through here) leads the Guide; no stack = no block. NO pull-request rows, no inline Merge, no Pull requests band. While the PR is open THE white bottom Merge capsule closes the tab (`testIds.guideMerge`; `Merge stack` on an open-stack member, the one stack confirm). The SESSION view (a session card opens it): while a question or plan card waits on the viewer the CARD takes the composer's place (EXP-820) ×4, the composer leaves and its draft comes back with it: `composerYieldsToCard({live, pendingAsk})` = live AND an unanswered question/plan the viewer may answer; every mirror replays `composerCases`. EXP-1307 (2026-10-14): Open on GitHub + Close PR live in ONE `…` (ui-more) in the thread HEADER's trailing slot ×4 (web/desktop: the title row's end; phones: the header's action slot), shown on every tab while the Guide has a PR (EXP-1316, ×4) (`guidePullRequest`); `testIds.guideMenu` = the trigger. Its entries = `guideMenuEntries({state, member})` (state = that PR's state, null = no PR; every mirror replays `guideMenuCases`): `open-github` (contract diffUi.openOnGithub, the ui-github glyph) always, then `close-pr` (close-pr.json menuItem, pr-closed glyph, destructive) while the PR is open and the viewer is a member; Close confirms with close-pr.json's dialog (batchLine when the PR links other issues). Empty = no trigger. The bottom capsule stays Merge alone. EXP-1316 session chips: `tabs` carries `{kind: 'session', sessionId, name, markState}` after `add` and before `guide` = the sessions at the VIEWED level: on the thread = the root's own run, then its DIRECT children (tree creation order, createdAt then id); with `buildSessionThread(input, {focus})` (cases carry `options.focus`) = that session first (the active chip), then ITS direct children; nothing deeper. `focusId` = the focused session (null = the thread). name = sessionCard's name (stored title, else `Session N` by tree ordinal); markState = sessionTabMarkState = threadRowMarkState({needsYou, busy}) of THAT session, `ended` once it ended. Every chip in the strip is ONE height (entity-chip.json tab size). Clicking a session chip or a session card opens the session IN PLACE on web md+ and the IDE (`?tab=session&session=<id>` on the thread route; `/sessions/$sessionId` stays a redirect for deep links): the header + strip stay, the body = the raw work, the header's trailing slot gains its Stop pill while live; phones keep pushing the session screen (own back header). Hover (md+/IDE) or long-press (phones) on the session group = the tree popover (list-item.json SessionRow small rows + TreeGuides, the whole tree, the current row washed). EXP-1316 embedded issue: the issue tab = the issue body WITHOUT its own header bar, mobile header, Threads row, Start control or pin (title row, properties, description, files, relations, activity + comments stay; the phone bottom bar keeps properties + Comment only). EXP-1316 phone header: the thread screen wears detail-chrome.json's header band (blur + scrim + edge fade, content scrolls under it): `‹` · the title on ONE line (not tappable) + the lock · `…`, the strip (the pager) inside the band. Phones' reply box = THE floating composer capsule (collapsed: a capsule reading `copy.placeholder` floating over the content above the bottom edge fade; tap expands it into THE Composer card: text, + images/files, send, Stop while busy; collapses on blur), the session view uses the same component; web md+/IDE keep the in-flow Composer box. EXP-1316 header merge (amends EXP-1306/1307 on web md+ and the IDE): while `guidePullRequest` is open the header's trailing slot = the Merge pill (`Merge PR` | `Merge stack`), then the Stop pill while the focused session is live, then the `…` (every tab ×4, see EXP-1307); phones keep the white bottom Merge capsule on the Guide tab. EXP-1316 one card: `question` and `plan` rows render THE session view's card ×4 (the same component and answer path, `sessions.answer`): a question offers its options AND a free-text answer (`custom: true`; `answer` may be any string, not only an option), a plan its decision + note; the thread draws no reduced card of its own. An answered card renders CLOSED (chosen answer / decision shown, options inert) on every client whichever path answered it: the thread card (`sessions.answer`) or the session view (relay → device → `sessions.resolveCard`). `sessions.resolveCard({messageId, answer?, decision?, feedback?})` = the DEVICE's write-back (its owner's token, the same steer auth as `answer`): stamps the same answered `card` + `answeredAt` while still null, `{ok: true}` idempotently when already answered (never CONFLICT), and enqueues nothing: the engine resolved that question itself, so the card left the engine's open cards (`outbox.resolve_question`) and the pickup, which only feeds answered cards still OPEN in the engine, never re-feeds it. DISPATCH (owner 2026-10-15, thread 2eb4b1a1): every new root (thread or team agent, `sessions.dispatch`) is a dispatcher on the device's thread model that answers shallow questions itself and starts child sessions for real work; its composer = THE session composer of the session view ×4 targeting the ROOT: text, + (files), Send ⇄ Stop while the tree is busy, the model pin (ONE model picker, all four models, no Default; a pick sends `/model <alias>` through `sessions.send`), the context ring off the root's relay state, the `/` menu (steerCommands ∪ agent commands); NO queue strip on the thread (the person's queued rows already show in the Conversation with their Remove X, EXP-1317); NO plan chip/toggle on a dispatcher (plan mode is a work pick for its children). Placeholder `copy.placeholder`. EXP-1317 queue: a person's OWN queued row (queued = true, authorId = the viewer) carries ONE `Remove from queue` X ×4 (the ui-close glyph, tooltip `Remove from queue`, `sessions.unqueue`); its tooltip never outlives the button (the IDE keys the button on (message id, queued) and drops the tooltip when the row flips). EXP-1323 (owner 2026-10-15): a `report` card {sessionId, summary} (a child's end, posted on its PARENT, agent-authored) = an event-like row `copy.report` with {session} = that session's card name + the summary (card.summary, else the body); an unsynced session drops it. A `suggestions` card {items:[{id,title,text,issueIds?,sessionId?,issueId?,here?,dismissed?}]} (`exponential_sessions_suggest`) = ONE row: dismissed items drop (all dismissed = no row); item state = started (sessionId; `card` = that child's SessionCard once synced, else null) > here (Do it here) > filed (issueId; identifier when synced) > open; header = `copy.suggestions.one|many`, plus ` · ` + `started` with any started; `startAll` = more than one open item. The card renders in THE DecisionCard/Work card styling: open items = title, text, × (Dismiss), Options (THE Menu: Start on… · Start with… · File as issue · Dismiss), Do it here, Start; phones stack the buttons. Message rows carry `authorSessionId` (absent = null). `liveSessionId` = the root while it is not ended: the Conversation ends with the existing Tasks Work card (`task_list`) + ONE status line read from that session's relay state (the raw view's bottom strip), above the composer. A `/btw` aside is a plain child `session` card on the parent (title = the question, caption = the answer's first line).",
   "copy": {
     "untitled": "Untitled",
     "placeholder": "Reply…",
@@ -14,7 +14,23 @@
       "pr_closed": "Closed PR {pr}",
       "session_ended": "Session ended"
     },
-    "stack": "Stack"
+    "stack": "Stack",
+    "report": "Report from {session}",
+    "suggestions": {
+      "one": "1 suggested task",
+      "many": "{count} suggested tasks",
+      "started": "{count} started",
+      "startAll": "Start all",
+      "start": "Start",
+      "here": "Do it here",
+      "options": "Options",
+      "startOn": "Start on…",
+      "startWith": "Start with…",
+      "file": "File as issue",
+      "dismiss": "Dismiss",
+      "sentHere": "Sent here",
+      "filed": "Filed {issue}"
+    }
   },
   "titles": {
     "action": "Run {action}",
@@ -28,7 +44,10 @@
     "composer": "thread-composer",
     "guideStack": "thread-guide-stack",
     "guideMerge": "thread-guide-merge",
-    "guideMenu": "thread-guide-menu"
+    "guideMenu": "thread-guide-menu",
+    "report": "thread-report",
+    "suggestions": "thread-suggestions",
+    "liveTail": "thread-live-tail"
   },
   "cases": [
     {
@@ -327,6 +346,7 @@
               "tone": "foreground",
               "elapsed": "12m 34s",
               "running": true,
+              "caption": null,
               "testId": "session-card"
             }
           },
@@ -336,7 +356,8 @@
             "author": "user",
             "authorId": "u-dana",
             "body": "Fix the Safari login\n\nIt loops.",
-            "queued": false
+            "queued": false,
+            "authorSessionId": null
           },
           {
             "type": "message",
@@ -344,7 +365,8 @@
             "author": "agent",
             "authorId": null,
             "body": "Found it: the cookie's SameSite flag.",
-            "queued": false
+            "queued": false,
+            "authorSessionId": null
           },
           {
             "type": "event",
@@ -364,6 +386,7 @@
               "tone": "muted",
               "elapsed": "7m 34s",
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           },
@@ -397,7 +420,8 @@
             "author": "user",
             "authorId": "u-dana",
             "body": "Yes, flag it.",
-            "queued": true
+            "queued": true,
+            "authorSessionId": null
           }
         ],
         "composer": {
@@ -405,6 +429,7 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r1",
         "busy": true,
         "needsYou": false
       }
@@ -618,6 +643,7 @@
               "tone": "muted",
               "elapsed": "30m 00s",
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           },
@@ -653,6 +679,7 @@
           "placeholder": "Reply…"
         },
         "live": false,
+        "liveSessionId": null,
         "busy": false,
         "needsYou": false
       }
@@ -727,6 +754,7 @@
               "tone": "muted",
               "elapsed": "12m 34s",
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           }
@@ -736,6 +764,7 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r3",
         "busy": false,
         "needsYou": false
       }
@@ -822,6 +851,7 @@
               "tone": "muted",
               "elapsed": null,
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           },
@@ -831,7 +861,8 @@
             "author": "user",
             "authorId": "u-dana",
             "body": "![image](/api/attachments/x)\nPlease rewrite the onboarding wizard so that every step fits on one phone screen and nothing scrolls",
-            "queued": true
+            "queued": true,
+            "authorSessionId": null
           }
         ],
         "composer": {
@@ -839,6 +870,7 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r4",
         "busy": false,
         "needsYou": false
       }
@@ -913,6 +945,7 @@
               "tone": "muted",
               "elapsed": "12m 34s",
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           }
@@ -922,6 +955,7 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r5",
         "busy": false,
         "needsYou": false
       }
@@ -1018,6 +1052,7 @@
               "tone": "muted",
               "elapsed": "12m 34s",
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           }
@@ -1027,6 +1062,7 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r6",
         "busy": false,
         "needsYou": false
       }
@@ -1133,6 +1169,7 @@
               "tone": "muted",
               "elapsed": "12m 34s",
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           }
@@ -1142,6 +1179,7 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r7",
         "busy": false,
         "needsYou": false
       }
@@ -1364,6 +1402,7 @@
               "tone": "muted",
               "elapsed": "12m 34s",
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           },
@@ -1373,7 +1412,8 @@
             "author": "user",
             "authorId": "u-dana",
             "body": "Ship the fix",
-            "queued": false
+            "queued": false,
+            "authorSessionId": null
           },
           {
             "type": "question",
@@ -1399,6 +1439,7 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r8",
         "busy": true,
         "needsYou": true
       }
@@ -1522,6 +1563,7 @@
               "tone": "muted",
               "elapsed": null,
               "running": false,
+              "caption": null,
               "testId": "session-card"
             }
           },
@@ -1575,6 +1617,792 @@
           "placeholder": "Reply…"
         },
         "live": true,
+        "liveSessionId": "r9",
+        "busy": false,
+        "needsYou": false
+      }
+    },
+    {
+      "name": "EXP-1323: a live dispatcher: suggestions in every state, a child's question, a report, a btw aside card, the live tail",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "running",
+          "busy": true,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": null,
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-15T10:00:00.000Z",
+          "endedAt": null,
+          "createdAt": "2026-10-15T10:00:00.000Z",
+          "updatedAt": "2026-10-15T10:00:00.000Z",
+          "caption": "Dispatching",
+          "aside": false,
+          "rootId": "r",
+          "id": "r"
+        },
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "thread",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-15T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-15T10:00:00.000Z",
+            "updatedAt": "2026-10-15T10:00:00.000Z",
+            "caption": "Dispatching",
+            "aside": false,
+            "rootId": "r",
+            "id": "r"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "kind": "thread",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Add width and height to cart thumbnails",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-15T10:02:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-15T10:02:00.000Z",
+            "updatedAt": "2026-10-15T10:00:00.000Z",
+            "caption": "Reading CartLineItem.tsx",
+            "aside": false,
+            "rootId": "r",
+            "id": "c1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "kind": "thread",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Lazy-load product images",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-15T10:03:00.000Z",
+            "endedAt": "2026-10-15T10:06:00.000Z",
+            "createdAt": "2026-10-15T10:03:00.000Z",
+            "updatedAt": "2026-10-15T10:00:00.000Z",
+            "caption": "Editing ProductCard.tsx",
+            "aside": false,
+            "rootId": "r",
+            "id": "c2"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "kind": "thread",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "what does useCart do?",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-15T10:04:00.000Z",
+            "endedAt": "2026-10-15T10:04:09.000Z",
+            "createdAt": "2026-10-15T10:04:00.000Z",
+            "updatedAt": "2026-10-15T10:00:00.000Z",
+            "caption": "It returns the cart store's items and totals.",
+            "aside": true,
+            "rootId": "r",
+            "id": "c3"
+          }
+        ],
+        "sessionIssues": [],
+        "issues": [
+          {
+            "id": "i-9",
+            "identifier": "EXP-9",
+            "title": "Cache headers"
+          }
+        ],
+        "messages": [
+          {
+            "id": "m1",
+            "sessionId": "r",
+            "authorKind": "user",
+            "authorId": "u-dana",
+            "body": "Speed up the shop",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:00:30.000Z",
+            "authorSessionId": null
+          },
+          {
+            "id": "m2",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "suggestions",
+              "items": [
+                {
+                  "id": "s1",
+                  "title": "Add width and height to cart thumbnails",
+                  "text": "Avoid layout shift in the cart.",
+                  "sessionId": "c1"
+                },
+                {
+                  "id": "s2",
+                  "title": "Lazy-load product images",
+                  "text": "Below-the-fold images load late.",
+                  "sessionId": "c2"
+                },
+                {
+                  "id": "s3",
+                  "title": "Cache headers",
+                  "text": "Long-cache the static assets.",
+                  "issueId": "i-9"
+                },
+                {
+                  "id": "s4",
+                  "title": "Measure LCP",
+                  "text": "Run Lighthouse here.",
+                  "here": true
+                },
+                {
+                  "id": "s5",
+                  "title": "Drop the carousel",
+                  "text": "It is never used.",
+                  "dismissed": true
+                },
+                {
+                  "id": "s6",
+                  "title": "Preload the hero font",
+                  "text": "Saves a round trip."
+                },
+                {
+                  "id": "s7",
+                  "title": "Started elsewhere",
+                  "text": "Not synced yet.",
+                  "sessionId": "c-unsynced"
+                }
+              ]
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:01:00.000Z",
+            "authorSessionId": null
+          },
+          {
+            "id": "m3",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "session",
+              "sessionId": "c3"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:04:00.000Z",
+            "authorSessionId": null
+          },
+          {
+            "id": "m4",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "Should thumbnails keep a 1:1 ratio?",
+            "card": null,
+            "answeredAt": null,
+            "consumedAt": null,
+            "createdAt": "2026-10-15T10:05:00.000Z",
+            "authorSessionId": "c1"
+          },
+          {
+            "id": "m5",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "Lazy-loading is in; PR #12 is open.",
+            "card": {
+              "kind": "report",
+              "sessionId": "c2",
+              "summary": "Lazy-loading is in; PR #12 is open."
+            },
+            "answeredAt": null,
+            "consumedAt": null,
+            "createdAt": "2026-10-15T10:06:00.000Z",
+            "authorSessionId": "c2"
+          },
+          {
+            "id": "m6",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "gone",
+            "card": {
+              "kind": "report",
+              "sessionId": "c-gone",
+              "summary": "gone"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:07:00.000Z",
+            "authorSessionId": "c-gone"
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-15T10:08:00.000Z"
+      },
+      "expected": {
+        "rootId": "r",
+        "title": "Speed up the shop",
+        "private": false,
+        "focusId": null,
+        "tabs": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "session",
+            "sessionId": "r",
+            "name": "Session 1",
+            "markState": "working"
+          },
+          {
+            "kind": "session",
+            "sessionId": "c1",
+            "name": "Add width and height to cart thumbnails",
+            "markState": "working"
+          },
+          {
+            "kind": "session",
+            "sessionId": "c2",
+            "name": "Lazy-load product images",
+            "markState": "ended"
+          },
+          {
+            "kind": "session",
+            "sessionId": "c3",
+            "name": "what does useCart do?",
+            "markState": "ended"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "rows": [
+          {
+            "type": "session",
+            "id": "r",
+            "card": {
+              "sessionId": "r",
+              "icon": "coding-running",
+              "name": "Session 1",
+              "kindWord": "Working",
+              "state": "working",
+              "tone": "foreground",
+              "elapsed": "8m 00s",
+              "running": true,
+              "caption": "Dispatching",
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "message",
+            "id": "m1",
+            "author": "user",
+            "authorId": "u-dana",
+            "body": "Speed up the shop",
+            "queued": false,
+            "authorSessionId": null
+          },
+          {
+            "type": "suggestions",
+            "id": "m2",
+            "sessionId": "r",
+            "header": "6 suggested tasks · 3 started",
+            "startAll": false,
+            "items": [
+              {
+                "id": "s1",
+                "title": "Add width and height to cart thumbnails",
+                "text": "Avoid layout shift in the cart.",
+                "state": "started",
+                "card": {
+                  "sessionId": "c1",
+                  "icon": "coding-running",
+                  "name": "Add width and height to cart thumbnails",
+                  "kindWord": "Working",
+                  "state": "working",
+                  "tone": "foreground",
+                  "elapsed": "6m 00s",
+                  "running": true,
+                  "caption": "Reading CartLineItem.tsx",
+                  "testId": "session-card"
+                },
+                "issueId": null,
+                "identifier": null
+              },
+              {
+                "id": "s2",
+                "title": "Lazy-load product images",
+                "text": "Below-the-fold images load late.",
+                "state": "started",
+                "card": {
+                  "sessionId": "c2",
+                  "icon": "coding-ended",
+                  "name": "Lazy-load product images",
+                  "kindWord": "Ended",
+                  "state": "ended",
+                  "tone": "muted",
+                  "elapsed": "3m 00s",
+                  "running": false,
+                  "caption": null,
+                  "testId": "session-card"
+                },
+                "issueId": null,
+                "identifier": null
+              },
+              {
+                "id": "s3",
+                "title": "Cache headers",
+                "text": "Long-cache the static assets.",
+                "state": "filed",
+                "card": null,
+                "issueId": "i-9",
+                "identifier": "EXP-9"
+              },
+              {
+                "id": "s4",
+                "title": "Measure LCP",
+                "text": "Run Lighthouse here.",
+                "state": "here",
+                "card": null,
+                "issueId": null,
+                "identifier": null
+              },
+              {
+                "id": "s6",
+                "title": "Preload the hero font",
+                "text": "Saves a round trip.",
+                "state": "open",
+                "card": null,
+                "issueId": null,
+                "identifier": null
+              },
+              {
+                "id": "s7",
+                "title": "Started elsewhere",
+                "text": "Not synced yet.",
+                "state": "started",
+                "card": null,
+                "issueId": null,
+                "identifier": null
+              }
+            ]
+          },
+          {
+            "type": "session",
+            "id": "m3",
+            "card": {
+              "sessionId": "c3",
+              "icon": "coding-ended",
+              "name": "what does useCart do?",
+              "kindWord": "Ended",
+              "state": "ended",
+              "tone": "muted",
+              "elapsed": "9s",
+              "running": false,
+              "caption": "It returns the cart store's items and totals.",
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "message",
+            "id": "m4",
+            "author": "agent",
+            "authorId": null,
+            "body": "Should thumbnails keep a 1:1 ratio?",
+            "queued": false,
+            "authorSessionId": "c1"
+          },
+          {
+            "type": "report",
+            "id": "m5",
+            "sessionId": "c2",
+            "text": "Report from Lazy-load product images",
+            "summary": "Lazy-loading is in; PR #12 is open."
+          }
+        ],
+        "composer": {
+          "sessionId": "r",
+          "placeholder": "Reply…"
+        },
+        "live": true,
+        "liveSessionId": "r",
+        "busy": true,
+        "needsYou": false
+      }
+    },
+    {
+      "name": "EXP-1323: an ended root has no live tail; an all-dismissed card drops; one open item has no Start all, three do; a report without summary reads its body",
+      "input": {
+        "root": {
+          "teamId": "t-team-1",
+          "parentId": null,
+          "kind": "thread",
+          "userId": "u-dana",
+          "deviceId": "dev-mac",
+          "status": "ended",
+          "busy": false,
+          "needsInput": false,
+          "blocked": null,
+          "shared": true,
+          "title": "Done",
+          "guide": null,
+          "actionName": null,
+          "name": null,
+          "icon": null,
+          "color": null,
+          "sortOrder": 0,
+          "startedAt": "2026-10-15T10:00:00.000Z",
+          "endedAt": "2026-10-15T10:09:00.000Z",
+          "createdAt": "2026-10-15T10:00:00.000Z",
+          "updatedAt": "2026-10-15T10:00:00.000Z",
+          "caption": "stale",
+          "aside": false,
+          "rootId": "r",
+          "id": "r"
+        },
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "kind": "thread",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Done",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-15T10:00:00.000Z",
+            "endedAt": "2026-10-15T10:09:00.000Z",
+            "createdAt": "2026-10-15T10:00:00.000Z",
+            "updatedAt": "2026-10-15T10:00:00.000Z",
+            "caption": "stale",
+            "aside": false,
+            "rootId": "r",
+            "id": "r"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": "r",
+            "kind": "thread",
+            "userId": "u-dana",
+            "deviceId": "dev-mac",
+            "status": "ended",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "Lazy-load product images",
+            "guide": null,
+            "actionName": null,
+            "name": null,
+            "icon": null,
+            "color": null,
+            "sortOrder": 0,
+            "startedAt": "2026-10-15T10:03:00.000Z",
+            "endedAt": "2026-10-15T10:06:00.000Z",
+            "createdAt": "2026-10-15T10:03:00.000Z",
+            "updatedAt": "2026-10-15T10:00:00.000Z",
+            "caption": "Editing ProductCard.tsx",
+            "aside": false,
+            "rootId": "r",
+            "id": "c2"
+          }
+        ],
+        "sessionIssues": [],
+        "issues": [],
+        "messages": [
+          {
+            "id": "m1",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "suggestions",
+              "items": [
+                {
+                  "id": "s1",
+                  "title": "Only one",
+                  "text": "x",
+                  "dismissed": true
+                }
+              ]
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:01:00.000Z",
+            "authorSessionId": null
+          },
+          {
+            "id": "m2",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "suggestions",
+              "items": [
+                {
+                  "id": "s1",
+                  "title": "Preload the hero font",
+                  "text": "Saves a round trip."
+                },
+                {
+                  "id": "s2",
+                  "title": "Gone",
+                  "text": "y",
+                  "dismissed": true
+                },
+                {
+                  "title": "no id"
+                }
+              ]
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:02:00.000Z",
+            "authorSessionId": null
+          },
+          {
+            "id": "m3",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "Lazy-loading is in.",
+            "card": {
+              "kind": "report",
+              "sessionId": "c2"
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:06:00.000Z",
+            "authorSessionId": null
+          },
+          {
+            "id": "m4",
+            "sessionId": "r",
+            "authorKind": "agent",
+            "authorId": null,
+            "body": "",
+            "card": {
+              "kind": "suggestions",
+              "items": [
+                {
+                  "id": "s1",
+                  "title": "Add width and height to cart thumbnails",
+                  "text": "Avoid layout shift."
+                },
+                {
+                  "id": "s2",
+                  "title": "Lazy-load product images",
+                  "text": "Load late."
+                },
+                {
+                  "id": "s3",
+                  "title": "Cache headers",
+                  "text": "Long-cache the assets."
+                }
+              ]
+            },
+            "answeredAt": null,
+            "consumedAt": "2026-10-15T10:00:00.000Z",
+            "createdAt": "2026-10-15T10:08:00.000Z",
+            "authorSessionId": null
+          }
+        ],
+        "pullRequests": [],
+        "now": "2026-10-15T11:00:00.000Z"
+      },
+      "expected": {
+        "rootId": "r",
+        "title": "Done",
+        "private": false,
+        "focusId": null,
+        "tabs": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "session",
+            "sessionId": "r",
+            "name": "Done",
+            "markState": "ended"
+          },
+          {
+            "kind": "session",
+            "sessionId": "c2",
+            "name": "Lazy-load product images",
+            "markState": "ended"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "rows": [
+          {
+            "type": "session",
+            "id": "r",
+            "card": {
+              "sessionId": "r",
+              "icon": "coding-ended",
+              "name": "Done",
+              "kindWord": "Ended",
+              "state": "ended",
+              "tone": "muted",
+              "elapsed": "9m 00s",
+              "running": false,
+              "caption": null,
+              "testId": "session-card"
+            }
+          },
+          {
+            "type": "suggestions",
+            "id": "m2",
+            "sessionId": "r",
+            "header": "1 suggested task",
+            "startAll": false,
+            "items": [
+              {
+                "id": "s1",
+                "title": "Preload the hero font",
+                "text": "Saves a round trip.",
+                "state": "open",
+                "card": null,
+                "issueId": null,
+                "identifier": null
+              }
+            ]
+          },
+          {
+            "type": "report",
+            "id": "m3",
+            "sessionId": "c2",
+            "text": "Report from Lazy-load product images",
+            "summary": "Lazy-loading is in."
+          },
+          {
+            "type": "suggestions",
+            "id": "m4",
+            "sessionId": "r",
+            "header": "3 suggested tasks",
+            "startAll": true,
+            "items": [
+              {
+                "id": "s1",
+                "title": "Add width and height to cart thumbnails",
+                "text": "Avoid layout shift.",
+                "state": "open",
+                "card": null,
+                "issueId": null,
+                "identifier": null
+              },
+              {
+                "id": "s2",
+                "title": "Lazy-load product images",
+                "text": "Load late.",
+                "state": "open",
+                "card": null,
+                "issueId": null,
+                "identifier": null
+              },
+              {
+                "id": "s3",
+                "title": "Cache headers",
+                "text": "Long-cache the assets.",
+                "state": "open",
+                "card": null,
+                "issueId": null,
+                "identifier": null
+              }
+            ]
+          }
+        ],
+        "composer": {
+          "sessionId": "r",
+          "placeholder": "Reply…"
+        },
+        "live": false,
+        "liveSessionId": null,
         "busy": false,
         "needsYou": false
       }

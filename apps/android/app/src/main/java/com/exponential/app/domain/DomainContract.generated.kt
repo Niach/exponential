@@ -39,7 +39,7 @@ object DomainContract {
     val issueRelationSourceValues: List<String> = listOf("user", "reference")
     val sessionIssueSourceValues: List<String> = listOf("user", "agent")
     val messageAuthorKindValues: List<String> = listOf("user", "agent", "system")
-    val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started")
+    val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions")
     val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended")
     val codingAgentValues: List<String> = listOf("claude", "codex")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet", "haiku")
@@ -51,11 +51,11 @@ object DomainContract {
     val mcpAuthValues: List<String> = listOf("none", "oauth", "secret")
     val agentTriggerEventValues: List<String> = listOf("created", "status_changed", "assignee_changed", "label_added", "priority_changed", "pr_opened", "pr_merged")
     val agentScheduleIntervalValues: List<String> = listOf("daily", "weekly", "monthly")
-    val steerCommandNames: List<String> = listOf("compact", "clear")
-    val steerCommandDescriptions: List<String> = listOf("Compact the conversation context", "Start a fresh conversation (context is discarded)")
-    val steerCommandArgHints: List<String> = listOf("instructions", "")
-    val steerCommandAgents: List<String> = listOf("claude,codex", "claude,codex")
-    val steerCommandConfirm: List<Boolean> = listOf(false, true)
+    val steerCommandNames: List<String> = listOf("compact", "clear", "btw")
+    val steerCommandDescriptions: List<String> = listOf("Compact the conversation context", "Start a fresh conversation (context is discarded)", "Ask a quick side question without adding to the session")
+    val steerCommandArgHints: List<String> = listOf("instructions", "", "question")
+    val steerCommandAgents: List<String> = listOf("claude,codex", "claude,codex", "claude")
+    val steerCommandConfirm: List<Boolean> = listOf(false, true, false)
     val mcpCatalogIds: List<String> = listOf("github", "gitlab", "gitlab-self-managed", "linear", "atlassian", "notion", "slack", "sentry", "stripe", "paypal", "supabase", "cloudflare", "netlify", "figma", "airtable", "box", "dropbox", "posthog", "todoist")
     val mcpCatalogNames: List<String> = listOf("GitHub", "GitLab", "GitLab (self-managed)", "Linear", "Jira & Confluence", "Notion", "Slack", "Sentry", "Stripe", "PayPal", "Supabase", "Cloudflare", "Netlify", "Figma", "Airtable", "Box", "Dropbox", "PostHog", "Todoist")
     val mcpCatalogUrls: List<String> = listOf("https://api.githubcopilot.com/mcp/", "https://gitlab.com/api/v4/mcp", "https://{host}/api/v4/mcp", "https://mcp.linear.app/mcp", "https://mcp.atlassian.com/v1/mcp", "https://mcp.notion.com/mcp", "https://mcp.slack.com/mcp", "https://mcp.sentry.dev/mcp", "https://mcp.stripe.com", "https://mcp.paypal.com/mcp", "https://mcp.supabase.com/mcp", "https://mcp.cloudflare.com/mcp", "https://mcp.netlify.com/mcp", "https://mcp.figma.com/mcp", "https://mcp.airtable.com/mcp", "https://mcp.box.com/mcp", "https://mcp.dropbox.com/mcp", "https://mcp.posthog.com/mcp", "https://ai.todoist.net/mcp")
@@ -250,6 +250,8 @@ object DomainContract {
     const val messageCardKindPicture: String = "picture"
     const val messageCardKindEvent: String = "event"
     const val messageCardKindThreadStarted: String = "thread_started"
+    const val messageCardKindReport: String = "report"
+    const val messageCardKindSuggestions: String = "suggestions"
     const val messageEventKindIssueLinked: String = "issue_linked"
     const val messageEventKindIssueFiled: String = "issue_filed"
     const val messageEventKindIssueUnlinked: String = "issue_unlinked"
