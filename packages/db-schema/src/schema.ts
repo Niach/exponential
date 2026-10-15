@@ -25,6 +25,7 @@ import {
   type ActionInputDef,
   actionInputsSchema,
   type CodingSessionBlocked,
+  type SessionWorkLaunch,
   type AgentTrigger,
   type GuideEntry,
   type MessageCard,
@@ -924,8 +925,12 @@ export const fcmTokens = pgTable(
 export interface DeviceAgentLaunchDefaults {
   model?: string
   effort?: string
-  /** EXP-981: claude only; blank = the CLI's own default. */
+  /** EXP-981: claude only; absent = contract deviceAgentDefaults.subagentModel
+   * (never the CLI's own default: every model is explicit). */
   subagentModel?: string
+  /** The dispatcher root's model (threads + team agents); absent = contract
+   * deviceAgentDefaults.threadModel / codexThreadModel. */
+  threadModel?: string
   ultracode?: boolean
   planMode?: boolean
   /** EXP-1082 §6: rotate to another logged-in account of this agent when
@@ -971,6 +976,8 @@ export const deviceLaunchDefaultsSchema = z.object({
         effort: z.string().max(64).nullish(),
         // EXP-981: claude only — the model its subagents run on.
         subagentModel: z.string().max(64).nullish(),
+        // The dispatcher root's model (threads + team agents).
+        threadModel: z.string().max(64).nullish(),
         ultracode: z.boolean().nullish(),
         planMode: z.boolean().nullish(),
         // EXP-1082 §6: see DeviceAgentLaunchDefaults.autoRotateAccounts.
@@ -1740,6 +1747,14 @@ export const sessions = pgTable(
     planMode: boolean(`plan_mode`).notNull().default(false),
     computerUse: boolean(`computer_use`).notNull().default(false),
     ultracode: boolean().notNull().default(false),
+    // A DISPATCHER root (threads + team agents since 2026-10-15): it runs on
+    // the device's thread model, never plans, never edits, and hands real
+    // work to child sessions. False on children and on pre-dispatch roots.
+    dispatch: boolean().notNull().default(false),
+    // SERVER-ONLY: a dispatcher's work picks (the composer's model, effort,
+    // plan mode, ultracode, computer use) its children inherit instead of
+    // the dispatcher's own runner fields.
+    workLaunch: jsonb(`work_launch`).$type<SessionWorkLaunch>(),
     // SERVER-ONLY (EXP-1140): the team MCP servers this session picked —
     // the only ids `mcpServers.resolveForLaunch` hands credentials for.
     mcpServerIds: jsonb(`mcp_server_ids`).$type<string[]>(),

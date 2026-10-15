@@ -263,8 +263,12 @@
     "onlineWindowSeconds": 90
   },
   "deviceAgentDefaults": {
+    "$comment": "Owner 2026-10-15: every model is EXPLICIT, no blank/CLI default anywhere. A device that never set a key reads these; a launch always passes a model. threadModel = the dispatcher root of a thread or team agent (codexThreadModel for codex roots).",
     "model": "fable",
-    "subagentModel": ""
+    "subagentModel": "opus",
+    "threadModel": "haiku",
+    "codexModel": "gpt-5.6-sol",
+    "codexThreadModel": "gpt-5.6-luna"
   },
   "team": {
     "agentPromptMaxBytes": 12288
@@ -393,10 +397,8 @@
     "values": ["claude", "codex"]
   },
   "codingModel": {
-    "values": ["fable", "opus", "sonnet"]
-  },
-  "computerUseModel": {
-    "values": ["haiku", "sonnet", "opus", "fable"]
+    "$comment": "THE Claude model vocabulary for EVERY model pick (session model, subagents, thread, computer use), shown in this order by ONE model picker x4.",
+    "values": ["fable", "opus", "sonnet", "haiku"]
   },
   "deviceComputerUseDefaults": {
     "model": "haiku"

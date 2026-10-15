@@ -71,16 +71,21 @@ export async function composeSessionBrief(sessionId: string): Promise<{
 
   const input: BriefInput = { text: await firstPersonMessage(session.id) }
 
-  if (session.actionId) {
+  const [parent] = session.parentId
+    ? await db.select().from(sessions).where(eq(sessions.id, session.parentId)).limit(1)
+    : []
+  // A dispatcher hands its action on: the work child runs it.
+  const actionSource = session.actionId ? session : parent?.dispatch ? parent : null
+  if (actionSource?.actionId) {
     const [action] = await db
       .select({ name: actions.name, body: actions.body, inputs: actions.inputs })
       .from(actions)
-      .where(eq(actions.id, session.actionId))
+      .where(eq(actions.id, actionSource.actionId))
       .limit(1)
     if (action) {
       const resolved = await resolveActionInputs(
         action.inputs ?? [],
-        session.actionInputs ?? {},
+        actionSource.actionInputs ?? {},
         session.teamId,
         actionInputLookups(db)
       )
@@ -102,11 +107,6 @@ export async function composeSessionBrief(sessionId: string): Promise<{
 
   let parentBranch: string | null = null
   if (session.parentId) {
-    const [parent] = await db
-      .select()
-      .from(sessions)
-      .where(eq(sessions.id, session.parentId))
-      .limit(1)
     if (parent) {
       parentBranch = parent.branch ?? null
       input.parent = {

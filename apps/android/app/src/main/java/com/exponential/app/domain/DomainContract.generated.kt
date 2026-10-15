@@ -42,11 +42,10 @@ object DomainContract {
     val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started")
     val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended")
     val codingAgentValues: List<String> = listOf("claude", "codex")
-    val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
+    val codingModelValues: List<String> = listOf("fable", "opus", "sonnet", "haiku")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
     val codexModelValues: List<String> = listOf("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
     val codexEffortValues: List<String> = listOf("minimal", "low", "medium", "high", "xhigh")
-    val computerUseModelValues: List<String> = listOf("haiku", "sonnet", "opus", "fable")
     val actionInputTypeValues: List<String> = listOf("repo", "board", "pr", "issue")
     val mcpTransportValues: List<String> = listOf("http", "stdio")
     val mcpAuthValues: List<String> = listOf("none", "oauth", "secret")
@@ -112,7 +111,10 @@ object DomainContract {
     const val sessionsSendTreeMaxDepth: Int = 3
     const val sessionsSendTreeMaxSessions: Int = 10
     const val deviceAgentDefaultsModel: String = "fable"
-    const val deviceAgentDefaultsSubagentModel: String = ""
+    const val deviceAgentDefaultsSubagentModel: String = "opus"
+    const val deviceAgentDefaultsThreadModel: String = "haiku"
+    const val deviceAgentDefaultsCodexModel: String = "gpt-5.6-sol"
+    const val deviceAgentDefaultsCodexThreadModel: String = "gpt-5.6-luna"
     const val deviceComputerUseDefaultsModel: String = "haiku"
     const val actionInputsMax: Int = 10
     const val actionInputTextMax: Int = 4096
