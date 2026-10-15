@@ -522,7 +522,13 @@ function ThreadQuestionCard({
   onAnswer?: (answer: string) => void
 }) {
   const options: AskOption[] = [
-    ...row.options.map((option, index) => ({ key: `${index}:${option}`, label: option })),
+    // EXP-1322: label + description like the session view's card; the
+    // answer names the option by its label.
+    ...row.options.map((option, index) => ({
+      key: `${index}:${option.label}`,
+      label: option.label,
+      ...(option.description ? { description: option.description } : {}),
+    })),
     ...(row.custom ? [{ key: FREE_TEXT_KEY, label: ASK_CARD_COPY.freeTextRow, freeText: true }] : []),
   ]
   return (

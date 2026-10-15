@@ -32,7 +32,10 @@ const ROWS: ThreadRow[] = [
     type: `question`,
     id: `q1`,
     question: `Which one?`,
-    options: [`A`, `B`],
+    options: [
+      { label: `A`, description: `The first one` },
+      { label: `B`, description: null },
+    ],
     custom: true,
     answer: null,
     answered: false,
@@ -79,6 +82,16 @@ describe(`ThreadConversation`, () => {
     expect(onDecide).toHaveBeenCalledWith(`p1`, { decision: `approved` })
   })
 
+  it(`shows a described option's description under its label, a plain one none`, () => {
+    renderRows()
+    const question = document.querySelector(`[data-slot="thread-question"]`)!
+    const options = question.querySelectorAll(`[data-testid="ask-option"]`)
+    expect(options[0]!.textContent).toContain(`The first one`)
+    expect(options[0]!.querySelectorAll(`span > span`)).toHaveLength(2)
+    expect(options[1]!.querySelectorAll(`span > span`)).toHaveLength(1)
+    expect(options[2]!.textContent).toContain(`Type something.`)
+  })
+
   it(`answers a question with free text (the session view's card)`, () => {
     const { onAnswer } = renderRows()
     const question = document.querySelector(`[data-slot="thread-question"]`)!
@@ -107,7 +120,10 @@ describe(`ThreadConversation`, () => {
         type: `question`,
         id: `q2`,
         question: `Which one?`,
-        options: [`A`, `B`],
+        options: [
+          { label: `A`, description: null },
+          { label: `B`, description: null },
+        ],
         custom: true,
         answer: `Use C`,
         answered: true,
