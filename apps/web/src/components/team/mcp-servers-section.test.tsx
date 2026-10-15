@@ -17,8 +17,9 @@ globalThis.ResizeObserver ??= ResizeObserverStub as never
 Element.prototype.scrollIntoView ??= function scrollIntoView() {}
 
 // EXP-792: the easy MCP page. Each row offers the VIEWER one action from
-// their own connection (Connect / Set key / Connected / Reconnect / "No
-// sign-in needed"), owner controls are hidden from members, adding from a
+// their own connection (Connect / Set key / Reconnect / "No sign-in
+// needed", or a read-only Connected caption whose actions sit in the row's
+// ONE "…" menu, EXP-1285), owner controls are hidden from members, adding from a
 // catalog row probes then (for OAuth) connects right away, and the deep
 // link's `?connect=` / `?mcp=` one-shots fire once and are consumed.
 
@@ -93,6 +94,13 @@ const rowOf = (name: string) =>
     .getAllByTestId(`mcp-server-row`)
     .find((row) => row.textContent?.includes(name))!
 
+/** Opens a row's ONE "…" menu (EXP-1285). */
+const openMenu = (name: string) =>
+  fireEvent.pointerDown(screen.getByLabelText(`Server menu for ${name}`), {
+    button: 0,
+    pointerType: `mouse`,
+  })
+
 beforeEach(() => {
   for (const fn of Object.values(mockState)) fn.mockReset()
   vi.stubGlobal(`location`, { ...window.location, assign: mockState.assign, pathname: `/t/acme/settings/mcp-servers` })
@@ -158,8 +166,42 @@ describe(`TeamMcpServersSection`, () => {
     expect(rowOf(`notion`).textContent).toContain(`Reconnect`)
     expect(rowOf(`docs`).textContent).toContain(`No sign-in needed`)
     expect(rowOf(`docs`).textContent).not.toContain(`connected`)
-    expect(screen.queryByLabelText(/Server menu for/)).toBeNull()
+    // EXP-1285: Connected is a caption, not a button; a member's only menu
+    // is the connected row's (its connection items), never the others'.
+    expect(screen.queryByRole(`button`, { name: /Connected/ })).toBeNull()
+    expect(screen.getAllByLabelText(/Server menu for/).map((el) => el.getAttribute(`aria-label`))).toEqual([
+      `Server menu for linear`,
+    ])
     expect(screen.queryByText(`Add server`)).toBeNull()
+  })
+
+  // EXP-1285: ONE "…" menu per row — the viewer's connection items with the
+  // owner's Edit above the separator, Disconnect / Remove below it.
+  it(`merges the connection items and the owner's Edit / Remove into the row menu`, async () => {
+    mockState.list.mockResolvedValue([
+      server(`linear`, `oauth`, `connected`),
+      server(`sentry`, `oauth`, `not_connected`),
+    ])
+    render(<TeamMcpServersSection teamId="t1" isOwner />)
+    await screen.findByText(`linear`)
+
+    openMenu(`linear`)
+    await screen.findByRole(`menuitem`, { name: `Test connection` })
+    expect(screen.getAllByRole(`menuitem`).map((item) => item.textContent)).toEqual([
+      `Test connection`,
+      `Share with team`,
+      `Edit`,
+      `Disconnect`,
+      `Remove`,
+    ])
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: `Escape` })
+
+    openMenu(`sentry`)
+    await screen.findByRole(`menuitem`, { name: `Edit` })
+    expect(screen.getAllByRole(`menuitem`).map((item) => item.textContent)).toEqual([
+      `Edit`,
+      `Remove`,
+    ])
   })
 
   it(`sends Connect to the provider with this page as the way back`, async () => {
@@ -329,8 +371,8 @@ describe(`TeamMcpServersSection`, () => {
     )
   })
 
-  // FEED-73: sharing stays in the Connected menu; the row carries no
-  // "Shared" pill or "K shared" count (name · Default pill · host only).
+  // FEED-73: sharing stays in the row menu; the row carries no "Shared"
+  // pill or "K shared" count (name · Default pill · host only).
   it(`keeps share state off the row`, async () => {
     mockState.list.mockResolvedValue([
       server(`linear`, `oauth`, `connected`, {
@@ -346,16 +388,13 @@ describe(`TeamMcpServersSection`, () => {
     expect(rowOf(`linear`).textContent).not.toContain(`Shared`)
   })
 
-  it(`flips the Connected menu's share item and sends it`, async () => {
+  it(`flips the row menu's share item and sends it`, async () => {
     mockState.list.mockResolvedValue([server(`sentry`, `oauth`, `connected`)])
     mockState.setShared.mockResolvedValue({ status: `connected`, shared: true })
     render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
     await screen.findByText(`sentry`)
 
-    fireEvent.pointerDown(screen.getByLabelText(`Connected to sentry`), {
-      button: 0,
-      pointerType: `mouse`,
-    })
+    openMenu(`sentry`)
     const share = await screen.findByRole(`menuitem`, { name: `Share with team` })
     expect(screen.queryByRole(`menuitem`, { name: `Stop sharing` })).toBeNull()
 
@@ -379,10 +418,7 @@ describe(`TeamMcpServersSection`, () => {
       `Shared sentry with the team: action sessions on teammates' machines use your connection`
     )
 
-    fireEvent.pointerDown(screen.getByLabelText(`Connected to sentry`), {
-      button: 0,
-      pointerType: `mouse`,
-    })
+    openMenu(`sentry`)
     expect(
       await screen.findByRole(`menuitem`, { name: `Stop sharing` })
     ).toBeTruthy()
@@ -406,10 +442,7 @@ describe(`TeamMcpServersSection`, () => {
     render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
     await screen.findByText(`local`)
 
-    fireEvent.pointerDown(screen.getByLabelText(`Connected to local`), {
-      button: 0,
-      pointerType: `mouse`,
-    })
+    openMenu(`local`)
     expect(await screen.findByRole(`menuitem`, { name: `Replace key` })).toBeTruthy()
     expect(screen.queryByRole(`menuitem`, { name: `Share with team` })).toBeNull()
     expect(screen.queryByRole(`menuitem`, { name: `Stop sharing` })).toBeNull()
@@ -424,10 +457,7 @@ describe(`TeamMcpServersSection`, () => {
     cleanup()
     render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
     await screen.findByText(`local`)
-    fireEvent.pointerDown(screen.getByLabelText(`Connected to local`), {
-      button: 0,
-      pointerType: `mouse`,
-    })
+    openMenu(`local`)
     const stop = await screen.findByRole(`menuitem`, { name: `Stop sharing` })
     expect(screen.queryByRole(`menuitem`, { name: `Share with team` })).toBeNull()
     fireEvent.click(stop)
