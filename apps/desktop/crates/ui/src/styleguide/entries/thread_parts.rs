@@ -6,9 +6,10 @@
 //! (Conversation · the issue chips · + · Guide with its dot), then every
 //! conversation row in order — the root's own session card, the person's
 //! bubble, the agent's prose, an event line, a child's session card, a
-//! question answered in place and the queued reply. The rows the first case
-//! has no example of (a plan, a subagent, a picture) follow from the second
-//! case, then THE session composer box with the fixture's placeholder.
+//! question answered in place (an option with its description, EXP-1322)
+//! and the queued reply. The rows the first case has no example of (a plan,
+//! a subagent, a picture) follow from the second case, then THE session
+//! composer box with the fixture's placeholder.
 //!
 //! No `sync::Store` here: authors read `Someone`, no `#IDENT` pills, and the
 //! image cache has no transport (the picture paints its placeholder box).
@@ -261,5 +262,19 @@ mod tests {
         assert_eq!(kinds.len(), 7, "{kinds:?}");
         assert!(matches!(first.view.rows.first(), Some(SessionThreadRow::Session { .. })));
         assert_eq!(first.view.title, "Implement EXP-12 + 1");
+    }
+
+    /// EXP-1322: the demo's open question shows an option's description
+    /// under its label (the session view's card).
+    #[test]
+    fn the_open_question_carries_a_described_option() {
+        let first = case(0);
+        let described = first.view.rows.iter().any(|row| match row {
+            SessionThreadRow::Question { options, answered: false, .. } => {
+                options.iter().any(|option| option.description.is_some())
+            }
+            _ => false,
+        });
+        assert!(described, "an unanswered question with a described option");
     }
 }

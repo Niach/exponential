@@ -565,6 +565,32 @@ pub fn session_tab_mark_state(session: &SessionRow) -> SessionTabMarkState {
     }
 }
 
+/// EXP-1322: one option of a thread question card. The synced card carries
+/// a bare label or `{label, description?}`; both normalise here. The answer
+/// IS the label; the description renders under it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct QuestionOption {
+    pub label: String,
+    pub description: Option<String>,
+}
+
+fn question_option(option: &Value) -> QuestionOption {
+    match option {
+        Value::Object(entry) => QuestionOption {
+            label: js_string(entry.get("label")),
+            description: entry
+                .get("description")
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string),
+        },
+        other => QuestionOption {
+            label: js_string(Some(other)),
+            description: None,
+        },
+    }
+}
+
 /// One row of the thread's Conversation (the TS `ThreadRow`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
@@ -584,7 +610,7 @@ pub enum SessionThreadRow {
     Question {
         id: String,
         question: String,
-        options: Vec<String>,
+        options: Vec<QuestionOption>,
         /// EXP-1316: a free-text answer is offered (always, THE card).
         custom: bool,
         answer: Option<String>,
@@ -856,7 +882,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 question: js_string(card.get("question")),
                 options: match card.get("options") {
                     Some(Value::Array(options)) => {
-                        options.iter().map(|option| js_string(Some(option))).collect()
+                        options.iter().map(question_option).collect()
                     }
                     _ => Vec::new(),
                 },
@@ -1234,6 +1260,30 @@ mod tests {
     use super::*;
     use serde::de::DeserializeOwned;
     use serde_json::{json, Map};
+
+    /// EXP-1322: a bare label and `{label, description?}` both normalise;
+    /// an empty description reads as none.
+    #[test]
+    fn question_options_normalise_bare_labels_and_objects() {
+        let options = [
+            json!("Yes"),
+            json!({ "label": "No", "description": "Wait for the next release" }),
+            json!({ "label": "Later", "description": "" }),
+            json!({ "label": "Never" }),
+        ];
+        let normalised: Vec<QuestionOption> = options.iter().map(question_option).collect();
+        let pairs: Vec<(&str, Option<&str>)> =
+            normalised.iter().map(|option| (option.label.as_str(), option.description.as_deref())).collect();
+        assert_eq!(
+            pairs,
+            [
+                ("Yes", None),
+                ("No", Some("Wait for the next release")),
+                ("Later", None),
+                ("Never", None),
+            ]
+        );
+    }
 
     /// A camelCase TS row → the snake_case domain row (top-level keys only:
     /// jsonb cells keep their own camelCase). `id` is synthesized when the

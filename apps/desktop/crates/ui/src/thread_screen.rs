@@ -48,7 +48,7 @@ use sync::Store;
 
 use domain::rows::{Issue, MessageRow, PullRequestRow, SessionIssueRow, SessionRow};
 use domain::session_results::SessionResultEntry;
-use domain::session_tree::{SessionThreadRow, SessionThreadView, ThreadTab, THREAD, THREADS_LIST};
+use domain::session_tree::{QuestionOption, SessionThreadRow, SessionThreadView, ThreadTab, THREAD, THREADS_LIST};
 
 use crate::controls::PointerContextMenuExt as _;
 use crate::controls::WebControl as _;
@@ -965,7 +965,7 @@ fn card_answering(cx: &App) -> AnyElement {
 pub(crate) fn question_card(
     message_id: &str,
     question: MarkdownView,
-    options: &[String],
+    options: &[QuestionOption],
     custom: bool,
     answer: Option<&str>,
     answered: bool,
@@ -985,12 +985,12 @@ pub(crate) fn question_card(
         let mut rows = v_flex().mt_2().w_full().min_w_0().gap_1();
         for (index, option) in options.iter().enumerate() {
             let id = message_id.to_string();
-            let value = option.clone();
+            let value = option.label.clone();
             rows = rows.child(
                 crate::steer_viewer::ask_option_button(
                     SharedString::from(format!("thread-question-{message_id}-{index}")),
-                    option.clone(),
-                    None,
+                    option.label.clone(),
+                    option.description.clone(),
                     false,
                     false,
                     false,
