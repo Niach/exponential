@@ -1,5 +1,5 @@
 /**
- * The `?redirect` search param on /auth/login and /auth/register is
+ * The `?redirect` search param on /auth/login is
  * attacker-controllable (anyone can craft a link) and its value ends up in
  * `window.location.href` after sign-in. Allow only same-origin absolute
  * paths:

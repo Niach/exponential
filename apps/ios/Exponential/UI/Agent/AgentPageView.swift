@@ -72,16 +72,19 @@ struct AgentPageView: View {
                         // contract verb ("Run" · "Implement") with the
                         // action or issue chips beside it. Nothing picked
                         // = the dawn stands on the composer (FEED-100).
-                        if composer.subject != AgentComposerPrompt.Subject.none {
-                            AgentComposerHeadline(model: composer)
-                        } else {
-                            // The column's 12pt spacing makes up the rest of
-                            // the dawn's gap.
-                            HomeDawn()
-                                .padding(.bottom, HomeDawn.gap - 12)
-                        }
-                        AgentComposerCard(model: composer) { issueId in
-                            deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                        // The pair's own spacing: the headline keeps the
+                        // column's 12pt, the dawn stands on the card
+                        // (`HomeDawn.gap`).
+                        let headlined = composer.subject != AgentComposerPrompt.Subject.none
+                        VStack(alignment: .leading, spacing: headlined ? 12 : HomeDawn.gap) {
+                            if headlined {
+                                AgentComposerHeadline(model: composer)
+                            } else {
+                                HomeDawn()
+                            }
+                            AgentComposerCard(model: composer) { issueId in
+                                deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                            }
                         }
                         // EXP-802: the same `@`/`#`/`:` menu the comment
                         // composer mounts, under the card — picks route

@@ -84,9 +84,8 @@ export const inviteListSelection = {
 // A re-invite supersedes the placeholder's earlier links in THIS team: the
 // unaccepted rows go (the fresh row inserted in the same transaction is the
 // one member lists read "invited, not joined" from), so exactly one live
-// invite row exists per placeholder. Expiring them instead left every
-// superseded link in older clients' pending lists (desktop ≤0.14.49 filters
-// on accepted_at only). Revoke keeps its expire-in-place semantics.
+// invite row exists per placeholder: a superseded link never lingers in a
+// pending list. Revoke keeps its expire-in-place semantics.
 async function deleteSupersededInvitesFor(
   tx: Pick<typeof db, `delete`>,
   teamId: string,

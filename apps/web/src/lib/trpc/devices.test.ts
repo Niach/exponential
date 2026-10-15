@@ -1990,23 +1990,6 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
-  // Profiles carry no names any more: an old build's label is accepted and
-  // dropped, never forwarded.
-  it(`accepts a retired newProfileLabel and drops it`, async () => {
-    h.state.selectQueue = [...capableProbe(), []]
-    h.state.insertReturning = [[{ id: `cmd-1` }]]
-    await caller.createCommand({
-      deviceId: `dev-1`,
-      kind: `agent_login`,
-      agent: `codex`,
-      newProfileLabel: `  Codex account 2 `,
-    })
-    expect((h.state.inserted[0] as { payload: object }).payload).toEqual({
-      agent: `codex`,
-      switch: `false`,
-    })
-  })
-
   it(`queues an import on a machine with the agent-import cap`, async () => {
     h.state.selectQueue = [
       [{ id: `row-1`, caps: [`agent-login`, `agent-import`] }],

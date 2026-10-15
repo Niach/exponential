@@ -27,8 +27,11 @@ struct ThreadStripTabs: View {
     /// A session chip's tap (nil = session chips are not shown).
     var onOpenSession: ((String) -> Void)?
 
-    /// entity-chip.json `tab` size: every chip in the strip is one height.
+    /// entity-chip.json `tab` size: every chip in the strip is one height —
+    /// web `STRIP_TAB_CLASS` `h-8 rounded-md`: 32pt tall, the 10pt row radius
+    /// (`GlassTokens.rowRadius`), a rounded rectangle, not a capsule.
     static let chipHeight: CGFloat = 32
+    static let chipShape = RoundedRectangle(cornerRadius: GlassTokens.rowRadius, style: .continuous)
 
     var body: some View {
         ScrollViewReader { scroller in
@@ -192,26 +195,26 @@ private struct ThreadStripTab<Content: View>: View {
             .frame(height: ThreadStripTabs.chipHeight)
             .background {
                 if selected {
-                    Capsule(style: .continuous)
+                    ThreadStripTabs.chipShape
                         .fill(GlassTokens.fillCard)
                         .overlay(
-                            Capsule(style: .continuous)
+                            ThreadStripTabs.chipShape
                                 .strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
                         )
                 } else if bordered {
-                    Capsule(style: .continuous)
+                    ThreadStripTabs.chipShape
                         .strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
                 }
             }
             .overlay {
                 if fresh {
-                    Capsule(style: .continuous)
+                    ThreadStripTabs.chipShape
                         .strokeBorder(DesignTokens.Semantic.blue, lineWidth: 1)
                         .opacity(ringed ? 0 : 1)
                 }
             }
             .opacity(fresh && !appeared ? 0 : 1)
-            .contentShape(Capsule())
+            .contentShape(ThreadStripTabs.chipShape)
             .onAppear {
                 guard fresh else { return }
                 withAnimation(motion.decelerate(DesignTokens.Motion.Duration.slow)) { appeared = true }

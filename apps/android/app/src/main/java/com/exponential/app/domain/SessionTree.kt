@@ -486,14 +486,24 @@ object SessionTree {
                     ThreadRow.Question(
                         id = message.id,
                         question = card.text("question"),
-                        // EXP-1322: a synced option is a bare label or `{label, description?}`.
-                        // anything else is dropped (`questionOption`).
-                        options = (card["options"] as? JsonArray)?.mapNotNull { option ->
+                        // EXP-1322: `options` = plain labels, descriptions ride the parallel
+                        // `optionDescriptions` sidecar (null / "" = none), zipped by ORIGINAL
+                        // index before invalid options drop; a pre-sidecar `{label, description}`
+                        // object's own description wins (`questionOptions`).
+                        // COMPAT (EXP-1322 sidecar): old iOS 0.14.59 / Android 0.14.61 / desktop
+                        // 0.14.69 only read string options. The device may post {label, description}
+                        // objects again once CLIENT_MIN_VERSION_IOS >= 0.14.60 AND _ANDROID >= 0.14.62
+                        // AND _DESKTOP >= 0.14.70 (or keep the sidecar as the permanent form).
+                        options = (card["options"] as? JsonArray)?.mapIndexedNotNull { index, option ->
+                            val description = when {
+                                option is JsonPrimitive && option.isString -> null
+                                option is JsonObject -> option.str("description")?.takeIf { it.isNotEmpty() }
+                                else -> return@mapIndexedNotNull null
+                            } ?: ((card["optionDescriptions"] as? JsonArray)?.getOrNull(index) as? JsonPrimitive)
+                                ?.takeIf { it.isString && it.content.isNotEmpty() }?.content
                             when {
-                                option is JsonPrimitive && option.isString -> ThreadRow.QuestionChoice(option.content, null)
-                                option is JsonObject -> option.str("label")?.let { label ->
-                                    ThreadRow.QuestionChoice(label, option.str("description")?.takeIf { it.isNotEmpty() })
-                                }
+                                option is JsonPrimitive -> ThreadRow.QuestionChoice(option.content, description)
+                                option is JsonObject -> option.str("label")?.let { ThreadRow.QuestionChoice(it, description) }
                                 else -> null
                             }
                         } ?: emptyList(),

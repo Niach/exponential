@@ -51,7 +51,7 @@ struct ThreadConversationView: View {
     ]
     static let approveKey = "approve"
 
-    static let queuedWord = "queued"
+    static let queuedWord = UserMessageCaption.queuedWord
 
     /// Attachment images through the instance, `#EXP-1` refs chipped against
     /// the root's team — the session view's context.
@@ -134,10 +134,12 @@ struct ThreadConversationView: View {
 
     /// A channel row's time: `HH:mm`, then `queued` until the device took it.
     private func channelTime(messageId: String, queued: Bool) -> String {
-        let at = rows.messages.first { $0.id == messageId }
-            .flatMap { WireTimestamps.parse($0.createdAt) }
-            .map(GlassTimeRow.formatted)
-        return [at, queued ? Self.queuedWord : nil].compactMap { $0 }.joined(separator: " · ")
+        UserMessageCaption.text(name: nil, at: createdAt(of: messageId), queued: queued)
+    }
+
+    /// The wire `createdAt` of a message row, as a date.
+    private func createdAt(of messageId: String) -> Date? {
+        rows.messages.first { $0.id == messageId }.flatMap { WireTimestamps.parse($0.createdAt) }
     }
 
     @ViewBuilder
@@ -175,7 +177,11 @@ struct ThreadConversationView: View {
                 id: 0,
                 wireId: id,
                 text: question,
-                options: options.map { AgentQuestionOption(label: $0.label, key: $0.label, description: $0.description) },
+                // Keyed `index:label` like web — two identical labels stay two
+                // rows; the answer names the option by its label (below).
+                options: options.enumerated().map { index, option in
+                    AgentQuestionOption(label: option.label, key: "\(index):\(option.label)", description: option.description)
+                },
                 resolved: answered,
                 answers: answer.map { [$0] } ?? []
             )
@@ -190,7 +196,9 @@ struct ThreadConversationView: View {
                 onAnswer: { keys, text in
                     let typed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let freeKeys = Set(card.options.filter(\.freeText).map(\.key))
-                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? keys.first(where: { !freeKeys.contains($0) }) {
+                    let pickedLabel = keys.first(where: { !freeKeys.contains($0) })
+                        .flatMap { key in card.options.first { $0.key == key }?.label }
+                    if let pick = (typed?.isEmpty == false ? typed : nil) ?? pickedLabel {
                         onAnswer(id, pick)
                     }
                 },
@@ -256,14 +264,12 @@ struct ThreadConversationView: View {
         }
     }
 
-    /// A person's bubble caption: `<name> · <time>`, ending `· queued` until
-    /// the device took the message (EXP-1317, ×4; the X rides after it).
+    /// A person's bubble caption: `<name> · HH:mm`, ending `· queued` until
+    /// the device took the message (EXP-1317, ×4; the X rides after it) —
+    /// web `userMessageCaption`, the same clock the channel rows show.
     private func caption(messageId: String, authorId: String?, queued: Bool) -> String {
         let user = rows.user(id: authorId)
-        let name = user?.name ?? user?.email
-        let time = rows.messages.first { $0.id == messageId }.map { RelativeTime.compact(wire: $0.createdAt) }
-        return [name, time, queued ? Self.queuedWord : nil]
-            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return UserMessageCaption.text(name: user?.name ?? user?.email, at: createdAt(of: messageId), queued: queued)
     }
 }
 
