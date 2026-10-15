@@ -98,7 +98,7 @@ public struct DraftAttachmentDto: Decodable, Identifiable, Sendable {
     public let height: Int?
     public let durationMs: Int?
     public let posterStorageKey: String?
-    /// EXP-1247: uploaded through a FILE button (false on older servers).
+    /// EXP-1247: uploaded through a FILE button.
     public let asFile: Bool
     public let createdAt: String?
 

@@ -668,11 +668,9 @@ describe(`account health (EXP-849)`, () => {
   })
 })
 
-// EXP-849 retired `pi` from contract `codingAgent`. The server clamps what a
-// machine may write (lib/trpc/devices.ts), but a row written before that
-// clamp — or one served by a self-hosted instance on an older image — must
-// still never surface: no usage row, no account chip, no health verdict for
-// an agent this build has no name, icon or launcher for.
+// EXP-849: an id outside contract `codingAgent` (here the retired `pi`)
+// never surfaces: no usage row, no account chip, no health verdict for an
+// agent this build has no name, icon or launcher for.
 describe(`retired agent ids (EXP-849)`, () => {
   const piDevice = {
     deviceId: `unraid`,

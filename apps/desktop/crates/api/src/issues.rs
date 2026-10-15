@@ -355,8 +355,8 @@ pub struct IssueSearchHit {
     /// The enum ANCHOR — search is CROSS-BOARD but single-team, so a hit can
     /// still be resolved against the team's status rows via `status_id`.
     pub status: IssueStatus,
-    /// EXP-314 `issues.search` projection: the precise status row, `None` on
-    /// an older server.
+    /// EXP-314 `issues.search` projection: the precise status row, `None`
+    /// when the row has none.
     #[serde(default)]
     pub status_id: Option<String>,
     pub priority: IssuePriority,
@@ -571,9 +571,8 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].identifier, "EXP-1");
         assert_eq!(out[0].status, IssueStatus::InProgress);
-        // EXP-314: `statusId` is optional on the wire — an older server (or a
-        // pre-backfill row) decodes to None and the hit still renders via its
-        // anchor.
+        // EXP-314: `statusId` is nullable on the wire — a row without one
+        // decodes to None and the hit still renders via its anchor.
         assert_eq!(out[0].status_id, None);
         // Tolerant-unknown (§5.5): a new server enum value never drops the hit.
         assert_eq!(out[1].status, IssueStatus::Unknown);

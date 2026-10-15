@@ -34,7 +34,6 @@ import {
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
-  deviceCanRefreshUsage,
   deviceReadyForRuns,
   deviceIsMine,
   deviceIsOnline,
@@ -135,19 +134,13 @@ export function MyMachines({
       ),
     [mine]
   )
-  const capsByDevice = useMemo(
-    () => new Map((mine ?? []).map((device) => [device.deviceId, device.caps ?? []])),
-    [mine]
-  )
-  // EXP-875: the caller's half of the verdict is the MACHINE's — online and
-  // advertising the cap. Whether the LOGIN could ever answer (mine, signed
-  // in, monitored) is the hook's own `usageRefreshEligible`, so no surface
-  // can queue a command for a login that can only report nothing.
+  // EXP-875: the caller's half of the verdict is the MACHINE's — online.
+  // Whether the LOGIN could ever answer (mine, signed in, monitored) is the
+  // hook's own `usageRefreshEligible`, so no surface can queue a command for
+  // a login that can only report nothing.
   const canRefresh = useCallback(
-    (row: AgentProfileUsageRow) =>
-      row.online &&
-      deviceCanRefreshUsage({ caps: capsByDevice.get(row.deviceId) ?? [] }),
-    [capsByDevice]
+    (row: AgentProfileUsageRow) => row.online,
+    []
   )
   useAgentUsageRefresh(ownLogins, canRefresh, now)
   // Re-resolved each render so the dialog always edits the LIVE synced row.

@@ -10,8 +10,7 @@ import org.junit.Test
  * Pins the `/api/auth-config` decode (server contract:
  * apps/web/src/lib/auth/config.ts) and the browser hand-off URLs the login
  * screen builds from it. The signup/reset flags drive the "Create account" and
- * "Forgot password?" affordances, so a server that omits them must decode to
- * false rather than blow up or offer a dead link.
+ * "Forgot password?" affordances.
  */
 class AuthConfigDecodingTest {
 
@@ -31,7 +30,9 @@ class AuthConfigDecodingTest {
               "oidcProviders": [{ "id": "authentik", "name": "Authentik" }],
               "googleLoginEnabled": false,
               "appleLoginEnabled": false,
-              "githubEnabled": true
+              "githubEnabled": true,
+              "emailOtpEnabled": false,
+              "passkeyEnabled": false
             }
         """.trimIndent()
 
@@ -48,7 +49,10 @@ class AuthConfigDecodingTest {
             {
               "passwordEnabled": false,
               "signupEnabled": true,
+              "passwordResetEnabled": false,
               "oidcProviders": [],
+              "googleLoginEnabled": false,
+              "appleLoginEnabled": false,
               "emailOtpEnabled": true,
               "passkeyEnabled": true
             }
@@ -58,27 +62,6 @@ class AuthConfigDecodingTest {
         assertFalse(config.passwordEnabled)
         assertTrue(config.emailOtpEnabled)
         assertTrue(config.passkeyEnabled)
-    }
-
-    @Test
-    fun missingFlagsDefaultToFalse() {
-        val payload = """
-            {
-              "passwordEnabled": true,
-              "oidcProviders": [],
-              "googleLoginEnabled": false
-            }
-        """.trimIndent()
-
-        val config = json.decodeFromString<AuthConfig>(payload)
-        assertTrue(config.passwordEnabled)
-        assertFalse(config.signupEnabled)
-        assertFalse(config.passwordResetEnabled)
-        assertFalse(config.appleLoginEnabled)
-        // A pre-EXP-857 server publishes neither flag — both must read as off
-        // rather than offering a login path the instance can't serve.
-        assertFalse(config.emailOtpEnabled)
-        assertFalse(config.passkeyEnabled)
     }
 
     @Test

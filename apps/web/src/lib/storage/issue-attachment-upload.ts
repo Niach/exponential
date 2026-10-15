@@ -50,7 +50,7 @@ function readBoundedInt(formData: FormData, name: string, max: number) {
 
 /**
  * EXP-1247: the FILE/paperclip marker. A multipart `asFile` part or an
- * `?asFile=` query param, `1`/`true`; anything else (older clients, MCP)
+ * `?asFile=` query param, `1`/`true`; anything else (absent, MCP)
  * keeps today's content-type classification.
  */
 export function readAsFileFlag(formData: FormData, url: string | undefined) {
@@ -198,7 +198,7 @@ export async function storeAttachmentUpload(
   }
 
   // The poster part only means anything on a media upload; anywhere else it
-  // is ignored rather than rejected (an older client never sends one).
+  // is ignored rather than rejected.
   const posterPart = isMedia ? formData.get(`poster`) : null
   const poster =
     posterPart instanceof File &&

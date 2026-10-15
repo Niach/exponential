@@ -10,7 +10,7 @@ import com.exponential.app.data.api.ActionInputDto
  * `actionInputType` values): `text` and `textarea` were retired with the ONE
  * launcher — what the requester types reaches the run as the start's `prompt`
  * ("Additional instructions from the requester"), never as an input. A row
- * that still declares one (an older server, a not-yet-migrated action) reads
+ * that still declares one (a not-yet-migrated action) reads
  * as UNSUPPORTED here: the composer blocks the run and says the action needs
  * a newer app version, exactly like a type this build has never heard of.
  */

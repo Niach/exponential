@@ -18,7 +18,7 @@
 //! `billing.teamPlan`, fetched alongside the list (and re-fetched with it
 //! after every mutation). It is DISPLAY-only — no upgrade/purchase
 //! affordances (billing UI stays web-only, §4.9) — and best-effort: a failed
-//! billing probe (older server, self-hosted quirks) just drops the bar, the
+//! billing probe (self-hosted quirks) just drops the bar, the
 //! table never blocks on it, and the self-hosted `unlimited` plan renders no
 //! bar at all (web parity: `plan !== 'unlimited'`).
 

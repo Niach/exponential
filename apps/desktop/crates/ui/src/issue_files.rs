@@ -95,7 +95,7 @@ pub(crate) fn format_duration(duration_ms: i64) -> String {
     }
 }
 
-/// EXP-1247: the row's file-mode marker (`None` on an older server = false).
+/// EXP-1247: the row's file-mode marker (`None` = false).
 pub(crate) fn is_as_file(attachment: &Attachment) -> bool {
     attachment.as_file == Some(true)
 }

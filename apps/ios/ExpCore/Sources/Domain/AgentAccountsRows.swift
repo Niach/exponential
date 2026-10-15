@@ -78,10 +78,6 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
 }
 
 public enum AgentAccountsRows {
-    /// The `agent-usage-refresh` device cap: the machine runs
-    /// `agent_usage_refresh` (web `deviceCanRefreshUsage`).
-    public static let refreshCap = "agent-usage-refresh"
-
     /// A forced usage refresh is refused while the last fetch is younger than
     /// this: the device never hits the agent's usage endpoint more often (its
     /// `RATE_LIMITED_FLOOR_SECS`). Locked ×4.
@@ -307,26 +303,6 @@ public enum AgentAccountsRows {
 
     // MARK: - Row copy
 
-    /// The `account-switch` device cap: the machine switches a live run onto
-    /// another login (the mid-run switch). `SteerDevice.canSwitchAccount`
-    /// reads the cap.
-    public static let switchCap = "account-switch"
-
-    /// EXP-862: the `account-remove` device cap — the machine runs
-    /// `agent_profile_remove` and deletes its own copy of a login. Its own cap
-    /// beside `agent-login`, because an older build would leave the queued row
-    /// pending forever.
-    public static let removeCap = "account-remove"
-
-    /// EXP-1137: the `account-sign-out` device cap — the machine runs
-    /// `agent_profile_sign_out`. `SteerDevice.canSignOutAccount` reads it.
-    public static let signOutCap = "account-sign-out"
-
-    /// The `agent-import` device cap: the machine takes `agent_login {agent,
-    /// import: true}` and MOVES its ambient login into a profile.
-    /// `SteerDevice.canImportAgent` reads it.
-    public static let importCap = "agent-import"
-
     /// EXP-862: a chip whose one repair is a SIGN-IN — there is no login on
     /// that machine, or the agent refused the one there. Both read the same to
     /// a person: sign in. (Web `MachineAccountChip`, Android `chipSignsIn`.)
@@ -334,69 +310,16 @@ public enum AgentAccountsRows {
         !row.signedIn || row.health == .needsRelogin
     }
 
-    /// Byte-identical with the server's refusal (`lib/trpc/devices.ts`), so a
-    /// requester that raced a downgrade reads the same sentence twice.
-    public static let removeAccountOldApp =
-        "That machine runs an older Exponential app that cannot remove agent accounts. Update it first."
-
-    /// EXP-1137: the server's refusal for a sign-out on a build without the
-    /// body. Byte-identical ×4.
-    public static let signOutOldApp =
-        "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first."
-
-    /// EXP-862: why "Remove account" is NOT offered for this login on this
-    /// machine, or nil when it is — the web `removeAccountBlockReason` twin:
-    /// the machine needs the removal body (`account-remove`: it deletes the
-    /// profile dir).
+    /// EXP-1137: whether the chip menu offers "Sign out" for this login:
+    /// anything signed in. A revoked credential (`needsRelogin`) still signs
+    /// out — that is how the dead credential leaves the machine.
     ///
-    /// EXP-944: being signed OUT is not one of them. A dead profile is the
-    /// thing people most want gone, the removal is a profile-dir delete that
-    /// never touches the account (no `codex logout`, ever), and the server has
-    /// always taken it — it gates on the caps and the reported profile, never
-    /// on the credential's state. So a signed-out login offers "Sign in" AND
-    /// "Remove account".
-    public static func removeAccountBlockReason(
-        _ row: AgentProfileUsageRow,
-        canAgentLogin: Bool,
-        canRemoveAccount: Bool
-    ) -> String? {
-        canAgentLogin && canRemoveAccount ? nil : removeAccountOldApp
-    }
-
-    /// Whether the chip menu offers "Remove account" for this login.
-    public static func canRemoveAccount(
-        _ row: AgentProfileUsageRow,
-        canAgentLogin: Bool,
-        canRemoveAccount: Bool
-    ) -> Bool {
-        removeAccountBlockReason(
-            row, canAgentLogin: canAgentLogin, canRemoveAccount: canRemoveAccount
-        ) == nil
-    }
-
-    /// EXP-1137: why "Sign out" is NOT offered for this login on this machine,
-    /// or nil when it is: nothing to sign out of, or a build without the
-    /// command. A revoked credential (`needsRelogin`) still signs out — that
-    /// is how the dead credential leaves the machine.
-    public static func signOutBlockReason(
-        _ row: AgentProfileUsageRow,
-        canAgentLogin: Bool,
-        canSignOutAccount: Bool
-    ) -> String? {
-        if !row.signedIn { return "That login is already signed out there." }
-        if !canAgentLogin || !canSignOutAccount { return signOutOldApp }
-        return nil
-    }
-
-    /// EXP-1137: whether the chip menu offers "Sign out" for this login.
-    public static func chipSignsOut(
-        _ row: AgentProfileUsageRow,
-        canAgentLogin: Bool,
-        canSignOutAccount: Bool
-    ) -> Bool {
-        signOutBlockReason(
-            row, canAgentLogin: canAgentLogin, canSignOutAccount: canSignOutAccount
-        ) == nil
+    /// EXP-862/EXP-944: "Remove account" needs no rule of its own — every
+    /// login on an actionable row offers it, signed out included (a dead
+    /// profile is the thing people most want gone, and the removal never
+    /// touches the account).
+    public static func chipSignsOut(_ row: AgentProfileUsageRow) -> Bool {
+        row.signedIn
     }
 
     /// The confirm the destructive entry asks, pinned ×4: it names the login

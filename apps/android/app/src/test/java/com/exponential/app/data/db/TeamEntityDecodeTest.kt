@@ -10,8 +10,7 @@ import org.junit.Test
 /**
  * Wire-decode vectors for the teams shape row. EXP-630 added
  * `estimation_type` (the estimate scale) to the allowlist: a row that carries
- * it must land it, and a row from an older server that does not must still
- * decode (as "no scale" — estimates off) — a required field missing on the
+ * it must land it, and a row without it must still decode (as "no scale" — estimates off) — a required field missing on the
  * wire drops the row forever.
  */
 class TeamEntityDecodeTest {
@@ -50,7 +49,7 @@ class TeamEntityDecodeTest {
     }
 
     // EXP-1105: yolo_mode arrives as Electric's "t"/"f" text or tRPC's
-    // camelCase boolean; an older server without the column = off.
+    // camelCase boolean; an absent column = off.
     @Test
     fun `yolo_mode decodes from Electric text, tRPC camelCase, and absence`() {
         assertTrue(json.decodeFromString(TeamEntity.serializer(), row(",\n  \"yolo_mode\": \"t\"")).yoloMode)

@@ -25,7 +25,6 @@ import {
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import { trpc } from "@/lib/trpc-client"
 import type { FilesSectionFile } from "@/components/issue-files-section"
-import { isFileAttachment } from "@/lib/attachment-files"
 
 // EXP-1170: the New issue page's controller — the issue detail in DRAFT mode.
 // Everything the page holds lands in ONE `issue_drafts` row through ONE
@@ -320,8 +319,7 @@ export function useIssueDraftEditor({
 
   // Draft attachments are server-only (the attachments shape drops them), so
   // a reopened draft's Files section is a fetch, not a live query. EXP-1247:
-  // the server already lists Files rows only; the client applies the same
-  // rule again so an older server's inline images never list as files.
+  // the server lists Files rows only.
   useEffect(() => {
     if (!draft) return
     let cancelled = false
@@ -331,7 +329,7 @@ export function useIssueDraftEditor({
         if (cancelled) return
         filesLoadedRef.current = true
         setFiles(
-          rows.filter(isFileAttachment).map((row) => ({
+          rows.map((row) => ({
             id: row.id,
             filename: row.filename,
             contentType: row.contentType,

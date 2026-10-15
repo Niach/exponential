@@ -1625,8 +1625,7 @@ impl DeviceSettingsView {
         let live_sessions = row.and_then(|row| row.active_sessions).unwrap_or(0).max(0);
         let queued = requested && live_sessions > 0;
         let can_update = (online && outdated) || updating;
-        let can_update_now =
-            queued && row.is_some_and(|row| row.cap_ids().iter().any(|cap| cap == "update-now"));
+        let can_update_now = queued && row.is_some();
 
         let mut controls = h_flex().flex_shrink_0().items_center().gap_1();
         if can_update {
@@ -1760,10 +1759,7 @@ impl DeviceSettingsView {
                 .filter(|label| !label.trim().is_empty())
                 .unwrap_or_else(|| self.device_id.clone())
                 .into();
-            // The Import pill only for a build that runs the import.
-            let offer_import = row.is_some_and(|row| {
-                row.cap_ids().iter().any(|cap| cap == coding::doctor::AGENT_IMPORT_CAP)
-            });
+            let offer_import = row.is_some();
             device_readiness::BlockProps {
                 id: "device-readiness".into(),
                 offer_import,

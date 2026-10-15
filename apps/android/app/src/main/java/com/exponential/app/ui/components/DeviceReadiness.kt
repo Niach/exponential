@@ -269,7 +269,7 @@ fun DeviceNotReadyRow(
     fallbackStyle: TextStyle = MaterialTheme.typography.labelSmall,
 ) {
     val row = device.doctor?.let {
-        DeviceReadiness.failingRow(it, agent, remote = true, canImport = device.canImportAccount)
+        DeviceReadiness.failingRow(it, agent, remote = true)
     }
     if (row == null) {
         Text(

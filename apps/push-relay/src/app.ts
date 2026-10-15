@@ -318,8 +318,7 @@ export function createRelayApp(options: RelayAppOptions) {
   })
 
   // EXP-553: secret-gated stats for the web app's admin performance page.
-  // Same auth + failed-attempt throttle stance as /send; an old web app never
-  // calls this, an old relay 404s and the caller degrades to /healthz.
+  // Same auth + failed-attempt throttle stance as /send.
   app.get(`/stats`, (c) => {
     const rejected = rejectUnauthorized(c)
     if (rejected) return rejected

@@ -853,7 +853,7 @@ function RelaysSection({
               </>
             }
             titleClassName="flex items-center justify-between"
-            description="Remote start + live steer hub. Gauges are current; counters are since relay start."
+            description="Live steer hub. Gauges are current; counters are since relay start."
           >
             {!steer.configured ? (
               <p className="text-sm text-muted-foreground">
@@ -879,7 +879,7 @@ function RelaysSection({
                     value={formatCount(steer.rooms ?? 0)}
                   />
                 </div>
-                {steer.counters ? (
+                {steer.counters && (
                   <div className="space-y-1">
                     <CounterRow
                       label="Connections accepted"
@@ -888,10 +888,6 @@ function RelaysSection({
                     <CounterRow
                       label="Activity frames fanned"
                       value={formatCount(steer.counters.activityFramesFanned)}
-                    />
-                    <CounterRow
-                      label="Remote starts routed"
-                      value={formatCount(steer.counters.startsRouted)}
                     />
                     <CounterRow
                       label="Slow-consumer evictions"
@@ -908,10 +904,6 @@ function RelaysSection({
                       />
                     ) : null}
                   </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Counters n/a — the deployed relay predates /stats.
-                  </p>
                 )}
               </div>
             )}
@@ -945,7 +937,7 @@ function RelaysSection({
                     dropped.
                   </p>
                 )}
-                {push.stats ? (
+                {push.stats && (
                   <div className="space-y-1">
                     <CounterRow
                       label="Send requests (ok / failed)"
@@ -976,10 +968,6 @@ function RelaysSection({
                       />
                     ) : null}
                   </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Counters n/a — the deployed relay predates /stats.
-                  </p>
                 )}
               </div>
             )}

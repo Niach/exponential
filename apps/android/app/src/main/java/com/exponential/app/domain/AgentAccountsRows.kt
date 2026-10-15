@@ -61,9 +61,6 @@ object AgentAccountsRows {
      */
     const val RATE_LIMITED_FLOOR_MS = 5 * 60_000L
 
-    /** The device cap a machine must advertise before a refresh is offered. */
-    const val REFRESH_CAP = "agent-usage-refresh"
-
     /**
      * The rows the page renders for [devices] — every login every machine
      * holds. [isOnline] is decided by the caller's clock the same way every
@@ -241,63 +238,34 @@ object AgentAccountsRows {
     const val ACTION_REMOVE = "Remove account"
 
     /**
-     * EXP-1137: the server's refusal for a sign-out on a build without the
-     * body. Byte-identical ×4.
-     */
-    const val SIGN_OUT_OLD_APP =
-        "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first."
-
-    /**
      * EXP-862: what a login's chip menu offers, on a machine row or on an
      * account row — the SAME rule on every client, in this fixed order:
      *  - signed out, or a credential that expired here: a sign-in first;
-     *  - EXP-1137, signed in on a build with the sign-out body: sign it out
-     *    (the row stays);
-     *  - remove: any login on a build with `account-remove`.
+     *  - EXP-1137, signed in: sign it out (the row stays);
+     *  - remove: any login.
      *
      * EXP-944: being signed OUT no longer ends the menu at its sign-in. A dead
      * profile is the thing people most want gone, the removal is a profile-dir
      * delete that never touches the account (no `codex logout`, ever), and the
-     * server has always taken it — it gates on the caps and the reported
-     * profile, never on the credential's state.
-     *
-     * An empty list means the chip is a statement, not a control (a machine
-     * that is offline, a teammate's, or too old to take any of the commands).
-     *
-     * [canRemoveAccount] is the machine's `account-remove` cap and
-     * [canSignOutAccount] its `account-sign-out` one: the server refuses each
-     * command without its cap, so an older machine simply does not offer that
-     * entry. [canAgentLogin] is its `agent-login` cap, which the server ALSO
-     * requires for every one of them (web `devices.ts` `createCommand`).
+     * server has always taken it — it gates on the reported profile, never on
+     * the credential's state. No build cap gates any entry: every daemon at
+     * the client floor runs them all.
      */
     fun chipActions(
         signedIn: Boolean,
         health: AgentHealth,
-        canRemoveAccount: Boolean,
-        canAgentLogin: Boolean,
-        canSignOutAccount: Boolean = false,
     ): List<String> {
         val signsIn = !signedIn || health == AgentHealth.NeedsRelogin
         val out = mutableListOf<String>()
         if (signsIn) out += ACTION_SIGN_IN
-        if (signedIn && canAgentLogin && canSignOutAccount) out += ACTION_SIGN_OUT
-        if (canRemoveAccount && canAgentLogin) out += ACTION_REMOVE
+        if (signedIn) out += ACTION_SIGN_OUT
+        out += ACTION_REMOVE
         return out
     }
 
     /** [chipActions] for an account row's machine chip. */
-    fun chipActions(
-        row: AgentProfileUsageRow,
-        canRemoveAccount: Boolean,
-        canAgentLogin: Boolean,
-        canSignOutAccount: Boolean = false,
-    ): List<String> = chipActions(
-        signedIn = row.signedIn,
-        health = row.health,
-        canRemoveAccount = canRemoveAccount,
-        canAgentLogin = canAgentLogin,
-        canSignOutAccount = canSignOutAccount,
-    )
+    fun chipActions(row: AgentProfileUsageRow): List<String> =
+        chipActions(signedIn = row.signedIn, health = row.health)
 
     /**
      * The confirm "Remove account" asks, pinned ×4 (web
@@ -412,11 +380,9 @@ object AgentAccountsRows {
 
     /**
      * Whether a row's machine may run the refresh at all: one of MY
-     * machines, online, on a build that advertises the cap (web
-     * `deviceCanRefreshUsage`). [caps] is the machine's parsed cap list.
+     * machines, online (web `deviceCanRefreshUsage`).
      */
-    fun canRefresh(row: AgentProfileUsageRow, caps: List<String>?): Boolean =
-        row.mine && row.online && caps?.contains(REFRESH_CAP) == true
+    fun canRefresh(row: AgentProfileUsageRow): Boolean = row.mine && row.online
 
     private fun nonEmpty(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
 }

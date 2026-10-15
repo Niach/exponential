@@ -74,8 +74,8 @@ data class AgentLaunchDefaults(
  * absent on an older desktop — readers fall back to the static contract
  * defaults.
  *
- * EXP-773 dropped `startInTerminal` with the PTY coding path. An older server
- * still stamps that key; both decoders here are `ignoreUnknownKeys`, so it is
+ * EXP-773 dropped `startInTerminal` with the PTY coding path. A stored row may
+ * still carry that key; both decoders here are `ignoreUnknownKeys`, so it is
  * simply skipped instead of failing the whole object.
  */
 @Serializable
@@ -305,7 +305,7 @@ data class SteerDevice(
     /**
      * EXP-1196/1218/1219: the synced readiness report (`devices.doctor`).
      * Only the DeviceEntity → SteerDevice mapping stamps it — never decoded
-     * off a relay / tRPC payload. Null = an older build: no readiness block.
+     * off a relay / tRPC payload. Null = no report: no readiness block.
      */
     @kotlinx.serialization.Transient val doctor: DeviceDoctor? = null,
 ) {
@@ -372,80 +372,17 @@ data class SteerDevice(
     // gate the server still applies.
 
     /**
-     * EXP-637: whether this machine can RESUME an ended action/chat run — it
-     * still holds the run's worktree and agent transcript, so the resumed
-     * session picks up where the last one stopped. Cap-gated like the others:
-     * the server refuses a resume start without it, so pickers hide the
-     * affordance instead of failing after the tap.
-     */
-    val canResumeRun: Boolean get() = caps?.contains("resume-run") == true
-
-    /**
      * EXP-1249: the machine reads the per-run `computerUse` flag (contract
-     * `codingSessionComputerUseCap`); older builds would ignore it, so the
-     * composer hides the toggle and never sends the key to them.
+     * `codingSessionComputerUseCap`, a RUN cap: advertised only while an
+     * agent there is runnable), so the composer offers the toggle and sends
+     * the key only with it.
      */
     val canToggleComputerUse: Boolean
         get() = caps?.contains(com.exponential.app.domain.DomainContract.codingSessionComputerUseCap) == true
 
-    /**
-     * EXP-484: whether this machine can run an agent sign-in on request — the
-     * `agent_login` device command opens the CLI's own login flow there and
-     * publishes the URL (plus the codex device code) back. Cap-gated: an older
-     * build would leave the command pending forever, so the Login / Switch
-     * account buttons only appear for machines that advertise it.
-     */
-    val canAgentLogin: Boolean get() = caps?.contains("agent-login") == true
-
-    /**
-     * EXP-849: whether this machine can switch the account of a LIVE run —
-     * end it, move the transcript into the other profile and relaunch there.
-     * A build without the cap resumes on the RECORDED account and drops the
-     * `account` field, so the switch would silently keep the exhausted login;
-     * the server refuses such a live switch, and the rows say so instead of
-     * failing after the tap. An ENDED run needs no cap: naming an account on
-     * a resume is the launch-time choice every build honours.
-     */
-    val canSwitchAccount: Boolean get() = caps?.contains("account-switch") == true
-
-    /**
-     * EXP-862: whether this machine can REMOVE one of its agent logins
-     * (`agent_profile_remove` — it deletes its own copy of the profile, never
-     * the account). Cap-gated like the switch: the server refuses the command
-     * without it, so the chip menu simply does not offer the entry on an older
-     * build instead of queueing something that would never run.
-     */
-    val canRemoveAccount: Boolean get() = caps?.contains("account-remove") == true
-
-    /**
-     * EXP-1137: whether this machine can SIGN one of its agent logins OUT
-     * (`agent_profile_sign_out` — keeps the row) and take `agent_profile_remove`
-     * for its AMBIENT login (signed out there and hidden until it signs in
-     * again). Cap-gated like the removal: the server refuses both without it.
-     */
-    val canSignOutAccount: Boolean get() = caps?.contains("account-sign-out") == true
-
-    /**
-     * Whether this machine can IMPORT an agent's ambient login into a profile
-     * (`agent_login` with `import`). The server refuses the import without
-     * the cap, so the doctor's remote Import pill is offered only with it.
-     */
-    val canImportAccount: Boolean get() = caps?.contains(AGENT_IMPORT_CAP) == true
-
-    /**
-     * EXP-746: whether this machine runs coding sessions through the
-     * in-process ACP engine. Read-only here and no longer a gate: every build
-     * above the version floor advertises it (EXP-773 left no other transport),
-     * so nothing filters on it.
-     */
-    val supportsAcp: Boolean get() = caps?.contains("acp") == true
-
     companion object {
         const val KIND_DESKTOP = "desktop"
         const val KIND_SERVER = "server"
-
-        /** The build cap behind [canImportAccount]. */
-        const val AGENT_IMPORT_CAP = "agent-import"
 
         /** What a sender that advertises no agents at all can run. */
         private const val FALLBACK_AGENT = "claude"

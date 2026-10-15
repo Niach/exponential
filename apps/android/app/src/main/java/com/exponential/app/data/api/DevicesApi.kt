@@ -306,7 +306,7 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
  * The `agent_login` input for [DevicesApi.createCommand] (EXP-484) — ask the
  * machine to run [agent]'s OWN sign-in flow and publish the login URL (plus
  * the codex device code) back as the command result. [switchAccount] signs the
- * current account out first. Gated on [SteerDevice.canAgentLogin].
+ * current account out first.
  *
  * The login lands on the profile whose EMAIL it signs in as (a new email adds
  * one); [profileId] only names the login the sign-in was FOR, so the device can
@@ -329,7 +329,7 @@ fun agentLoginCommand(
 /**
  * The import form of `agent_login`: the machine MOVES [agent]'s ambient login
  * into a profile (an existing same-email profile is refreshed, else a new one).
- * Gated on [SteerDevice.canImportAccount]; the device completes it with a plain
+ * The device completes it with a plain
  * sentence (`Imported {email}.` or why not).
  */
 fun agentImportCommand(deviceId: String, agent: String): JsonObject =
@@ -346,9 +346,6 @@ fun agentImportCommand(deviceId: String, agent: String): JsonObject =
  * agent CLI's config dir for that profile (credentials included) and its index
  * row. The ACCOUNT is untouched — no `codex logout` is ever run, which would
  * revoke it server-wide, and nothing about it leaves the machine.
- *
- * Gated on BOTH [SteerDevice.canAgentLogin] and [SteerDevice.canRemoveAccount]:
- * the server refuses the command without either cap.
  */
 fun agentProfileRemoveCommand(deviceId: String, agent: String, profileId: String): JsonObject =
     buildJsonObject {
@@ -363,8 +360,6 @@ fun agentProfileRemoveCommand(deviceId: String, agent: String, profileId: String
  * the machine signs the login [profileId] for [agent] OUT and keeps its row:
  * claude's own `auth logout` inside that profile's config dir, codex's
  * credential file deleted (never `codex logout`). The ACCOUNT is untouched.
- * Gated on BOTH
- * [SteerDevice.canAgentLogin] and [SteerDevice.canSignOutAccount].
  */
 fun agentProfileSignOutCommand(deviceId: String, agent: String, profileId: String): JsonObject =
     buildJsonObject {
@@ -391,8 +386,7 @@ fun agentLoginCodeCommand(deviceId: String, agent: String, code: String): JsonOb
 /**
  * The `agent_usage_refresh` input for [DevicesApi.createCommand] (EXP-747 C4,
  * EXP-829) — ask the machine to re-read [agent]'s usage for [profileId] past
- * the shared TTL (never past its own rate-limit floor: the server refuses a
- * machine without the `agent-usage-refresh` cap, and the device answers by
+ * the shared TTL (never past its own rate-limit floor; the device answers by
  * re-reporting on its next heartbeat, not through the command result).
  */
 fun agentUsageRefreshCommand(deviceId: String, agent: String, profileId: String): JsonObject =
